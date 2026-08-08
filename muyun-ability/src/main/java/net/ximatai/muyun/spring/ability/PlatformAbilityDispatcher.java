@@ -32,6 +32,7 @@ final class PlatformAbilityDispatcher {
     private static volatile ReferencedByResolver referencedByResolver = ReferencedByResolver.NONE;
     private static volatile ReferenceLoadResolver referenceLoadResolver = ReferenceLoadResolver.NONE;
     private static volatile ChildAbilityResolver childAbilityResolver = ChildAbilityResolver.NONE;
+    private static volatile EntitySaveLifecycleListener entitySaveLifecycleListener = EntitySaveLifecycleListener.NONE;
 
     private PlatformAbilityDispatcher() {
     }
@@ -90,6 +91,14 @@ final class PlatformAbilityDispatcher {
 
     static void resetChildAbilityResolver() {
         childAbilityResolver = ChildAbilityResolver.NONE;
+    }
+
+    static void setEntitySaveLifecycleListener(EntitySaveLifecycleListener listener) {
+        entitySaveLifecycleListener = listener == null ? EntitySaveLifecycleListener.NONE : listener;
+    }
+
+    static void resetEntitySaveLifecycleListener() {
+        entitySaveLifecycleListener = EntitySaveLifecycleListener.NONE;
     }
 
     static ChildAbilityResolver childAbilityResolver() {
@@ -172,10 +181,19 @@ final class PlatformAbilityDispatcher {
         context.lifecycleSession().failed(ability, entity, context, node, mode, failure);
     }
 
-    static <T extends EntityContract> void beforeSave(CrudAbility<T> ability, T entity) {
+    static <T extends EntityContract> void beforeSave(CrudAbility<T> ability, T existing, T entity) {
         runStaticOptionFieldValidation(ability, entity);
         runReferenceIntegrityValidation(ability, entity);
         TenantUniqueConstraintSupport.validate(ability, entity);
+        entitySaveLifecycleListener.beforeSave(ability, existing, entity);
+    }
+
+    static <T extends EntityContract> void persisted(CrudAbility<T> ability, T entity) {
+        entitySaveLifecycleListener.persisted(ability, entity);
+    }
+
+    static <T extends EntityContract> void persistFailed(CrudAbility<T> ability, T entity, RuntimeException failure) {
+        entitySaveLifecycleListener.persistFailed(ability, entity, failure);
     }
 
     static <T extends EntityContract> void afterInsert(CrudAbility<T> ability, String id, T entity) {

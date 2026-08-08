@@ -45,6 +45,28 @@ public final class TransactionScopeSupport {
         }
     }
 
+    public static void afterCompletionOrNow(Runnable committed, Runnable rolledBack) {
+        if (!isTransactionActive() || !springBoolean("isSynchronizationActive")) {
+            committed.run();
+            return;
+        }
+        try {
+            Class<?> manager = Class.forName(SPRING_TRANSACTION_SYNCHRONIZATION_MANAGER);
+            Class<?> synchronization = Class.forName(SPRING_TRANSACTION_SYNCHRONIZATION);
+            Object callback = Proxy.newProxyInstance(synchronization.getClassLoader(), new Class<?>[]{synchronization},
+                    (proxy, method, args) -> {
+                        if ("afterCompletion".equals(method.getName())) {
+                            if (args != null && args.length == 1 && Integer.valueOf(0).equals(args[0])) committed.run();
+                            else rolledBack.run();
+                        }
+                        return defaultValue(method.getReturnType());
+                    });
+            manager.getMethod("registerSynchronization", synchronization).invoke(null, callback);
+        } catch (ReflectiveOperationException | LinkageError | SecurityException ignored) {
+            committed.run();
+        }
+    }
+
     private static boolean springBoolean(String methodName) {
         try {
             Class<?> manager = Class.forName(SPRING_TRANSACTION_SYNCHRONIZATION_MANAGER);

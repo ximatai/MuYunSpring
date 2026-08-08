@@ -130,6 +130,7 @@ public class ModuleDefinitionValidator {
             validateOptionLoad(entity, field);
         }
         validateTenantUniqueConstraints(entity, fields);
+        validateFileReferences(entity, fields);
         validateSortPartition(entity, fields);
         if (!entity.supports(EntityCapability.CRUD)) {
             throw new ModuleDefinitionException("dynamic entity requires CRUD capability: " + entity.alias());
@@ -163,6 +164,26 @@ public class ModuleDefinitionValidator {
         }
         FieldCompanionRules.validateEntity(entity);
         validateFormulaRules(entity);
+    }
+
+    private void validateFileReferences(EntityDefinition entity, List<FieldDefinition> fields) {
+        for (Map.Entry<String, FileReferenceDefinition> entry : entity.fileReferences().entrySet()) {
+            String fieldName = entry.getKey();
+            requireFieldName(fieldName, "file reference field");
+            if (entry.getValue() == null) {
+                throw new ModuleDefinitionException("file reference definition must not be null: "
+                        + entity.alias() + "." + fieldName);
+            }
+            FieldDefinition field = fields.stream()
+                    .filter(candidate -> fieldName.equals(candidate.fieldName()))
+                    .findFirst()
+                    .orElseThrow(() -> new ModuleDefinitionException("file reference requires declared field: "
+                            + entity.alias() + "." + fieldName));
+            if (!field.isPhysical() || field.type() != FieldType.STRING) {
+                throw new ModuleDefinitionException("file reference requires physical STRING field: "
+                        + entity.alias() + "." + fieldName);
+            }
+        }
     }
 
     private void validateSortPartition(EntityDefinition entity, List<FieldDefinition> fields) {

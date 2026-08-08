@@ -46,12 +46,13 @@ public interface CrudAbility<T extends EntityContract> {
         PlatformManagedMutationGuard.beforeInsert(this, entity);
         prepareSortDefault(entity);
         validateTreePlacementIfNeeded(entity);
-        PlatformAbilityDispatcher.beforeSave(this, entity);
+        PlatformAbilityDispatcher.beforeSave(this, null, entity);
         String id;
         try (FieldProtectionAbility.FieldProtectionMutation ignored = PlatformAbilityDispatcher.beforePersist(this, entity)) {
             try {
                 id = getDao().insert(entity);
             } catch (RuntimeException failure) {
+                PlatformAbilityDispatcher.persistFailed(this, entity, failure);
                 throw TenantUniqueConstraintSupport.translatePersistFailure(this, entity, failure);
             }
         }
@@ -59,6 +60,7 @@ public interface CrudAbility<T extends EntityContract> {
         afterInsert(id, entity);
         afterChanged(entity);
         CacheInvalidationSupport.clearAfterChanged(this, entity);
+        PlatformAbilityDispatcher.persisted(this, entity);
         return id;
     }
 
@@ -108,11 +110,12 @@ public interface CrudAbility<T extends EntityContract> {
             PlatformManagedMutationGuard.UpdateDecision<T> platformManagedDecision =
                     PlatformManagedMutationGuard.beforeUpdate(this, entity, platformManagedExisting);
             if (platformManagedDecision.lightweight()) {
+                PlatformAbilityDispatcher.beforeSave(this, existing, platformManagedDecision.record());
                 return updatePreparedRecord(platformManagedDecision.record(), expectedVersion, false);
             }
             beforeUpdate(entity);
             validateTreePlacementIfNeeded(entity);
-            PlatformAbilityDispatcher.beforeSave(this, entity);
+            PlatformAbilityDispatcher.beforeSave(this, existing, entity);
             return updatePreparedRecord(entity, expectedVersion, true);
         });
     }
@@ -369,10 +372,13 @@ public interface CrudAbility<T extends EntityContract> {
             try {
                 updated = getDao().updateByIdAndVersion(entity, expectedVersion);
             } catch (RuntimeException failure) {
+                PlatformAbilityDispatcher.persistFailed(this, entity, failure);
                 throw TenantUniqueConstraintSupport.translatePersistFailure(this, entity, failure);
             }
         }
         if (updated <= 0) {
+            PlatformAbilityDispatcher.persistFailed(this, entity,
+                    new OptimisticLockException("record version conflict: " + entity.getId()));
             throw new OptimisticLockException("record version conflict: " + entity.getId());
         }
         if (dispatchPlatformAfterUpdate) {
@@ -381,6 +387,7 @@ public interface CrudAbility<T extends EntityContract> {
         }
         afterChanged(entity);
         CacheInvalidationSupport.clearAfterChanged(this, entity);
+        PlatformAbilityDispatcher.persisted(this, entity);
         return updated;
     }
 
