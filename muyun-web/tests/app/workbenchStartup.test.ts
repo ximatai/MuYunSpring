@@ -1,10 +1,5 @@
 import { assert, it } from 'vitest';
-import type {
-  CurrentUser,
-  MenuTab,
-  MenuTreeNode,
-  WorkbenchStartupState,
-} from '@muyun/web-contracts';
+import type { CurrentUser, MenuTab, MenuTreeNode } from '@muyun/web-contracts';
 import {
   activeTabUrlOf,
   closeMenuTab,

@@ -47,10 +47,14 @@ it('workspace view session is shared by matching view identity and can be discar
 it('workspace hand-off delivers to a mounted target and leaves no pending session', async () => {
   const input = { recordId: 'user-3', mode: 'view' };
   let received: { draft: string } | undefined;
-  const dispose = registerWorkspaceViewHandoffRecipient<typeof input, { draft: string }>(view, input, (session) => {
-    received = session;
-    return true;
-  });
+  const dispose = registerWorkspaceViewHandoffRecipient<typeof input, { draft: string }>(
+    view,
+    input,
+    (session) => {
+      received = session;
+      return true;
+    },
+  );
 
   assert.equal(await handOffWorkspaceViewSession(view, input, { draft: 'alice' }), 'accepted');
   assert.deepEqual(received, { draft: 'alice' });

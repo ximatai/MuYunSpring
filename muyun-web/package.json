@@ -16,6 +16,7 @@
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "test": "vitest run",
     "lint": "eslint . && npm run check:boundaries",
+    "lint:fix": "eslint . --fix && npm run check:boundaries",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "preview": "vite preview --host 127.0.0.1",
