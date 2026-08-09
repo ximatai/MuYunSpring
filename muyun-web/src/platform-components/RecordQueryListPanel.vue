@@ -264,24 +264,24 @@ watch(
 );
 
 watch(
-  () => props.mode,
-  () => {
-    pageNum.value = 1;
-    void loadRecords();
-  },
-);
-
-watch(
-  () => props.ready,
-  (ready) => {
+  () => [props.uiConfigId, props.queryTemplateId, props.ready],
+  ([, , ready]) => {
     pageNum.value = 1;
     if (ready) {
-      void loadRecords();
+      void loadSchemaAndRecords();
       return;
     }
     records.value = [];
     total.value = 0;
     emit('loaded', []);
+  },
+);
+
+watch(
+  () => props.mode,
+  () => {
+    pageNum.value = 1;
+    void loadRecords();
   },
 );
 
@@ -302,6 +302,9 @@ watch(
 );
 
 async function loadSchemaAndRecords() {
+  if (!queryReady.value) {
+    return;
+  }
   const requestSeq = ++schemaRequestSeq;
   loading.value = true;
   descriptorLoadError.value = false;

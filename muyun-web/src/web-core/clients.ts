@@ -6,6 +6,7 @@ import type {
   MenuMineResponse,
   MenuOpenMode,
   MenuTreeNode,
+  PageBootstrap,
 } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
 
@@ -15,6 +16,11 @@ export interface SessionClient {
 
 export interface MenuClient {
   mine(): Promise<MenuMineResponse>;
+}
+
+/** Reads the permission-scoped page entry selected by a concrete menu node. */
+export interface PageBootstrapClient {
+  byMenu(menuId: string): Promise<PageBootstrap>;
 }
 
 export interface AuthClient {
@@ -32,6 +38,21 @@ export function createSessionClient(http: HttpClient): SessionClient {
 export function createMenuClient(http: HttpClient): MenuClient {
   return {
     mine: async () => normalizeMenuMineResponse(await http.request<unknown>({ path: '/platform.menu/mine' })),
+  };
+}
+
+export function createPageBootstrapClient(http: HttpClient): PageBootstrapClient {
+  return {
+    byMenu: (menuId) => {
+      const normalizedMenuId = menuId.trim();
+      if (!normalizedMenuId) {
+        throw new Error('Page bootstrap requires a menuId');
+      }
+      return http.request<PageBootstrap>({
+        path: `/platform.menu/${encodeURIComponent(normalizedMenuId)}/entry`,
+        query: { clientType: 'WEB' },
+      });
+    },
   };
 }
 

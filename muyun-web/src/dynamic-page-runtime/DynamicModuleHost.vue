@@ -29,11 +29,17 @@ import {
 import type {
   DynamicModulePageDescriptor,
   MenuPageMode,
+  PageBootstrap,
   RecordInlineAction,
   ResolvedScopedListWorkspaceDescriptor,
   ResolvedViewDescriptor,
 } from '@muyun/web-contracts';
-import { createModuleContext, useModuleContext, type ModuleContext } from '@muyun/web-core';
+import {
+  createModuleContext,
+  createPageBootstrapClient,
+  useModuleContext,
+  type ModuleContext,
+} from '@muyun/web-core';
 import {
   canMutateDynamicModuleDetail,
   shouldCommitDynamicModuleDetailRequest,
@@ -105,9 +111,18 @@ const scopeEditorTitle = computed(
 );
 const pageMode = computed<MenuPageMode>(() => props.descriptor.target.pageMode ?? 'LIST');
 const isListPage = computed(() => pageMode.value === 'LIST');
-const listUiConfigId = computed(() =>
+const configuredListUiConfigId = computed(() =>
   isListPage.value ? props.descriptor.target.defaultUiConfigId : undefined,
 );
+const pageBootstrap = ref<PageBootstrap>();
+const pageBootstrapError = ref<string>();
+const listUiConfigId = computed(
+  () => pageBootstrap.value?.entry.defaultUiConfigId ?? configuredListUiConfigId.value,
+);
+const listQueryTemplateId = computed(
+  () => pageBootstrap.value?.entry.defaultQueryTemplateId ?? props.descriptor.target.defaultQueryTemplateId,
+);
+const listReady = computed(() => !props.descriptor.menuId || pageBootstrap.value !== undefined);
 const unsupportedPageModeText = computed(() => `动态${pageMode.value}入口暂未接入运行器`);
 // Tree modules are discovered from runtime metadata. Once discovered, their
 // explorer/detail panes own the constrained work area instead of extending the
@@ -184,7 +199,29 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
   return configs;
 });
 
-onMounted(loadRuntimeForm);
+onMounted(async () => {
+  if (isListPage.value) {
+    await loadPageBootstrap();
+  }
+  await loadRuntimeForm();
+});
+
+async function loadPageBootstrap() {
+  const menuId = props.descriptor.menuId;
+  if (!menuId) return;
+  try {
+    const bootstrap = await createPageBootstrapClient(context.http).byMenu(menuId);
+    if (bootstrap.entry.moduleAlias !== context.moduleAlias) {
+      throw new Error(
+        `Menu ${menuId} resolves ${bootstrap.entry.moduleAlias}, expected ${context.moduleAlias}`,
+      );
+    }
+    pageBootstrap.value = bootstrap;
+    pageBootstrapError.value = undefined;
+  } catch (cause) {
+    pageBootstrapError.value = cause instanceof Error ? cause.message : '页面入口加载失败';
+  }
+}
 
 async function loadRuntimeForm() {
   if (!isListPage.value) {
@@ -735,7 +772,8 @@ function recordTitle(record: QueryListRecord | undefined) {
         :actions="scopedListActions"
         :standard-crud-row-actions="true"
         :ui-config-id="listUiConfigId"
-        :query-template-id="descriptor.target.defaultQueryTemplateId"
+        :query-template-id="listQueryTemplateId"
+        :ready="listReady"
         :external-query-values="scopedExternalQueryValues"
         :required-external-criteria-keys="[scopedListWorkspace.queryCriteriaKey]"
         quick-search-placeholder="搜索动态记录"
@@ -879,7 +917,8 @@ function recordTitle(record: QueryListRecord | undefined) {
       :standard-crud-actions="true"
       :standard-crud-row-actions="true"
       :ui-config-id="listUiConfigId"
-      :query-template-id="descriptor.target.defaultQueryTemplateId"
+      :query-template-id="listQueryTemplateId"
+      :ready="listReady"
       quick-search-placeholder="搜索动态记录"
       empty-description="暂无动态记录"
       @loaded="handleLoaded"
@@ -887,6 +926,12 @@ function recordTitle(record: QueryListRecord | undefined) {
       @row-dblclick="(record) => openRecord(record, 'view')"
       @action="handleListAction"
       @row-action="handleRowAction"
+    />
+
+    <RecordPanelState
+      v-if="pageBootstrapError"
+      class="dynamic-module-bootstrap-error"
+      :description="pageBootstrapError"
     />
 
     <RecordModeDrawer

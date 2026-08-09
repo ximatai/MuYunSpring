@@ -177,6 +177,35 @@ export type MenuPageMode = 'LIST' | 'FORM' | 'DETAIL';
 
 export type MenuOpenMode = 'tab' | 'window';
 
+/** Server-resolved facts for one menu-driven module page entry. */
+export interface PageBootstrapEntry {
+  menuId?: string;
+  moduleAlias: string;
+  pageMode: MenuPageMode;
+  defaultUiConfigId?: string;
+  defaultQueryTemplateId?: string;
+  entryParamsJson?: string;
+}
+
+/**
+ * The narrow frontend projection of `/platform.menu/{menuId}/entry`.
+ *
+ * The module descriptor remains owned by the module runtime context until the
+ * standard runner consumes descriptor fields directly.  This projection keeps
+ * the menu entry and resolved page configuration available without creating a
+ * second frontend descriptor model.
+ */
+export interface PageBootstrap {
+  entry: PageBootstrapEntry;
+  clientType: 'WEB' | 'APP';
+  mainEntityAlias: string;
+  resolvedConfig: {
+    uiFields: unknown[];
+    queryItems: unknown[];
+  };
+  openApiPath: string;
+}
+
 export interface MenuRecord extends StandardEnabledTreeEntity {
   id: string;
   title: string;
