@@ -155,7 +155,34 @@ public class PlatformModuleRuntimeContextService {
                 resolvedConfig);
         return ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, title,
                 dynamicOptionFields(dynamicDescriptor), dynamicReferenceFields(dynamicDescriptor),
-                dynamicRecordLabelField(dynamicDescriptor), dynamicFieldTypes(dynamicDescriptor, resolvedConfig));
+                dynamicRecordLabelField(dynamicDescriptor), dynamicFieldTypes(dynamicDescriptor, resolvedConfig))
+                .withFileReferences(dynamicFileReferences(dynamicDescriptor, resolvedConfig));
+    }
+
+    private java.util.List<ResolvedFileReferenceFieldDescriptor> dynamicFileReferences(
+            DynamicModuleDescriptor dynamicDescriptor,
+            PlatformResolvedPageConfig resolvedConfig) {
+        if (dynamicDescriptor == null || resolvedConfig == null) {
+            return java.util.List.of();
+        }
+        java.util.Map<String, java.util.Map<String, net.ximatai.muyun.spring.dynamic.descriptor.DynamicFileReferenceDescriptor>>
+                referencesByEntity = dynamicDescriptor.entities().stream()
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor::entityAlias,
+                        entity -> entity.fileReferences().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                                net.ximatai.muyun.spring.dynamic.descriptor.DynamicFileReferenceDescriptor::fieldName,
+                                java.util.function.Function.identity(), (left, right) -> left)),
+                        (left, right) -> left));
+        return resolvedConfig.uiFields().stream()
+                .map(field -> {
+                    var reference = referencesByEntity.getOrDefault(field.metadataAlias(), java.util.Map.of())
+                            .get(field.fieldName());
+                    return reference == null ? null : new ResolvedFileReferenceFieldDescriptor(
+                            new ViewFieldRef(field.relationAlias(), field.fieldName(), field.moduleMetadataFieldId()),
+                            reference.allowedMediaTypes(), reference.maxFileSizeBytes());
+                })
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     private java.util.Map<ViewFieldRef, FieldValueType> dynamicFieldTypes(

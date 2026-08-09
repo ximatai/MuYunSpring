@@ -21,7 +21,8 @@ public record DynamicEntityDescriptor(
         List<DynamicFormulaRuleDescriptor> formulaRules,
         List<DynamicActionDescriptor> actions,
         List<DynamicViewDescriptor> views,
-        List<DynamicAssociationViewDescriptor> associationViews
+        List<DynamicAssociationViewDescriptor> associationViews,
+        List<DynamicFileReferenceDescriptor> fileReferences
 ) {
     public DynamicEntityDescriptor {
         fields = fields == null ? List.of() : List.copyOf(fields);
@@ -29,6 +30,15 @@ public record DynamicEntityDescriptor(
         actions = actions == null ? List.of() : List.copyOf(actions);
         views = views == null ? List.of() : List.copyOf(views);
         associationViews = associationViews == null ? List.of() : List.copyOf(associationViews);
+        fileReferences = fileReferences == null ? List.of() : List.copyOf(fileReferences);
+    }
+
+    /** Source-compatible constructor for descriptors before file-reference field facts existed. */
+    public DynamicEntityDescriptor(String entityAlias, String title, Set<String> capabilities,
+                                   List<DynamicFieldDescriptor> fields, List<DynamicFormulaRuleDescriptor> formulaRules,
+                                   List<DynamicActionDescriptor> actions, List<DynamicViewDescriptor> views,
+                                   List<DynamicAssociationViewDescriptor> associationViews) {
+        this(entityAlias, title, capabilities, fields, formulaRules, actions, views, associationViews, List.of());
     }
 
     public static DynamicEntityDescriptor from(EntityDefinition entity) {
@@ -79,7 +89,10 @@ public record DynamicEntityDescriptor(
                         .toList(),
                 DynamicStandardActions.from(moduleAlias, entity, actions),
                 DynamicViewDescriptors.from(entity, views),
-                scopedAssociationViews(entity, associationViews)
+                scopedAssociationViews(entity, associationViews),
+                entity.fileReferences().entrySet().stream()
+                        .map(entry -> DynamicFileReferenceDescriptor.from(entry.getKey(), entry.getValue()))
+                        .toList()
         );
     }
 

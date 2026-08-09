@@ -21,6 +21,14 @@ public final class PlatformAbilityRuntime {
         PlatformAbilityDispatcher.resetStaticOptionFieldValueValidator();
     }
 
+    public static void configureEntitySaveLifecycleListener(EntitySaveLifecycleListener listener) {
+        PlatformAbilityDispatcher.setEntitySaveLifecycleListener(listener);
+    }
+
+    public static void resetEntitySaveLifecycleListener() {
+        PlatformAbilityDispatcher.resetEntitySaveLifecycleListener();
+    }
+
     public static void configureDeletionLifecycleListener(DeletionLifecycleListener listener) {
         PlatformAbilityDispatcher.setDeletionLifecycleListener(listener);
     }

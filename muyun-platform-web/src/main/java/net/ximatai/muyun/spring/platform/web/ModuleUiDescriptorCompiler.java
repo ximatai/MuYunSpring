@@ -55,10 +55,11 @@ public final class ModuleUiDescriptorCompiler {
         Map<String, ResolvedReferenceFieldDescriptor> referenceFields = staticReferenceFields(definition.modelClass());
         Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields =
                 staticReferenceSummaryFields(definition.modelClass());
-        return new ModuleUiCompilationResult(
-                compileResolved(uiDefinition, ModuleKind.STATIC, definition.title(),
+        ResolvedModuleUiDescriptor descriptor = compileResolved(uiDefinition, ModuleKind.STATIC, definition.title(),
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
-                        staticRecordLabelField(definition), fieldTypes(definition.entities())),
+                        staticRecordLabelField(definition), fieldTypes(definition.entities()));
+        return new ModuleUiCompilationResult(
+                descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition)),
                 readModel(definition, uiDefinition)
         );
     }
@@ -287,6 +288,25 @@ public final class ModuleUiDescriptorCompiler {
 
     private static ViewFieldRef fieldRef(String relationCode, String fieldName) {
         return relationCode == null ? ViewFieldRef.main(fieldName) : ViewFieldRef.relation(relationCode, fieldName);
+    }
+
+    private static List<ResolvedFileReferenceFieldDescriptor> fileReferences(List<EntityDefinition> entities,
+                                                                              ModuleUiDefinition uiDefinition) {
+        if (entities == null || entities.isEmpty()) {
+            return List.of();
+        }
+        java.util.ArrayList<ResolvedFileReferenceFieldDescriptor> resolved = new java.util.ArrayList<>();
+        Set<ViewFieldRef> exposedFields = uiDefinition == null ? Set.of() : uiDefinition.views().stream()
+                .flatMap(view -> view.fields().stream()).map(ViewFieldDefinition::fieldRef).collect(java.util.stream.Collectors.toSet());
+        for (int index = 0; index < entities.size(); index++) {
+            EntityDefinition entity = entities.get(index);
+            String relationCode = index == 0 ? null : entity.alias();
+            entity.fileReferences().forEach((fieldName, definition) -> {
+                ViewFieldRef reference = fieldRef(relationCode, fieldName);
+                if (exposedFields.contains(reference)) resolved.add(ResolvedFileReferenceFieldDescriptor.from(reference, definition));
+            });
+        }
+        return List.copyOf(resolved);
     }
 
     private static Map<String, FieldValueType> standardFieldTypes() {

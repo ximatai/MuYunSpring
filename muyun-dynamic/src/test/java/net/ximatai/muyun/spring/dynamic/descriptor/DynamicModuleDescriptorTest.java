@@ -24,6 +24,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityViewDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityViewFieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FileReferenceDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldTemporalSemantics;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
@@ -31,11 +32,26 @@ import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DynamicModuleDescriptorTest {
+    @Test
+    void shouldExposeDeclaredSingleFileReferencesInTheRuntimeDescriptor() {
+        EntityDefinition document = new EntityDefinition("document", "crm_document", "Document", List.of(
+                FieldDefinition.string("sourceFileId", "Source File").column("source_file_id").length(64)))
+                .withFileReferences(Map.of("sourceFileId",
+                        new FileReferenceDefinition(Set.of("application/pdf"), 1024L)));
+
+        DynamicEntityDescriptor entity = DynamicModuleDescriptor.from(new ModuleDefinition(
+                "crm.document", "Document", List.of(document))).entities().getFirst();
+
+        assertThat(entity.fileReferences()).containsExactly(new DynamicFileReferenceDescriptor(
+                "sourceFileId", Set.of("application/pdf"), 1024L));
+    }
+
     @Test
     void shouldExposeZonedTimestampTimeZoneCompanionInDescriptors() {
         ModuleDefinition module = new ModuleDefinition(

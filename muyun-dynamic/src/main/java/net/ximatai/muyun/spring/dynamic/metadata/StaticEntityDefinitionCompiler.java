@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.common.schema.PlatformDataScopeSchema;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.model.constraint.StaticTenantUniqueConstraints;
+import net.ximatai.muyun.spring.common.model.file.FileReference;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
@@ -15,6 +16,8 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 public class StaticEntityDefinitionCompiler {
@@ -40,8 +43,28 @@ public class StaticEntityDefinitionCompiler {
                 capabilities(modelClass),
                 List.of(),
                 StaticTenantUniqueConstraints.resolve(modelClass),
-                sortPartitionFields(modelClass)
+                sortPartitionFields(modelClass),
+                fileReferences(modelClass)
         );
+    }
+
+    private Map<String, FileReferenceDefinition> fileReferences(Class<?> modelClass) {
+        Map<String, FileReferenceDefinition> references = new LinkedHashMap<>();
+        for (Field field : declaredFields(modelClass)) {
+            FileReference annotation = field.getAnnotation(FileReference.class);
+            if (annotation == null) {
+                continue;
+            }
+            Column column = field.getAnnotation(Column.class);
+            if (column == null || field.getType() != String.class || fieldType(column.type()) != FieldType.STRING) {
+                throw new IllegalArgumentException("static file reference requires @Column STRING field: "
+                        + modelClass.getName() + "." + field.getName());
+            }
+            references.put(field.getName(), new FileReferenceDefinition(
+                    Set.of(annotation.allowedMediaTypes()),
+                    annotation.maxFileSizeBytes() > 0 ? annotation.maxFileSizeBytes() : null));
+        }
+        return Map.copyOf(references);
     }
 
     private List<String> sortPartitionFields(Class<?> modelClass) {
