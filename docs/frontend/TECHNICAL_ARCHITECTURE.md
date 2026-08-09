@@ -235,9 +235,14 @@ npm run check:boundaries
 
 ## 验证命令
 
+前端统一使用 Vitest。纯 TypeScript 的状态模型、契约、client 和数据转换测试位于 `tests/` 的镜像目录中，使用 `*.test.ts` 并运行在 Node 环境；Vue SFC、DOM 和交互测试使用 `*.component.test.ts`，运行在 jsdom 与 Vue Test Utils 环境。两类测试必须通过独立命令保持边界清晰。
+
 ```bash
 cd muyun-web
 npm install
+npm run test:unit
+npm run test:component
+npm test
 npm run lint
 npm run format:check
 npm run build

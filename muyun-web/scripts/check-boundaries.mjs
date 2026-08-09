@@ -1,7 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
 const sourceRoots = ['src', 'examples/business-web/src'];
 const allowedAntdvPrefix = 'src/vue-ui-antdv/';
 const violations = [];
@@ -64,7 +65,7 @@ for (const sourceRoot of sourceRoots) {
       continue;
     }
 
-    const projectPath = relative(root, file);
+    const projectPath = relative(root, file).replaceAll('\\', '/');
     const source = readFileSync(file, 'utf8');
     const usesAntdvPackage = source.includes('ant-design-vue') || source.includes('@ant-design/icons-vue');
     const usesAntdvTemplate = file.endsWith('.vue') && antdvTemplatePattern.test(source);
