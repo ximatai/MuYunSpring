@@ -67,6 +67,9 @@ public class PlatformPageBootstrapWebController {
     }
 
     private void requireTenantContext() {
+        if (TenantContext.isSystem()) {
+            return;
+        }
         String tenantId = TenantContext.currentTenantId()
                 .orElseThrow(() -> new PlatformException("page bootstrap requires tenant context"));
         activeTenantVerifier.verifyActiveTenant(tenantId);

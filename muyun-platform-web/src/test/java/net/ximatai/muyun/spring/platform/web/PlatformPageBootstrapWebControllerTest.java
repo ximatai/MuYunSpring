@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -66,6 +67,33 @@ class PlatformPageBootstrapWebControllerTest {
         }
 
         verify(activeTenantVerifier).verifyActiveTenant("tenant-a");
+    }
+
+    @Test
+    void shouldExposeMenuBootstrapForSystemUsersWithoutRequiringTenantContext() throws Exception {
+        PlatformPageBootstrapService bootstrapService = mock(PlatformPageBootstrapService.class);
+        PlatformModuleRuntimeContextService runtimeContextService = mock(PlatformModuleRuntimeContextService.class);
+        ActiveTenantVerifier activeTenantVerifier = mock(ActiveTenantVerifier.class);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new PlatformPageBootstrapWebController(
+                bootstrapService, runtimeContextService, activeTenantVerifier)).build();
+        PlatformPageBootstrap bootstrap = new PlatformPageBootstrap(
+                new PlatformPageEntryContext("menu-1", "mr.knowledge_file", MenuPageMode.LIST,
+                        null, null, null),
+                PlatformUiClientType.WEB,
+                new PlatformResolvedPageConfig(List.of(), List.of(), List.of(), List.of(), List.of(), List.of())
+        );
+        when(bootstrapService.bootstrapByMenu("menu-1", PlatformUiClientType.WEB)).thenReturn(bootstrap);
+        when(runtimeContextService.context("mr.knowledge_file")).thenReturn(new PlatformModuleRuntimeContext(
+                "mr.knowledge_file", "知识库管理", ModuleKind.STATIC, ModuleEntryType.ROUTE, null, null,
+                "knowledgeFile", Set.of(EntityCapability.CRUD), Set.of("crud"), List.of()));
+
+        try (TenantContext.Scope ignored = TenantContext.system("system menu bootstrap")) {
+            mvc.perform(get("/platform.menu/menu-1/entry"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.entry.moduleAlias").value("mr.knowledge_file"));
+        }
+
+        verify(activeTenantVerifier, never()).verifyActiveTenant(org.mockito.ArgumentMatchers.any());
     }
 
     private PlatformModuleRuntimeAction action(String actionCode, boolean authorized) {
