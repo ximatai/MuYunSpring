@@ -12,4 +12,8 @@ public interface FileTransferClient {
     FileTransferFileMetadata readMetadata(String fileId);
 
     FileTransferFileMetadata promote(String fileId);
+
+    default void delete(String fileId) {
+        throw new UnsupportedOperationException("file transfer delete is not configured");
+    }
 }

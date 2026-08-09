@@ -39,6 +39,21 @@ class FileReferenceDefinitionTest {
     }
 
     @Test
+    void shouldCompileAndValidateMultiFileReferenceFields() {
+        EntityDefinition staticEntity = new StaticEntityDefinitionCompiler()
+                .compile("document", "Document", StaticMultiFileDocument.class);
+        assertThat(staticEntity.fileReferences().get("sourceFileIds").maxFiles()).isEqualTo(3);
+        new ModuleDefinitionValidator().validateEntity(staticEntity);
+
+        EntityDefinition dynamicEntity = new EntityDefinition("document", "crm_document", "Document", List.of(
+                FieldDefinition.of("sourceFileIds", FieldType.JSON, "Source Files")
+                        .column("source_file_ids").jsonSet()))
+                .withFileReferences(Map.of("sourceFileIds",
+                        new FileReferenceDefinition(Set.of(), null, 3)));
+        new ModuleDefinitionValidator().validateEntity(dynamicEntity);
+    }
+
+    @Test
     void shouldRejectAFileReferenceThatIsNotAStringColumn() {
         EntityDefinition entity = new EntityDefinition("document", "crm_document", "Document", List.of(
                 FieldDefinition.of("sourceFileId", FieldType.JSON, "Source File").column("source_file_id")))
@@ -57,6 +72,9 @@ class FileReferenceDefinitionTest {
         assertThatThrownBy(() -> new FileReferenceDefinition(Set.of("pdf"), null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("invalid file reference media type: pdf");
+        assertThatThrownBy(() -> new FileReferenceDefinition(Set.of(), null, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("file reference maxFiles must be positive");
     }
 
     @Table(name = "test_static_document")
@@ -64,5 +82,12 @@ class FileReferenceDefinitionTest {
         @Column(name = "source_file_id", type = ColumnType.VARCHAR, length = 64)
         @FileReference(allowedMediaTypes = "application/pdf", maxFileSizeBytes = 50L * 1024 * 1024)
         private String sourceFileId;
+    }
+
+    @Table(name = "test_static_multi_file_document")
+    static class StaticMultiFileDocument extends StandardEntity {
+        @Column(name = "source_file_ids", type = ColumnType.JSON_SET)
+        @FileReference(maxFiles = 3)
+        private Set<String> sourceFileIds;
     }
 }

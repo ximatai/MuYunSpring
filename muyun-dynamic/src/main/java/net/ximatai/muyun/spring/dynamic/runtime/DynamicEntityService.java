@@ -975,7 +975,7 @@ public class DynamicEntityService implements
                 module == null ? List.of() : module.references());
         DynamicEntityService childService = relationServiceResolver.apply(plan.childEntityAlias());
         ChildRelation<DynamicRecord, DynamicRecord> childRelation = new ChildRelation<>(
-                childService,
+                plan.relationCode(), childService,
                 (child, parentId) -> child.putPlatformValue(plan.childForeignKeyField(), parentId),
                 plan.childForeignKeyField(),
                 parent -> parent.getChildren(plan.relationCode())

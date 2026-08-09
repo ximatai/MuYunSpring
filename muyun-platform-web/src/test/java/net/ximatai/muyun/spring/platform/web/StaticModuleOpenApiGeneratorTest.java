@@ -126,6 +126,10 @@ class StaticModuleOpenApiGeneratorTest {
                 .contains("Optimistic lock");
         assertThat(document.operations()).filteredOn(operation -> PlatformAction.CREATE.code().equals(operation.actionCode()))
                 .singleElement().extracting(operation -> operation.successStatus()).isEqualTo(201);
+        assertThat(document.operations()).filteredOn(operation -> PlatformAction.CREATE.code().equals(operation.actionCode()))
+                .singleElement().extracting(operation -> operation.requestSchema()).isEqualTo("TeacherSaveRequest");
+        assertThat(document.schemas().get("TeacherSaveRequest").properties()).containsKey("$save");
+        assertThat(document.schemas().get("RecordSaveMutationMetadata").properties()).containsKey("fileDeletions");
         assertThat(document.operations()).filteredOn(operation -> PlatformAction.DELETE.code().equals(operation.actionCode()))
                 .singleElement().extracting(operation -> operation.requestSchema()).isEqualTo("RecordActionWebRequest");
         assertThat(document.operations()).filteredOn(operation -> PlatformAction.QUERY.code().equals(operation.actionCode()))

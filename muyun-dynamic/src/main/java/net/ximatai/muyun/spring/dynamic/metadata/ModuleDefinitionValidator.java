@@ -179,8 +179,14 @@ public class ModuleDefinitionValidator {
                     .findFirst()
                     .orElseThrow(() -> new ModuleDefinitionException("file reference requires declared field: "
                             + entity.alias() + "." + fieldName));
-            if (!field.isPhysical() || field.type() != FieldType.STRING) {
-                throw new ModuleDefinitionException("file reference requires physical STRING field: "
+            boolean valid = entry.getValue().maxFiles() == 1
+                    ? field.isPhysical() && field.type() == FieldType.STRING
+                    : field.isPhysical() && field.type() == FieldType.JSON
+                    && field.valueShape() == FieldValueShape.JSON_SET;
+            if (!valid) {
+                String required = entry.getValue().maxFiles() == 1 ? "physical STRING field"
+                        : "physical JSON_SET field";
+                throw new ModuleDefinitionException("file reference requires " + required + ": "
                         + entity.alias() + "." + fieldName);
             }
         }

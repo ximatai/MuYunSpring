@@ -11,11 +11,12 @@
 1. 菜单入口定位模块、页面模式、客户端类型、默认 UI 配置、默认查询模板和入口参数。
 2. bootstrap 返回模块 descriptor、主元数据、resolved 页面配置、动作目录和 OpenAPI 入口。
 3. 列表查询、汇总和引用候选复用同一查询模板与 Criteria 编译链路。
-4. 表单保存使用 `uiConfigId + record` wrapper，按已发布 UI 配置执行 required/readOnly 校验。
+4. 表单保存使用 `$save` envelope；`$save.record` 是业务记录，`$save.metadata` 是平台保存 metadata，动态页面的 `uiConfigId` 仍作为该 envelope 内的页面校验上下文。按已发布 UI 配置执行 required/readOnly 校验。
 5. 子表保存沿用动态记录 `children` 语义：缺省或 `null` 表示不改，空数组表示提交空子表。
 6. 附件只维护业务记录与 `fileId` 的关系，上传、预览、下载通过 access envelope 对接文件服务。
-7. 查重预检绑定动态 action 槽位和权限，不替代数据库唯一约束。
-8. 页面偏好属于当前用户体验配置，不改变平台 UI 配置真相源。
+7. 字段文件引用在保存前确认并转正，物理删除必须由 `$save.metadata.fileDeletions` 明确提交；具体边界见 [文件引用生命周期](../../../FILE_REFERENCE_LIFECYCLE.md)。
+8. 查重预检绑定动态 action 槽位和权限，不替代数据库唯一约束。
+9. 页面偏好属于当前用户体验配置，不改变平台 UI 配置真相源。
 
 ## 主链路
 
@@ -65,7 +66,21 @@ AND quickSearch
 
 ## 保存语义
 
-页面保存请求可以直接提交动态记录，也可以提交 `uiConfigId + record` wrapper。带 `uiConfigId` 时：
+页面保存的正式请求形态为：
+
+```json
+{
+  "$save": {
+    "record": {},
+    "metadata": {
+      "fileDeletions": []
+    },
+    "uiConfigId": "..."
+  }
+}
+```
+
+`$save` 避免与静态或动态业务字段同名冲突。旧的直接记录 body 仍为兼容入口；新增页面和前端适配器应使用 envelope。`fileDeletions` 的每项包含记录路径、字段名和旧 `fileId`，新文件值仍只出现在标准 `record` payload 中。带 `uiConfigId` 时：
 
 1. UI 配置必须来自已发布快照。
 2. 主关系字段校验当前记录。

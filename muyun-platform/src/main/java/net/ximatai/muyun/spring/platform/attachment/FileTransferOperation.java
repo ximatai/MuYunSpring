@@ -8,6 +8,7 @@ public enum FileTransferOperation {
     UPLOAD,
     METADATA,
     PROMOTE,
+    DELETE,
     PREVIEW,
     DOWNLOAD
 }

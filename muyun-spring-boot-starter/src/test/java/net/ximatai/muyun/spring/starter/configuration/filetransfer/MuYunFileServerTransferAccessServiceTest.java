@@ -34,6 +34,7 @@ class MuYunFileServerTransferAccessServiceTest {
             FileTransferAccess upload = service.issueUploadAccess();
             FileTransferAccess metadata = service.issueMetadataAccess("01ARZ3NDEKTSV4RRFFQ69G5FAV");
             FileTransferAccess promote = service.issuePromoteAccess("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+            FileTransferAccess delete = service.issueDeleteAccess("01ARZ3NDEKTSV4RRFFQ69G5FAV");
             FileTransferAccess preview = service.issuePreviewAccess("01ARZ3NDEKTSV4RRFFQ69G5FAV");
             FileTransferAccess download = service.issueDownloadAccess("01ARZ3NDEKTSV4RRFFQ69G5FAV");
 
@@ -42,11 +43,14 @@ class MuYunFileServerTransferAccessServiceTest {
             assertThat(upload.url()).startsWith("http://files.example/api/v1/public/files?access_token=");
             assertThat(metadata.url()).contains("/01ARZ3NDEKTSV4RRFFQ69G5FAV?access_token=");
             assertThat(promote.url()).contains("/01ARZ3NDEKTSV4RRFFQ69G5FAV/promote?access_token=");
+            assertThat(delete.operation()).isEqualTo(FileTransferOperation.DELETE);
+            assertThat(delete.url()).contains("/01ARZ3NDEKTSV4RRFFQ69G5FAV?access_token=");
             assertThat(preview.url()).contains("/01ARZ3NDEKTSV4RRFFQ69G5FAV/view?access_token=");
             assertThat(download.url()).contains("/01ARZ3NDEKTSV4RRFFQ69G5FAV/download?access_token=");
             assertThat(payload(upload).path("purpose").asText()).isEqualTo("upload");
             assertThat(payload(metadata).path("purpose").asText()).isEqualTo("metadata");
             assertThat(payload(promote).path("purpose").asText()).isEqualTo("promote");
+            assertThat(payload(delete).path("purpose").asText()).isEqualTo("delete");
             assertThat(payload(preview).path("purpose").asText()).isEqualTo("viewer");
             assertThat(payload(download).path("purpose").asText()).isEqualTo("download");
             assertThat(payload(download).path("tenant_id").asText()).isEqualTo("tenant-a");

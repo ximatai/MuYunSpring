@@ -15,6 +15,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 public final class ChildRelation<C extends EntityContract, P extends EntityContract> {
+    private final String relationCode;
     private final ChildAbility<C> childAbility;
     private final BiConsumer<C, String> setParentId;
     private final String childForeignKeyField;
@@ -26,10 +27,31 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
                          BiConsumer<C, String> setParentId,
                          String childForeignKeyField,
                          Function<P, List<C>> extractChildren) {
+        this(null, childAbility, setParentId, childForeignKeyField, extractChildren);
+    }
+
+    public ChildRelation(String relationCode,
+                         ChildAbility<C> childAbility,
+                         BiConsumer<C, String> setParentId,
+                         String childForeignKeyField,
+                         Function<P, List<C>> extractChildren) {
+        this.relationCode = relationCode == null || relationCode.isBlank() ? null : relationCode.trim();
         this.childAbility = childAbility;
         this.setParentId = setParentId;
         this.childForeignKeyField = childForeignKeyField;
         this.extractChildren = extractChildren;
+    }
+
+    public String relationCode() {
+        return relationCode;
+    }
+
+    public ChildAbility<C> childAbility() {
+        return childAbility;
+    }
+
+    public List<C> incomingChildren(P parent) {
+        return extractChildren.apply(parent);
     }
 
     public ChildRelation<C, P> autoPopulate(BiConsumer<P, List<C>> value) {

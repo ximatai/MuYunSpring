@@ -179,7 +179,7 @@ public class PlatformModuleRuntimeContextService {
                             .get(field.fieldName());
                     return reference == null ? null : new ResolvedFileReferenceFieldDescriptor(
                             new ViewFieldRef(field.relationAlias(), field.fieldName(), field.moduleMetadataFieldId()),
-                            reference.allowedMediaTypes(), reference.maxFileSizeBytes());
+                            reference.allowedMediaTypes(), reference.maxFileSizeBytes(), reference.maxFiles());
                 })
                 .filter(java.util.Objects::nonNull)
                 .toList();

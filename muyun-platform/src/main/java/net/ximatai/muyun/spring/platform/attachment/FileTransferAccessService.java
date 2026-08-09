@@ -15,6 +15,10 @@ public interface FileTransferAccessService {
 
     FileTransferAccess issuePromoteAccess(String fileId);
 
+    default FileTransferAccess issueDeleteAccess(String fileId) {
+        throw new UnsupportedOperationException("file delete access is not supported");
+    }
+
     FileTransferAccess issuePreviewAccess(String fileId);
 
     FileTransferAccess issueDownloadAccess(String fileId);

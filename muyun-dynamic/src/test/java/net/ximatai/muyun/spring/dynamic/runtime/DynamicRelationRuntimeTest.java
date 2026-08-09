@@ -868,6 +868,17 @@ class DynamicRelationRuntimeTest {
     }
 
     @Test
+    void shouldExposeDynamicChildRelationCodeThroughTheSharedChildRelationContract() {
+        DynamicEntityService invoiceService = new DynamicRecordRuntime(operations())
+                .register(invoiceModule())
+                .entityService(MODULE, "invoice");
+
+        assertThat(invoiceService.childRelations())
+                .extracting(relation -> relation.relationCode())
+                .containsExactly("lines");
+    }
+
+    @Test
     void shouldRejectMismatchedDynamicChildEntityPayload() {
         IDatabaseOperations<Object> operations = operations();
         DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(invoiceModule());

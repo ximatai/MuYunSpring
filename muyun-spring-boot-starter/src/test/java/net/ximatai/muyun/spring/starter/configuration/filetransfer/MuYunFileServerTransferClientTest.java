@@ -56,6 +56,24 @@ class MuYunFileServerTransferClientTest {
         server.verify();
     }
 
+    @Test
+    void shouldDeleteThroughAPurposeScopedServerCredential() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        FileTransferClient client = new MuYunFileServerTransferClient(accessService(), builder.build(), new ObjectMapper());
+        String fileId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/" + fileId + "?access_token=")))
+                .andExpect(method(HttpMethod.DELETE))
+                .andRespond(withSuccess("{\"data\":{\"fileId\":\"" + fileId + "\",\"status\":\"DELETED\"}}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
+                CurrentUser.tenantUser("user-1", "operator", "tenant-a"))) {
+            client.delete(fileId);
+        }
+        server.verify();
+    }
+
     private MuYunFileServerTransferAccessService accessService() {
         MuYunFileServerTransferProperties properties = new MuYunFileServerTransferProperties();
         properties.setBaseUrl(URI.create("http://files.example"));

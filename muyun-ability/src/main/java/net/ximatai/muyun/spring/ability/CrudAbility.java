@@ -48,20 +48,24 @@ public interface CrudAbility<T extends EntityContract> {
         validateTreePlacementIfNeeded(entity);
         PlatformAbilityDispatcher.beforeSave(this, null, entity);
         String id;
-        try (FieldProtectionAbility.FieldProtectionMutation ignored = PlatformAbilityDispatcher.beforePersist(this, entity)) {
-            try {
-                id = getDao().insert(entity);
-            } catch (RuntimeException failure) {
-                PlatformAbilityDispatcher.persistFailed(this, entity, failure);
-                throw TenantUniqueConstraintSupport.translatePersistFailure(this, entity, failure);
+        try {
+            try (FieldProtectionAbility.FieldProtectionMutation ignored = PlatformAbilityDispatcher.beforePersist(this, entity)) {
+                try {
+                    id = getDao().insert(entity);
+                } catch (RuntimeException failure) {
+                    throw TenantUniqueConstraintSupport.translatePersistFailure(this, entity, failure);
+                }
             }
+            PlatformAbilityDispatcher.afterInsert(this, id, entity);
+            afterInsert(id, entity);
+            afterChanged(entity);
+            CacheInvalidationSupport.clearAfterChanged(this, entity);
+            PlatformAbilityDispatcher.persisted(this, entity);
+            return id;
+        } catch (RuntimeException failure) {
+            PlatformAbilityDispatcher.persistFailed(this, entity, failure);
+            throw failure;
         }
-        PlatformAbilityDispatcher.afterInsert(this, id, entity);
-        afterInsert(id, entity);
-        afterChanged(entity);
-        CacheInvalidationSupport.clearAfterChanged(this, entity);
-        PlatformAbilityDispatcher.persisted(this, entity);
-        return id;
     }
 
     default List<String> insertBatch(Collection<T> entities) {
@@ -368,27 +372,29 @@ public interface CrudAbility<T extends EntityContract> {
 
     private int updatePreparedRecord(T entity, Integer expectedVersion, boolean dispatchPlatformAfterUpdate) {
         int updated;
-        try (FieldProtectionAbility.FieldProtectionMutation ignored = PlatformAbilityDispatcher.beforePersist(this, entity)) {
-            try {
-                updated = getDao().updateByIdAndVersion(entity, expectedVersion);
-            } catch (RuntimeException failure) {
-                PlatformAbilityDispatcher.persistFailed(this, entity, failure);
-                throw TenantUniqueConstraintSupport.translatePersistFailure(this, entity, failure);
+        try {
+            try (FieldProtectionAbility.FieldProtectionMutation ignored = PlatformAbilityDispatcher.beforePersist(this, entity)) {
+                try {
+                    updated = getDao().updateByIdAndVersion(entity, expectedVersion);
+                } catch (RuntimeException failure) {
+                    throw TenantUniqueConstraintSupport.translatePersistFailure(this, entity, failure);
+                }
             }
+            if (updated <= 0) {
+                throw new OptimisticLockException("record version conflict: " + entity.getId());
+            }
+            if (dispatchPlatformAfterUpdate) {
+                PlatformAbilityDispatcher.afterUpdate(this, entity, updated);
+                afterUpdate(entity, updated);
+            }
+            afterChanged(entity);
+            CacheInvalidationSupport.clearAfterChanged(this, entity);
+            PlatformAbilityDispatcher.persisted(this, entity);
+            return updated;
+        } catch (RuntimeException failure) {
+            PlatformAbilityDispatcher.persistFailed(this, entity, failure);
+            throw failure;
         }
-        if (updated <= 0) {
-            PlatformAbilityDispatcher.persistFailed(this, entity,
-                    new OptimisticLockException("record version conflict: " + entity.getId()));
-            throw new OptimisticLockException("record version conflict: " + entity.getId());
-        }
-        if (dispatchPlatformAfterUpdate) {
-            PlatformAbilityDispatcher.afterUpdate(this, entity, updated);
-            afterUpdate(entity, updated);
-        }
-        afterChanged(entity);
-        CacheInvalidationSupport.clearAfterChanged(this, entity);
-        PlatformAbilityDispatcher.persisted(this, entity);
-        return updated;
     }
 
     private void prepareAbilityDefaults(T entity) {
