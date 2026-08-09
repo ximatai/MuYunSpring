@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.attachment;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -16,6 +19,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.FileReferenceDefinition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.LinkedHashSet;
@@ -188,6 +192,32 @@ class FileReferenceSaveLifecycleListenerTest {
                 .hasMessage("file transfer client is not configured");
     }
 
+    @Test
+    void recordsAlreadyPromotedFilesWhenLaterMultiFilePromotionFails() {
+        Logger logger = (Logger) LoggerFactory.getLogger(FileReferenceSaveLifecycleListener.class);
+        ListAppender<ILoggingEvent> events = new ListAppender<>();
+        events.start();
+        logger.addAppender(events);
+        try {
+            FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
+                    () -> partiallyFailingClient("file-fails"));
+
+            assertThatThrownBy(() -> listener.beforeSave(new MultiDocumentService(), null,
+                    multiDocument("file-promoted", "file-fails")))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessage("promotion failed");
+
+            assertThat(events.list).anySatisfy(event -> {
+                assertThat(event.getFormattedMessage())
+                        .contains("File reference was promoted but record save did not complete")
+                        .contains("file-promoted");
+            });
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+        }
+    }
+
     private FileTransferClient client(AtomicInteger promotions) { return client(promotions, new AtomicInteger()); }
 
     private FileTransferClient client(AtomicInteger promotions, AtomicInteger deletions) {
@@ -202,6 +232,23 @@ class FileReferenceSaveLifecycleListenerTest {
                         "active", false, Instant.now());
             }
             @Override public void delete(String fileId) { deletions.incrementAndGet(); }
+        };
+    }
+
+    private FileTransferClient partiallyFailingClient(String failingFileId) {
+        return new FileTransferClient() {
+            @Override public FileTransferFileMetadata readMetadata(String fileId) {
+                return new FileTransferFileMetadata(fileId, "source.pdf", "pdf", "application/pdf", 1, "sha",
+                        "temporary", true, Instant.now());
+            }
+
+            @Override public FileTransferFileMetadata promote(String fileId) {
+                if (failingFileId.equals(fileId)) {
+                    throw new PlatformException("promotion failed");
+                }
+                return new FileTransferFileMetadata(fileId, "source.pdf", "pdf", "application/pdf", 1, "sha",
+                        "active", false, Instant.now());
+            }
         };
     }
 

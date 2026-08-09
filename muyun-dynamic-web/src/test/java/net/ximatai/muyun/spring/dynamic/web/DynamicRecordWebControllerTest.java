@@ -527,11 +527,24 @@ class DynamicRecordWebControllerTest {
                         .contentType("application/json")
                         .content("""
                                 {
-                                  "uiConfigId": "ui-form",
                                   "record": {
                                     "values": {
                                       "code": "C-001"
                                     }
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "dynamic record wrapper is not supported; submit the record directly"));
+
+        lowCodeMvc.perform(post("/{moduleAlias}/insert", MODULE)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "uiConfigId": "ui-form",
+                                  "values": {
+                                    "code": "C-001"
                                   }
                                 }
                                 """))
@@ -548,11 +561,9 @@ class DynamicRecordWebControllerTest {
                         .content("""
                                 {
                                   "uiConfigId": "ui-form",
-                                  "record": {
-                                    "version": 4,
-                                    "values": {
-                                      "code": "C-002"
-                                    }
+                                  "version": 4,
+                                  "values": {
+                                    "code": "C-002"
                                   }
                                 }
                                 """))
@@ -571,22 +582,20 @@ class DynamicRecordWebControllerTest {
                         .content("""
                                 {
                                   "uiConfigId": "ui-form",
-                                  "record": {
-                                    "values": {
-                                      "code": "C-001"
-                                    },
-                                    "children": {
-                                      "lines": [
-                                        {
-                                          "values": {
-                                            "lineNo": "L-001"
-                                          }
-                                        },
-                                        {
-                                          "values": {}
+                                  "values": {
+                                    "code": "C-001"
+                                  },
+                                  "children": {
+                                    "lines": [
+                                      {
+                                        "values": {
+                                          "lineNo": "L-001"
                                         }
-                                      ]
-                                    }
+                                      },
+                                      {
+                                        "values": {}
+                                      }
+                                    ]
                                   }
                                 }
                                 """))
@@ -603,20 +612,18 @@ class DynamicRecordWebControllerTest {
                         .content("""
                                 {
                                   "uiConfigId": "ui-form",
-                                  "record": {
-                                    "values": {
-                                      "code": "C-001"
-                                    },
-                                    "children": {
-                                      "lines": [
-                                        {
-                                          "values": {
-                                            "lineNo": "L-001",
-                                            "lineAmount": 10
-                                          }
+                                  "values": {
+                                    "code": "C-001"
+                                  },
+                                  "children": {
+                                    "lines": [
+                                      {
+                                        "values": {
+                                          "lineNo": "L-001",
+                                          "lineAmount": 10
                                         }
-                                      ]
-                                    }
+                                      }
+                                    ]
                                   }
                                 }
                                 """))
@@ -631,9 +638,7 @@ class DynamicRecordWebControllerTest {
                         .content("""
                                 {
                                   "uiConfigId": "ui-form",
-                                  "record": {
-                                    "values": {}
-                                  }
+                                  "values": {}
                                 }
                                 """))
                 .andExpect(status().isUnprocessableEntity())
@@ -647,12 +652,10 @@ class DynamicRecordWebControllerTest {
                         .content("""
                                 {
                                   "uiConfigId": "ui-form",
-                                  "record": {
-                                    "version": 3,
-                                    "values": {
-                                      "code": "C-001",
-                                      "amount": 10
-                                    }
+                                  "version": 3,
+                                  "values": {
+                                    "code": "C-001",
+                                    "amount": 10
                                   }
                                 }
                                 """))
@@ -666,10 +669,8 @@ class DynamicRecordWebControllerTest {
                         .content("""
                                 {
                                   "uiConfigId": "missing-ui",
-                                  "record": {
-                                    "values": {
-                                      "code": "C-001"
-                                    }
+                                  "values": {
+                                    "code": "C-001"
                                   }
                                 }
                                 """))
@@ -698,19 +699,17 @@ class DynamicRecordWebControllerTest {
                         .contentType("application/json")
                         .content("""
                                 {
-                                  "record": {
-                                    "values": {
-                                      "code": "C-001"
-                                    },
-                                    "attachments": [
-                                      {
-                                        "fileId": "file-1",
-                                        "displayName": "contract.pdf",
-                                        "sort": 10,
-                                        "remark": "signed"
-                                      }
-                                    ]
-                                  }
+                                  "values": {
+                                    "code": "C-001"
+                                  },
+                                  "attachments": [
+                                    {
+                                      "fileId": "file-1",
+                                      "displayName": "contract.pdf",
+                                      "sort": 10,
+                                      "remark": "signed"
+                                    }
+                                  ]
                                 }
                                 """))
                 .andExpect(status().isCreated())

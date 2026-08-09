@@ -26,13 +26,19 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
     public DynamicRecord deserialize(JsonParser parser, DeserializationContext context) throws IOException {
         String moduleAlias = DynamicWebRequest.moduleAlias();
         JsonNode root = parser.getCodec().readTree(parser);
-        JsonNode recordRoot = root.has("record") && root.get("record").isObject() ? root.get("record") : root;
-        DynamicRecord record = record(moduleAlias, recordService.mainEntityAlias(moduleAlias), recordRoot, parser, context);
+        rejectRecordWrapper(root);
+        DynamicRecord record = record(moduleAlias, recordService.mainEntityAlias(moduleAlias), root, parser, context);
         readUiConfigId(record, root);
-        readOriginContext(record, root.has("originContext") ? root : recordRoot, parser, context);
-        readAttachments(record, recordRoot, parser, context);
-        readChildren(moduleAlias, record, recordRoot, parser, context);
+        readOriginContext(record, root, parser, context);
+        readAttachments(record, root, parser, context);
+        readChildren(moduleAlias, record, root, parser, context);
         return record;
+    }
+
+    private void rejectRecordWrapper(JsonNode root) {
+        if (root.has("record") && root.get("record").isObject()) {
+            throw new IllegalArgumentException("dynamic record wrapper is not supported; submit the record directly");
+        }
     }
 
     private void readUiConfigId(DynamicRecord record, JsonNode root) {
@@ -153,7 +159,6 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
         return "id".equals(fieldName)
                 || "version".equals(fieldName)
                 || "uiConfigId".equals(fieldName)
-                || "record".equals(fieldName)
                 || "values".equals(fieldName)
                 || "children".equals(fieldName)
                 || "attachments".equals(fieldName)

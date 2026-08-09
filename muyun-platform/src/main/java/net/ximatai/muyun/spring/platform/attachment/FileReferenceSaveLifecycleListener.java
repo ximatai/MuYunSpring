@@ -64,8 +64,10 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
                     for (String fileId : newFileIds) {
                         promotedMetadata.put(fileId,
                                 new FileReferenceConfirmationService(client).confirmAndPromote(entry.getValue(), fileId));
+                        promoted.get().computeIfAbsent(incoming, ignored -> new LinkedHashMap<>())
+                                .computeIfAbsent(entry.getKey(), ignored -> new java.util.ArrayList<>())
+                                .add(fileId);
                     }
-                    promoted.get().computeIfAbsent(incoming, ignored -> new LinkedHashMap<>()).put(entry.getKey(), newFileIds);
                 }
                 applyMetadataFields(incoming, existing, entry.getKey(), entry.getValue(), incomingFileIds, promotedMetadata);
             }
