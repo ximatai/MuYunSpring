@@ -1227,6 +1227,65 @@ class AbilityContractTest {
     }
 
     @Test
+    void referenceToShouldPreserveExistingUnavailableTargetOnUpdate() {
+        DemoCustomerService customerService = new DemoCustomerService();
+        String customerId = customerService.insert(new DemoCustomer("Customer One", "ACTIVE"));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target ->
+                ReferenceTarget.of("demo", "customer").equals(target)
+                        ? Optional.of(customerService)
+                        : Optional.empty());
+        PlainReferenceRecordService service = new PlainReferenceRecordService();
+        PlainReferenceRecord record = new PlainReferenceRecord(customerId);
+        service.insert(record);
+
+        customerService.delete(customerId);
+
+        service.update(record);
+    }
+
+    @Test
+    void referencerAbilityShouldPreserveExistingUnavailableTargetOnUpdate() {
+        DemoCustomerService customerService = new DemoCustomerService();
+        String customerId = customerService.insert(new DemoCustomer("Customer One", "ACTIVE"));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target ->
+                ReferenceTarget.of("demo", "customer").equals(target)
+                        ? Optional.of(customerService)
+                        : Optional.empty());
+        ReferencingPlainRecordService service = new ReferencingPlainRecordService();
+        ReferencingPlainRecord record = new ReferencingPlainRecord(customerId);
+        service.insert(record);
+
+        customerService.delete(customerId);
+
+        assertThat(service.update(record)).isEqualTo(1);
+        ReferencingPlainRecord replacement = new ReferencingPlainRecord("missing-customer");
+        replacement.setId(record.getId());
+        replacement.setVersion(record.getVersion());
+        assertThatThrownBy(() -> service.update(replacement))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("reference target is unavailable");
+    }
+
+    @Test
+    void referenceToShouldRejectRestoreWhenTargetIsUnavailable() {
+        DemoCustomerService customerService = new DemoCustomerService();
+        String customerId = customerService.insert(new DemoCustomer("Customer One", "ACTIVE"));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target ->
+                ReferenceTarget.of("demo", "customer").equals(target)
+                        ? Optional.of(customerService)
+                        : Optional.empty());
+        SoftReferenceRecordService service = new SoftReferenceRecordService();
+        String recordId = service.insert(new PlainReferenceRecord(customerId));
+        assertThat(service.delete(recordId)).isEqualTo(1);
+
+        customerService.delete(customerId);
+
+        assertThatThrownBy(() -> service.restore(recordId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("reference target is unavailable");
+    }
+
+    @Test
     void referencerAbilityShouldUseServiceModelClassWhenPresent() {
         StaticReferenceBaseService service = new StaticReferenceBaseService();
         StaticReferenceProxyRecord proxyRecord = new StaticReferenceProxyRecord("customer-1");
@@ -1899,11 +1958,11 @@ class AbilityContractTest {
     private static class StaticReferenceBaseRecord extends net.ximatai.muyun.spring.common.model.standard.StandardEntity {
     }
 
-    private static final class PlainReferenceRecord extends StandardEntity {
+    private static class PlainReferenceRecord extends StandardEntity {
         @ReferenceTo(moduleAlias = "demo", entityAlias = "customer")
         private final String customerId;
 
-        private PlainReferenceRecord(String customerId) {
+        protected PlainReferenceRecord(String customerId) {
             this.customerId = customerId;
         }
     }
@@ -1911,6 +1970,26 @@ class AbilityContractTest {
     private static final class PlainReferenceRecordService extends AbstractAbilityService<PlainReferenceRecord> {
         private PlainReferenceRecordService() {
             super("demo.plain-reference", PlainReferenceRecord.class, new InMemoryBaseDao<>());
+        }
+    }
+
+    private static final class ReferencingPlainRecord extends PlainReferenceRecord {
+        private ReferencingPlainRecord(String customerId) {
+            super(customerId);
+        }
+    }
+
+    private static final class ReferencingPlainRecordService extends AbstractAbilityService<ReferencingPlainRecord>
+            implements ReferencerAbility<ReferencingPlainRecord> {
+        private ReferencingPlainRecordService() {
+            super("demo.referencing-plain-reference", ReferencingPlainRecord.class, new InMemoryBaseDao<>());
+        }
+    }
+
+    private static final class SoftReferenceRecordService extends AbstractAbilityService<PlainReferenceRecord>
+            implements SoftDeleteAbility<PlainReferenceRecord> {
+        private SoftReferenceRecordService() {
+            super("demo.soft-reference", PlainReferenceRecord.class, new InMemoryBaseDao<>());
         }
     }
 
