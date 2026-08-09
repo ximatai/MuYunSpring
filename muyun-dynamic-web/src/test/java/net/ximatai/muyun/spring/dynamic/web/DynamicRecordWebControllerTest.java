@@ -386,15 +386,10 @@ class DynamicRecordWebControllerTest {
 
         mvc.perform(post("/{moduleAlias}/insert", MODULE)
                         .contentType("application/json")
-                        .content(json(Map.of("$save", Map.of(
-                                "record", Map.of(
-                                        "values", Map.of("code", "C-001", "amount", 12),
-                                        "children", Map.of("lines", List.of(Map.of(
-                                                "values", Map.of("lineNo", "L-001", "lineAmount", 7))))),
-                                "metadata", Map.of("fileDeletions", List.of(Map.of(
-                                        "recordPath", Map.of("nodes", List.of(Map.of("recordId", "contract-old"))),
-                                        "fieldName", "sourceFileId",
-                                        "fileId", "file-old"))))))))
+                        .content(json(Map.of(
+                                "values", Map.of("code", "C-001", "amount", 12),
+                                "children", Map.of("lines", List.of(Map.of(
+                                        "values", Map.of("lineNo", "L-001", "lineAmount", 7))))))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value("contract-1"))
                 .andExpect(jsonPath("$.values.code").value("C-001"));
@@ -403,11 +398,6 @@ class DynamicRecordWebControllerTest {
         verify(mainEntity).insert(createRecord.capture());
         assertThat(createRecord.getValue().getValue("code")).isEqualTo("C-001");
         assertThat(createRecord.getValue().getValue("amount")).isEqualTo(12);
-        assertThat(createRecord.getValue().mutationMetadata().get("fileDeletions"))
-                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.LIST)
-                .singleElement()
-                .extracting("fieldName", "fileId")
-                .containsExactly("sourceFileId", "file-old");
         assertThat(createRecord.getValue().getChildren("lines")).singleElement()
                 .satisfies(line -> {
                     assertThat(line.getValue("lineNo")).isEqualTo("L-001");

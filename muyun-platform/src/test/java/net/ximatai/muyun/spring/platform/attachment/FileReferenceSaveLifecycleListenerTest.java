@@ -2,20 +2,13 @@ package net.ximatai.muyun.spring.platform.attachment;
 
 import lombok.Getter;
 import lombok.Setter;
-import net.ximatai.muyun.spring.ability.AbstractAbilityService;
-import net.ximatai.muyun.spring.ability.child.ChildRelation;
-import net.ximatai.muyun.spring.ability.child.ChildAbility;
-import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
-import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.annotation.Column;
 import net.ximatai.muyun.database.core.builder.ColumnType;
+import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.file.FileReference;
-import net.ximatai.muyun.spring.common.mutation.RecordFileDeletionIntent;
-import net.ximatai.muyun.spring.common.mutation.RecordMutationPath;
-import net.ximatai.muyun.spring.common.mutation.RecordMutationPathNode;
-import net.ximatai.muyun.spring.common.mutation.RecordSaveMutationMetadata;
-import net.ximatai.muyun.spring.common.mutation.RecordSaveMutationMetadataContext;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadata;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadataField;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -25,9 +18,11 @@ import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,23 +32,78 @@ class FileReferenceSaveLifecycleListenerTest {
     void promotesOnlyNewStaticFileReferences() {
         AtomicInteger promotions = new AtomicInteger();
         FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(promotions));
-        Document existing = document("file-old");
-        Document incoming = document("file-new");
 
-        listener.beforeSave(new DocumentService(), existing, incoming);
-        listener.persisted(new DocumentService(), incoming);
-        listener.beforeSave(new DocumentService(), incoming, document("file-new"));
+        listener.beforeSave(new DocumentService(), document("file-old"), document("file-new"));
+        listener.persisted(new DocumentService(), document("file-new"));
 
         assertThat(promotions).hasValue(1);
     }
 
     @Test
-    void rejectsAConfiguredReferenceWhenFileTransferIsUnavailable() {
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> null);
+    void removesReplacedFileWithoutAClientDeletionIntent() {
+        AtomicInteger promotions = new AtomicInteger();
+        AtomicInteger deletions = new AtomicInteger();
+        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(promotions, deletions));
+        Document existing = document("file-old");
+        existing.setId("document-1");
+        Document incoming = document("file-new");
+        incoming.setId("document-1");
 
-        assertThatThrownBy(() -> listener.beforeSave(new DocumentService(), null, document("file-new")))
-                .isInstanceOf(PlatformException.class)
-                .hasMessage("file transfer client is not configured");
+        listener.beforeSave(new DocumentService(), existing, incoming);
+        listener.persisted(new DocumentService(), incoming);
+
+        assertThat(promotions).hasValue(1);
+        assertThat(deletions).hasValue(1);
+    }
+
+    @Test
+    void removesOnlyTheDifferenceFromMultiFileReference() {
+        AtomicInteger promotions = new AtomicInteger();
+        AtomicInteger deletions = new AtomicInteger();
+        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(promotions, deletions));
+        MultiDocument existing = multiDocument("file-old", "file-retained", "file-removed");
+        existing.setId("document-1");
+        MultiDocument incoming = multiDocument("file-retained", "file-new");
+        incoming.setId("document-1");
+
+        listener.beforeSave(new MultiDocumentService(), existing, incoming);
+        listener.persisted(new MultiDocumentService(), incoming);
+
+        assertThat(promotions).hasValue(1);
+        assertThat(deletions).hasValue(2);
+    }
+
+    @Test
+    void doesNotDeleteOldFilesWhenBusinessPersistenceFails() {
+        AtomicInteger deletions = new AtomicInteger();
+        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
+                () -> client(new AtomicInteger(), deletions));
+        Document existing = document("file-old");
+        existing.setId("document-1");
+        Document incoming = document("file-new");
+        incoming.setId("document-1");
+
+        listener.beforeSave(new DocumentService(), existing, incoming);
+        listener.persistFailed(new DocumentService(), incoming, new PlatformException("database failed"));
+        listener.persisted(new DocumentService(), incoming);
+
+        assertThat(deletions).hasValue(0);
+    }
+
+    @Test
+    void handlesAChildEntityThroughItsOwnLifecycleWithoutRootPathMetadata() {
+        AtomicInteger deletions = new AtomicInteger();
+        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
+                () -> client(new AtomicInteger(), deletions));
+        Document existingLine = document("file-old");
+        existingLine.setId("line-1");
+        Document incomingLine = document(null);
+        incomingLine.setId("line-1");
+
+        listener.beforeSave(new DocumentService(), existingLine, incomingLine);
+        listener.persisted(new DocumentService(), incomingLine);
+
+        assertThat(deletions).hasValue(1);
     }
 
     @Test
@@ -72,143 +122,73 @@ class FileReferenceSaveLifecycleListenerTest {
     }
 
     @Test
-    void deletesAnExplicitlyRemovedOldFileOnlyAfterPersistenceSucceeds() {
-        AtomicInteger deletions = new AtomicInteger();
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
-                () -> client(new AtomicInteger(), deletions));
-        Document existing = document("file-old");
-        existing.setId("document-1");
+    void hydratesDeclaredMetadataFromThePromotedFileAndRejectsClientValues() {
+        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(new AtomicInteger()));
         Document incoming = document("file-new");
-        incoming.setId("document-1");
-        RecordSaveMutationMetadata metadata = new RecordSaveMutationMetadata(List.of(
-                new RecordFileDeletionIntent(RecordMutationPath.root("document-1"), "sourceFileId", "file-old")
-        ));
+        incoming.setSourceFilename("forged.pdf");
+        incoming.setSourceFileSize(999L);
 
-        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(metadata)) {
-            listener.beforeSave(new DocumentService(), existing, incoming);
-            assertThat(deletions).hasValue(0);
-            listener.persisted(new DocumentService(), incoming);
-        }
+        listener.beforeSave(new DocumentService(), null, incoming);
 
-        assertThat(deletions).hasValue(1);
+        assertThat(incoming.getSourceFilename()).isEqualTo("source.pdf");
+        assertThat(incoming.getSourceFileSize()).isEqualTo(1L);
     }
 
     @Test
-    void rejectsDeletionThatDoesNotMatchTheExistingFileReference() {
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
-                () -> client(new AtomicInteger()));
+    void preservesOrClearsManagedMetadataWithTheFileReference() {
+        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(new AtomicInteger()));
         Document existing = document("file-old");
-        existing.setId("document-1");
-        Document incoming = document("file-new");
-        incoming.setId("document-1");
-        RecordSaveMutationMetadata metadata = new RecordSaveMutationMetadata(List.of(
-                new RecordFileDeletionIntent(RecordMutationPath.root("document-1"), "sourceFileId", "file-other")
-        ));
+        existing.setSourceFilename("trusted.pdf");
+        existing.setSourceFileSize(5L);
+        Document retained = document("file-old");
+        retained.setSourceFilename("forged.pdf");
+        retained.setSourceFileSize(999L);
 
-        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(metadata)) {
-            assertThatThrownBy(() -> listener.beforeSave(new DocumentService(), existing, incoming))
-                    .isInstanceOf(PlatformException.class)
-                    .hasMessage("file deletion does not match existing reference: sourceFileId");
-        }
+        listener.beforeSave(new DocumentService(), existing, retained);
+
+        assertThat(retained.getSourceFilename()).isEqualTo("trusted.pdf");
+        assertThat(retained.getSourceFileSize()).isEqualTo(5L);
+
+        Document cleared = document(null);
+        cleared.setSourceFilename("forged.pdf");
+        cleared.setSourceFileSize(999L);
+        listener.beforeSave(new DocumentService(), existing, cleared);
+
+        assertThat(cleared.getSourceFilename()).isNull();
+        assertThat(cleared.getSourceFileSize()).isNull();
     }
 
     @Test
-    void doesNotDeleteWhenBusinessPersistenceFails() {
-        AtomicInteger deletions = new AtomicInteger();
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
-                () -> client(new AtomicInteger(), deletions));
-        Document existing = document("file-old");
-        existing.setId("document-1");
-        Document incoming = document("file-new");
-        incoming.setId("document-1");
-        RecordSaveMutationMetadata metadata = new RecordSaveMutationMetadata(List.of(
-                new RecordFileDeletionIntent(RecordMutationPath.root("document-1"), "sourceFileId", "file-old")
-        ));
+    void hydratesDynamicMetadataThroughTheSameSourceNeutralDefinition() {
+        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(new AtomicInteger()));
+        EntityDefinition definition = new EntityDefinition("document", "crm_document", "Document", List.of(
+                FieldDefinition.string("sourceFileId", "Source file").column("source_file_id").length(64),
+                FieldDefinition.string("sourceFilename", "Source filename").column("source_filename").length(255),
+                FieldDefinition.longInteger("sourceFileSize", "Source file size").column("source_file_size")))
+                .withFileReferences(Map.of("sourceFileId", new FileReferenceDefinition(Set.of(), null, 1,
+                        Map.of(FileReferenceMetadata.ORIGINAL_FILENAME, "sourceFilename",
+                                FileReferenceMetadata.SIZE_BYTES, "sourceFileSize"))));
+        DynamicRecord incoming = new DynamicRecord(definition)
+                .setValue("sourceFileId", "file-new")
+                .setValue("sourceFilename", "forged.pdf")
+                .setValue("sourceFileSize", 999L);
 
-        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(metadata)) {
-            listener.beforeSave(new DocumentService(), existing, incoming);
-            listener.persistFailed(new DocumentService(), incoming, new PlatformException("database failed"));
-            listener.persisted(new DocumentService(), incoming);
-        }
+        listener.beforeSave(new DynamicDocumentService(), null, incoming);
 
-        assertThat(deletions).hasValue(0);
+        assertThat(incoming.getValue("sourceFilename")).isEqualTo("source.pdf");
+        assertThat(incoming.getValue("sourceFileSize")).isEqualTo(1L);
     }
 
     @Test
-    void rejectsChildPathsWhenTheParentDoesNotDeclareThatRelation() {
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
-                () -> client(new AtomicInteger()));
-        Document existing = document("file-old");
-        existing.setId("document-1");
-        Document incoming = document("file-new");
-        incoming.setId("document-1");
-        RecordSaveMutationMetadata metadata = new RecordSaveMutationMetadata(List.of(
-                new RecordFileDeletionIntent(new RecordMutationPath(List.of(
-                        new RecordMutationPathNode(null, "document-1"),
-                        new RecordMutationPathNode("lines", "line-1")
-                )), "sourceFileId", "file-old")
-        ));
+    void rejectsNewReferenceWhenTransferIsUnavailable() {
+        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> null);
 
-        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(metadata)) {
-            assertThatThrownBy(() -> listener.beforeSave(new DocumentService(), existing, incoming))
-                    .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("file deletion path does not support child relations");
-        }
+        assertThatThrownBy(() -> listener.beforeSave(new DocumentService(), null, document("file-new")))
+                .isInstanceOf(PlatformException.class)
+                .hasMessage("file transfer client is not configured");
     }
 
-    @Test
-    void deletesAnExplicitlyReplacedFileFromOneStaticChildRelation() {
-        AtomicInteger deletions = new AtomicInteger();
-        Document existingLine = document("file-old");
-        existingLine.setId("line-1");
-        Document incomingLine = document("file-new");
-        incomingLine.setId("line-1");
-        Folder existing = folder("folder-1", List.of(existingLine));
-        Folder incoming = folder("folder-1", List.of(incomingLine));
-        FolderService service = new FolderService(new DocumentChildService(List.of(existingLine)));
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
-                () -> client(new AtomicInteger(), deletions));
-        RecordSaveMutationMetadata metadata = new RecordSaveMutationMetadata(List.of(
-                new RecordFileDeletionIntent(new RecordMutationPath(List.of(
-                        new RecordMutationPathNode(null, "folder-1"),
-                        new RecordMutationPathNode("lines", "line-1")
-                )), "sourceFileId", "file-old")
-        ));
-
-        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(metadata)) {
-            listener.beforeSave(service, existing, incoming);
-            listener.persisted(service, incoming);
-        }
-
-        assertThat(deletions).hasValue(1);
-    }
-
-    @Test
-    void promotesOnlyNewFilesAndDeletesOnlyExplicitlyRemovedFilesFromOneMultiFileField() {
-        AtomicInteger promotions = new AtomicInteger();
-        AtomicInteger deletions = new AtomicInteger();
-        MultiDocument existing = multiDocument("file-old", "file-retained");
-        existing.setId("document-1");
-        MultiDocument incoming = multiDocument("file-retained", "file-new");
-        incoming.setId("document-1");
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
-                () -> client(promotions, deletions));
-        RecordSaveMutationMetadata metadata = new RecordSaveMutationMetadata(List.of(
-                new RecordFileDeletionIntent(RecordMutationPath.root("document-1"), "sourceFileIds", "file-old")
-        ));
-
-        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(metadata)) {
-            listener.beforeSave(new MultiDocumentService(), existing, incoming);
-            listener.persisted(new MultiDocumentService(), incoming);
-        }
-
-        assertThat(promotions).hasValue(1);
-        assertThat(deletions).hasValue(1);
-    }
-
-    private FileTransferClient client(AtomicInteger promotions) {
-        return client(promotions, new AtomicInteger());
-    }
+    private FileTransferClient client(AtomicInteger promotions) { return client(promotions, new AtomicInteger()); }
 
     private FileTransferClient client(AtomicInteger promotions, AtomicInteger deletions) {
         return new FileTransferClient() {
@@ -228,46 +208,31 @@ class FileReferenceSaveLifecycleListenerTest {
     private Document document(String fileId) { Document value = new Document(); value.setSourceFileId(fileId); return value; }
     private MultiDocument multiDocument(String... fileIds) {
         MultiDocument value = new MultiDocument();
-        value.setSourceFileIds(new java.util.LinkedHashSet<>(List.of(fileIds)));
-        return value;
-    }
-    private Folder folder(String id, List<Document> lines) {
-        Folder value = new Folder();
-        value.setId(id);
-        value.setLines(lines);
+        value.setSourceFileIds(new LinkedHashSet<>(List.of(fileIds)));
         return value;
     }
 
     @Getter @Setter
-    static class Document extends StandardEntity { @FileReference private String sourceFileId; }
+    static class Document extends StandardEntity {
+        @FileReference(metadataFields = {
+                @FileReferenceMetadataField(value = FileReferenceMetadata.ORIGINAL_FILENAME, field = "sourceFilename"),
+                @FileReferenceMetadataField(value = FileReferenceMetadata.SIZE_BYTES, field = "sourceFileSize")
+        })
+        private String sourceFileId;
+        private String sourceFilename;
+        private Long sourceFileSize;
+    }
     @Getter @Setter
     static class MultiDocument extends StandardEntity {
         @Column(name = "source_file_ids", type = ColumnType.JSON_SET)
         @FileReference(maxFiles = 3)
-        private java.util.Set<String> sourceFileIds;
+        private LinkedHashSet<String> sourceFileIds;
     }
     static class DocumentService extends AbstractAbilityService<Document> {
         DocumentService() { super("test.document", Document.class, new TestMemoryDao<>()); }
     }
     static class MultiDocumentService extends AbstractAbilityService<MultiDocument> {
         MultiDocumentService() { super("test.multi_document", MultiDocument.class, new TestMemoryDao<>()); }
-    }
-    static class DocumentChildService extends DocumentService implements ChildAbility<Document> {
-        private final List<Document> rows;
-        DocumentChildService(List<Document> rows) { this.rows = rows; }
-        @Override public List<Document> selectChildRows(Criteria criteria) { return rows; }
-    }
-    @Getter @Setter
-    static class Folder extends StandardEntity { private List<Document> lines; }
-    static class FolderService extends AbstractAbilityService<Folder> implements ChildrenAbility<Folder> {
-        private final DocumentChildService childService;
-        FolderService(DocumentChildService childService) {
-            super("test.folder", Folder.class, new TestMemoryDao<>());
-            this.childService = childService;
-        }
-        @Override public List<ChildRelation<? extends net.ximatai.muyun.spring.common.model.contract.EntityContract, Folder>> childRelations() {
-            return List.of(new ChildRelation<>("lines", childService, (child, parentId) -> { }, "folderId", Folder::getLines));
-        }
     }
     static class DynamicDocumentService extends AbstractAbilityService<DynamicRecord> {
         DynamicDocumentService() { super("test.dynamic_document", DynamicRecord.class, new TestMemoryDao<>()); }

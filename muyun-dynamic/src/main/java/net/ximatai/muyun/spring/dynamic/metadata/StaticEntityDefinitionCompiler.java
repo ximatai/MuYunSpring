@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.model.constraint.StaticTenantUniqueConstraints;
 import net.ximatai.muyun.spring.common.model.file.FileReference;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadata;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadataField;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
@@ -20,6 +22,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.EnumMap;
 import java.util.Set;
 
 public class StaticEntityDefinitionCompiler {
@@ -52,16 +55,24 @@ public class StaticEntityDefinitionCompiler {
 
     private Map<String, FileReferenceDefinition> fileReferences(Class<?> modelClass) {
         Map<String, FileReferenceDefinition> references = new LinkedHashMap<>();
+        Set<String> fileReferenceFields = new java.util.HashSet<>();
+        for (Field field : declaredFields(modelClass)) {
+            if (field.getAnnotation(FileReference.class) != null) {
+                fileReferenceFields.add(field.getName());
+            }
+        }
+        Set<String> metadataTargets = new java.util.HashSet<>();
         for (Field field : declaredFields(modelClass)) {
             FileReference annotation = field.getAnnotation(FileReference.class);
             if (annotation == null) {
                 continue;
             }
             validateFileReferenceField(modelClass, field, annotation);
+            validateMetadataFields(modelClass, field, annotation, fileReferenceFields, metadataTargets);
             references.put(field.getName(), new FileReferenceDefinition(
                     Set.of(annotation.allowedMediaTypes()),
                     annotation.maxFileSizeBytes() > 0 ? annotation.maxFileSizeBytes() : null,
-                    annotation.maxFiles()));
+                    annotation.maxFiles(), metadataFields(modelClass, field, annotation)));
         }
         return Map.copyOf(references);
     }
@@ -76,6 +87,52 @@ public class StaticEntityDefinitionCompiler {
             String required = single ? "@Column STRING field" : "@Column JSON_SET Collection<String> field";
             throw new IllegalArgumentException("static file reference requires " + required + ": "
                     + modelClass.getName() + "." + field.getName());
+        }
+    }
+
+    private Map<FileReferenceMetadata, String> metadataFields(Class<?> modelClass, Field source,
+                                                               FileReference annotation) {
+        Map<FileReferenceMetadata, String> values = new EnumMap<>(FileReferenceMetadata.class);
+        for (FileReferenceMetadataField binding : annotation.metadataFields()) {
+            if (values.put(binding.value(), binding.field()) != null) {
+                throw new IllegalArgumentException("duplicate file reference metadata binding: "
+                        + modelClass.getName() + "." + source.getName() + "." + binding.value());
+            }
+        }
+        return Map.copyOf(values);
+    }
+
+    private void validateMetadataFields(Class<?> modelClass, Field source, FileReference annotation,
+                                        Set<String> fileReferenceFields, Set<String> metadataTargets) {
+        for (FileReferenceMetadataField binding : annotation.metadataFields()) {
+            String targetName = binding.field() == null ? "" : binding.field().trim();
+            if (targetName.isEmpty()) {
+                throw new IllegalArgumentException("file reference metadata field must not be blank: "
+                        + modelClass.getName() + "." + source.getName());
+            }
+            if (annotation.maxFiles() != 1) {
+                throw new IllegalArgumentException("file reference metadata fields require a single-file reference: "
+                        + modelClass.getName() + "." + source.getName());
+            }
+            if (fileReferenceFields.contains(targetName) || !metadataTargets.add(targetName)) {
+                throw new IllegalArgumentException("invalid file reference metadata field: "
+                        + modelClass.getName() + "." + targetName);
+            }
+            Field target = declaredFields(modelClass).stream()
+                    .filter(candidate -> targetName.equals(candidate.getName()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("file reference metadata requires declared field: "
+                            + modelClass.getName() + "." + targetName));
+            Column column = target.getAnnotation(Column.class);
+            boolean size = binding.value() == FileReferenceMetadata.SIZE_BYTES;
+            boolean valid = column != null
+                    && (size ? target.getType() == Long.class && column.type() == ColumnType.BIGINT
+                    : target.getType() == String.class && fieldType(column.type()) == FieldType.STRING);
+            if (!valid) {
+                String required = size ? "@Column BIGINT Long field" : "@Column STRING String field";
+                throw new IllegalArgumentException("file reference metadata requires " + required + ": "
+                        + modelClass.getName() + "." + targetName);
+            }
         }
     }
 

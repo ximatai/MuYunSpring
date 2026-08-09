@@ -6,7 +6,6 @@ import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticWebScope;
 import net.ximatai.muyun.spring.web.NestedSortableCrudWebSupport;
 import net.ximatai.muyun.spring.web.RecordActionWebRequest;
-import net.ximatai.muyun.spring.web.RecordSaveWebRequest;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
@@ -74,10 +73,9 @@ public class WorkflowDefinitionWebController
     @ActionEndpoint(PlatformAction.CREATE)
     @ResponseStatus(HttpStatus.CREATED)
     public WorkflowDefinition insert(HttpServletRequest servletRequest,
-                                     @RequestBody RecordSaveWebRequest<WorkflowDefinition> request) {
-        WorkflowDefinition record = request.requireRecord();
+                                     @RequestBody WorkflowDefinition record) {
         normalizeDraft(record);
-        return super.insert(servletRequest, request);
+        return super.insert(servletRequest, record);
     }
 
     @Override
@@ -85,11 +83,10 @@ public class WorkflowDefinitionWebController
     @ActionEndpoint(PlatformAction.UPDATE)
     public WorkflowDefinition update(HttpServletRequest servletRequest,
                                      @PathVariable String id,
-                                     @RequestBody RecordSaveWebRequest<WorkflowDefinition> request) {
-        WorkflowDefinition record = request.requireRecord();
+                                     @RequestBody WorkflowDefinition record) {
         requireDraft(requireScopedRecord(servletRequest, id), "workflow definition can only edit draft definitions");
         normalizeDraft(record);
-        return super.update(servletRequest, id, request);
+        return super.update(servletRequest, id, record);
     }
 
     @Override

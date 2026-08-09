@@ -19,12 +19,6 @@ final class DynamicOpenApiSchemaFactory {
         schemas.put(schemaName(entity.entityAlias(), "Values"), valuesSchema(entity));
         schemas.put(schemaName(entity.entityAlias(), "Record"), recordSchema(entity));
         schemas.put("DynamicRecordPayload", recordPayloadSchema(entity));
-        schemas.put("DynamicRecordSaveRequest", recordSaveRequestSchema());
-        schemas.put("DynamicRecordSaveEnvelope", recordSaveEnvelopeSchema());
-        schemas.put("RecordSaveMutationMetadata", recordSaveMutationMetadataSchema());
-        schemas.put("RecordFileDeletionIntent", recordFileDeletionIntentSchema());
-        schemas.put("RecordMutationPath", recordMutationPathSchema());
-        schemas.put("RecordMutationPathNode", recordMutationPathNodeSchema());
         schemas.put("DynamicRecordResponse", recordResponseSchema(entity));
         schemas.put("WebQueryRequest", queryRequestSchema("WebQueryRequest", "WebQueryCondition", "WebPageRequest", "WebSort"));
         schemas.put("WebQueryCondition", queryConditionSchema("WebQueryCondition"));
@@ -128,49 +122,6 @@ final class DynamicOpenApiSchemaFactory {
         properties.put("attachments", arrayProperty("RecordAttachmentCommand"));
         return new DynamicOpenApiDocument.Schema("DynamicRecordPayload", "object", null,
                 List.of(), properties, null);
-    }
-
-    private DynamicOpenApiDocument.Schema recordSaveRequestSchema() {
-        Map<String, DynamicOpenApiDocument.Property> properties = new LinkedHashMap<>();
-        properties.put("$save", objectProperty("DynamicRecordSaveEnvelope"));
-        return new DynamicOpenApiDocument.Schema("DynamicRecordSaveRequest", "object", null,
-                List.of("$save"), properties, null);
-    }
-
-    private DynamicOpenApiDocument.Schema recordSaveEnvelopeSchema() {
-        Map<String, DynamicOpenApiDocument.Property> properties = new LinkedHashMap<>();
-        properties.put("record", objectProperty("DynamicRecordPayload"));
-        properties.put("metadata", objectProperty("RecordSaveMutationMetadata"));
-        return new DynamicOpenApiDocument.Schema("DynamicRecordSaveEnvelope", "object", null,
-                List.of("record"), properties, null);
-    }
-
-    private DynamicOpenApiDocument.Schema recordSaveMutationMetadataSchema() {
-        return new DynamicOpenApiDocument.Schema("RecordSaveMutationMetadata", "object", null, List.of(), Map.of(
-                "fileDeletions", arrayProperty("RecordFileDeletionIntent")
-        ), null);
-    }
-
-    private DynamicOpenApiDocument.Schema recordFileDeletionIntentSchema() {
-        return new DynamicOpenApiDocument.Schema("RecordFileDeletionIntent", "object", null,
-                List.of("recordPath", "fieldName", "fileId"), Map.of(
-                "recordPath", objectProperty("RecordMutationPath"),
-                "fieldName", stringProperty(true),
-                "fileId", stringProperty(true)
-        ), null);
-    }
-
-    private DynamicOpenApiDocument.Schema recordMutationPathSchema() {
-        return new DynamicOpenApiDocument.Schema("RecordMutationPath", "object", null, List.of("nodes"), Map.of(
-                "nodes", arrayProperty("RecordMutationPathNode")
-        ), null);
-    }
-
-    private DynamicOpenApiDocument.Schema recordMutationPathNodeSchema() {
-        return new DynamicOpenApiDocument.Schema("RecordMutationPathNode", "object", null, List.of("recordId"), Map.of(
-                "relationCode", stringProperty(false),
-                "recordId", stringProperty(true)
-        ), null);
     }
 
     private DynamicOpenApiDocument.Schema recordResponseSchema(DynamicEntityDescriptor entity) {

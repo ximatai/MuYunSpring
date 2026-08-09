@@ -15,7 +15,6 @@ import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.query.WebQueryRequests;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
-import net.ximatai.muyun.spring.common.mutation.RecordSaveMutationMetadataContext;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
@@ -279,46 +278,30 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     @StandardMutation(StandardMutationKind.CREATE)
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
-    default T insert(@RequestBody RecordSaveWebRequest<T> request) {
-        T record = request.requireRecord();
-        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(request.metadata())) {
-            return MutationTenantScopeExecutor.forCreate(this, record, () -> webScope(() -> {
-                String id = service().insert(record);
-                T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
-                StandardMutationResultSupport.created(this, id, recordLabel(saved));
-                return saved;
-            }));
-        }
-    }
-
-    /** Direct Java invocation convenience; HTTP always enters the typed save-envelope method. */
-    default T insert(T record) {
-        return insert(new RecordSaveWebRequest<>(record, null));
+    default T insert(@RequestBody T record) {
+        return MutationTenantScopeExecutor.forCreate(this, record, () -> webScope(() -> {
+            String id = service().insert(record);
+            T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
+            StandardMutationResultSupport.created(this, id, recordLabel(saved));
+            return saved;
+        }));
     }
 
     @PostMapping("/update/{id}")
     @ActionEndpoint(PlatformAction.UPDATE)
     @StandardMutation(StandardMutationKind.UPDATE)
     @Transactional
-    default T update(@PathVariable String id, @RequestBody RecordSaveWebRequest<T> request) {
-        T record = request.requireRecord();
+    default T update(@PathVariable String id, @RequestBody T record) {
         record.setId(id);
-        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(request.metadata())) {
-            return MutationTenantScopeExecutor.forUpdate(this, id, record, () -> webScope(() -> {
-                StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.UPDATE, id);
-                service().update(record);
-                T saved = WebOutputSupport.record(service(),
-                        StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),
-                        FieldOutputContext.VIEW);
-                StandardMutationResultSupport.updated(this, id, recordLabel(saved));
-                return saved;
-            }));
-        }
-    }
-
-    /** Direct Java invocation convenience; HTTP always enters the typed save-envelope method. */
-    default T update(String id, T record) {
-        return update(id, new RecordSaveWebRequest<>(record, null));
+        return MutationTenantScopeExecutor.forUpdate(this, id, record, () -> webScope(() -> {
+            StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.UPDATE, id);
+            service().update(record);
+            T saved = WebOutputSupport.record(service(),
+                    StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),
+                    FieldOutputContext.VIEW);
+            StandardMutationResultSupport.updated(this, id, recordLabel(saved));
+            return saved;
+        }));
     }
 
     @PostMapping("/delete/{id}")

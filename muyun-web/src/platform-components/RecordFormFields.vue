@@ -16,7 +16,6 @@ import RecordStatusTag from './RecordStatusTag.vue';
 import RecordPicker from './RecordPicker.vue';
 import RecordMultiPicker from './RecordMultiPicker.vue';
 import RecordFileReferenceTransfer from './RecordFileReferenceTransfer.vue';
-import { fileReferenceIds } from './fileReferenceTransfer';
 import FileSizeText from './FileSizeText.vue';
 import {
   resolveRecordFormFieldNames,
@@ -44,7 +43,6 @@ const props = withDefaults(
     optionContext?: ModuleContext<unknown>;
     fileTransferContext?: ModuleContext<unknown>;
     formSessionKey?: string | number;
-    recordPath?: { nodes: Array<{ relationCode?: string; recordId: string }> };
     disabled?: boolean;
     disabledOf?: (fieldName: string, field: RecordFormFieldState) => boolean;
     placeholderOf?: (fieldName: string, field: RecordFormFieldState) => string | undefined;
@@ -58,7 +56,6 @@ const props = withDefaults(
     optionContext: undefined,
     fileTransferContext: undefined,
     formSessionKey: undefined,
-    recordPath: undefined,
     disabled: false,
     disabledOf: undefined,
     placeholderOf: undefined,
@@ -67,14 +64,6 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:field': [fieldName: string, value: RecordFormFieldValue];
-  'file-deletion': [
-    intent: {
-      recordPath: { nodes: Array<{ relationCode?: string; recordId: string }> };
-      fieldRef: { relationCode?: string; fieldName: string };
-      fieldName: string;
-      fileId: string;
-    },
-  ];
 }>();
 
 const resolvedFieldNames = computed(
@@ -228,30 +217,6 @@ function updateField(fieldName: string, value: RecordFormFieldValue) {
   emit('update:field', fieldName, value);
 }
 
-function deletePersistedFile(field: RecordFormFieldState, fileId: string) {
-  recordFileDeletion(field, fileId);
-  const definition = field.fileReference;
-  updateField(
-    field.fieldName,
-    definition?.maxFiles === 1
-      ? undefined
-      : fileReferenceIds(props.record[field.fieldName]).filter((id) => id !== fileId),
-  );
-}
-
-function recordFileDeletion(field: RecordFormFieldState, fileId: string) {
-  const fieldRef = props.fields?.get(field.fieldName)?.fieldRef ?? { fieldName: field.fieldName };
-  if (fieldRef.relationCode && !props.recordPath) return;
-  const recordPath = props.recordPath ?? rootRecordPath();
-  if (!recordPath) return;
-  emit('file-deletion', { recordPath, fieldRef, fieldName: field.fieldName, fileId });
-}
-
-function rootRecordPath() {
-  const recordId = props.record.id;
-  return typeof recordId === 'string' && recordId.trim() ? { nodes: [{ recordId }] } : undefined;
-}
-
 /** Required color fields must persist the same default color that the picker presents. */
 function initializeRequiredColorFields() {
   for (const field of fieldStates.value) {
@@ -343,7 +308,6 @@ function updateSelectField(field: RecordFormFieldState, value: OptionValue | Opt
       :disabled="fieldDisabled(field)"
       :disabled-hint="field.disabledHint"
       @update:value="updateField(field.fieldName, $event)"
-      @delete:persisted="deletePersistedFile(field, $event)"
     />
     <UiTreeSelect
       v-else-if="field.controlType === 'select' && optionFieldIsTree(field)"

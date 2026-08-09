@@ -27,12 +27,6 @@ final class StaticModuleOpenApiSchemaFactory {
             schemas.put("WebQueryCriteria", webQueryCriteriaSchema());
             schemas.put("WebSort", webSortSchema());
             schemas.put("RecordActionWebRequest", recordActionWebRequestSchema());
-            schemas.put("RecordSaveMutationMetadata", recordSaveMutationMetadataSchema());
-            schemas.put("RecordFileDeletionIntent", recordFileDeletionIntentSchema());
-            schemas.put("RecordMutationPath", recordMutationPathSchema());
-            schemas.put("RecordMutationPathNode", recordMutationPathNodeSchema());
-            schemas.put(entitySchemaName + "SaveEnvelope", recordSaveEnvelopeSchema(entitySchemaName));
-            schemas.put(entitySchemaName + "SaveRequest", recordSaveRequestSchema(entitySchemaName));
             schemas.put(entitySchemaName + "PageResponse", pageResponseSchema(entitySchemaName));
         }
         schemas.put("PlatformWebError", platformWebErrorSchema());
@@ -97,46 +91,6 @@ final class StaticModuleOpenApiSchemaFactory {
         properties.put("quickSearchFields", arrayProperty("string"));
         properties.put("navigationQueryKey", stringProperty());
         return new PlatformApiDocument.Schema("WebQueryRequest", "object", null, List.of(), properties, null);
-    }
-
-    private PlatformApiDocument.Schema recordSaveEnvelopeSchema(String entitySchemaName) {
-        return new PlatformApiDocument.Schema(entitySchemaName + "SaveEnvelope", "object", null, List.of("record"), Map.of(
-                "record", objectProperty(entitySchemaName), "metadata", objectProperty("RecordSaveMutationMetadata")
-        ), null);
-    }
-
-    private PlatformApiDocument.Schema recordSaveRequestSchema(String entitySchemaName) {
-        return new PlatformApiDocument.Schema(entitySchemaName + "SaveRequest", "object", null, List.of("$save"), Map.of(
-                "$save", objectProperty(entitySchemaName + "SaveEnvelope")
-        ), null);
-    }
-
-    private PlatformApiDocument.Schema recordSaveMutationMetadataSchema() {
-        return new PlatformApiDocument.Schema("RecordSaveMutationMetadata", "object", null, List.of(), Map.of(
-                "fileDeletions", arrayProperty("RecordFileDeletionIntent")
-        ), null);
-    }
-
-    private PlatformApiDocument.Schema recordFileDeletionIntentSchema() {
-        return new PlatformApiDocument.Schema("RecordFileDeletionIntent", "object", null,
-                List.of("recordPath", "fieldName", "fileId"), Map.of(
-                "recordPath", objectProperty("RecordMutationPath"),
-                "fieldName", requiredStringProperty(),
-                "fileId", requiredStringProperty()
-        ), null);
-    }
-
-    private PlatformApiDocument.Schema recordMutationPathSchema() {
-        return new PlatformApiDocument.Schema("RecordMutationPath", "object", null, List.of("nodes"), Map.of(
-                "nodes", arrayProperty("RecordMutationPathNode")
-        ), null);
-    }
-
-    private PlatformApiDocument.Schema recordMutationPathNodeSchema() {
-        return new PlatformApiDocument.Schema("RecordMutationPathNode", "object", null, List.of("recordId"), Map.of(
-                "relationCode", stringProperty(),
-                "recordId", requiredStringProperty()
-        ), null);
     }
 
     private PlatformApiDocument.Schema webPageRequestSchema() {

@@ -20,4 +20,10 @@ public @interface FileReference {
 
     /** Maximum number of files held by this field. Values greater than one require a JSON_SET collection field. */
     int maxFiles() default 1;
+
+    /**
+     * Explicit fields owned by the platform and derived from FileServer metadata.
+     * These fields are not client-writable during record saves.
+     */
+    FileReferenceMetadataField[] metadataFields() default {};
 }
