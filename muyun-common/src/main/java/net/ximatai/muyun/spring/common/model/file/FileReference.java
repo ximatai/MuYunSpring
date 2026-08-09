@@ -6,7 +6,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Declares a single MuYunFileServer-backed file identifier on a static model.
+ * Declares one or more MuYunFileServer-backed file identifiers on a static model.
  * Lifecycle actions are supplied by the platform file-reference capability, not
  * by this persistence annotation.
  */
@@ -17,4 +17,7 @@ public @interface FileReference {
 
     /** A positive byte limit, or the default {@code -1} when the field has no extra limit. */
     long maxFileSizeBytes() default -1L;
+
+    /** Maximum number of files held by this field. Values greater than one require a JSON_SET collection field. */
+    int maxFiles() default 1;
 }

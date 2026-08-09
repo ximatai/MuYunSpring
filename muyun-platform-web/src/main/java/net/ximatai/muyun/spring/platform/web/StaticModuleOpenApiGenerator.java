@@ -90,7 +90,8 @@ public class StaticModuleOpenApiGenerator {
     private String requestSchema(PlatformAction action, String mainSchemaName) {
         if (action == PlatformAction.QUERY) return "WebQueryRequest";
         if (action == PlatformAction.DELETE) return "RecordActionWebRequest";
-        return action == PlatformAction.CREATE || action == PlatformAction.UPDATE ? mainSchemaName : null;
+        return action == PlatformAction.CREATE || action == PlatformAction.UPDATE
+                ? mainSchemaName + "SaveRequest" : null;
     }
 
     private String responseSchema(PlatformAction action, String mainSchemaName) {

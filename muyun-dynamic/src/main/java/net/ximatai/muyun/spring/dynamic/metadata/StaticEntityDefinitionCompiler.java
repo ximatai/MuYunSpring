@@ -13,6 +13,8 @@ import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -55,16 +57,35 @@ public class StaticEntityDefinitionCompiler {
             if (annotation == null) {
                 continue;
             }
-            Column column = field.getAnnotation(Column.class);
-            if (column == null || field.getType() != String.class || fieldType(column.type()) != FieldType.STRING) {
-                throw new IllegalArgumentException("static file reference requires @Column STRING field: "
-                        + modelClass.getName() + "." + field.getName());
-            }
+            validateFileReferenceField(modelClass, field, annotation);
             references.put(field.getName(), new FileReferenceDefinition(
                     Set.of(annotation.allowedMediaTypes()),
-                    annotation.maxFileSizeBytes() > 0 ? annotation.maxFileSizeBytes() : null));
+                    annotation.maxFileSizeBytes() > 0 ? annotation.maxFileSizeBytes() : null,
+                    annotation.maxFiles()));
         }
         return Map.copyOf(references);
+    }
+
+    private void validateFileReferenceField(Class<?> modelClass, Field field, FileReference annotation) {
+        Column column = field.getAnnotation(Column.class);
+        boolean single = annotation.maxFiles() == 1;
+        boolean valid = single
+                ? column != null && field.getType() == String.class && fieldType(column.type()) == FieldType.STRING
+                : column != null && column.type() == ColumnType.JSON_SET && stringCollection(field);
+        if (!valid) {
+            String required = single ? "@Column STRING field" : "@Column JSON_SET Collection<String> field";
+            throw new IllegalArgumentException("static file reference requires " + required + ": "
+                    + modelClass.getName() + "." + field.getName());
+        }
+    }
+
+    private boolean stringCollection(Field field) {
+        if (!java.util.Collection.class.isAssignableFrom(field.getType())
+                || !(field.getGenericType() instanceof ParameterizedType type)) {
+            return false;
+        }
+        Type[] arguments = type.getActualTypeArguments();
+        return arguments.length == 1 && arguments[0] == String.class;
     }
 
     private List<String> sortPartitionFields(Class<?> modelClass) {
@@ -121,6 +142,9 @@ public class StaticEntityDefinitionCompiler {
                     null,
                     null
             );
+            if (column.type() == ColumnType.JSON_SET) {
+                definition = definition.jsonSet();
+            }
             definition = StaticMeasureUnitFieldDefinitionCompiler.compile(definition, field);
             definition = StaticMoneyFieldDefinitionCompiler.compile(definition, field);
             fields.add(definition);

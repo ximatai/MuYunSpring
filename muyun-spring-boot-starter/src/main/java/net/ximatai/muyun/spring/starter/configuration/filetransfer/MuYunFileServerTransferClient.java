@@ -40,6 +40,23 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
         return metadata(accessService.issuePromoteAccess(fileId), FileTransferOperation.PROMOTE);
     }
 
+    @Override
+    public void delete(String fileId) {
+        FileTransferAccess access = accessService.issueDeleteAccess(fileId);
+        if (access.operation() != FileTransferOperation.DELETE) {
+            throw new IllegalStateException("unexpected file transfer access operation: " + access.operation());
+        }
+        try {
+            String responseBody = restClient.delete().uri(access.url()).retrieve().body(String.class);
+            JsonNode data = requiredData(objectMapper.readTree(responseBody));
+            if (!access.fileId().equals(text(data, "fileId")) || !"DELETED".equals(text(data, "status"))) {
+                throw new PlatformException("file server delete response does not confirm requested file");
+            }
+        } catch (RestClientException | java.io.IOException exception) {
+            throw new PlatformException("file server delete request failed for file: " + access.fileId(), exception);
+        }
+    }
+
     private FileTransferFileMetadata metadata(FileTransferAccess access, FileTransferOperation expectedOperation) {
         if (access.operation() != expectedOperation) {
             throw new IllegalStateException("unexpected file transfer access operation: " + access.operation());

@@ -20,6 +20,7 @@ public class MuYunFileServerTransferProperties {
     private Duration uploadTokenTtl = Duration.ofMinutes(10);
     private Duration metadataTokenTtl = Duration.ofMinutes(1);
     private Duration promoteTokenTtl = Duration.ofMinutes(1);
+    private Duration deleteTokenTtl = Duration.ofMinutes(1);
     private Duration previewTokenTtl = Duration.ofMinutes(5);
     private Duration downloadTokenTtl = Duration.ofMinutes(5);
 
@@ -39,6 +40,8 @@ public class MuYunFileServerTransferProperties {
     public void setMetadataTokenTtl(Duration metadataTokenTtl) { this.metadataTokenTtl = metadataTokenTtl; }
     public Duration getPromoteTokenTtl() { return promoteTokenTtl; }
     public void setPromoteTokenTtl(Duration promoteTokenTtl) { this.promoteTokenTtl = promoteTokenTtl; }
+    public Duration getDeleteTokenTtl() { return deleteTokenTtl; }
+    public void setDeleteTokenTtl(Duration deleteTokenTtl) { this.deleteTokenTtl = deleteTokenTtl; }
     public Duration getPreviewTokenTtl() { return previewTokenTtl; }
     public void setPreviewTokenTtl(Duration previewTokenTtl) { this.previewTokenTtl = previewTokenTtl; }
     public Duration getDownloadTokenTtl() { return downloadTokenTtl; }

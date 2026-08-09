@@ -26,8 +26,8 @@ bootstrap 返回模块入口、客户端类型、权限裁剪后的动态 descri
 | 方法 | URL | 功能 |
 | --- | --- | --- |
 | `GET` | `/{moduleAlias}/view/{id}` | 查看记录详情。 |
-| `POST` | `/{moduleAlias}/insert` | 新增记录；可携带 `uiConfigId + record` wrapper 触发表单校验。 |
-| `POST` | `/{moduleAlias}/update/{id}` | 更新记录；可携带 `uiConfigId + record` wrapper 触发表单校验和乐观锁。 |
+| `POST` | `/{moduleAlias}/insert` | 新增记录；正式请求使用 `$save` envelope，可携带 `uiConfigId` 和文件删除 metadata。 |
+| `POST` | `/{moduleAlias}/update/{id}` | 更新记录；正式请求使用 `$save` envelope，可携带 `uiConfigId`、文件删除 metadata 和乐观锁。 |
 | `POST` | `/{moduleAlias}/delete/{id}` | 删除记录，动态侧按平台软删语义执行。 |
 
 页面保存仍走动态记录保存链路，不直接写配置表，也不绕过动作权限、数据权限、字段保护和动态事件。

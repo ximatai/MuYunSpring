@@ -182,7 +182,7 @@ class ActionEndpointInterceptorTest {
         request.addParameter("ids", "contract-2, contract-3");
 
         interceptor.preHandle(request, new MockHttpServletResponse(),
-                handler(new StaticScopedWeb(), CrudWeb.class.getMethod("update", String.class, EntityContract.class)));
+                handler(new StaticScopedWeb(), CrudWeb.class.getMethod("update", String.class, RecordSaveWebRequest.class)));
 
         assertThat(policyService.context).satisfies(context -> {
             assertThat(context.moduleAlias()).isEqualTo("sales.contract");
@@ -196,7 +196,7 @@ class ActionEndpointInterceptorTest {
     void shouldClearActionContextWhenAsyncHandlingStarts() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/iam.organization/update/org-1");
         request.setAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, Map.of("id", "org-1"));
-        HandlerMethod handler = handler(new StaticScopedWeb(), CrudWeb.class.getMethod("update", String.class, EntityContract.class));
+        HandlerMethod handler = handler(new StaticScopedWeb(), CrudWeb.class.getMethod("update", String.class, RecordSaveWebRequest.class));
 
         interceptor.preHandle(request, new MockHttpServletResponse(), handler);
         assertThat(ActionExecutionContextHolder.current()).contains(policyService.context);

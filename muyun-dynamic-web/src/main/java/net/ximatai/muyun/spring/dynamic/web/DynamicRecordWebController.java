@@ -21,6 +21,7 @@ import net.ximatai.muyun.spring.web.TreeWeb;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
+import net.ximatai.muyun.spring.web.RecordSaveWebRequest;
 import net.ximatai.muyun.spring.web.WebQueryCondition;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
@@ -32,6 +33,7 @@ import net.ximatai.muyun.spring.common.exception.ErrorTarget;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.mutation.RecordSaveMutationMetadataContext;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
@@ -462,33 +464,51 @@ public class DynamicRecordWebController implements
     @ActionEndpoint(PlatformAction.CREATE)
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
-    public DynamicRecord insert(@RequestBody DynamicRecord record) {
-        return webScope(() -> {
-            DynamicRecord normalized = record == null ? service().newRecord() : record;
-            validateWritableSaveFields(normalized, "");
-            validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
-            String id = service().insert(normalized);
-            syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
-            return WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
-        });
+    public DynamicRecord insert(@RequestBody RecordSaveWebRequest<DynamicRecord> request) {
+        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(request.metadata())) {
+            return webScope(() -> {
+                DynamicRecord normalized = request.requireRecord();
+                putSaveMetadata(normalized, request);
+                validateWritableSaveFields(normalized, "");
+                validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
+                String id = service().insert(normalized);
+                syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
+                return WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
+            });
+        }
     }
 
     @Override
     @PostMapping("/update/{id}")
     @ActionEndpoint(PlatformAction.UPDATE)
     @Transactional
-    public DynamicRecord update(@PathVariable String id, @RequestBody DynamicRecord record) {
-        return webScope(() -> {
-            DynamicRecord normalized = record == null ? service().newRecord() : record;
-            normalized.setId(id);
-            validateWritableSaveFields(normalized, "");
-            validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
-            requireDataScopeRecord(PlatformAction.UPDATE, id);
-            service().update(normalized);
-            syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
-            return WebOutputSupport.record(service(), selectForAction(PlatformAction.VIEW, id),
-                    FieldOutputContext.VIEW);
+    public DynamicRecord update(@PathVariable String id,
+                                @RequestBody RecordSaveWebRequest<DynamicRecord> request) {
+        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(request.metadata())) {
+            return webScope(() -> {
+                DynamicRecord normalized = request.requireRecord();
+                putSaveMetadata(normalized, request);
+                normalized.setId(id);
+                validateWritableSaveFields(normalized, "");
+                validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
+                requireDataScopeRecord(PlatformAction.UPDATE, id);
+                service().update(normalized);
+                syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
+                return WebOutputSupport.record(service(), selectForAction(PlatformAction.VIEW, id),
+                        FieldOutputContext.VIEW);
+            });
+        }
+    }
+
+    private void putSaveMetadata(DynamicRecord record, RecordSaveWebRequest<DynamicRecord> request) {
+        request.legacyMetadata().forEach((key, value) -> {
+            if ("uiConfigId".equals(key) || "originContext".equals(key) || "attachments".equals(key)) {
+                record.putMutationMetadata(key, value);
+            }
         });
+        if (!request.metadata().fileDeletions().isEmpty()) {
+            record.putMutationMetadata("fileDeletions", request.metadata().fileDeletions());
+        }
     }
 
     @PostMapping("/view/{id}/attachments/query")

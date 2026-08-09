@@ -23,7 +23,8 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
                                                                            BiConsumer<C, String> setParentId,
                                                                            Function<P, List<C>> extractChildren,
                                                                            BiConsumer<P, List<C>> populateChildren) {
-        ChildRelation<C, P> relation = toChildRelation(setParentId, plan.childForeignKeyField(), extractChildren);
+        ChildRelation<C, P> relation = new ChildRelation<>(plan.relationCode(), this, setParentId,
+                plan.childForeignKeyField(), extractChildren);
         if (plan.autoPopulate()) {
             if (populateChildren == null) {
                 throw new PlatformException("auto populate child relation requires populateChildren: " + plan.relationCode());

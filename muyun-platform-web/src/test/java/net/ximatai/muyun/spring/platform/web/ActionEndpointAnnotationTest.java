@@ -24,8 +24,8 @@ class ActionEndpointAnnotationTest {
         assertThat(endpoint(CrudWeb.class, "querySchema", String.class).value()).isEqualTo(PlatformAction.QUERY);
         assertThat(endpoint(CrudWeb.class, "formSchema", String.class).value()).isEqualTo(PlatformAction.VIEW);
         assertThat(endpoint(CrudWeb.class, "view", String.class).value()).isEqualTo(PlatformAction.VIEW);
-        assertThat(endpoint(CrudWeb.class, "insert", EntityContract.class).value()).isEqualTo(PlatformAction.CREATE);
-        assertThat(endpoint(CrudWeb.class, "update", String.class, EntityContract.class).value()).isEqualTo(PlatformAction.UPDATE);
+        assertThat(endpoint(CrudWeb.class, "insert", RecordSaveWebRequest.class).value()).isEqualTo(PlatformAction.CREATE);
+        assertThat(endpoint(CrudWeb.class, "update", String.class, RecordSaveWebRequest.class).value()).isEqualTo(PlatformAction.UPDATE);
         assertThat(endpoint(CrudWeb.class, "delete", String.class, RecordActionWebRequest.class).value())
                 .isEqualTo(PlatformAction.DELETE);
     }

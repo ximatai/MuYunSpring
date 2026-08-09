@@ -35,11 +35,12 @@
 
 1. 在线页面只消费已发布且启用的 UI 配置和查询模板；未发布配置属于配置工作区。
 2. UI 配置是页面交付真相源；基础 view descriptor 保持结构兼容，不反写页面配置。
-3. 页面保存使用 `uiConfigId + record` wrapper；`uiConfigId` 只作为保存校验的 mutation metadata，不改变动态记录模型身份。
-4. `record.attachments` 和附件维护接口只管理业务记录到 `fileId` 的关系；文件事实、二进制、预览和下载策略归属文件服务。
-5. 交互区块只识别已收口类型，不把 `layoutJson.blocks` 扩展成任意前端组件注册表。
-6. 所有业务动作必须回到动态 action 主链路，不能用前端私有 handler 或模块专用 controller 绕过权限、数据范围和审计。
-7. 页面偏好只影响当前用户体验，可承载列表列宽、排序、筛选和个人化导出配置，不改变平台 UI 配置真相源。
+3. 页面保存使用 `$save` envelope；`uiConfigId` 只作为其中的保存校验 metadata，不改变动态记录模型身份。
+4. `record.attachments` 和附件维护接口只管理业务记录到 `fileId` 的关系；文件事实、二进制、预览和下载策略归属文件服务，移除附件关系不推导物理文件删除。
+5. 标准创建、更新可通过 `$save.record` 提交记录、以 `$save.metadata.fileDeletions` 表达字段文件的明确删除意图；字段引用的转正、保存后删除和边界见 [MuYunFileServer 与文件引用生命周期](../../FILE_REFERENCE_LIFECYCLE.md)。
+6. 交互区块只识别已收口类型，不把 `layoutJson.blocks` 扩展成任意前端组件注册表。
+7. 所有业务动作必须回到动态 action 主链路，不能用前端私有 handler 或模块专用 controller 绕过权限、数据范围和审计。
+8. 页面偏好只影响当前用户体验，可承载列表列宽、排序、筛选和个人化导出配置，不改变平台 UI 配置真相源。
 
 ## 并发编辑提示
 

@@ -16,8 +16,8 @@
 | `POST` | `/{moduleAlias}/query` | 动态列表查询。 |
 | `POST` | `/{moduleAlias}/query/summary` | 按列表查询上下文计算汇总项。 |
 | `GET` | `/{moduleAlias}/view/{id}` | 查看记录详情。 |
-| `POST` | `/{moduleAlias}/insert` | 动态页面新增保存，可携带 `uiConfigId + record` wrapper。 |
-| `POST` | `/{moduleAlias}/update/{id}` | 动态页面编辑保存，可携带 `uiConfigId + record` wrapper。 |
+| `POST` | `/{moduleAlias}/insert` | 动态页面新增保存；正式请求使用 `$save` envelope，可携带 `uiConfigId` 和文件删除 metadata。 |
+| `POST` | `/{moduleAlias}/update/{id}` | 动态页面编辑保存；正式请求使用 `$save` envelope，可携带 `uiConfigId`、文件删除 metadata 和乐观锁版本。 |
 | `POST` | `/{moduleAlias}/delete/{id}` | 删除记录，动态侧按平台软删语义执行。 |
 | `POST` | `/{moduleAlias}/sort/{id}` | 调整列表排序或树内位置；仅记录具备 SORT 或 TREE 能力时可用。 |
 | `POST` | `/{moduleAlias}/view/{id}/attachments/query` | 查询记录附件关系。 |

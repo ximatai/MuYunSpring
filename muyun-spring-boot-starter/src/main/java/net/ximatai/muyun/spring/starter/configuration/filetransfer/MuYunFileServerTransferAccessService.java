@@ -68,6 +68,11 @@ public final class MuYunFileServerTransferAccessService
     }
 
     @Override
+    public FileTransferAccess issueDeleteAccess(String fileId) {
+        return issue(FileTransferOperation.DELETE, fileId, properties.getDeleteTokenTtl());
+    }
+
+    @Override
     public FileTransferAccess issuePreviewAccess(String fileId) {
         return issue(FileTransferOperation.PREVIEW, fileId, properties.getPreviewTokenTtl());
     }
@@ -147,6 +152,7 @@ public final class MuYunFileServerTransferAccessService
             case UPLOAD -> baseUrl + "/api/v1/public/files?access_token=" + encodedToken;
             case METADATA -> baseUrl + "/api/v1/public/files/" + fileId + "?access_token=" + encodedToken;
             case PROMOTE -> baseUrl + "/api/v1/public/files/" + fileId + "/promote?access_token=" + encodedToken;
+            case DELETE -> baseUrl + "/api/v1/public/files/" + fileId + "?access_token=" + encodedToken;
             case PREVIEW -> baseUrl + "/api/v1/public/files/" + fileId + "/view?access_token=" + encodedToken;
             case DOWNLOAD -> baseUrl + "/api/v1/public/files/" + fileId + "/download?access_token=" + encodedToken;
         };
@@ -162,6 +168,7 @@ public final class MuYunFileServerTransferAccessService
             case UPLOAD -> "upload";
             case METADATA -> "metadata";
             case PROMOTE -> "promote";
+            case DELETE -> "delete";
             case PREVIEW -> "viewer";
             case DOWNLOAD -> "download";
         };

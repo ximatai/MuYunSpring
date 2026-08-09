@@ -15,6 +15,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
+import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.ability.deletion.DeletionContext;
 import net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleListener;
 import net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleSession;
@@ -53,8 +54,46 @@ class AbilityContractTest {
         PlatformAbilityRuntime.resetReferencedByResolver();
         PlatformAbilityRuntime.resetReferenceLoadResolver();
         PlatformAbilityRuntime.resetDeletionLifecycleListener();
+        PlatformAbilityRuntime.resetEntitySaveLifecycleListener();
         TenantContext.clear();
         clearTransactionState();
+    }
+
+    @Test
+    void saveLifecycleShouldObserveFailuresAfterFilePromotionAndBeforeTheSaveCompletes() {
+        List<String> failures = new ArrayList<>();
+        PlatformAbilityRuntime.configureEntitySaveLifecycleListener(new EntitySaveLifecycleListener() {
+            @Override
+            public <T extends EntityContract> void persistFailed(CrudAbility<T> ability,
+                                                                  T entity,
+                                                                  RuntimeException failure) {
+                failures.add(ability.getModuleAlias() + ":" + failure.getMessage());
+            }
+        });
+
+        FailingAfterChangedService updateService = new FailingAfterChangedService(false);
+        String id = updateService.insert(new DemoPlainRecord("created"));
+        updateService.failAfterChanged = true;
+        DemoPlainRecord update = new DemoPlainRecord("updated");
+        update.setId(id);
+
+        assertThatThrownBy(() -> updateService.update(update))
+                .isInstanceOf(PlatformException.class)
+                .hasMessage("after changed failed");
+
+        assertThatThrownBy(() -> new FailingAfterChangedService(true).insert(new DemoPlainRecord("created")))
+                .isInstanceOf(PlatformException.class)
+                .hasMessage("after changed failed");
+
+        assertThatThrownBy(() -> new FailingFieldProtectionService().insert(new DemoPlainRecord("created")))
+                .isInstanceOf(PlatformException.class)
+                .hasMessage("protected field restore failed");
+
+        assertThat(failures).containsExactly(
+                "demo.failingAfterChanged:after changed failed",
+                "demo.failingAfterChanged:after changed failed",
+                "demo.failingFieldProtection:protected field restore failed"
+        );
     }
 
     @Test
@@ -1952,6 +1991,36 @@ class AbilityContractTest {
         @Override
         protected void validateBeforeUpdate(DemoPlainRecord record) {
             hooks.add("update");
+        }
+    }
+
+    private static final class FailingAfterChangedService extends AbstractAbilityService<DemoPlainRecord> {
+        private boolean failAfterChanged;
+
+        private FailingAfterChangedService(boolean failAfterChanged) {
+            super("demo.failingAfterChanged", DemoPlainRecord.class, new InMemoryBaseDao<>());
+            this.failAfterChanged = failAfterChanged;
+        }
+
+        @Override
+        public void afterChanged(DemoPlainRecord entity) {
+            if (failAfterChanged) {
+                throw new PlatformException("after changed failed");
+            }
+        }
+    }
+
+    private static final class FailingFieldProtectionService extends AbstractAbilityService<DemoPlainRecord> implements
+            FieldProtectionAbility<DemoPlainRecord> {
+        private FailingFieldProtectionService() {
+            super("demo.failingFieldProtection", DemoPlainRecord.class, new InMemoryBaseDao<>());
+        }
+
+        @Override
+        public FieldProtectionMutation protectFieldsForStorage(DemoPlainRecord entity) {
+            return () -> {
+                throw new PlatformException("protected field restore failed");
+            };
         }
     }
 }

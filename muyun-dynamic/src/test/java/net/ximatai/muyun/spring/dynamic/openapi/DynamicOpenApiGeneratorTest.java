@@ -479,8 +479,10 @@ class DynamicOpenApiGeneratorTest {
                 .containsKeys("uiConfigId", "queryTemplateId", "externalQueryValues", "navigationSession",
                         "queryForm", "quickSearch", "quickSearchFields", "navigationQueryKey");
         assertThat(document.schemas().get("DynamicRecordSaveRequest").properties())
-                .containsKeys("uiConfigId", "record")
+                .containsKey("$save")
                 .doesNotContainKey("attachments");
+        assertThat(document.schemas().get("RecordSaveMutationMetadata").properties().get("fileDeletions").itemType())
+                .isEqualTo("RecordFileDeletionIntent");
         assertThat(document.schemas().get("DynamicRecordPayload").properties().get("attachments").itemType())
                 .isEqualTo("RecordAttachmentCommand");
         assertThat(document.schemas().get("RecordAttachmentCommand").required()).containsExactly("fileId");

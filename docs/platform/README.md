@@ -45,7 +45,7 @@
 | [后台任务与异步批次边界](BACKGROUND_JOB_AND_BATCH_BOUNDARY.md) | 说明同步批量动作、异步导入、补偿任务、进度查询、重试和批次模型的建设触发条件。 |
 | [动作结果与数据变更契约](ACTION_RESULT_AND_DATA_CHANGE.md) | 说明业务动作成功回执、可读消息、数据变化事实、HTTP 包装和异步广播之间的统一契约。 |
 | [平台实时通信设计](REALTIME_COMMUNICATION.md) | 说明 WebSocket/STOMP 实时通信底座、前后端封装边界、数据变化广播、双向通信预留和后续可靠性演进。 |
-| [MuYunFileServer 与文件引用生命周期](FILE_REFERENCE_LIFECYCLE.md) | 说明关联文件服务、记录附件、字段文件引用、临时上传、转正与补偿的职责边界。 |
+| [MuYunFileServer 与文件引用生命周期](FILE_REFERENCE_LIFECYCLE.md) | 说明关联文件服务、记录附件、字段文件引用、临时上传、转正和显式物理删除的职责边界。 |
 
 ## 平台运行模式
 
