@@ -34,7 +34,7 @@ MuYunSpring 与 FileServer 没有跨服务事务。文件引用保存优先保�
 
 文件引用字段不配置 `uiType("fileTransfer")`。静态声明和动态元数据会编译为同一份 `fileReferences` descriptor，由标准表单运行器自动选择上传控件；控件以当前 `moduleAlias` 请求 `POST /{moduleAlias}/file-transfer/upload-ticket`，并携带字段、草稿、所选文件事实和明确意图：空引用为 `CREATE`，已绑定多文件字段新增一项为 `APPEND`，单文件字段覆盖旧值为 `REPLACE`。平台先确认 module、relation 和 field 已由当前静态或动态页面运行时声明为 `FileReference`，再只在匹配的 `FileReferenceUploadPolicy` 明确授权后签发 ticket；缺少声明、Policy 或文件传输配置都会返回可识别错误，不生成无条件上传授权。业务模块不能在浏览器上传完成时自行创建业务记录或调用转正。
 
-业务应用迁移到该标准入口时，应为每个可上传字段注册 `FileReferenceUploadPolicy`：`supportsField` 是 descriptor 与 endpoint 共用的唯一字段覆盖声明，`authorize` 再基于草稿、文件事实和 `CREATE`/`APPEND`/`REPLACE` 意图执行目录、项目、状态及动作授权。一个字段只能匹配一个 Policy，避免依赖 Bean 顺序。标准保存不会再次强制调用该业务 Policy；它继续执行 FileServer 文件事实、租户和临时状态等平台不变量校验。应用原有同路径 `file-transfer/upload-ticket` Controller 在 Policy 已注册并通过契约测试后应删除，避免与平台标准映射产生冲突或使实际请求绕开 Policy。
+业务应用迁移到该标准入口时，应为每个可上传字段注册 `FileReferenceUploadPolicy`：`supportsField` 是 descriptor 与 endpoint 共用的唯一字段覆盖声明，`authorize` 再基于草稿、文件事实和 `CREATE`/`APPEND`/`REPLACE` 意图执行目录、项目、状态及动作授权。一个字段只能匹配一个 Policy，避免依赖 Bean 顺序。Policy 只承担上传 admission，不替代应用 CRUD service 对目录、项目、状态和其他业务不变量的正常校验；标准保存不会再次强制调用该业务 Policy，只执行 FileServer 文件事实、租户、临时状态、类型和大小等存储不变量校验及既有生命周期。应用原有同路径 `file-transfer/upload-ticket` Controller 在 Policy 已注册并通过契约测试后应删除，避免与平台标准映射产生冲突或使实际请求绕开 Policy。
 
 文件引用字段 v1 的实体事实为：`maxFiles = 1` 时绑定物理 `STRING` 类型的 `fileId`；`maxFiles > 1` 时绑定物理 `JSON_SET` 的 `Collection<String>`。两种形态都可声明 MIME 类型、单文件大小和字段文件数量约束。静态模型通过 `@FileReference` 声明，动态运行态通过 `EntityDefinition.fileReferences` 表达；标准控件对选择和拖拽都执行 MIME、大小和数量的前端预检，并继续由后端保存生命周期作最终校验。`enabledWhen`、`disabledHint` 与普通字段一致地控制上传控件；禁用时不得打开文件选择器。
 
