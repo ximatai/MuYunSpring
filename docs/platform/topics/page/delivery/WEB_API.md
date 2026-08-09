@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `GET` | `/platform.menu/{menuId}/entry` | 按菜单节点读取页面 bootstrap；`clientType` 默认 `WEB`。 |
 
-bootstrap 返回模块入口、客户端类型、权限裁剪后的动态 descriptor、主实体别名、resolved 页面配置、字段 UI 类型定义、字段 UI 类型属性和字段映射，以及 `/{moduleAlias}/openapi` 文档入口。动态 descriptor 的字段包含 `storageForm`，resolved 页面字段包含 `fieldForm`，前端可据此识别物理字段和虚拟展示字段。
+bootstrap 返回模块入口、客户端类型、主实体别名、权限裁剪后的 resolved 页面配置，以及 `/{moduleAlias}/openapi` 文档入口。它面向静态和动态模块共用的标准运行器；模块运行态 descriptor 仍由 `/{moduleAlias}/context` 提供。resolved 页面字段包含 `fieldForm`，前端可据此识别物理字段和虚拟展示字段。
 
 页面配置本身由配置专题维护：菜单方案、菜单树、字段 UI 类型配置、UI 配置集、UI 配置、UI 字段配置、查询模板和查询项的配置 URL 见 `configuration/WEB_API.md`。页面交付只消费已发布配置和当前用户可见菜单。
 

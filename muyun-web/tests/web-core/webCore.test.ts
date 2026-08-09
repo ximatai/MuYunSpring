@@ -6,6 +6,7 @@ import {
   createAuthClient,
   createHttpClient,
   createMenuClient,
+  createPageBootstrapClient,
   createModuleContext,
   createModuleTreeContext,
   createStaticModuleCrudClient,
@@ -97,6 +98,46 @@ it('menu client normalizes backend enum values before workbench navigation', asy
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+it('page bootstrap client reads the permission-scoped WEB entry for a menu node', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return Response.json({
+      entry: {
+        menuId: 'customer-menu',
+        moduleAlias: 'crm.customer',
+        pageMode: 'LIST',
+        defaultUiConfigId: 'customer-list',
+        defaultQueryTemplateId: 'active-customers',
+      },
+      clientType: 'WEB',
+      mainEntityAlias: 'customer',
+      resolvedConfig: { uiFields: [], queryItems: [] },
+      openApiPath: '/crm.customer/openapi',
+    });
+  };
+
+  try {
+    const bootstrap = await createPageBootstrapClient(
+      createHttpClient({ baseUrl: 'http://api.local' }),
+    ).byMenu('customer-menu');
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, 'http://api.local/platform.menu/customer-menu/entry?clientType=WEB');
+    assert.equal(bootstrap.entry.defaultQueryTemplateId, 'active-customers');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('page bootstrap client rejects blank menu identities before issuing a request', async () => {
+  await expectRejected(
+    () => createPageBootstrapClient(createHttpClient()).byMenu('   '),
+    (error) => error instanceof Error && error.message === 'Page bootstrap requires a menuId',
+  );
 });
 
 it('auth logout posts bearer token to backend logout endpoint', async () => {

@@ -1686,7 +1686,13 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /view\.sourceUiConfigId === listUiConfigId\.value/);
   assert.match(hostSource, /configuredList\.scopedListWorkspace/);
   assert.match(hostSource, /:ui-config-id="listUiConfigId"/);
-  assert.match(hostSource, /:query-template-id="descriptor\.target\.defaultQueryTemplateId"/);
+  assert.match(hostSource, /createPageBootstrapClient\(context\.http\)\.byMenu\(menuId\)/);
+  assert.match(hostSource, /bootstrap\.entry\.moduleAlias !== context\.moduleAlias/);
+  assert.match(hostSource, /pageBootstrap\.value\?\.entry\.pageMode/);
+  assert.match(hostSource, /v-else-if="!pageReady"/);
+  assert.match(hostSource, /v-else-if="isListPage"/);
+  assert.match(hostSource, /:query-template-id="listQueryTemplateId"/);
+  assert.match(hostSource, /:ready="pageReady"/);
   assert.match(hostSource, /动态\$\{pageMode\.value\}入口暂未接入运行器/);
   assert.match(hostSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
   assert.match(hostSource, /<ManagementWorkspace v-if="scopedListWorkspace && scopeContext"/);
@@ -1701,6 +1707,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /selectedScopeRecord\.value\?\.id === record\.id/);
   assert.match(hostSource, /disabled: !canCreateRecord\.value/);
   assert.match(listPanelSource, /queryTemplateId: props\.queryTemplateId/);
+  assert.match(listPanelSource, /if \(!queryReady\.value\) \{\s*return;/);
   assert.match(listPanelSource, /item\.sourceUiConfigId === uiConfigId/);
   assert.match(listPanelSource, /props\.requiredExternalCriteriaKeys\.length > 0/);
   assert.match(hostSource, /\[workspace\.scopeField\]: selectedScopeRecord\.value\.id/);

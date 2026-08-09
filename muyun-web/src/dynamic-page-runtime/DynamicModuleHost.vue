@@ -29,11 +29,17 @@ import {
 import type {
   DynamicModulePageDescriptor,
   MenuPageMode,
+  PageBootstrap,
   RecordInlineAction,
   ResolvedScopedListWorkspaceDescriptor,
   ResolvedViewDescriptor,
 } from '@muyun/web-contracts';
-import { createModuleContext, useModuleContext, type ModuleContext } from '@muyun/web-core';
+import {
+  createModuleContext,
+  createPageBootstrapClient,
+  useModuleContext,
+  type ModuleContext,
+} from '@muyun/web-core';
 import {
   canMutateDynamicModuleDetail,
   shouldCommitDynamicModuleDetailRequest,
@@ -103,11 +109,24 @@ const scopeEditorTitle = computed(
   () =>
     `${scopeEditorMode.value === 'create' ? '新建' : '编辑'}${scopedListWorkspace.value?.scopeTitle ?? '目录'}`,
 );
-const pageMode = computed<MenuPageMode>(() => props.descriptor.target.pageMode ?? 'LIST');
+const pageBootstrap = ref<PageBootstrap>();
+const pageBootstrapError = ref<string>();
+const configuredPageMode = computed<MenuPageMode>(() => props.descriptor.target.pageMode ?? 'LIST');
+const pageMode = computed<MenuPageMode>(
+  () => pageBootstrap.value?.entry.pageMode ?? configuredPageMode.value,
+);
 const isListPage = computed(() => pageMode.value === 'LIST');
-const listUiConfigId = computed(() =>
+const configuredListUiConfigId = computed(() =>
   isListPage.value ? props.descriptor.target.defaultUiConfigId : undefined,
 );
+const listUiConfigId = computed(
+  () => pageBootstrap.value?.entry.defaultUiConfigId ?? configuredListUiConfigId.value,
+);
+const listQueryTemplateId = computed(
+  () => pageBootstrap.value?.entry.defaultQueryTemplateId ?? props.descriptor.target.defaultQueryTemplateId,
+);
+const pageBootstrapRequired = computed(() => Boolean(props.descriptor.menuId));
+const pageReady = computed(() => !pageBootstrapRequired.value || pageBootstrap.value !== undefined);
 const unsupportedPageModeText = computed(() => `动态${pageMode.value}入口暂未接入运行器`);
 // Tree modules are discovered from runtime metadata. Once discovered, their
 // explorer/detail panes own the constrained work area instead of extending the
@@ -184,7 +203,27 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
   return configs;
 });
 
-onMounted(loadRuntimeForm);
+onMounted(async () => {
+  await loadPageBootstrap();
+  await loadRuntimeForm();
+});
+
+async function loadPageBootstrap() {
+  const menuId = props.descriptor.menuId;
+  if (!menuId) return;
+  try {
+    const bootstrap = await createPageBootstrapClient(context.http).byMenu(menuId);
+    if (bootstrap.entry.moduleAlias !== context.moduleAlias) {
+      throw new Error(
+        `Menu ${menuId} resolves ${bootstrap.entry.moduleAlias}, expected ${context.moduleAlias}`,
+      );
+    }
+    pageBootstrap.value = bootstrap;
+    pageBootstrapError.value = undefined;
+  } catch (cause) {
+    pageBootstrapError.value = cause instanceof Error ? cause.message : '页面入口加载失败';
+  }
+}
 
 async function loadRuntimeForm() {
   if (!isListPage.value) {
@@ -636,8 +675,14 @@ function recordTitle(record: QueryListRecord | undefined) {
 </script>
 
 <template>
+  <section v-if="pageBootstrapError" class="dynamic-module-unsupported">
+    <RecordPanelState class="dynamic-module-bootstrap-error" :description="pageBootstrapError" />
+  </section>
+  <section v-else-if="!pageReady" class="dynamic-module-unsupported">
+    <RecordPanelState loading loading-tip="加载页面入口" description="" />
+  </section>
   <section
-    v-if="isListPage"
+    v-else-if="isListPage"
     class="dynamic-module-workspace"
     :class="{ 'dynamic-module-workspace--tree': treeModule }"
   >
@@ -735,7 +780,8 @@ function recordTitle(record: QueryListRecord | undefined) {
         :actions="scopedListActions"
         :standard-crud-row-actions="true"
         :ui-config-id="listUiConfigId"
-        :query-template-id="descriptor.target.defaultQueryTemplateId"
+        :query-template-id="listQueryTemplateId"
+        :ready="pageReady"
         :external-query-values="scopedExternalQueryValues"
         :required-external-criteria-keys="[scopedListWorkspace.queryCriteriaKey]"
         quick-search-placeholder="搜索动态记录"
@@ -879,7 +925,8 @@ function recordTitle(record: QueryListRecord | undefined) {
       :standard-crud-actions="true"
       :standard-crud-row-actions="true"
       :ui-config-id="listUiConfigId"
-      :query-template-id="descriptor.target.defaultQueryTemplateId"
+      :query-template-id="listQueryTemplateId"
+      :ready="pageReady"
       quick-search-placeholder="搜索动态记录"
       empty-description="暂无动态记录"
       @loaded="handleLoaded"

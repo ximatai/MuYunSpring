@@ -468,7 +468,7 @@
 | `GET` | `/platform.menu/mine` | 返回当前用户可见菜单树；后端按当前用户推理菜单方案，权限专题负责剪枝 |
 | `GET` | `/platform.menu/{menuId}/entry` | 读取菜单节点对应的动态页面入口，可携带 `clientType`；页面 bootstrap 细节归属页面交付专题 |
 
-上述两个 URL 是已存在的菜单消费/页面入口：`MenuWebController` 提供 `/mine`，`DynamicPageBootstrapWebController` 提供 `/{menuId}/entry`。它们不等同于菜单方案或菜单节点的配置维护接口。
+上述两个 URL 是已存在的菜单消费/页面入口：`MenuWebController` 提供 `/mine`，`PlatformPageBootstrapWebController` 提供 `/{menuId}/entry`。它们不等同于菜单方案或菜单节点的配置维护接口。
 
 ## 刷新后的消费入口
 
