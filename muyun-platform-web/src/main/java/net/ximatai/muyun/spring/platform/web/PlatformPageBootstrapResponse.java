@@ -1,14 +1,15 @@
-package net.ximatai.muyun.spring.dynamic.web;
+package net.ximatai.muyun.spring.platform.web;
 
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageEntryContext;
 import net.ximatai.muyun.spring.platform.ui.PlatformResolvedPageConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiClientType;
 
-public record DynamicPageBootstrapResponse(
+/**
+ * Source-neutral page entry projection for the standard module runner.
+ */
+public record PlatformPageBootstrapResponse(
         PlatformPageEntryContext entry,
         PlatformUiClientType clientType,
-        DynamicModuleDescriptor moduleDescriptor,
         String mainEntityAlias,
         PlatformResolvedPageConfig resolvedConfig,
         String openApiPath

@@ -9,7 +9,7 @@
 核心能力：
 
 1. 菜单入口定位模块、页面模式、客户端类型、默认 UI 配置、默认查询模板和入口参数。
-2. bootstrap 返回模块 descriptor、主元数据、resolved 页面配置、动作目录和 OpenAPI 入口。
+2. bootstrap 返回菜单解析后的模块身份、主实体别名、权限裁剪的 resolved 页面配置和 OpenAPI 入口；模块运行态 descriptor 继续由标准模块 context 交付。
 3. 列表查询、汇总和引用候选复用同一查询模板与 Criteria 编译链路。
 4. 表单保存使用 `$save` envelope；`$save.record` 是业务记录，`$save.metadata` 是平台保存 metadata，动态页面的 `uiConfigId` 仍作为该 envelope 内的页面校验上下文。按已发布 UI 配置执行 required/readOnly 校验。
 5. 子表保存沿用动态记录 `children` 语义：缺省或 `null` 表示不改，空数组表示提交空子表。

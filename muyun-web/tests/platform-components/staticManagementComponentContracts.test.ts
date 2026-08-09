@@ -1688,8 +1688,11 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /:ui-config-id="listUiConfigId"/);
   assert.match(hostSource, /createPageBootstrapClient\(context\.http\)\.byMenu\(menuId\)/);
   assert.match(hostSource, /bootstrap\.entry\.moduleAlias !== context\.moduleAlias/);
+  assert.match(hostSource, /pageBootstrap\.value\?\.entry\.pageMode/);
+  assert.match(hostSource, /v-else-if="!pageReady"/);
+  assert.match(hostSource, /v-else-if="isListPage"/);
   assert.match(hostSource, /:query-template-id="listQueryTemplateId"/);
-  assert.match(hostSource, /:ready="listReady"/);
+  assert.match(hostSource, /:ready="pageReady"/);
   assert.match(hostSource, /动态\$\{pageMode\.value\}入口暂未接入运行器/);
   assert.match(hostSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
   assert.match(hostSource, /<ManagementWorkspace v-if="scopedListWorkspace && scopeContext"/);
