@@ -26,6 +26,12 @@ it('creates a stable workbench tab descriptor for a module document', () => {
   const descriptor = createModuleOpenApiPageDescriptor('education.teacher', '教师');
 
   assert.equal(descriptor.title, '教师.OpenAPI');
+  if (!isModuleOpenApiPage(descriptor)) {
+    throw new Error('Expected a module OpenAPI descriptor.');
+  }
+  if (!('route' in descriptor.target)) {
+    throw new Error('Expected a route target.');
+  }
   assert.equal(descriptor.target.route, '/openapi/education.teacher');
   assert.equal(isModuleOpenApiPage(descriptor), true);
 });

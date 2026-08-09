@@ -13,6 +13,7 @@ import {
   optionItemsToOptions,
   optionItemsToTree,
 } from '@/platform-components/optionFieldOptions.ts';
+import type { ResolvedModuleUiDescriptor } from '@/web-contracts/index.ts';
 
 it('record form field names prefer descriptor order and fill missing fallback fields', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
@@ -241,7 +242,7 @@ it('record form fields resolve form view descriptors by view code', () => {
         fields: [descriptorField('code', '字典项编码'), descriptorField('parentId', '上级字典项')],
       },
     ],
-  } as const;
+  } satisfies ResolvedModuleUiDescriptor;
 
   assert.deepEqual([...resolveRecordFormFields(uiDescriptor).keys()], ['alias', 'title']);
   assert.deepEqual(
@@ -272,7 +273,7 @@ it('record form fields attach declared file-reference constraints and infer the 
         fields: [descriptorField('fileId', '上传文件')],
       },
     ],
-  } as const;
+  } satisfies ResolvedModuleUiDescriptor;
 
   const fields = resolveRecordFormFields(uiDescriptor);
   assert.deepEqual(fields.get('fileId')?.fileReference, uiDescriptor.fileReferences[0]);

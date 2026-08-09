@@ -12,7 +12,7 @@
     "noEmit": true,
     "jsx": "preserve",
     "strict": true,
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "paths": {
       "@/*": ["./src/*"],
       "@muyun/web-contracts": ["./src/web-contracts/index.ts"],
@@ -24,5 +24,5 @@
       "@muyun/platform-workbench": ["./src/platform-workbench/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "tests/**/*.ts"]
 }

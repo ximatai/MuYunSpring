@@ -183,6 +183,13 @@ function createContext(
   canAction: (actionCode: string) => boolean | undefined = () => true,
 ): ModuleContext<Department> {
   const crud: ModuleContext<Department>['crud'] = {
+    querySchema: async () => ({
+      scopeName: 'iam.department',
+      quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+      fields: [],
+      externalCriteria: [],
+      defaultSorts: [],
+    }),
     query: async () => ({
       records: [],
       total: 0,
@@ -232,7 +239,10 @@ function createContext(
       hasEnable: () => undefined,
     },
     action: () => undefined,
+    runtimeAction: () => undefined,
     can: canAction,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
   };
 }
 
@@ -254,6 +264,9 @@ function fakeRuntimeState(): ModuleRuntimeContextState {
     error: () => undefined,
     hasAbility: () => undefined,
     action: () => undefined,
+    runtimeAction: () => undefined,
     can: () => undefined,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
   };
 }

@@ -1,5 +1,5 @@
 import { assert, it } from 'vitest';
-import type { HttpClient } from '../src/web-core/http.ts';
+import type { HttpClient, HttpRequestOptions } from '../../src/web-core/http.ts';
 import {
   acceptedMediaTypes,
   appendUploadedFileReference,
@@ -9,7 +9,7 @@ import {
   replacedFileReferenceId,
   uploadedFileId,
 } from '@/platform-components/fileReferenceTransfer.ts';
-import type { ResolvedFileReferenceFieldDescriptor } from '../src/web-contracts/index.ts';
+import type { ResolvedFileReferenceFieldDescriptor } from '../../src/web-contracts/index.ts';
 
 const single: ResolvedFileReferenceFieldDescriptor = {
   fieldRef: { fieldName: 'fileId' },
@@ -22,9 +22,9 @@ const single: ResolvedFileReferenceFieldDescriptor = {
 it('file-reference upload tickets use the current module standard endpoint', async () => {
   const requests: unknown[] = [];
   const http: HttpClient = {
-    request: async (request) => {
+    request: async <T>(request: HttpRequestOptions) => {
       requests.push(request);
-      return { url: 'https://files.example/upload' };
+      return { url: 'https://files.example/upload' } as T;
     },
   };
 

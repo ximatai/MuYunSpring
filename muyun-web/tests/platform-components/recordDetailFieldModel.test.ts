@@ -78,6 +78,8 @@ function formField(fieldName: string, options: Partial<RecordFormFieldState> = {
     readOnly: false,
     visible: true,
     controlType: 'input',
+    columnSpan: 1,
+    hasOption: false,
     ...options,
   };
 }

@@ -92,7 +92,7 @@ it('organization management state runs standard action reactions before custom h
 it('organization management state clears selection through standard delete reactions', async () => {
   const context = createContext({
     delete: async () => ({
-      count: 1,
+      data: 1,
       reactions: [
         { type: platformActionResultReactionTypes.clearSelection },
         { type: platformActionResultReactionTypes.refreshList },
@@ -190,6 +190,13 @@ function createContext(
   canAction: (actionCode: string) => boolean | undefined = () => true,
 ): ModuleContext<Organization> {
   const crud: ModuleContext<Organization>['crud'] = {
+    querySchema: async () => ({
+      scopeName: 'iam.organization',
+      quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+      fields: [],
+      externalCriteria: [],
+      defaultSorts: [],
+    }),
     query: async () => ({
       records: [],
       total: 0,
@@ -219,6 +226,7 @@ function createContext(
   };
   return {
     moduleAlias: 'iam.organization',
+    http: { request: async () => undefined as never },
     crud,
     runtime: fakeRuntimeState(),
     abilities: {
@@ -234,7 +242,10 @@ function createContext(
       hasEnable: () => undefined,
     },
     action: () => undefined,
+    runtimeAction: () => undefined,
     can: canAction,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
   };
 }
 
@@ -256,6 +267,9 @@ function fakeRuntimeState(): ModuleRuntimeContextState {
     error: () => undefined,
     hasAbility: () => undefined,
     action: () => undefined,
+    runtimeAction: () => undefined,
     can: () => undefined,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
   };
 }
