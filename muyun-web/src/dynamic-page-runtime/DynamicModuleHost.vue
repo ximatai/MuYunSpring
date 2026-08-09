@@ -83,6 +83,7 @@ const fileDeletions = ref<
     fileId: string;
   }>
 >([]);
+const scopeFileDeletions = ref<(typeof fileDeletions.value)[number][]>([]);
 const togglingEnabled = ref(false);
 const detailLoading = ref(false);
 const detailLoadFailed = ref(false);
@@ -293,6 +294,7 @@ function scopeTreeActions(): RecordInlineAction[] {
 }
 
 function openScopeEditor(mode: 'create' | 'edit', record?: QueryListRecord) {
+  scopeFileDeletions.value = [];
   scopeEditorMode.value = mode;
   scopeEditingRecord.value =
     mode === 'create'
@@ -301,6 +303,12 @@ function openScopeEditor(mode: 'create' | 'edit', record?: QueryListRecord) {
         : { parentId: record.id, enabled: true }
       : record;
   scopeEditorOpen.value = true;
+}
+
+function closeScopeEditor() {
+  if (scopeSaving.value) return;
+  scopeEditorOpen.value = false;
+  scopeFileDeletions.value = [];
 }
 
 async function editScopeRecord(record: QueryListRecord) {
@@ -321,10 +329,11 @@ async function saveScopeRecord() {
   try {
     const result =
       scopeEditorMode.value === 'edit' && record.id != null
-        ? await scope.crud.update(String(record.id), record)
-        : await scope.crud.insert(record);
+        ? await scope.crud.update(String(record.id), record, { fileDeletions: scopeFileDeletions.value })
+        : await scope.crud.insert(record, { fileDeletions: scopeFileDeletions.value });
     selectedScopeRecord.value = result.record as QueryListRecord;
     scopeEditorOpen.value = false;
+    scopeFileDeletions.value = [];
     scopeReloadKey.value += 1;
   } catch (cause) {
     presentPlatformError(cause, { source: 'scoped-tree-editor', phase: 'action' });
@@ -372,6 +381,16 @@ function updateScopeDraftField(
   scopeEditingRecord.value = { ...scopeEditingRecord.value, [fieldName]: value };
 }
 
+function addScopeFileDeletion(intent: (typeof scopeFileDeletions.value)[number]) {
+  if (
+    !scopeFileDeletions.value.some(
+      (candidate) => candidate.fieldName === intent.fieldName && candidate.fileId === intent.fileId,
+    )
+  ) {
+    scopeFileDeletions.value = [...scopeFileDeletions.value, intent];
+  }
+}
+
 function selectTreeRecord(record: unknown) {
   selectedTreeRecord.value = record as QueryListRecord;
   void openRecord(selectedTreeRecord.value, 'view');
@@ -387,6 +406,7 @@ async function openRecord(record: QueryListRecord, mode: 'edit' | 'view') {
   const id = record.id == null ? undefined : String(record.id);
   if (!id) return;
   const requestSequence = ++detailLoadSequence;
+  fileDeletions.value = [];
   selectedRecord.value = record;
   editingRecord.value = undefined;
   editorMode.value = mode;
@@ -445,6 +465,7 @@ function createRecord(parentId?: string) {
   detailLoadSequence += 1;
   detailLoading.value = false;
   detailLoadFailed.value = false;
+  fileDeletions.value = [];
   const workspace = scopedListWorkspace.value;
   editingRecord.value = parentId
     ? { parentId }
@@ -564,6 +585,7 @@ function closeDetail() {
   detailLoadSequence += 1;
   detailLoading.value = false;
   detailLoadFailed.value = false;
+  fileDeletions.value = [];
   detailOpen.value = false;
   editorMode.value = 'view';
   editingRecord.value = selectedRecord.value;
@@ -574,6 +596,7 @@ function closeTreeCardEditor() {
   detailLoadSequence += 1;
   detailLoading.value = false;
   detailLoadFailed.value = false;
+  fileDeletions.value = [];
   detailOpen.value = false;
   editorMode.value = 'view';
   editingRecord.value = selectedRecord.value;
@@ -657,7 +680,7 @@ function recordTitle(record: QueryListRecord | undefined) {
                       :show-label="false"
                       @change="updateScopeDraftField('enabled', $event)"
                     />
-                    <RecordPanelButton :disabled="scopeSaving" @click="scopeEditorOpen = false">
+                    <RecordPanelButton :disabled="scopeSaving" @click="closeScopeEditor">
                       取消
                     </RecordPanelButton>
                     <RecordPanelButton type="primary" :loading="scopeSaving" @click="saveScopeRecord">
@@ -669,10 +692,12 @@ function recordTitle(record: QueryListRecord | undefined) {
                   class="dynamic-scope-editor-form"
                   :record="scopeEditingRecord"
                   :fields="scopeFormFields"
+                  :file-transfer-context="scopeContext"
                   :picker-configs="scopeReferencePickerConfigs"
                   :disabled="scopeSaving"
                   :exclude-field-names="['enabled']"
                   @update:field="updateScopeDraftField"
+                  @file-deletion="addScopeFileDeletion"
                 />
               </section>
             </Transition>
