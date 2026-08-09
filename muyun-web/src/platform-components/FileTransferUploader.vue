@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import {
   performBrowserFileTransferUpload,
@@ -20,6 +20,7 @@ interface UploadItem {
   progress: number;
   error?: string;
   task?: FileTransferUploadTask;
+  completedFileId?: string;
 }
 
 const props = withDefaults(
@@ -42,6 +43,9 @@ const props = withDefaults(
     completionHint?: string;
     /** Completed items may be retained when the surrounding form owns deletion semantics. */
     allowCompletedRemoval?: boolean;
+    /** Browser-owned uploaded files removed from an unsaved enclosing form. */
+    releasedCompletedFileIds?: readonly string[];
+    completedFileId?: (receipt: FileTransferUploadReceipt) => string | undefined;
   }>(),
   {
     confirmUpload: undefined,
@@ -57,6 +61,8 @@ const props = withDefaults(
     disabledHint: undefined,
     completionHint: undefined,
     allowCompletedRemoval: true,
+    releasedCompletedFileIds: () => [],
+    completedFileId: undefined,
   },
 );
 
@@ -70,6 +76,16 @@ const input = ref<HTMLInputElement>();
 const items = ref<UploadItem[]>([]);
 const dragging = ref(false);
 let nextId = 1;
+
+watch(
+  () => props.releasedCompletedFileIds,
+  (released) => {
+    if (!released.length) return;
+    const ids = new Set(released);
+    items.value = items.value.filter((item) => !item.completedFileId || !ids.has(item.completedFileId));
+  },
+  { deep: true },
+);
 
 const active = computed(() =>
   items.value.some((item) => ['requesting', 'uploading', 'confirming'].includes(item.state)),
@@ -205,6 +221,7 @@ async function upload(item: UploadItem) {
         },
       },
     );
+    item.completedFileId = props.completedFileId?.(receipt);
     emit('completed', receipt, result);
     presentPlatformSuccess(`“${item.file.name}”上传成功。${props.completionHint ?? ''}`, {
       source: 'file-transfer',

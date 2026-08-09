@@ -697,13 +697,40 @@ test('static module client normalizes backend action envelopes', async () => {
       changeSetId: 'change-set-1',
       changes: [{ type: 'record-created', moduleAlias: 'iam.organization', recordId: 'org-1' }],
     });
+    await client.update(
+      'org-1',
+      { id: 'org-1', title: '新总部' },
+      {
+        fileDeletions: [
+          {
+            recordPath: { nodes: [{ recordId: 'org-1' }, { relationCode: 'items', recordId: 'item-1' }] },
+            fieldName: 'fileId',
+            fileId: 'file-old',
+          },
+        ],
+      },
+    );
     assert.deepEqual(await client.delete('org-1', { version: 3 }), {
       data: 1,
       message: { code: 'platform.crud.deleted', text: '删除成功', type: 'SUCCESS' },
       changeSetId: 'change-set-2',
       changes: [{ type: 'record-deleted', moduleAlias: 'iam.organization', recordId: 'org-1' }],
     });
-    assert.equal(await requests[1].text(), '{"version":3}');
+    assert.deepEqual(await requests[1].json(), {
+      $save: {
+        record: { id: 'org-1', title: '新总部' },
+        metadata: {
+          fileDeletions: [
+            {
+              recordPath: { nodes: [{ recordId: 'org-1' }, { relationCode: 'items', recordId: 'item-1' }] },
+              fieldName: 'fileId',
+              fileId: 'file-old',
+            },
+          ],
+        },
+      },
+    });
+    assert.equal(await requests[2].text(), '{"version":3}');
   } finally {
     globalThis.fetch = originalFetch;
   }

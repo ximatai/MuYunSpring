@@ -6,10 +6,13 @@ package net.ximatai.muyun.spring.platform.attachment;
  * authorization rules. The platform never grants an upload ticket by default.
  */
 public interface FileReferenceUploadPolicy {
-    /** Declares a field as upload-capable without requiring a synthetic browser file. */
+    /**
+     * Declares the file-reference fields owned by this policy. The platform uses this
+     * single declaration both to expose the uploader in a descriptor and to resolve
+     * the ticket policy; implementations must not duplicate the same match elsewhere.
+     */
     boolean supportsField(String moduleAlias, String relationCode, String fieldName);
 
-    boolean supports(FileReferenceUploadRequest request);
-
+    /** Authorizes one explicit browser request, or throws a platform access exception. */
     void authorize(FileReferenceUploadRequest request);
 }

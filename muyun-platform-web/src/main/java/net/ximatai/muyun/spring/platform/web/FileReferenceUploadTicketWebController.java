@@ -44,10 +44,17 @@ public class FileReferenceUploadTicketWebController {
                     "file-reference field is not declared by module runtime: " + request.moduleAlias()
                             + "." + request.fieldName());
         }
-        FileReferenceUploadPolicy policy = policies.stream().filter(candidate -> candidate.supportsField(
-                        request.moduleAlias(), request.relationCode(), request.fieldName()) && candidate.supports(request)).findFirst()
-                .orElseThrow(() -> new PlatformConfigurationException("no file-reference upload policy is configured for "
-                        + request.moduleAlias() + "." + request.fieldName()));
+        List<FileReferenceUploadPolicy> matchingPolicies = policies.stream().filter(candidate -> candidate.supportsField(
+                request.moduleAlias(), request.relationCode(), request.fieldName())).toList();
+        if (matchingPolicies.isEmpty()) {
+            throw new PlatformConfigurationException("no file-reference upload policy is configured for "
+                    + request.moduleAlias() + "." + request.fieldName());
+        }
+        if (matchingPolicies.size() > 1) {
+            throw new PlatformConfigurationException("multiple file-reference upload policies are configured for "
+                    + request.moduleAlias() + "." + request.fieldName());
+        }
+        FileReferenceUploadPolicy policy = matchingPolicies.getFirst();
         policy.authorize(request);
         return transferAccessService.issueUploadAccess();
     }

@@ -30,9 +30,6 @@ class FileReferenceUploadTicketWebControllerTest {
             @Override public boolean supportsField(String moduleAlias, String relationCode, String fieldName) {
                 return moduleAlias.equals("sales.contract") && fieldName.equals("fileId");
             }
-            @Override public boolean supports(FileReferenceUploadRequest request) {
-                return request.moduleAlias().equals("sales.contract") && request.fieldName().equals("fileId");
-            }
             @Override public void authorize(FileReferenceUploadRequest request) { authorized.set(request); }
         };
         FileTransferAccess expected = new FileTransferAccess(FileTransferOperation.UPLOAD, null, "token",
@@ -66,7 +63,6 @@ class FileReferenceUploadTicketWebControllerTest {
         AtomicReference<FileReferenceUploadIntent> authorizedIntent = new AtomicReference<>();
         FileReferenceUploadPolicy policy = new FileReferenceUploadPolicy() {
             @Override public boolean supportsField(String moduleAlias, String relationCode, String fieldName) { return true; }
-            @Override public boolean supports(FileReferenceUploadRequest request) { return request.intent() == FileReferenceUploadIntent.APPEND; }
             @Override public void authorize(FileReferenceUploadRequest request) { authorizedIntent.set(request.intent()); }
         };
         DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
@@ -122,6 +118,36 @@ class FileReferenceUploadTicketWebControllerTest {
                     assertThat(exception.code()).isEqualTo("CONFIG_MISSING");
                     assertThat(exception.httpStatus()).isEqualTo(409);
                 });
+    }
+
+    @Test
+    void rejectsAmbiguousPoliciesInsteadOfSelectingByBeanOrder() {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("first", policyFor("sales.contract", "fileId"));
+        factory.registerSingleton("second", policyFor("sales.contract", "fileId"));
+        factory.registerSingleton("transfer", transferAccessService());
+        PlatformModuleRuntimeContextService context = mock(PlatformModuleRuntimeContextService.class);
+        when(context.declaresFileReference("sales.contract", null, "fileId")).thenReturn(true);
+        FileReferenceUploadTicketWebController controller = new FileReferenceUploadTicketWebController(
+                factory.getBeanProvider(FileReferenceUploadPolicy.class), factory.getBeanProvider(FileTransferAccessService.class), context);
+
+        assertThatThrownBy(() -> controller.uploadTicket("sales.contract", request("fileId")))
+                .isInstanceOfSatisfying(PlatformException.class, exception -> {
+                    assertThat(exception.code()).isEqualTo("CONFIG_MISSING");
+                    assertThat(exception.httpStatus()).isEqualTo(409);
+                });
+    }
+
+    private static FileReferenceUploadPolicy policyFor(String moduleAlias, String fieldName) {
+        return new FileReferenceUploadPolicy() {
+            @Override public boolean supportsField(String candidateModuleAlias, String relationCode, String candidateFieldName) {
+                return moduleAlias.equals(candidateModuleAlias) && fieldName.equals(candidateFieldName);
+            }
+
+            @Override public void authorize(FileReferenceUploadRequest request) {
+                // Field matching is the sole resolver; this policy permits the test request.
+            }
+        };
     }
 
     private static FileReferenceUploadTicketRequest request(String fieldName) {
