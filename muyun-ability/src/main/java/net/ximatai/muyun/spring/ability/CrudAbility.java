@@ -46,7 +46,7 @@ public interface CrudAbility<T extends EntityContract> {
         PlatformManagedMutationGuard.beforeInsert(this, entity);
         prepareSortDefault(entity);
         validateTreePlacementIfNeeded(entity);
-        PlatformAbilityDispatcher.beforeSave(this, null, entity);
+        PlatformAbilityDispatcher.beforeInsertSave(this, entity);
         String id;
         try {
             try (FieldProtectionAbility.FieldProtectionMutation ignored = PlatformAbilityDispatcher.beforePersist(this, entity)) {
@@ -114,12 +114,12 @@ public interface CrudAbility<T extends EntityContract> {
             PlatformManagedMutationGuard.UpdateDecision<T> platformManagedDecision =
                     PlatformManagedMutationGuard.beforeUpdate(this, entity, platformManagedExisting);
             if (platformManagedDecision.lightweight()) {
-                PlatformAbilityDispatcher.beforeSave(this, existing, platformManagedDecision.record());
+                PlatformAbilityDispatcher.beforeUpdateSave(this, existing, platformManagedDecision.record());
                 return updatePreparedRecord(platformManagedDecision.record(), expectedVersion, false);
             }
             beforeUpdate(entity);
             validateTreePlacementIfNeeded(entity);
-            PlatformAbilityDispatcher.beforeSave(this, existing, entity);
+            PlatformAbilityDispatcher.beforeUpdateSave(this, existing, entity);
             return updatePreparedRecord(entity, expectedVersion, true);
         });
     }
