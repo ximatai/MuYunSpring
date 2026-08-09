@@ -76,6 +76,13 @@ const scopeEditorMode = ref<'create' | 'edit'>('create');
 const scopeEditingRecord = ref<QueryListRecord>();
 const scopeSaving = ref(false);
 const saving = ref(false);
+const fileDeletions = ref<
+  Array<{
+    recordPath: { nodes: Array<{ relationCode?: string; recordId: string }> };
+    fieldName: string;
+    fileId: string;
+  }>
+>([]);
 const togglingEnabled = ref(false);
 const detailLoading = ref(false);
 const detailLoadFailed = ref(false);
@@ -423,6 +430,16 @@ function updateDraftField(
   };
 }
 
+function addFileDeletion(intent: (typeof fileDeletions.value)[number]) {
+  if (
+    !fileDeletions.value.some(
+      (candidate) => candidate.fieldName === intent.fieldName && candidate.fileId === intent.fileId,
+    )
+  ) {
+    fileDeletions.value = [...fileDeletions.value, intent];
+  }
+}
+
 function createRecord(parentId?: string) {
   if (scopeSelectionRequired.value && selectedScopeRecord.value?.id == null) return;
   detailLoadSequence += 1;
@@ -469,8 +486,8 @@ async function saveRecord() {
     const id = record.id == null ? undefined : String(record.id);
     const result =
       editorMode.value === 'edit' && id
-        ? await context.crud.update(id, record)
-        : await context.crud.insert(record);
+        ? await context.crud.update(id, record, { fileDeletions: fileDeletions.value })
+        : await context.crud.insert(record, { fileDeletions: fileDeletions.value });
     selectedRecord.value = result.record;
     if (treeModule.value) {
       selectedTreeRecord.value = result.record;
@@ -479,6 +496,7 @@ async function saveRecord() {
     editorMode.value = 'view';
     reloadKey.value += 1;
     treeReloadKey.value += 1;
+    fileDeletions.value = [];
   } finally {
     saving.value = false;
   }
@@ -796,6 +814,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :picker-configs="referencePickerConfigs"
             :exclude-field-names="['enabled']"
             @update:field="updateDraftField"
+            @file-deletion="addFileDeletion"
           />
           <RecordMetaSection v-if="editorMode !== 'create'" :record="editingRecord" show-sort-order />
         </template>
@@ -867,6 +886,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :picker-configs="referencePickerConfigs"
           :exclude-field-names="['enabled']"
           @update:field="updateDraftField"
+          @file-deletion="addFileDeletion"
         />
       </template>
     </RecordModeDrawer>

@@ -1,6 +1,8 @@
 /**
  * The platform owns the browser-to-storage transfer mechanics, while an
- * application owns the authorization request and the business confirmation.
+ * application owns the authorization request. A caller may additionally run a
+ * business confirmation step, while standard file-reference fields only bind
+ * the returned fileId during their later record save.
  * MuYunFileServer owns the multipart transport; this module deliberately has
  * no knowledge of a particular business record type.
  */
@@ -35,13 +37,13 @@ export interface FileTransferUploadLifecycleCallbacks {
 /**
  * Runs the common browser upload lifecycle without knowing the business record being edited.
  *
- * State is reported through callbacks so the consuming control can update its own reactive item.  In particular,
- * the completed transition is emitted only after business confirmation succeeds.
+ * State is reported through callbacks so the consuming control can update its own reactive item. When supplied,
+ * business confirmation completes before the completed transition; otherwise the raw storage payload is returned.
  */
 export async function performBrowserFileTransferUpload(
   file: File,
   requestUploadAccess: (file: File) => Promise<FileTransferUploadAccess>,
-  confirmUpload: (receipt: FileTransferUploadReceipt) => Promise<unknown>,
+  confirmUpload: ((receipt: FileTransferUploadReceipt) => Promise<unknown>) | undefined,
   callbacks: FileTransferUploadLifecycleCallbacks,
 ): Promise<{ receipt: FileTransferUploadReceipt; result: unknown }> {
   callbacks.stateChanged('requesting');
@@ -52,14 +54,24 @@ export async function performBrowserFileTransferUpload(
   try {
     const receipt = await task.promise;
     callbacks.taskFinished?.();
-    callbacks.stateChanged('confirming');
-    const result = await confirmUpload(receipt);
+    const result = confirmUpload
+      ? await confirmUploadedFile(receipt, confirmUpload, callbacks)
+      : receipt.payload;
     callbacks.stateChanged('completed');
     return { receipt, result };
   } catch (error) {
     callbacks.taskFinished?.();
     throw error;
   }
+}
+
+async function confirmUploadedFile(
+  receipt: FileTransferUploadReceipt,
+  confirmUpload: (receipt: FileTransferUploadReceipt) => Promise<unknown>,
+  callbacks: FileTransferUploadLifecycleCallbacks,
+) {
+  callbacks.stateChanged('confirming');
+  return confirmUpload(receipt);
 }
 
 export function createBrowserFileTransferUpload(

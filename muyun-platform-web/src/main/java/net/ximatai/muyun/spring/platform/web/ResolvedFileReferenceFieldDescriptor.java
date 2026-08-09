@@ -8,7 +8,8 @@ import java.util.Set;
 public record ResolvedFileReferenceFieldDescriptor(ViewFieldRef fieldRef,
                                                    Set<String> allowedMediaTypes,
                                                    Long maxFileSizeBytes,
-                                                   int maxFiles) {
+                                                   int maxFiles,
+                                                   boolean uploadAvailable) {
     public ResolvedFileReferenceFieldDescriptor {
         if (fieldRef == null) {
             throw new IllegalArgumentException("file reference field ref must not be null");
@@ -25,12 +26,21 @@ public record ResolvedFileReferenceFieldDescriptor(ViewFieldRef fieldRef,
     public ResolvedFileReferenceFieldDescriptor(ViewFieldRef fieldRef,
                                                 Set<String> allowedMediaTypes,
                                                 Long maxFileSizeBytes) {
-        this(fieldRef, allowedMediaTypes, maxFileSizeBytes, 1);
+        this(fieldRef, allowedMediaTypes, maxFileSizeBytes, 1, false);
+    }
+
+    public ResolvedFileReferenceFieldDescriptor(ViewFieldRef fieldRef, Set<String> allowedMediaTypes,
+                                                Long maxFileSizeBytes, int maxFiles) {
+        this(fieldRef, allowedMediaTypes, maxFileSizeBytes, maxFiles, false);
+    }
+
+    public ResolvedFileReferenceFieldDescriptor withUploadAvailable(boolean value) {
+        return new ResolvedFileReferenceFieldDescriptor(fieldRef, allowedMediaTypes, maxFileSizeBytes, maxFiles, value);
     }
 
     public static ResolvedFileReferenceFieldDescriptor from(ViewFieldRef fieldRef,
                                                             FileReferenceDefinition definition) {
         return new ResolvedFileReferenceFieldDescriptor(fieldRef, definition.allowedMediaTypes(),
-                definition.maxFileSizeBytes(), definition.maxFiles());
+                definition.maxFileSizeBytes(), definition.maxFiles(), false);
     }
 }

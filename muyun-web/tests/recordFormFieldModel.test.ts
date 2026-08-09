@@ -253,6 +253,33 @@ test('record form fields resolve form view descriptors by view code', () => {
   assert.deepEqual([...resolveRecordFormFields(undefined).keys()], []);
 });
 
+test('record form fields attach declared file-reference constraints and infer the transfer control', () => {
+  const uiDescriptor = {
+    schemaVersion: '1',
+    moduleAlias: 'mr.knowledge_file',
+    fileReferences: [
+      {
+        fieldRef: { fieldName: 'fileId' },
+        allowedMediaTypes: ['application/pdf'],
+        maxFileSizeBytes: 1024,
+        maxFiles: 1,
+        uploadAvailable: true,
+      },
+    ],
+    views: [
+      {
+        viewCode: 'default_form',
+        viewKind: 'FORM',
+        fields: [descriptorField('fileId', '上传文件')],
+      },
+    ],
+  } as const;
+
+  const fields = resolveRecordFormFields(uiDescriptor);
+  assert.deepEqual(fields.get('fileId')?.fileReference, uiDescriptor.fileReferences[0]);
+  assert.equal(resolveRecordFormFieldState('fileId', { fields }).controlType, 'fileTransfer');
+});
+
 test('child resource default form view code follows platform naming rules', () => {
   assert.equal(childResourceDefaultFormViewCode('item'), 'item_default_form');
   assert.equal(childResourceDefaultFormViewCode('position'), 'position_default_form');
