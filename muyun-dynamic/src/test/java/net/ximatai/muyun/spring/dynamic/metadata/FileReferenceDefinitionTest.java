@@ -4,6 +4,8 @@ import net.ximatai.muyun.database.core.annotation.Column;
 import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.file.FileReference;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadata;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadataField;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +23,9 @@ class FileReferenceDefinitionTest {
                 .compile("document", "Document", StaticDocument.class);
 
         assertThat(entity.fileReferences()).containsEntry("sourceFileId",
-                new FileReferenceDefinition(Set.of("application/pdf"), 50L * 1024 * 1024));
+                new FileReferenceDefinition(Set.of("application/pdf"), 50L * 1024 * 1024, 1,
+                        Map.of(FileReferenceMetadata.ORIGINAL_FILENAME, "sourceFilename",
+                                FileReferenceMetadata.SIZE_BYTES, "sourceFileSize")));
         new ModuleDefinitionValidator().validateEntity(entity);
     }
 
@@ -77,11 +81,62 @@ class FileReferenceDefinitionTest {
                 .hasMessage("file reference maxFiles must be positive");
     }
 
+    @Test
+    void shouldRejectMetadataBindingsWithAnIncompatibleOrAmbiguousTarget() {
+        EntityDefinition invalidType = new EntityDefinition("document", "crm_document", "Document", List.of(
+                FieldDefinition.string("sourceFileId", "Source File").column("source_file_id"),
+                FieldDefinition.string("sourceFileSize", "Source File Size").column("source_file_size")))
+                .withFileReferences(Map.of("sourceFileId", new FileReferenceDefinition(Set.of(), null, 1,
+                        Map.of(FileReferenceMetadata.SIZE_BYTES, "sourceFileSize"))));
+
+        assertThatThrownBy(() -> new ModuleDefinitionValidator().validateEntity(invalidType))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessage("file reference metadata requires physical LONG field: document.sourceFileSize");
+
+        EntityDefinition multi = new EntityDefinition("document", "crm_document", "Document", List.of(
+                FieldDefinition.of("sourceFileIds", FieldType.JSON, "Source Files").column("source_file_ids").jsonSet(),
+                FieldDefinition.string("sourceFilename", "Source Filename").column("source_filename")))
+                .withFileReferences(Map.of("sourceFileIds", new FileReferenceDefinition(Set.of(), null, 2,
+                        Map.of(FileReferenceMetadata.ORIGINAL_FILENAME, "sourceFilename"))));
+
+        assertThatThrownBy(() -> new ModuleDefinitionValidator().validateEntity(multi))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessage("file reference metadata fields require a single-file reference: document.sourceFileIds");
+
+        EntityDefinition anotherFileId = new EntityDefinition("document", "crm_document", "Document", List.of(
+                FieldDefinition.string("sourceFileId", "Source File").column("source_file_id"),
+                FieldDefinition.string("coverFileId", "Cover File").column("cover_file_id")))
+                .withFileReferences(Map.of(
+                        "sourceFileId", new FileReferenceDefinition(Set.of(), null, 1,
+                                Map.of(FileReferenceMetadata.ORIGINAL_FILENAME, "coverFileId")),
+                        "coverFileId", FileReferenceDefinition.unrestricted()));
+
+        assertThatThrownBy(() -> new ModuleDefinitionValidator().validateEntity(anotherFileId))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessage("file reference metadata field must not be a fileId field: document.coverFileId");
+    }
+
+    @Test
+    void shouldRejectStaticMetadataBindingToAnotherFileReference() {
+        assertThatThrownBy(() -> new StaticEntityDefinitionCompiler()
+                .compile("document", "Document", StaticConflictingMetadataDocument.class))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("invalid file reference metadata field: "
+                        + StaticConflictingMetadataDocument.class.getName() + ".coverFileId");
+    }
+
     @Table(name = "test_static_document")
     static class StaticDocument extends StandardEntity {
         @Column(name = "source_file_id", type = ColumnType.VARCHAR, length = 64)
-        @FileReference(allowedMediaTypes = "application/pdf", maxFileSizeBytes = 50L * 1024 * 1024)
+        @FileReference(allowedMediaTypes = "application/pdf", maxFileSizeBytes = 50L * 1024 * 1024, metadataFields = {
+                @FileReferenceMetadataField(value = FileReferenceMetadata.ORIGINAL_FILENAME, field = "sourceFilename"),
+                @FileReferenceMetadataField(value = FileReferenceMetadata.SIZE_BYTES, field = "sourceFileSize")
+        })
         private String sourceFileId;
+        @Column(name = "source_filename", type = ColumnType.VARCHAR, length = 255)
+        private String sourceFilename;
+        @Column(name = "source_file_size", type = ColumnType.BIGINT)
+        private Long sourceFileSize;
     }
 
     @Table(name = "test_static_multi_file_document")
@@ -89,5 +144,16 @@ class FileReferenceDefinitionTest {
         @Column(name = "source_file_ids", type = ColumnType.JSON_SET)
         @FileReference(maxFiles = 3)
         private Set<String> sourceFileIds;
+    }
+
+    @Table(name = "test_static_conflicting_metadata_document")
+    static class StaticConflictingMetadataDocument extends StandardEntity {
+        @Column(name = "source_file_id", type = ColumnType.VARCHAR, length = 64)
+        @FileReference(metadataFields = @FileReferenceMetadataField(
+                value = FileReferenceMetadata.ORIGINAL_FILENAME, field = "coverFileId"))
+        private String sourceFileId;
+        @Column(name = "cover_file_id", type = ColumnType.VARCHAR, length = 64)
+        @FileReference
+        private String coverFileId;
     }
 }

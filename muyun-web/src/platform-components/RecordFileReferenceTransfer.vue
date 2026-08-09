@@ -7,10 +7,8 @@ import {
   acceptedMediaTypes,
   appendUploadedFileReference,
   fileReferenceIds,
-  FileReferenceFormSaveSession,
   fileReferenceUploadIntent,
   issueFileReferenceUploadAccess,
-  replacedFileReferenceId,
   uploadedFileId,
 } from './fileReferenceTransfer';
 import type { FileTransferUploadReceipt } from './fileTransferUpload';
@@ -30,13 +28,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:value': [value: string | string[] | undefined];
-  'delete:persisted': [fileId: string];
 }>();
 
 const accept = computed(() => acceptedMediaTypes(props.definition));
 const uploadedFileIds = ref(new Set<string>());
 const releasedUploadedFileIds = ref<string[]>([]);
-const formSession = new FileReferenceFormSaveSession();
 const existingFileCount = computed(() =>
   props.definition.maxFiles === 1
     ? 0
@@ -46,7 +42,6 @@ const existingFileCount = computed(() =>
 watch(
   () => props.formSessionKey,
   () => {
-    formSession.begin(props.value);
     uploadedFileIds.value = new Set();
     releasedUploadedFileIds.value = [];
   },
@@ -66,23 +61,14 @@ function requestUploadAccess(file: File) {
 
 function applyUploadedFile(receipt: FileTransferUploadReceipt) {
   const fileId = uploadedFileId(receipt.payload);
-  const replacedFileId = replacedFileReferenceId(props.value, fileId, props.definition);
-  if (replacedFileId) {
-    const ownership = formSession.remove(replacedFileId);
-    if (ownership === 'uploaded') releaseUploadedFile(replacedFileId);
-    if (ownership === 'persisted') emit('delete:persisted', replacedFileId);
-  }
-  formSession.registerUploaded(fileId);
   uploadedFileIds.value = new Set([...uploadedFileIds.value, fileId]);
   emit('update:value', appendUploadedFileReference(props.value, fileId, props.definition));
 }
 
 function removeBoundFile(fileId: string) {
-  const ownership = formSession.remove(fileId);
-  if (ownership === 'uploaded') {
+  if (uploadedFileIds.value.has(fileId)) {
     releaseUploadedFile(fileId);
   }
-  if (ownership === 'persisted') emit('delete:persisted', fileId);
   emit(
     'update:value',
     props.definition.maxFiles === 1

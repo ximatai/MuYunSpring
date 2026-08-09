@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.common.formula.FormulaRulePhase;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadata;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.PlatformDataScopeSchema;
@@ -167,6 +168,8 @@ public class ModuleDefinitionValidator {
     }
 
     private void validateFileReferences(EntityDefinition entity, List<FieldDefinition> fields) {
+        Set<String> metadataTargets = new HashSet<>();
+        Set<String> fileReferenceFields = Set.copyOf(entity.fileReferences().keySet());
         for (Map.Entry<String, FileReferenceDefinition> entry : entity.fileReferences().entrySet()) {
             String fieldName = entry.getKey();
             requireFieldName(fieldName, "file reference field");
@@ -189,6 +192,31 @@ public class ModuleDefinitionValidator {
                 throw new ModuleDefinitionException("file reference requires " + required + ": "
                         + entity.alias() + "." + fieldName);
             }
+            if (entry.getValue().maxFiles() != 1 && !entry.getValue().metadataFields().isEmpty()) {
+                throw new ModuleDefinitionException("file reference metadata fields require a single-file reference: "
+                        + entity.alias() + "." + fieldName);
+            }
+            entry.getValue().metadataFields().forEach((metadata, targetFieldName) -> {
+                if (fileReferenceFields.contains(targetFieldName)) {
+                    throw new ModuleDefinitionException("file reference metadata field must not be a fileId field: "
+                            + entity.alias() + "." + targetFieldName);
+                }
+                if (!metadataTargets.add(targetFieldName)) {
+                    throw new ModuleDefinitionException("file reference metadata field is bound more than once: "
+                            + entity.alias() + "." + targetFieldName);
+                }
+                FieldDefinition target = fields.stream()
+                        .filter(candidate -> targetFieldName.equals(candidate.fieldName()))
+                        .findFirst()
+                        .orElseThrow(() -> new ModuleDefinitionException("file reference metadata requires declared field: "
+                                + entity.alias() + "." + targetFieldName));
+                FieldType expectedType = metadata == FileReferenceMetadata.SIZE_BYTES
+                        ? FieldType.LONG : FieldType.STRING;
+                if (!target.isPhysical() || target.type() != expectedType) {
+                    throw new ModuleDefinitionException("file reference metadata requires physical " + expectedType
+                            + " field: " + entity.alias() + "." + targetFieldName);
+                }
+            });
         }
     }
 

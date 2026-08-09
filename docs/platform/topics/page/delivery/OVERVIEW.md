@@ -11,10 +11,10 @@
 1. 菜单入口定位模块、页面模式、客户端类型、默认 UI 配置、默认查询模板和入口参数。
 2. bootstrap 返回菜单解析后的模块身份、主实体别名、权限裁剪的 resolved 页面配置和 OpenAPI 入口；模块运行态 descriptor 继续由标准模块 context 交付。
 3. 列表查询、汇总和引用候选复用同一查询模板与 Criteria 编译链路。
-4. 表单保存使用 `$save` envelope；`$save.record` 是业务记录，`$save.metadata` 是平台保存 metadata，动态页面的 `uiConfigId` 仍作为该 envelope 内的页面校验上下文。按已发布 UI 配置执行 required/readOnly 校验。
+4. 表单保存直接提交业务记录；`version` 作为标准字段参与乐观锁，按已发布 UI 配置执行 required/readOnly 校验。
 5. 子表保存沿用动态记录 `children` 语义：缺省或 `null` 表示不改，空数组表示提交空子表。
 6. 附件只维护业务记录与 `fileId` 的关系，上传、预览、下载通过 access envelope 对接文件服务。
-7. 字段文件引用由 descriptor 自动渲染标准上传控件：前端以当前模块的 upload-ticket 上传并仅回填 `fileId`，保存前确认并转正；物理删除必须由 `$save.metadata.fileDeletions` 明确提交。具体边界见 [文件引用生命周期](../../../FILE_REFERENCE_LIFECYCLE.md)。
+7. 字段文件引用由 descriptor 自动渲染标准上传控件：前端以当前模块的 upload-ticket 上传并仅回填 `fileId`；保存生命周期确认并转正新增文件，并从实体新旧值自动推导提交后的旧文件删除。具体边界见 [文件引用生命周期](../../../FILE_REFERENCE_LIFECYCLE.md)。
 8. 查重预检绑定动态 action 槽位和权限，不替代数据库唯一约束。
 9. 页面偏好属于当前用户体验配置，不改变平台 UI 配置真相源。
 
@@ -66,27 +66,13 @@ AND quickSearch
 
 ## 保存语义
 
-页面保存的正式请求形态为：
-
-```json
-{
-  "$save": {
-    "record": {},
-    "metadata": {
-      "fileDeletions": []
-    },
-    "uiConfigId": "..."
-  }
-}
-```
-
-`$save` 避免与静态或动态业务字段同名冲突。旧的直接记录 body 仍为兼容入口；新增页面和前端适配器应使用 envelope。`fileDeletions` 的每项包含记录路径、字段名和旧 `fileId`，新文件值仍只出现在标准 `record` payload 中。带 `uiConfigId` 时：
+页面保存始终以业务记录作为请求体。带 `uiConfigId` 时：
 
 1. UI 配置必须来自已发布快照。
 2. 主关系字段校验当前记录。
 3. 子关系字段只校验本次提交的 `children.{relationCode}` 行。
 4. 未提交子表不校验；空数组表示提交了空子表。
-5. `record.version` 参与乐观锁。
+5. `version` 参与乐观锁。
 6. 字段保护、动作权限、数据范围和动态事件仍由动态保存链路处理。
 
 标准 `insert` / `update` 保存入口拒绝显式写入虚拟字段，包括主表和本次提交的子表行。虚拟字段可以作为页面展示字段进入 descriptor 和 bootstrap；读取记录时已经由引用标题、引用投影等平台读链路注入的虚拟值会随记录输出。页面如需基于当前表单值展示公式派生结果，应调用公式试算入口，由后端返回本次计算出的虚拟字段值。

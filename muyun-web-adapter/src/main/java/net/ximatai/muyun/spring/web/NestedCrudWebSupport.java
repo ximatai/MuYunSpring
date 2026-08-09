@@ -9,7 +9,6 @@ import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.web.query.WebQueryRequests;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
-import net.ximatai.muyun.spring.common.mutation.RecordSaveMutationMetadataContext;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
@@ -83,22 +82,14 @@ public abstract class NestedCrudWebSupport<T extends EntityContract, S extends C
     @StandardMutation(StandardMutationKind.CREATE)
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
-    public T insert(HttpServletRequest servletRequest, @RequestBody RecordSaveWebRequest<T> request) {
-        T record = request.requireRecord();
-        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(request.metadata())) {
-            return webScope(() -> {
-                bindScope(record, servletRequest);
-                String id = service().insert(record);
-                T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
-                StaticStandardMutationSupport.created(this, id);
-                return saved;
-            });
-        }
-    }
-
-    /** Direct Java invocation convenience; HTTP always enters the typed save-envelope method. */
-    public T insert(HttpServletRequest servletRequest, T record) {
-        return insert(servletRequest, new RecordSaveWebRequest<>(record, null));
+    public T insert(HttpServletRequest servletRequest, @RequestBody T record) {
+        return webScope(() -> {
+            bindScope(record, servletRequest);
+            String id = service().insert(record);
+            T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
+            StaticStandardMutationSupport.created(this, id);
+            return saved;
+        });
     }
 
     @PostMapping("/update/{id}")
@@ -106,24 +97,16 @@ public abstract class NestedCrudWebSupport<T extends EntityContract, S extends C
     @StandardMutation(StandardMutationKind.UPDATE)
     @Transactional
     public T update(HttpServletRequest servletRequest, @PathVariable String id,
-                    @RequestBody RecordSaveWebRequest<T> request) {
-        T record = request.requireRecord();
-        try (RecordSaveMutationMetadataContext.Scope ignored = RecordSaveMutationMetadataContext.open(request.metadata())) {
-            return webScope(() -> {
-                requireScopedRecord(servletRequest, id);
-                record.setId(id);
-                bindScope(record, servletRequest);
-                service().update(record);
-                T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
-                StaticStandardMutationSupport.updated(this, id);
-                return saved;
-            });
-        }
-    }
-
-    /** Direct Java invocation convenience; HTTP always enters the typed save-envelope method. */
-    public T update(HttpServletRequest servletRequest, String id, T record) {
-        return update(servletRequest, id, new RecordSaveWebRequest<>(record, null));
+                    @RequestBody T record) {
+        return webScope(() -> {
+            requireScopedRecord(servletRequest, id);
+            record.setId(id);
+            bindScope(record, servletRequest);
+            service().update(record);
+            T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
+            StaticStandardMutationSupport.updated(this, id);
+            return saved;
+        });
     }
 
     @PostMapping("/delete/{id}")

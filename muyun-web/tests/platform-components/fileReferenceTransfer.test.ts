@@ -3,9 +3,7 @@ import type { HttpClient } from '../src/web-core/http.ts';
 import {
   acceptedMediaTypes,
   appendUploadedFileReference,
-  FileReferenceFormSaveSession,
   fileReferenceUploadIntent,
-  fileReferenceRecordPath,
   fileReferenceIds,
   issueFileReferenceUploadAccess,
   replacedFileReferenceId,
@@ -84,33 +82,4 @@ it('file-reference upload intent distinguishes creation, append and replacement'
   assert.equal(replacedFileReferenceId('file-old', 'file-new', single), 'file-old');
   assert.equal(replacedFileReferenceId('file-old', 'file-old', single), undefined);
   assert.equal(replacedFileReferenceId(['file-1'], 'file-2', multiple), undefined);
-});
-
-it('form-save session only deletes files persisted when the editor opened', () => {
-  const session = new FileReferenceFormSaveSession();
-  session.begin('file-original');
-  // The first replacement removes the original persisted binding exactly once.
-  assert.equal(session.remove('file-original'), 'persisted');
-  session.registerUploaded('file-upload-1');
-  assert.equal(session.remove('file-upload-1'), 'uploaded');
-  session.registerUploaded('file-upload-2');
-  assert.equal(session.remove('file-upload-2'), 'uploaded');
-});
-
-it('form-save session supports multi-file append, removal and re-upload without deleting temporary ids', () => {
-  const session = new FileReferenceFormSaveSession();
-  session.begin(['file-original-1', 'file-original-2']);
-  session.registerUploaded('file-upload-1');
-  assert.equal(session.remove('file-upload-1'), 'uploaded');
-  session.registerUploaded('file-upload-2');
-  assert.equal(session.remove('file-original-2'), 'persisted');
-  assert.equal(session.remove('file-upload-2'), 'uploaded');
-});
-
-it('file-reference deletion paths preserve child relation identity', () => {
-  assert.deepEqual(fileReferenceRecordPath('root-1'), { nodes: [{ recordId: 'root-1' }] });
-  assert.deepEqual(fileReferenceRecordPath('root-1', 'items', 'child-1'), {
-    nodes: [{ recordId: 'root-1' }, { relationCode: 'items', recordId: 'child-1' }],
-  });
-  assert.throws(() => fileReferenceRecordPath('root-1', 'items'), /子记录标识/);
 });

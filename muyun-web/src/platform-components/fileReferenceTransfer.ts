@@ -2,45 +2,6 @@ import type { HttpClient } from '@muyun/web-core';
 import type { ResolvedFileReferenceFieldDescriptor } from '@muyun/web-contracts';
 import type { FileTransferUploadAccess } from './fileTransferUpload';
 
-/** Browser-local ownership facts for one field during one form-save session. */
-export class FileReferenceFormSaveSession {
-  private readonly persisted = new Set<string>();
-  private readonly uploaded = new Set<string>();
-
-  begin(value: unknown) {
-    this.persisted.clear();
-    this.uploaded.clear();
-    fileReferenceIds(value).forEach((fileId) => this.persisted.add(fileId));
-  }
-
-  registerUploaded(fileId: string) {
-    this.uploaded.add(fileId);
-  }
-
-  isUploaded(fileId: string) {
-    return this.uploaded.has(fileId);
-  }
-
-  remove(fileId: string): 'uploaded' | 'persisted' | 'unknown' {
-    if (this.uploaded.delete(fileId)) return 'uploaded';
-    return this.persisted.has(fileId) ? 'persisted' : 'unknown';
-  }
-}
-
-/** Builds the explicit backend deletion address without collapsing child fields onto their root. */
-export function fileReferenceRecordPath(
-  rootRecordId: string,
-  relationCode?: string,
-  childRecordId?: string,
-): { nodes: Array<{ relationCode?: string; recordId: string }> } {
-  const nodes: Array<{ relationCode?: string; recordId: string }> = [{ recordId: rootRecordId }];
-  if (relationCode) {
-    if (!childRecordId) throw new Error('子表文件字段删除必须提供子记录标识。');
-    nodes.push({ relationCode, recordId: childRecordId });
-  }
-  return { nodes };
-}
-
 interface FileReferenceUploadTicket {
   url?: unknown;
 }

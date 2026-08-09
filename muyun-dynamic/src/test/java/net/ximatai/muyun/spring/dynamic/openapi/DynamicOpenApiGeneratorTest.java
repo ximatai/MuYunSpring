@@ -131,7 +131,7 @@ class DynamicOpenApiGeneratorTest {
                 .findFirst())
                 .get()
                 .satisfies(operation -> {
-                    assertThat(operation.requestSchema()).isEqualTo("DynamicRecordSaveRequest");
+                    assertThat(operation.requestSchema()).isEqualTo("DynamicRecordPayload");
                     assertThat(operation.responseSchema()).isEqualTo("DynamicRecordResponse");
                     assertThat(operation.actionCode()).isEqualTo(PlatformAction.CREATE.code());
                     assertThat(operation.permissionCode()).isEqualTo("sales.contract:create");
@@ -141,7 +141,7 @@ class DynamicOpenApiGeneratorTest {
                 .findFirst())
                 .get()
                 .satisfies(operation -> {
-                    assertThat(operation.requestSchema()).isEqualTo("DynamicRecordSaveRequest");
+                    assertThat(operation.requestSchema()).isEqualTo("DynamicRecordPayload");
                     assertThat(operation.responseSchema()).isEqualTo("DynamicRecordResponse");
                 });
         assertThat(document.operations().stream()
@@ -478,11 +478,6 @@ class DynamicOpenApiGeneratorTest {
         assertThat(document.schemas().get("WebQueryRequest").properties())
                 .containsKeys("uiConfigId", "queryTemplateId", "externalQueryValues", "navigationSession",
                         "queryForm", "quickSearch", "quickSearchFields", "navigationQueryKey");
-        assertThat(document.schemas().get("DynamicRecordSaveRequest").properties())
-                .containsKey("$save")
-                .doesNotContainKey("attachments");
-        assertThat(document.schemas().get("RecordSaveMutationMetadata").properties().get("fileDeletions").itemType())
-                .isEqualTo("RecordFileDeletionIntent");
         assertThat(document.schemas().get("DynamicRecordPayload").properties().get("attachments").itemType())
                 .isEqualTo("RecordAttachmentCommand");
         assertThat(document.schemas().get("RecordAttachmentCommand").required()).containsExactly("fileId");

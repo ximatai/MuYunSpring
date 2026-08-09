@@ -84,15 +84,6 @@ const scopeSaving = ref(false);
 const saving = ref(false);
 const formSessionKey = ref(0);
 const scopeFormSessionKey = ref(0);
-const fileDeletions = ref<
-  Array<{
-    recordPath: { nodes: Array<{ relationCode?: string; recordId: string }> };
-    fieldRef: { relationCode?: string; fieldName: string };
-    fieldName: string;
-    fileId: string;
-  }>
->([]);
-const scopeFileDeletions = ref<(typeof fileDeletions.value)[number][]>([]);
 const togglingEnabled = ref(false);
 const detailLoading = ref(false);
 const detailLoadFailed = ref(false);
@@ -336,7 +327,6 @@ function scopeTreeActions(): RecordInlineAction[] {
 }
 
 function openScopeEditor(mode: 'create' | 'edit', record?: QueryListRecord) {
-  scopeFileDeletions.value = [];
   scopeFormSessionKey.value += 1;
   scopeEditorMode.value = mode;
   scopeEditingRecord.value =
@@ -351,7 +341,6 @@ function openScopeEditor(mode: 'create' | 'edit', record?: QueryListRecord) {
 function closeScopeEditor() {
   if (scopeSaving.value) return;
   scopeEditorOpen.value = false;
-  scopeFileDeletions.value = [];
   scopeFormSessionKey.value += 1;
 }
 
@@ -373,13 +362,10 @@ async function saveScopeRecord() {
   try {
     const result =
       scopeEditorMode.value === 'edit' && record.id != null
-        ? await scope.crud.update(String(record.id), record, {
-            fileDeletions: saveFileDeletions(scopeFileDeletions.value),
-          })
-        : await scope.crud.insert(record, { fileDeletions: saveFileDeletions(scopeFileDeletions.value) });
+        ? await scope.crud.update(String(record.id), record)
+        : await scope.crud.insert(record);
     selectedScopeRecord.value = result.record as QueryListRecord;
     scopeEditorOpen.value = false;
-    scopeFileDeletions.value = [];
     scopeFormSessionKey.value += 1;
     scopeReloadKey.value += 1;
   } catch (cause) {
@@ -428,12 +414,6 @@ function updateScopeDraftField(
   scopeEditingRecord.value = { ...scopeEditingRecord.value, [fieldName]: value };
 }
 
-function addScopeFileDeletion(intent: (typeof scopeFileDeletions.value)[number]) {
-  if (!scopeFileDeletions.value.some((candidate) => sameFileDeletion(candidate, intent))) {
-    scopeFileDeletions.value = [...scopeFileDeletions.value, intent];
-  }
-}
-
 function selectTreeRecord(record: unknown) {
   selectedTreeRecord.value = record as QueryListRecord;
   void openRecord(selectedTreeRecord.value, 'view');
@@ -449,7 +429,6 @@ async function openRecord(record: QueryListRecord, mode: 'edit' | 'view') {
   const id = record.id == null ? undefined : String(record.id);
   if (!id) return;
   const requestSequence = ++detailLoadSequence;
-  fileDeletions.value = [];
   formSessionKey.value += 1;
   selectedRecord.value = record;
   editingRecord.value = undefined;
@@ -494,34 +473,11 @@ function updateDraftField(
   };
 }
 
-function addFileDeletion(intent: (typeof fileDeletions.value)[number]) {
-  if (!fileDeletions.value.some((candidate) => sameFileDeletion(candidate, intent))) {
-    fileDeletions.value = [...fileDeletions.value, intent];
-  }
-}
-
-function sameFileDeletion(
-  left: (typeof fileDeletions.value)[number],
-  right: (typeof fileDeletions.value)[number],
-) {
-  return (
-    left.fieldRef.relationCode === right.fieldRef.relationCode &&
-    left.fieldRef.fieldName === right.fieldRef.fieldName &&
-    left.fileId === right.fileId &&
-    JSON.stringify(left.recordPath) === JSON.stringify(right.recordPath)
-  );
-}
-
-function saveFileDeletions(intents: readonly (typeof fileDeletions.value)[number][]) {
-  return intents.map(({ recordPath, fieldName, fileId }) => ({ recordPath, fieldName, fileId }));
-}
-
 function createRecord(parentId?: string) {
   if (scopeSelectionRequired.value && selectedScopeRecord.value?.id == null) return;
   detailLoadSequence += 1;
   detailLoading.value = false;
   detailLoadFailed.value = false;
-  fileDeletions.value = [];
   formSessionKey.value += 1;
   const workspace = scopedListWorkspace.value;
   editingRecord.value = parentId
@@ -564,8 +520,8 @@ async function saveRecord() {
     const id = record.id == null ? undefined : String(record.id);
     const result =
       editorMode.value === 'edit' && id
-        ? await context.crud.update(id, record, { fileDeletions: saveFileDeletions(fileDeletions.value) })
-        : await context.crud.insert(record, { fileDeletions: saveFileDeletions(fileDeletions.value) });
+        ? await context.crud.update(id, record)
+        : await context.crud.insert(record);
     selectedRecord.value = result.record;
     if (treeModule.value) {
       selectedTreeRecord.value = result.record;
@@ -574,7 +530,6 @@ async function saveRecord() {
     editorMode.value = 'view';
     reloadKey.value += 1;
     treeReloadKey.value += 1;
-    fileDeletions.value = [];
     formSessionKey.value += 1;
   } finally {
     saving.value = false;
@@ -643,7 +598,6 @@ function closeDetail() {
   detailLoadSequence += 1;
   detailLoading.value = false;
   detailLoadFailed.value = false;
-  fileDeletions.value = [];
   formSessionKey.value += 1;
   detailOpen.value = false;
   editorMode.value = 'view';
@@ -655,7 +609,6 @@ function closeTreeCardEditor() {
   detailLoadSequence += 1;
   detailLoading.value = false;
   detailLoadFailed.value = false;
-  fileDeletions.value = [];
   formSessionKey.value += 1;
   detailOpen.value = false;
   editorMode.value = 'view';
@@ -764,7 +717,6 @@ function recordTitle(record: QueryListRecord | undefined) {
                   :disabled="scopeSaving"
                   :exclude-field-names="['enabled']"
                   @update:field="updateScopeDraftField"
-                  @file-deletion="addScopeFileDeletion"
                 />
               </section>
             </Transition>
@@ -908,7 +860,6 @@ function recordTitle(record: QueryListRecord | undefined) {
             :picker-configs="referencePickerConfigs"
             :exclude-field-names="['enabled']"
             @update:field="updateDraftField"
-            @file-deletion="addFileDeletion"
           />
           <RecordMetaSection v-if="editorMode !== 'create'" :record="editingRecord" show-sort-order />
         </template>
@@ -982,7 +933,6 @@ function recordTitle(record: QueryListRecord | undefined) {
           :picker-configs="referencePickerConfigs"
           :exclude-field-names="['enabled']"
           @update:field="updateDraftField"
-          @file-deletion="addFileDeletion"
         />
       </template>
     </RecordModeDrawer>

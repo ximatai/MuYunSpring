@@ -111,11 +111,11 @@ public class DynamicOpenApiGenerator {
         }
         if (standardActionVisible.test(PlatformAction.CREATE)) {
             operations.add(operation(descriptor.moduleAlias(), basePath + "/insert", operationId(descriptor, "insert"),
-                    "Insert " + mainEntity.title(), "DynamicRecordSaveRequest", "DynamicRecordResponse", PlatformAction.CREATE.code()));
+                    "Insert " + mainEntity.title(), "DynamicRecordPayload", "DynamicRecordResponse", PlatformAction.CREATE.code()));
         }
         if (standardActionVisible.test(PlatformAction.UPDATE)) {
             operations.add(operation(descriptor.moduleAlias(), basePath + "/update/{id}", operationId(descriptor, "update"),
-                    "Update " + mainEntity.title(), "DynamicRecordSaveRequest", "DynamicRecordResponse", PlatformAction.UPDATE.code()));
+                    "Update " + mainEntity.title(), "DynamicRecordPayload", "DynamicRecordResponse", PlatformAction.UPDATE.code()));
             operations.add(operation(descriptor.moduleAlias(), basePath + "/view/{id}/attachments/add",
                     operationId(descriptor, "addAttachment"),
                     "Add attachment " + mainEntity.title(), "RecordAttachmentCommand", "RecordAttachmentList",

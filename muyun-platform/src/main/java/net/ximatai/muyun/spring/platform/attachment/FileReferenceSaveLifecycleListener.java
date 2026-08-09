@@ -3,13 +3,11 @@ package net.ximatai.muyun.spring.platform.attachment;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.EntitySaveLifecycleListener;
 import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
-import net.ximatai.muyun.spring.ability.child.ChildRelation;
-import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.model.file.FileReference;
-import net.ximatai.muyun.spring.common.mutation.RecordFileDeletionIntent;
-import net.ximatai.muyun.spring.common.mutation.RecordSaveMutationMetadataContext;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadata;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadataField;
 import net.ximatai.muyun.spring.dynamic.metadata.FileReferenceDefinition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import org.slf4j.Logger;
@@ -17,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.util.IdentityHashMap;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -44,7 +43,7 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
             existing = ability.selectActiveRaw(incoming.getId());
         }
         Map<String, FileReferenceDefinition> definitions = definitions(incoming);
-        java.util.List<ResolvedFileDeletion> deletions = validateDeletionIntents(ability, existing, incoming, definitions);
+        java.util.List<ResolvedFileDeletion> deletions = removedFileReferences(existing, incoming, definitions);
         if (!deletions.isEmpty()) pendingDeletions.get().put(incoming, deletions);
         if (definitions.isEmpty()) {
             if (!deletions.isEmpty()) trackTransaction(ability, incoming);
@@ -59,12 +58,18 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
                 java.util.List<String> newFileIds = incomingFileIds.stream()
                         .filter(fileId -> !existingFileIds.contains(fileId))
                         .toList();
-                if (newFileIds.isEmpty()) continue;
-                if (client == null) throw new PlatformException("file transfer client is not configured");
-                for (String fileId : newFileIds) {
-                    new FileReferenceConfirmationService(client).confirmAndPromote(entry.getValue(), fileId);
+                Map<String, FileTransferFileMetadata> promotedMetadata = new LinkedHashMap<>();
+                if (!newFileIds.isEmpty()) {
+                    if (client == null) throw new PlatformException("file transfer client is not configured");
+                    for (String fileId : newFileIds) {
+                        promotedMetadata.put(fileId,
+                                new FileReferenceConfirmationService(client).confirmAndPromote(entry.getValue(), fileId));
+                        promoted.get().computeIfAbsent(incoming, ignored -> new LinkedHashMap<>())
+                                .computeIfAbsent(entry.getKey(), ignored -> new java.util.ArrayList<>())
+                                .add(fileId);
+                    }
                 }
-                promoted.get().computeIfAbsent(incoming, ignored -> new LinkedHashMap<>()).put(entry.getKey(), newFileIds);
+                applyMetadataFields(incoming, existing, entry.getKey(), entry.getValue(), incomingFileIds, promotedMetadata);
             }
             trackTransaction(ability, incoming);
         } catch (RuntimeException failure) {
@@ -104,10 +109,20 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
                 if (annotation != null) values.put(field.getName(), new FileReferenceDefinition(
                         java.util.Set.of(annotation.allowedMediaTypes()),
                         annotation.maxFileSizeBytes() > 0 ? annotation.maxFileSizeBytes() : null,
-                        annotation.maxFiles()));
+                        annotation.maxFiles(), metadataFields(annotation)));
             }
         }
         return values;
+    }
+
+    private Map<FileReferenceMetadata, String> metadataFields(FileReference annotation) {
+        Map<FileReferenceMetadata, String> values = new EnumMap<>(FileReferenceMetadata.class);
+        for (FileReferenceMetadataField binding : annotation.metadataFields()) {
+            if (values.put(binding.value(), binding.field()) != null) {
+                throw new PlatformException("duplicate file reference metadata binding: " + binding.value());
+            }
+        }
+        return Map.copyOf(values);
     }
 
     private Object rawValue(EntityContract entity, String fieldName) {
@@ -155,106 +170,83 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
         return fileIds;
     }
 
+    /**
+     * Metadata bindings are single-file snapshots. A multi-file field deliberately
+     * has no implicit JSON representation: its business model must declare a
+     * future collection snapshot contract explicitly instead of receiving a
+     * platform-guessed shape.
+     */
+    private void applyMetadataFields(EntityContract incoming, EntityContract existing, String fileFieldName,
+                                     FileReferenceDefinition definition, java.util.List<String> incomingFileIds,
+                                     Map<String, FileTransferFileMetadata> promotedMetadata) {
+        if (definition.metadataFields().isEmpty()) return;
+        if (definition.maxFiles() != 1) {
+            throw new PlatformException("file reference metadata fields require a single-file reference: " + fileFieldName);
+        }
+        FileTransferFileMetadata metadata = incomingFileIds.isEmpty() ? null : promotedMetadata.get(incomingFileIds.getFirst());
+        for (Map.Entry<FileReferenceMetadata, String> binding : definition.metadataFields().entrySet()) {
+            Object value = metadata == null
+                    ? (incomingFileIds.isEmpty() ? null : rawValue(existing, binding.getValue()))
+                    : metadataValue(metadata, binding.getKey());
+            writeValue(incoming, binding.getValue(), value);
+        }
+    }
+
+    private Object metadataValue(FileTransferFileMetadata metadata, FileReferenceMetadata field) {
+        return switch (field) {
+            case ORIGINAL_FILENAME -> metadata.originalFilename();
+            case EXTENSION -> metadata.extension();
+            case MIME_TYPE -> metadata.mimeType();
+            case SIZE_BYTES -> metadata.sizeBytes();
+            case SHA256 -> metadata.sha256();
+        };
+    }
+
+    private void writeValue(EntityContract entity, String fieldName, Object value) {
+        if (entity instanceof DynamicRecord record) {
+            record.putGeneratedValue(fieldName, value);
+            return;
+        }
+        for (Class<?> type = entity.getClass(); type != null; type = type.getSuperclass()) {
+            try {
+                Field field = type.getDeclaredField(fieldName);
+                field.trySetAccessible();
+                field.set(entity, value);
+                return;
+            } catch (NoSuchFieldException ignored) {
+                // Continue through inherited fields.
+            } catch (IllegalAccessException | IllegalArgumentException failure) {
+                throw new PlatformException("cannot write file reference metadata field: " + fieldName, failure);
+            }
+        }
+        throw new PlatformException("cannot find file reference metadata field: " + fieldName);
+    }
+
     private void clearIfEmpty() {
         if (promoted.get().isEmpty()) promoted.remove();
         if (pendingDeletions.get().isEmpty()) pendingDeletions.remove();
     }
 
-    private <T extends EntityContract> java.util.List<ResolvedFileDeletion> validateDeletionIntents(CrudAbility<T> ability,
-                                                                                                      EntityContract existing,
-                                                                                                      EntityContract incoming,
-                                                                                                      Map<String, FileReferenceDefinition> definitions) {
-        java.util.List<RecordFileDeletionIntent> intents = RecordSaveMutationMetadataContext.current()
-                .map(metadata -> metadata.fileDeletions()).orElse(java.util.List.of());
-        if (intents.isEmpty()) return java.util.List.of();
-        if (existing == null || existing.getId() == null || existing.getId().isBlank()) {
-            throw new PlatformException("file deletion intents require an existing record");
-        }
+    /**
+     * Derives removed files solely from the persisted record and the incoming entity.
+     * Every entity in a child aggregate receives the same lifecycle callback through
+     * its own CrudAbility, so a child reference is handled by the child service rather
+     * than being addressed through a transport-level relation path.
+     */
+    private java.util.List<ResolvedFileDeletion> removedFileReferences(EntityContract existing,
+                                                                         EntityContract incoming,
+                                                                         Map<String, FileReferenceDefinition> definitions) {
+        if (existing == null || definitions.isEmpty()) return java.util.List.of();
         java.util.List<ResolvedFileDeletion> deletions = new java.util.ArrayList<>();
-        java.util.Set<RecordFileDeletionIntent> resolved = new java.util.LinkedHashSet<>();
-        for (RecordFileDeletionIntent intent : intents) {
-            String targetId = intent.recordPath().nodes().getFirst().recordId();
-            if (!Objects.equals(targetId, existing.getId())) continue;
-            ResolvedFileDeletion deletion = switch (intent.recordPath().nodes().size()) {
-                case 1 -> resolveDeletion(intent, existing, incoming, definitions);
-                case 2 -> resolveChildDeletion(ability, intent, existing, incoming);
-                default -> throw new PlatformException("file deletion path supports at most one child relation");
-            };
-            if (!resolved.add(intent)) {
-                throw new PlatformException("duplicate file deletion intent: " + intent.fileId());
+        for (Map.Entry<String, FileReferenceDefinition> entry : definitions.entrySet()) {
+            java.util.Set<String> next = new java.util.LinkedHashSet<>(values(incoming, entry.getKey(), entry.getValue()));
+            for (String previousFileId : values(existing, entry.getKey(), entry.getValue())) {
+                if (!next.contains(previousFileId)) {
+                    deletions.add(new ResolvedFileDeletion(entry.getKey(), previousFileId));
+                }
             }
-            deletions.add(deletion);
         }
         return java.util.List.copyOf(deletions);
-    }
-
-    private ResolvedFileDeletion resolveDeletion(RecordFileDeletionIntent intent,
-                                                 EntityContract existing,
-                                                 EntityContract incoming,
-                                                 Map<String, FileReferenceDefinition> definitions) {
-        if (!definitions.containsKey(intent.fieldName())) {
-            throw new PlatformException("file deletion field is not a file reference: " + intent.fieldName());
-        }
-        FileReferenceDefinition definition = definitions.get(intent.fieldName());
-        java.util.List<String> previousFileIds = values(existing, intent.fieldName(), definition);
-        java.util.List<String> nextFileIds = values(incoming, intent.fieldName(), definition);
-        if (!previousFileIds.contains(intent.fileId())) {
-            throw new PlatformException("file deletion does not match existing reference: " + intent.fieldName());
-        }
-        if (nextFileIds.contains(intent.fileId())) {
-            throw new PlatformException("file deletion requires removing or replacing the referenced file: "
-                    + intent.fieldName());
-        }
-        return new ResolvedFileDeletion(intent.fieldName(), intent.fileId());
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private ResolvedFileDeletion resolveChildDeletion(CrudAbility<?> ability,
-                                                       RecordFileDeletionIntent intent,
-                                                       EntityContract existingParent,
-                                                       EntityContract incomingParent) {
-        if (!(ability instanceof ChildrenAbility childrenAbility)) {
-            throw new PlatformException("file deletion path does not support child relations: " + intent.recordPath());
-        }
-        String relationCode = intent.recordPath().nodes().get(1).relationCode();
-        String childId = intent.recordPath().nodes().get(1).recordId();
-        java.util.List<ChildRelation<? extends EntityContract, EntityContract>> relations =
-                (java.util.List<ChildRelation<? extends EntityContract, EntityContract>>) (java.util.List<?>) childrenAbility.childRelations();
-        ChildRelation relation = null;
-        for (ChildRelation<?, ?> candidate : relations) {
-            if (Objects.equals(candidate.relationCode(), relationCode)) {
-                relation = candidate;
-                break;
-            }
-        }
-        if (relation == null) {
-            throw new PlatformException("unknown child relation for file deletion: " + relationCode);
-        }
-        EntityContract existingChild = null;
-        for (Object candidate : relation.selectChildren(existingParent.getId())) {
-            if (candidate instanceof EntityContract entity && Objects.equals(entity.getId(), childId)) {
-                existingChild = entity;
-                break;
-            }
-        }
-        if (existingChild == null) {
-            throw new PlatformException("file deletion child does not belong to parent: " + childId);
-        }
-        java.util.List<?> incomingChildren = relation.incomingChildren(incomingParent);
-        if (incomingChildren == null) {
-            throw new PlatformException("file deletion child must remain in the save payload: " + childId);
-        }
-        EntityContract incomingChild = null;
-        for (Object candidate : incomingChildren) {
-            if (candidate instanceof EntityContract entity && Objects.equals(entity.getId(), childId)) {
-                incomingChild = entity;
-                break;
-            }
-        }
-        if (incomingChild == null) {
-            throw new PlatformException("file deletion child must remain in the save payload: " + childId);
-        }
-        return resolveDeletion(intent, existingChild, incomingChild, definitions(incomingChild));
     }
 
     private <T extends EntityContract> void deleteFiles(CrudAbility<T> ability, T entity,

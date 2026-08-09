@@ -99,4 +99,4 @@ WriteBackExecution
 
 `dynamic` 表示元数据驱动的运行时执行。它不表示任意脚本、不表示插件系统，也不允许绕过 Java 服务、权限、审计、校验和建表治理。
 
-动态 Web 保存请求支持 envelope 字段承载平台上下文，`id`、`version`、`values`、`children`、`attachments`、`originContext`、`uiConfigId` 和 `record` 是动态记录请求保留字段，不作为动态业务字段名使用。`originContext`、`uiConfigId` 和 `attachments` 只进入保存 mutation metadata；带 `uiConfigId` 的 `record` wrapper 表示页面表单保存，按当前 UI 配置做表单全量提交校验。
+动态 Web 的标准保存请求与静态 CRUD 一样直接提交 `DynamicRecord` 业务实体；`id`、`version`、`values`、`children` 和 `attachments` 是动态记录的保留结构字段，不作为动态业务字段名使用。平台不以 `$save`、`record` wrapper 或保存 metadata 建立第二套写协议。

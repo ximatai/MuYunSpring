@@ -38,12 +38,29 @@ MuYunSpring 与 FileServer 没有跨服务事务。文件引用保存优先保�
 
 文件引用字段 v1 的实体事实为：`maxFiles = 1` 时绑定物理 `STRING` 类型的 `fileId`；`maxFiles > 1` 时绑定物理 `JSON_SET` 的 `Collection<String>`。两种形态都可声明 MIME 类型、单文件大小和字段文件数量约束。静态模型通过 `@FileReference` 声明，动态运行态通过 `EntityDefinition.fileReferences` 表达；标准控件对选择和拖拽都执行 MIME、大小和数量的前端预检，并继续由后端保存生命周期作最终校验。`enabledWhen`、`disabledHint` 与普通字段一致地控制上传控件；禁用时不得打开文件选择器。
 
-## 后续替换与明确删除
+## 文件元数据快照
 
-FileServer 中的文件不可编辑。业务替换文件时，应把新 `fileId` 写入标准 record payload；标准单文件控件只会在新文件成功上传且回填后，为旧 `fileId` 形成保存 metadata 中的逐条 `fileDeletions`。取消或上传失败不会形成删除意图；多文件 `APPEND` 不会生成删除意图。物理删除不从引用关系反推。
+业务确实需要查询、导出或审计文件名、大小、后缀、MIME 或 SHA-256 时，可在单文件 `@FileReference` 上把每项 FileServer 元数据显式绑定到独立的持久化字段；动态模型在同一 `FileReferenceDefinition.metadataFields` 中声明相同映射。例如：
 
-每一条删除意图都包含已有业务记录的 `recordPath`、文件字段名和旧 `fileId`。路径以根记录开始，后续节点以子表 relation code 加子记录 ID 定位；它使多个文件字段和同一聚合中的多个子记录有清楚、逐项的归属，而不重复 payload 中已明确的新文件值。
+```java
+@FileReference(metadataFields = {
+        @FileReferenceMetadataField(value = ORIGINAL_FILENAME, field = "sourceFilename"),
+        @FileReferenceMetadataField(value = SIZE_BYTES, field = "sourceFileSize")
+})
+private String sourceFileId;
 
-标准创建与更新请求的正式形态为 `{ "$save": { "record": ..., "metadata": { "fileDeletions": [...] } } }`。`$save` 是保留 envelope 字段，避免与静态业务模型的普通字段冲突。当前字段文件引用生命周期会处理根记录及其一层标准子表中的单文件字段：保存前确认删除意图中的旧 fileId 确为该字段的当前值，且 payload 已将字段清空或改为新值；业务持久化成功且事务提交后才调用 FileServer 删除。删除失败只记录日志，不回滚已保存的业务数据。
+private String sourceFilename;
+private Long sourceFileSize;
+```
 
-当前只支持根记录和一层标准子表：子记录必须仍在本次保存 payload 中，整行移除时不能借由文件删除意图推断删除语义；超过一层的嵌套路径，以及删除失败后的补偿/重试均不在此阶段范围。它们必须在有真实业务需求时各自定义明确的保存事实，不能退化成按 `fileId` 的隐式删除。
+绑定字段是平台托管快照，不是客户端输入：新文件转正后由 FileServer 权威值写入；保留同一 `fileId` 时从既有记录保留；清空引用时同步清空。字符串事实必须绑定物理 `STRING` 字段，大小必须绑定物理 `LONG` 字段；同一目标字段不得被两个文件引用复用。平台不会猜测或写入 `title`、`name`、`remark` 等业务语义字段。
+
+多文件引用暂不允许元数据绑定。平台不隐式选择 JSON、拼接文本或子表作为快照形态；当真实业务需要集合文件事实时，应以独立、显式的集合快照契约进入平台，而不是改变当前单文件绑定的含义。
+
+## 替换与自动删除
+
+标准创建和更新始终直接提交业务实体，不使用 `$save`、保存 metadata 或客户端文件删除意图。保存生命周期比较数据库中的 `existingRecord` 与本次 `incomingRecord`：新增文件必须是临时文件并在落库前转正；保留文件不访问 FileServer；被替换或移除的旧文件在业务事务提交后删除。删除失败只记录日志，不回滚已保存的业务数据。
+
+单文件按 0/1 值比较，多文件按集合差集比较。父子聚合中仍在本次 payload 的子记录由子实体自身的 CRUD 生命周期比较文件字段，因此不需要浏览器提交 relation path；整行删除属于子记录删除治理，不由字段差集推断物理删除。
+
+取消编辑、上传失败和保存前校验失败不会删除任何旧正式文件；未被保存引用的临时文件继续由 FileServer TTL 清理。平台不允许把一个新绑定位置指向已正式的 fileId，从而在不建设文件资产表或全局引用计数的当前阶段维持文件引用的独占绑定语义。
