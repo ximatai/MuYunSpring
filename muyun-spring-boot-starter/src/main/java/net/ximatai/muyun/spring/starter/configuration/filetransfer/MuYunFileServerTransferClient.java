@@ -11,6 +11,11 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.time.Instant;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 
 /**
  * Official backend client for MuYunFileServer's public, token-protected API.
@@ -21,6 +26,7 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
     private final MuYunFileServerTransferAccessService accessService;
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
+    private final HttpClient contentHttpClient = HttpClient.newBuilder().build();
 
     MuYunFileServerTransferClient(MuYunFileServerTransferAccessService accessService,
                                   RestClient restClient,
@@ -38,6 +44,30 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
     @Override
     public FileTransferFileMetadata promote(String fileId) {
         return metadata(accessService.issuePromoteAccess(fileId), FileTransferOperation.PROMOTE);
+    }
+
+    @Override
+    public InputStream openContent(String fileId) {
+        FileTransferAccess access = accessService.issueDownloadAccess(fileId);
+        if (access.operation() != FileTransferOperation.DOWNLOAD) {
+            throw new IllegalStateException("unexpected file transfer access operation: " + access.operation());
+        }
+        try {
+            HttpResponse<InputStream> response = contentHttpClient.send(
+                    HttpRequest.newBuilder(URI.create(access.url())).GET().build(),
+                    HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() / 100 != 2) {
+                response.body().close();
+                throw new PlatformException("file server download request failed for file: " + access.fileId()
+                        + ", HTTP " + response.statusCode());
+            }
+            return response.body();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new PlatformException("file server download request was interrupted for file: " + access.fileId(), exception);
+        } catch (java.io.IOException exception) {
+            throw new PlatformException("file server download request failed for file: " + access.fileId(), exception);
+        }
     }
 
     @Override

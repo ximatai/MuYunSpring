@@ -36,6 +36,7 @@ export {
 export { default as RecordExplorerPanel } from './RecordExplorerPanel.vue';
 export type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
 export { default as RecordFormFields } from './RecordFormFields.vue';
+export { default as RecordFileReferenceTransfer } from './RecordFileReferenceTransfer.vue';
 export { default as RecordListExplorer } from './RecordListExplorer.vue';
 export { default as RecordMetaSection } from './RecordMetaSection.vue';
 export { default as RecordModeDrawer } from './RecordModeDrawer.vue';
@@ -108,6 +109,13 @@ export {
 } from './crudRecordListModel';
 export { resolveRecordActions } from './recordActionBarModel';
 export { normalizeRecordDraft } from './recordDraftNormalizer';
+export {
+  acceptedMediaTypes,
+  appendUploadedFileReference,
+  fileReferenceIds,
+  issueFileReferenceUploadAccess,
+  uploadedFileId,
+} from './fileReferenceTransfer';
 export { resolveRecordDetailDisplayValue } from './recordDetailFieldModel';
 export { formatPlatformDateTime, resolveBrowserTimeZone } from './platformDateTime';
 export { formatPlatformFileSize } from './platformFileSize';

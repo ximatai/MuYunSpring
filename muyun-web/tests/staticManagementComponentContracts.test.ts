@@ -1713,6 +1713,14 @@ test('dynamic module host uses shared descriptor driven list and form runners', 
   assert.match(listPanelSource, /props\.requiredExternalCriteriaKeys\.length > 0/);
   assert.match(hostSource, /\[workspace\.scopeField\]: selectedScopeRecord\.value\.id/);
   assert.match(hostSource, /<TreeRecordExplorer/);
+  assert.match(hostSource, /@file-deletion="addFileDeletion"/);
+  assert.match(
+    hostSource,
+    /context\.crud\.update\(id, record, \{ fileDeletions: saveFileDeletions\(fileDeletions\.value\) \}\)/,
+  );
+  assert.match(hostSource, /:file-transfer-context="scopeContext"/);
+  assert.match(hostSource, /@file-deletion="addScopeFileDeletion"/);
+  assert.match(hostSource, /scope\.crud\.update\([\s\S]*saveFileDeletions\(scopeFileDeletions\.value\)/);
   assert.match(hostSource, /<RecordDetailPanel/);
   assert.match(hostSource, /<RecordMetaSection/);
   assert.match(hostSource, /<ModuleActionButton/);

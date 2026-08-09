@@ -14,7 +14,7 @@
 4. 表单保存使用 `$save` envelope；`$save.record` 是业务记录，`$save.metadata` 是平台保存 metadata，动态页面的 `uiConfigId` 仍作为该 envelope 内的页面校验上下文。按已发布 UI 配置执行 required/readOnly 校验。
 5. 子表保存沿用动态记录 `children` 语义：缺省或 `null` 表示不改，空数组表示提交空子表。
 6. 附件只维护业务记录与 `fileId` 的关系，上传、预览、下载通过 access envelope 对接文件服务。
-7. 字段文件引用在保存前确认并转正，物理删除必须由 `$save.metadata.fileDeletions` 明确提交；具体边界见 [文件引用生命周期](../../../FILE_REFERENCE_LIFECYCLE.md)。
+7. 字段文件引用由 descriptor 自动渲染标准上传控件：前端以当前模块的 upload-ticket 上传并仅回填 `fileId`，保存前确认并转正；物理删除必须由 `$save.metadata.fileDeletions` 明确提交。具体边界见 [文件引用生命周期](../../../FILE_REFERENCE_LIFECYCLE.md)。
 8. 查重预检绑定动态 action 槽位和权限，不替代数据库唯一约束。
 9. 页面偏好属于当前用户体验配置，不改变平台 UI 配置真相源。
 

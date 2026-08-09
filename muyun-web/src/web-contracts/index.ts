@@ -622,6 +622,15 @@ export interface ResolvedScopedListWorkspaceDescriptor {
   manageScopeTree?: boolean;
 }
 
+/** Source-neutral runtime fact for one persisted MuYunFileServer field. */
+export interface ResolvedFileReferenceFieldDescriptor {
+  fieldRef: ViewFieldRef;
+  allowedMediaTypes: string[];
+  maxFileSizeBytes?: number;
+  maxFiles: number;
+  uploadAvailable: boolean;
+}
+
 export interface ModuleUiDefinition {
   moduleAlias: string;
   views: ViewDefinition[];
@@ -635,6 +644,7 @@ export interface ResolvedModuleUiDescriptor {
   views: ResolvedViewDescriptor[];
   actions?: ResolvedUiActionDescriptor[];
   recordLabelField?: string;
+  fileReferences?: ResolvedFileReferenceFieldDescriptor[];
 }
 
 export interface StandardEntity {

@@ -32,13 +32,15 @@ MuYunSpring 与 FileServer 没有跨服务事务。文件引用保存优先保�
 
 当前 `FileTransferAccessService` 和 `FileTransferClient` 是 MuYunFileServer 的平台门面，Starter 自动装配官方 transport adapter。标准 CRUD 的统一保存生命周期会在静态模型和动态记录的文件引用字段发生变化时，先确认并转正文件；若业务持久化随后失败，平台输出包含模块、记录和 fileId 的结构化 JVM 日志。
 
-这不是静态或动态文件字段已经完成的声明。在具备同一套保存确认、替换治理和标准动作前，任何标准模块表单都不应配置 `fileTransfer` 控件。后续正式能力应将静态声明和动态元数据编译为同一份文件引用字段 descriptor，由页面运行器消费该 descriptor，而不是让控件推断业务 URL。
+文件引用字段不配置 `uiType("fileTransfer")`。静态声明和动态元数据会编译为同一份 `fileReferences` descriptor，由标准表单运行器自动选择上传控件；控件以当前 `moduleAlias` 请求 `POST /{moduleAlias}/file-transfer/upload-ticket`，并携带字段、草稿、所选文件事实和明确意图：空引用为 `CREATE`，已绑定多文件字段新增一项为 `APPEND`，单文件字段覆盖旧值为 `REPLACE`。平台先确认 module、relation 和 field 已由当前静态或动态页面运行时声明为 `FileReference`，再只在匹配的 `FileReferenceUploadPolicy` 明确授权后签发 ticket；缺少声明、Policy 或文件传输配置都会返回可识别错误，不生成无条件上传授权。业务模块不能在浏览器上传完成时自行创建业务记录或调用转正。
 
-文件引用字段 v1 已先收敛其实体事实：`maxFiles = 1` 时绑定物理 `STRING` 类型的 `fileId`；`maxFiles > 1` 时绑定物理 `JSON_SET` 的 `Collection<String>`。两种形态都可声明 MIME 类型、单文件大小和字段文件数量约束。静态模型通过 `@FileReference` 声明，动态运行态通过 `EntityDefinition.fileReferences` 表达；两种来源已经接入统一保存生命周期，但尚未接入标准页面动作，因此不对 UI 暴露上传控件。
+业务应用迁移到该标准入口时，应为每个可上传字段注册 `FileReferenceUploadPolicy`：`supportsField` 是 descriptor 与 endpoint 共用的唯一字段覆盖声明，`authorize` 再基于草稿、文件事实和 `CREATE`/`APPEND`/`REPLACE` 意图执行目录、项目、状态及动作授权。一个字段只能匹配一个 Policy，避免依赖 Bean 顺序。Policy 只承担上传 admission，不替代应用 CRUD service 对目录、项目、状态和其他业务不变量的正常校验；标准保存不会再次强制调用该业务 Policy，只执行 FileServer 文件事实、租户、临时状态、类型和大小等存储不变量校验及既有生命周期。应用原有同路径 `file-transfer/upload-ticket` Controller 在 Policy 已注册并通过契约测试后应删除，避免与平台标准映射产生冲突或使实际请求绕开 Policy。
+
+文件引用字段 v1 的实体事实为：`maxFiles = 1` 时绑定物理 `STRING` 类型的 `fileId`；`maxFiles > 1` 时绑定物理 `JSON_SET` 的 `Collection<String>`。两种形态都可声明 MIME 类型、单文件大小和字段文件数量约束。静态模型通过 `@FileReference` 声明，动态运行态通过 `EntityDefinition.fileReferences` 表达；标准控件对选择和拖拽都执行 MIME、大小和数量的前端预检，并继续由后端保存生命周期作最终校验。`enabledWhen`、`disabledHint` 与普通字段一致地控制上传控件；禁用时不得打开文件选择器。
 
 ## 后续替换与明确删除
 
-FileServer 中的文件不可编辑。业务替换文件时，应把新 `fileId` 写入标准 record payload；原文件的删除则由保存 metadata 中的逐条 `fileDeletions` 明确表达，不从引用关系反推。
+FileServer 中的文件不可编辑。业务替换文件时，应把新 `fileId` 写入标准 record payload；标准单文件控件只会在新文件成功上传且回填后，为旧 `fileId` 形成保存 metadata 中的逐条 `fileDeletions`。取消或上传失败不会形成删除意图；多文件 `APPEND` 不会生成删除意图。物理删除不从引用关系反推。
 
 每一条删除意图都包含已有业务记录的 `recordPath`、文件字段名和旧 `fileId`。路径以根记录开始，后续节点以子表 relation code 加子记录 ID 定位；它使多个文件字段和同一聚合中的多个子记录有清楚、逐项的归属，而不重复 payload 中已明确的新文件值。
 

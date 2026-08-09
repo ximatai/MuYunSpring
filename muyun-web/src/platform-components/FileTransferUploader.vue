@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import {
   performBrowserFileTransferUpload,
@@ -20,32 +20,49 @@ interface UploadItem {
   progress: number;
   error?: string;
   task?: FileTransferUploadTask;
+  completedFileId?: string;
 }
 
 const props = withDefaults(
   defineProps<{
     /** Business API callback: authorize this exact file and return a short-lived upload target. */
     requestUploadAccess: (file: File) => Promise<FileTransferUploadAccess>;
-    /** Business API callback: persist/confirm the uploaded storage result. */
-    confirmUpload: (receipt: FileTransferUploadReceipt) => Promise<unknown>;
+    /** Optional business callback after upload. Standard file-reference fields leave this undefined. */
+    confirmUpload?: (receipt: FileTransferUploadReceipt) => Promise<unknown>;
     accept?: string;
+    allowedMediaTypes?: string[];
+    maxFileSizeBytes?: number;
     multiple?: boolean;
     disabled?: boolean;
     maxFiles?: number;
+    /** Files already bound by the surrounding record and therefore occupying this field's capacity. */
+    existingFileCount?: number;
     autoUpload?: boolean;
     uploadText?: string;
     disabledHint?: string;
     completionHint?: string;
+    /** Completed items may be retained when the surrounding form owns deletion semantics. */
+    allowCompletedRemoval?: boolean;
+    /** Browser-owned uploaded files removed from an unsaved enclosing form. */
+    releasedCompletedFileIds?: readonly string[];
+    completedFileId?: (receipt: FileTransferUploadReceipt) => string | undefined;
   }>(),
   {
+    confirmUpload: undefined,
     accept: undefined,
+    allowedMediaTypes: undefined,
+    maxFileSizeBytes: undefined,
     multiple: false,
     disabled: false,
     maxFiles: undefined,
+    existingFileCount: 0,
     autoUpload: true,
     uploadText: '选择文件上传',
     disabledHint: undefined,
     completionHint: undefined,
+    allowCompletedRemoval: true,
+    releasedCompletedFileIds: () => [],
+    completedFileId: undefined,
   },
 );
 
@@ -60,12 +77,29 @@ const items = ref<UploadItem[]>([]);
 const dragging = ref(false);
 let nextId = 1;
 
+watch(
+  () => props.releasedCompletedFileIds,
+  (released) => {
+    if (!released.length) return;
+    const ids = new Set(released);
+    items.value = items.value.filter((item) => !item.completedFileId || !ids.has(item.completedFileId));
+  },
+  { deep: true },
+);
+
 const active = computed(() =>
   items.value.some((item) => ['requesting', 'uploading', 'confirming'].includes(item.state)),
 );
+const occupiedCount = computed(
+  () =>
+    props.existingFileCount +
+    items.value.filter((item) => !['failed', 'cancelled'].includes(item.state)).length,
+);
+const atCapacity = computed(() => props.maxFiles !== undefined && occupiedCount.value >= props.maxFiles);
+const unavailable = computed(() => props.disabled || active.value || atCapacity.value);
 
 function chooseFiles() {
-  if (props.disabled || active.value) return;
+  if (unavailable.value) return;
   input.value?.click();
 }
 
@@ -76,10 +110,26 @@ function selectFiles(event: Event) {
 }
 
 function addFiles(selected: readonly File[]) {
-  if (props.disabled || active.value) return;
+  if (unavailable.value) return;
+  const rejected = selected
+    .map((file) => ({ file, error: validationError(file) }))
+    .filter((candidate): candidate is { file: File; error: string } => candidate.error != null)
+    .map((candidate) =>
+      reactive<UploadItem>({
+        id: nextId++,
+        file: candidate.file,
+        state: 'failed',
+        progress: 0,
+        error: candidate.error,
+      }),
+    );
+  if (rejected.length) {
+    items.value.push(...rejected);
+  }
+  const valid = selected.filter((file) => validationError(file) == null);
   const capacity =
-    props.maxFiles === undefined ? selected.length : Math.max(0, props.maxFiles - items.value.length);
-  const accepted = selected.slice(0, props.multiple ? capacity : Math.min(1, capacity));
+    props.maxFiles === undefined ? valid.length : Math.max(0, props.maxFiles - occupiedCount.value);
+  const accepted = valid.slice(0, props.multiple ? capacity : Math.min(1, capacity));
   if (accepted.length) {
     // `upload()` mutates the item throughout its lifecycle. Keep the very same
     // reactive instance both in the rendered list and in that async workflow;
@@ -99,9 +149,32 @@ function addFiles(selected: readonly File[]) {
   }
 }
 
+function validationError(file: File): string | undefined {
+  if (
+    props.allowedMediaTypes?.length &&
+    !props.allowedMediaTypes.some((allowed) => matchesMediaType(allowed, file.type))
+  ) {
+    return `不支持文件类型：${file.type || file.name}`;
+  }
+  if (props.maxFileSizeBytes != null && file.size > props.maxFileSizeBytes) {
+    return `文件超过单文件大小限制（${props.maxFileSizeBytes} 字节）。`;
+  }
+  return undefined;
+}
+
+/** Matches exact MIME types and the standard top-level wildcard form (for example image/*). */
+function matchesMediaType(allowedMediaType: string, actualMediaType: string): boolean {
+  const allowed = allowedMediaType.trim().toLowerCase();
+  const actual = actualMediaType.trim().toLowerCase();
+  if (!allowed || !actual) return false;
+  if (allowed === actual) return true;
+  const wildcard = /^([a-z0-9!#$&^_.+-]+)\/\*$/.exec(allowed);
+  return wildcard?.[1] === actual.split('/', 1)[0];
+}
+
 function dragOver(event: DragEvent) {
   event.preventDefault();
-  if (!props.disabled && !active.value) dragging.value = true;
+  if (!unavailable.value) dragging.value = true;
 }
 
 function dragLeave(event: DragEvent) {
@@ -148,6 +221,7 @@ async function upload(item: UploadItem) {
         },
       },
     );
+    item.completedFileId = props.completedFileId?.(receipt);
     emit('completed', receipt, result);
     presentPlatformSuccess(`“${item.file.name}”上传成功。${props.completionHint ?? ''}`, {
       source: 'file-transfer',
@@ -182,6 +256,11 @@ function remove(item: UploadItem) {
 
 function retry(item: UploadItem) {
   if (item.state === 'failed' || item.state === 'cancelled') {
+    const error = validationError(item.file);
+    if (error) {
+      item.error = error;
+      return;
+    }
     item.progress = 0;
     void upload(item);
   }
@@ -215,10 +294,10 @@ function stateText(item: UploadItem) {
     />
     <div
       class="file-transfer-uploader__drop-zone"
-      :class="{ 'is-dragging': dragging, 'is-disabled': disabled || active }"
-      :tabindex="disabled || active ? -1 : 0"
+      :class="{ 'is-dragging': dragging, 'is-disabled': unavailable }"
+      :tabindex="unavailable ? -1 : 0"
       role="button"
-      :aria-disabled="disabled || active"
+      :aria-disabled="unavailable"
       @click="chooseFiles"
       @keydown="handleDropZoneKeydown"
       @dragenter.prevent="dragOver"
@@ -229,7 +308,11 @@ function stateText(item: UploadItem) {
       <span class="file-transfer-uploader__drop-zone-icon">+</span>
       <span class="file-transfer-uploader__drop-zone-title">{{ uploadText }}</span>
       <span class="file-transfer-uploader__drop-zone-hint">{{
-        disabled ? (disabledHint ?? '当前不可上传') : '点击选择，或将文件拖拽到此处'
+        disabled
+          ? (disabledHint ?? '当前不可上传')
+          : atCapacity
+            ? '已达该字段允许的文件数量上限'
+            : '点击选择，或将文件拖拽到此处'
       }}</span>
     </div>
     <div v-if="items.length" class="file-transfer-uploader__list" aria-live="polite">
@@ -253,7 +336,12 @@ function stateText(item: UploadItem) {
           >
             取消
           </UiButton>
-          <UiButton v-else-if="!['confirming'].includes(item.state)" type="link" danger @click="remove(item)">
+          <UiButton
+            v-else-if="!['confirming', 'completed'].includes(item.state) || allowCompletedRemoval"
+            type="link"
+            danger
+            @click="remove(item)"
+          >
             移除
           </UiButton>
         </div>

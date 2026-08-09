@@ -4,6 +4,7 @@ import type {
   ResolvedReferenceFieldDescriptor,
   BooleanStatusPresentation,
   ResolvedOptionFieldDescriptor,
+  ResolvedFileReferenceFieldDescriptor,
   ResolvedModuleUiDescriptor,
   ResolvedViewFieldDescriptor,
   FieldValuePresentation,
@@ -17,6 +18,7 @@ import type { PickerConstraint, RecordPickerRecord } from './recordPickerConstra
 export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewFieldDescriptor) & {
   option?: ResolvedOptionFieldDescriptor;
   reference?: ResolvedReferenceFieldDescriptor;
+  fileReference?: ResolvedFileReferenceFieldDescriptor;
 };
 export type RecordFormRecord = Record<string, unknown>;
 export type RecordFormFieldValue = string | number | boolean | OptionValueList | string[] | undefined;
@@ -31,7 +33,8 @@ export type RecordFormFieldControlType =
   | 'booleanStatus'
   | 'switch'
   | 'recordPicker'
-  | 'recordMultiPicker';
+  | 'recordMultiPicker'
+  | 'fileTransfer';
 
 export interface RecordFormFieldFallback {
   label: string;
@@ -69,6 +72,7 @@ export interface RecordFormFieldState {
   optionSelectionMode?: 'SINGLE' | 'MULTIPLE';
   optionTitleField?: string;
   referenceTitleField?: string;
+  fileReference?: ResolvedFileReferenceFieldDescriptor;
   pickerConfig?: RecordFormFieldPickerConfig;
   booleanStatus?: BooleanStatusPresentation;
   valuePresentation?: FieldValuePresentation;
@@ -111,7 +115,20 @@ export function resolveRecordFormFields(
   const formView = uiDescriptor?.views?.find(
     (view) => view.viewKind === 'FORM' && view.viewCode === viewCode,
   );
-  return new Map(formView?.fields.map((field) => [field.fieldRef.fieldName, field]) ?? []);
+  const references = new Map(
+    (uiDescriptor?.fileReferences ?? []).map((reference) => [fieldRefKey(reference.fieldRef), reference]),
+  );
+  return new Map(
+    formView?.fields.map((field) => [
+      field.fieldRef.fieldName,
+      {
+        ...field,
+        ...(references.has(fieldRefKey(field.fieldRef))
+          ? { fileReference: references.get(fieldRefKey(field.fieldRef)) }
+          : {}),
+      },
+    ]) ?? [],
+  );
 }
 
 export function childResourceDefaultFormViewCode(resource: string): string {
@@ -154,6 +171,7 @@ export function resolveRecordFormFieldState(
     columnSpan: field?.columnSpan === 2 ? 2 : 1,
     hasOption,
     pickerConfig,
+    ...(field?.fileReference ? { fileReference: field.fileReference } : {}),
     ...(booleanStatus ? { booleanStatus } : {}),
     ...(field?.valuePresentation ? { valuePresentation: field.valuePresentation } : {}),
     ...((field?.readOnly?.disabledHint ?? fallback?.disabledHint)
@@ -217,6 +235,9 @@ function controlTypeOf(
   field: RecordFormFieldDescriptor | undefined,
   fallback: RecordFormFieldFallback | undefined,
 ): RecordFormFieldControlType {
+  if (field?.fileReference) {
+    return 'fileTransfer';
+  }
   const referenceControlType = referenceControlTypeOf(field?.reference, field?.uiType);
   if (referenceControlType) {
     return referenceControlType;
@@ -249,6 +270,10 @@ function controlTypeOf(
     return 'select';
   }
   return fallback?.controlType ?? 'input';
+}
+
+function fieldRefKey(fieldRef: { relationCode?: string; fieldName: string }) {
+  return `${fieldRef.relationCode ?? ''}:${fieldRef.fieldName}`;
 }
 
 /** References are semantic fields: their cardinality determines the default editor when metadata has no explicit picker. */

@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
+import net.ximatai.muyun.spring.platform.attachment.FileReferenceUploadPolicy;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
@@ -62,6 +63,7 @@ public class PlatformModuleRuntimeContextService {
     private final ActionExecutionPolicyService actionExecutionPolicyService;
     private final PlatformPageConfigSnapshotService pageConfigSnapshotService;
     private final PlatformPageBootstrapService pageBootstrapService;
+    private final List<FileReferenceUploadPolicy> fileReferenceUploadPolicies;
 
     @Autowired
     public PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -70,14 +72,16 @@ public class PlatformModuleRuntimeContextService {
                                                ObjectProvider<DynamicRecordService> dynamicRecordService,
                                                ObjectProvider<PlatformPageConfigSnapshotService> pageConfigSnapshotService,
                                                ObjectProvider<PlatformPageBootstrapService> pageBootstrapService,
-                                               ObjectProvider<ActionExecutionPolicyService> actionExecutionPolicyService) {
+                                               ObjectProvider<ActionExecutionPolicyService> actionExecutionPolicyService,
+                                               ObjectProvider<FileReferenceUploadPolicy> fileReferenceUploadPolicies) {
         this(moduleService, actionService, staticModuleCatalog,
                 dynamicRecordService == null ? null : dynamicRecordService.getIfAvailable(),
                 pageConfigSnapshotService == null ? null : pageConfigSnapshotService.getIfAvailable(),
                 pageBootstrapService == null ? null : pageBootstrapService.getIfAvailable(),
                 actionExecutionPolicyService == null
                         ? new AllowAllActionExecutionPolicyService()
-                        : actionExecutionPolicyService.getIfAvailable(AllowAllActionExecutionPolicyService::new));
+                        : actionExecutionPolicyService.getIfAvailable(AllowAllActionExecutionPolicyService::new),
+                fileReferenceUploadPolicies == null ? List.of() : fileReferenceUploadPolicies.orderedStream().toList());
     }
 
     PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -87,6 +91,18 @@ public class PlatformModuleRuntimeContextService {
                                         PlatformPageConfigSnapshotService pageConfigSnapshotService,
                                         PlatformPageBootstrapService pageBootstrapService,
                                         ActionExecutionPolicyService actionExecutionPolicyService) {
+        this(moduleService, actionService, staticModuleCatalog, dynamicRecordService, pageConfigSnapshotService,
+                pageBootstrapService, actionExecutionPolicyService, List.of());
+    }
+
+    PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
+                                        PlatformModuleActionService actionService,
+                                        StaticModuleDefinitionCatalog staticModuleCatalog,
+                                        DynamicRecordService dynamicRecordService,
+                                        PlatformPageConfigSnapshotService pageConfigSnapshotService,
+                                        PlatformPageBootstrapService pageBootstrapService,
+                                        ActionExecutionPolicyService actionExecutionPolicyService,
+                                        List<FileReferenceUploadPolicy> fileReferenceUploadPolicies) {
         this.moduleService = moduleService;
         this.actionService = actionService;
         this.staticModuleCatalog = staticModuleCatalog;
@@ -96,6 +112,7 @@ public class PlatformModuleRuntimeContextService {
         this.actionExecutionPolicyService = actionExecutionPolicyService == null
                 ? new AllowAllActionExecutionPolicyService()
                 : actionExecutionPolicyService;
+        this.fileReferenceUploadPolicies = fileReferenceUploadPolicies == null ? List.of() : List.copyOf(fileReferenceUploadPolicies);
     }
 
     public PlatformModuleRuntimeContext context(String moduleAlias) {
@@ -129,6 +146,18 @@ public class PlatformModuleRuntimeContextService {
         );
     }
 
+    /**
+     * Resolves the page-runtime declaration used by the standard form upload endpoint.
+     * A ticket can only be issued for a file-reference field that the same module runtime
+     * exposes to the browser, for either static or dynamic modules.
+     */
+    public boolean declaresFileReference(String moduleAlias, String relationCode, String fieldName) {
+        ResolvedModuleUiDescriptor descriptor = context(moduleAlias).uiDescriptor();
+        return descriptor != null && descriptor.fileReferences().stream().anyMatch(reference ->
+                java.util.Objects.equals(reference.fieldRef().relationCode(), relationCode)
+                        && java.util.Objects.equals(reference.fieldRef().fieldName(), fieldName));
+    }
+
     private ResolvedModuleUiDescriptor uiDescriptor(String moduleAlias,
                                                     ModuleKind moduleKind,
                                                     String title,
@@ -137,9 +166,13 @@ public class PlatformModuleRuntimeContextService {
         if (moduleKind == ModuleKind.DYNAMIC) {
             return dynamicUiDescriptor(moduleAlias, title, dynamicDescriptor);
         }
-        return staticDefinition
+        ResolvedModuleUiDescriptor descriptor = staticDefinition
                 .map(ModuleUiDescriptorCompiler::compile)
                 .orElse(null);
+        return descriptor == null ? null : descriptor.withFileReferences(descriptor.fileReferences().stream()
+                .map(reference -> reference.withUploadAvailable(fileReferenceUploadPolicies.stream().anyMatch(policy ->
+                        policy.supportsField(moduleAlias, reference.fieldRef().relationCode(), reference.fieldRef().fieldName()))))
+                .toList());
     }
 
     private ResolvedModuleUiDescriptor dynamicUiDescriptor(String moduleAlias,
@@ -156,7 +189,10 @@ public class PlatformModuleRuntimeContextService {
         return ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, title,
                 dynamicOptionFields(dynamicDescriptor), dynamicReferenceFields(dynamicDescriptor),
                 dynamicRecordLabelField(dynamicDescriptor), dynamicFieldTypes(dynamicDescriptor, resolvedConfig))
-                .withFileReferences(dynamicFileReferences(dynamicDescriptor, resolvedConfig));
+                .withFileReferences(dynamicFileReferences(dynamicDescriptor, resolvedConfig).stream()
+                        .map(reference -> reference.withUploadAvailable(fileReferenceUploadPolicies.stream().anyMatch(policy ->
+                                policy.supportsField(moduleAlias, reference.fieldRef().relationCode(), reference.fieldRef().fieldName()))))
+                        .toList());
     }
 
     private java.util.List<ResolvedFileReferenceFieldDescriptor> dynamicFileReferences(

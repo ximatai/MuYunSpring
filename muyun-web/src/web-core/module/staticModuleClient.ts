@@ -20,6 +20,15 @@ export interface RecordActionRequest {
   version: number;
 }
 
+/** Platform-owned save metadata; business records must not reconstruct this envelope themselves. */
+export interface RecordSaveMutationOptions {
+  fileDeletions?: Array<{
+    recordPath: { nodes: Array<{ relationCode?: string; recordId: string }> };
+    fieldName: string;
+    fileId: string;
+  }>;
+}
+
 export interface QuerySchemaRequestOptions {
   uiConfigId?: string;
   queryTemplateId?: string;
@@ -29,8 +38,12 @@ export interface StaticModuleCrudClient<TRecord> {
   querySchema(options?: QuerySchemaRequestOptions): Promise<QuerySchema>;
   query(request?: WebQueryRequest): Promise<WebPageResponse<TRecord>>;
   view(id: string): Promise<TRecord>;
-  insert(record: TRecord): Promise<StaticRecordMutationResult<TRecord>>;
-  update(id: string, record: TRecord): Promise<StaticRecordMutationResult<TRecord>>;
+  insert(record: TRecord, options?: RecordSaveMutationOptions): Promise<StaticRecordMutationResult<TRecord>>;
+  update(
+    id: string,
+    record: TRecord,
+    options?: RecordSaveMutationOptions,
+  ): Promise<StaticRecordMutationResult<TRecord>>;
   delete(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
   enable(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
   disable(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
@@ -76,20 +89,20 @@ export function createStaticResourceCrudClient<TRecord>(
         body: request,
       }),
     view: (id) => http.request<TRecord>({ path: `${modulePath}/view/${encodeURIComponent(id)}` }),
-    insert: async (record) =>
+    insert: async (record, options) =>
       normalizeRecordMutationResponse(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
           method: 'POST',
           path: `${modulePath}/insert`,
-          body: record,
+          body: saveBody(record, options),
         }),
       ),
-    update: async (id, record) =>
+    update: async (id, record, options) =>
       normalizeRecordMutationResponse(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
           method: 'POST',
           path: `${modulePath}/update/${encodeURIComponent(id)}`,
-          body: record,
+          body: saveBody(record, options),
         }),
       ),
     delete: async (id, request) =>
@@ -117,6 +130,13 @@ export function createStaticResourceCrudClient<TRecord>(
         }),
       ),
   };
+}
+
+function saveBody<TRecord>(
+  record: TRecord,
+  options: RecordSaveMutationOptions | undefined,
+): TRecord | object {
+  return options?.fileDeletions?.length ? { $save: { record, metadata: options } } : record;
 }
 
 export function createStaticModuleTreeClient<TRecord>(
