@@ -109,20 +109,35 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
                 if (annotation != null) values.put(field.getName(), new FileReferenceDefinition(
                         java.util.Set.of(annotation.allowedMediaTypes()),
                         annotation.maxFileSizeBytes() > 0 ? annotation.maxFileSizeBytes() : null,
-                        annotation.maxFiles(), metadataFields(annotation)));
+                        annotation.maxFiles()));
+            }
+        }
+        for (Class<?> type = entity.getClass(); type != null; type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                FileReferenceMetadataField binding = field.getAnnotation(FileReferenceMetadataField.class);
+                if (binding == null) {
+                    continue;
+                }
+                String source = binding.source() == null ? "" : binding.source().trim();
+                FileReferenceDefinition definition = values.get(source);
+                if (definition == null) {
+                    throw new PlatformException("file reference metadata source must declare @FileReference: "
+                            + entity.getClass().getName() + "." + field.getName());
+                }
+                if (definition.maxFiles() != 1) {
+                    throw new PlatformException("file reference metadata fields require a single-file reference: " + source);
+                }
+                Map<FileReferenceMetadata, String> metadata = new EnumMap<>(FileReferenceMetadata.class);
+                metadata.putAll(definition.metadataFields());
+                if (metadata.put(binding.value(), field.getName()) != null) {
+                    throw new PlatformException("duplicate file reference metadata binding: "
+                            + source + "." + binding.value());
+                }
+                values.put(source, new FileReferenceDefinition(definition.allowedMediaTypes(),
+                        definition.maxFileSizeBytes(), definition.maxFiles(), metadata));
             }
         }
         return values;
-    }
-
-    private Map<FileReferenceMetadata, String> metadataFields(FileReference annotation) {
-        Map<FileReferenceMetadata, String> values = new EnumMap<>(FileReferenceMetadata.class);
-        for (FileReferenceMetadataField binding : annotation.metadataFields()) {
-            if (values.put(binding.value(), binding.field()) != null) {
-                throw new PlatformException("duplicate file reference metadata binding: " + binding.value());
-            }
-        }
-        return Map.copyOf(values);
     }
 
     private Object rawValue(EntityContract entity, String fieldName) {

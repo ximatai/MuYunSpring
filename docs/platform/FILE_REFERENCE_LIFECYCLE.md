@@ -40,16 +40,15 @@ MuYunSpring 与 FileServer 没有跨服务事务。文件引用保存优先保�
 
 ## 文件元数据快照
 
-业务确实需要查询、导出或审计文件名、大小、后缀、MIME 或 SHA-256 时，可在单文件 `@FileReference` 上把每项 FileServer 元数据显式绑定到独立的持久化字段；动态模型在同一 `FileReferenceDefinition.metadataFields` 中声明相同映射。例如：
+业务确实需要查询、导出或审计文件名、大小、后缀、MIME 或 SHA-256 时，可在独立末梢字段上以 `@FileReferenceMetadataField` 显式声明其单文件 `@FileReference` 来源；动态模型在同一 `FileReferenceDefinition.metadataFields` 中声明相同映射。例如：
 
 ```java
-@FileReference(metadataFields = {
-        @FileReferenceMetadataField(value = ORIGINAL_FILENAME, field = "sourceFilename"),
-        @FileReferenceMetadataField(value = SIZE_BYTES, field = "sourceFileSize")
-})
 private String sourceFileId;
 
+@FileReferenceMetadataField(source = "sourceFileId", value = ORIGINAL_FILENAME)
 private String sourceFilename;
+
+@FileReferenceMetadataField(source = "sourceFileId", value = SIZE_BYTES)
 private Long sourceFileSize;
 ```
 

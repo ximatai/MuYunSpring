@@ -6,7 +6,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Declares one or more MuYunFileServer-backed file identifiers on a static model.
+ * Declares a MuYunFileServer-backed file identifier or identifier collection on a static model.
  * Lifecycle actions are supplied by the platform file-reference capability, not
  * by this persistence annotation.
  */
@@ -20,10 +20,4 @@ public @interface FileReference {
 
     /** Maximum number of files held by this field. Values greater than one require a JSON_SET collection field. */
     int maxFiles() default 1;
-
-    /**
-     * Explicit fields owned by the platform and derived from FileServer metadata.
-     * These fields are not client-writable during record saves.
-     */
-    FileReferenceMetadataField[] metadataFields() default {};
 }

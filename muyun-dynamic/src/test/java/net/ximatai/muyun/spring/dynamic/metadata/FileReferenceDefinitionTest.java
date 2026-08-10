@@ -121,21 +121,20 @@ class FileReferenceDefinitionTest {
         assertThatThrownBy(() -> new StaticEntityDefinitionCompiler()
                 .compile("document", "Document", StaticConflictingMetadataDocument.class))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("invalid file reference metadata field: "
+                .hasMessage("file reference metadata field must not be a fileId field: "
                         + StaticConflictingMetadataDocument.class.getName() + ".coverFileId");
     }
 
     @Table(name = "test_static_document")
     static class StaticDocument extends StandardEntity {
         @Column(name = "source_file_id", type = ColumnType.VARCHAR, length = 64)
-        @FileReference(allowedMediaTypes = "application/pdf", maxFileSizeBytes = 50L * 1024 * 1024, metadataFields = {
-                @FileReferenceMetadataField(value = FileReferenceMetadata.ORIGINAL_FILENAME, field = "sourceFilename"),
-                @FileReferenceMetadataField(value = FileReferenceMetadata.SIZE_BYTES, field = "sourceFileSize")
-        })
+        @FileReference(allowedMediaTypes = "application/pdf", maxFileSizeBytes = 50L * 1024 * 1024)
         private String sourceFileId;
         @Column(name = "source_filename", type = ColumnType.VARCHAR, length = 255)
+        @FileReferenceMetadataField(source = "sourceFileId", value = FileReferenceMetadata.ORIGINAL_FILENAME)
         private String sourceFilename;
         @Column(name = "source_file_size", type = ColumnType.BIGINT)
+        @FileReferenceMetadataField(source = "sourceFileId", value = FileReferenceMetadata.SIZE_BYTES)
         private Long sourceFileSize;
     }
 
@@ -149,11 +148,11 @@ class FileReferenceDefinitionTest {
     @Table(name = "test_static_conflicting_metadata_document")
     static class StaticConflictingMetadataDocument extends StandardEntity {
         @Column(name = "source_file_id", type = ColumnType.VARCHAR, length = 64)
-        @FileReference(metadataFields = @FileReferenceMetadataField(
-                value = FileReferenceMetadata.ORIGINAL_FILENAME, field = "coverFileId"))
+        @FileReference
         private String sourceFileId;
         @Column(name = "cover_file_id", type = ColumnType.VARCHAR, length = 64)
         @FileReference
+        @FileReferenceMetadataField(source = "sourceFileId", value = FileReferenceMetadata.ORIGINAL_FILENAME)
         private String coverFileId;
     }
 }
