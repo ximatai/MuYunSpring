@@ -74,29 +74,48 @@ await build({
   },
 });
 
-execFileSync(
-  join(webRoot, 'node_modules', '.bin', 'vue-tsc'),
-  [
-    '--noEmit',
-    'false',
-    '--declaration',
-    '--emitDeclarationOnly',
-    '--rootDir',
-    'src',
-    '--outDir',
-    join(stagingDirectory, 'dist', 'types'),
-    '--declarationMap',
-    'false',
-  ],
-  { cwd: webRoot, stdio: 'inherit' },
-);
+const vueTscArguments = [
+  '--project',
+  'tsconfig.build.json',
+  '--noEmit',
+  'false',
+  '--declaration',
+  '--emitDeclarationOnly',
+  '--rootDir',
+  'src',
+  '--outDir',
+  join(stagingDirectory, 'dist', 'types'),
+  '--declarationMap',
+  'false',
+];
+
+if (process.platform === 'win32') {
+  execFileSync(process.execPath, [process.env.npm_execpath, 'exec', '--', 'vue-tsc', ...vueTscArguments], {
+    cwd: webRoot,
+    stdio: 'inherit',
+  });
+} else {
+  execFileSync(join(webRoot, 'node_modules', '.bin', 'vue-tsc'), vueTscArguments, {
+    cwd: webRoot,
+    stdio: 'inherit',
+  });
+}
 
 rewriteDeclarationAliases(join(stagingDirectory, 'dist', 'types'));
 
-execFileSync('npm', ['pack', '--pack-destination', outputDirectory], {
-  cwd: stagingDirectory,
-  stdio: 'inherit',
-});
+const npmPackArguments = ['pack', '--pack-destination', outputDirectory];
+
+if (process.platform === 'win32') {
+  execFileSync(process.execPath, [process.env.npm_execpath, ...npmPackArguments], {
+    cwd: stagingDirectory,
+    stdio: 'inherit',
+  });
+} else {
+  execFileSync('npm', npmPackArguments, {
+    cwd: stagingDirectory,
+    stdio: 'inherit',
+  });
+}
 
 function rewriteDeclarationAliases(typesDirectory) {
   const declarationFiles = collectFiles(typesDirectory).filter((file) => file.endsWith('.d.ts'));
