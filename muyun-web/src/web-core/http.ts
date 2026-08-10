@@ -20,71 +20,43 @@ export interface HttpRequestOptions {
 
 export interface HttpClient {
   request<T>(options: HttpRequestOptions): Promise<T>;
+}
+
+/**
+ * Optional capability implemented by HTTP clients that can open a response body
+ * as a stream. Keeping it separate preserves compatibility with application
+ * supplied clients that only implement ordinary JSON requests.
+ */
+export interface HttpStreamClient {
   /** Opens an authenticated response stream without exposing transport credentials to consumers. */
   stream(options: HttpRequestOptions): Promise<ReadableStream<Uint8Array>>;
 }
 
-export function createHttpClient(context: RequestContext = {}): HttpClient {
+export type StreamingHttpClient = HttpClient & HttpStreamClient;
+
+export function isHttpStreamClient(client: HttpClient): client is StreamingHttpClient {
+  return typeof (client as Partial<HttpStreamClient>).stream === 'function';
+}
+
+export function createHttpClient(context: RequestContext = {}): StreamingHttpClient {
   return {
     async request<T>(options: HttpRequestOptions): Promise<T> {
-      let response: Response;
-      try {
-        response = await fetch(urlOf(context.baseUrl, options), {
-          method: options.method ?? 'GET',
-          credentials: context.credentials,
-          headers: headersOf(context, options),
-          body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        });
-      } catch (error) {
-        throw new AppError('Network request failed', {
-          code: platformErrorCodes.networkError,
-          details: { cause: error instanceof Error ? error.message : String(error) },
-        });
-      }
+      const response = await send(context, options);
 
       if (!response.ok) {
-        try {
-          const error = await appErrorFromResponse(response);
-          notifyAuthenticationRequired(context, error);
-          throw error;
-        } catch (error) {
-          if (error instanceof AppError) {
-            throw error;
-          }
-          throw new AppError(`Request failed with status ${response.status}`, {
-            code: platformErrorCodes.httpError,
-            status: response.status,
-            traceId: response.headers.get('X-MuYun-Trace-Id') ?? undefined,
-            details: { cause: error instanceof Error ? error.message : String(error) },
-          });
-        }
+        return throwFailedResponse(context, response);
       }
 
       return (await responseBody(response)) as T;
     },
     async stream(options: HttpRequestOptions): Promise<ReadableStream<Uint8Array>> {
-      let response: Response;
-      try {
-        response = await fetch(urlOf(context.baseUrl, options), {
-          method: options.method ?? 'GET',
-          credentials: context.credentials,
-          // SSE endpoints participate in Spring MVC content negotiation. The
-          // JSON default used by ordinary requests would reject this response
-          // before the endpoint handler is invoked.
-          headers: { ...headersOf(context, options), Accept: 'text/event-stream' },
-          body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        });
-      } catch (error) {
-        throw new AppError('Network request failed', {
-          code: platformErrorCodes.networkError,
-          details: { cause: error instanceof Error ? error.message : String(error) },
-        });
-      }
+      // SSE endpoints participate in Spring MVC content negotiation. The JSON
+      // default used by ordinary requests would reject this response before the
+      // endpoint handler is invoked.
+      const response = await send(context, options, { Accept: 'text/event-stream' });
 
       if (!response.ok) {
-        const error = await appErrorFromResponse(response);
-        notifyAuthenticationRequired(context, error);
-        throw error;
+        return throwFailedResponse(context, response);
       }
       if (!response.body) {
         throw new AppError('Response stream is unavailable', { code: platformErrorCodes.networkError });
@@ -92,6 +64,42 @@ export function createHttpClient(context: RequestContext = {}): HttpClient {
       return response.body;
     },
   };
+}
+
+async function send(
+  context: RequestContext,
+  options: HttpRequestOptions,
+  headerOverrides?: Record<string, string>,
+): Promise<Response> {
+  try {
+    return await fetch(urlOf(context.baseUrl, options), {
+      method: options.method ?? 'GET',
+      credentials: context.credentials,
+      headers: { ...headersOf(context, options), ...headerOverrides },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+  } catch (error) {
+    throw new AppError('Network request failed', {
+      code: platformErrorCodes.networkError,
+      details: { cause: error instanceof Error ? error.message : String(error) },
+    });
+  }
+}
+
+async function throwFailedResponse(context: RequestContext, response: Response): Promise<never> {
+  let error: AppError;
+  try {
+    error = await appErrorFromResponse(response);
+  } catch (cause) {
+    error = new AppError(`Request failed with status ${response.status}`, {
+      code: platformErrorCodes.httpError,
+      status: response.status,
+      traceId: response.headers.get('X-MuYun-Trace-Id') ?? undefined,
+      details: { cause: cause instanceof Error ? cause.message : String(cause) },
+    });
+  }
+  notifyAuthenticationRequired(context, error);
+  throw error;
 }
 
 function notifyAuthenticationRequired(context: RequestContext, error: AppError) {

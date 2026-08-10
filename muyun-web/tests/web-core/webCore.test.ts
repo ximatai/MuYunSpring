@@ -26,6 +26,7 @@ import {
   contextDataChangeChannel,
   imConversationMessageChannel,
   imMessageSendCommand,
+  isHttpStreamClient,
   moduleDataChangeChannel,
   organizationPublicDataChangeChannel,
   organizationPublicNotificationChannel,
@@ -40,6 +41,7 @@ import {
   userImMessageChannel,
   userNotificationChannel,
   withWebActionResultChanges,
+  type HttpClient,
   type StompClientAdapter,
   type StompClientFactoryOptions,
   type StompSubscriptionLike,
@@ -228,6 +230,67 @@ it('http client requests event-stream media type for authenticated streams', asy
     assert.ok(stream);
     assert.equal(requests[0].headers.get('Accept'), 'text/event-stream');
     assert.equal(requests[0].headers.get('Authorization'), 'Bearer test-token');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('http client keeps custom request-only clients compatible with optional streaming', () => {
+  const customClient: HttpClient = {
+    request: async <TResponse>() => ({ ok: true }) as TResponse,
+  };
+
+  assert.equal(isHttpStreamClient(customClient), false);
+  assert.equal(isHttpStreamClient(createHttpClient()), true);
+});
+
+it('http client maps malformed stream error responses to an AppError with response diagnostics', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response('{not-json', {
+      status: 502,
+      headers: { 'Content-Type': 'application/json', 'X-MuYun-Trace-Id': 'trace-stream-malformed' },
+    });
+
+  try {
+    await expectRejected(
+      () => createHttpClient().stream({ path: '/mr.device/device-1/agent-chat/start/stream' }),
+      (error) => {
+        assert.equal(error instanceof AppError, true);
+        const appError = error as AppError;
+        assert.equal(appError.code, platformErrorCodes.httpError);
+        assert.equal(appError.status, 502);
+        assert.equal(appError.traceId, 'trace-stream-malformed');
+        assert.match(String(appError.details?.cause), /JSON/);
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('http client delegates an empty unauthorized stream response to the application boundary', async () => {
+  const originalFetch = globalThis.fetch;
+  const recovered: AppError[] = [];
+  globalThis.fetch = async () =>
+    new Response(null, { status: 401, headers: { 'X-MuYun-Trace-Id': 'trace-stream-401' } });
+
+  try {
+    const http = createHttpClient({
+      onAuthenticationRequired: (error) => {
+        recovered.push(error);
+        return true;
+      },
+    });
+
+    await expectRejected(() => http.stream({ path: '/mr.device/device-1/agent-chat/start/stream' }));
+
+    assert.equal(recovered.length, 1);
+    assert.equal(recovered[0].code, platformErrorCodes.httpError);
+    assert.equal(recovered[0].status, 401);
+    assert.equal(recovered[0].traceId, 'trace-stream-401');
+    assert.equal(recovered[0].globallyHandled, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
