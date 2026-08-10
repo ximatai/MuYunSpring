@@ -192,9 +192,7 @@ describe('WorkbenchBrandControl', () => {
     await identity.trigger('mouseenter');
     await identity.trigger('focus');
     await identity.trigger('click');
-    await wrapper.trigger('mouseleave');
 
     expect(wrapper.emitted('openCompactMenu')).toEqual([['pointer'], ['focus'], ['click']]);
-    expect(wrapper.emitted('compactHoverExit')).toHaveLength(1);
   });
 });

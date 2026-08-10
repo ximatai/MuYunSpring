@@ -69,6 +69,7 @@ const workbenchRoot = ref<HTMLElement>();
 const appTopbar = ref<HTMLElement>();
 const compactMenuTop = ref(54);
 let compactMenuCloseTimer: number | undefined;
+let compactMenuPointerReleaseFrame: number | undefined;
 let topbarResizeObserver: ResizeObserver | undefined;
 const COMPACT_MENU_CLOSE_DELAY = 220;
 
@@ -137,13 +138,19 @@ function clearCompactMenuCloseTimer() {
 }
 
 function setMenuPresentation(presentation: 'compact' | 'expanded') {
+  if (compactMenuPointerReleaseFrame !== undefined) {
+    window.cancelAnimationFrame(compactMenuPointerReleaseFrame);
+    compactMenuPointerReleaseFrame = undefined;
+  }
   suppressCompactMenuPointerEnter.value = presentation === 'compact';
   menuPresentation.value = presentation;
   closeCompactMenu();
-}
-
-function releaseCompactMenuPointerEnter() {
-  suppressCompactMenuPointerEnter.value = false;
+  if (presentation === 'compact') {
+    compactMenuPointerReleaseFrame = window.requestAnimationFrame(() => {
+      suppressCompactMenuPointerEnter.value = false;
+      compactMenuPointerReleaseFrame = undefined;
+    });
+  }
 }
 
 function updateCompactMenuTop() {
@@ -168,6 +175,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearCompactMenuCloseTimer();
+  if (compactMenuPointerReleaseFrame !== undefined) {
+    window.cancelAnimationFrame(compactMenuPointerReleaseFrame);
+  }
   topbarResizeObserver?.disconnect();
 });
 
@@ -242,7 +252,6 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
               @schedule-compact-menu-close="scheduleCompactMenuClose"
               @close-compact-menu="closeCompactMenu"
               @change-presentation="setMenuPresentation"
-              @compact-hover-exit="releaseCompactMenuPointerEnter"
             />
           </Transition>
           <Transition name="workbench-divider">

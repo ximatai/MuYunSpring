@@ -20,7 +20,6 @@ const emit = defineEmits<{
   scheduleCompactMenuClose: [];
   closeCompactMenu: [];
   changePresentation: [presentation: 'compact' | 'expanded'];
-  compactHoverExit: [];
 }>();
 
 function requestCompactMenuOpen(source: 'pointer' | 'focus' | 'click') {
@@ -41,23 +40,13 @@ function handleIdentityKeydown(event: KeyboardEvent) {
   }
 }
 
-function handleControlPointerLeave() {
-  if (props.presentation === 'compact') {
-    emit('compactHoverExit');
-  }
-}
-
 function togglePresentation() {
   emit('changePresentation', props.presentation === 'compact' ? 'expanded' : 'compact');
 }
 </script>
 
 <template>
-  <div
-    class="workbench-brand-control"
-    :class="`workbench-brand-control--${presentation}`"
-    @mouseleave="handleControlPointerLeave"
-  >
+  <div class="workbench-brand-control" :class="`workbench-brand-control--${presentation}`">
     <component
       :is="presentation === 'compact' ? 'button' : 'div'"
       class="workbench-brand-identity"
