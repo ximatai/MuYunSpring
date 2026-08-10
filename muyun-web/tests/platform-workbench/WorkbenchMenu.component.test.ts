@@ -111,7 +111,7 @@ describe('WorkbenchMenu', () => {
       props: { menus, presentation: 'compact', compactOpen: true },
     });
 
-    expect(wrapper.get('.compact-menu-tools').get('[aria-label="搜索菜单"]').exists()).toBe(true);
+    expect(wrapper.find('.compact-menu-tools').find('[aria-label="搜索菜单"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="展开侧栏菜单"]').exists()).toBe(false);
   });
 

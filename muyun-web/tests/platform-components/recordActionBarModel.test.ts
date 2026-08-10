@@ -40,7 +40,7 @@ it('resolveRecordActions omits actions that the module does not publish', () => 
               actionCode,
               available: true,
             },
-      runtime: { snapshot: () => ({}) },
+      runtime: { snapshot: () => ({ moduleAlias: 'test', capabilities: [], actions: [] }) },
     },
     [
       { key: 'create', actionCode: 'create', title: '新建' },
