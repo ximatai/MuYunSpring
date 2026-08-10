@@ -8,6 +8,8 @@ defineOptions({ name: 'WorkbenchMenuTree' });
 const props = defineProps<{
   node: WorkbenchMenuNode;
   level?: number;
+  selectedMenuId?: string;
+  selectedPathIds?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -15,6 +17,10 @@ const emit = defineEmits<{
 }>();
 
 const depth = computed(() => props.level ?? 0);
+const selected = computed(() => props.node.record.id === props.selectedMenuId);
+const selectedPath = computed(
+  () => !selected.value && props.selectedPathIds?.includes(props.node.record.id) === true,
+);
 
 function handleClick() {
   if (props.node.target) {
@@ -31,9 +37,15 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
   <li class="deep-node" :style="{ '--depth': depth }">
     <button
       class="deep-node-button"
-      :class="{ navigable: node.navigable, branch: node.hasChildren }"
+      :class="{
+        navigable: node.navigable,
+        branch: node.hasChildren,
+        selected,
+        'selected-path': selectedPath,
+      }"
       type="button"
       :disabled="!node.navigable && !node.hasChildren"
+      :aria-current="selected ? 'page' : undefined"
       @click="handleClick"
     >
       <span>{{ node.record.title }}</span>
@@ -46,6 +58,8 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
         :key="child.record.id"
         :node="child"
         :level="depth + 1"
+        :selected-menu-id="selectedMenuId"
+        :selected-path-ids="selectedPathIds"
         @select-menu="handleChildSelect"
       />
     </ul>
@@ -101,6 +115,17 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
 .deep-node-button.navigable:hover {
   background: #eaf5f2;
   color: #0f766e;
+}
+
+.deep-node-button.selected {
+  background: #e4f2ef;
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.deep-node-button.selected-path {
+  color: #334155;
+  font-weight: 600;
 }
 
 .deep-node-button:disabled {
