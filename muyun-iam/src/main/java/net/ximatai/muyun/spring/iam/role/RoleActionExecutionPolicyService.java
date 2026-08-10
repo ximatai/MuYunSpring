@@ -27,16 +27,24 @@ public class RoleActionExecutionPolicyService implements ActionExecutionPolicySe
 
     private final RoleService roleService;
     private final TenantApplicationService tenantApplicationService;
+    private final TenantAdminImplicitGrantPolicy tenantAdminImplicitGrantPolicy;
 
     public RoleActionExecutionPolicyService(RoleService roleService) {
-        this(roleService, null);
+        this(roleService, null, null);
+    }
+
+    public RoleActionExecutionPolicyService(RoleService roleService,
+                                            TenantApplicationService tenantApplicationService) {
+        this(roleService, tenantApplicationService, null);
     }
 
     @Autowired
     public RoleActionExecutionPolicyService(RoleService roleService,
-                                            TenantApplicationService tenantApplicationService) {
+                                            TenantApplicationService tenantApplicationService,
+                                            TenantAdminImplicitGrantPolicy tenantAdminImplicitGrantPolicy) {
         this.roleService = roleService;
         this.tenantApplicationService = tenantApplicationService;
+        this.tenantAdminImplicitGrantPolicy = tenantAdminImplicitGrantPolicy;
     }
 
     @Override
@@ -98,7 +106,8 @@ public class RoleActionExecutionPolicyService implements ActionExecutionPolicySe
                 .isPresent()) {
             return false;
         }
-        return roleService.hasTenantAdministratorAccess(currentUser.userId(), currentUser.tenantId());
+        return tenantAdminImplicitGrantPolicy != null
+                && tenantAdminImplicitGrantPolicy.grants(currentUser, context.moduleAlias(), context.actionCode());
     }
 
     private void requireOpenedApplication(CurrentUser currentUser, String moduleAlias) {

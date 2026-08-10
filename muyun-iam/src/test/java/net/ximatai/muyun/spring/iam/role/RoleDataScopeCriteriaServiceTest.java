@@ -59,14 +59,16 @@ class RoleDataScopeCriteriaServiceTest {
     @Test
     void shouldGiveTenantAdministratorUnrestrictedCurrentTenantDataScope() {
         RoleService roleService = mock(RoleService.class);
-        when(roleService.hasTenantAdministratorAccess("user-1", "tenant-a")).thenReturn(true);
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        TenantAdminImplicitGrantPolicy tenantAdminPolicy = mock(TenantAdminImplicitGrantPolicy.class);
+        CurrentUser user = CurrentUser.tenantUser("user-1", "User", "tenant-a");
+        when(tenantAdminPolicy.grants(user, "mr.expert", "query")).thenReturn(true);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService, tenantAdminPolicy);
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "mr.expert",
                 PlatformAction.QUERY.executionPolicy(),
                 Criteria.of().eq("enabled", Boolean.TRUE),
-                Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant-a"))
+                Optional.of(user)
         );
 
         assertThat(result.restricted()).isFalse();
