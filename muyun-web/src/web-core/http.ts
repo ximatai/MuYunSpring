@@ -20,6 +20,8 @@ export interface HttpRequestOptions {
 
 export interface HttpClient {
   request<T>(options: HttpRequestOptions): Promise<T>;
+  /** Opens an authenticated response stream without exposing transport credentials to consumers. */
+  stream(options: HttpRequestOptions): Promise<ReadableStream<Uint8Array>>;
 }
 
 export function createHttpClient(context: RequestContext = {}): HttpClient {
@@ -59,6 +61,35 @@ export function createHttpClient(context: RequestContext = {}): HttpClient {
       }
 
       return (await responseBody(response)) as T;
+    },
+    async stream(options: HttpRequestOptions): Promise<ReadableStream<Uint8Array>> {
+      let response: Response;
+      try {
+        response = await fetch(urlOf(context.baseUrl, options), {
+          method: options.method ?? 'GET',
+          credentials: context.credentials,
+          // SSE endpoints participate in Spring MVC content negotiation. The
+          // JSON default used by ordinary requests would reject this response
+          // before the endpoint handler is invoked.
+          headers: { ...headersOf(context, options), Accept: 'text/event-stream' },
+          body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        });
+      } catch (error) {
+        throw new AppError('Network request failed', {
+          code: platformErrorCodes.networkError,
+          details: { cause: error instanceof Error ? error.message : String(error) },
+        });
+      }
+
+      if (!response.ok) {
+        const error = await appErrorFromResponse(response);
+        notifyAuthenticationRequired(context, error);
+        throw error;
+      }
+      if (!response.body) {
+        throw new AppError('Response stream is unavailable', { code: platformErrorCodes.networkError });
+      }
+      return response.body;
     },
   };
 }

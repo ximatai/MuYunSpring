@@ -210,6 +210,29 @@ it('http client sends platform trace header', async () => {
   }
 });
 
+it('http client requests event-stream media type for authenticated streams', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return new Response('event: complete\n\ndata: {}\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  };
+
+  try {
+    const http = createHttpClient({ baseUrl: 'http://api.local', token: 'test-token' });
+
+    const stream = await http.stream({ path: '/mr.device/device-1/agent-chat/start/stream', method: 'POST' });
+
+    assert.ok(stream);
+    assert.equal(requests[0].headers.get('Accept'), 'text/event-stream');
+    assert.equal(requests[0].headers.get('Authorization'), 'Bearer test-token');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 it('http client delegates expired authentication to the application boundary', async () => {
   const originalFetch = globalThis.fetch;
   const recovered: AppError[] = [];
