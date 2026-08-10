@@ -39,30 +39,45 @@ import java.util.Set;
 public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
     private final CriteriaSqlCompiler criteriaSqlCompiler = new CriteriaSqlCompiler();
     private final RoleService roleService;
+    private final TenantAdminImplicitGrantPolicy tenantAdminImplicitGrantPolicy;
     private final Optional<OrganizationService> organizationService;
     private final Optional<DepartmentService> departmentService;
     private final Optional<ReferenceDependencyScopeResolver> referenceDependencyScopeResolver;
 
     public RoleDataScopeCriteriaService(RoleService roleService) {
-        this(roleService, Optional.empty(), Optional.empty(), Optional.empty());
+        this(roleService, null, Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public RoleDataScopeCriteriaService(RoleService roleService, Optional<OrganizationService> organizationService) {
-        this(roleService, organizationService, Optional.empty(), Optional.empty());
+        this(roleService, null, organizationService, Optional.empty(), Optional.empty());
     }
 
     public RoleDataScopeCriteriaService(RoleService roleService,
                                         Optional<OrganizationService> organizationService,
                                         Optional<ReferenceDependencyScopeResolver> referenceDependencyScopeResolver) {
-        this(roleService, organizationService, Optional.empty(), referenceDependencyScopeResolver);
+        this(roleService, null, organizationService, Optional.empty(), referenceDependencyScopeResolver);
     }
 
-    @Autowired
+    public RoleDataScopeCriteriaService(RoleService roleService,
+                                        TenantAdminImplicitGrantPolicy tenantAdminImplicitGrantPolicy) {
+        this(roleService, tenantAdminImplicitGrantPolicy, Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
     public RoleDataScopeCriteriaService(RoleService roleService,
                                         Optional<OrganizationService> organizationService,
                                         Optional<DepartmentService> departmentService,
                                         Optional<ReferenceDependencyScopeResolver> referenceDependencyScopeResolver) {
+        this(roleService, null, organizationService, departmentService, referenceDependencyScopeResolver);
+    }
+
+    @Autowired
+    public RoleDataScopeCriteriaService(RoleService roleService,
+                                        TenantAdminImplicitGrantPolicy tenantAdminImplicitGrantPolicy,
+                                        Optional<OrganizationService> organizationService,
+                                        Optional<DepartmentService> departmentService,
+                                        Optional<ReferenceDependencyScopeResolver> referenceDependencyScopeResolver) {
         this.roleService = Objects.requireNonNull(roleService, "roleService must not be null");
+        this.tenantAdminImplicitGrantPolicy = tenantAdminImplicitGrantPolicy;
         this.organizationService = organizationService == null ? Optional.empty() : organizationService;
         this.departmentService = departmentService == null ? Optional.empty() : departmentService;
         this.referenceDependencyScopeResolver = referenceDependencyScopeResolver == null
@@ -111,6 +126,11 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
         if (user.system()) {
             return DataScopeCriteriaResult.unrestricted(base);
         }
+        if (hasDirectTenantAdministratorAccess(user, moduleAlias, policy)) {
+            // TenantContext remains bound to the current tenant; this deliberately does not
+            // produce a cross-tenant scope or bypass the base tenant filter.
+            return DataScopeCriteriaResult.unrestricted(base);
+        }
         String visitKey = moduleAlias + ":" + policy.permissionActionCode();
         if (!visiting.add(visitKey)) {
             return DataScopeCriteriaResult.restricted(combine(base, denied()));
@@ -144,6 +164,19 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
             throw new PlatformException("acting context operator does not match current user");
         }
         return actingContext;
+    }
+
+    private boolean hasDirectTenantAdministratorAccess(CurrentUser user,
+                                                        String moduleAlias,
+                                                        ActionExecutionPolicy policy) {
+        if (user.tenantId() == null || user.tenantId().isBlank()) {
+            return false;
+        }
+        if (ActingContextHolder.current().filter(acting -> acting.matches(moduleAlias, policy.actionCode())).isPresent()) {
+            return false;
+        }
+        return tenantAdminImplicitGrantPolicy != null
+                && tenantAdminImplicitGrantPolicy.grants(user, moduleAlias, policy.actionCode());
     }
 
     private ActionExecutionPolicy policyOf(String actionCode) {

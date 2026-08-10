@@ -114,9 +114,6 @@ class DemoBootstrapTaskTest {
 
     @Test
     void shouldProvisionTenantAdminRoleWhenTenantIsCreated() {
-        when(grantableActionResolver.resolve(any())).thenReturn(List.of(
-                GrantableAction.ofPlatformDefaults("iam.user", PlatformAction.QUERY)
-        ));
         @SuppressWarnings("unchecked")
         ObjectProvider<net.ximatai.muyun.spring.common.tenant.TenantCreationProvisioner> provisioners =
                 mock(ObjectProvider.class);
@@ -139,7 +136,8 @@ class DemoBootstrapTaskTest {
             assertThat(role.getOwnerScopeId()).isEqualTo("acme");
             assertThat(role.getOwnerScopeKey()).isEqualTo("tenant:acme");
             assertThat(role.getSystemManaged()).isTrue();
-            assertThat(roleActionDao.list(Criteria.of())).hasSize(1);
+            assertThat(role.getSystemPurpose()).isEqualTo(net.ximatai.muyun.spring.iam.role.RoleSystemPurpose.TENANT_ADMIN);
+            assertThat(roleActionDao.list(Criteria.of())).isEmpty();
         }
     }
 
@@ -322,20 +320,11 @@ class DemoBootstrapTaskTest {
         properties.setEmployeeTitle("演示租户管理员");
         properties.setAdminUsername("demo_admin");
         properties.setAdminInitialPassword("demo123");
-        when(grantableActionResolver.resolve(any())).thenReturn(List.of(
-                GrantableAction.ofPlatformDefaults("iam.user", PlatformAction.MENU),
-                GrantableAction.ofPlatformDefaults("iam.user", PlatformAction.QUERY)
-        ));
         DemoBootstrapTask task = new DemoBootstrapTask(properties, tenantService, organizationService,
                 departmentService, employeeService, userAccountService, employeeAccountService, tenantRoleProvisioner);
 
         task.run();
         task.run();
-
-        assertThat(BuiltInRolePermissionTemplateService.TENANT_ADMIN_MODULE_ALIASES)
-                .doesNotContain("iam.tenant");
-        verify(grantableActionResolver, times(2))
-                .resolve(BuiltInRolePermissionTemplateService.TENANT_ADMIN_MODULE_ALIASES);
 
         Tenant tenant = tenantService.select(DemoBootstrapTask.TENANT_ALIAS);
         assertThat(tenant).isNotNull();
@@ -376,16 +365,13 @@ class DemoBootstrapTaskTest {
             assertThat(binding.getUserId()).isEqualTo(DemoBootstrapTask.USER_ID);
 
             assertThat(role).isNotNull();
+            assertThat(role.getSystemPurpose()).isEqualTo(net.ximatai.muyun.spring.iam.role.RoleSystemPurpose.TENANT_ADMIN);
             assertThat(role.getTitle()).isEqualTo(RoleService.TENANT_ADMIN_ROLE_TITLE);
             assertThat(role.getOwnerScopeType()).isEqualTo(RoleOwnerScopeType.TENANT);
             assertThat(role.getOwnerScopeId()).isEqualTo(DemoBootstrapTask.TENANT_ALIAS);
             assertThat(role.getOwnerScopeKey()).isEqualTo("tenant:" + DemoBootstrapTask.TENANT_ALIAS);
-            assertThat(roleService.hasActionPermission(DemoBootstrapTask.USER_ID, "iam.user",
-                    PlatformAction.MENU.code())).isTrue();
-            assertThat(roleService.hasActionPermission(DemoBootstrapTask.USER_ID, "iam.user",
-                    PlatformAction.QUERY.code())).isTrue();
-            assertThat(roleService.hasActionPermission(DemoBootstrapTask.USER_ID, "iam.tenant",
-                    PlatformAction.QUERY.code())).isFalse();
+            assertThat(roleService.hasTenantAdministratorAccess(DemoBootstrapTask.USER_ID,
+                    DemoBootstrapTask.TENANT_ALIAS)).isTrue();
         }
 
         assertThat(tenantDao.list(Criteria.of())).hasSize(1);
@@ -406,14 +392,7 @@ class DemoBootstrapTaskTest {
                         assertThat(grant.getManagementScopeId()).isEqualTo(DemoBootstrapTask.TENANT_ALIAS);
                     });
             assertThat(employmentRoleGrantDao.list(Criteria.of())).isEmpty();
-            assertThat(roleActionDao.list(Criteria.of())).hasSize(2);
-            Optional<RoleAction> queryGrant = roleActionDao.list(Criteria.of()).stream()
-                    .filter(action -> PlatformAction.QUERY.permissionActionCode().equals(action.getActionCode()))
-                    .findFirst();
-            assertThat(queryGrant).hasValueSatisfying(action -> {
-                assertThat(action.getDataScopePolicy()).isEqualTo(DataScopePolicy.NONE);
-                assertThat(action.getTenantScopePolicy()).isEqualTo(TenantScopePolicy.CURRENT_TENANT);
-            });
+            assertThat(roleActionDao.list(Criteria.of())).isEmpty();
         }
     }
 

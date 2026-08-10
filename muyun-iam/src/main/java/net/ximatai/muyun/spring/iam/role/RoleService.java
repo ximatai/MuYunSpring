@@ -193,6 +193,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                 .field(FormField.of("sharePolicy").withTitle("共享策略").asRequired())
                 .field(FormField.of("builtIn", FormValueType.BOOLEAN).withTitle("内置角色").asReadOnly())
                 .field(FormField.of("systemManaged", FormValueType.BOOLEAN).withTitle("系统托管").asReadOnly())
+                .field(FormField.of("systemPurpose").withTitle("系统用途").asReadOnly())
                 .field(FormField.of("description", FormValueType.TEXT).withTitle("角色描述"))
                 .build();
     }
@@ -218,6 +219,8 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                 .field(QueryField.of("enabled", QueryValueType.BOOLEAN, QueryOperator.EQ).withTitle("启用状态"))
                 .field(QueryField.of("builtIn", QueryValueType.BOOLEAN, QueryOperator.EQ).withTitle("内置角色"))
                 .field(QueryField.of("systemManaged", QueryValueType.BOOLEAN, QueryOperator.EQ).withTitle("系统托管"))
+                .field(QueryField.of("systemPurpose", QueryValueType.STRING, QueryOperator.EQ, QueryOperator.IN)
+                        .withTitle("系统用途"))
                 .field(QueryField.of("sortOrder", QueryValueType.INTEGER, QueryOperator.EQ)
                         .withTitle("排序号").withSortable())
                 .field(QueryField.of("createdAt", QueryValueType.INSTANT, QueryOperator.GTE, QueryOperator.LTE,
@@ -251,6 +254,13 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         }
         if (role.getSystemManaged() == null) {
             role.setSystemManaged(false);
+        }
+        if (role.getSystemPurpose() == null) {
+            role.setSystemPurpose(RoleSystemPurpose.NONE);
+        }
+        if (role.getSystemPurpose() != RoleSystemPurpose.NONE && !Boolean.TRUE.equals(role.getSystemManaged())) {
+            throw BusinessExceptions.warning("iam.role.system-purpose-system-managed-required",
+                    "仅系统托管角色可以声明系统用途");
         }
         if (role.getRoleKind() == RoleKind.GROUP) {
             role.setMemberRoleIds(normalizeRoleIdCsv(role.getMemberRoleIds()));
@@ -317,6 +327,9 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     @Override
     public void beforeUpdate(Role role) {
         Role existing = role == null || role.getId() == null ? null : select(role.getId());
+        if (existing != null) {
+            normalizeLoadedRoleDefaults(existing);
+        }
         if (existing != null && existing.getOwnerScopeType() == RoleOwnerScopeType.PLATFORM) {
             requirePlatformRoleSystemContext();
         } else {
@@ -587,6 +600,26 @@ public class RoleService extends TenantActiveScopedService<Role> implements
 
     public boolean hasActionPermission(BusinessPrincipal principal, String moduleAlias, String actionCode) {
         return !effectiveActionGrants(principal, moduleAlias, actionCode).isEmpty();
+    }
+
+    /**
+     * Returns whether the account has the platform-managed tenant-administrator authority in the
+     * supplied tenant. Role grants remain the source of truth for assignment and revocation.
+     */
+    public boolean hasTenantAdministratorAccess(String userId, String tenantId) {
+        String validUserId = Preconditions.requireText(userId, "userId");
+        String validTenantId = Preconditions.requireText(tenantId, "tenantId");
+        return effectiveRoleGrants(validUserId).stream()
+                .filter(grant -> grant.sourceType() == RoleAssignmentType.ACCOUNT)
+                .filter(grant -> grant.managementScopeType() == ManagementScopeType.TENANT)
+                .filter(grant -> validTenantId.equals(grant.managementScopeId()))
+                .map(EffectiveRoleGrant::roleId)
+                .map(this::selectGrantedRole)
+                .anyMatch(role -> role != null
+                        && role.getSystemPurpose() == RoleSystemPurpose.TENANT_ADMIN
+                        && role.getOwnerScopeType() == RoleOwnerScopeType.TENANT
+                        && validTenantId.equals(role.getTenantId())
+                        && validTenantId.equals(role.getOwnerScopeId()));
     }
 
     public List<RoleAction> effectiveActionGrants(String userId, String moduleAlias, String actionCode) {
@@ -959,6 +992,9 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     }
 
     private void normalizeLoadedRoleDefaults(Role role) {
+        if (role.getSystemPurpose() == null) {
+            role.setSystemPurpose(RoleSystemPurpose.NONE);
+        }
         if (role.getAssignmentType() == null) {
             role.setAssignmentType(RoleAssignmentType.EMPLOYMENT);
         }
@@ -1020,6 +1056,9 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         if (updated.getRoleKind() != null && existing.getRoleKind() != updated.getRoleKind()) {
             throw BusinessExceptions.warning("iam.role.kind-immutable", "角色创建后不能修改角色类型");
         }
+        if (updated.getSystemPurpose() != null && existing.getSystemPurpose() != updated.getSystemPurpose()) {
+            throw BusinessExceptions.warning("iam.role.system-purpose-immutable", "角色创建后不能修改系统用途");
+        }
         if (updated.getOwnerScopeType() != null && existing.getOwnerScopeType() != updated.getOwnerScopeType()) {
             throw BusinessExceptions.warning("iam.role.owner-scope-type-immutable",
                     "角色创建后不能修改归属范围类型");
@@ -1055,6 +1094,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         role.setSharePolicy(RoleSharePolicy.TENANT);
         role.setBuiltIn(Boolean.TRUE);
         role.setSystemManaged(Boolean.TRUE);
+        role.setSystemPurpose(RoleSystemPurpose.TENANT_ADMIN);
         role.setDescription(description);
         role.setEnabled(Boolean.TRUE);
         role.setSortOrder(1);
@@ -1072,6 +1112,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         role.setSharePolicy(RoleSharePolicy.OWNER_AND_CHILDREN);
         role.setBuiltIn(Boolean.TRUE);
         role.setSystemManaged(Boolean.TRUE);
+        role.setSystemPurpose(RoleSystemPurpose.ORGANIZATION_ADMIN);
         role.setDescription(description);
         role.setEnabled(Boolean.TRUE);
         role.setSortOrder(1);
@@ -1107,6 +1148,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         changed |= setIfChanged(role::getSharePolicy, role::setSharePolicy, desired.getSharePolicy());
         changed |= setIfChanged(role::getBuiltIn, role::setBuiltIn, Boolean.TRUE);
         changed |= setIfChanged(role::getSystemManaged, role::setSystemManaged, Boolean.TRUE);
+        changed |= setIfChanged(role::getSystemPurpose, role::setSystemPurpose, desired.getSystemPurpose());
         changed |= setIfChanged(role::getEnabled, role::setEnabled, Boolean.TRUE);
         changed |= setIfChanged(role::getDeleted, role::setDeleted, Boolean.FALSE);
         changed |= setIfChanged(role::getDeletedAt, role::setDeletedAt, null);

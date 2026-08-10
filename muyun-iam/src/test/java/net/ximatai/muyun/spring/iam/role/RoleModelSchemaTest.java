@@ -18,6 +18,7 @@ class RoleModelSchemaTest {
         assertThat(columnDefault(mapper.toTable(Role.class), "share_policy")).isEqualTo("'private'");
         assertThat(columnDefault(mapper.toTable(Role.class), "built_in")).isEqualTo("FALSE");
         assertThat(columnDefault(mapper.toTable(Role.class), "system_managed")).isEqualTo("FALSE");
+        assertThat(columnDefault(mapper.toTable(Role.class), "system_purpose")).isEqualTo("'none'");
         assertThat(columnDefault(mapper.toTable(AccountRoleGrant.class), "enabled")).isEqualTo("TRUE");
         assertThat(columnDefault(mapper.toTable(EmploymentRoleGrant.class), "enabled")).isEqualTo("TRUE");
         assertThat(columnDefault(mapper.toTable(RoleAction.class), "tenant_scope_policy")).isEqualTo("'currentTenant'");
