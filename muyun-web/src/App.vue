@@ -122,6 +122,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearSecurityLogoutTimer();
+  disconnectRealtime();
 });
 
 watch(
@@ -296,6 +297,8 @@ function reconnectRealtime() {
   if (!usesMockStartup()) {
     const token = effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN);
     realtimeConnection = connectAppRealtime({
+      baseUrl: import.meta.env.VITE_MUYUN_API_BASE_URL,
+      token,
       onUnauthorized: () => handleRealtimeUnauthorized(token),
       onUserNotification: handleSecurityNotification,
       onStateChange: (state) => {
