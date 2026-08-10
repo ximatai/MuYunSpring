@@ -111,6 +111,11 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
         if (user.system()) {
             return DataScopeCriteriaResult.unrestricted(base);
         }
+        if (hasDirectTenantAdministratorAccess(user, moduleAlias, policy)) {
+            // TenantContext remains bound to the current tenant; this deliberately does not
+            // produce a cross-tenant scope or bypass the base tenant filter.
+            return DataScopeCriteriaResult.unrestricted(base);
+        }
         String visitKey = moduleAlias + ":" + policy.permissionActionCode();
         if (!visiting.add(visitKey)) {
             return DataScopeCriteriaResult.restricted(combine(base, denied()));
@@ -144,6 +149,18 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
             throw new PlatformException("acting context operator does not match current user");
         }
         return actingContext;
+    }
+
+    private boolean hasDirectTenantAdministratorAccess(CurrentUser user,
+                                                        String moduleAlias,
+                                                        ActionExecutionPolicy policy) {
+        if (user.tenantId() == null || user.tenantId().isBlank()) {
+            return false;
+        }
+        if (ActingContextHolder.current().filter(acting -> acting.matches(moduleAlias, policy.actionCode())).isPresent()) {
+            return false;
+        }
+        return roleService.hasTenantAdministratorAccess(user.userId(), user.tenantId());
     }
 
     private ActionExecutionPolicy policyOf(String actionCode) {

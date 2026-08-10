@@ -56,6 +56,37 @@ class RoleActionExecutionPolicyServiceTest {
     }
 
     @Test
+    void shouldAllowTenantAdministratorForNewlyOpenedApplicationWithoutRoleAction() {
+        RoleService roleService = mock(RoleService.class);
+        TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
+        when(roleService.hasTenantAdministratorAccess("user-1", "tenant_a")).thenReturn(true);
+        RoleActionExecutionPolicyService policy = new RoleActionExecutionPolicyService(roleService,
+                tenantApplicationService);
+
+        ActionAuthorizationResult result = policy.authorize(
+                context(CurrentUser.tenantUser("user-1", "Alice", "tenant_a")));
+
+        assertThat(result.decision()).isEqualTo(RoleActionExecutionPolicyService.DECISION_TENANT_ADMIN_GRANTED);
+        verify(tenantApplicationService).requireApplicationOpened("tenant_a", "sales");
+        verify(roleService, never()).hasActionPermission("user-1", "sales.contract", "view");
+    }
+
+    @Test
+    void shouldRejectTenantAdministratorBeforePrivilegeLookupWhenApplicationIsNotOpened() {
+        RoleService roleService = mock(RoleService.class);
+        TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
+        org.mockito.Mockito.doThrow(new ApplicationNotOpenedException("tenant_a", "sales"))
+                .when(tenantApplicationService).requireApplicationOpened("tenant_a", "sales");
+        RoleActionExecutionPolicyService policy = new RoleActionExecutionPolicyService(roleService,
+                tenantApplicationService);
+
+        assertThatThrownBy(() -> policy.authorize(context(CurrentUser.tenantUser("user-1", "Alice", "tenant_a"))))
+                .isInstanceOf(ApplicationNotOpenedException.class);
+
+        verify(roleService, never()).hasTenantAdministratorAccess("user-1", "tenant_a");
+    }
+
+    @Test
     void shouldRejectTenantActionBeforeRoleLookupWhenApplicationIsNotOpened() {
         RoleService roleService = mock(RoleService.class);
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);

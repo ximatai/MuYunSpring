@@ -41,7 +41,8 @@ public class RoleMenuVisibilityPolicyService implements MenuVisibilityPolicyServ
                 || !tenantApplicationService.isApplicationAvailable(user.tenantId(), applicationAlias)) {
             return false;
         }
-        return roleService.hasActionPermission(user.userId(), moduleAlias, PlatformAction.MENU.code());
+        return roleService.hasTenantAdministratorAccess(user.userId(), user.tenantId())
+                || roleService.hasActionPermission(user.userId(), moduleAlias, PlatformAction.MENU.code());
     }
 
     private String applicationAliasOf(String moduleAlias) {

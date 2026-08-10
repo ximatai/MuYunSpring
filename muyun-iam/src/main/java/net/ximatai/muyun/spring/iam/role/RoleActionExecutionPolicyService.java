@@ -22,6 +22,7 @@ public class RoleActionExecutionPolicyService implements ActionExecutionPolicySe
     public static final String DECISION_LOGIN_REQUIRED = "LOGIN_REQUIRED";
     public static final String DECISION_ACTION_AUTH_DISABLED = "ACTION_AUTH_DISABLED";
     public static final String DECISION_ACTION_DEFAULT_GRANT = "ACTION_DEFAULT_GRANT";
+    public static final String DECISION_TENANT_ADMIN_GRANTED = "TENANT_ADMIN_GRANTED";
     public static final String DECISION_ROLE_GRANTED = "ROLE_GRANTED";
 
     private final RoleService roleService;
@@ -66,6 +67,9 @@ public class RoleActionExecutionPolicyService implements ActionExecutionPolicySe
         if (grantsAuthenticatedUser(context.actionPolicy().defaultGrantPolicy())) {
             return ActionAuthorizationResult.allowed(context, DECISION_ACTION_DEFAULT_GRANT);
         }
+        if (isDirectTenantAdministrator(currentUser, context)) {
+            return ActionAuthorizationResult.allowed(context, DECISION_TENANT_ADMIN_GRANTED);
+        }
         String permissionActionCode = context.actionPolicy().permissionActionCode();
         ActingContext actingContext = ActingContextHolder.current()
                 .filter(acting -> acting.matches(context.moduleAlias(), context.actionCode()))
@@ -87,6 +91,14 @@ public class RoleActionExecutionPolicyService implements ActionExecutionPolicySe
 
     private boolean grantsAuthenticatedUser(ActionDefaultGrantPolicy policy) {
         return policy != null && policy.grantsAuthenticatedUser();
+    }
+
+    private boolean isDirectTenantAdministrator(CurrentUser currentUser, ActionExecutionContext context) {
+        if (ActingContextHolder.current().filter(acting -> acting.matches(context.moduleAlias(), context.actionCode()))
+                .isPresent()) {
+            return false;
+        }
+        return roleService.hasTenantAdministratorAccess(currentUser.userId(), currentUser.tenantId());
     }
 
     private void requireOpenedApplication(CurrentUser currentUser, String moduleAlias) {

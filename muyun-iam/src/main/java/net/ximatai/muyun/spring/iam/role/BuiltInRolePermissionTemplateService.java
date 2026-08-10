@@ -19,6 +19,11 @@ import java.util.Set;
 public class BuiltInRolePermissionTemplateService {
     public static final String TENANT_ADMIN_TEMPLATE_ALIAS = "tenant.admin";
     public static final String ORGANIZATION_ADMIN_TEMPLATE_ALIAS = "organization.admin";
+    /**
+     * @deprecated Tenant-admin access is no longer materialized as role-action rows. Retained
+     * only as a source-compatible catalog for callers migrating to the platform role purpose.
+     */
+    @Deprecated(forRemoval = false)
     public static final List<String> TENANT_ADMIN_MODULE_ALIASES = List.of(
             OrganizationService.MODULE_ALIAS,
             DepartmentService.MODULE_ALIAS,
@@ -47,6 +52,11 @@ public class BuiltInRolePermissionTemplateService {
                 "grantableActionResolver must not be null");
     }
 
+    /**
+     * @deprecated Tenant-admin access is interpreted at runtime from {@link RoleSystemPurpose}.
+     * This method does not participate in authorization correctness.
+     */
+    @Deprecated(forRemoval = false)
     public int applyTenantAdminTemplate(String roleId) {
         return applyTemplate(roleId, TENANT_ADMIN_MODULE_ALIASES, DataScopePolicy.NONE, Set.of());
     }
