@@ -14,6 +14,7 @@ import {
   type AppError,
   type RealtimeConnectionState,
 } from '@muyun/web-core';
+import { configureUserPreferenceBackend } from './web-core/userPreferences';
 import type {
   LoginResult,
   MenuNavigationTarget,
@@ -62,6 +63,28 @@ import {
 import { provideWorkbenchNavigation } from './platform-workbench/workbenchNavigation';
 import { router } from './app/router';
 import { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from './app/workbenchRouteSync';
+
+configureUserPreferenceBackend({
+  load: async (key) => {
+    const response = await createBackendHttpClient().request<{ valueJson?: string } | undefined>({
+      path: `/platform.user-preference/${encodeURIComponent(key)}`,
+      query: { clientType: 'WEB' },
+    });
+    return response?.valueJson;
+  },
+  save: (key, valueJson) =>
+    createBackendHttpClient().request({
+      method: 'POST',
+      path: `/platform.user-preference/${encodeURIComponent(key)}`,
+      body: { clientType: 'WEB', valueJson },
+    }),
+  remove: (key) =>
+    createBackendHttpClient().request({
+      method: 'DELETE',
+      path: `/platform.user-preference/${encodeURIComponent(key)}`,
+      query: { clientType: 'WEB' },
+    }),
+});
 
 const startup = ref<WorkbenchStartupState>();
 const currentUser = computed(() => startup.value?.session.currentUser);

@@ -8,10 +8,12 @@ const props = withDefaults(
     presentation: 'compact' | 'expanded';
     compactOpen?: boolean;
     tenantLabel?: string;
+    expandedMenuDepth?: 1 | 2 | 3;
   }>(),
   {
     compactOpen: false,
     tenantLabel: '系统工作区',
+    expandedMenuDepth: 1,
   },
 );
 
@@ -20,6 +22,7 @@ const emit = defineEmits<{
   scheduleCompactMenuClose: [];
   closeCompactMenu: [];
   changePresentation: [presentation: 'compact' | 'expanded'];
+  changeExpandedMenuDepth: [depth: 1 | 2 | 3];
 }>();
 
 function requestCompactMenuOpen(source: 'pointer' | 'focus' | 'click') {
@@ -42,6 +45,10 @@ function handleIdentityKeydown(event: KeyboardEvent) {
 
 function togglePresentation() {
   emit('changePresentation', props.presentation === 'compact' ? 'expanded' : 'compact');
+}
+
+function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
+  emit('changeExpandedMenuDepth', depth);
 }
 </script>
 
@@ -77,6 +84,25 @@ function togglePresentation() {
     >
       <UiIcon :name="presentation === 'compact' ? 'menu-expand' : 'menu-collapse'" />
     </button>
+    <div
+      v-if="presentation === 'expanded'"
+      class="workbench-menu-depth"
+      role="group"
+      aria-label="侧栏菜单层级"
+    >
+      <button
+        v-for="depth in [1, 2, 3] as const"
+        :key="depth"
+        class="workbench-menu-depth-option"
+        :class="{ selected: expandedMenuDepth === depth }"
+        type="button"
+        :aria-pressed="expandedMenuDepth === depth"
+        :title="`侧栏显示至第 ${depth} 级菜单`"
+        @click="changeExpandedMenuDepth(depth)"
+      >
+        {{ depth }}
+      </button>
+    </div>
   </div>
 </template>
 
@@ -176,6 +202,48 @@ button.workbench-brand-identity {
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
+}
+
+.workbench-menu-depth {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #d8e1ea;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.workbench-menu-depth-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #64748b;
+  font:
+    700 11px/1 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  cursor: pointer;
+}
+
+.workbench-menu-depth-option:hover,
+.workbench-menu-depth-option:focus-visible {
+  background: #edf4f7;
+  color: #0f766e;
+  outline: 0;
+}
+
+.workbench-menu-depth-option.selected {
+  background: #0f766e;
+  color: #fff;
+  box-shadow: 0 1px 2px rgb(15 118 110 / 22%);
 }
 
 .workbench-brand-presentation-toggle:hover,

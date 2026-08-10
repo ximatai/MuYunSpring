@@ -9,6 +9,7 @@ import type {
   WorkbenchStartupState,
 } from '@muyun/web-contracts';
 import type { UiDropdownItem, UiTabItem } from '@muyun/vue-ui-antdv';
+import { userPreferences } from '@muyun/web-core';
 import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
 import WorkbenchMenu from './WorkbenchMenu.vue';
 import { resolvePageDescriptor } from './menuNavigation';
@@ -63,6 +64,9 @@ const userMenuItems: UiDropdownItem[] = [
   { key: 'logout', title: '退出登录', danger: true },
 ];
 const menuPresentation = ref<'compact' | 'expanded'>('compact');
+const expandedMenuDepth = ref(
+  normalizeExpandedMenuDepth(userPreferences.get('workbench.expanded-menu-depth', 1)),
+);
 const compactMenuOpen = ref(false);
 const suppressCompactMenuPointerEnter = ref(false);
 const workbenchRoot = ref<HTMLElement>();
@@ -153,6 +157,15 @@ function setMenuPresentation(presentation: 'compact' | 'expanded') {
   }
 }
 
+function setExpandedMenuDepth(depth: 1 | 2 | 3) {
+  expandedMenuDepth.value = depth;
+  void userPreferences.set('workbench.expanded-menu-depth', depth);
+}
+
+function normalizeExpandedMenuDepth(value: unknown): 1 | 2 | 3 {
+  return value === 2 || value === 3 ? value : 1;
+}
+
 function updateCompactMenuTop() {
   if (!appTopbar.value || !workbenchRoot.value) {
     return;
@@ -229,6 +242,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
       :tenant-label="tenantLabel"
       :realtime-status="realtimeStatus"
       :presentation="menuPresentation"
+      :expanded-menu-depth="expandedMenuDepth"
       :compact-open="compactMenuOpen"
       :compact-top="compactMenuTop"
       @select-menu="handleSelectMenu"
@@ -237,6 +251,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
       @compact-menu-leave="scheduleCompactMenuClose"
       @compact-menu-close="closeCompactMenu"
       @change-presentation="setMenuPresentation"
+      @change-expanded-menu-depth="setExpandedMenuDepth"
     />
 
     <section class="app-main">

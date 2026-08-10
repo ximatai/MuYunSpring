@@ -135,6 +135,20 @@ describe('WorkbenchMenu', () => {
     expect(wrapper.findComponent({ name: 'WorkbenchBrandControl' }).props('presentation')).toBe('expanded');
   });
 
+  it('renders nested sidebar levels only when selected for the expanded presentation', async () => {
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: nestedMenus, presentation: 'expanded', expandedMenuDepth: 1 },
+    });
+
+    expect(wrapper.find('.sidebar-menu-level--2').exists()).toBe(false);
+
+    await wrapper.setProps({ expandedMenuDepth: 3 });
+
+    expect(wrapper.findAll('.sidebar-menu-level--2')).toHaveLength(1);
+    expect(wrapper.findAll('.sidebar-menu-level--3')).toHaveLength(1);
+    expect(wrapper.text()).toContain('应用管理');
+  });
+
   it('marks the active mega-menu entry as the current page and its group as the selected path', async () => {
     const wrapper = shallowMount(WorkbenchMenu, {
       props: { menus: nestedMenus, selectedMenuId: 'application', presentation: 'expanded' },
@@ -194,5 +208,18 @@ describe('WorkbenchBrandControl', () => {
     await identity.trigger('click');
 
     expect(wrapper.emitted('openCompactMenu')).toEqual([['pointer'], ['focus'], ['click']]);
+  });
+
+  it('shows the expanded sidebar depth chooser beside the presentation toggle', async () => {
+    const wrapper = mount(WorkbenchBrandControl, {
+      props: { presentation: 'expanded', expandedMenuDepth: 1 },
+    });
+
+    expect(wrapper.findAll('.workbench-menu-depth-option')).toHaveLength(3);
+    expect(wrapper.get('.workbench-menu-depth-option.selected').text()).toBe('1');
+
+    await wrapper.get('.workbench-menu-depth-option:nth-child(3)').trigger('click');
+
+    expect(wrapper.emitted('changeExpandedMenuDepth')).toEqual([[3]]);
   });
 });

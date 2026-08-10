@@ -26,6 +26,7 @@ const props = withDefaults(
     searchPlaceholder?: string;
     realtimeStatus?: WorkbenchRealtimeStatus;
     presentation?: 'compact' | 'expanded';
+    expandedMenuDepth?: 1 | 2 | 3;
     compactOpen?: boolean;
     compactTop?: number;
   }>(),
@@ -35,6 +36,7 @@ const props = withDefaults(
     searchPlaceholder: '搜索菜单、模块或路由',
     realtimeStatus: 'unavailable',
     presentation: 'expanded',
+    expandedMenuDepth: 1,
     compactOpen: false,
     compactTop: 54,
   },
@@ -47,6 +49,7 @@ const emit = defineEmits<{
   compactMenuLeave: [];
   compactMenuClose: [];
   changePresentation: [presentation: 'compact' | 'expanded'];
+  changeExpandedMenuDepth: [depth: 1 | 2 | 3];
 }>();
 
 const MEGA_GROUP_COLUMN_MIN_WIDTH = 168;
@@ -255,6 +258,10 @@ function changePresentation(presentation: 'compact' | 'expanded') {
   emit('changePresentation', presentation);
 }
 
+function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
+  emit('changeExpandedMenuDepth', depth);
+}
+
 function handleMenuKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     closeMegaMenu();
@@ -373,7 +380,9 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
             v-if="!isCompact"
             presentation="expanded"
             :tenant-label="tenantLabel"
+            :expanded-menu-depth="expandedMenuDepth"
             @change-presentation="changePresentation"
+            @change-expanded-menu-depth="changeExpandedMenuDepth"
           />
         </Transition>
 
@@ -390,26 +399,65 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
         <nav class="root-menu" aria-label="主导航">
           <div v-if="filteredMenus.length > 0" class="root-menu-list">
-            <button
-              v-for="node in filteredMenus"
-              :key="node.record.id"
-              class="root-menu-item"
-              :class="{
-                active: activeRootNode?.record.id === node.record.id,
-                selected: isSelectedRoot(node),
-                navigable: node.navigable,
-              }"
-              type="button"
-              :aria-expanded="activeRootNode?.record.id === node.record.id"
-              :aria-controls="
-                activeRootNode?.record.id === node.record.id ? 'workbench-mega-panel' : undefined
-              "
-              @mouseenter="openRootMenu(node, $event)"
-              @focus="openRootMenu(node, $event)"
-              @click="node.navigable && selectMenuNode(node)"
-            >
-              <span>{{ node.record.title }}</span>
-            </button>
+            <template v-for="node in filteredMenus" :key="node.record.id">
+              <button
+                class="root-menu-item"
+                :class="{
+                  active: activeRootNode?.record.id === node.record.id,
+                  selected: isSelectedRoot(node),
+                  navigable: node.navigable,
+                }"
+                type="button"
+                :aria-expanded="activeRootNode?.record.id === node.record.id"
+                :aria-controls="
+                  activeRootNode?.record.id === node.record.id ? 'workbench-mega-panel' : undefined
+                "
+                @mouseenter="openRootMenu(node, $event)"
+                @focus="openRootMenu(node, $event)"
+                @click="node.navigable && selectMenuNode(node)"
+              >
+                <span>{{ node.record.title }}</span>
+              </button>
+              <div
+                v-if="!isCompact && expandedMenuDepth >= 2"
+                class="sidebar-menu-level sidebar-menu-level--2"
+              >
+                <template v-for="group in node.children" :key="group.record.id">
+                  <button
+                    class="sidebar-menu-entry"
+                    :class="{
+                      navigable: group.navigable,
+                      selected: isSelectedMenu(group),
+                      'selected-path': isSelectedMenuAncestor(group),
+                    }"
+                    type="button"
+                    :disabled="!group.navigable"
+                    :aria-current="isSelectedMenu(group) ? 'page' : undefined"
+                    @click="selectMenuNode(group)"
+                  >
+                    <span>{{ group.record.title }}</span>
+                  </button>
+                  <div v-if="expandedMenuDepth >= 3" class="sidebar-menu-level sidebar-menu-level--3">
+                    <button
+                      v-for="entry in group.children"
+                      :key="entry.record.id"
+                      class="sidebar-menu-entry"
+                      :class="{
+                        navigable: entry.navigable,
+                        selected: isSelectedMenu(entry),
+                        'selected-path': isSelectedMenuAncestor(entry),
+                      }"
+                      type="button"
+                      :disabled="!entry.navigable"
+                      :aria-current="isSelectedMenu(entry) ? 'page' : undefined"
+                      @click="selectMenuNode(entry)"
+                    >
+                      <span>{{ entry.record.title }}</span>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </template>
           </div>
           <UiEmpty v-else description="暂无菜单" />
         </nav>
@@ -758,6 +806,63 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 .root-menu-item.navigable {
   cursor: pointer;
+}
+
+.sidebar-menu-level {
+  display: grid;
+  gap: 1px;
+  margin: 1px 0 4px;
+}
+
+.sidebar-menu-level--2,
+.sidebar-menu-level--3 {
+  padding-left: 12px;
+}
+
+.sidebar-menu-entry {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 29px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #64748b;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.sidebar-menu-entry span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-menu-entry.navigable {
+  color: #334155;
+  cursor: pointer;
+}
+
+.sidebar-menu-entry.navigable:hover {
+  background: #edf4f7;
+  color: #0f766e;
+}
+
+.sidebar-menu-entry.selected {
+  background: #e4f2ef;
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.sidebar-menu-entry.selected-path {
+  color: #334155;
+  font-weight: 600;
+}
+
+.sidebar-menu-entry:disabled {
+  cursor: default;
 }
 
 .sidebar-footer {
