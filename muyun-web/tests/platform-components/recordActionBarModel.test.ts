@@ -30,6 +30,29 @@ it('resolveRecordActions filters invisible actions and applies authorization', (
   );
 });
 
+it('resolveRecordActions omits actions that the module does not publish', () => {
+  const actions = resolveRecordActions(
+    {
+      action: (actionCode) =>
+        actionCode === 'create'
+          ? undefined
+          : {
+              actionCode,
+              available: true,
+            },
+    },
+    [
+      { key: 'create', actionCode: 'create', title: '新建' },
+      { key: 'query', actionCode: 'query', title: '查询' },
+    ],
+  );
+
+  assert.deepEqual(
+    actions.map((action) => action.actionCode),
+    ['query'],
+  );
+});
+
 it('resolveRecordActions applies default and per-action loading', () => {
   const actions = resolveRecordActions(
     { action: (actionCode) => ({ actionCode, available: true }) },

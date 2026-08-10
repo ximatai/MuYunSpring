@@ -67,6 +67,7 @@ function defaultIconName(actionCode: string): UiIconName | undefined {
 
 <template>
   <UiActionButton
+    v-if="action"
     :submit="type === 'submit'"
     :emphasis="primary ? 'primary' : 'secondary'"
     :disabled="buttonDisabled"

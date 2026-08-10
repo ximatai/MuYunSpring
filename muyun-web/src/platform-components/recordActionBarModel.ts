@@ -32,13 +32,18 @@ export function resolveRecordActions(
   defaultLoading = false,
   recordId?: string,
 ): ResolvedRecordActionItem[] {
-  return actions
-    .filter((action) => action.visible !== false)
-    .map((action, index) => {
-      const actionState = action.actionCode ? context.action(action.actionCode, recordId) : undefined;
-      const authorized = action.actionCode ? actionState?.available === true : true;
-      const loading = action.loading ?? defaultLoading;
-      return {
+  return actions.flatMap((action, index) => {
+    if (action.visible === false) {
+      return [];
+    }
+    const actionState = action.actionCode ? context.action(action.actionCode, recordId) : undefined;
+    if (action.actionCode && !actionState) {
+      return [];
+    }
+    const authorized = action.actionCode ? actionState?.available === true : true;
+    const loading = action.loading ?? defaultLoading;
+    return [
+      {
         ...action,
         key: action.key ?? action.actionCode ?? `action-${index}`,
         iconName: action.iconName ?? defaultActionIcon(action),
@@ -46,8 +51,9 @@ export function resolveRecordActions(
         reason: actionState?.reason,
         disabled: loading || action.disabled === true || !authorized,
         loading,
-      };
-    });
+      },
+    ];
+  });
 }
 
 function defaultActionIcon(action: RecordActionItem): UiIconName | undefined {
