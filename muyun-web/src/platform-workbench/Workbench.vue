@@ -9,6 +9,7 @@ import type {
   WorkbenchStartupState,
 } from '@muyun/web-contracts';
 import type { UiDropdownItem, UiTabItem } from '@muyun/vue-ui-antdv';
+import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
 import WorkbenchMenu from './WorkbenchMenu.vue';
 import { resolvePageDescriptor } from './menuNavigation';
 import type { WorkbenchRealtimeStatus } from './realtimeStatus';
@@ -63,7 +64,7 @@ const userMenuItems: UiDropdownItem[] = [
 ];
 const menuPresentation = ref<'compact' | 'expanded'>('compact');
 const compactMenuOpen = ref(false);
-const compactMenuTrigger = ref<HTMLElement>();
+const suppressCompactMenuPointerEnter = ref(false);
 const workbenchRoot = ref<HTMLElement>();
 const appTopbar = ref<HTMLElement>();
 const compactMenuTop = ref(54);
@@ -106,7 +107,10 @@ function handleSelectMenu(menu: MenuRecord, target: MenuNavigationTarget) {
   closeCompactMenu();
 }
 
-function openCompactMenu() {
+function openCompactMenu(source: 'pointer' | 'focus' | 'click' = 'pointer') {
+  if (source === 'pointer' && suppressCompactMenuPointerEnter.value) {
+    return;
+  }
   clearCompactMenuCloseTimer();
   compactMenuOpen.value = true;
 }
@@ -133,8 +137,13 @@ function clearCompactMenuCloseTimer() {
 }
 
 function setMenuPresentation(presentation: 'compact' | 'expanded') {
+  suppressCompactMenuPointerEnter.value = presentation === 'compact';
   menuPresentation.value = presentation;
   closeCompactMenu();
+}
+
+function releaseCompactMenuPointerEnter() {
+  suppressCompactMenuPointerEnter.value = false;
 }
 
 function updateCompactMenuTop() {
@@ -211,7 +220,6 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
       :realtime-status="realtimeStatus"
       :presentation="menuPresentation"
       :compact-open="compactMenuOpen"
-      :compact-trigger="compactMenuTrigger"
       :compact-top="compactMenuTop"
       @select-menu="handleSelectMenu"
       @invalid-menu="emit('invalidMenu', $event)"
@@ -224,29 +232,22 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
     <section class="app-main">
       <header ref="appTopbar" class="app-topbar">
         <div class="topbar-identity">
-          <button
-            v-if="menuPresentation === 'compact'"
-            ref="compactMenuTrigger"
-            class="header-menu-trigger"
-            :class="{ 'header-menu-trigger--open': compactMenuOpen }"
-            type="button"
-            aria-label="系统菜单"
-            :aria-expanded="compactMenuOpen"
-            aria-controls="workbench-compact-menu"
-            @mouseenter="openCompactMenu"
-            @mouseleave="scheduleCompactMenuClose"
-            @focus="openCompactMenu"
-            @focusout="scheduleCompactMenuClose"
-            @click="openCompactMenu"
-            @keydown.escape="closeCompactMenu"
-          >
-            <span class="header-menu-mark"><UiIcon name="app" /></span>
-            <span class="header-menu-copy">
-              <strong>MuYun</strong>
-              <small>系统工作区</small>
-            </span>
-          </button>
-          <span v-if="menuPresentation === 'compact'" class="header-title-divider" aria-hidden="true" />
+          <Transition name="workbench-brand">
+            <WorkbenchBrandControl
+              v-if="menuPresentation === 'compact'"
+              presentation="compact"
+              :compact-open="compactMenuOpen"
+              :tenant-label="tenantLabel"
+              @open-compact-menu="openCompactMenu"
+              @schedule-compact-menu-close="scheduleCompactMenuClose"
+              @close-compact-menu="closeCompactMenu"
+              @change-presentation="setMenuPresentation"
+              @compact-hover-exit="releaseCompactMenuPointerEnter"
+            />
+          </Transition>
+          <Transition name="workbench-divider">
+            <span v-if="menuPresentation === 'compact'" class="header-title-divider" aria-hidden="true" />
+          </Transition>
           <div class="topbar-title">
             <h1>{{ activeTab?.title ?? '控制台' }}</h1>
             <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>
@@ -320,13 +321,14 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .workbench {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 0 minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
   background: #f5f7fa;
+  transition: grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .workbench--menu-expanded {
@@ -334,6 +336,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 }
 
 .app-main {
+  grid-column: 2;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   min-width: 0;
@@ -369,64 +372,30 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   min-width: 0;
 }
 
-.header-menu-trigger {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  margin: -4px -6px;
-  padding: 3px 5px;
-  border: 1px solid transparent;
-  border-radius: 3px 3px 0 0;
-  background: transparent;
-  color: #172033;
-  font: inherit;
-  cursor: pointer;
+.workbench-brand-enter-active,
+.workbench-brand-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.header-menu-mark {
-  display: inline-grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border-radius: 7px;
-  background: #172033;
-  color: #fff;
+.workbench-brand-enter-from,
+.workbench-brand-leave-to {
+  opacity: 0;
+  transform: translateX(-12px);
 }
 
-.header-menu-copy {
-  display: grid;
-  min-width: 0;
-  text-align: left;
+.workbench-divider-enter-active,
+.workbench-divider-leave-active {
+  transition:
+    opacity 140ms ease,
+    transform 180ms ease;
 }
 
-.header-menu-copy strong {
-  font-size: 14px;
-  line-height: 1.1;
-}
-
-.header-menu-copy small {
-  margin-top: 2px;
-  color: #64748b;
-  font-size: 10px;
-  line-height: 1.1;
-}
-
-.header-menu-trigger:hover .header-menu-mark,
-.header-menu-trigger:focus-visible .header-menu-mark,
-.header-menu-trigger--open .header-menu-mark {
-  background: #0f766e;
-}
-
-.header-menu-trigger--open {
-  background: #fbfcfe;
-}
-
-.header-menu-trigger:focus-visible {
-  outline: 2px solid #99d5cc;
-  outline-offset: 3px;
-  border-radius: 5px;
+.workbench-divider-enter-from,
+.workbench-divider-leave-to {
+  opacity: 0;
+  transform: scaleY(0.45);
 }
 
 .header-title-divider {
@@ -638,9 +607,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
     min-height: 100dvh;
     height: auto;
     overflow: visible;
+    transition: none;
   }
 
   .app-main {
+    grid-column: auto;
     min-height: 100vh;
     min-height: 100dvh;
     height: auto;
@@ -670,6 +641,16 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
   .user-button {
     width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench,
+  .workbench-brand-enter-active,
+  .workbench-brand-leave-active,
+  .workbench-divider-enter-active,
+  .workbench-divider-leave-active {
+    transition: none !important;
   }
 }
 </style>
