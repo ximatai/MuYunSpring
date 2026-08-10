@@ -13,6 +13,15 @@ import java.io.IOException;
 
 public class RequestTraceWebFilter extends OncePerRequestFilter implements Ordered {
     public static final String MDC_TRACE_ID = "traceId";
+    private static final String TRACE_ID_ATTRIBUTE = RequestTraceWebFilter.class.getName() + ".TRACE_ID";
+
+    /**
+     * Keep the same trace when MVC resumes an asynchronous request on another Servlet dispatch.
+     */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -20,8 +29,10 @@ public class RequestTraceWebFilter extends OncePerRequestFilter implements Order
                                     FilterChain filterChain) throws ServletException, IOException {
         String traceId = traceIdOf(request);
         try (RequestTraceContext.Scope ignored = RequestTraceContext.use(traceId)) {
-            MDC.put(MDC_TRACE_ID, RequestTraceContext.ensureTraceId());
-            response.setHeader(RequestTraceContext.TRACE_ID_HEADER, RequestTraceContext.ensureTraceId());
+            String effectiveTraceId = RequestTraceContext.ensureTraceId();
+            request.setAttribute(TRACE_ID_ATTRIBUTE, effectiveTraceId);
+            MDC.put(MDC_TRACE_ID, effectiveTraceId);
+            response.setHeader(RequestTraceContext.TRACE_ID_HEADER, effectiveTraceId);
             filterChain.doFilter(request, response);
         } finally {
             MDC.remove(MDC_TRACE_ID);
@@ -30,6 +41,10 @@ public class RequestTraceWebFilter extends OncePerRequestFilter implements Order
     }
 
     private String traceIdOf(HttpServletRequest request) {
+        Object carriedTraceId = request.getAttribute(TRACE_ID_ATTRIBUTE);
+        if (carriedTraceId instanceof String traceId && !traceId.isBlank()) {
+            return traceId;
+        }
         String traceId = request.getHeader(RequestTraceContext.TRACE_ID_HEADER);
         if (traceId != null && !traceId.isBlank()) {
             return traceId;
