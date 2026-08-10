@@ -170,7 +170,9 @@ class PlatformUiConfigurationServiceContractTest {
         String signedDateField = seedModuleField("crm.contract", "contract", "signedDate", "signed_date", "date");
         String uiSetId = uiSetService.insert(uiSet("crm.contract", "list", PlatformUiSetType.LIST, true));
         String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
-        uiConfigFieldService.insert(uiField(uiConfigId, signedDateField, "date_range"));
+        PlatformUiConfigField uiField = uiField(uiConfigId, signedDateField, "date_range");
+        uiField.setMaxDisplayLines(2);
+        uiConfigFieldService.insert(uiField);
         publishService.publishUiConfig(uiConfigId);
         Menu menu = new Menu();
         menu.setId("menu-1");
@@ -192,6 +194,7 @@ class PlatformUiConfigurationServiceContractTest {
 
         assertThat(bootstrap.resolvedConfig().uiFields()).hasSize(1);
         assertThat(bootstrap.resolvedConfig().uiFields().getFirst().fieldUiControlAlias()).isEqualTo("date_range");
+        assertThat(bootstrap.resolvedConfig().uiFields().getFirst().maxDisplayLines()).isEqualTo(2);
         assertThat(bootstrap.resolvedConfig().fieldUiControls()).hasSize(1);
         assertThat(bootstrap.resolvedConfig().fieldUiControls().getFirst().alias()).isEqualTo("date_range");
         assertThat(bootstrap.resolvedConfig().fieldUiControls().getFirst().bindings())
@@ -293,6 +296,21 @@ class PlatformUiConfigurationServiceContractTest {
         assertThatThrownBy(() -> uiConfigFieldService.insert(uiField(uiConfigId, leadNameField, "text")))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("same module");
+    }
+
+    @Test
+    void shouldRejectMaximumDisplayLinesOutsideListUiSets() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
+        String uiSetId = uiSetService.insert(uiSet("crm.customer", "form", PlatformUiSetType.FORM, true));
+        String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        PlatformUiConfigField field = uiField(uiConfigId, customerNameField, "text");
+        field.setMaxDisplayLines(2);
+
+        assertThatThrownBy(() -> uiConfigFieldService.insert(field))
+                .isInstanceOf(PlatformException.class)
+                .hasMessage("UI config field maxDisplayLines is only supported by LIST UI sets");
     }
 
     @Test
@@ -1643,6 +1661,7 @@ class PlatformUiConfigurationServiceContractTest {
         target.setPlaceholder(source.getPlaceholder());
         target.setDefaultValue(source.getDefaultValue());
         target.setWidth(source.getWidth());
+        target.setMaxDisplayLines(source.getMaxDisplayLines());
         target.setAlign(source.getAlign());
         target.setFixedPosition(source.getFixedPosition());
         target.setTitle(source.getTitle());

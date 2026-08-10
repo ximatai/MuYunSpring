@@ -19,8 +19,34 @@ public record PlatformResolvedUiField(
         Integer width,
         Integer columnSpan,
         String align,
-        PlatformUiFixedPosition fixedPosition
+        PlatformUiFixedPosition fixedPosition,
+        Integer maxDisplayLines
 ) {
+    /** Source- and binary-compatible constructor for UI projections created before max display lines were introduced. */
+    public PlatformResolvedUiField(String uiConfigId,
+                                   String moduleMetadataFieldId,
+                                   String relationAlias,
+                                   String metadataAlias,
+                                   String fieldName,
+                                   String columnName,
+                                   String fieldTitle,
+                                   String fieldSpecAlias,
+                                   String fieldForm,
+                                   String fieldUiControlAlias,
+                                   Boolean visible,
+                                   Boolean readOnly,
+                                   Boolean requiredOverride,
+                                   String placeholder,
+                                   String defaultValue,
+                                   Integer width,
+                                   Integer columnSpan,
+                                   String align,
+                                   PlatformUiFixedPosition fixedPosition) {
+        this(uiConfigId, moduleMetadataFieldId, relationAlias, metadataAlias, fieldName, columnName, fieldTitle,
+                fieldSpecAlias, fieldForm, fieldUiControlAlias, visible, readOnly, requiredOverride, placeholder,
+                defaultValue, width, columnSpan, align, fixedPosition, null);
+    }
+
     /** Source-compatible constructor for UI projections created before column spans were introduced. */
     public PlatformResolvedUiField(String uiConfigId,
                                    String moduleMetadataFieldId,
@@ -42,6 +68,6 @@ public record PlatformResolvedUiField(
                                    PlatformUiFixedPosition fixedPosition) {
         this(uiConfigId, moduleMetadataFieldId, relationAlias, metadataAlias, fieldName, columnName, fieldTitle,
                 fieldSpecAlias, fieldForm, fieldUiControlAlias, visible, readOnly, requiredOverride, placeholder,
-                defaultValue, width, 1, align, fixedPosition);
+                defaultValue, width, 1, align, fixedPosition, null);
     }
 }

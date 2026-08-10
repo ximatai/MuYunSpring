@@ -141,6 +141,24 @@ class DynamicModuleUiDefinitionAdapterTest {
     }
 
     @Test
+    void shouldAdaptDynamicMaximumDisplayLinesToTheSourceNeutralDescriptor() {
+        PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
+        PlatformUiConfig listConfig = uiConfig("ui-list-web", "set-list", "客户列表", true, 10);
+        PlatformResolvedUiField field = new PlatformResolvedUiField(
+                "ui-list-web", "field-name", null, "customer", "name", "name", "客户名称", "string",
+                "NORMAL", "text", true, false, null, null, null, 180, 1, "left", null, 3);
+
+        ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
+                new PlatformPageConfigSnapshot("crm.customer", List.of(listSet), List.of(listConfig), List.of(),
+                        List.of(), List.of()),
+                new PlatformResolvedPageConfig(List.of(field), List.of()));
+
+        assertThat(definition.views()).singleElement()
+                .satisfies(view -> assertThat(view.fields()).singleElement()
+                        .satisfies(resolved -> assertThat(resolved.maxDisplayLines()).isEqualTo(3)));
+    }
+
+    @Test
     void shouldKeepScopedWorkspaceBoundToItsOwnDynamicListConfig() {
         PlatformUiSet projectList = uiSet("set-project", "crm.task", "project_tasks", PlatformUiSetType.LIST);
         PlatformUiSet allList = uiSet("set-all", "crm.task", "all_tasks", PlatformUiSetType.LIST);

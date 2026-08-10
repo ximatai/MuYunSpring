@@ -61,7 +61,7 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, PlatformUiConfigField.class, java.util.List.of("title", "moduleMetadataFieldId", "fieldUiControlAlias", "visible", "readOnly", "requiredOverride", "columnSpan", "enabled"),
+        return QueryDescriptors.fromModel(MODULE_ALIAS, PlatformUiConfigField.class, java.util.List.of("title", "moduleMetadataFieldId", "fieldUiControlAlias", "visible", "readOnly", "requiredOverride", "maxDisplayLines", "columnSpan", "enabled"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("title"));
     }
@@ -126,6 +126,12 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
         }
         if (field.getColumnSpan() < 1 || field.getColumnSpan() > 2) {
             throw new PlatformException("UI config field columnSpan must be between 1 and 2");
+        }
+        if (field.getMaxDisplayLines() != null && field.getMaxDisplayLines() < 1) {
+            throw new PlatformException("UI config field maxDisplayLines must be at least 1");
+        }
+        if (field.getMaxDisplayLines() != null && uiSet.getSetType() != PlatformUiSetType.LIST) {
+            throw new PlatformException("UI config field maxDisplayLines is only supported by LIST UI sets");
         }
         if (field.getTitle() == null || field.getTitle().isBlank()) {
             field.setTitle(moduleField.fieldTitle());

@@ -114,7 +114,8 @@ public final class DynamicModuleUiDefinitionAdapter {
                 field.columnSpan(),
                 field.align(),
                 field.fixedPosition() == null ? null : Boolean.TRUE,
-                null
+                null,
+                field.maxDisplayLines()
         );
     }
 

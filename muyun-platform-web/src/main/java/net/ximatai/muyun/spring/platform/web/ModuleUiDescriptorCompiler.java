@@ -235,7 +235,8 @@ public final class ModuleUiDescriptorCompiler {
                 field.booleanStatus(),
                 field.fieldRef().relationCode() == null ? optionFields.get(field.fieldRef().fieldName()) : null,
                 field.fieldRef().relationCode() == null ? referenceFields.get(field.fieldRef().fieldName()) : null,
-                referenceSummary
+                referenceSummary,
+                field.maxDisplayLines()
         );
     }
 
