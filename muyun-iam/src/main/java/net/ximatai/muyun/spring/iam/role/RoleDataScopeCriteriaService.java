@@ -176,7 +176,7 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
             return false;
         }
         return tenantAdminImplicitGrantPolicy != null
-                && tenantAdminImplicitGrantPolicy.grants(user, moduleAlias, policy.actionCode());
+                && tenantAdminImplicitGrantPolicy.grants(user, moduleAlias, policy.permissionActionCode());
     }
 
     private ActionExecutionPolicy policyOf(String actionCode) {
