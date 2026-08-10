@@ -222,4 +222,50 @@ describe('DynamicModuleHost', () => {
     wrapper.unmount();
     expect(refreshModulePageList('mr.knowledge_file')).toBe(false);
   });
+
+  it('refreshes a tree module through its tree list carrier', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/demo.tree/context')) {
+        return Response.json({
+          moduleAlias: 'demo.tree',
+          capabilities: ['TREE'],
+          abilities: ['tree'],
+          actions: [],
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({
+      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+    });
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.tree', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+        },
+      },
+    });
+
+    await flushPromises();
+    const explorer = wrapper.findComponent({ name: 'TreeRecordExplorer' });
+    expect(explorer.props('reloadKey')).toBe(0);
+    expect(refreshModulePageList('demo.tree')).toBe(true);
+    await flushPromises();
+
+    expect(explorer.props('reloadKey')).toBe(1);
+    wrapper.unmount();
+  });
 });

@@ -259,9 +259,11 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
 });
 
 onMounted(async () => {
-  unregisterListRefresh = modulePageListRefreshRegistry.register(context.moduleAlias, refreshList);
   await loadPageBootstrap();
   await loadRuntimeForm();
+  if (isListPage.value) {
+    unregisterListRefresh = modulePageListRefreshRegistry.register(context.moduleAlias, refreshList);
+  }
 });
 
 onUnmounted(() => {
@@ -744,7 +746,9 @@ function closeEnhancementDrawer() {
 
 function reloadModulePage() {
   refreshList();
-  treeReloadKey.value += 1;
+  if (!treeModule.value) {
+    treeReloadKey.value += 1;
+  }
 }
 
 /**
@@ -752,6 +756,10 @@ function reloadModulePage() {
  * RecordQueryListPanel observes reloadKey and only re-runs loadRecords().
  */
 function refreshList() {
+  if (treeModule.value) {
+    treeReloadKey.value += 1;
+    return;
+  }
   reloadKey.value += 1;
 }
 
