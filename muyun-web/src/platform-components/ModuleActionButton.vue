@@ -35,6 +35,7 @@ const emit = defineEmits<{
 }>();
 
 const action = computed(() => props.context.action(props.actionCode));
+const runtimeLoaded = computed(() => props.context.runtime.snapshot() !== undefined);
 const authorized = computed(() => action.value?.available === true);
 const buttonDisabled = computed(() => props.loading || props.disabled || !authorized.value);
 const buttonTitle = computed(() => props.title ?? action.value?.title);
@@ -67,7 +68,7 @@ function defaultIconName(actionCode: string): UiIconName | undefined {
 
 <template>
   <UiActionButton
-    v-if="action"
+    v-if="!runtimeLoaded || action"
     :submit="type === 'submit'"
     :emphasis="primary ? 'primary' : 'secondary'"
     :disabled="buttonDisabled"

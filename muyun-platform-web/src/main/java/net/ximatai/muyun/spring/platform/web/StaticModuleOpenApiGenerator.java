@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.web;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.openapi.PlatformApiDocument;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
@@ -54,6 +55,7 @@ public class StaticModuleOpenApiGenerator {
         List<PlatformApiDocument.Operation> operations = endpointCatalog.endpoints().stream()
                 .filter(endpoint -> module.moduleAlias().equals(endpoint.definition().moduleAlias()))
                 .filter(endpoint -> !isOpenApiEndpoint(endpoint.definition()))
+                .filter(endpoint -> isPublished(endpoint.definition()))
                 .filter(endpoint -> authorized(endpoint.definition()))
                 .map(endpoint -> operation(endpoint, schemaFactory.mainSchemaName(module)))
                 .toList();
@@ -67,6 +69,18 @@ public class StaticModuleOpenApiGenerator {
             return true;
         } catch (AuthenticationRequiredException | PlatformAccessDeniedException ignored) {
             return false;
+        }
+    }
+
+    private boolean isPublished(net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint endpoint) {
+        try {
+            contextResolver.requireActionPublished(endpoint.moduleAlias(), endpoint.executionPolicy().actionCode());
+            return true;
+        } catch (PlatformException exception) {
+            if (PlatformErrorCodes.RESOURCE_NOT_FOUND.equals(exception.code())) {
+                return false;
+            }
+            throw exception;
         }
     }
 

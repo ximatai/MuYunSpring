@@ -26,8 +26,13 @@ export interface ResolvedRecordActionItem extends RecordActionItem {
   loading: boolean;
 }
 
+type RecordActionContext = Pick<ModuleContext<unknown>, 'action'> & {
+  runtime?: Pick<ModuleContext<unknown>['runtime'], 'snapshot'>;
+  recordActionsSnapshot?: ModuleContext<unknown>['recordActionsSnapshot'];
+};
+
 export function resolveRecordActions(
-  context: Pick<ModuleContext<unknown>, 'action'>,
+  context: RecordActionContext,
   actions: RecordActionItem[],
   defaultLoading = false,
   recordId?: string,
@@ -37,7 +42,7 @@ export function resolveRecordActions(
       return [];
     }
     const actionState = action.actionCode ? context.action(action.actionCode, recordId) : undefined;
-    if (action.actionCode && !actionState) {
+    if (action.actionCode && !actionState && actionIsConfirmedMissing(context, action.actionCode, recordId)) {
       return [];
     }
     const authorized = action.actionCode ? actionState?.available === true : true;
@@ -54,6 +59,17 @@ export function resolveRecordActions(
       },
     ];
   });
+}
+
+function actionIsConfirmedMissing(context: RecordActionContext, actionCode: string, recordId?: string) {
+  if (!context.runtime?.snapshot()) {
+    return false;
+  }
+  if (!recordId) {
+    return true;
+  }
+  const availability = context.recordActionsSnapshot?.(recordId);
+  return availability != null && !availability.actions.some((action) => action.actionCode === actionCode);
 }
 
 function defaultActionIcon(action: RecordActionItem): UiIconName | undefined {

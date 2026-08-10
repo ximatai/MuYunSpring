@@ -40,6 +40,7 @@ it('resolveRecordActions omits actions that the module does not publish', () => 
               actionCode,
               available: true,
             },
+      runtime: { snapshot: () => ({}) },
     },
     [
       { key: 'create', actionCode: 'create', title: '新建' },
@@ -51,6 +52,19 @@ it('resolveRecordActions omits actions that the module does not publish', () => 
     actions.map((action) => action.actionCode),
     ['query'],
   );
+});
+
+it('resolveRecordActions keeps actions visible but disabled while runtime context is loading', () => {
+  const actions = resolveRecordActions(
+    {
+      action: () => undefined,
+      runtime: { snapshot: () => undefined },
+    },
+    [{ key: 'create', actionCode: 'create', title: '新建' }],
+  );
+
+  assert.equal(actions.length, 1);
+  assert.isTrue(actions[0].disabled);
 });
 
 it('resolveRecordActions applies default and per-action loading', () => {
