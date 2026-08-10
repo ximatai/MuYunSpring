@@ -71,6 +71,7 @@ defineSlots<{
   externalChangeNotice(): unknown;
   view(): unknown;
   form(): unknown;
+  viewOperation(): unknown;
   default(): unknown;
   operation(): unknown;
 }>();
@@ -104,9 +105,10 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
     <template #status>
       <slot name="status" />
     </template>
-    <template v-if="$slots.operation || editAvailable || saveAvailable" #operation>
+    <template v-if="$slots.operation || $slots.viewOperation || editAvailable || saveAvailable" #operation>
       <slot v-if="$slots.operation" name="operation" />
       <template v-else>
+        <slot v-if="viewModeActive" name="viewOperation" />
         <UiActionButton v-if="editAvailable" icon-name="edit" @click="emit('edit')">
           {{ editTitle }}
         </UiActionButton>

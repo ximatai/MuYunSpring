@@ -145,6 +145,8 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(drawerSource, /dismissExternalChange/);
   assert.match(drawerSource, /viewMode: 'view'/);
   assert.match(drawerSource, /formModes: \(\) => \['edit', 'create'\]/);
+  assert.match(drawerSource, /viewOperation\(\): unknown/);
+  assert.match(drawerSource, /<slot v-if="viewModeActive" name="viewOperation" \/>/);
   assert.match(drawerSource, /editAvailable\?: boolean/);
   assert.match(drawerSource, /saveAvailable\?: boolean/);
   assert.match(drawerSource, /edit: \[\]/);
@@ -1670,6 +1672,8 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /useModuleContext<QueryListRecord>/);
   assert.match(hostSource, /<RecordQueryListPanel/);
   assert.match(hostSource, /<RecordModeDrawer/);
+  assert.match(hostSource, /enhancementDetailActions/);
+  assert.match(hostSource, /<template #viewOperation>/);
   assert.match(hostSource, /<RecordDetailFields/);
   assert.match(hostSource, /:edit-available/);
   assert.match(hostSource, /:save-available/);
@@ -1929,11 +1933,11 @@ it('side panels use an explicit tab host and fixed drawer action regions', () =>
   const sidePanelHostSource = readSource('src/vue-ui-antdv/components/UiSidePanelHost.vue');
   const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
   const detailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
-  const workspaceViewOutletSource = readSource('src/platform-admin-runtime/WorkspaceViewOutlet.vue');
+  const workspaceViewOutletSource = readSource('src/platform-workbench/WorkspaceViewOutlet.vue');
   const workspaceViewContributionsSource = readSource(
     'src/platform-admin-runtime/workspaceViewContributions.ts',
   );
-  const workspaceViewsSource = readSource('src/platform-admin-runtime/workspaceViews.ts');
+  const workspaceViewsSource = readSource('src/platform-workbench/workspaceViews.ts');
   const viewPromotionSource = readSource('src/platform-admin-runtime/useWorkspaceViewPromotion.ts');
   const tenantSource = readSource('src/views/TenantManagementView.vue');
   const userSource = readSource('src/views/UserManagementView.vue');
@@ -1962,7 +1966,7 @@ it('side panels use an explicit tab host and fixed drawer action regions', () =>
   assert.match(workspaceViewsSource, /createWorkspaceViewDescriptor/);
   assert.match(workspaceViewsSource, /createWorkspaceViewRegistry/);
   assert.match(workspaceViewsSource, /重复的工作视图类型/);
-  assert.match(workspaceViewsSource, /workspaceViewContributions/);
+  assert.match(workspaceViewsSource, /configureWorkspaceViewContributions/);
   assert.match(workspaceViewContributionsSource, /Application assembly for restorable workspace views/);
   assert.match(viewPromotionSource, /useWorkspaceViewPromotion/);
   assert.match(viewPromotionSource, /canPromoteWorkspaceView/);

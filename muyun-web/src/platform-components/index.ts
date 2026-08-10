@@ -22,6 +22,7 @@ export { default as RecordDetailDrawer } from './RecordDetailDrawer.vue';
 export type { DrawerPromotion } from './drawerPromotion';
 export { default as RecordExternalChangeNotice } from './RecordExternalChangeNotice.vue';
 export { default as RecordDetailFields } from './RecordDetailFields.vue';
+export { default as RecordDetailExtensionSection } from './RecordDetailExtensionSection.vue';
 export { default as RecordDetailPanel } from './RecordDetailPanel.vue';
 export { default as RecordPanelButton } from './RecordPanelButton.vue';
 export { default as RecordPanelState } from './RecordPanelState.vue';
@@ -92,7 +93,12 @@ export type { RecordPickerMode } from './recordPickerModel';
 export type { RecordActionItem, ResolvedRecordActionItem } from './recordActionBarModel';
 export type { RecordDetailDisplayResolver, RecordDetailDisplayValue } from './recordDetailFieldModel';
 export type { RecordListExplorerRecord } from './RecordListExplorer.vue';
-export type { QueryListRecord, RecordQueryListColumn, RecordQueryListMode } from './RecordQueryListPanel.vue';
+export type {
+  QueryListRecord,
+  RecordQueryListCellComponent,
+  RecordQueryListColumn,
+  RecordQueryListMode,
+} from './RecordQueryListPanel.vue';
 export type {
   RecordFormFieldDescriptor,
   RecordFormFieldFallback,

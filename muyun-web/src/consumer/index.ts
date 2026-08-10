@@ -12,6 +12,30 @@ export * from '../web-contracts/index';
 export * from '../web-core/index';
 export * from '../platform-workbench/index';
 export * from '../platform-admin-runtime/index';
+export {
+  configureModulePageEnhancements,
+  createModulePageEnhancementRegistry,
+  modulePageWorkspaceViews,
+} from '../dynamic-page-runtime/modulePageEnhancements';
+export type {
+  ModuleListEnhancement,
+  ModuleDetailEnhancement,
+  ModulePageActionContext,
+  ModulePageActionContribution,
+  ModulePageBatchActionContext,
+  ModulePageBatchActionContribution,
+  ModulePageColumnContribution,
+  ModulePageDetailSection,
+  ModulePageDetailSectionContext,
+  ModulePageDrawer,
+  ModulePageDrawerContext,
+  ModulePageEnhancement,
+  ModulePageEnhancementTarget,
+  ModulePageRecordActionContext,
+  ModulePageRecordActionContribution,
+  ModulePageWorkspaceView,
+  ModulePageWorkspaceViewInput,
+} from '../dynamic-page-runtime/modulePageEnhancements';
 // The standard module runner and its list/drawer/form components are shipped
 // behind PlatformAdminOutlet.  Keeping them out of this entry preserves their
 // freedom to evolve without making each implementation detail an App contract.

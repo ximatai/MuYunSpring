@@ -1,0 +1,222 @@
+import type { Component } from 'vue';
+import type { PageLayoutMode, RouteQueryValue } from '@muyun/web-contracts';
+import type { ModuleContext } from '@muyun/web-core';
+import type { RecordActionItem, RecordQueryListColumn, QueryListRecord } from '@muyun/platform-components';
+
+/**
+ * Frontend-owned, constrained composition for a descriptor-driven module page.
+ *
+ * This deliberately lives in application source instead of the backend UI DSL:
+ * the descriptor remains the source of data and platform facts, while a business
+ * application may contribute small Vue capabilities at named platform regions.
+ */
+export interface ModulePageEnhancement {
+  id: string;
+  target: ModulePageEnhancementTarget;
+  list?: ModuleListEnhancement;
+  detail?: ModuleDetailEnhancement;
+  workspaceViews?: ModulePageWorkspaceView[];
+}
+
+export interface ModulePageEnhancementTarget {
+  moduleAlias: string;
+  /** Omit to apply to every list view of the module. */
+  viewCode?: string;
+}
+
+export interface ModuleListEnhancement {
+  actions?: ModulePageActionContribution[];
+  columns?: ModulePageColumnContribution[];
+  rowActions?: ModulePageRecordActionContribution[];
+  batchActions?: ModulePageBatchActionContribution[];
+}
+
+/** Actions appended to the standard record-detail operation area in view mode. */
+export interface ModuleDetailEnhancement {
+  actions?: ModulePageRecordActionContribution[];
+  sections?: ModulePageDetailSection[];
+}
+
+export interface ModulePageActionContribution extends RecordActionItem {
+  key: string;
+  run(context: ModulePageActionContext): void | Promise<void>;
+}
+
+export interface ModulePageRecordActionContribution extends RecordActionItem {
+  key: string;
+  run(context: ModulePageRecordActionContext): void | Promise<void>;
+}
+
+export interface ModulePageBatchActionContribution extends RecordActionItem {
+  key: string;
+  run(context: ModulePageBatchActionContext): void | Promise<void>;
+}
+
+export interface ModulePageDetailSection {
+  key: string;
+  title: string;
+  component: Component;
+}
+
+export interface ModulePageColumnContribution extends RecordQueryListColumn {
+  key: string;
+  /** Insert adjacent to a descriptor column. Omit to append after descriptor columns. */
+  before?: string;
+  after?: string;
+  /** A normal Vue component, constrained to one table cell by the platform table shell. */
+  cell: Component;
+}
+
+export interface ModulePageDrawer {
+  title: string;
+  width?: number | string;
+  /** The component receives only the documented ModulePageDrawerContext prop. */
+  component: Component;
+}
+
+export type ModulePageWorkspaceViewInput = Record<string, RouteQueryValue>;
+
+/** A business-owned view with stable, serializable identity. */
+export interface ModulePageWorkspaceView<
+  TInput extends ModulePageWorkspaceViewInput = ModulePageWorkspaceViewInput,
+> {
+  type: string;
+  moduleAlias: string;
+  /** Optional business route used for restoration; platform generates a stable workspace route by default. */
+  route?: string;
+  component: Component;
+  titleOf(input: TInput): string;
+  parse(query: Record<string, RouteQueryValue>): TInput | undefined;
+  layout?: PageLayoutMode;
+}
+
+export interface ModulePageDrawerContext {
+  module: ModuleContext<QueryListRecord>;
+  record?: QueryListRecord;
+  close(): void;
+  reload(): void;
+}
+
+export interface ModulePageActionContext {
+  module: ModuleContext<QueryListRecord>;
+  openDrawer(drawer: ModulePageDrawer): void;
+  openWorkspaceTab<TInput extends ModulePageWorkspaceViewInput>(
+    view: ModulePageWorkspaceView<TInput>,
+    input: TInput,
+  ): void;
+  reload(): void;
+}
+
+export interface ModulePageRecordActionContext extends ModulePageActionContext {
+  record: QueryListRecord;
+}
+
+export interface ModulePageBatchActionContext extends ModulePageActionContext {
+  records: QueryListRecord[];
+  clearSelection(): void;
+}
+
+export interface ModulePageDetailSectionContext {
+  module: ModuleContext<QueryListRecord>;
+  record: QueryListRecord;
+  reload(): void;
+}
+
+export interface ModulePageEnhancementRegistry {
+  resolve(moduleAlias: string, viewCode?: string): ModulePageEnhancement | undefined;
+  workspaceViews(): readonly ModulePageWorkspaceView[];
+}
+
+export function createModulePageEnhancementRegistry(
+  enhancements: readonly ModulePageEnhancement[],
+): ModulePageEnhancementRegistry {
+  const byTarget = new Map<string, ModulePageEnhancement>();
+  const workspaceViews: ModulePageWorkspaceView[] = [];
+  const ids = new Set<string>();
+  for (const enhancement of enhancements) {
+    if (ids.has(enhancement.id)) {
+      throw new Error(`重复的模块页面增强：${enhancement.id}`);
+    }
+    ids.add(enhancement.id);
+    const key = targetKey(enhancement.target.moduleAlias, enhancement.target.viewCode);
+    if (byTarget.has(key)) {
+      throw new Error(`模块页面增强目标重复：${key}`);
+    }
+    assertUniqueContributionKeys(enhancement);
+    for (const view of enhancement.workspaceViews ?? []) {
+      if (view.moduleAlias !== enhancement.target.moduleAlias) {
+        throw new Error(`模块页面增强 ${enhancement.id} 的工作视图模块不一致：${view.type}`);
+      }
+      workspaceViews.push(view);
+    }
+    byTarget.set(key, enhancement);
+  }
+  return {
+    resolve(moduleAlias, viewCode) {
+      return (
+        (viewCode ? byTarget.get(targetKey(moduleAlias, viewCode)) : undefined) ??
+        byTarget.get(targetKey(moduleAlias))
+      );
+    },
+    workspaceViews() {
+      return workspaceViews;
+    },
+  };
+}
+
+let currentRegistry = createModulePageEnhancementRegistry([]);
+
+/** Configure once from the consuming application's composition root. */
+export function configureModulePageEnhancements(enhancements: readonly ModulePageEnhancement[]) {
+  currentRegistry = createModulePageEnhancementRegistry(enhancements);
+}
+
+export function resolveModulePageEnhancement(moduleAlias: string, viewCode?: string) {
+  return currentRegistry.resolve(moduleAlias, viewCode);
+}
+
+export function modulePageWorkspaceViews() {
+  return currentRegistry.workspaceViews();
+}
+
+function targetKey(moduleAlias: string, viewCode?: string) {
+  return `${moduleAlias}#${viewCode ?? '*'}`;
+}
+
+function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
+  const regions = [
+    enhancement.list?.actions ?? [],
+    enhancement.list?.columns ?? [],
+    enhancement.list?.rowActions ?? [],
+    enhancement.list?.batchActions ?? [],
+    enhancement.detail?.actions ?? [],
+    enhancement.detail?.sections ?? [],
+  ];
+  if (
+    regions.some(
+      (contributions) =>
+        new Set(contributions.map((contribution) => contribution.key)).size !== contributions.length,
+    )
+  ) {
+    throw new Error(`模块页面增强 ${enhancement.id} 在同一列表区域存在重复的贡献 key`);
+  }
+  assertNoReservedActionKeys(enhancement.id, enhancement.list?.actions ?? [], ['create']);
+  assertNoReservedActionKeys(enhancement.id, enhancement.list?.rowActions ?? [], ['view', 'edit', 'delete']);
+  assertNoReservedActionKeys(enhancement.id, enhancement.list?.batchActions ?? [], ['create']);
+  assertNoReservedActionKeys(enhancement.id, enhancement.detail?.actions ?? [], [
+    'create',
+    'update',
+    'delete',
+  ]);
+}
+
+function assertNoReservedActionKeys(
+  enhancementId: string,
+  actions: ReadonlyArray<ModulePageActionContribution | ModulePageRecordActionContribution>,
+  reservedKeys: readonly string[],
+) {
+  const conflict = actions.find((action) => reservedKeys.includes(action.key));
+  if (conflict) {
+    throw new Error(`模块页面增强 ${enhancementId} 不能覆盖平台标准动作：${conflict.key}`);
+  }
+}

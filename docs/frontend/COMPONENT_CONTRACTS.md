@@ -100,3 +100,49 @@ ActionBar
 ```
 
 这些组件不是最终形态。真实平台业务进入建设后，应根据后端能力和前端使用反馈继续调整契约。
+
+## 受控模块页面增强
+
+descriptor 驱动页面是默认页面，不是业务个性化的上限。业务应用可以在前端组合根通过
+`configureModulePageEnhancements(...)` 按 `moduleAlias + viewCode` 注册模块页面增强；增强保留在
+TypeScript/Vue 源码中，不进入后端 DSL，也不允许 DSL 携带前端组件名或脚本。
+
+当前开放的受控区域是：列表公共操作、附加列表列、行操作、详情查看态操作区，以及由这些操作打开的标准抽屉内容。业务只提供动作处理函数、Vue 单元格组件或抽屉内容组件；平台继续拥有列表骨架、详情操作栏、动作授权状态、查询与分页、错误反馈、抽屉承载范围和关闭行为。动作应通过 `actionCode` 绑定模块权限；前端可用性只用于体验控制，抽屉内业务 API 仍必须由后端校验权限。
+
+列表还可注册 `batchActions`。只有存在批量动作时平台才显示选择框；业务 handler 接收当前查询页内的已选记录、`clearSelection()` 与标准模块上下文。当前选择集只覆盖当前查询页；跨页选择、统一确认与任务型批处理待后端批量任务契约明确后再进入。详情只读展示可注册 `detail.sections`：业务提供内容组件，平台负责分区标题、分隔和详情表面，区块不参与 draft 或标准保存。
+
+附加列不能绕过读投影索取字段：它只能消费 descriptor 已允许输出的记录数据。确有领域数据需要时，由后端显式补充读投影，或由权限保护的业务 client 获取，不能通过前端增强改变 SQL 或暴露物理列。
+
+完整 Vue 页面接管是后续的高级逃生舱，不是当前受控增强的替代品。它仍必须复用模块运行时、平台 client 和 Workbench 承载；普通个性化优先停留在受控增强层。
+
+当前由增强动作打开的自定义面板是当前 tab 内的受控抽屉，适用于一次性或短生命周期任务。具有稳定对象身份的业务视图可在同一增强中声明 `workspaceViews`，并由动作通过 `openWorkspaceTab(...)` 打开为按参数去重的 Workbench Tab；该视图仍由平台注入模块上下文，业务只提供普通 Vue 组件和可序列化的 `parse` / `titleOf` 规则。
+
+工作视图的首个公共承载是 Tab。需要 URL 恢复后的抽屉承载、抽屉与 Tab 间状态交接时，不允许通过增强注册表伪装实现；待 Workbench 的业务工作视图 host 完成同一套恢复与交接语义后再开放。
+
+示意：
+
+```ts
+const conversationView = {
+  type: 'crm.customer.conversation',
+  moduleAlias: 'crm.customer',
+  component: CustomerConversationView,
+  titleOf: ({ customerId }) => `客户对话 ${customerId}`,
+  parse: (query) => (typeof query.customerId === 'string' ? { customerId: query.customerId } : undefined),
+};
+
+configureModulePageEnhancements([
+  {
+    id: 'customer-conversation',
+    target: { moduleAlias: 'crm.customer' },
+    workspaceViews: [conversationView],
+    list: {
+      rowActions: [{
+        key: 'conversation',
+        actionCode: 'crm.customer.conversation',
+        title: '对话',
+        run: ({ record, openWorkspaceTab }) => openWorkspaceTab(conversationView, { customerId: String(record.id) }),
+      }],
+    },
+  },
+]);
+```
