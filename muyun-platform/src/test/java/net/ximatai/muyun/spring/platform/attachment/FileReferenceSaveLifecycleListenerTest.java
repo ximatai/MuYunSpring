@@ -261,12 +261,11 @@ class FileReferenceSaveLifecycleListenerTest {
 
     @Getter @Setter
     static class Document extends StandardEntity {
-        @FileReference(metadataFields = {
-                @FileReferenceMetadataField(value = FileReferenceMetadata.ORIGINAL_FILENAME, field = "sourceFilename"),
-                @FileReferenceMetadataField(value = FileReferenceMetadata.SIZE_BYTES, field = "sourceFileSize")
-        })
+        @FileReference
         private String sourceFileId;
+        @FileReferenceMetadataField(source = "sourceFileId", value = FileReferenceMetadata.ORIGINAL_FILENAME)
         private String sourceFilename;
+        @FileReferenceMetadataField(source = "sourceFileId", value = FileReferenceMetadata.SIZE_BYTES)
         private Long sourceFileSize;
     }
     @Getter @Setter

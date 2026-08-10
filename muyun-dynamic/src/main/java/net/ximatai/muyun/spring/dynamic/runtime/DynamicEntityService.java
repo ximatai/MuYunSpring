@@ -293,7 +293,7 @@ public class DynamicEntityService implements
         validateChildPayload(record);
         record.validateForUpdate();
         validateFieldValues(record);
-        validateReferenceValues(record);
+        validateReferenceValues(record, activeRaw(record.getId()));
         validateTreePlacement(record);
     }
 
@@ -1028,10 +1028,21 @@ public class DynamicEntityService implements
     }
 
     private void validateReferenceValues(DynamicRecord record) {
-        validateReferenceValues(record, true);
+        validateReferenceValues(record, null, true);
     }
 
     private void validateReferenceValues(DynamicRecord record, boolean explicitFieldsOnly) {
+        validateReferenceValues(record, null, explicitFieldsOnly);
+    }
+
+    private void validateReferenceValues(DynamicRecord record,
+                                         DynamicRecord existing) {
+        validateReferenceValues(record, existing, true);
+    }
+
+    private void validateReferenceValues(DynamicRecord record,
+                                         DynamicRecord existing,
+                                         boolean explicitFieldsOnly) {
         requireSameEntity(record);
         if (module == null) {
             return;
@@ -1047,11 +1058,14 @@ public class DynamicEntityService implements
             if (field != null && field.isRequired() && ids.isEmpty()) {
                 throw new IllegalArgumentException("required dynamic reference field must not be blank: " + plan.sourceField());
             }
-            validateReferenceIds(plan, ids);
+            List<String> persistedIds = existing == null
+                    ? List.of()
+                    : plan.normalizeValues(existing.getValue(plan.sourceField()));
+            validateReferenceIds(plan, ids, persistedIds);
         }
     }
 
-    private void validateReferenceIds(ReferencePlan plan, List<String> ids) {
+    private void validateReferenceIds(ReferencePlan plan, List<String> ids, List<String> persistedIds) {
         if (ids.isEmpty()) {
             return;
         }
@@ -1067,7 +1081,12 @@ public class DynamicEntityService implements
             resolved = referenceAbility(plan.target()).titles(ids).keySet();
         }
         Set<String> resolvedIds = resolved;
-        List<String> unavailable = ids.stream().filter(id -> !resolvedIds.contains(id)).toList();
+        List<String> unavailable = ids.stream()
+                .filter(id -> !resolvedIds.contains(id))
+                .filter(id -> plan.integrity().onTargetUnavailable()
+                        != net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY
+                        || !persistedIds.contains(id))
+                .toList();
         if (!unavailable.isEmpty()) {
             throw new IllegalArgumentException("dynamic reference target not found: "
                     + plan.target().qualifiedName() + "."

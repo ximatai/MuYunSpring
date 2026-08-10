@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.platform.menu.DefaultTenantMenuProvisioner;
 import net.ximatai.muyun.spring.iam.tenant.DefaultTenantApplicationProvisioner;
 import net.ximatai.muyun.spring.iam.role.DefaultOrganizationRoleProvisioner;
 import net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner;
+import net.ximatai.muyun.spring.iam.role.TenantAdminRoleReconciliationTask;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationReconciliationTask;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
@@ -63,6 +64,16 @@ public class MuYunSpringIdentityConfiguration {
     }
 
     @Bean
+    @ConditionalOnBean({TenantService.class, DefaultTenantRoleProvisioner.class})
+    @ConditionalOnMissingBean(TenantAdminRoleReconciliationTask.class)
+    /** 为存量租户回填平台识别的租户管理员用途，保留既有账号授权事实。 */
+    public TenantAdminRoleReconciliationTask tenantAdminRoleReconciliationTask(
+            TenantService tenantService,
+            DefaultTenantRoleProvisioner tenantRoleProvisioner) {
+        return new TenantAdminRoleReconciliationTask(tenantService, tenantRoleProvisioner);
+    }
+
+    @Bean
     @ConditionalOnBean({MenuSchemeService.class, MenuService.class})
     @ConditionalOnMissingBean(DefaultTenantMenuProvisioner.class)
     /** 租户创建时复制默认菜单方案；具体菜单事实仍由平台菜单领域维护。 */
@@ -81,13 +92,12 @@ public class MuYunSpringIdentityConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({RoleService.class, BuiltInRolePermissionTemplateService.class})
+    @ConditionalOnBean(RoleService.class)
     @ConditionalOnMissingBean(DefaultTenantRoleProvisioner.class)
-    /** 基于内置权限模板准备租户管理员角色。 */
+    /** 准备平台识别的租户管理员角色；权限随租户已开通应用在运行时解释。 */
     public DefaultTenantRoleProvisioner defaultTenantRoleProvisioner(
-            RoleService roleService,
-            BuiltInRolePermissionTemplateService rolePermissionTemplateService) {
-        return new DefaultTenantRoleProvisioner(roleService, rolePermissionTemplateService);
+            RoleService roleService) {
+        return new DefaultTenantRoleProvisioner(roleService);
     }
 
     @Bean

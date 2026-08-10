@@ -14,16 +14,24 @@ import java.util.Optional;
 public class RoleMenuVisibilityPolicyService implements MenuVisibilityPolicyService {
     private final RoleService roleService;
     private final TenantApplicationService tenantApplicationService;
+    private final TenantAdminImplicitGrantPolicy tenantAdminImplicitGrantPolicy;
 
     public RoleMenuVisibilityPolicyService(RoleService roleService) {
-        this(roleService, null);
+        this(roleService, null, null);
+    }
+
+    public RoleMenuVisibilityPolicyService(RoleService roleService,
+                                            TenantApplicationService tenantApplicationService) {
+        this(roleService, tenantApplicationService, null);
     }
 
     @Autowired
     public RoleMenuVisibilityPolicyService(RoleService roleService,
-                                            TenantApplicationService tenantApplicationService) {
+                                            TenantApplicationService tenantApplicationService,
+                                            TenantAdminImplicitGrantPolicy tenantAdminImplicitGrantPolicy) {
         this.roleService = roleService;
         this.tenantApplicationService = tenantApplicationService;
+        this.tenantAdminImplicitGrantPolicy = tenantAdminImplicitGrantPolicy;
     }
 
     @Override
@@ -41,7 +49,9 @@ public class RoleMenuVisibilityPolicyService implements MenuVisibilityPolicyServ
                 || !tenantApplicationService.isApplicationAvailable(user.tenantId(), applicationAlias)) {
             return false;
         }
-        return roleService.hasActionPermission(user.userId(), moduleAlias, PlatformAction.MENU.code());
+        return (tenantAdminImplicitGrantPolicy != null
+                && tenantAdminImplicitGrantPolicy.grants(user, moduleAlias, PlatformAction.MENU.code()))
+                || roleService.hasActionPermission(user.userId(), moduleAlias, PlatformAction.MENU.code());
     }
 
     private String applicationAliasOf(String moduleAlias) {

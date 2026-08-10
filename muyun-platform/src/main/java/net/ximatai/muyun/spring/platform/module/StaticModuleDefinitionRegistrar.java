@@ -110,6 +110,9 @@ public class StaticModuleDefinitionRegistrar implements PlatformBootstrapTask {
     }
 
     private void registerActions(StaticModuleRegistration definition) {
+        Set<String> declaredActionCodes = definition.actions().stream()
+                .map(StaticModuleActionDefinition::actionCode)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
         int order = 1;
         for (StaticModuleActionDefinition actionDefinition : definition.actions()) {
             PlatformModuleAction action = actionService.findByModuleAliasAndActionCode(
@@ -139,6 +142,24 @@ public class StaticModuleDefinitionRegistrar implements PlatformBootstrapTask {
             } else {
                 actionService.update(action);
             }
+        }
+        disableStaleSystemManagedActions(definition.moduleAlias(), declaredActionCodes);
+    }
+
+    /**
+     * Static declarations are authoritative for actions contributed by the module itself.
+     * Keep stale rows for governance history, but do not leave removed operations available
+     * through the runtime action catalog after an application upgrade.
+     */
+    private void disableStaleSystemManagedActions(String moduleAlias, Set<String> declaredActionCodes) {
+        for (PlatformModuleAction action : actionService.listSystemManagedActions(moduleAlias)) {
+            if (action.getSourceType() != ModuleActionSourceType.STATIC_MODULE
+                    || !moduleAlias.equals(action.getSourceId())
+                    || declaredActionCodes.contains(action.getActionCode())
+                    || !Boolean.TRUE.equals(action.getEnabled())) {
+                continue;
+            }
+            actionService.disable(action.getId());
         }
     }
 

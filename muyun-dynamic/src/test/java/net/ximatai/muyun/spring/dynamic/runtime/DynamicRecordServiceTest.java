@@ -2476,6 +2476,31 @@ class DynamicRecordServiceTest {
     }
 
     @Test
+    void shouldPreserveExistingUnavailableReferenceWhenUpdatingDynamicRecord() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            return sql.contains("app_contract_line")
+                    ? List.of(lineRow("line-1", "deleted-contract", "existing"))
+                    : List.of();
+        });
+        DynamicEntityOperations lines = referenceResolvingService(operations).entity(MODULE, "line");
+        DynamicRecord line = lines.newRecord()
+                .setValue("contractId", "deleted-contract")
+                .setValue("summary", "updated");
+        line.setId("line-1");
+
+        lines.update(line);
+
+        verify(operations).patchUpdateItemWhere(eq(SCHEMA), eq("app_contract_line"), anyMap(), anyMap(), eq("id"));
+
+        line.setValue("contractId", "another-deleted-contract");
+        assertThatThrownBy(() -> lines.update(line))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("dynamic reference target not found");
+    }
+
+    @Test
     void shouldReturnNotFoundForEmptyReferenceTranslateValues() {
         DynamicRecordService service = referenceResolvingService(operations());
 

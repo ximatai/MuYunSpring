@@ -10,6 +10,8 @@ import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.openapi.OpenApi31Projector;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpoint;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint;
@@ -88,6 +90,33 @@ class StaticModuleOpenApiGeneratorTest {
                 new StaticModuleDefinitionCatalog(List.of(
                         StaticModuleDefinition.builder("education", "education.teacher", "教师").build())),
                 endpointCatalog, new ActionEndpointContextResolver(), authorizationService);
+
+        var document = generator.generate("education.teacher");
+
+        assertThat(document.operations()).extracting(operation -> operation.path())
+                .contains("/education.teacher/query")
+                .doesNotContain("/education.teacher/enable/{id}");
+    }
+
+    @Test
+    void shouldHideDisabledStaticActionPathsFromOpenApi() {
+        RegisteredWebEndpointCatalog endpointCatalog = new RegisteredWebEndpointCatalog();
+        register(endpointCatalog, endpoint("education.teacher.query", "education.teacher", "query",
+                PlatformAction.QUERY, RequestMethod.POST, "/education.teacher/query"));
+        register(endpointCatalog, endpoint("education.teacher.enable", "education.teacher", "enable",
+                PlatformAction.ENABLE, RequestMethod.POST, "/education.teacher/enable/{id}"));
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        PlatformModuleAction disabledEnable = new PlatformModuleAction();
+        disabledEnable.setModuleAlias("education.teacher");
+        disabledEnable.setActionCode("enable");
+        disabledEnable.setEnabled(Boolean.FALSE);
+        when(actionService.findByModuleAliasAndActionCode("education.teacher", "enable"))
+                .thenReturn(disabledEnable);
+        generator = new StaticModuleOpenApiGenerator(
+                new StaticModuleDefinitionCatalog(List.of(
+                        StaticModuleDefinition.builder("education", "education.teacher", "教师").build())),
+                endpointCatalog, new ActionEndpointContextResolver(actionService),
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService());
 
         var document = generator.generate("education.teacher");
 

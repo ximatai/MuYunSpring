@@ -46,7 +46,7 @@
 1. 用户调用登录入口提交 `tenantId + username + password`。
 2. 登录服务在租户上下文内校验用户状态和密码，生成 Bearer token，并把 token hash、用户、租户、签发时间、空闲过期时间、绝对过期时间和最近访问时间写入 `iam_user_session`。
 3. 后续请求由 Bearer token 解析当前用户；服务端只按 token hash 查询 session，不持久化明文 token。
-4. `CurrentUserWebFilter` 将当前用户写入 `CurrentUserContext`；普通租户用户同步写入 `TenantContext`，系统用户进入系统态租户上下文。
+4. `CurrentUserWebFilter` 将当前用户写入 `CurrentUserContext`；普通租户用户同步写入 `TenantContext`，系统用户进入系统态租户上下文。Servlet async redispatch 会重新绑定这些 scope 并延续同一 trace；需要在业务显式派发的短生命周期 worker 中执行时，调用方可捕获并使用 `WebRequestContext`，它只传播登录身份、租户与 trace，不传播动作授权或代办 scope。
 5. session 使用滑动过期：有效访问会在节流窗口后刷新最近访问时间并延长空闲过期时间，但不会超过本次登录的绝对过期时间。
 6. 同一用户允许多端登录，对应多条未撤销 session；登出、修改密码、禁用用户或用户失效时撤销对应 session。
 
@@ -92,7 +92,9 @@
 
 平台超级管理员是系统账号身份，不归属普通租户，用于系统态维护租户、平台配置和全局治理对象。平台超级管理员可以继续由系统用户表达，也可以通过账号级系统角色授权表达，但不依赖职员或任职。
 
-`tenant.admin` 是租户管理员账号角色，用于给账号授予当前租户内 IAM 治理能力。授权事实应落到 `AccountRoleGrant`，管理作用域为 `TENANT:tenantId`。当前授权覆盖组织、部门、职员、职员账号、用户和角色模块；租户管理员不默认获得 `iam.tenant`、平台元数据、动态模型或系统级配置模块权限。
+`tenant.admin` 是平台识别的租户管理员账号角色。授权事实仍落到 `AccountRoleGrant`，管理作用域必须为 `TENANT:tenantId`；角色用途由系统托管的 `Role.systemPurpose = TENANT_ADMIN` 表达，不把管理员标记写入账号。对当前租户已开通应用中、既有动作目录确认可授权的动作，租户管理员在运行时获得当前租户全量动作和数据范围，不依赖逐条 `RoleAction`；应用未开通、被停用或当前平台明确排除的系统租户模块时仍拒绝访问。该排除由租户管理员隐式授权策略集中维护，当前包含 `iam.tenant`。租户管理员不获得系统态、跨租户或不可向租户开通的平台模块权限。
+
+启动期会幂等修复每个租户的系统托管租户管理员角色，因此存量租户保留原有 `AccountRoleGrant` 即可进入该身份模型；历史 `RoleAction` 事实不会再决定租户管理员的运行时访问结果。
 
 `organization.admin` 是机构管理员账号角色，用于给账号授予本机构及下级范围内的 IAM 治理能力。授权事实应落到 `AccountRoleGrant`，管理作用域为 `ORGANIZATION:organizationId`。当前授权覆盖组织、部门、职员和用户模块；机构管理员不默认获得角色管理、职员账号关系表、租户维护、平台元数据、动态模型或系统级配置模块权限。
 

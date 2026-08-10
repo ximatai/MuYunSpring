@@ -4,6 +4,8 @@ import net.ximatai.muyun.spring.web.*;
 
 import jakarta.servlet.http.HttpServletRequest;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
@@ -54,6 +56,7 @@ public class ActionEndpointContextResolver {
         String actionCode = contribution == null
                 ? endpoint.value().code()
                 : PlatformStaticActionContributionSupport.actionCode(contribution, endpoint.value());
+        requireActionPublished(moduleAlias, actionCode);
         ActionExecutionPolicy policy = registeredPolicy(moduleAlias, actionCode)
                 .orElseGet(() -> contribution == null
                         ? endpoint.value().executionPolicy()
@@ -79,6 +82,7 @@ public class ActionEndpointContextResolver {
         String actionCode = contribution == null
                 ? PlatformNameRules.requireActionCode(endpoint.value(), "actionCode")
                 : PlatformStaticActionContributionSupport.actionCode(contribution, endpoint.value());
+        requireActionPublished(moduleAlias, actionCode);
         ActionExecutionPolicy policy = registeredPolicy(moduleAlias, actionCode)
                 .orElseGet(() -> new ActionExecutionPolicy(
                         actionCode,
@@ -98,6 +102,7 @@ public class ActionEndpointContextResolver {
     }
 
     public ActionExecutionContext resolve(HttpServletRequest request, ResolvedWebEndpoint endpoint) {
+        requireActionPublished(endpoint.moduleAlias(), endpoint.executionPolicy().actionCode());
         ActionExecutionPolicy policy = resolvedPolicy(endpoint.moduleAlias(), endpoint.executionPolicy());
         return ActionExecutionContext.ofPolicy(
                 endpoint.moduleAlias(),
@@ -113,6 +118,7 @@ public class ActionEndpointContextResolver {
      * module may be described to the current caller.
      */
     public ActionExecutionContext resolveModuleAction(String moduleAlias, net.ximatai.muyun.spring.common.platform.PlatformAction action) {
+        requireActionPublished(moduleAlias, action.code());
         return ActionExecutionContext.ofPolicy(
                 moduleAlias,
                 resolvedPolicy(moduleAlias, action.executionPolicy()),
@@ -123,6 +129,7 @@ public class ActionEndpointContextResolver {
 
     /** Resolves a compiled endpoint for projections such as OpenAPI. */
     public ActionExecutionContext resolve(ResolvedWebEndpoint endpoint) {
+        requireActionPublished(endpoint.moduleAlias(), endpoint.executionPolicy().actionCode());
         return ActionExecutionContext.ofPolicy(
                 endpoint.moduleAlias(),
                 resolvedPolicy(endpoint.moduleAlias(), endpoint.executionPolicy()),
@@ -192,6 +199,22 @@ public class ActionEndpointContextResolver {
             return Optional.empty();
         }
         return Optional.of(toPolicy(action));
+    }
+
+    /**
+     * A disabled persisted action is no longer a published module operation.  MVC mappings can
+     * remain registered until the next application restart, but they must not fall back to the
+     * controller's default policy and become callable through a stale URL.
+     */
+    public void requireActionPublished(String moduleAlias, String actionCode) {
+        if (moduleActionService == null) {
+            return;
+        }
+        PlatformModuleAction action = moduleActionService.findByModuleAliasAndActionCode(moduleAlias, actionCode);
+        if (action != null && Boolean.FALSE.equals(action.getEnabled())) {
+            throw new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
+                    "module action is not published: " + moduleAlias + "." + actionCode);
+        }
     }
 
     private ActionExecutionPolicy resolvedPolicy(String moduleAlias, ActionExecutionPolicy fallback) {

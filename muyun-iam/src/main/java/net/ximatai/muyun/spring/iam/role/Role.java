@@ -22,7 +22,7 @@ import net.ximatai.muyun.spring.common.option.OptionSourceType;
 @TenantUniqueConstraint(fields = {"ownerScopeType", "ownerScopeKey", "assignmentType", "roleKind", "title"})
 @InitialDataFields(
         managed = {"assignmentType", "roleKind", "memberRoleIds", "ownerScopeType", "ownerScopeId",
-                "sharePolicy", "builtIn", "systemManaged", "description"},
+                "sharePolicy", "builtIn", "systemManaged", "systemPurpose", "description"},
         operator = {"title", "enabled", "sortOrder"}
 )
 public class Role extends StandardEnabledSortableEntity {
@@ -75,6 +75,14 @@ public class Role extends StandardEnabledSortableEntity {
     @Column(name = "system_managed", type = ColumnType.BOOLEAN, comment = "System managed role flag",
             defaultVal = @Default(bool = TrueOrFalse.FALSE))
     private Boolean systemManaged = Boolean.FALSE;
+
+    @OptionField(type = OptionSourceType.ENUM)
+    @Column(name = "system_purpose", type = ColumnType.VARCHAR, length = 32, nullable = false,
+            comment = "Platform-recognized system role purpose", defaultVal = @Default(varchar = "none"))
+    private RoleSystemPurpose systemPurpose = RoleSystemPurpose.NONE;
+
+    @OptionLoad(source = "systemPurpose")
+    private transient String systemPurposeTitle;
 
     @Column(name = "description", type = ColumnType.TEXT, comment = "Role description")
     private String description;

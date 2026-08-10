@@ -23,13 +23,18 @@ public class DefaultTenantRoleProvisioner implements TenantCreationProvisioner {
     private static final int HASH_LENGTH = 16;
 
     private final RoleService roleService;
-    private final BuiltInRolePermissionTemplateService rolePermissionTemplateService;
-
-    public DefaultTenantRoleProvisioner(RoleService roleService,
-                                        BuiltInRolePermissionTemplateService rolePermissionTemplateService) {
+    public DefaultTenantRoleProvisioner(RoleService roleService) {
         this.roleService = Objects.requireNonNull(roleService, "roleService must not be null");
-        this.rolePermissionTemplateService = Objects.requireNonNull(rolePermissionTemplateService,
-                "rolePermissionTemplateService must not be null");
+    }
+
+    /**
+     * @deprecated Tenant-admin access is interpreted from its platform role purpose at runtime;
+     * the action template is intentionally ignored. Kept for source compatibility with embedders.
+     */
+    @Deprecated(forRemoval = false)
+    public DefaultTenantRoleProvisioner(RoleService roleService,
+                                        BuiltInRolePermissionTemplateService ignoredRolePermissionTemplateService) {
+        this(roleService);
     }
 
     @Override
@@ -48,7 +53,6 @@ public class DefaultTenantRoleProvisioner implements TenantCreationProvisioner {
                     RoleService.TENANT_ADMIN_ROLE_TITLE,
                     TENANT_ADMIN_ROLE_DESCRIPTION
             );
-            rolePermissionTemplateService.applyTenantAdminTemplate(role.getId());
             return role;
         }
     }

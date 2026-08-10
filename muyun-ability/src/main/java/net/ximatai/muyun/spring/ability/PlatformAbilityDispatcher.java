@@ -131,11 +131,8 @@ final class PlatformAbilityDispatcher {
         referenceDeletionGuard.cascadeTargetUnavailable(ability, entity, context, node, mode);
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
     static <T extends EntityContract> void beforeRestore(CrudAbility<T> ability, T entity) {
-        if (ability instanceof ReferencerAbility referencerAbility) {
-            referencerAbility.validateReferenceIntegrity(entity);
-        }
+        runReferenceIntegrityValidation(ability, null, entity, false);
     }
 
     static DeletionContext rootDeletionContext(String moduleAlias, String recordId) {
@@ -181,9 +178,20 @@ final class PlatformAbilityDispatcher {
         context.lifecycleSession().failed(ability, entity, context, node, mode, failure);
     }
 
-    static <T extends EntityContract> void beforeSave(CrudAbility<T> ability, T existing, T entity) {
+    static <T extends EntityContract> void beforeInsertSave(CrudAbility<T> ability, T entity) {
+        beforeSave(ability, null, entity, false);
+    }
+
+    static <T extends EntityContract> void beforeUpdateSave(CrudAbility<T> ability, T existing, T entity) {
+        beforeSave(ability, existing, entity, true);
+    }
+
+    private static <T extends EntityContract> void beforeSave(CrudAbility<T> ability,
+                                                                T existing,
+                                                                T entity,
+                                                                boolean update) {
         runStaticOptionFieldValidation(ability, entity);
-        runReferenceIntegrityValidation(ability, entity);
+        runReferenceIntegrityValidation(ability, existing, entity, update);
         TenantUniqueConstraintSupport.validate(ability, entity);
         entitySaveLifecycleListener.beforeSave(ability, existing, entity);
     }
@@ -289,15 +297,28 @@ final class PlatformAbilityDispatcher {
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static <T extends EntityContract> void runReferenceIntegrityValidation(CrudAbility<T> ability, T entity) {
+    private static <T extends EntityContract> void runReferenceIntegrityValidation(CrudAbility<T> ability,
+                                                                                   T existing,
+                                                                                   T entity,
+                                                                                   boolean update) {
+        if (entity == null) {
+            return;
+        }
+        Class<?> modelClass = ability.modelClass() == null ? entity.getClass() : ability.modelClass();
+        if (StaticReferenceResolver.rules(modelClass).isEmpty()) {
+            return;
+        }
+        if (!(ability instanceof ReferencerAbility) && referenceTargetResolver == ReferenceTargetResolver.NONE) {
+            return;
+        }
+        T persisted = existing == null && update && entity != null
+                ? ability.selectActiveRaw(entity.getId())
+                : existing;
         if (ability instanceof ReferencerAbility referencerAbility) {
-            referencerAbility.validateReferenceIntegrity(entity);
+            referencerAbility.validateReferenceIntegrity(persisted, entity);
             return;
         }
-        if (entity == null || referenceTargetResolver == ReferenceTargetResolver.NONE) {
-            return;
-        }
-        for (StaticReferenceResolver.ReferenceRule rule : StaticReferenceResolver.rules(ability.modelClass())) {
+        for (StaticReferenceResolver.ReferenceRule rule : StaticReferenceResolver.rules(modelClass)) {
             List<String> ids = StaticReferenceResolver.values(entity, rule.plan());
             if (ids.isEmpty()) {
                 continue;
@@ -306,7 +327,15 @@ final class PlatformAbilityDispatcher {
                     .orElseThrow(() -> new PlatformException("reference target is not registered: "
                             + rule.target().qualifiedName()));
             Map<String, String> resolved = target.titles(ids);
-            List<String> unavailable = ids.stream().filter(id -> !resolved.containsKey(id)).toList();
+            List<String> preservedIds = persisted == null
+                    ? List.of()
+                    : StaticReferenceResolver.values(persisted, rule.plan());
+            List<String> unavailable = ids.stream()
+                    .filter(id -> !resolved.containsKey(id))
+                    .filter(id -> rule.integrity().onTargetUnavailable()
+                            != net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY
+                            || !preservedIds.contains(id))
+                    .toList();
             if (!unavailable.isEmpty()) {
                 throw new PlatformException("reference target is unavailable: "
                         + rule.target().qualifiedName() + "." + rule.plan().sourceField()

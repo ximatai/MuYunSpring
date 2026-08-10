@@ -29,7 +29,7 @@ class ModuleUiDescriptorCompilerTest {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("iam.employee")
                 .listView(list -> list
                         .title("职员列表")
-                        .field("employeeNo", field -> field.label("职员编号").width("160px"))
+                        .field("employeeNo", field -> field.label("职员编号").width("160px").maxDisplayLines(2))
                         .field("enabled", field -> field.label("状态").uiType("enabledStatus").align("center"))
                         .field("online", field -> field.label("在线状态").booleanStatus("在线", "离线")))
                 .formView(form -> form
@@ -54,6 +54,8 @@ class ModuleUiDescriptorCompilerTest {
                                 assertThat(field.uiType()).isEqualTo("enabledStatus");
                                 assertThat(field.align()).isEqualTo("center");
                             });
+                    assertThat(view.fields()).first().satisfies(field ->
+                            assertThat(field.maxDisplayLines()).isEqualTo(2));
                     assertThat(view.fields()).last().satisfies(field -> {
                         assertThat(field.uiType()).isEqualTo("booleanStatus");
                         assertThat(field.booleanStatus().trueLabel()).isEqualTo("在线");
@@ -85,6 +87,9 @@ class ModuleUiDescriptorCompilerTest {
                 .hasMessage("uiType booleanStatus requires boolean status presentation");
         assertThatCode(() -> ViewFieldDefinition.field("online").booleanStatus("在线", "离线").build())
                 .doesNotThrowAnyException();
+        assertThatThrownBy(() -> ViewFieldDefinition.field("description").maxDisplayLines(0).build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("maxDisplayLines must be at least 1");
     }
 
     @Test

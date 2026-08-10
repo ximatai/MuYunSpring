@@ -57,6 +57,27 @@ class RoleDataScopeCriteriaServiceTest {
     }
 
     @Test
+    void shouldGiveTenantAdministratorUnrestrictedCurrentTenantDataScope() {
+        RoleService roleService = mock(RoleService.class);
+        TenantAdminImplicitGrantPolicy tenantAdminPolicy = mock(TenantAdminImplicitGrantPolicy.class);
+        CurrentUser user = CurrentUser.tenantUser("user-1", "User", "tenant-a");
+        when(tenantAdminPolicy.grants(user, "mr.expert", "query")).thenReturn(true);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService, tenantAdminPolicy);
+
+        DataScopeCriteriaResult result = service.resolveReadScope(
+                "mr.expert",
+                PlatformAction.QUERY.executionPolicy(),
+                Criteria.of().eq("enabled", Boolean.TRUE),
+                Optional.of(user)
+        );
+
+        assertThat(result.restricted()).isFalse();
+        assertThat(result.crossTenant()).isFalse();
+        assertThat(compile(result.criteria()).getSql()).contains("\"enabled\" = :p0").doesNotContain("1 = 0");
+        verify(roleService, never()).effectiveActionGrantsWithContext("user-1", "mr.expert", "view");
+    }
+
+    @Test
     void shouldUnionOwnerAndOrganizationScopes() {
         RoleService roleService = mock(RoleService.class);
         whenActionGrants(roleService, "user-1", "sales.contract", "view",

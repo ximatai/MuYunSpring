@@ -21,12 +21,21 @@ export const appDataChangeDispatcher = createDataChangeDispatcher();
 const moduleDataChangeSubscriptions = new Map<string, DataChangeTopicSubscription>();
 const businessEventHandlers = new Set<(event: WebBusinessRealtimeEvent) => void | Promise<void>>();
 let activeRealtime: RealtimeClient | undefined;
+let activeAppRealtimeConnection: AppRealtimeConnection | undefined;
 const ACTIVITY_REPORT_INTERVAL_MS = 30_000;
 
 export interface AppRealtimeOptions {
+  /** Backend origin supplied by the consuming App at runtime. */
+  baseUrl?: string;
+  /** Current authentication token supplied by the consuming App at runtime. */
+  token?: string;
   onUnauthorized?: () => void;
   onUserNotification?: (notification: WebUserNotification) => void;
   onStateChange?: (state: RealtimeConnectionState) => void;
+}
+
+export interface AppRealtimeConnection {
+  disconnect(): Promise<void>;
 }
 
 interface DataChangeTopicSubscription {
@@ -35,10 +44,10 @@ interface DataChangeTopicSubscription {
   active?: RealtimeSubscription;
 }
 
-export function createAppRealtimeClient(options: AppRealtimeOptions = {}) {
+function createAppRealtimeClient(options: AppRealtimeOptions = {}) {
   return createRealtimeClient({
-    baseUrl: import.meta.env.VITE_MUYUN_API_BASE_URL,
-    token: effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN),
+    baseUrl: options.baseUrl ?? import.meta.env.VITE_MUYUN_API_BASE_URL,
+    token: options.token ?? effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN),
     onStateChange: (state) => {
       options.onStateChange?.(state);
       if (state === 'unauthorized') {
@@ -49,6 +58,11 @@ export function createAppRealtimeClient(options: AppRealtimeOptions = {}) {
 }
 
 export function connectAppRealtime(options: AppRealtimeOptions = {}) {
+  if (activeAppRealtimeConnection) {
+    throw new Error(
+      'App realtime is already connected. Disconnect the active connection before reconnecting.',
+    );
+  }
   const realtime = createAppRealtimeClient(options);
   activeRealtime = realtime;
   const dataChangeSubscription = connectRealtimeDataChanges(realtime, appDataChangeDispatcher);
@@ -64,20 +78,33 @@ export function connectAppRealtime(options: AppRealtimeOptions = {}) {
   activityReporter.start();
   bindPageRealtimeSubscriptions(realtime);
   void realtime.connect();
-  return {
-    realtime,
+  let disconnected = false;
+  const connection: AppRealtimeConnection = {
     async disconnect() {
+      if (disconnected) {
+        return;
+      }
+      disconnected = true;
       dataChangeSubscription.unsubscribe();
       userNotificationSubscription.unsubscribe();
       businessEventSubscription.unsubscribe();
       activityReporter.stop();
       unbindPageRealtimeSubscriptions();
+      if (activeAppRealtimeConnection === connection) {
+        activeAppRealtimeConnection = undefined;
+      }
       if (activeRealtime === realtime) {
         activeRealtime = undefined;
       }
       await realtime.disconnect();
     },
   };
+  activeAppRealtimeConnection = connection;
+  return connection;
+}
+
+export async function disconnectAppRealtime() {
+  await activeAppRealtimeConnection?.disconnect();
 }
 
 function createSessionActivityReporter(realtime: RealtimeClient) {

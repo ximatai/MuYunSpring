@@ -44,6 +44,24 @@ class RoleMenuVisibilityPolicyServiceTest {
     }
 
     @Test
+    void shouldShowOpenedApplicationMenuToTenantAdministratorWithoutMenuGrant() {
+        RoleService roleService = mock(RoleService.class);
+        TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
+        TenantAdminImplicitGrantPolicy tenantAdminPolicy = mock(TenantAdminImplicitGrantPolicy.class);
+        when(tenantApplicationService.isApplicationAvailable("tenant-a", "mr")).thenReturn(true);
+        CurrentUser user = CurrentUser.tenantUser("user-1", "User", "tenant-a");
+        when(tenantAdminPolicy.grants(user, "mr.expert", "menu")).thenReturn(true);
+        RoleMenuVisibilityPolicyService service = new RoleMenuVisibilityPolicyService(roleService,
+                tenantApplicationService, tenantAdminPolicy);
+
+        assertThat(service.canViewModuleMenu(
+                "mr.expert",
+                Optional.of(user))).isTrue();
+
+        verify(roleService, never()).hasActionPermission("user-1", "mr.expert", "menu");
+    }
+
+    @Test
     void shouldKeepSystemUserVisibleAndAnonymousHidden() {
         RoleMenuVisibilityPolicyService service = new RoleMenuVisibilityPolicyService(mock(RoleService.class));
 

@@ -54,26 +54,32 @@ public class StaticEntityDefinitionCompiler {
     }
 
     private Map<String, FileReferenceDefinition> fileReferences(Class<?> modelClass) {
+        List<Field> fields = declaredFields(modelClass);
         Map<String, FileReferenceDefinition> references = new LinkedHashMap<>();
         Set<String> fileReferenceFields = new java.util.HashSet<>();
-        for (Field field : declaredFields(modelClass)) {
+        for (Field field : fields) {
             if (field.getAnnotation(FileReference.class) != null) {
                 fileReferenceFields.add(field.getName());
             }
         }
-        Set<String> metadataTargets = new java.util.HashSet<>();
-        for (Field field : declaredFields(modelClass)) {
+        for (Field field : fields) {
             FileReference annotation = field.getAnnotation(FileReference.class);
             if (annotation == null) {
                 continue;
             }
             validateFileReferenceField(modelClass, field, annotation);
-            validateMetadataFields(modelClass, field, annotation, fileReferenceFields, metadataTargets);
             references.put(field.getName(), new FileReferenceDefinition(
                     Set.of(annotation.allowedMediaTypes()),
                     annotation.maxFileSizeBytes() > 0 ? annotation.maxFileSizeBytes() : null,
-                    annotation.maxFiles(), metadataFields(modelClass, field, annotation)));
+                    annotation.maxFiles()));
         }
+        Map<String, Map<FileReferenceMetadata, String>> metadataFields = metadataFields(
+                modelClass, fields, references, fileReferenceFields);
+        metadataFields.forEach((source, bindings) -> {
+            FileReferenceDefinition definition = references.get(source);
+            references.put(source, new FileReferenceDefinition(definition.allowedMediaTypes(),
+                    definition.maxFileSizeBytes(), definition.maxFiles(), bindings));
+        });
         return Map.copyOf(references);
     }
 
@@ -90,49 +96,53 @@ public class StaticEntityDefinitionCompiler {
         }
     }
 
-    private Map<FileReferenceMetadata, String> metadataFields(Class<?> modelClass, Field source,
-                                                               FileReference annotation) {
-        Map<FileReferenceMetadata, String> values = new EnumMap<>(FileReferenceMetadata.class);
-        for (FileReferenceMetadataField binding : annotation.metadataFields()) {
-            if (values.put(binding.value(), binding.field()) != null) {
+    private Map<String, Map<FileReferenceMetadata, String>> metadataFields(Class<?> modelClass,
+                                                                             List<Field> fields,
+                                                                             Map<String, FileReferenceDefinition> references,
+                                                                             Set<String> fileReferenceFields) {
+        Map<String, Map<FileReferenceMetadata, String>> bindingsBySource = new LinkedHashMap<>();
+        for (Field target : fields) {
+            FileReferenceMetadataField binding = target.getAnnotation(FileReferenceMetadataField.class);
+            if (binding == null) {
+                continue;
+            }
+            String source = binding.source() == null ? "" : binding.source().trim();
+            FileReferenceDefinition definition = references.get(source);
+            if (definition == null) {
+                throw new IllegalArgumentException("file reference metadata source must declare @FileReference: "
+                        + modelClass.getName() + "." + target.getName());
+            }
+            if (definition.maxFiles() != 1) {
+                throw new IllegalArgumentException("file reference metadata fields require a single-file reference: "
+                        + modelClass.getName() + "." + source);
+            }
+            if (fileReferenceFields.contains(target.getName())) {
+                throw new IllegalArgumentException("file reference metadata field must not be a fileId field: "
+                        + modelClass.getName() + "." + target.getName());
+            }
+            validateMetadataFieldType(modelClass, target, binding.value());
+            Map<FileReferenceMetadata, String> bindings = bindingsBySource.computeIfAbsent(source,
+                    ignored -> new EnumMap<>(FileReferenceMetadata.class));
+            if (bindings.put(binding.value(), target.getName()) != null) {
                 throw new IllegalArgumentException("duplicate file reference metadata binding: "
-                        + modelClass.getName() + "." + source.getName() + "." + binding.value());
+                        + modelClass.getName() + "." + source + "." + binding.value());
             }
         }
-        return Map.copyOf(values);
+        Map<String, Map<FileReferenceMetadata, String>> copy = new LinkedHashMap<>();
+        bindingsBySource.forEach((source, bindings) -> copy.put(source, Map.copyOf(bindings)));
+        return Map.copyOf(copy);
     }
 
-    private void validateMetadataFields(Class<?> modelClass, Field source, FileReference annotation,
-                                        Set<String> fileReferenceFields, Set<String> metadataTargets) {
-        for (FileReferenceMetadataField binding : annotation.metadataFields()) {
-            String targetName = binding.field() == null ? "" : binding.field().trim();
-            if (targetName.isEmpty()) {
-                throw new IllegalArgumentException("file reference metadata field must not be blank: "
-                        + modelClass.getName() + "." + source.getName());
-            }
-            if (annotation.maxFiles() != 1) {
-                throw new IllegalArgumentException("file reference metadata fields require a single-file reference: "
-                        + modelClass.getName() + "." + source.getName());
-            }
-            if (fileReferenceFields.contains(targetName) || !metadataTargets.add(targetName)) {
-                throw new IllegalArgumentException("invalid file reference metadata field: "
-                        + modelClass.getName() + "." + targetName);
-            }
-            Field target = declaredFields(modelClass).stream()
-                    .filter(candidate -> targetName.equals(candidate.getName()))
-                    .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("file reference metadata requires declared field: "
-                            + modelClass.getName() + "." + targetName));
-            Column column = target.getAnnotation(Column.class);
-            boolean size = binding.value() == FileReferenceMetadata.SIZE_BYTES;
-            boolean valid = column != null
-                    && (size ? target.getType() == Long.class && column.type() == ColumnType.BIGINT
-                    : target.getType() == String.class && fieldType(column.type()) == FieldType.STRING);
-            if (!valid) {
-                String required = size ? "@Column BIGINT Long field" : "@Column STRING String field";
-                throw new IllegalArgumentException("file reference metadata requires " + required + ": "
-                        + modelClass.getName() + "." + targetName);
-            }
+    private void validateMetadataFieldType(Class<?> modelClass, Field target, FileReferenceMetadata metadata) {
+        Column column = target.getAnnotation(Column.class);
+        boolean size = metadata == FileReferenceMetadata.SIZE_BYTES;
+        boolean valid = column != null
+                && (size ? target.getType() == Long.class && column.type() == ColumnType.BIGINT
+                : target.getType() == String.class && fieldType(column.type()) == FieldType.STRING);
+        if (!valid) {
+            String required = size ? "@Column BIGINT Long field" : "@Column STRING String field";
+            throw new IllegalArgumentException("file reference metadata requires " + required + ": "
+                    + modelClass.getName() + "." + target.getName());
         }
     }
 

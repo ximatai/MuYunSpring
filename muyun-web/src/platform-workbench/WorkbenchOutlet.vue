@@ -8,18 +8,46 @@ import type {
   PlatformRoutePageDescriptor,
   RemoteUrlPageDescriptor,
 } from '@muyun/web-contracts';
-import { DynamicModuleHost } from '@muyun/dynamic-page-runtime';
+import {
+  DynamicModuleHost,
+  modulePageWorkspaceViews,
+  provideModulePageNavigation,
+  type ModulePageWorkspaceView,
+} from '@muyun/dynamic-page-runtime';
 import { UiEmpty } from '@muyun/vue-ui-antdv';
 import BusinessRouteHost from './hosts/BusinessRouteHost.vue';
 import ExternalPageHost from './hosts/ExternalPageHost.vue';
 import PlatformRouteHost from './hosts/PlatformRouteHost.vue';
 import { resolvePageHostComponentName } from './pageHostRegistry';
+import { useWorkbenchNavigation } from './workbenchNavigation';
+import { configureWorkspaceViewContributions, createWorkspaceViewDescriptor } from './workspaceViews';
 
 defineOptions({ name: 'WorkbenchOutlet' });
 
 const props = defineProps<{
   descriptor?: PageDescriptor;
 }>();
+const navigation = useWorkbenchNavigation();
+configureWorkspaceViewContributions(
+  'module-page-enhancements',
+  modulePageWorkspaceViews().map(workspaceViewDefinitionForModulePage),
+);
+provideModulePageNavigation(
+  navigation && {
+    openPage: navigation.openPage,
+    openWorkspaceTab(view, input) {
+      navigation.openPage(createWorkspaceViewDescriptor(workspaceViewDefinitionForModulePage(view), input));
+    },
+  },
+);
+
+function workspaceViewDefinitionForModulePage(view: ModulePageWorkspaceView) {
+  return {
+    ...view,
+    route: view.route ?? `/_workspace/${encodeURIComponent(view.type)}`,
+    presentations: ['tab'] as const,
+  };
+}
 
 const pageHostComponentName = computed(() =>
   props.descriptor ? resolvePageHostComponentName(props.descriptor.hostType) : undefined,

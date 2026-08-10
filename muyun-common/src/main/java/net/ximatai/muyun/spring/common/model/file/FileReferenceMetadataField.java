@@ -5,11 +5,14 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/** Binds one FileServer metadata fact to an explicitly declared model field. */
+/**
+ * Declares this field as a platform-managed snapshot of one FileServer metadata
+ * fact from a single-file {@link FileReference} source.
+ */
 @Retention(RetentionPolicy.RUNTIME)
-@Target({})
+@Target(ElementType.FIELD)
 public @interface FileReferenceMetadataField {
-    FileReferenceMetadata value();
+    String source();
 
-    String field();
+    FileReferenceMetadata value();
 }

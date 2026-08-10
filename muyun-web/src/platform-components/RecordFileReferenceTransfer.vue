@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { UiButton } from '@muyun/vue-ui-antdv';
 import type { ModuleContext } from '@muyun/web-core';
 import type { ResolvedFileReferenceFieldDescriptor } from '@muyun/web-contracts';
 import FileTransferUploader from './FileTransferUploader.vue';
@@ -90,8 +91,17 @@ function releaseUploadedFile(fileId: string) {
       :key="fileId"
       class="record-file-reference-transfer__bound-file"
     >
-      已绑定文件：{{ fileId }}
-      <button v-if="!disabled" type="button" @click="removeBoundFile(fileId)">移除</button>
+      <span>已绑定文件：{{ fileId }}</span>
+      <UiButton
+        v-if="!disabled"
+        class="record-file-reference-transfer__remove"
+        type="text"
+        danger
+        icon-name="delete"
+        aria-label="移除文件"
+        title="移除文件"
+        @click="removeBoundFile(fileId)"
+      />
     </span>
   </div>
   <FileTransferUploader
@@ -106,8 +116,39 @@ function releaseUploadedFile(fileId: string) {
     :disabled-hint="definition.uploadAvailable ? disabledHint : '当前模块未配置文件上传策略'"
     :released-completed-file-ids="releasedUploadedFileIds"
     :completed-file-id="(receipt) => uploadedFileId(receipt.payload)"
-    completion-hint="请保存业务记录以完成文件绑定。"
     :allow-completed-removal="false"
     @completed="(receipt) => applyUploadedFile(receipt)"
   />
 </template>
+
+<style scoped>
+.record-file-reference-transfer__bound-files {
+  display: grid;
+  gap: 6px;
+}
+.record-file-reference-transfer__bound-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  color: var(--ant-color-text-secondary);
+  font-size: 13px;
+}
+.record-file-reference-transfer__bound-file > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.record-file-reference-transfer__remove {
+  flex: 0 0 18px;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0;
+  line-height: 18px;
+}
+.record-file-reference-transfer__remove:deep(.ant-btn-icon) {
+  margin: 0;
+}
+</style>

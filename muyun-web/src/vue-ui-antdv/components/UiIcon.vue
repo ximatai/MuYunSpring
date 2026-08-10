@@ -11,6 +11,8 @@ import {
   ExportOutlined,
   FilterOutlined,
   LockOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   QuestionCircleOutlined,
   PlusOutlined,
   PoweroffOutlined,
@@ -33,6 +35,8 @@ export type UiIconName =
   | 'filter'
   | 'help'
   | 'lock'
+  | 'menu-collapse'
+  | 'menu-expand'
   | 'notification'
   | 'plus'
   | 'power'
@@ -56,6 +60,8 @@ const icons = {
   filter: FilterOutlined,
   help: QuestionCircleOutlined,
   lock: LockOutlined,
+  'menu-collapse': MenuFoldOutlined,
+  'menu-expand': MenuUnfoldOutlined,
   notification: BellOutlined,
   plus: PlusOutlined,
   power: PoweroffOutlined,

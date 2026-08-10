@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { UiDropdown, UiError, UiIcon, UiSidePanelHost, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
 import type {
   MenuNavigationTarget,
@@ -9,9 +9,11 @@ import type {
   WorkbenchStartupState,
 } from '@muyun/web-contracts';
 import type { UiDropdownItem, UiTabItem } from '@muyun/vue-ui-antdv';
+import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
 import WorkbenchMenu from './WorkbenchMenu.vue';
 import { resolvePageDescriptor } from './menuNavigation';
 import type { WorkbenchRealtimeStatus } from './realtimeStatus';
+import { compactMenuTopOf } from './workbenchLayout';
 
 defineOptions({ name: 'Workbench' });
 
@@ -60,6 +62,16 @@ const userMenuItems: UiDropdownItem[] = [
   { key: 'settings', title: '偏好设置' },
   { key: 'logout', title: '退出登录', danger: true },
 ];
+const menuPresentation = ref<'compact' | 'expanded'>('compact');
+const compactMenuOpen = ref(false);
+const suppressCompactMenuPointerEnter = ref(false);
+const workbenchRoot = ref<HTMLElement>();
+const appTopbar = ref<HTMLElement>();
+const compactMenuTop = ref(54);
+let compactMenuCloseTimer: number | undefined;
+let compactMenuPointerReleaseFrame: number | undefined;
+let topbarResizeObserver: ResizeObserver | undefined;
+const COMPACT_MENU_CLOSE_DELAY = 220;
 
 function pageDescriptorOf(tab: MenuTab | undefined): PageDescriptor | undefined {
   if (!tab) {
@@ -93,7 +105,81 @@ function handleUserCommand(key: string) {
 
 function handleSelectMenu(menu: MenuRecord, target: MenuNavigationTarget) {
   emit('selectMenu', menu, target);
+  closeCompactMenu();
 }
+
+function openCompactMenu(source: 'pointer' | 'focus' | 'click' = 'pointer') {
+  if (source === 'pointer' && suppressCompactMenuPointerEnter.value) {
+    return;
+  }
+  clearCompactMenuCloseTimer();
+  compactMenuOpen.value = true;
+}
+
+function scheduleCompactMenuClose() {
+  clearCompactMenuCloseTimer();
+  compactMenuCloseTimer = window.setTimeout(() => {
+    compactMenuOpen.value = false;
+    compactMenuCloseTimer = undefined;
+  }, COMPACT_MENU_CLOSE_DELAY);
+}
+
+function closeCompactMenu() {
+  clearCompactMenuCloseTimer();
+  compactMenuOpen.value = false;
+}
+
+function clearCompactMenuCloseTimer() {
+  if (compactMenuCloseTimer === undefined) {
+    return;
+  }
+  window.clearTimeout(compactMenuCloseTimer);
+  compactMenuCloseTimer = undefined;
+}
+
+function setMenuPresentation(presentation: 'compact' | 'expanded') {
+  if (compactMenuPointerReleaseFrame !== undefined) {
+    window.cancelAnimationFrame(compactMenuPointerReleaseFrame);
+    compactMenuPointerReleaseFrame = undefined;
+  }
+  suppressCompactMenuPointerEnter.value = presentation === 'compact';
+  menuPresentation.value = presentation;
+  closeCompactMenu();
+  if (presentation === 'compact') {
+    compactMenuPointerReleaseFrame = window.requestAnimationFrame(() => {
+      suppressCompactMenuPointerEnter.value = false;
+      compactMenuPointerReleaseFrame = undefined;
+    });
+  }
+}
+
+function updateCompactMenuTop() {
+  if (!appTopbar.value || !workbenchRoot.value) {
+    return;
+  }
+  const topbarRect = appTopbar.value.getBoundingClientRect();
+  const workbenchRect = workbenchRoot.value.getBoundingClientRect();
+  compactMenuTop.value = compactMenuTopOf(topbarRect.bottom, workbenchRect.top);
+}
+
+onMounted(() => {
+  void nextTick(() => {
+    updateCompactMenuTop();
+    if (typeof ResizeObserver === 'undefined' || !appTopbar.value) {
+      return;
+    }
+    topbarResizeObserver = new ResizeObserver(updateCompactMenuTop);
+    topbarResizeObserver.observe(appTopbar.value);
+  });
+});
+
+onUnmounted(() => {
+  clearCompactMenuCloseTimer();
+  if (compactMenuPointerReleaseFrame !== undefined) {
+    window.cancelAnimationFrame(compactMenuPointerReleaseFrame);
+  }
+  topbarResizeObserver?.disconnect();
+});
 
 function pageTypeLabelOf(pageType: string | undefined) {
   if (pageType === 'dynamic-module') {
@@ -129,21 +215,52 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 </script>
 
 <template>
-  <main class="workbench">
+  <main
+    ref="workbenchRoot"
+    class="workbench"
+    :class="{
+      'workbench--menu-expanded': menuPresentation === 'expanded',
+      'workbench--compact-menu-open': menuPresentation === 'compact' && compactMenuOpen,
+    }"
+  >
     <WorkbenchMenu
       :menus="startup?.menus ?? []"
       :selected-menu-id="activeTab?.target?.menuId"
       :tenant-label="tenantLabel"
       :realtime-status="realtimeStatus"
+      :presentation="menuPresentation"
+      :compact-open="compactMenuOpen"
+      :compact-top="compactMenuTop"
       @select-menu="handleSelectMenu"
       @invalid-menu="emit('invalidMenu', $event)"
+      @compact-menu-enter="openCompactMenu"
+      @compact-menu-leave="scheduleCompactMenuClose"
+      @compact-menu-close="closeCompactMenu"
+      @change-presentation="setMenuPresentation"
     />
 
     <section class="app-main">
-      <header class="app-topbar">
-        <div class="topbar-title">
-          <h1>{{ activeTab?.title ?? '控制台' }}</h1>
-          <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>
+      <header ref="appTopbar" class="app-topbar">
+        <div class="topbar-identity">
+          <Transition name="workbench-brand">
+            <WorkbenchBrandControl
+              v-if="menuPresentation === 'compact'"
+              presentation="compact"
+              :compact-open="compactMenuOpen"
+              :tenant-label="tenantLabel"
+              @open-compact-menu="openCompactMenu"
+              @schedule-compact-menu-close="scheduleCompactMenuClose"
+              @close-compact-menu="closeCompactMenu"
+              @change-presentation="setMenuPresentation"
+            />
+          </Transition>
+          <Transition name="workbench-divider">
+            <span v-if="menuPresentation === 'compact'" class="header-title-divider" aria-hidden="true" />
+          </Transition>
+          <div class="topbar-title">
+            <h1>{{ activeTab?.title ?? '控制台' }}</h1>
+            <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>
+          </div>
         </div>
 
         <div class="topbar-actions" aria-label="全局工具">
@@ -211,17 +328,24 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 <style scoped>
 .workbench {
+  position: relative;
   display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-columns: 0 minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
   background: #f5f7fa;
+  transition: grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.workbench--menu-expanded {
+  grid-template-columns: 252px minmax(0, 1fr);
 }
 
 .app-main {
+  grid-column: 2;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   min-width: 0;
@@ -249,6 +373,45 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .topbar-title {
   display: grid;
   min-width: 0;
+}
+
+.topbar-identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.workbench-brand-enter-active,
+.workbench-brand-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.workbench-brand-enter-from,
+.workbench-brand-leave-to {
+  opacity: 0;
+  transform: translateX(-12px);
+}
+
+.workbench-divider-enter-active,
+.workbench-divider-leave-active {
+  transition:
+    opacity 140ms ease,
+    transform 180ms ease;
+}
+
+.workbench-divider-enter-from,
+.workbench-divider-leave-to {
+  opacity: 0;
+  transform: scaleY(0.45);
+}
+
+.header-title-divider {
+  width: 1px;
+  height: 30px;
+  margin: 0 14px;
+  background: #d8e1ea;
 }
 
 .app-topbar h1 {
@@ -453,9 +616,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
     min-height: 100dvh;
     height: auto;
     overflow: visible;
+    transition: none;
   }
 
   .app-main {
+    grid-column: auto;
     min-height: 100vh;
     min-height: 100dvh;
     height: auto;
@@ -485,6 +650,16 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
   .user-button {
     width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench,
+  .workbench-brand-enter-active,
+  .workbench-brand-leave-active,
+  .workbench-divider-enter-active,
+  .workbench-divider-leave-active {
+    transition: none !important;
   }
 }
 </style>

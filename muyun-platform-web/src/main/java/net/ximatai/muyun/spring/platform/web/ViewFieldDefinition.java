@@ -11,7 +11,8 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
                                   Integer columnSpan,
                                   String align,
                                   Boolean fixed,
-                                  BooleanStatusPresentation booleanStatus) {
+                                  BooleanStatusPresentation booleanStatus,
+                                  Integer maxDisplayLines) {
     public ViewFieldDefinition {
         if (fieldRef == null) {
             throw new IllegalArgumentException("view field ref must not be null");
@@ -33,6 +34,7 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
         width = width == null || width.isBlank() ? null : width.trim();
         columnSpan = columnSpan == null ? 1 : requireColumnSpan(columnSpan);
         align = align == null || align.isBlank() ? null : align.trim();
+        maxDisplayLines = maxDisplayLines == null ? null : requireMaxDisplayLines(maxDisplayLines);
         if (booleanStatus != null && !"booleanStatus".equals(uiType)) {
             throw new IllegalArgumentException("boolean status presentation requires uiType booleanStatus");
         }
@@ -54,7 +56,7 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
                                Boolean fixed,
                                BooleanStatusPresentation booleanStatus) {
         this(fieldRef, label, visible, required, readOnly, uiType, null, width, columnSpan, align, fixed,
-                booleanStatus);
+                booleanStatus, null);
     }
 
     public static Builder field(String fieldName) {
@@ -78,6 +80,7 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
         private String align;
         private Boolean fixed;
         private BooleanStatusPresentation booleanStatus;
+        private Integer maxDisplayLines;
 
         private Builder(ViewFieldRef fieldRef) {
             this.fieldRef = fieldRef;
@@ -175,15 +178,28 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
             return this;
         }
 
+        /** Limits a text column to the given number of display lines in standard list views. */
+        public Builder maxDisplayLines(int maxDisplayLines) {
+            this.maxDisplayLines = requireMaxDisplayLines(maxDisplayLines);
+            return this;
+        }
+
         public ViewFieldDefinition build() {
             return new ViewFieldDefinition(fieldRef, label, visible, required, readOnly,
-                    uiType, valuePresentation, width, columnSpan, align, fixed, booleanStatus);
+                    uiType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, maxDisplayLines);
         }
     }
 
     private static int requireColumnSpan(int value) {
         if (value < 1 || value > 2) {
             throw new IllegalArgumentException("columnSpan must be between 1 and 2");
+        }
+        return value;
+    }
+
+    private static int requireMaxDisplayLines(int value) {
+        if (value < 1) {
+            throw new IllegalArgumentException("maxDisplayLines must be at least 1");
         }
         return value;
     }
