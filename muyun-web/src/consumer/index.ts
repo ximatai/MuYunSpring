@@ -17,6 +17,7 @@ export {
   createModulePageEnhancementRegistry,
   modulePageWorkspaceViews,
 } from '../dynamic-page-runtime/modulePageEnhancements';
+export { refreshModulePageList } from '../dynamic-page-runtime/modulePageListRefresh';
 export type {
   ModuleListEnhancement,
   ModuleDetailEnhancement,

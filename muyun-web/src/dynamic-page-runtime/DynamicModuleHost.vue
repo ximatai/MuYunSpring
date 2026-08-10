@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import {
   ManagementExplorerColumn,
   ManagementWorkspace,
@@ -61,6 +61,7 @@ import {
   type ModulePageRecordActionContribution,
 } from './modulePageEnhancements';
 import { useModulePageNavigation } from './modulePageNavigation';
+import { modulePageListRefreshRegistry } from './modulePageListRefresh';
 
 /**
  * Descriptor-driven CRUD runner shared by static and dynamic modules.
@@ -111,6 +112,7 @@ const enhancementDrawer = ref<{
   context: ModulePageDrawerContext;
 }>();
 let detailLoadSequence = 0;
+let unregisterListRefresh: (() => void) | undefined;
 
 const title = computed(
   () => props.descriptor.title ?? context.runtime.snapshot()?.title ?? context.moduleAlias,
@@ -257,8 +259,14 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
 });
 
 onMounted(async () => {
+  unregisterListRefresh = modulePageListRefreshRegistry.register(context.moduleAlias, refreshList);
   await loadPageBootstrap();
   await loadRuntimeForm();
+});
+
+onUnmounted(() => {
+  unregisterListRefresh?.();
+  unregisterListRefresh = undefined;
 });
 
 async function loadPageBootstrap() {
@@ -703,17 +711,19 @@ async function executeEnhancementAction<TContext>(
 }
 
 function detailSectionContext(record: QueryListRecord): ModulePageDetailSectionContext {
-  return { module: context, record, reload: reloadModulePage };
+  return { module: context, record, refreshList, reload: reloadModulePage };
 }
 
 function modulePageActionContext(record?: QueryListRecord): ModulePageActionContext {
   return {
     module: context,
+    refreshList,
     reload: reloadModulePage,
     openDrawer: (definition: ModulePageDrawer) => {
       const drawerContext: ModulePageDrawerContext = {
         module: context,
         record,
+        refreshList,
         close: closeEnhancementDrawer,
         reload: reloadModulePage,
       };
@@ -733,9 +743,19 @@ function closeEnhancementDrawer() {
 }
 
 function reloadModulePage() {
-  reloadKey.value += 1;
+  refreshList();
   treeReloadKey.value += 1;
 }
+
+/**
+ * Public, state-preserving list refresh for business-owned triggers.
+ * RecordQueryListPanel observes reloadKey and only re-runs loadRecords().
+ */
+function refreshList() {
+  reloadKey.value += 1;
+}
+
+defineExpose({ refreshList });
 
 function closeDetail() {
   if (saving.value) return;

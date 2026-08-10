@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import DynamicModuleHost from '@/dynamic-page-runtime/DynamicModuleHost.vue';
 import { configureModuleContext, createHttpClient } from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
+import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefresh.ts';
 
 describe('DynamicModuleHost', () => {
   const originalFetch = globalThis.fetch;
@@ -183,5 +184,42 @@ describe('DynamicModuleHost', () => {
     expect(wrapper.text()).toContain('动态FORM入口暂未接入运行器');
     expect(wrapper.find('record-query-list-panel-stub').exists()).toBe(false);
     expect(requests.some((url) => url.endsWith('/crm.customer/query'))).toBe(false);
+  });
+
+  it('allows business-owned module triggers to refresh the active list without remounting it', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/mr.knowledge_file/context')) {
+        return Response.json({ moduleAlias: 'mr.knowledge_file', capabilities: [], actions: [] });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({
+      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+    });
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'mr.knowledge_file', pageMode: 'LIST' },
+        },
+      },
+    });
+
+    await flushPromises();
+    const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(panel.props('reloadKey')).toBe(0);
+    expect(refreshModulePageList('mr.other_file')).toBe(false);
+    expect(refreshModulePageList('mr.knowledge_file')).toBe(true);
+    await flushPromises();
+
+    expect(panel.props('reloadKey')).toBe(1);
+    expect(wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm).toBe(panel.vm);
+    wrapper.unmount();
+    expect(refreshModulePageList('mr.knowledge_file')).toBe(false);
   });
 });
