@@ -125,6 +125,36 @@ class FileReferenceDefinitionTest {
                         + StaticConflictingMetadataDocument.class.getName() + ".coverFileId");
     }
 
+    @Test
+    void shouldRejectStaticMetadataBindingWithoutAFileReferenceSource() {
+        assertThatThrownBy(() -> new StaticEntityDefinitionCompiler()
+                .compile("document", "Document", StaticUnknownMetadataSourceDocument.class))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("file reference metadata source must declare @FileReference: "
+                        + StaticUnknownMetadataSourceDocument.class.getName() + ".sourceFilename");
+
+        assertThatThrownBy(() -> new StaticEntityDefinitionCompiler()
+                .compile("document", "Document", StaticBlankMetadataSourceDocument.class))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("file reference metadata source must declare @FileReference: "
+                        + StaticBlankMetadataSourceDocument.class.getName() + ".sourceFilename");
+    }
+
+    @Test
+    void shouldRejectStaticMetadataBindingForMultiFileSourceOrWrongTargetType() {
+        assertThatThrownBy(() -> new StaticEntityDefinitionCompiler()
+                .compile("document", "Document", StaticMultiFileMetadataDocument.class))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("file reference metadata fields require a single-file reference: "
+                        + StaticMultiFileMetadataDocument.class.getName() + ".sourceFileIds");
+
+        assertThatThrownBy(() -> new StaticEntityDefinitionCompiler()
+                .compile("document", "Document", StaticInvalidMetadataTypeDocument.class))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("file reference metadata requires @Column BIGINT Long field: "
+                        + StaticInvalidMetadataTypeDocument.class.getName() + ".sourceFileSize");
+    }
+
     @Table(name = "test_static_document")
     static class StaticDocument extends StandardEntity {
         @Column(name = "source_file_id", type = ColumnType.VARCHAR, length = 64)
@@ -154,5 +184,39 @@ class FileReferenceDefinitionTest {
         @FileReference
         @FileReferenceMetadataField(source = "sourceFileId", value = FileReferenceMetadata.ORIGINAL_FILENAME)
         private String coverFileId;
+    }
+
+    @Table(name = "test_static_unknown_metadata_source_document")
+    static class StaticUnknownMetadataSourceDocument extends StandardEntity {
+        @Column(name = "source_filename", type = ColumnType.VARCHAR, length = 255)
+        @FileReferenceMetadataField(source = "missingFileId", value = FileReferenceMetadata.ORIGINAL_FILENAME)
+        private String sourceFilename;
+    }
+
+    @Table(name = "test_static_blank_metadata_source_document")
+    static class StaticBlankMetadataSourceDocument extends StandardEntity {
+        @Column(name = "source_filename", type = ColumnType.VARCHAR, length = 255)
+        @FileReferenceMetadataField(source = " ", value = FileReferenceMetadata.ORIGINAL_FILENAME)
+        private String sourceFilename;
+    }
+
+    @Table(name = "test_static_multi_file_metadata_document")
+    static class StaticMultiFileMetadataDocument extends StandardEntity {
+        @Column(name = "source_file_ids", type = ColumnType.JSON_SET)
+        @FileReference(maxFiles = 2)
+        private Set<String> sourceFileIds;
+        @Column(name = "source_filename", type = ColumnType.VARCHAR, length = 255)
+        @FileReferenceMetadataField(source = "sourceFileIds", value = FileReferenceMetadata.ORIGINAL_FILENAME)
+        private String sourceFilename;
+    }
+
+    @Table(name = "test_static_invalid_metadata_type_document")
+    static class StaticInvalidMetadataTypeDocument extends StandardEntity {
+        @Column(name = "source_file_id", type = ColumnType.VARCHAR, length = 64)
+        @FileReference
+        private String sourceFileId;
+        @Column(name = "source_file_size", type = ColumnType.VARCHAR, length = 64)
+        @FileReferenceMetadataField(source = "sourceFileId", value = FileReferenceMetadata.SIZE_BYTES)
+        private String sourceFileSize;
     }
 }
