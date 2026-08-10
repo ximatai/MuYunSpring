@@ -1,9 +1,14 @@
 package net.ximatai.muyun.spring.web;
 
+import jakarta.servlet.DispatcherType;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,7 +17,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.filter.CorsFilter;
 
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -20,6 +27,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class CurrentUserWebFilterTest {
+    @Test
+    void shouldRebindUserAndTenantContextForAsyncDispatch() throws Exception {
+        CurrentUser currentUser = CurrentUser.tenantUser("user-1", "alice", "tenant-a", "org-1", false);
+        CurrentUserWebFilter filter = new CurrentUserWebFilter(() -> Optional.of(currentUser));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/business/stream");
+        request.setDispatcherType(DispatcherType.ASYNC);
+        AtomicReference<CurrentUser> boundUser = new AtomicReference<>();
+        AtomicReference<String> boundTenantId = new AtomicReference<>();
+
+        filter.doFilter(request, new MockHttpServletResponse(), (ignoredRequest, ignoredResponse) -> {
+            boundUser.set(CurrentUserContext.currentUser().orElse(null));
+            boundTenantId.set(TenantContext.currentTenantId().orElse(null));
+        });
+
+        assertThat(boundUser.get()).isEqualTo(currentUser);
+        assertThat(boundTenantId.get()).isEqualTo("tenant-a");
+        assertThat(CurrentUserContext.currentUser()).isEmpty();
+        assertThat(TenantContext.hasContext()).isFalse();
+    }
+
     @Test
     void shouldRejectBusinessRequestsWhenPasswordChangeIsRequired() throws Exception {
         MockMvc mvc = restrictedMvc();

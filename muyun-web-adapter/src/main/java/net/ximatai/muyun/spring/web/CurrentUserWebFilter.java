@@ -20,6 +20,17 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
         this.currentUserProvider = currentUserProvider;
     }
 
+    /**
+     * MVC asynchronous results resume through a separate Servlet dispatch.  The request-bound
+     * identity scopes from the initial dispatch have already been closed at that point, while
+     * MVC interceptors run again to authorize the resumed endpoint.  Bind a fresh scope for
+     * every dispatch instead of allowing a resumed protected endpoint to observe no user.
+     */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
