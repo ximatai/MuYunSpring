@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.common.identity.ActingContextHolder;
 import net.ximatai.muyun.spring.common.identity.BusinessPrincipal;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.ApplicationNotOpenedException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
@@ -503,6 +504,30 @@ class ActionEndpointInterceptorTest {
             assertThat(context.actionPolicy().requiresDataScope()).isTrue();
             assertThat(context.recordIds()).containsExactly("user-1");
         });
+    }
+
+    @Test
+    void shouldRejectDisabledStaticActionInsteadOfFallingBackToControllerPolicy() throws Exception {
+        PlatformModuleActionService moduleActionService = mock(PlatformModuleActionService.class);
+        PlatformModuleAction action = new PlatformModuleAction();
+        action.setModuleAlias("iam.organization");
+        action.setActionCode("query");
+        action.setEnabled(Boolean.FALSE);
+        when(moduleActionService.findByModuleAliasAndActionCode("iam.organization", "query"))
+                .thenReturn(action);
+        ActionEndpointInterceptor interceptor = new ActionEndpointInterceptor(
+                policyService, new ActionEndpointContextResolver(moduleActionService));
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/iam.organization/query");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new StaticScopedWeb(), CrudWeb.class.getMethod("query", WebQueryRequest.class))))
+                .isInstanceOf(PlatformException.class)
+                .satisfies(exception -> {
+                    PlatformException platformException = (PlatformException) exception;
+                    assertThat(platformException.code()).isEqualTo(PlatformErrorCodes.RESOURCE_NOT_FOUND);
+                    assertThat(platformException.httpStatus()).isEqualTo(404);
+                });
+        assertThat(policyService.context).isNull();
     }
 
     @Test

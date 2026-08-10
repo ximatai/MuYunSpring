@@ -26,19 +26,29 @@ export interface ResolvedRecordActionItem extends RecordActionItem {
   loading: boolean;
 }
 
+type RecordActionContext = Pick<ModuleContext<unknown>, 'action'> & {
+  runtime?: Pick<ModuleContext<unknown>['runtime'], 'snapshot'>;
+  recordActionsSnapshot?: ModuleContext<unknown>['recordActionsSnapshot'];
+};
+
 export function resolveRecordActions(
-  context: Pick<ModuleContext<unknown>, 'action'>,
+  context: RecordActionContext,
   actions: RecordActionItem[],
   defaultLoading = false,
   recordId?: string,
 ): ResolvedRecordActionItem[] {
-  return actions
-    .filter((action) => action.visible !== false)
-    .map((action, index) => {
-      const actionState = action.actionCode ? context.action(action.actionCode, recordId) : undefined;
-      const authorized = action.actionCode ? actionState?.available === true : true;
-      const loading = action.loading ?? defaultLoading;
-      return {
+  return actions.flatMap((action, index) => {
+    if (action.visible === false) {
+      return [];
+    }
+    const actionState = action.actionCode ? context.action(action.actionCode, recordId) : undefined;
+    if (action.actionCode && !actionState && actionIsConfirmedMissing(context, action.actionCode, recordId)) {
+      return [];
+    }
+    const authorized = action.actionCode ? actionState?.available === true : true;
+    const loading = action.loading ?? defaultLoading;
+    return [
+      {
         ...action,
         key: action.key ?? action.actionCode ?? `action-${index}`,
         iconName: action.iconName ?? defaultActionIcon(action),
@@ -46,8 +56,20 @@ export function resolveRecordActions(
         reason: actionState?.reason,
         disabled: loading || action.disabled === true || !authorized,
         loading,
-      };
-    });
+      },
+    ];
+  });
+}
+
+function actionIsConfirmedMissing(context: RecordActionContext, actionCode: string, recordId?: string) {
+  if (!context.runtime?.snapshot()) {
+    return false;
+  }
+  if (!recordId) {
+    return true;
+  }
+  const availability = context.recordActionsSnapshot?.(recordId);
+  return availability != null && !availability.actions.some((action) => action.actionCode === actionCode);
 }
 
 function defaultActionIcon(action: RecordActionItem): UiIconName | undefined {

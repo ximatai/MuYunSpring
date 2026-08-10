@@ -120,6 +120,31 @@ class StaticModuleDefinitionRegistrarTest {
     }
 
     @Test
+    void shouldDisableRemovedSystemManagedStaticActionsWithoutTouchingCurrentActions() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleService.select("iam.user")).thenReturn(null);
+        when(actionService.findByModuleAliasAndActionCode("iam.user", "query")).thenReturn(null);
+        PlatformModuleAction retained = action("query-id", "iam.user", "query");
+        retained.setSourceType(ModuleActionSourceType.STATIC_MODULE);
+        retained.setSourceId("iam.user");
+        PlatformModuleAction removed = action("create-id", "iam.user", "create");
+        removed.setSourceType(ModuleActionSourceType.STATIC_MODULE);
+        removed.setSourceId("iam.user");
+        when(actionService.listSystemManagedActions("iam.user")).thenReturn(List.of(retained, removed));
+        StaticModuleDefinitionRegistrar registrar = new StaticModuleDefinitionRegistrar(
+                moduleService,
+                actionService,
+                List.of(definition("iam.user", List.of(
+                        StaticModuleActionDefinition.platformAction(PlatformAction.QUERY))))
+        );
+
+        registrar.registerAll();
+
+        verify(actionService).disable("create-id");
+    }
+
+    @Test
     void shouldKeepLongStaticModuleAliasAsActionSource() {
         String moduleAlias = "sales." + "contract_".repeat(8);
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
