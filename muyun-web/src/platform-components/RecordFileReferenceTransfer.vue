@@ -116,7 +116,6 @@ function releaseUploadedFile(fileId: string) {
     :disabled-hint="definition.uploadAvailable ? disabledHint : '当前模块未配置文件上传策略'"
     :released-completed-file-ids="releasedUploadedFileIds"
     :completed-file-id="(receipt) => uploadedFileId(receipt.payload)"
-    completion-hint="请保存业务记录以完成文件绑定。"
     :allow-completed-removal="false"
     @completed="(receipt) => applyUploadedFile(receipt)"
   />
