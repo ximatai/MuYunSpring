@@ -54,6 +54,12 @@ export { default as DateTimeText } from '../platform-components/DateTimeText.vue
 export { default as FileSizeText } from '../platform-components/FileSizeText.vue';
 export { default as FileTransferUploader } from '../platform-components/FileTransferUploader.vue';
 export {
+  presentPlatformError,
+  presentPlatformInfo,
+  presentPlatformMessage,
+  presentPlatformSuccess,
+} from '../platform-components/platformErrorFeedback';
+export {
   createBrowserFileTransferUpload,
   unwrapResponsePayload,
 } from '../platform-components/fileTransferUpload';

@@ -5,7 +5,7 @@ import {
   type ErrorUiContext,
   type GlobalErrorPresentation,
 } from '@muyun/web-core';
-import { showErrorMessage, showSuccessMessage } from '@muyun/vue-ui-antdv';
+import { showErrorMessage, showInfoMessage, showSuccessMessage } from '@muyun/vue-ui-antdv';
 
 export interface PlatformErrorFeedbackContext {
   source?: string;
@@ -34,6 +34,11 @@ export function presentPlatformMessage(message: string, context: PlatformErrorFe
 export function presentPlatformSuccess(message: string, context: PlatformErrorFeedbackContext = {}) {
   void context;
   showSuccessMessage(message);
+}
+
+/** Presents a non-blocking progress update without treating it as an action result. */
+export function presentPlatformInfo(message: string) {
+  showInfoMessage(message);
 }
 
 export type PlatformActionErrorHandler<TContext> = {
