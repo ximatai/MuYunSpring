@@ -66,6 +66,8 @@ export interface RecordQueryListColumn {
   width?: string;
   align?: 'left' | 'center' | 'right';
   titleField?: string;
+  /** Maximum visible lines for text cells. Defaults to one line. */
+  maxDisplayLines?: number;
   render?: (record: QueryListRecord) => string;
 }
 
@@ -112,6 +114,8 @@ const props = withDefaults(
       action: RecordActionItem,
     ) => Partial<RecordActionItem> | undefined;
     rowActionsTitle?: string;
+    /** Width of the fixed right-side action column. Defaults to the platform compact width. */
+    actionColumnWidth?: string | number;
     cellRenderers?: Record<string, (record: QueryListRecord) => string>;
     rowKey?: string;
     selectedKey?: string;
@@ -144,6 +148,7 @@ const props = withDefaults(
     extraRowActionsOf: undefined,
     rowActionStateOf: undefined,
     rowActionsTitle: '操作',
+    actionColumnWidth: 92,
     cellRenderers: () => ({}),
     selectedKey: undefined,
     expandedRowKeys: () => [],
@@ -986,6 +991,7 @@ function columnsFromRuntimeListView(
         align: columnAlign(field.align),
         titleField: field.option?.titleField ?? queryField?.optionTitleField,
         booleanStatus: field.booleanStatus,
+        maxDisplayLines: field.maxDisplayLines,
       };
     });
 }
@@ -1131,7 +1137,7 @@ defineExpose({ clearSelection, refresh });
         :row-muted="(row) => (row as QueryListRow).record.enabled === false"
         :show-action-column="hasRowActions"
         :action-column-title="rowActionsTitle"
-        :action-column-width="92"
+        :action-column-width="actionColumnWidth"
         @row-click="handleTableRowClick($event as QueryListRow)"
         @row-dblclick="(row, event) => handleTableRowDblclick(row as QueryListRow, event)"
         @row-expand="(row, expanded) => handleTableRowExpand(row as QueryListRow, expanded)"
@@ -1203,17 +1209,37 @@ defineExpose({ clearSelection, refresh });
               )
             }}
           </span>
-          <template v-else>
-            {{
+          <span
+            v-else
+            class="record-query-list-text"
+            :style="{
+              '--record-query-list-max-lines': String(
+                tableColumns.find((item) => item.key === column.key)?.maxDisplayLines ?? 1,
+              ),
+            }"
+            :title="
               cellValue(
                 (record as QueryListRow).record,
                 tableColumns.find((item) => item.key === column.key)!,
               )
-            }}
-          </template>
+            "
+            >{{
+              cellValue(
+                (record as QueryListRow).record,
+                tableColumns.find((item) => item.key === column.key)!,
+              )
+            }}</span
+          >
         </template>
         <template #rowActions="{ record }">
-          <div class="record-query-list-row-actions" @click.stop @dblclick.stop>
+          <div
+            class="record-query-list-row-actions"
+            :style="{
+              width: typeof actionColumnWidth === 'number' ? `${actionColumnWidth}px` : actionColumnWidth,
+            }"
+            @click.stop
+            @dblclick.stop
+          >
             <slot name="rowActions" :record="(record as QueryListRow).record" />
             <div class="record-query-list-primary-actions">
               <UiButton
@@ -1433,6 +1459,16 @@ defineExpose({ clearSelection, refresh });
   height: 14px;
   border: 1px solid rgb(15 23 42 / 18%);
   border-radius: 50%;
+}
+
+.record-query-list-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--record-query-list-max-lines);
+  line-clamp: var(--record-query-list-max-lines);
+  white-space: normal;
+  word-break: break-word;
 }
 
 .record-query-list-row-actions {

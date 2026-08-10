@@ -397,7 +397,8 @@ public class PlatformPageBootstrapService {
                 field.getWidth(),
                 field.getColumnSpan(),
                 field.getAlign(),
-                field.getFixedPosition()
+                field.getFixedPosition(),
+                field.getMaxDisplayLines()
         );
     }
 

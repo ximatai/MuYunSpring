@@ -170,7 +170,9 @@ class PlatformUiConfigurationServiceContractTest {
         String signedDateField = seedModuleField("crm.contract", "contract", "signedDate", "signed_date", "date");
         String uiSetId = uiSetService.insert(uiSet("crm.contract", "list", PlatformUiSetType.LIST, true));
         String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
-        uiConfigFieldService.insert(uiField(uiConfigId, signedDateField, "date_range"));
+        PlatformUiConfigField uiField = uiField(uiConfigId, signedDateField, "date_range");
+        uiField.setMaxDisplayLines(2);
+        uiConfigFieldService.insert(uiField);
         publishService.publishUiConfig(uiConfigId);
         Menu menu = new Menu();
         menu.setId("menu-1");
@@ -192,6 +194,7 @@ class PlatformUiConfigurationServiceContractTest {
 
         assertThat(bootstrap.resolvedConfig().uiFields()).hasSize(1);
         assertThat(bootstrap.resolvedConfig().uiFields().getFirst().fieldUiControlAlias()).isEqualTo("date_range");
+        assertThat(bootstrap.resolvedConfig().uiFields().getFirst().maxDisplayLines()).isEqualTo(2);
         assertThat(bootstrap.resolvedConfig().fieldUiControls()).hasSize(1);
         assertThat(bootstrap.resolvedConfig().fieldUiControls().getFirst().alias()).isEqualTo("date_range");
         assertThat(bootstrap.resolvedConfig().fieldUiControls().getFirst().bindings())
@@ -1643,6 +1646,7 @@ class PlatformUiConfigurationServiceContractTest {
         target.setPlaceholder(source.getPlaceholder());
         target.setDefaultValue(source.getDefaultValue());
         target.setWidth(source.getWidth());
+        target.setMaxDisplayLines(source.getMaxDisplayLines());
         target.setAlign(source.getAlign());
         target.setFixedPosition(source.getFixedPosition());
         target.setTitle(source.getTitle());

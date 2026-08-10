@@ -27,6 +27,10 @@ export interface ModulePageEnhancementTarget {
 export interface ModuleListEnhancement {
   actions?: ModulePageActionContribution[];
   columns?: ModulePageColumnContribution[];
+  /** Replaces the visual renderer of a descriptor-owned column without adding a duplicate column. */
+  cellComponents?: ModulePageCellComponentContribution[];
+  /** Width of the list's fixed operation column; defaults to the platform compact width. */
+  actionColumnWidth?: string | number;
   rowActions?: ModulePageRecordActionContribution[];
   batchActions?: ModulePageBatchActionContribution[];
 }
@@ -44,6 +48,8 @@ export interface ModulePageActionContribution extends RecordActionItem {
 
 export interface ModulePageRecordActionContribution extends RecordActionItem {
   key: string;
+  /** Resolves record-specific visibility or enabled state without letting business code own the table shell. */
+  state?(record: QueryListRecord): Pick<RecordActionItem, 'visible' | 'disabled'> | undefined;
   run(context: ModulePageRecordActionContext): void | Promise<void>;
 }
 
@@ -64,6 +70,11 @@ export interface ModulePageColumnContribution extends RecordQueryListColumn {
   before?: string;
   after?: string;
   /** A normal Vue component, constrained to one table cell by the platform table shell. */
+  cell: Component;
+}
+
+export interface ModulePageCellComponentContribution {
+  key: string;
   cell: Component;
 }
 
@@ -187,6 +198,7 @@ function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
   const regions = [
     enhancement.list?.actions ?? [],
     enhancement.list?.columns ?? [],
+    enhancement.list?.cellComponents ?? [],
     enhancement.list?.rowActions ?? [],
     enhancement.list?.batchActions ?? [],
     enhancement.detail?.actions ?? [],

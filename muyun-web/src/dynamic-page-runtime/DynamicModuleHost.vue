@@ -156,12 +156,19 @@ const enhancementActions = computed<ModulePageActionContribution[]>(
 const enhancementColumns = computed<ModulePageColumnContribution[]>(
   () => pageEnhancement.value?.list?.columns ?? [],
 );
-const enhancementCellComponents = computed<RecordQueryListCellComponent[]>(() =>
-  enhancementColumns.value.map((column) => ({ key: column.key, component: column.cell })),
-);
+const enhancementCellComponents = computed<RecordQueryListCellComponent[]>(() => [
+  ...enhancementColumns.value.map((column) => ({ key: column.key, component: column.cell })),
+  ...(pageEnhancement.value?.list?.cellComponents ?? []).map((cell) => ({
+    key: cell.key,
+    component: cell.cell,
+  })),
+]);
 const enhancementRowActions = computed<ModulePageRecordActionContribution[]>(
   () => pageEnhancement.value?.list?.rowActions ?? [],
 );
+function enhancementRowActionsFor(record: QueryListRecord) {
+  return enhancementRowActions.value.map(({ state, ...action }) => ({ ...action, ...state?.(record) }));
+}
 const enhancementBatchActions = computed<ModulePageBatchActionContribution[]>(
   () => pageEnhancement.value?.list?.batchActions ?? [],
 );
@@ -871,7 +878,8 @@ function recordTitle(record: QueryListRecord | undefined) {
         :extra-actions="enhancementActions"
         :additional-columns="enhancementColumns"
         :cell-components="enhancementCellComponents"
-        :extra-row-actions-of="() => enhancementRowActions"
+        :extra-row-actions-of="enhancementRowActionsFor"
+        :action-column-width="pageEnhancement?.list?.actionColumnWidth"
         :batch-actions="enhancementBatchActions"
         :ui-config-id="listUiConfigId"
         :query-template-id="listQueryTemplateId"
@@ -1038,7 +1046,8 @@ function recordTitle(record: QueryListRecord | undefined) {
       :extra-actions="enhancementActions"
       :additional-columns="enhancementColumns"
       :cell-components="enhancementCellComponents"
-      :extra-row-actions-of="() => enhancementRowActions"
+      :extra-row-actions-of="enhancementRowActionsFor"
+      :action-column-width="pageEnhancement?.list?.actionColumnWidth"
       :batch-actions="enhancementBatchActions"
       :ui-config-id="listUiConfigId"
       :query-template-id="listQueryTemplateId"

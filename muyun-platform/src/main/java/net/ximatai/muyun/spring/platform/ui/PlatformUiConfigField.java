@@ -46,6 +46,9 @@ public class PlatformUiConfigField extends StandardEnabledSortableEntity {
     @Column(name = "width", type = ColumnType.INT, comment = "Display width")
     private Integer width;
 
+    @Column(name = "max_display_lines", type = ColumnType.INT, comment = "Maximum display lines in list cells")
+    private Integer maxDisplayLines;
+
     @Column(name = "column_span", type = ColumnType.INT, nullable = false, comment = "Form/detail column span",
             defaultVal = @Default(number = 1))
     private Integer columnSpan = 1;

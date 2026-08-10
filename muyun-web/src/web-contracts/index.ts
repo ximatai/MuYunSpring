@@ -574,6 +574,8 @@ export interface ResolvedViewFieldDescriptor {
   option?: ResolvedOptionFieldDescriptor;
   reference?: ResolvedReferenceFieldDescriptor;
   referenceSummary?: ResolvedReferenceSummaryFieldDescriptor;
+  /** Maximum visible lines for text cells. Omitted uses the platform default of one line. */
+  maxDisplayLines?: number;
 }
 
 /** Structured summary facts resolved from a reference projection. Every item also contains `id`. */

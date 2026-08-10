@@ -41,6 +41,7 @@ export type {
 // freedom to evolve without making each implementation detail an App contract.
 export {
   UiButton,
+  confirmAction,
   UiDataTable,
   UiInput,
   UiSidePanel,
