@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mount, shallowMount } from '@vue/test-utils';
+import WorkbenchBrandControl from '@/platform-workbench/WorkbenchBrandControl.vue';
 import WorkbenchMenu from '@/platform-workbench/WorkbenchMenu.vue';
 import WorkbenchMenuTree from '@/platform-workbench/WorkbenchMenuTree.vue';
 import { createWorkbenchMenuNodes, findWorkbenchMenuNodeById } from '@/platform-workbench/menuTreeModel.ts';
@@ -105,17 +106,13 @@ describe('WorkbenchMenu', () => {
     expect(wrapper.get('.workbench-menu').attributes('style')).toContain('--compact-menu-top: 172px');
   });
 
-  it('allows the compact panel to request the expanded sidebar presentation', async () => {
+  it('keeps compact panel tools focused on menu search', () => {
     const wrapper = shallowMount(WorkbenchMenu, {
       props: { menus, presentation: 'compact', compactOpen: true },
     });
 
-    const toggle = wrapper.get('.menu-presentation-toggle');
-    expect(toggle.attributes('aria-label')).toBe('展开侧栏菜单');
-
-    await toggle.trigger('click');
-
-    expect(wrapper.emitted('changePresentation')).toEqual([['expanded']]);
+    expect(wrapper.get('.compact-menu-tools').get('[aria-label="搜索菜单"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="展开侧栏菜单"]').exists()).toBe(false);
   });
 
   it('requests an immediate compact-panel close when Escape is pressed', async () => {
@@ -135,7 +132,7 @@ describe('WorkbenchMenu', () => {
     });
 
     expect(wrapper.find('.workbench-menu--expanded').exists()).toBe(true);
-    expect(wrapper.get('.menu-presentation-toggle').attributes('aria-label')).toBe('收敛侧栏菜单');
+    expect(wrapper.findComponent({ name: 'WorkbenchBrandControl' }).props('presentation')).toBe('expanded');
   });
 
   it('marks the active mega-menu entry as the current page and its group as the selected path', async () => {
@@ -184,5 +181,18 @@ describe('WorkbenchMenuTree', () => {
     expect(buttons[0].attributes('aria-current')).toBeUndefined();
     expect(buttons[1].classes()).toContain('selected');
     expect(buttons[1].attributes('aria-current')).toBe('page');
+  });
+});
+
+describe('WorkbenchBrandControl', () => {
+  it('distinguishes pointer entry from deliberate compact-menu activation', async () => {
+    const wrapper = mount(WorkbenchBrandControl, { props: { presentation: 'compact' } });
+    const identity = wrapper.get('[aria-label="系统菜单"]');
+
+    await identity.trigger('mouseenter');
+    await identity.trigger('focus');
+    await identity.trigger('click');
+
+    expect(wrapper.emitted('openCompactMenu')).toEqual([['pointer'], ['focus'], ['click']]);
   });
 });
