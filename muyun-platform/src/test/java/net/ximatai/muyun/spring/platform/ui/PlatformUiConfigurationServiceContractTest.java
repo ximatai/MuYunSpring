@@ -299,6 +299,21 @@ class PlatformUiConfigurationServiceContractTest {
     }
 
     @Test
+    void shouldRejectMaximumDisplayLinesOutsideListUiSets() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
+        String uiSetId = uiSetService.insert(uiSet("crm.customer", "form", PlatformUiSetType.FORM, true));
+        String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        PlatformUiConfigField field = uiField(uiConfigId, customerNameField, "text");
+        field.setMaxDisplayLines(2);
+
+        assertThatThrownBy(() -> uiConfigFieldService.insert(field))
+                .isInstanceOf(PlatformException.class)
+                .hasMessage("UI config field maxDisplayLines is only supported by LIST UI sets");
+    }
+
+    @Test
     void shouldRejectUnsupportedUiTypeAndDuplicateDefaults() {
         seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
         seedFieldType("decimal", FieldType.DECIMAL, DynamicQueryOperator.EQ);

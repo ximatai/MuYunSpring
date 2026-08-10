@@ -130,6 +130,9 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
         if (field.getMaxDisplayLines() != null && field.getMaxDisplayLines() < 1) {
             throw new PlatformException("UI config field maxDisplayLines must be at least 1");
         }
+        if (field.getMaxDisplayLines() != null && uiSet.getSetType() != PlatformUiSetType.LIST) {
+            throw new PlatformException("UI config field maxDisplayLines is only supported by LIST UI sets");
+        }
         if (field.getTitle() == null || field.getTitle().isBlank()) {
             field.setTitle(moduleField.fieldTitle());
         }

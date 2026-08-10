@@ -532,6 +532,8 @@ export interface ViewFieldDefinition {
   align?: 'left' | 'center' | 'right' | string;
   fixed?: boolean;
   booleanStatus?: BooleanStatusPresentation;
+  /** Maximum visible lines for text cells in standard list views. Omitted uses the platform default of one line. */
+  maxDisplayLines?: number;
 }
 
 export interface BooleanStatusPresentation {
