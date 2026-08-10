@@ -13,6 +13,7 @@ it('consumer surface exposes the stable app-shell feedback and lifecycle facades
   const runtimeSource = readSource('platform-admin-runtime/index.ts');
 
   assert.match(consumerSource, /presentPlatformInfo/);
+  assert.match(consumerSource, /refreshModulePageList/);
   assert.match(runtimeSource, /connectAppRealtime,/);
   assert.match(runtimeSource, /disconnectAppRealtime,/);
   assert.match(runtimeSource, /AppRealtimeConnection/);

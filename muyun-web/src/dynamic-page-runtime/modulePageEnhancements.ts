@@ -104,12 +104,16 @@ export interface ModulePageWorkspaceView<
 export interface ModulePageDrawerContext {
   module: ModuleContext<QueryListRecord>;
   record?: QueryListRecord;
+  /** Reloads only the current list query and preserves its query and editor state. */
+  refreshList(): void;
   close(): void;
   reload(): void;
 }
 
 export interface ModulePageActionContext {
   module: ModuleContext<QueryListRecord>;
+  /** Reloads only the current list query and preserves its query and editor state. */
+  refreshList(): void;
   openDrawer(drawer: ModulePageDrawer): void;
   openWorkspaceTab<TInput extends ModulePageWorkspaceViewInput>(
     view: ModulePageWorkspaceView<TInput>,
@@ -130,6 +134,8 @@ export interface ModulePageBatchActionContext extends ModulePageActionContext {
 export interface ModulePageDetailSectionContext {
   module: ModuleContext<QueryListRecord>;
   record: QueryListRecord;
+  /** Reloads only the current list query and preserves its query and editor state. */
+  refreshList(): void;
   reload(): void;
 }
 

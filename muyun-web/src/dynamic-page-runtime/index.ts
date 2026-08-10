@@ -8,6 +8,12 @@ export {
   resolveModulePageEnhancement,
 } from './modulePageEnhancements';
 export { provideModulePageNavigation, useModulePageNavigation } from './modulePageNavigation';
+export {
+  createModulePageListRefreshRegistry,
+  modulePageListRefreshRegistry,
+  refreshModulePageList,
+} from './modulePageListRefresh';
+export type { ModulePageListRefreshRegistry } from './modulePageListRefresh';
 export type {
   ModuleListEnhancement,
   ModuleDetailEnhancement,
