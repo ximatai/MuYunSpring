@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, type Component, watch } from 'vue';
 import {
   confirmAction,
   UiButton,
@@ -11,7 +11,12 @@ import {
   UiSelect,
   UiSpin,
 } from '@muyun/vue-ui-antdv';
-import type { UiDataTableColumn, UiDropdownItem } from '@muyun/vue-ui-antdv';
+import type {
+  UiDataTableColumn,
+  UiDataTableKey,
+  UiDataTableSelection,
+  UiDropdownItem,
+} from '@muyun/vue-ui-antdv';
 import type {
   Option,
   OptionValue,
@@ -64,6 +69,11 @@ export interface RecordQueryListColumn {
   render?: (record: QueryListRecord) => string;
 }
 
+export interface RecordQueryListCellComponent {
+  key: string;
+  component: Component;
+}
+
 interface ConditionDraft {
   key: number;
   fieldName?: string;
@@ -86,7 +96,13 @@ const props = withDefaults(
     context: ModuleContext<QueryListRecord>;
     title: string;
     columns?: RecordQueryListColumn[];
+    /** Columns appended to, or anchored around, the descriptor-owned list fields. */
+    additionalColumns?: Array<RecordQueryListColumn & { before?: string; after?: string }>;
+    /** Vue cell components are deliberately constrained to cells; they do not own the table shell. */
+    cellComponents?: RecordQueryListCellComponent[];
     actions?: RecordActionItem[];
+    extraActions?: RecordActionItem[];
+    batchActions?: RecordActionItem[];
     standardCrudActions?: boolean;
     standardCrudRowActions?: boolean;
     rowActionsOf?: (record: QueryListRecord) => RecordActionItem[];
@@ -117,7 +133,11 @@ const props = withDefaults(
   {
     rowKey: 'id',
     columns: () => [],
+    additionalColumns: () => [],
+    cellComponents: () => [],
     actions: () => [],
+    extraActions: () => [],
+    batchActions: () => [],
     standardCrudActions: false,
     standardCrudRowActions: false,
     rowActionsOf: undefined,
@@ -147,12 +167,21 @@ const emit = defineEmits<{
   rowDblclick: [record: QueryListRecord, event: MouseEvent];
   loaded: [records: QueryListRecord[]];
   action: [action: RecordActionItem, event: MouseEvent];
+  batchAction: [
+    action: RecordActionItem,
+    records: QueryListRecord[],
+    event: MouseEvent,
+    clearSelection: () => void,
+  ];
   rowAction: [action: ResolvedRecordActionItem, record: QueryListRecord, event?: MouseEvent];
   rowExpand: [record: QueryListRecord, expanded: boolean];
   modeChange: [mode: RecordQueryListMode];
   restored: [];
 }>();
 const slots = defineSlots<{
+  toolbarActions?: (props: { refresh: () => void }) => unknown;
+  cell?: (props: { column: RecordQueryListColumn; record: QueryListRecord }) => unknown;
+  rowActions?: (props: { record: QueryListRecord }) => unknown;
   expandedRow?: (props: { record: QueryListRecord; rowKey: string }) => unknown;
 }>();
 
@@ -172,6 +201,7 @@ const conditionsExpanded = ref(false);
 const conditionSeq = ref(0);
 const conditionDrafts = ref<ConditionDraft[]>([]);
 const activeConditions = ref<WebQueryCondition[]>([]);
+const selectedRowKeys = ref<UiDataTableKey[]>([]);
 let schemaRequestSeq = 0;
 let recordsRequestSeq = 0;
 
@@ -199,37 +229,58 @@ const panelActions = computed<RecordActionItem[]>(() => {
   if (props.mode === 'recycleBin') {
     return [];
   }
+  let base: RecordActionItem[];
   if (props.actions && props.actions.length > 0) {
-    return props.actions;
+    base = props.actions;
+  } else if (!props.standardCrudActions) {
+    base = [];
+  } else {
+    base = [
+      {
+        key: 'create',
+        actionCode: 'create',
+        title: '新建',
+        primary: true,
+        disabled: !queryReady.value,
+      },
+    ];
   }
-  if (!props.standardCrudActions) {
-    return [];
-  }
-  return [
-    {
-      key: 'create',
-      actionCode: 'create',
-      title: '新建',
-      primary: true,
-      disabled: !queryReady.value,
-    },
-  ];
+  return mergeRecordActions(base, props.extraActions);
 });
+const batchActionItems = computed<RecordActionItem[]>(() =>
+  props.batchActions.map((action) => ({
+    ...action,
+    disabled: action.disabled === true || selectedRowKeys.value.length === 0,
+  })),
+);
+const selection = computed<UiDataTableSelection | undefined>(() =>
+  props.batchActions.length > 0
+    ? {
+        selectedRowKeys: selectedRowKeys.value,
+        preserveSelectedRowKeys: false,
+        onChange: (keys) => {
+          selectedRowKeys.value = keys;
+        },
+      }
+    : undefined,
+);
 const hasRowActions = computed(
   () =>
     (props.mode === 'recycleBin' &&
       (props.context.can('recycleBinRestore') === true || props.context.can('recycleBinPurge') === true)) ||
     props.rowActionsOf !== undefined ||
     props.standardCrudRowActions ||
-    props.extraRowActionsOf !== undefined,
+    props.extraRowActionsOf !== undefined ||
+    Boolean(slots.rowActions),
 );
 const hasExpandedRow = computed(() => props.expandedRowKeys.length > 0 || Boolean(slots.expandedRow));
 const rows = computed<QueryListRow[]>(() => records.value.map(resolveRow));
 const tableColumns = computed<RecordQueryListColumn[]>(() => {
-  if (props.columns && props.columns.length > 0) {
-    return recycleBinColumns(props.columns);
-  }
-  return recycleBinColumns(columnsFromRuntimeListView(runtimeViews.value, props.uiConfigId));
+  const base =
+    props.columns && props.columns.length > 0
+      ? recycleBinColumns(props.columns)
+      : recycleBinColumns(columnsFromRuntimeListView(runtimeViews.value, props.uiConfigId));
+  return mergeColumns(base, props.additionalColumns);
 });
 const dataTableColumns = computed<UiDataTableColumn[]>(() =>
   tableColumns.value.map((column) => ({
@@ -418,6 +469,9 @@ async function loadRecords(updateLoading = true) {
       return;
     }
     records.value = response.records;
+    selectedRowKeys.value = selectedRowKeys.value.filter((key) =>
+      response.records.some((record) => recordKey(record) === String(key)),
+    );
     total.value = response.total;
     pageNum.value = response.pageNum;
     pageSize.value = response.pageSize;
@@ -495,6 +549,18 @@ function refresh() {
 
 function handleAction(action: RecordActionItem, event: MouseEvent) {
   emit('action', action, event);
+}
+
+function handleBatchAction(action: RecordActionItem, event: MouseEvent) {
+  const selectedRecords = records.value.filter((record) =>
+    selectedRowKeys.value.some((key) => String(key) === recordKey(record)),
+  );
+  if (selectedRecords.length === 0) return;
+  emit('batchAction', action, selectedRecords, event, clearSelection);
+}
+
+function clearSelection() {
+  selectedRowKeys.value = [];
 }
 
 function resolveRow(record: QueryListRecord): QueryListRow {
@@ -611,6 +677,34 @@ async function handleRecycleBinAction(row: QueryListRow, action: ResolvedRecordA
 function recycleBinColumns(columns: RecordQueryListColumn[]) {
   if (props.mode !== 'recycleBin' || columns.some((column) => column.key === 'deletedAt')) return columns;
   return [...columns, { key: 'deletedAt', title: '删除时间', type: 'datetime' as const, width: '170px' }];
+}
+
+function mergeColumns(
+  baseColumns: RecordQueryListColumn[],
+  additions: Array<RecordQueryListColumn & { before?: string; after?: string }>,
+) {
+  const merged = [...baseColumns];
+  for (const column of additions) {
+    if (merged.some((item) => item.key === column.key)) {
+      throw new Error(`列表列重复：${column.key}`);
+    }
+    const beforeIndex = column.before ? merged.findIndex((item) => item.key === column.before) : -1;
+    if (beforeIndex >= 0) {
+      merged.splice(beforeIndex, 0, column);
+      continue;
+    }
+    const afterIndex = column.after ? merged.findIndex((item) => item.key === column.after) : -1;
+    if (afterIndex >= 0) {
+      merged.splice(afterIndex + 1, 0, column);
+      continue;
+    }
+    merged.push(column);
+  }
+  return merged;
+}
+
+function cellComponentFor(key: string) {
+  return props.cellComponents.find((cell) => cell.key === key)?.component;
 }
 
 function handleTableRowClick(row: QueryListRow) {
@@ -921,7 +1015,7 @@ function singleOptionValue(value: OptionValue | OptionValueList | null) {
   return Array.isArray(value) ? undefined : value;
 }
 
-defineExpose({ refresh });
+defineExpose({ clearSelection, refresh });
 </script>
 
 <template>
@@ -945,6 +1039,14 @@ defineExpose({ refresh });
           :actions="panelActions"
           @action="handleAction"
         />
+        <RecordActionBar
+          v-if="batchActionItems.length > 0"
+          :context="context"
+          :actions="batchActionItems"
+          size="compact"
+          @action="(action, event) => handleBatchAction(action, event)"
+        />
+        <slot name="toolbarActions" :refresh="refresh" />
         <UiSearchInput
           :value="quickSearchKeyword"
           class="record-query-list-search"
@@ -1020,6 +1122,7 @@ defineExpose({ refresh });
         :rows="rows"
         :row-key="(row) => String(row.key ?? '')"
         :pagination="false"
+        :selection="selection"
         :selected-row-key="selectedKey"
         :expanded-row-keys="expandedRowKeys"
         clickable-rows
@@ -1034,8 +1137,20 @@ defineExpose({ refresh });
         @row-expand="(row, expanded) => handleTableRowExpand(row as QueryListRow, expanded)"
       >
         <template #cell="{ column, record }">
+          <component
+            :is="cellComponentFor(column.key)"
+            v-if="cellComponentFor(column.key)"
+            :record="(record as QueryListRow).record"
+            :column="tableColumns.find((item) => item.key === column.key)"
+          />
+          <slot
+            v-else-if="$slots.cell"
+            name="cell"
+            :column="tableColumns.find((item) => item.key === column.key)!"
+            :record="(record as QueryListRow).record"
+          />
           <RecordStatusTag
-            v-if="
+            v-else-if="
               ['enabledStatus', 'booleanStatus'].includes(
                 tableColumns.find((item) => item.key === column.key)?.type ?? '',
               )
@@ -1099,6 +1214,7 @@ defineExpose({ refresh });
         </template>
         <template #rowActions="{ record }">
           <div class="record-query-list-row-actions" @click.stop @dblclick.stop>
+            <slot name="rowActions" :record="(record as QueryListRow).record" />
             <div class="record-query-list-primary-actions">
               <UiButton
                 v-for="action in (record as QueryListRow).primaryActions"

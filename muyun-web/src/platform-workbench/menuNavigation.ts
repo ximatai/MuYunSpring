@@ -30,7 +30,9 @@ export interface PageDescriptorUrlParseOptions {
   businessRouteLayouts?: Record<string, PageLayoutMode>;
 }
 
-const defaultBusinessRoutePrefixes: string[] = [];
+// Workspace views are URL-restorable business pages even when an application
+// has not reserved a domain route prefix for their generated fallback route.
+const defaultBusinessRoutePrefixes: string[] = ['/_workspace'];
 const WORKBENCH_MENU_ID_QUERY_KEY = '_muyunMenuId';
 const WORKBENCH_TITLE_QUERY_KEY = '_muyunTitle';
 const WORKBENCH_ENTRY_PARAMS_QUERY_KEY = '_muyunEntryParams';

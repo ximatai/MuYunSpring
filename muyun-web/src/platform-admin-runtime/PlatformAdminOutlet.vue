@@ -4,7 +4,8 @@ import { ModuleContextProvider } from '@muyun/web-core';
 import { providePageLayout } from '@muyun/platform-components';
 import type { BusinessRoutePageDescriptor } from '@muyun/web-contracts';
 import { resolvePlatformAdminRoute } from './platformAdminRoutes';
-import WorkspaceViewOutlet from './WorkspaceViewOutlet.vue';
+import './workspaceViews';
+import { WorkspaceViewOutlet } from '@muyun/platform-workbench';
 
 defineOptions({ name: 'PlatformAdminRouteOutlet' });
 

@@ -2,12 +2,92 @@ import { flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import DynamicModuleHost from '@/dynamic-page-runtime/DynamicModuleHost.vue';
 import { configureModuleContext, createHttpClient } from '@muyun/web-core';
+import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 
 describe('DynamicModuleHost', () => {
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    configureModulePageEnhancements([]);
+  });
+
+  it('merges frontend-owned list enhancements into the standard descriptor runner', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) {
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: [],
+          actions: [{ actionCode: 'crm.customer.conversation', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'crm.customer',
+            views: [{ viewCode: 'default_list', viewKind: 'LIST', fields: [] }],
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({
+      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+    });
+    configureModulePageEnhancements([
+      {
+        id: 'customer-conversation',
+        target: { moduleAlias: 'crm.customer', viewCode: 'default_list' },
+        list: {
+          actions: [
+            {
+              key: 'conversation',
+              actionCode: 'crm.customer.conversation',
+              title: '对话',
+              run: () => undefined,
+            },
+          ],
+          columns: [
+            {
+              key: 'conversationStatus',
+              title: '对话状态',
+              cell: { template: '<span>对话状态</span>' },
+            },
+          ],
+          rowActions: [
+            {
+              key: 'conversation',
+              actionCode: 'crm.customer.conversation',
+              title: '对话',
+              run: () => undefined,
+            },
+          ],
+        },
+      },
+    ]);
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(panel.props('extraActions')).toEqual([
+      expect.objectContaining({ key: 'conversation', actionCode: 'crm.customer.conversation' }),
+    ]);
+    expect(panel.props('additionalColumns')).toEqual([
+      expect.objectContaining({ key: 'conversationStatus', title: '对话状态' }),
+    ]);
+    expect(panel.props('extraRowActionsOf')()).toEqual([
+      expect.objectContaining({ key: 'conversation', actionCode: 'crm.customer.conversation' }),
+    ]);
   });
 
   it('blocks every list runner when its menu bootstrap fails', async () => {

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import type { BusinessRoutePageDescriptor } from '@muyun/web-contracts';
 import { computed } from 'vue';
+import { ModuleContextProvider } from '@muyun/web-core';
+import WorkspaceViewOutlet from '../WorkspaceViewOutlet.vue';
+import { resolveWorkspaceView } from '../workspaceViews';
 
 defineOptions({ name: 'BusinessRouteHost' });
 
@@ -15,10 +18,14 @@ const title = computed(
     props.descriptor.target.routeName ??
     props.descriptor.target.pageKey,
 );
+const workspaceView = computed(() => resolveWorkspaceView(props.descriptor));
 </script>
 
 <template>
-  <section class="page-host">
+  <ModuleContextProvider v-if="workspaceView" :module-alias="workspaceView.view.moduleAlias">
+    <WorkspaceViewOutlet :descriptor="descriptor" />
+  </ModuleContextProvider>
+  <section v-else class="page-host">
     <header>
       <span class="host-badge">业务页面</span>
       <h2>{{ title }}</h2>
