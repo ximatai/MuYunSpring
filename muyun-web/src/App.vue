@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   Workbench,
   WorkbenchOutlet,
@@ -53,7 +53,6 @@ import {
 import ModuleOpenApiView from './views/ModuleOpenApiView.vue';
 import OpenApiCatalogView from './views/OpenApiCatalogView.vue';
 import {
-  activeTabUrlOf,
   closeMenuTab,
   menuTargetUrl,
   openDirectTab,
@@ -61,6 +60,8 @@ import {
   restoreWorkbenchStartupStateFromUrl,
 } from './app/workbenchStartup';
 import { provideWorkbenchNavigation } from './platform-workbench/workbenchNavigation';
+import { router } from './app/router';
+import { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from './app/workbenchRouteSync';
 
 const startup = ref<WorkbenchStartupState>();
 const currentUser = computed(() => startup.value?.session.currentUser);
@@ -88,6 +89,7 @@ const platformAdminRouteResolveOptions = {
 };
 let realtimeConnection: ReturnType<typeof connectAppRealtime> | undefined;
 let securityLogoutTimer: number | undefined;
+let pendingWorkbenchNavigation: string | undefined;
 
 configureModuleContext({ httpFactory: createBackendHttpClient });
 provideModuleContextConfig({ httpFactory: createBackendHttpClient });
@@ -110,7 +112,6 @@ configureAuthenticationRecovery((error, token) => {
 });
 
 onMounted(async () => {
-  window.addEventListener('popstate', updateSpecialRoute);
   if (!usesMockStartup() && !effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN)) {
     loginRequired.value = true;
     loading.value = false;
@@ -121,8 +122,12 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearSecurityLogoutTimer();
-  window.removeEventListener('popstate', updateSpecialRoute);
 });
+
+watch(
+  () => router.currentRoute.value.fullPath,
+  (url) => restoreWorkbenchFromRoute(url),
+);
 
 async function loadWorkbench() {
   loading.value = true;
@@ -139,7 +144,7 @@ async function loadWorkbench() {
     loginRequired.value = false;
     reconnectRealtime();
     if (!openApiCatalogOpen.value) {
-      syncBrowserUrl(state);
+      syncBrowserUrl(state, 'replace');
     }
   } catch (cause) {
     if (isPasswordChangeRequiredError(cause)) {
@@ -281,7 +286,7 @@ async function handleLogout() {
     disconnectRealtime();
     logoutLoading.value = false;
     if (currentBrowserPath() !== '/') {
-      window.history.replaceState(window.history.state, '', '/');
+      void router.replace('/');
     }
   }
 }
@@ -389,7 +394,7 @@ function forceLocalLogout() {
   securityNotification.value = undefined;
   securityLogoutCountdown.value = 0;
   if (currentBrowserPath() !== '/') {
-    window.history.replaceState(window.history.state, '', '/');
+    void router.replace('/');
   }
 }
 
@@ -411,7 +416,7 @@ function handleSelectMenu(menu: MenuRecord, target: MenuNavigationTarget) {
     activeTabKey: result.activeTabKey,
   };
   activeTabKey.value = result.activeTabKey;
-  syncBrowserUrl(startup.value);
+  syncBrowserUrl(startup.value, 'push');
 }
 
 function handleOpenPage(descriptor: import('@muyun/web-contracts').PageDescriptor) {
@@ -422,7 +427,7 @@ function handleOpenPage(descriptor: import('@muyun/web-contracts').PageDescripto
   const result = openDirectTab(current.tabs ?? [], descriptor);
   startup.value = { ...current, tabs: result.tabs, activeTabKey: result.activeTabKey };
   activeTabKey.value = result.activeTabKey;
-  syncBrowserUrl(startup.value);
+  syncBrowserUrl(startup.value, 'push');
   return { created: result.created };
 }
 
@@ -442,7 +447,7 @@ function handleReplacePage(pageKey: string, descriptor: import('@muyun/web-contr
       : tab,
   );
   startup.value = { ...current, tabs };
-  syncBrowserUrl(startup.value);
+  syncBrowserUrl(startup.value, 'replace');
 }
 
 function openWindow(url: string) {
@@ -462,7 +467,7 @@ function handleCloseTab(key: string) {
     activeTabKey: result.activeTabKey,
   };
   activeTabKey.value = result.activeTabKey;
-  syncBrowserUrl(startup.value);
+  syncBrowserUrl(startup.value, 'replace');
 }
 
 function handleChangeTab(key: string) {
@@ -476,24 +481,18 @@ function handleChangeTab(key: string) {
     ...current,
     activeTabKey: key,
   };
-  syncBrowserUrl(startup.value);
+  syncBrowserUrl(startup.value, 'push');
 }
 
 function currentBrowserPath() {
-  return `${window.location.pathname}${window.location.search}`;
-}
-
-function updateSpecialRoute() {
-  openApiCatalogOpen.value = isOpenApiCatalogPath(window.location.pathname);
+  return router.currentRoute.value.fullPath;
 }
 
 function returnToWorkbench() {
-  openApiCatalogOpen.value = false;
-  if (startup.value) syncBrowserUrl(startup.value);
+  if (startup.value) syncBrowserUrl(startup.value, 'replace');
 }
 
 function openModuleOpenApi(moduleAlias: string, moduleTitle?: string) {
-  openApiCatalogOpen.value = false;
   handleOpenPage(createModuleOpenApiPageDescriptor(moduleAlias, moduleTitle));
 }
 
@@ -501,13 +500,35 @@ function resolveModuleOpenApiTitle(tabKey: string, moduleAlias: string, moduleTi
   handleReplacePage(tabKey, createModuleOpenApiPageDescriptor(moduleAlias, moduleTitle));
 }
 
-function syncBrowserUrl(state: WorkbenchStartupState) {
-  const url = activeTabUrlOf(state) ?? '/';
-  if (url === currentBrowserPath()) {
+function syncBrowserUrl(state: WorkbenchStartupState, mode: 'push' | 'replace') {
+  const navigation = workbenchRouteWriteFor(state, currentBrowserPath(), mode);
+  if (!navigation) {
     return;
   }
 
-  window.history.replaceState(window.history.state, '', url);
+  pendingWorkbenchNavigation = navigation.url;
+  void router[navigation.mode](navigation.url).finally(() => {
+    if (pendingWorkbenchNavigation === navigation.url) {
+      pendingWorkbenchNavigation = undefined;
+    }
+  });
+}
+
+function restoreWorkbenchFromRoute(url: string) {
+  openApiCatalogOpen.value = isOpenApiCatalogPath(router.currentRoute.value.path);
+  if (!shouldRestoreWorkbenchFromRoute(url, pendingWorkbenchNavigation, openApiCatalogOpen.value)) {
+    pendingWorkbenchNavigation = undefined;
+    return;
+  }
+
+  const current = startup.value;
+  if (!current) {
+    return;
+  }
+
+  const restored = restoreWorkbenchStartupStateFromUrl(current, url, platformAdminRouteResolveOptions);
+  startup.value = restored;
+  activeTabKey.value = restored.activeTabKey;
 }
 
 function requiresLogin(cause: unknown) {
