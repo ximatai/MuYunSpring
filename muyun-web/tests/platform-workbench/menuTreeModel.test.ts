@@ -73,6 +73,21 @@ it('filterWorkbenchMenuNodes keeps matching descendants and their ancestors', ()
   );
 });
 
+it('filterWorkbenchMenuNodes keeps navigable descendants when a container matches', () => {
+  const filtered = filterWorkbenchMenuNodes(createWorkbenchMenuNodes(menus), '平台配置');
+  const config = findWorkbenchMenuPath(filtered, 'config').at(-1);
+
+  assert.deepEqual(
+    config?.children.map((node) => node.record.id),
+    ['dictionary'],
+  );
+  assert.deepEqual(
+    findWorkbenchMenuPath(filtered, 'dictionary').map((node) => node.record.id),
+    ['platform', 'config', 'dictionary'],
+  );
+  assert.deepEqual(findWorkbenchMenuPath(filtered, 'dictionary-items'), []);
+});
+
 it('buildWorkbenchMegaMenuModel exposes groups and active deep tree root', () => {
   const [root] = createWorkbenchMenuNodes(menus);
   const activeDeepRootId = firstDeepRootIdOf(root);

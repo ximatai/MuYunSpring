@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { UiEmpty, UiIcon, UiInput } from '@muyun/vue-ui-antdv';
 import type { MenuNavigationTarget, MenuRecord, MenuTreeNode } from '@muyun/web-contracts';
 import WorkbenchMenuTree from './WorkbenchMenuTree.vue';
+import { isPointerHeadingToMenuPanel } from './menuPointerAim';
 import {
   buildWorkbenchMegaMenuModel,
   createWorkbenchMenuNodes,
@@ -23,18 +24,30 @@ const props = withDefaults(
     tenantLabel?: string;
     searchPlaceholder?: string;
     realtimeStatus?: WorkbenchRealtimeStatus;
+    presentation?: 'compact' | 'expanded';
+    compactOpen?: boolean;
+    compactTrigger?: HTMLElement;
+    compactTop?: number;
   }>(),
   {
     selectedMenuId: undefined,
     tenantLabel: '系统工作区',
     searchPlaceholder: '搜索菜单、模块或路由',
     realtimeStatus: 'unavailable',
+    presentation: 'expanded',
+    compactOpen: false,
+    compactTrigger: undefined,
+    compactTop: 54,
   },
 );
 
 const emit = defineEmits<{
   selectMenu: [menu: MenuRecord, target: MenuNavigationTarget];
   invalidMenu: [menu: MenuRecord];
+  compactMenuEnter: [];
+  compactMenuLeave: [];
+  compactMenuClose: [];
+  changePresentation: [presentation: 'compact' | 'expanded'];
 }>();
 
 const MEGA_GROUP_COLUMN_MIN_WIDTH = 168;
@@ -44,6 +57,7 @@ const MEGA_DEEP_PANEL_WIDTH = 280;
 const MEGA_PANEL_MAX_WIDTH = 1040;
 const MEGA_PANEL_SIDE_MARGIN = 24;
 const MEGA_PANEL_MAX_HEIGHT = 620;
+const MEGA_POINTER_AIM_GRACE_PERIOD = 360;
 
 const menuShell = ref<HTMLElement>();
 const megaPanel = ref<HTMLElement>();
@@ -66,6 +80,7 @@ const selectedMenuPath = computed(() =>
   props.selectedMenuId ? findWorkbenchMenuPath(menuNodes.value, props.selectedMenuId) : [],
 );
 const selectedRootMenuId = computed(() => selectedMenuPath.value[0]?.record.id);
+const selectedMenuPathIds = computed(() => selectedMenuPath.value.map((node) => node.record.id));
 const realtimeStatusPresentation = computed(() => presentWorkbenchRealtimeStatus(props.realtimeStatus));
 const activeRootNode = computed(() =>
   activeRootMenuId.value ? findWorkbenchMenuNodeById(filteredMenus.value, activeRootMenuId.value) : undefined,
@@ -88,6 +103,17 @@ const megaOutlinePath = computed(() => {
   const activeRadius = 6;
   const panelRadius = 8;
 
+  if (isCompact.value) {
+    return [
+      `M ${panelLeft} ${panelTop}`,
+      `H ${panelRight - panelRadius}`,
+      `Q ${panelRight} ${panelTop} ${panelRight} ${panelTop + panelRadius}`,
+      `V ${panelBottom - panelRadius}`,
+      `Q ${panelRight} ${panelBottom} ${panelRight - panelRadius} ${panelBottom}`,
+      `H ${panelLeft}`,
+    ].join(' ');
+  }
+
   return [
     `M ${panelLeft} ${panelTop}`,
     `H ${panelRight - panelRadius}`,
@@ -104,6 +130,36 @@ const megaOutlinePath = computed(() => {
     `V ${panelTop}`,
   ].join(' ');
 });
+const menuVisible = computed(() => props.presentation === 'expanded' || props.compactOpen);
+const isCompact = computed(() => props.presentation === 'compact');
+const compactPanelOutlinePath = ref('');
+const compactPanelOutlineTop = ref(0);
+const compactPanelOutlineHeight = ref(0);
+const compactPanelWidth = ref(0);
+let megaPointerAimTimer: number | undefined;
+let megaPointerAimOrigin: { x: number; y: number } | undefined;
+let megaPointerAimPanel: { left: number; top: number; bottom: number } | undefined;
+
+watch(
+  () => props.compactOpen,
+  (open) => {
+    if (!open) {
+      closeMegaMenu();
+      compactPanelOutlinePath.value = '';
+      compactPanelOutlineTop.value = 0;
+      compactPanelOutlineHeight.value = 0;
+      compactPanelWidth.value = 0;
+      return;
+    }
+    void nextTick(updateCompactPanelOutline);
+  },
+);
+
+onMounted(() => window.addEventListener('resize', updateCompactPanelOutline));
+onUnmounted(() => {
+  window.removeEventListener('resize', updateCompactPanelOutline);
+  clearMegaPointerAim();
+});
 
 function selectMenuNode(node: WorkbenchMenuNode) {
   if (node.target) {
@@ -118,6 +174,7 @@ function handleDeepMenuSelect(menu: MenuRecord, target: MenuNavigationTarget) {
 }
 
 function openRootMenu(node: WorkbenchMenuNode, event?: MouseEvent | FocusEvent) {
+  clearMegaPointerAim();
   activeRootMenuId.value = node.record.id;
   activeDeepRootId.value = firstDeepRootIdOf(node);
   updateMegaPanelTop(event?.currentTarget);
@@ -125,13 +182,97 @@ function openRootMenu(node: WorkbenchMenuNode, event?: MouseEvent | FocusEvent) 
 }
 
 function closeMegaMenu() {
+  clearMegaPointerAim();
   activeRootMenuId.value = undefined;
   activeDeepRootId.value = undefined;
+}
+
+function handleMenuEnter() {
+  clearMegaPointerAim();
+  if (isCompact.value) {
+    emit('compactMenuEnter');
+  }
+}
+
+function handleMenuLeave(event: MouseEvent) {
+  if (startMegaPointerAim(event)) {
+    return;
+  }
+  finishMenuLeave();
+}
+
+function finishMenuLeave() {
+  closeMegaMenu();
+  if (isCompact.value) {
+    emit('compactMenuLeave');
+  }
+}
+
+function startMegaPointerAim(event: MouseEvent): boolean {
+  const panelRect = megaPanel.value?.getBoundingClientRect();
+  if (!activeRootNode.value || !panelRect || event.clientX > panelRect.left + 8) {
+    return false;
+  }
+
+  megaPointerAimOrigin = { x: event.clientX, y: event.clientY };
+  megaPointerAimPanel = { left: panelRect.left, top: panelRect.top, bottom: panelRect.bottom };
+  window.addEventListener('pointermove', handleMegaPointerAimMove);
+  megaPointerAimTimer = window.setTimeout(finishMenuLeave, MEGA_POINTER_AIM_GRACE_PERIOD);
+  return true;
+}
+
+function handleMegaPointerAimMove(event: PointerEvent) {
+  if (!megaPointerAimOrigin || !megaPointerAimPanel) {
+    return;
+  }
+  if (
+    isPointerHeadingToMenuPanel(
+      { x: event.clientX, y: event.clientY },
+      megaPointerAimOrigin,
+      megaPointerAimPanel,
+    )
+  ) {
+    return;
+  }
+  finishMenuLeave();
+}
+
+function clearMegaPointerAim() {
+  if (megaPointerAimTimer !== undefined) {
+    window.clearTimeout(megaPointerAimTimer);
+    megaPointerAimTimer = undefined;
+  }
+  window.removeEventListener('pointermove', handleMegaPointerAimMove);
+  megaPointerAimOrigin = undefined;
+  megaPointerAimPanel = undefined;
+}
+
+function handleMenuFocusIn() {
+  if (isCompact.value) {
+    emit('compactMenuEnter');
+  }
+}
+
+function handleMenuFocusOut(event: FocusEvent) {
+  const menu = event.currentTarget;
+  if (menu instanceof HTMLElement && menu.contains(event.relatedTarget as Node | null)) {
+    return;
+  }
+  if (isCompact.value) {
+    emit('compactMenuLeave');
+  }
+}
+
+function changePresentation(presentation: 'compact' | 'expanded') {
+  emit('changePresentation', presentation);
 }
 
 function handleMenuKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     closeMegaMenu();
+    if (isCompact.value) {
+      emit('compactMenuClose');
+    }
   }
 }
 
@@ -164,6 +305,44 @@ function updateMegaPanelSize() {
 
   megaPanelWidth.value = Math.round(rect.width);
   megaPanelHeight.value = Math.round(rect.height);
+}
+
+function updateCompactPanelOutline() {
+  if (!isCompact.value || !props.compactOpen || !menuShell.value || !props.compactTrigger) {
+    compactPanelOutlinePath.value = '';
+    compactPanelOutlineTop.value = 0;
+    compactPanelOutlineHeight.value = 0;
+    compactPanelWidth.value = 0;
+    return;
+  }
+
+  const shellRect = menuShell.value.getBoundingClientRect();
+  const triggerRect = props.compactTrigger.getBoundingClientRect();
+  const triggerRight = Math.round(triggerRect.right - shellRect.left);
+  const triggerTop = Math.round(triggerRect.top - shellRect.top);
+  const panelWidth = Math.round(shellRect.width);
+  const panelTop = -triggerTop;
+  const panelHeight = Math.round(shellRect.height) + panelTop;
+  const radius = 7;
+
+  compactPanelOutlineTop.value = triggerTop;
+  compactPanelOutlineHeight.value = panelHeight;
+  compactPanelWidth.value = panelWidth;
+  compactPanelOutlinePath.value = [
+    `M ${radius} ${panelHeight}`,
+    `H 0`,
+    `V ${triggerTop + radius}`,
+    `Q 0 ${triggerTop} ${radius} ${triggerTop}`,
+    `H ${triggerRight - radius}`,
+    `Q ${triggerRight} ${triggerTop} ${triggerRight} ${triggerTop + radius}`,
+    `V ${panelTop}`,
+    `H ${panelWidth - radius}`,
+    `Q ${panelWidth} ${panelTop} ${panelWidth} ${panelTop + radius}`,
+    `V ${panelHeight - radius}`,
+    `Q ${panelWidth} ${panelHeight} ${panelWidth - radius} ${panelHeight}`,
+    `H ${radius}`,
+    'Z',
+  ].join(' ');
 }
 
 function updateMegaPanelLayout() {
@@ -210,18 +389,35 @@ function keepDeepRoot(node: WorkbenchMenuNode) {
 function isSelectedRoot(node: WorkbenchMenuNode) {
   return selectedRootMenuId.value === node.record.id;
 }
+
+function isSelectedMenu(node: WorkbenchMenuNode) {
+  return props.selectedMenuId === node.record.id;
+}
+
+function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
+  return !isSelectedMenu(node) && selectedMenuPathIds.value.includes(node.record.id);
+}
 </script>
 
 <template>
   <div
     ref="menuShell"
     class="workbench-menu"
-    :class="{ 'mega-open': activeRootNode }"
-    @mouseleave="closeMegaMenu"
+    :class="{
+      'mega-open': activeRootNode,
+      'workbench-menu--compact': isCompact,
+      'workbench-menu--expanded': !isCompact,
+      'workbench-menu--compact-open': isCompact && compactOpen,
+    }"
+    :style="isCompact ? { '--compact-menu-top': `${compactTop}px` } : undefined"
+    @mouseenter="handleMenuEnter"
+    @mouseleave="handleMenuLeave"
+    @focusin="handleMenuFocusIn"
+    @focusout="handleMenuFocusOut"
     @keydown="handleMenuKeydown"
   >
-    <aside class="menu-sidebar">
-      <div class="brand-area">
+    <aside v-if="menuVisible" :id="isCompact ? 'workbench-compact-menu' : undefined" class="menu-sidebar">
+      <div v-if="!isCompact" class="brand-area">
         <div class="brand-mark">
           <UiIcon name="app" />
         </div>
@@ -229,9 +425,18 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
           <strong>MuYun</strong>
           <span>{{ tenantLabel }}</span>
         </div>
+        <button
+          class="menu-presentation-toggle"
+          type="button"
+          aria-label="收敛侧栏菜单"
+          title="收敛侧栏菜单"
+          @click="changePresentation('compact')"
+        >
+          <UiIcon name="menu-collapse" />
+        </button>
       </div>
 
-      <div class="menu-search">
+      <div v-if="!isCompact" class="menu-search">
         <UiIcon name="search" />
         <UiInput
           v-model:value="menuFilter"
@@ -266,8 +471,30 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
         <UiEmpty v-else description="暂无菜单" />
       </nav>
 
+      <div v-if="isCompact" class="compact-menu-tools">
+        <div class="menu-search">
+          <UiIcon name="search" />
+          <UiInput
+            v-model:value="menuFilter"
+            type="search"
+            allow-clear
+            :placeholder="isCompact ? '' : searchPlaceholder"
+            aria-label="搜索菜单"
+          />
+        </div>
+        <button
+          class="menu-presentation-toggle"
+          type="button"
+          aria-label="展开侧栏菜单"
+          title="展开侧栏菜单"
+          @click="changePresentation('expanded')"
+        >
+          <UiIcon name="menu-expand" />
+        </button>
+      </div>
+
       <div
-        v-if="realtimeStatusPresentation"
+        v-if="!isCompact && realtimeStatusPresentation"
         class="sidebar-footer"
         :class="`realtime-${realtimeStatusPresentation.tone}`"
         :title="realtimeStatusPresentation.title"
@@ -282,6 +509,19 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
       <path :d="megaOutlinePath" />
     </svg>
 
+    <svg
+      v-if="compactPanelOutlinePath && !activeRootNode"
+      class="compact-menu-outline"
+      :style="{
+        top: `${compactPanelOutlineTop}px`,
+        width: `${compactPanelWidth}px`,
+        height: `${compactPanelOutlineHeight}px`,
+      }"
+      aria-hidden="true"
+    >
+      <path :d="compactPanelOutlinePath" />
+    </svg>
+
     <section
       v-if="activeRootNode"
       id="workbench-mega-panel"
@@ -293,6 +533,7 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
         '--mega-panel-width': `${megaPanelPreferredWidth}px`,
         '--mega-column-count': megaColumnCount,
       }"
+      @mouseenter="handleMenuEnter"
     >
       <div class="mega-body" :class="{ 'has-deep': activeDeepRootNode }">
         <div class="mega-groups">
@@ -304,9 +545,14 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
             <section v-for="group in column" :key="group.record.id" class="mega-group">
               <button
                 class="mega-group-title"
-                :class="{ navigable: group.navigable }"
+                :class="{
+                  navigable: group.navigable,
+                  selected: isSelectedMenu(group),
+                  'selected-path': isSelectedMenuAncestor(group),
+                }"
                 type="button"
                 :disabled="!group.navigable"
+                :aria-current="isSelectedMenu(group) ? 'page' : undefined"
                 @click="selectMenuNode(group)"
               >
                 <span>{{ group.record.title }}</span>
@@ -321,9 +567,12 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
                     navigable: entry.navigable,
                     active: activeDeepRootNode?.record.id === entry.record.id,
                     branch: entry.hasChildren,
+                    selected: isSelectedMenu(entry),
+                    'selected-path': isSelectedMenuAncestor(entry),
                   }"
                   type="button"
                   :disabled="!entry.navigable && !entry.hasChildren"
+                  :aria-current="isSelectedMenu(entry) ? 'page' : undefined"
                   @mouseenter="keepDeepRoot(entry)"
                   @focus="keepDeepRoot(entry)"
                   @click="entry.navigable && selectMenuNode(entry)"
@@ -341,7 +590,12 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
             <strong>{{ activeDeepRootNode.record.title }}</strong>
           </header>
           <ul class="mega-deep-tree">
-            <WorkbenchMenuTree :node="activeDeepRootNode" @select-menu="handleDeepMenuSelect" />
+            <WorkbenchMenuTree
+              :node="activeDeepRootNode"
+              :selected-menu-id="selectedMenuId"
+              :selected-path-ids="selectedMenuPathIds"
+              @select-menu="handleDeepMenuSelect"
+            />
           </ul>
         </aside>
       </div>
@@ -359,6 +613,15 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
   min-width: 0;
 }
 
+.workbench-menu--compact {
+  position: absolute;
+  z-index: 30;
+  top: var(--compact-menu-top, 54px);
+  left: 8px;
+  width: fit-content;
+  max-width: calc(100vw - 16px);
+}
+
 .menu-sidebar {
   position: sticky;
   top: 0;
@@ -372,6 +635,26 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
   background: #fbfcfe;
 }
 
+.workbench-menu--compact .menu-sidebar {
+  position: relative;
+  z-index: 1;
+  width: fit-content;
+  max-width: 100%;
+  max-height: min(620px, calc(100dvh - 78px));
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  border: var(--workbench-menu-border-width) solid var(--workbench-menu-border);
+  gap: 0;
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 14px 28px rgb(15 23 42 / 13%);
+}
+
+.workbench-menu--compact.workbench-menu--compact-open .menu-sidebar {
+  border-color: transparent;
+}
+
 .brand-area {
   display: flex;
   align-items: center;
@@ -379,6 +662,67 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
   min-width: 0;
   height: 40px;
   padding: 0 6px;
+}
+
+.menu-presentation-toggle {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #64748b;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.menu-presentation-toggle:hover,
+.menu-presentation-toggle:focus-visible {
+  outline: 0;
+  background: #eaf5f2;
+  color: #0f766e;
+}
+
+.compact-menu-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.compact-menu-tools .menu-search {
+  flex: 0 1 160px;
+  width: 160px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.compact-menu-tools .menu-search:focus-within {
+  background: #f1f7f6;
+}
+
+.workbench-menu--compact .root-menu {
+  width: 100%;
+  padding: 0;
+}
+
+.workbench-menu--compact .root-menu-list {
+  width: 100%;
+}
+
+.workbench-menu--compact .root-menu-item {
+  width: 100%;
+  max-width: 100%;
+  border-radius: 0;
 }
 
 .brand-mark {
@@ -570,6 +914,21 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
   overflow: hidden;
 }
 
+.workbench-menu--compact .mega-panel {
+  box-shadow: none;
+}
+
+.workbench-menu--compact.mega-open .root-menu-item.active::after {
+  position: absolute;
+  z-index: 3;
+  top: -1px;
+  right: -2px;
+  bottom: -1px;
+  width: 3px;
+  background: var(--workbench-menu-surface);
+  content: '';
+}
+
 .mega-outline {
   position: absolute;
   top: 0;
@@ -582,6 +941,25 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
 }
 
 .mega-outline path {
+  fill: none;
+  stroke: var(--workbench-menu-border);
+  stroke-linejoin: round;
+  stroke-width: var(--workbench-menu-border-width);
+  vector-effect: non-scaling-stroke;
+}
+
+.compact-menu-outline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 100vw;
+  height: 100vh;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.compact-menu-outline path {
   fill: none;
   stroke: var(--workbench-menu-border);
   stroke-linejoin: round;
@@ -657,6 +1035,11 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
   text-decoration: underline;
 }
 
+.mega-group-title.selected,
+.mega-group-title.selected-path {
+  color: #0f766e;
+}
+
 .mega-entry-list {
   display: grid;
   gap: 2px;
@@ -688,6 +1071,17 @@ function isSelectedRoot(node: WorkbenchMenuNode) {
 .mega-entry.active {
   background: #eef7f4;
   color: #0f766e;
+}
+
+.mega-entry.selected {
+  background: #e4f2ef;
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.mega-entry.selected-path {
+  color: #334155;
+  font-weight: 600;
 }
 
 .mega-deep-panel {

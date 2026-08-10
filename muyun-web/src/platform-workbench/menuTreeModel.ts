@@ -29,7 +29,25 @@ export function filterWorkbenchMenuNodes(nodes: WorkbenchMenuNode[], keyword: st
   return nodes
     .map((node) => {
       const children = filterWorkbenchMenuNodes(node.children, normalized);
-      return menuNodeMatches(node, normalized) || children.length > 0 ? { ...node, children } : undefined;
+      if (!menuNodeMatches(node, normalized)) {
+        return children.length > 0 ? { ...node, children } : undefined;
+      }
+
+      if (node.navigable) {
+        return { ...node, children };
+      }
+
+      const navigableChildren = retainNavigableMenuNodes(node.children);
+      return navigableChildren.length > 0 ? { ...node, children: navigableChildren } : undefined;
+    })
+    .filter((node): node is WorkbenchMenuNode => Boolean(node));
+}
+
+function retainNavigableMenuNodes(nodes: WorkbenchMenuNode[]): WorkbenchMenuNode[] {
+  return nodes
+    .map((node) => {
+      const children = retainNavigableMenuNodes(node.children);
+      return node.navigable || children.length > 0 ? { ...node, children } : undefined;
     })
     .filter((node): node is WorkbenchMenuNode => Boolean(node));
 }

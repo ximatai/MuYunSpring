@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { UiDropdown, UiError, UiIcon, UiSidePanelHost, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
 import type {
   MenuNavigationTarget,
@@ -12,6 +12,7 @@ import type { UiDropdownItem, UiTabItem } from '@muyun/vue-ui-antdv';
 import WorkbenchMenu from './WorkbenchMenu.vue';
 import { resolvePageDescriptor } from './menuNavigation';
 import type { WorkbenchRealtimeStatus } from './realtimeStatus';
+import { compactMenuTopOf } from './workbenchLayout';
 
 defineOptions({ name: 'Workbench' });
 
@@ -60,6 +61,15 @@ const userMenuItems: UiDropdownItem[] = [
   { key: 'settings', title: '偏好设置' },
   { key: 'logout', title: '退出登录', danger: true },
 ];
+const menuPresentation = ref<'compact' | 'expanded'>('compact');
+const compactMenuOpen = ref(false);
+const compactMenuTrigger = ref<HTMLElement>();
+const workbenchRoot = ref<HTMLElement>();
+const appTopbar = ref<HTMLElement>();
+const compactMenuTop = ref(54);
+let compactMenuCloseTimer: number | undefined;
+let topbarResizeObserver: ResizeObserver | undefined;
+const COMPACT_MENU_CLOSE_DELAY = 220;
 
 function pageDescriptorOf(tab: MenuTab | undefined): PageDescriptor | undefined {
   if (!tab) {
@@ -93,7 +103,64 @@ function handleUserCommand(key: string) {
 
 function handleSelectMenu(menu: MenuRecord, target: MenuNavigationTarget) {
   emit('selectMenu', menu, target);
+  closeCompactMenu();
 }
+
+function openCompactMenu() {
+  clearCompactMenuCloseTimer();
+  compactMenuOpen.value = true;
+}
+
+function scheduleCompactMenuClose() {
+  clearCompactMenuCloseTimer();
+  compactMenuCloseTimer = window.setTimeout(() => {
+    compactMenuOpen.value = false;
+    compactMenuCloseTimer = undefined;
+  }, COMPACT_MENU_CLOSE_DELAY);
+}
+
+function closeCompactMenu() {
+  clearCompactMenuCloseTimer();
+  compactMenuOpen.value = false;
+}
+
+function clearCompactMenuCloseTimer() {
+  if (compactMenuCloseTimer === undefined) {
+    return;
+  }
+  window.clearTimeout(compactMenuCloseTimer);
+  compactMenuCloseTimer = undefined;
+}
+
+function setMenuPresentation(presentation: 'compact' | 'expanded') {
+  menuPresentation.value = presentation;
+  closeCompactMenu();
+}
+
+function updateCompactMenuTop() {
+  if (!appTopbar.value || !workbenchRoot.value) {
+    return;
+  }
+  const topbarRect = appTopbar.value.getBoundingClientRect();
+  const workbenchRect = workbenchRoot.value.getBoundingClientRect();
+  compactMenuTop.value = compactMenuTopOf(topbarRect.bottom, workbenchRect.top);
+}
+
+onMounted(() => {
+  void nextTick(() => {
+    updateCompactMenuTop();
+    if (typeof ResizeObserver === 'undefined' || !appTopbar.value) {
+      return;
+    }
+    topbarResizeObserver = new ResizeObserver(updateCompactMenuTop);
+    topbarResizeObserver.observe(appTopbar.value);
+  });
+});
+
+onUnmounted(() => {
+  clearCompactMenuCloseTimer();
+  topbarResizeObserver?.disconnect();
+});
 
 function pageTypeLabelOf(pageType: string | undefined) {
   if (pageType === 'dynamic-module') {
@@ -129,21 +196,61 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 </script>
 
 <template>
-  <main class="workbench">
+  <main
+    ref="workbenchRoot"
+    class="workbench"
+    :class="{
+      'workbench--menu-expanded': menuPresentation === 'expanded',
+      'workbench--compact-menu-open': menuPresentation === 'compact' && compactMenuOpen,
+    }"
+  >
     <WorkbenchMenu
       :menus="startup?.menus ?? []"
       :selected-menu-id="activeTab?.target?.menuId"
       :tenant-label="tenantLabel"
       :realtime-status="realtimeStatus"
+      :presentation="menuPresentation"
+      :compact-open="compactMenuOpen"
+      :compact-trigger="compactMenuTrigger"
+      :compact-top="compactMenuTop"
       @select-menu="handleSelectMenu"
       @invalid-menu="emit('invalidMenu', $event)"
+      @compact-menu-enter="openCompactMenu"
+      @compact-menu-leave="scheduleCompactMenuClose"
+      @compact-menu-close="closeCompactMenu"
+      @change-presentation="setMenuPresentation"
     />
 
     <section class="app-main">
-      <header class="app-topbar">
-        <div class="topbar-title">
-          <h1>{{ activeTab?.title ?? '控制台' }}</h1>
-          <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>
+      <header ref="appTopbar" class="app-topbar">
+        <div class="topbar-identity">
+          <button
+            v-if="menuPresentation === 'compact'"
+            ref="compactMenuTrigger"
+            class="header-menu-trigger"
+            :class="{ 'header-menu-trigger--open': compactMenuOpen }"
+            type="button"
+            aria-label="系统菜单"
+            :aria-expanded="compactMenuOpen"
+            aria-controls="workbench-compact-menu"
+            @mouseenter="openCompactMenu"
+            @mouseleave="scheduleCompactMenuClose"
+            @focus="openCompactMenu"
+            @focusout="scheduleCompactMenuClose"
+            @click="openCompactMenu"
+            @keydown.escape="closeCompactMenu"
+          >
+            <span class="header-menu-mark"><UiIcon name="app" /></span>
+            <span class="header-menu-copy">
+              <strong>MuYun</strong>
+              <small>系统工作区</small>
+            </span>
+          </button>
+          <span v-if="menuPresentation === 'compact'" class="header-title-divider" aria-hidden="true" />
+          <div class="topbar-title">
+            <h1>{{ activeTab?.title ?? '控制台' }}</h1>
+            <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>
+          </div>
         </div>
 
         <div class="topbar-actions" aria-label="全局工具">
@@ -211,14 +318,19 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 <style scoped>
 .workbench {
+  position: relative;
   display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
   background: #f5f7fa;
+}
+
+.workbench--menu-expanded {
+  grid-template-columns: 252px minmax(0, 1fr);
 }
 
 .app-main {
@@ -249,6 +361,79 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .topbar-title {
   display: grid;
   min-width: 0;
+}
+
+.topbar-identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.header-menu-trigger {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin: -4px -6px;
+  padding: 3px 5px;
+  border: 1px solid transparent;
+  border-radius: 3px 3px 0 0;
+  background: transparent;
+  color: #172033;
+  font: inherit;
+  cursor: pointer;
+}
+
+.header-menu-mark {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 7px;
+  background: #172033;
+  color: #fff;
+}
+
+.header-menu-copy {
+  display: grid;
+  min-width: 0;
+  text-align: left;
+}
+
+.header-menu-copy strong {
+  font-size: 14px;
+  line-height: 1.1;
+}
+
+.header-menu-copy small {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.header-menu-trigger:hover .header-menu-mark,
+.header-menu-trigger:focus-visible .header-menu-mark,
+.header-menu-trigger--open .header-menu-mark {
+  background: #0f766e;
+}
+
+.header-menu-trigger--open {
+  background: #fbfcfe;
+}
+
+.header-menu-trigger:focus-visible {
+  outline: 2px solid #99d5cc;
+  outline-offset: 3px;
+  border-radius: 5px;
+}
+
+.header-title-divider {
+  width: 1px;
+  height: 30px;
+  margin: 0 14px;
+  background: #d8e1ea;
 }
 
 .app-topbar h1 {
