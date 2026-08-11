@@ -614,7 +614,11 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
       </aside>
     </Transition>
 
-    <svg v-if="activeRootNode" class="mega-outline" aria-hidden="true">
+    <svg v-if="activeRootNode" class="mega-outline mega-outline--shadow" aria-hidden="true">
+      <path :d="megaOutlinePath" />
+    </svg>
+
+    <svg v-if="activeRootNode" class="mega-outline mega-outline--stroke" aria-hidden="true">
       <path :d="megaOutlinePath" />
     </svg>
 
@@ -699,7 +703,19 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
       </section>
     </Transition>
 
-    <svg v-if="activeSidebarSubmenuNode" class="sidebar-submenu-outline" aria-hidden="true">
+    <svg
+      v-if="activeSidebarSubmenuNode"
+      class="sidebar-submenu-outline sidebar-submenu-outline--shadow"
+      aria-hidden="true"
+    >
+      <path :d="sidebarSubmenuOutlinePath" />
+    </svg>
+
+    <svg
+      v-if="activeSidebarSubmenuNode"
+      class="sidebar-submenu-outline sidebar-submenu-outline--stroke"
+      aria-hidden="true"
+    >
       <path :d="sidebarSubmenuOutlinePath" />
     </svg>
 
@@ -735,6 +751,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   --workbench-menu-surface: #fff;
   --workbench-menu-border: #d8e1ea;
   --workbench-menu-border-width: 1px;
+  --workbench-menu-flyout-shadow: 0 18px 42px rgb(15 23 42 / 16%);
   position: relative;
   z-index: 20;
   min-width: 0;
@@ -751,6 +768,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 .menu-sidebar {
   position: sticky;
+  z-index: 2;
   top: 0;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -1092,7 +1110,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 .mega-panel {
   position: absolute;
-  z-index: 1;
+  z-index: 2;
   top: var(--mega-panel-top);
   left: var(--mega-panel-left);
   display: grid;
@@ -1102,14 +1120,14 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   border: 0;
   border-radius: 0 8px 8px 0;
   background: var(--workbench-menu-surface);
-  box-shadow: 0 24px 60px rgb(15 23 42 / 14%);
+  box-shadow: none;
   clip-path: inset(0 -80px -80px 0);
   overflow: hidden;
 }
 
 .sidebar-submenu-panel {
   position: absolute;
-  z-index: 1;
+  z-index: 2;
   top: var(--sidebar-submenu-top);
   left: var(--sidebar-submenu-left);
   display: grid;
@@ -1119,7 +1137,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   border: 0;
   border-radius: 0 8px 8px 0;
   background: var(--workbench-menu-surface);
-  box-shadow: 0 24px 60px rgb(15 23 42 / 14%);
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -1130,18 +1148,36 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   overflow: auto;
 }
 
-.sidebar-submenu-outline {
+.sidebar-submenu-outline,
+.mega-outline {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 4;
   width: 100vw;
   height: 100vh;
   overflow: visible;
   pointer-events: none;
 }
 
-.sidebar-submenu-outline path {
+.sidebar-submenu-outline--shadow,
+.mega-outline--shadow {
+  z-index: 1;
+  filter: drop-shadow(var(--workbench-menu-flyout-shadow));
+}
+
+.sidebar-submenu-outline--shadow path,
+.mega-outline--shadow path {
+  fill: var(--workbench-menu-surface);
+  stroke: none;
+}
+
+.sidebar-submenu-outline--stroke,
+.mega-outline--stroke {
+  z-index: 3;
+}
+
+.sidebar-submenu-outline--stroke path,
+.mega-outline--stroke path {
   fill: none;
   stroke: var(--workbench-menu-border);
   stroke-linejoin: round;
@@ -1176,25 +1212,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   width: 3px;
   background: var(--workbench-menu-surface);
   content: '';
-}
-
-.mega-outline {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 4;
-  width: 100vw;
-  height: 100vh;
-  overflow: visible;
-  pointer-events: none;
-}
-
-.mega-outline path {
-  fill: none;
-  stroke: var(--workbench-menu-border);
-  stroke-linejoin: round;
-  stroke-width: var(--workbench-menu-border-width);
-  vector-effect: non-scaling-stroke;
 }
 
 .mega-deep-panel header span {
