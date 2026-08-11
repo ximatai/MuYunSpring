@@ -316,7 +316,16 @@ describe('WorkbenchBrandControl', () => {
     await identity.trigger('focus');
     await identity.trigger('click');
 
-    expect(wrapper.emitted('openCompactMenu')).toEqual([['pointer'], ['focus'], ['click']]);
+    const menuOpenEvents = wrapper.emitted('openCompactMenu') ?? [];
+    expect(menuOpenEvents.map(([source]) => source)).toEqual(['pointer', 'focus', 'click']);
+    expect(menuOpenEvents[0]?.[1]).toEqual(
+      expect.objectContaining({
+        left: expect.any(Number),
+        top: expect.any(Number),
+        right: expect.any(Number),
+        bottom: expect.any(Number),
+      }),
+    );
   });
 
   it('shows the expanded sidebar depth chooser beside the presentation toggle', async () => {

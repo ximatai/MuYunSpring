@@ -3,6 +3,13 @@ import { UiIcon } from '@muyun/vue-ui-antdv';
 
 defineOptions({ name: 'WorkbenchBrandControl' });
 
+interface CompactMenuAnchor {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
 const props = withDefaults(
   defineProps<{
     presentation: 'compact' | 'expanded';
@@ -18,17 +25,24 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  openCompactMenu: [source: 'pointer' | 'focus' | 'click'];
+  openCompactMenu: [source: 'pointer' | 'focus' | 'click', anchor: CompactMenuAnchor];
   scheduleCompactMenuClose: [];
   closeCompactMenu: [];
   changePresentation: [presentation: 'compact' | 'expanded'];
   changeExpandedMenuDepth: [depth: 1 | 2 | 3];
 }>();
 
-function requestCompactMenuOpen(source: 'pointer' | 'focus' | 'click') {
-  if (props.presentation === 'compact') {
-    emit('openCompactMenu', source);
+function requestCompactMenuOpen(source: 'pointer' | 'focus' | 'click', event: MouseEvent | FocusEvent) {
+  if (props.presentation !== 'compact' || !(event.currentTarget instanceof HTMLElement)) {
+    return;
   }
+  const rect = event.currentTarget.getBoundingClientRect();
+  emit('openCompactMenu', source, {
+    left: rect.left,
+    top: rect.top,
+    right: rect.right,
+    bottom: rect.bottom,
+  });
 }
 
 function scheduleCompactMenuClose() {
@@ -62,11 +76,11 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
       :aria-label="presentation === 'compact' ? '系统菜单' : undefined"
       :aria-expanded="presentation === 'compact' ? compactOpen : undefined"
       :aria-controls="presentation === 'compact' ? 'workbench-compact-menu' : undefined"
-      @mouseenter="requestCompactMenuOpen('pointer')"
+      @mouseenter="requestCompactMenuOpen('pointer', $event)"
       @mouseleave="scheduleCompactMenuClose"
-      @focus="requestCompactMenuOpen('focus')"
+      @focus="requestCompactMenuOpen('focus', $event)"
       @focusout="scheduleCompactMenuClose"
-      @click="requestCompactMenuOpen('click')"
+      @click="requestCompactMenuOpen('click', $event)"
       @keydown="handleIdentityKeydown"
     >
       <span class="workbench-brand-mark"><UiIcon name="app" /></span>

@@ -68,6 +68,7 @@ const expandedMenuDepth = ref(
   normalizeExpandedMenuDepth(userPreferences.get('workbench.expanded-menu-depth', 1)),
 );
 const compactMenuOpen = ref(false);
+const compactMenuAnchor = ref<{ left: number; top: number; right: number; bottom: number }>();
 const suppressCompactMenuPointerEnter = ref(false);
 const workbenchRoot = ref<HTMLElement>();
 const appTopbar = ref<HTMLElement>();
@@ -112,10 +113,14 @@ function handleSelectMenu(menu: MenuRecord, target: MenuNavigationTarget) {
   closeCompactMenu();
 }
 
-function openCompactMenu(source: 'pointer' | 'focus' | 'click' = 'pointer') {
+function openCompactMenu(
+  source: 'pointer' | 'focus' | 'click' = 'pointer',
+  anchor?: { left: number; top: number; right: number; bottom: number },
+) {
   if (source === 'pointer' && suppressCompactMenuPointerEnter.value) {
     return;
   }
+  compactMenuAnchor.value = anchor;
   clearCompactMenuCloseTimer();
   compactMenuOpen.value = true;
 }
@@ -149,6 +154,7 @@ function setMenuPresentation(presentation: 'compact' | 'expanded') {
   suppressCompactMenuPointerEnter.value = presentation === 'compact';
   menuPresentation.value = presentation;
   closeCompactMenu();
+  compactMenuAnchor.value = undefined;
   if (presentation === 'compact') {
     compactMenuPointerReleaseFrame = window.requestAnimationFrame(() => {
       suppressCompactMenuPointerEnter.value = false;
@@ -245,6 +251,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
       :expanded-menu-depth="expandedMenuDepth"
       :compact-open="compactMenuOpen"
       :compact-top="compactMenuTop"
+      :compact-anchor="compactMenuAnchor"
       @select-menu="handleSelectMenu"
       @invalid-menu="emit('invalidMenu', $event)"
       @compact-menu-enter="openCompactMenu"
@@ -394,6 +401,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   display: flex;
   align-items: center;
   min-width: 0;
+}
+
+.workbench--compact-menu-open .topbar-identity {
+  position: relative;
+  z-index: 31;
 }
 
 .workbench-brand-enter-active,
