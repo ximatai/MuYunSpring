@@ -78,6 +78,22 @@ const nestedMenus = [
   },
 ];
 
+const navigableSecondLevelMenus = [
+  {
+    ...nestedMenus[0],
+    children: [
+      {
+        ...nestedMenus[0].children[0],
+        record: {
+          ...nestedMenus[0].children[0].record,
+          openMode: 'tab' as const,
+          moduleAlias: 'platform.configuration',
+        },
+      },
+    ],
+  },
+];
+
 describe('WorkbenchMenu', () => {
   it('keeps the compact menu panel hidden until the tab-bar launcher opens it', async () => {
     const wrapper = shallowMount(WorkbenchMenu, {
@@ -147,6 +163,61 @@ describe('WorkbenchMenu', () => {
     expect(wrapper.findAll('.sidebar-menu-level--2')).toHaveLength(1);
     expect(wrapper.findAll('.sidebar-menu-level--3')).toHaveLength(1);
     expect(wrapper.text()).toContain('应用管理');
+  });
+
+  it('uses a second-level entry as the flyout anchor when the sidebar shows two levels', async () => {
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: nestedMenus, presentation: 'expanded', expandedMenuDepth: 2 },
+    });
+
+    expect(wrapper.find('.sidebar-menu-level--3').exists()).toBe(false);
+
+    await wrapper
+      .findAll('.sidebar-menu-entry')
+      .find((entry) => entry.text() === '平台配置')
+      ?.trigger('mouseenter');
+
+    expect(wrapper.get('.sidebar-submenu-panel header').text()).toContain('平台配置');
+  });
+
+  it('uses a third-level branch as the flyout anchor when the sidebar shows three levels', async () => {
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: nestedMenus, presentation: 'expanded', expandedMenuDepth: 3 },
+    });
+
+    await wrapper
+      .findAll('.sidebar-menu-entry')
+      .find((entry) => entry.text() === '元数据管理')
+      ?.trigger('mouseenter');
+
+    expect(wrapper.get('.sidebar-submenu-panel header').text()).toContain('元数据管理');
+  });
+
+  it('keeps second-level entries structural rather than clickable when the sidebar shows three levels', async () => {
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: nestedMenus, presentation: 'expanded', expandedMenuDepth: 3 },
+    });
+    const group = wrapper.get('.sidebar-menu-entry--group');
+
+    expect(group.element.tagName).toBe('DIV');
+
+    await group.trigger('click');
+
+    expect(wrapper.emitted('selectMenu')).toBeUndefined();
+  });
+
+  it('keeps a module-backed second-level entry clickable without opening a flyout at three levels', async () => {
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: navigableSecondLevelMenus, presentation: 'expanded', expandedMenuDepth: 3 },
+    });
+    const group = wrapper.get('.sidebar-menu-level--2 .sidebar-menu-entry');
+
+    expect(group.element.tagName).toBe('BUTTON');
+
+    await group.trigger('click');
+
+    expect(wrapper.emitted('selectMenu')).toHaveLength(1);
+    expect(wrapper.find('.sidebar-submenu-panel').exists()).toBe(false);
   });
 
   it('marks the active mega-menu entry as the current page and its group as the selected path', async () => {
