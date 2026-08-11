@@ -176,7 +176,7 @@ describe('WorkbenchMenu', () => {
     expect(wrapper.text()).toContain('应用管理');
   });
 
-  it('uses a second-level entry as the flyout anchor when the sidebar shows two levels', async () => {
+  it('shows only the next level when a second-level entry opens a flyout', async () => {
     const wrapper = shallowMount(WorkbenchMenu, {
       props: { menus: nestedMenus, presentation: 'expanded', expandedMenuDepth: 2 },
     });
@@ -188,10 +188,11 @@ describe('WorkbenchMenu', () => {
       .find((entry) => entry.text() === '平台配置')
       ?.trigger('mouseenter');
 
-    expect(wrapper.get('.sidebar-submenu-panel header').text()).toContain('平台配置');
+    expect(wrapper.get('.sidebar-submenu-panel').attributes('aria-label')).toBe('下级菜单');
+    expect(wrapper.find('.sidebar-submenu-panel header').exists()).toBe(false);
   });
 
-  it('uses a third-level branch as the flyout anchor when the sidebar shows three levels', async () => {
+  it('shows only the next level when a third-level branch opens a flyout', async () => {
     const wrapper = shallowMount(WorkbenchMenu, {
       props: { menus: nestedMenus, presentation: 'expanded', expandedMenuDepth: 3 },
     });
@@ -201,7 +202,7 @@ describe('WorkbenchMenu', () => {
       .find((entry) => entry.text() === '元数据管理')
       ?.trigger('mouseenter');
 
-    expect(wrapper.get('.sidebar-submenu-panel header').text()).toContain('元数据管理');
+    expect(wrapper.find('.sidebar-submenu-panel header').exists()).toBe(false);
   });
 
   it('closes an open flyout when the sidebar display depth changes', async () => {

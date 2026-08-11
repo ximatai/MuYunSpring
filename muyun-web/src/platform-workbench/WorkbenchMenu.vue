@@ -707,16 +707,13 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
         v-if="activeSidebarSubmenuNode"
         ref="sidebarSubmenuPanel"
         class="sidebar-submenu-panel"
+        aria-label="下级菜单"
         :style="{
           '--sidebar-submenu-top': `${sidebarSubmenuTop}px`,
           '--sidebar-submenu-left': `${sidebarSubmenuLeft}px`,
         }"
         @mouseenter="handleMenuEnter"
       >
-        <header>
-          <span>下级菜单</span>
-          <strong>{{ activeSidebarSubmenuNode.record.title }}</strong>
-        </header>
         <ul class="sidebar-submenu-tree">
           <WorkbenchMenuTree
             v-for="child in activeSidebarSubmenuNode.children"
@@ -1115,7 +1112,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   top: var(--sidebar-submenu-top);
   left: var(--sidebar-submenu-left);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   width: min(360px, calc(100vw - var(--sidebar-submenu-left) - 24px));
   max-height: min(620px, calc(100vh - 16px));
   border: 0;
@@ -1123,28 +1120,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   background: var(--workbench-menu-surface);
   box-shadow: 0 24px 60px rgb(15 23 42 / 14%);
   overflow: hidden;
-}
-
-.sidebar-submenu-panel header {
-  display: grid;
-  gap: 2px;
-  min-height: 46px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #fbfcfe;
-}
-
-.sidebar-submenu-panel header span {
-  color: #64748b;
-  font-size: 11px;
-}
-
-.sidebar-submenu-panel header strong {
-  overflow: hidden;
-  color: #172033;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .sidebar-submenu-tree {
