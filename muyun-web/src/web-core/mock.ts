@@ -85,7 +85,7 @@ export const mockMenuTree: WebTreeNode<MenuRecord>[] = [
                       parentId: 'menu-platform-field-spec',
                       title: '字段校验规则',
                       openMode: 'tab',
-                      moduleAlias: 'platform.field_validation_rule',
+                      moduleAlias: 'platform.application',
                       pageMode: 'LIST',
                       enabled: true,
                       sortOrder: 10,

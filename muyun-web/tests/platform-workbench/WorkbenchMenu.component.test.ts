@@ -64,7 +64,7 @@ const nestedMenus = [
                       schemeId: 'default',
                       title: '字段校验规则',
                       openMode: 'tab' as const,
-                      moduleAlias: 'platform.field_validation_rule',
+                      moduleAlias: 'platform.application',
                     },
                     children: [],
                   },
