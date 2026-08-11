@@ -1,7 +1,7 @@
 {
   "name": "muyun-web",
   "private": true,
-  "version": "0.26.6",
+  "version": "0.26.7",
   "type": "module",
   "engines": {
     "node": ">=22.23.0"
