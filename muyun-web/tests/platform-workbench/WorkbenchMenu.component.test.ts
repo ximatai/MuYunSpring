@@ -57,7 +57,18 @@ const nestedMenus = [
                   openMode: 'tab' as const,
                   moduleAlias: 'platform.field_spec',
                 },
-                children: [],
+                children: [
+                  {
+                    record: {
+                      id: 'field-validation',
+                      schemeId: 'default',
+                      title: '字段校验规则',
+                      openMode: 'tab' as const,
+                      moduleAlias: 'platform.field_validation_rule',
+                    },
+                    children: [],
+                  },
+                ],
               },
             ],
           },
@@ -264,7 +275,7 @@ describe('WorkbenchMenu', () => {
 });
 
 describe('WorkbenchMenuTree', () => {
-  it('marks the current deep leaf and keeps its ancestor as a weak selected path', () => {
+  it('renders a five-level path, marks the current deepest leaf, and selects it', async () => {
     const nodes = createWorkbenchMenuNodes(nestedMenus);
     const metadata = findWorkbenchMenuNodeById(nodes, 'metadata');
     expect(metadata).toBeDefined();
@@ -272,16 +283,26 @@ describe('WorkbenchMenuTree', () => {
     const wrapper = mount(WorkbenchMenuTree, {
       props: {
         node: metadata!,
-        selectedMenuId: 'field-spec',
-        selectedPathIds: ['platform', 'configuration', 'metadata', 'field-spec'],
+        selectedMenuId: 'field-validation',
+        selectedPathIds: ['platform', 'configuration', 'metadata', 'field-spec', 'field-validation'],
       },
     });
 
     const buttons = wrapper.findAll('.deep-node-button');
     expect(buttons[0].classes()).toContain('selected-path');
     expect(buttons[0].attributes('aria-current')).toBeUndefined();
-    expect(buttons[1].classes()).toContain('selected');
-    expect(buttons[1].attributes('aria-current')).toBe('page');
+    expect(buttons[1].classes()).toContain('selected-path');
+    expect(buttons[2].classes()).toContain('selected');
+    expect(buttons[2].attributes('aria-current')).toBe('page');
+    expect(buttons.map((button) => button.text())).toEqual([
+      '元数据管理打开',
+      '字段规格打开',
+      '字段校验规则打开',
+    ]);
+
+    await buttons[2].trigger('click');
+
+    expect(wrapper.emitted('selectMenu')?.[0][0]).toMatchObject({ id: 'field-validation' });
   });
 });
 

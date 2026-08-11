@@ -67,7 +67,34 @@ export const mockMenuTree: WebTreeNode<MenuRecord>[] = [
               enabled: true,
               sortOrder: 30,
             },
-            children: [],
+            children: [
+              {
+                record: {
+                  id: 'menu-platform-field-spec',
+                  schemeId: 'default',
+                  parentId: 'menu-platform-metadata',
+                  title: '字段规格',
+                  enabled: true,
+                  sortOrder: 10,
+                },
+                children: [
+                  {
+                    record: {
+                      id: 'menu-platform-field-validation',
+                      schemeId: 'default',
+                      parentId: 'menu-platform-field-spec',
+                      title: '字段校验规则',
+                      openMode: 'tab',
+                      moduleAlias: 'platform.field_validation_rule',
+                      pageMode: 'LIST',
+                      enabled: true,
+                      sortOrder: 10,
+                    },
+                    children: [],
+                  },
+                ],
+              },
+            ],
           },
           {
             record: {
