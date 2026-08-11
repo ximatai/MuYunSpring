@@ -275,15 +275,16 @@ function updateSidebarSubmenuPosition(target: EventTarget | null) {
 }
 
 function updateSidebarSubmenuSize() {
-  if (!sidebarSubmenuPanel.value) {
+  const panel = sidebarSubmenuPanel.value;
+  if (!panel) {
     return;
   }
-  const rect = sidebarSubmenuPanel.value.getBoundingClientRect();
   const shellTop = menuShell.value?.getBoundingClientRect().top ?? 0;
   const viewportTop = 8 - shellTop;
-  const viewportBottom = window.innerHeight - rect.height - 8 - shellTop;
-  sidebarSubmenuWidth.value = Math.round(rect.width);
-  sidebarSubmenuHeight.value = Math.round(rect.height);
+  const panelHeight = panel.offsetHeight;
+  const viewportBottom = window.innerHeight - panelHeight - 8 - shellTop;
+  sidebarSubmenuWidth.value = panel.offsetWidth;
+  sidebarSubmenuHeight.value = panelHeight;
   sidebarSubmenuTop.value = Math.round(
     Math.min(Math.max(sidebarSubmenuAnchorTop.value, viewportTop), Math.max(viewportTop, viewportBottom)),
   );
@@ -404,13 +405,13 @@ function updateMegaPanelTop(target: EventTarget | null | undefined) {
 }
 
 function updateMegaPanelSize() {
-  const rect = megaPanel.value?.getBoundingClientRect();
-  if (!rect) {
+  const panel = megaPanel.value;
+  if (!panel) {
     return;
   }
 
-  megaPanelWidth.value = Math.round(rect.width);
-  megaPanelHeight.value = Math.round(rect.height);
+  megaPanelWidth.value = panel.offsetWidth;
+  megaPanelHeight.value = panel.offsetHeight;
 }
 
 function updateMegaPanelLayout() {
