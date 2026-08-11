@@ -189,6 +189,11 @@ watch(
   },
 );
 
+watch(
+  () => props.expandedMenuDepth,
+  () => closeMegaMenu(),
+);
+
 onUnmounted(() => {
   clearMegaPointerAim();
 });

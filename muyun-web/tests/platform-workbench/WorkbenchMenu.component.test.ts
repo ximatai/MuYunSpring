@@ -193,6 +193,22 @@ describe('WorkbenchMenu', () => {
     expect(wrapper.get('.sidebar-submenu-panel header').text()).toContain('元数据管理');
   });
 
+  it('closes an open flyout when the sidebar display depth changes', async () => {
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: nestedMenus, presentation: 'expanded', expandedMenuDepth: 2 },
+    });
+
+    await wrapper
+      .findAll('.sidebar-menu-entry')
+      .find((entry) => entry.text() === '平台配置')
+      ?.trigger('mouseenter');
+    expect(wrapper.find('.sidebar-submenu-panel').exists()).toBe(true);
+
+    await wrapper.setProps({ expandedMenuDepth: 3 });
+
+    expect(wrapper.find('.sidebar-submenu-panel').exists()).toBe(false);
+  });
+
   it('keeps second-level entries structural rather than clickable when the sidebar shows three levels', async () => {
     const wrapper = shallowMount(WorkbenchMenu, {
       props: { menus: nestedMenus, presentation: 'expanded', expandedMenuDepth: 3 },
