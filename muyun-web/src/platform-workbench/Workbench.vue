@@ -14,7 +14,11 @@ import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
 import WorkbenchMenu from './WorkbenchMenu.vue';
 import { resolvePageDescriptor } from './menuNavigation';
 import type { WorkbenchRealtimeStatus } from './realtimeStatus';
-import { compactMenuTopOf } from './workbenchLayout';
+import {
+  compactMenuTopOf,
+  effectiveWorkbenchMenuPresentation,
+  type WorkbenchMenuPresentation,
+} from './workbenchLayout';
 
 defineOptions({ name: 'Workbench' });
 
@@ -63,11 +67,16 @@ const userMenuItems: UiDropdownItem[] = [
   { key: 'settings', title: '偏好设置' },
   { key: 'logout', title: '退出登录', danger: true },
 ];
-const menuPresentation = ref<'compact' | 'expanded'>('compact');
+const menuPresentation = ref<WorkbenchMenuPresentation>('compact');
+const narrowViewport = ref(false);
+const effectiveMenuPresentation = computed(() =>
+  effectiveWorkbenchMenuPresentation(menuPresentation.value, narrowViewport.value),
+);
 const expandedMenuDepth = ref(
   normalizeExpandedMenuDepth(userPreferences.get('workbench.expanded-menu-depth', 1)),
 );
 const compactMenuOpen = ref(false);
+const compactMenuPinned = ref(false);
 const compactMenuAnchor = ref<{ left: number; top: number; right: number; bottom: number }>();
 const suppressCompactMenuPointerEnter = ref(false);
 const workbenchRoot = ref<HTMLElement>();
@@ -76,7 +85,9 @@ const compactMenuTop = ref(54);
 let compactMenuCloseTimer: number | undefined;
 let compactMenuPointerReleaseFrame: number | undefined;
 let topbarResizeObserver: ResizeObserver | undefined;
+let narrowViewportQuery: MediaQueryList | undefined;
 const COMPACT_MENU_CLOSE_DELAY = 220;
+const NARROW_VIEWPORT_QUERY = '(max-width: 980px)';
 
 function pageDescriptorOf(tab: MenuTab | undefined): PageDescriptor | undefined {
   if (!tab) {
@@ -117,6 +128,13 @@ function openCompactMenu(
   source: 'pointer' | 'focus' | 'click' = 'pointer',
   anchor?: { left: number; top: number; right: number; bottom: number },
 ) {
+  if (source === 'click') {
+    if (compactMenuOpen.value && compactMenuPinned.value) {
+      closeCompactMenu();
+      return;
+    }
+    compactMenuPinned.value = true;
+  }
   if (source === 'pointer' && suppressCompactMenuPointerEnter.value) {
     return;
   }
@@ -126,6 +144,9 @@ function openCompactMenu(
 }
 
 function scheduleCompactMenuClose() {
+  if (compactMenuPinned.value) {
+    return;
+  }
   clearCompactMenuCloseTimer();
   compactMenuCloseTimer = window.setTimeout(() => {
     compactMenuOpen.value = false;
@@ -136,6 +157,8 @@ function scheduleCompactMenuClose() {
 function closeCompactMenu() {
   clearCompactMenuCloseTimer();
   compactMenuOpen.value = false;
+  compactMenuPinned.value = false;
+  compactMenuAnchor.value = undefined;
 }
 
 function clearCompactMenuCloseTimer() {
@@ -146,7 +169,7 @@ function clearCompactMenuCloseTimer() {
   compactMenuCloseTimer = undefined;
 }
 
-function setMenuPresentation(presentation: 'compact' | 'expanded') {
+function setMenuPresentation(presentation: WorkbenchMenuPresentation) {
   if (compactMenuPointerReleaseFrame !== undefined) {
     window.cancelAnimationFrame(compactMenuPointerReleaseFrame);
     compactMenuPointerReleaseFrame = undefined;
@@ -154,13 +177,17 @@ function setMenuPresentation(presentation: 'compact' | 'expanded') {
   suppressCompactMenuPointerEnter.value = presentation === 'compact';
   menuPresentation.value = presentation;
   closeCompactMenu();
-  compactMenuAnchor.value = undefined;
   if (presentation === 'compact') {
     compactMenuPointerReleaseFrame = window.requestAnimationFrame(() => {
       suppressCompactMenuPointerEnter.value = false;
       compactMenuPointerReleaseFrame = undefined;
     });
   }
+}
+
+function handleNarrowViewportChange(event: MediaQueryListEvent) {
+  narrowViewport.value = event.matches;
+  closeCompactMenu();
 }
 
 function setExpandedMenuDepth(depth: 1 | 2 | 3) {
@@ -182,6 +209,11 @@ function updateCompactMenuTop() {
 }
 
 onMounted(() => {
+  if (typeof window.matchMedia === 'function') {
+    narrowViewportQuery = window.matchMedia(NARROW_VIEWPORT_QUERY);
+    narrowViewport.value = narrowViewportQuery.matches;
+    narrowViewportQuery.addEventListener('change', handleNarrowViewportChange);
+  }
   void nextTick(() => {
     updateCompactMenuTop();
     if (typeof ResizeObserver === 'undefined' || !appTopbar.value) {
@@ -198,6 +230,7 @@ onUnmounted(() => {
     window.cancelAnimationFrame(compactMenuPointerReleaseFrame);
   }
   topbarResizeObserver?.disconnect();
+  narrowViewportQuery?.removeEventListener('change', handleNarrowViewportChange);
 });
 
 function pageTypeLabelOf(pageType: string | undefined) {
@@ -238,8 +271,8 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
     ref="workbenchRoot"
     class="workbench"
     :class="{
-      'workbench--menu-expanded': menuPresentation === 'expanded',
-      'workbench--compact-menu-open': menuPresentation === 'compact' && compactMenuOpen,
+      'workbench--menu-expanded': effectiveMenuPresentation === 'expanded',
+      'workbench--compact-menu-open': effectiveMenuPresentation === 'compact' && compactMenuOpen,
     }"
   >
     <WorkbenchMenu
@@ -247,7 +280,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
       :selected-menu-id="activeTab?.target?.menuId"
       :tenant-label="tenantLabel"
       :realtime-status="realtimeStatus"
-      :presentation="menuPresentation"
+      :presentation="effectiveMenuPresentation"
       :expanded-menu-depth="expandedMenuDepth"
       :compact-open="compactMenuOpen"
       :compact-top="compactMenuTop"
@@ -266,10 +299,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
         <div class="topbar-identity">
           <Transition name="workbench-brand">
             <WorkbenchBrandControl
-              v-if="menuPresentation === 'compact'"
+              v-if="effectiveMenuPresentation === 'compact'"
               presentation="compact"
               :compact-open="compactMenuOpen"
               :tenant-label="tenantLabel"
+              :presentation-toggle-visible="!narrowViewport"
               @open-compact-menu="openCompactMenu"
               @schedule-compact-menu-close="scheduleCompactMenuClose"
               @close-compact-menu="closeCompactMenu"
@@ -277,7 +311,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             />
           </Transition>
           <Transition name="workbench-divider">
-            <span v-if="menuPresentation === 'compact'" class="header-title-divider" aria-hidden="true" />
+            <span
+              v-if="effectiveMenuPresentation === 'compact'"
+              class="header-title-divider"
+              aria-hidden="true"
+            />
           </Transition>
           <div class="topbar-title">
             <h1>{{ activeTab?.title ?? '控制台' }}</h1>

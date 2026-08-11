@@ -16,11 +16,13 @@ const props = withDefaults(
     compactOpen?: boolean;
     tenantLabel?: string;
     expandedMenuDepth?: 1 | 2 | 3;
+    presentationToggleVisible?: boolean;
   }>(),
   {
     compactOpen: false,
     tenantLabel: '系统工作区',
     expandedMenuDepth: 1,
+    presentationToggleVisible: true,
   },
 );
 
@@ -90,6 +92,7 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
       </span>
     </component>
     <button
+      v-if="presentationToggleVisible"
       class="workbench-brand-presentation-toggle"
       type="button"
       :aria-label="presentation === 'compact' ? '展开侧栏菜单' : '收敛侧栏菜单'"

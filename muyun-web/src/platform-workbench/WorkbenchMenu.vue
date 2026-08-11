@@ -4,14 +4,15 @@ import { UiEmpty, UiIcon, UiInput } from '@muyun/vue-ui-antdv';
 import type { MenuNavigationTarget, MenuRecord, MenuTreeNode } from '@muyun/web-contracts';
 import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
 import WorkbenchMenuTree from './WorkbenchMenuTree.vue';
-import { isPointerHeadingToMenuPanel } from './menuPointerAim';
+import WorkbenchSidebarMenuEntry from './WorkbenchSidebarMenuEntry.vue';
+import { isPointerHeadingToMenuPanel, type MenuPointerPosition } from './menuPointerAim';
+import { floatingPanelTopOf } from './workbenchLayout';
 import {
   buildWorkbenchMegaMenuModel,
   createWorkbenchMenuNodes,
   filterWorkbenchMenuNodes,
   findWorkbenchMenuNodeById,
   findWorkbenchMenuPath,
-  firstDeepRootIdOf,
   type WorkbenchMenuNode,
 } from './menuTreeModel';
 import { presentWorkbenchRealtimeStatus, type WorkbenchRealtimeStatus } from './realtimeStatus';
@@ -57,11 +58,12 @@ const emit = defineEmits<{
 const MEGA_GROUP_COLUMN_MIN_WIDTH = 168;
 const MEGA_GROUP_COLUMN_GAP = 18;
 const MEGA_GROUP_HORIZONTAL_PADDING = 28;
-const MEGA_DEEP_PANEL_WIDTH = 280;
 const MEGA_PANEL_MAX_WIDTH = 1040;
 const MEGA_PANEL_SIDE_MARGIN = 24;
 const MEGA_PANEL_MAX_HEIGHT = 620;
 const MEGA_POINTER_AIM_GRACE_PERIOD = 360;
+const MENU_SWITCH_GRACE_PERIOD = 320;
+const MENU_POINTER_TRAIL_WINDOW = 140;
 
 const menuShell = ref<HTMLElement>();
 const menuSidebar = ref<HTMLElement>();
@@ -97,9 +99,12 @@ const selectedMenuPath = computed(() =>
 const selectedRootMenuId = computed(() => selectedMenuPath.value[0]?.record.id);
 const selectedMenuPathIds = computed(() => selectedMenuPath.value.map((node) => node.record.id));
 const realtimeStatusPresentation = computed(() => presentWorkbenchRealtimeStatus(props.realtimeStatus));
-const activeRootNode = computed(() =>
-  activeRootMenuId.value ? findWorkbenchMenuNodeById(filteredMenus.value, activeRootMenuId.value) : undefined,
-);
+const activeRootNode = computed(() => {
+  const node = activeRootMenuId.value
+    ? findWorkbenchMenuNodeById(filteredMenus.value, activeRootMenuId.value)
+    : undefined;
+  return node?.hasChildren ? node : undefined;
+});
 const megaMenuModel = computed(() =>
   activeRootNode.value
     ? buildWorkbenchMegaMenuModel(activeRootNode.value, activeDeepRootId.value, megaGroupColumnCount.value)
@@ -214,12 +219,14 @@ const compactOutlinePath = computed(() => {
 let megaPointerAimTimer: number | undefined;
 let megaPointerAimOrigin: { x: number; y: number } | undefined;
 let megaPointerAimPanel: { left: number; top: number; bottom: number } | undefined;
+let pendingMenuSwitchTimer: number | undefined;
+let recentMenuPointerPositions: Array<MenuPointerPosition & { at: number }> = [];
 
 watch(
   () => props.compactOpen,
   (open) => {
     if (!open) {
-      closeMegaMenu();
+      closeMenuLayers();
       return;
     }
   },
@@ -227,7 +234,12 @@ watch(
 
 watch(
   () => props.expandedMenuDepth,
-  () => closeMegaMenu(),
+  () => closeMenuLayers(),
+);
+
+watch(
+  () => props.presentation,
+  () => closeMenuLayers(),
 );
 
 watch(
@@ -243,10 +255,11 @@ watch(
 
 onUnmounted(() => {
   clearMegaPointerAim();
+  clearPendingMenuSwitch();
 });
 
 function selectMenuNode(node: WorkbenchMenuNode) {
-  closeMegaMenu();
+  closeMenuLayers();
   if (node.target) {
     emit('selectMenu', node.record, node.target);
   } else {
@@ -254,20 +267,50 @@ function selectMenuNode(node: WorkbenchMenuNode) {
   }
 }
 
-function handleSidebarEntryClick(node: WorkbenchMenuNode, event: MouseEvent) {
-  if (node.navigable) {
-    selectMenuNode(node);
+function toggleSidebarSubmenu(node: WorkbenchMenuNode, target: EventTarget | null) {
+  if (activeSidebarSubmenuId.value === node.record.id) {
+    closeSidebarSubmenu();
     return;
   }
-  openSidebarSubmenu(node, event);
+  activateSidebarSubmenu(node, target);
 }
 
 function handleDeepMenuSelect(menu: MenuRecord, target: MenuNavigationTarget) {
-  closeMegaMenu();
+  closeMenuLayers();
   emit('selectMenu', menu, target);
 }
 
 function openRootMenu(node: WorkbenchMenuNode, event?: MouseEvent | FocusEvent) {
+  const target = event?.currentTarget;
+  if (
+    event instanceof MouseEvent &&
+    event.type === 'mouseenter' &&
+    shouldDelayPanelSwitch(activeSidebarSubmenuId.value, node.record.id, event, sidebarSubmenuPanel.value)
+  ) {
+    scheduleMenuSwitch(() => activateRootMenu(node, target));
+    return;
+  }
+  if (activeRootMenuId.value === node.record.id) {
+    clearPendingMenuSwitch();
+    return;
+  }
+  if (
+    event instanceof MouseEvent &&
+    event.type === 'mouseenter' &&
+    shouldDelayPanelSwitch(activeRootMenuId.value, node.record.id, event, megaPanel.value)
+  ) {
+    scheduleMenuSwitch(() => activateRootMenu(node, target));
+    return;
+  }
+  activateRootMenu(node, target);
+}
+
+function activateRootMenu(node: WorkbenchMenuNode, target?: EventTarget | null) {
+  clearPendingMenuSwitch();
+  if (!node.hasChildren) {
+    closeMenuLayers();
+    return;
+  }
   if (!isCompact.value && props.expandedMenuDepth > 1) {
     closeSidebarSubmenu();
     return;
@@ -275,23 +318,110 @@ function openRootMenu(node: WorkbenchMenuNode, event?: MouseEvent | FocusEvent) 
   clearMegaPointerAim();
   activeSidebarSubmenuId.value = undefined;
   activeRootMenuId.value = node.record.id;
-  activeDeepRootId.value = firstDeepRootIdOf(node);
-  updateMegaPanelTop(event?.currentTarget);
+  activeDeepRootId.value = undefined;
+  updateMegaPanelTop(target);
   void nextTick(updateMegaPanelSize);
 }
 
-function closeMegaMenu() {
+function shouldDelayPanelSwitch(
+  activeId: string | undefined,
+  nextId: string,
+  event: MouseEvent,
+  panel: HTMLElement | undefined,
+): boolean {
+  const panelRect = panel?.getBoundingClientRect();
+  if (!activeId || activeId === nextId || !panelRect) {
+    return false;
+  }
+  const pointer = { x: event.clientX, y: event.clientY };
+  const minimumTime = event.timeStamp - MENU_POINTER_TRAIL_WINDOW;
+  const latestPosition = recentMenuPointerPositions.at(-1);
+  if (latestPosition && latestPosition.x > pointer.x) {
+    return false;
+  }
+  const origin = findRecentPointerOrigin(pointer, minimumTime);
+  return Boolean(
+    origin &&
+    isPointerHeadingToMenuPanel(pointer, origin, {
+      left: panelRect.left,
+      top: panelRect.top,
+      bottom: panelRect.bottom,
+    }),
+  );
+}
+
+function findRecentPointerOrigin(pointer: MenuPointerPosition, minimumTime: number) {
+  for (let index = recentMenuPointerPositions.length - 1; index >= 0; index -= 1) {
+    const position = recentMenuPointerPositions[index];
+    if (position.at < minimumTime) {
+      break;
+    }
+    if (position.x <= pointer.x - 4) {
+      return position;
+    }
+  }
+  return undefined;
+}
+
+function scheduleMenuSwitch(action: () => void) {
+  clearPendingMenuSwitch();
+  pendingMenuSwitchTimer = window.setTimeout(() => {
+    pendingMenuSwitchTimer = undefined;
+    action();
+  }, MENU_SWITCH_GRACE_PERIOD);
+}
+
+function clearPendingMenuSwitch() {
+  if (pendingMenuSwitchTimer !== undefined) {
+    window.clearTimeout(pendingMenuSwitchTimer);
+    pendingMenuSwitchTimer = undefined;
+  }
+}
+
+function trackMenuPointer(event: PointerEvent) {
+  const minimumTime = event.timeStamp - MENU_POINTER_TRAIL_WINDOW;
+  recentMenuPointerPositions = recentMenuPointerPositions.filter((position) => position.at >= minimumTime);
+  const latest = recentMenuPointerPositions.at(-1);
+  if (!latest || Math.hypot(event.clientX - latest.x, event.clientY - latest.y) >= 2) {
+    recentMenuPointerPositions.push({ x: event.clientX, y: event.clientY, at: event.timeStamp });
+  }
+}
+
+function closeMenuLayers() {
   clearMegaPointerAim();
+  clearPendingMenuSwitch();
+  recentMenuPointerPositions = [];
   activeRootMenuId.value = undefined;
   activeDeepRootId.value = undefined;
   closeSidebarSubmenu();
 }
 
 function closeSidebarSubmenu() {
+  clearPendingMenuSwitch();
   activeSidebarSubmenuId.value = undefined;
 }
 
-function openSidebarSubmenu(node: WorkbenchMenuNode, event: MouseEvent | FocusEvent) {
+function openSidebarSubmenu(
+  node: WorkbenchMenuNode,
+  event: MouseEvent,
+  target: EventTarget | null = event.currentTarget,
+) {
+  if (activeSidebarSubmenuId.value === node.record.id) {
+    clearPendingMenuSwitch();
+    return;
+  }
+  if (
+    event.type === 'mouseenter' &&
+    shouldDelayPanelSwitch(activeSidebarSubmenuId.value, node.record.id, event, sidebarSubmenuPanel.value)
+  ) {
+    scheduleMenuSwitch(() => activateSidebarSubmenu(node, target));
+    return;
+  }
+  activateSidebarSubmenu(node, target);
+}
+
+function activateSidebarSubmenu(node: WorkbenchMenuNode, target: EventTarget | null) {
+  clearPendingMenuSwitch();
   if (!node.hasChildren) {
     closeSidebarSubmenu();
     return;
@@ -300,7 +430,7 @@ function openSidebarSubmenu(node: WorkbenchMenuNode, event: MouseEvent | FocusEv
   activeRootMenuId.value = undefined;
   activeDeepRootId.value = undefined;
   activeSidebarSubmenuId.value = node.record.id;
-  updateSidebarSubmenuPosition(event.currentTarget);
+  updateSidebarSubmenuPosition(target);
   void nextTick(updateSidebarSubmenuSize);
 }
 
@@ -313,8 +443,7 @@ function updateSidebarSubmenuPosition(target: EventTarget | null) {
   const shellTop = shellRect?.top ?? 0;
   const shellLeft = shellRect?.left ?? 0;
   const panelHeight = Math.min(window.innerHeight - 16, MEGA_PANEL_MAX_HEIGHT);
-  const top = Math.min(Math.max(targetRect.top, 8), Math.max(8, window.innerHeight - panelHeight - 8));
-  sidebarSubmenuTop.value = Math.round(top - shellTop);
+  sidebarSubmenuTop.value = floatingPanelTopOf(targetRect.top, panelHeight, window.innerHeight, shellTop);
   sidebarSubmenuLeft.value = Math.round(targetRect.right - shellLeft);
   sidebarSubmenuAnchorLeft.value = Math.round(targetRect.left - shellLeft);
   sidebarSubmenuAnchorTop.value = Math.round(targetRect.top - shellTop);
@@ -327,13 +456,14 @@ function updateSidebarSubmenuSize() {
     return;
   }
   const shellTop = menuShell.value?.getBoundingClientRect().top ?? 0;
-  const viewportTop = 8 - shellTop;
   const panelHeight = panel.offsetHeight;
-  const viewportBottom = window.innerHeight - panelHeight - 8 - shellTop;
   sidebarSubmenuWidth.value = panel.offsetWidth;
   sidebarSubmenuHeight.value = panelHeight;
-  sidebarSubmenuTop.value = Math.round(
-    Math.min(Math.max(sidebarSubmenuAnchorTop.value, viewportTop), Math.max(viewportTop, viewportBottom)),
+  sidebarSubmenuTop.value = floatingPanelTopOf(
+    shellTop + sidebarSubmenuAnchorTop.value,
+    panelHeight,
+    window.innerHeight,
+    shellTop,
   );
 }
 
@@ -355,6 +485,7 @@ function updateCompactOutline() {
 
 function handleMenuEnter() {
   clearMegaPointerAim();
+  clearPendingMenuSwitch();
   if (isCompact.value) {
     emit('compactMenuEnter');
   }
@@ -368,7 +499,7 @@ function handleMenuLeave(event: MouseEvent) {
 }
 
 function finishMenuLeave() {
-  closeMegaMenu();
+  closeMenuLayers();
   if (isCompact.value) {
     emit('compactMenuLeave');
   }
@@ -439,7 +570,12 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
 
 function handleMenuKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
-    closeMegaMenu();
+    if (activeDeepRootId.value) {
+      closeDeepRoot();
+      event.stopPropagation();
+      return;
+    }
+    closeMenuLayers();
     if (isCompact.value) {
       emit('compactMenuClose');
     }
@@ -454,11 +590,8 @@ function updateMegaPanelTop(target: EventTarget | null | undefined) {
   const shellRect = menuShell.value?.getBoundingClientRect();
   const shellTop = shellRect?.top ?? 0;
   const panelHeight = Math.min(window.innerHeight - 16, MEGA_PANEL_MAX_HEIGHT);
-  const idealTop = rect.top;
-  const maxTop = Math.max(8, window.innerHeight - panelHeight - 8);
-  const panelTop = Math.min(Math.max(idealTop, 8), maxTop);
   const shellLeft = shellRect?.left ?? 0;
-  megaPanelTop.value = Math.round(panelTop - shellTop);
+  megaPanelTop.value = floatingPanelTopOf(rect.top, panelHeight, window.innerHeight, shellTop);
   megaPanelLeft.value = Math.round(rect.right - shellLeft);
   activeRootLeft.value = Math.round(rect.left - shellLeft);
   activeRootTop.value = Math.round(rect.top - shellTop);
@@ -475,12 +608,18 @@ function updateMegaPanelSize() {
 
   megaPanelWidth.value = panel.offsetWidth;
   megaPanelHeight.value = panel.offsetHeight;
+  const shellTop = menuShell.value?.getBoundingClientRect().top ?? 0;
+  megaPanelTop.value = floatingPanelTopOf(
+    shellTop + activeRootTop.value,
+    panel.offsetHeight,
+    window.innerHeight,
+    shellTop,
+  );
 }
 
 function updateMegaPanelLayout() {
   const availableWidth = availableMegaPanelWidth();
-  const deepPanelWidth = activeDeepRootId.value ? MEGA_DEEP_PANEL_WIDTH : 0;
-  const maxGroupWidth = Math.max(0, Math.min(availableWidth, MEGA_PANEL_MAX_WIDTH) - deepPanelWidth);
+  const maxGroupWidth = Math.max(0, Math.min(availableWidth, MEGA_PANEL_MAX_WIDTH));
   const groupCount = activeRootNode.value?.children.length ?? 0;
   const columnCount = Math.max(
     1,
@@ -497,7 +636,7 @@ function updateMegaPanelLayout() {
     columnCount * MEGA_GROUP_COLUMN_MIN_WIDTH +
     Math.max(0, columnCount - 1) * MEGA_GROUP_COLUMN_GAP +
     MEGA_GROUP_HORIZONTAL_PADDING;
-  const preferredWidth = Math.min(availableWidth, MEGA_PANEL_MAX_WIDTH, groupWidth + deepPanelWidth);
+  const preferredWidth = Math.min(availableWidth, MEGA_PANEL_MAX_WIDTH, groupWidth);
 
   megaGroupColumnCount.value = columnCount;
   megaPanelPreferredWidth.value = Math.max(280, preferredWidth);
@@ -510,12 +649,40 @@ function availableMegaPanelWidth() {
   return Math.max(280, window.innerWidth - panelViewportLeft - MEGA_PANEL_SIDE_MARGIN);
 }
 
-function keepDeepRoot(node: WorkbenchMenuNode) {
-  activeDeepRootId.value = node.hasChildren ? node.record.id : undefined;
-  void nextTick(() => {
-    updateMegaPanelLayout();
-    updateMegaPanelSize();
-  });
+function toggleDeepRoot(node: WorkbenchMenuNode) {
+  if (!node.hasChildren) {
+    return;
+  }
+  activeDeepRootId.value = activeDeepRootId.value === node.record.id ? undefined : node.record.id;
+  void nextTick(updateMegaPanelSize);
+}
+
+function handleMegaEntryMainClick(node: WorkbenchMenuNode) {
+  if (node.navigable) {
+    selectMenuNode(node);
+  } else {
+    toggleDeepRoot(node);
+  }
+}
+
+function closeDeepRoot() {
+  activeDeepRootId.value = undefined;
+  void nextTick(updateMegaPanelSize);
+}
+
+function handleMegaEntryKeydown(node: WorkbenchMenuNode, event: KeyboardEvent) {
+  if (!node.hasChildren) {
+    return;
+  }
+  if (event.key === 'ArrowRight' && activeDeepRootId.value !== node.record.id) {
+    event.preventDefault();
+    activeDeepRootId.value = node.record.id;
+    void nextTick(updateMegaPanelSize);
+  } else if (event.key === 'ArrowLeft' && activeDeepRootId.value === node.record.id) {
+    event.preventDefault();
+    activeDeepRootId.value = undefined;
+    void nextTick(updateMegaPanelSize);
+  }
 }
 
 function isSelectedRoot(node: WorkbenchMenuNode) {
@@ -545,6 +712,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
     :style="isCompact ? { '--compact-menu-top': `${compactTop}px` } : undefined"
     @mouseenter="handleMenuEnter"
     @mouseleave="handleMenuLeave"
+    @pointermove="trackMenuPointer"
     @focusin="handleMenuFocusIn"
     @focusout="handleMenuFocusOut"
     @keydown="handleMenuKeydown"
@@ -587,68 +755,56 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                   active: activeRootNode?.record.id === node.record.id,
                   selected: isSelectedRoot(node),
                   navigable: node.navigable,
+                  branch: node.hasChildren,
                 }"
                 type="button"
-                :aria-expanded="activeRootNode?.record.id === node.record.id"
+                :aria-expanded="
+                  node.hasChildren && (isCompact || expandedMenuDepth === 1)
+                    ? activeRootNode?.record.id === node.record.id
+                    : undefined
+                "
                 :aria-controls="
-                  activeRootNode?.record.id === node.record.id ? 'workbench-mega-panel' : undefined
+                  node.hasChildren &&
+                  (isCompact || expandedMenuDepth === 1) &&
+                  activeRootNode?.record.id === node.record.id
+                    ? 'workbench-mega-panel'
+                    : undefined
                 "
                 @mouseenter="openRootMenu(node, $event)"
                 @focus="openRootMenu(node, $event)"
                 @click="node.navigable && selectMenuNode(node)"
               >
                 <span>{{ node.record.title }}</span>
+                <i v-if="node.hasChildren" class="root-menu-branch-indicator" aria-hidden="true" />
               </button>
               <div
                 v-if="!isCompact && expandedMenuDepth >= 2"
                 class="sidebar-menu-level sidebar-menu-level--2"
               >
                 <template v-for="group in node.children" :key="group.record.id">
-                  <component
-                    :is="expandedMenuDepth === 3 && !group.navigable ? 'div' : 'button'"
-                    class="sidebar-menu-entry"
-                    :class="{
-                      navigable: group.navigable,
-                      selected: isSelectedMenu(group),
-                      'selected-path': isSelectedMenuAncestor(group),
-                      branch: group.hasChildren,
-                      active: activeSidebarSubmenuNode?.record.id === group.record.id,
-                      'sidebar-menu-entry--group': expandedMenuDepth === 3 && !group.navigable,
-                    }"
-                    :type="expandedMenuDepth === 3 && !group.navigable ? undefined : 'button'"
-                    :disabled="expandedMenuDepth === 2 && !group.navigable && !group.hasChildren"
-                    :aria-current="isSelectedMenu(group) ? 'page' : undefined"
-                    @mouseenter="expandedMenuDepth === 2 && openSidebarSubmenu(group, $event)"
-                    @focus="expandedMenuDepth === 2 && openSidebarSubmenu(group, $event)"
-                    @click="
-                      expandedMenuDepth === 2
-                        ? handleSidebarEntryClick(group, $event)
-                        : group.navigable && selectMenuNode(group)
-                    "
-                  >
-                    <span>{{ group.record.title }}</span>
-                  </component>
+                  <WorkbenchSidebarMenuEntry
+                    :node="group"
+                    :mode="expandedMenuDepth === 2 ? 'flyout' : 'inline'"
+                    :selected="isSelectedMenu(group)"
+                    :selected-path="isSelectedMenuAncestor(group)"
+                    :active="activeSidebarSubmenuNode?.record.id === group.record.id"
+                    @select="selectMenuNode"
+                    @open-children="openSidebarSubmenu"
+                    @toggle-children="toggleSidebarSubmenu"
+                  />
                   <div v-if="expandedMenuDepth >= 3" class="sidebar-menu-level sidebar-menu-level--3">
-                    <button
+                    <WorkbenchSidebarMenuEntry
                       v-for="entry in group.children"
                       :key="entry.record.id"
-                      class="sidebar-menu-entry"
-                      :class="{
-                        navigable: entry.navigable,
-                        selected: isSelectedMenu(entry),
-                        'selected-path': isSelectedMenuAncestor(entry),
-                        branch: entry.hasChildren,
-                        active: activeSidebarSubmenuNode?.record.id === entry.record.id,
-                      }"
-                      type="button"
-                      :disabled="!entry.navigable && !entry.hasChildren"
-                      :aria-current="isSelectedMenu(entry) ? 'page' : undefined"
-                      @mouseenter="expandedMenuDepth === 3 && openSidebarSubmenu(entry, $event)"
-                      @focus="expandedMenuDepth === 3 && openSidebarSubmenu(entry, $event)"
-                      @click="handleSidebarEntryClick(entry, $event)"
-                    >
-                      <span>{{ entry.record.title }}</span>
-                    </button>
+                      :node="entry"
+                      mode="flyout"
+                      :selected="isSelectedMenu(entry)"
+                      :selected-path="isSelectedMenuAncestor(entry)"
+                      :active="activeSidebarSubmenuNode?.record.id === entry.record.id"
+                      @select="selectMenuNode"
+                      @open-children="openSidebarSubmenu"
+                      @toggle-children="toggleSidebarSubmenu"
+                    />
                   </div>
                 </template>
               </div>
@@ -664,7 +820,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
               v-model:value="menuFilter"
               type="search"
               allow-clear
-              :placeholder="isCompact ? '' : searchPlaceholder"
+              :placeholder="searchPlaceholder"
               aria-label="搜索菜单"
             />
           </div>
@@ -714,7 +870,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
         }"
         @mouseenter="handleMenuEnter"
       >
-        <div class="mega-body" :class="{ 'has-deep': activeDeepRootNode }">
+        <div class="mega-body">
           <div class="mega-groups">
             <div
               v-for="(column, columnIndex) in megaMenuModel?.columns ?? []"
@@ -738,45 +894,88 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                 </button>
 
                 <div class="mega-entry-list">
-                  <button
+                  <div
                     v-for="entry in group.children"
                     :key="entry.record.id"
                     class="mega-entry"
                     :class="{
                       navigable: entry.navigable,
                       active: activeDeepRootNode?.record.id === entry.record.id,
-                      branch: entry.hasChildren,
                       selected: isSelectedMenu(entry),
                       'selected-path': isSelectedMenuAncestor(entry),
                     }"
-                    type="button"
-                    :disabled="!entry.navigable && !entry.hasChildren"
-                    :aria-current="isSelectedMenu(entry) ? 'page' : undefined"
-                    @mouseenter="keepDeepRoot(entry)"
-                    @focus="keepDeepRoot(entry)"
-                    @click="entry.navigable && selectMenuNode(entry)"
+                    @keydown="handleMegaEntryKeydown(entry, $event)"
                   >
-                    <span>{{ entry.record.title }}</span>
-                  </button>
+                    <button
+                      class="mega-entry-main"
+                      type="button"
+                      :disabled="!entry.navigable && !entry.hasChildren"
+                      :aria-current="isSelectedMenu(entry) ? 'page' : undefined"
+                      :aria-label="
+                        !entry.navigable && entry.hasChildren
+                          ? `${activeDeepRootNode?.record.id === entry.record.id ? '收起' : '展开'}${entry.record.title}下级菜单`
+                          : undefined
+                      "
+                      :aria-expanded="
+                        !entry.navigable && entry.hasChildren
+                          ? activeDeepRootNode?.record.id === entry.record.id
+                          : undefined
+                      "
+                      :aria-controls="
+                        !entry.navigable && entry.hasChildren ? 'workbench-mega-deep-panel' : undefined
+                      "
+                      @click="handleMegaEntryMainClick(entry)"
+                    >
+                      <span>{{ entry.record.title }}</span>
+                      <i
+                        v-if="entry.hasChildren && !entry.navigable"
+                        class="mega-entry-indicator"
+                        aria-hidden="true"
+                      />
+                    </button>
+                    <button
+                      v-if="entry.hasChildren && entry.navigable"
+                      class="mega-entry-trigger"
+                      type="button"
+                      :aria-label="`${activeDeepRootNode?.record.id === entry.record.id ? '收起' : '展开'}${entry.record.title}下级菜单`"
+                      :aria-expanded="activeDeepRootNode?.record.id === entry.record.id"
+                      aria-controls="workbench-mega-deep-panel"
+                      @click.stop="toggleDeepRoot(entry)"
+                      @keydown.esc.stop="closeDeepRoot"
+                    >
+                      <i class="mega-entry-indicator" aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               </section>
             </div>
           </div>
 
-          <aside v-if="activeDeepRootNode" class="mega-deep-panel">
-            <header>
-              <span>深层导航</span>
-              <strong>{{ activeDeepRootNode.record.title }}</strong>
-            </header>
-            <ul class="mega-deep-tree">
-              <WorkbenchMenuTree
-                :node="activeDeepRootNode"
-                :selected-menu-id="selectedMenuId"
-                :selected-path-ids="selectedMenuPathIds"
-                @select-menu="handleDeepMenuSelect"
-              />
-            </ul>
-          </aside>
+          <Transition
+            name="mega-deep-dock"
+            :duration="{ enter: 160, leave: 0 }"
+            @after-enter="updateMegaPanelSize"
+            @after-leave="updateMegaPanelSize"
+          >
+            <aside
+              v-if="activeDeepRootNode"
+              id="workbench-mega-deep-panel"
+              class="mega-deep-panel"
+              @mouseenter="handleMenuEnter"
+              @keydown.esc.stop="closeDeepRoot"
+            >
+              <ul class="mega-deep-tree" :aria-label="`${activeDeepRootNode.record.title}下级菜单`">
+                <WorkbenchMenuTree
+                  v-for="child in activeDeepRootNode.children"
+                  :key="child.record.id"
+                  :node="child"
+                  :selected-menu-id="selectedMenuId"
+                  :selected-path-ids="selectedMenuPathIds"
+                  @select-menu="handleDeepMenuSelect"
+                />
+              </ul>
+            </aside>
+          </Transition>
         </div>
       </section>
     </Transition>
@@ -800,6 +999,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
     <Transition name="workbench-mega-panel">
       <aside
         v-if="activeSidebarSubmenuNode"
+        id="workbench-sidebar-submenu-panel"
         ref="sidebarSubmenuPanel"
         class="sidebar-submenu-panel"
         aria-label="下级菜单"
@@ -1006,8 +1206,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .root-menu-item,
-.mega-group-title,
-.mega-entry {
+.mega-group-title {
   width: 100%;
   border: 0;
   background: transparent;
@@ -1032,7 +1231,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .root-menu-item span,
-.mega-entry span,
+.mega-entry-main span,
 .mega-group-title span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1058,11 +1257,87 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   border-color: transparent;
   border-radius: 6px 0 0 6px;
   background: var(--workbench-menu-surface);
-  font-weight: 700;
 }
 
 .root-menu-item.navigable {
   cursor: pointer;
+}
+
+.root-menu-item.navigable > span,
+.mega-group-title.navigable > span,
+.mega-entry.navigable .mega-entry-main > span {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.root-menu-item.navigable > span::after,
+.mega-group-title.navigable > span::after,
+.mega-entry.navigable .mega-entry-main > span::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: #0f766e;
+  content: '';
+  opacity: 0;
+  transform: scaleX(0.55);
+  transform-origin: center;
+  transition:
+    opacity 140ms ease,
+    transform 160ms ease;
+}
+
+.root-menu-item.navigable:hover > span::after,
+.root-menu-item.navigable:focus-visible > span::after,
+.mega-group-title.navigable:hover > span::after,
+.mega-group-title.navigable:focus-visible > span::after,
+.mega-entry.navigable:hover .mega-entry-main > span::after,
+.mega-entry.navigable .mega-entry-main:focus-visible > span::after {
+  opacity: 0.62;
+  transform: scaleX(1);
+}
+
+.root-menu-branch-indicator {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-right: 2px;
+  border-right: 1.5px solid currentcolor;
+  border-bottom: 1.5px solid currentcolor;
+  opacity: 0.48;
+  transform: rotate(-45deg);
+  transition:
+    opacity 140ms ease,
+    transform 160ms ease;
+}
+
+.root-menu-item.branch:hover .root-menu-branch-indicator,
+.root-menu-item.branch.active .root-menu-branch-indicator {
+  opacity: 0.88;
+  transform: translateX(1px) rotate(-45deg);
+}
+
+.root-menu-item:focus-visible,
+.mega-group-title:focus-visible,
+.mega-entry-main:focus-visible,
+.mega-entry-trigger:focus-visible {
+  outline: 0;
+  background: #eaf5f2;
+  color: #0f766e;
+  box-shadow: inset 0 0 0 2px #8bc9c0;
+}
+
+.root-menu-item.active,
+.root-menu-item.active.selected {
+  box-shadow: inset 3px 0 0 #0f766e;
+}
+
+.root-menu-item.active:focus-visible,
+.root-menu-item.active.selected:focus-visible {
+  background: #f1f8f6;
+  box-shadow: inset 3px 0 0 #0f766e;
 }
 
 .sidebar-menu-level {
@@ -1074,91 +1349,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .sidebar-menu-level--2,
 .sidebar-menu-level--3 {
   padding-left: 12px;
-}
-
-.sidebar-menu-entry {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-height: 29px;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #64748b;
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-}
-
-.sidebar-menu-entry span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-menu-entry.navigable {
-  color: #334155;
-  cursor: pointer;
-}
-
-.sidebar-menu-entry.navigable:hover {
-  background: #edf4f7;
-  color: #0f766e;
-}
-
-.sidebar-menu-entry.active {
-  z-index: 2;
-  border-radius: 5px 0 0 5px;
-  background: var(--workbench-menu-surface);
-  color: #0f766e;
-  font-weight: 700;
-}
-
-.sidebar-menu-entry.branch {
-  position: relative;
-  padding-right: 24px;
-  font-weight: 600;
-}
-
-.sidebar-menu-entry.branch::after {
-  position: absolute;
-  right: 9px;
-  color: #94a3b8;
-  content: '›';
-  font-size: 18px;
-  font-weight: 400;
-  line-height: 1;
-}
-
-.sidebar-menu-entry--group {
-  color: #475569;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.sidebar-menu-entry--group.branch {
-  padding-right: 8px;
-}
-
-.sidebar-menu-entry--group.branch::after {
-  display: none;
-}
-
-.sidebar-menu-entry.selected {
-  background: #e4f2ef;
-  color: #0f766e;
-  font-weight: 700;
-}
-
-.sidebar-menu-entry.selected-path {
-  color: #334155;
-  font-weight: 600;
-}
-
-.sidebar-menu-entry:disabled {
-  cursor: default;
 }
 
 .sidebar-footer {
@@ -1205,8 +1395,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   border-radius: 0 8px 8px 0;
   background: var(--workbench-menu-surface);
   box-shadow: none;
-  clip-path: inset(0 -80px -80px 0);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .sidebar-submenu-panel {
@@ -1216,7 +1405,9 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   left: var(--sidebar-submenu-left);
   display: grid;
   grid-template-rows: minmax(0, 1fr);
-  width: min(360px, calc(100vw - var(--sidebar-submenu-left) - 24px));
+  width: max-content;
+  min-width: min(240px, calc(100vw - var(--sidebar-submenu-left) - 24px));
+  max-width: min(360px, calc(100vw - var(--sidebar-submenu-left) - 24px));
   max-height: min(620px, calc(100vh - 16px));
   border: 0;
   border-radius: 0 8px 8px 0;
@@ -1303,27 +1494,12 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   content: '';
 }
 
-.mega-deep-panel header span {
-  color: #64748b;
-  font-size: 11px;
-}
-
-.mega-deep-panel header strong {
-  overflow: hidden;
-  color: #172033;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .mega-body {
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   grid-template-columns: minmax(0, 1fr);
   min-height: 0;
-}
-
-.mega-body.has-deep {
-  grid-template-columns: minmax(0, 1fr) 280px;
+  max-height: calc(100vh - 16px);
 }
 
 .mega-groups {
@@ -1363,12 +1539,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .mega-group-title.navigable {
-  color: #0f766e;
   cursor: pointer;
-}
-
-.mega-group-title.navigable:hover {
-  text-decoration: underline;
 }
 
 .mega-group-title.selected,
@@ -1382,31 +1553,93 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .mega-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  min-height: 30px;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  cursor: default;
+  overflow: hidden;
+}
+
+.mega-entry-main,
+.mega-entry-trigger {
+  min-width: 0;
+  min-height: 30px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.mega-entry-main {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 30px;
   padding: 5px 7px;
-  border-radius: 6px;
-  color: #64748b;
-  font-size: 12px;
-  cursor: default;
+  text-align: left;
 }
 
-.mega-entry.navigable {
-  color: #1e293b;
+.mega-entry-main:not(:disabled),
+.mega-entry-trigger {
   cursor: pointer;
 }
 
-.mega-entry.branch {
-  font-weight: 600;
+.mega-entry-main:disabled {
+  opacity: 1;
+}
+
+.mega-entry-main > .mega-entry-indicator {
+  margin-right: 6px;
+}
+
+.mega-entry-trigger {
+  display: grid;
+  width: 32px;
+  place-items: center;
+  padding: 0;
+  border-radius: 0 6px 6px 0;
+}
+
+.mega-entry-trigger:hover {
+  background: rgb(15 118 110 / 7%);
+}
+
+.mega-entry-indicator {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentcolor;
+  border-bottom: 1.5px solid currentcolor;
+  opacity: 0.58;
+  transform: rotate(-45deg);
+  transition:
+    opacity 140ms ease,
+    transform 160ms ease;
+}
+
+.mega-entry-main:hover .mega-entry-indicator,
+.mega-entry-trigger:hover .mega-entry-indicator,
+.mega-entry.active .mega-entry-indicator {
+  opacity: 1;
+}
+
+.mega-entry.active .mega-entry-indicator {
+  transform: rotate(45deg) translate(-1px, -1px);
 }
 
 .mega-entry:hover,
 .mega-entry.active {
   background: #eef7f4;
   color: #0f766e;
+}
+
+.mega-entry.active {
+  box-shadow: inset 3px 0 0 #0f766e;
 }
 
 .mega-entry.selected {
@@ -1422,41 +1655,46 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 .mega-deep-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-width: 0;
-  border-left: 1px solid #e2e8f0;
-  background: #fbfcfe;
-}
-
-.mega-deep-panel header {
-  display: grid;
-  gap: 2px;
-  min-height: 46px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #e2e8f0;
+  max-height: min(320px, 45vh);
+  border-top: var(--workbench-menu-border-width) solid var(--workbench-menu-border);
+  border-radius: 0 0 8px 0;
+  background: #f8fbfa;
+  box-shadow: inset 0 10px 18px -18px rgb(15 23 42 / 28%);
+  overflow: hidden;
 }
 
 .mega-deep-tree {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: start;
+  gap: 4px 16px;
   min-height: 0;
   margin: 0;
-  padding: 8px;
+  padding: 10px 14px 12px;
   overflow: auto;
 }
 
+.mega-deep-dock-enter-active {
+  transition:
+    opacity 120ms ease,
+    transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.mega-deep-dock-enter-from {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 @media (max-width: 980px) {
-  .mega-outline,
-  .sidebar-submenu-outline,
-  .compact-mega-outline {
+  .workbench-menu--expanded .mega-outline,
+  .workbench-menu--expanded .sidebar-submenu-outline,
+  .workbench-menu--expanded .compact-mega-outline {
     display: none;
   }
 
-  .workbench-menu--compact.compact-mega-open .menu-sidebar {
-    z-index: 1;
-    border-color: var(--workbench-menu-border);
-    box-shadow: 0 14px 28px rgb(15 23 42 / 13%);
-  }
-
-  .menu-sidebar {
+  .workbench-menu--expanded .menu-sidebar {
     position: relative;
     height: auto;
     min-height: 0;
@@ -1464,11 +1702,11 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
     border-bottom: 1px solid #d8e1ea;
   }
 
-  .root-menu {
+  .workbench-menu--expanded .root-menu {
     max-height: 240px;
   }
 
-  .mega-panel {
+  .workbench-menu--expanded .mega-panel {
     position: relative;
     top: auto;
     left: auto;
@@ -1480,7 +1718,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
     box-shadow: 0 16px 34px rgb(15 23 42 / 10%);
   }
 
-  .sidebar-submenu-panel {
+  .workbench-menu--expanded .sidebar-submenu-panel {
     position: relative;
     top: auto;
     left: auto;
@@ -1490,23 +1728,17 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
     border-radius: 8px;
   }
 
-  .mega-body,
-  .mega-body.has-deep {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .mega-groups {
+  .workbench-menu--expanded .mega-groups {
     grid-template-columns: minmax(0, 1fr);
     max-height: none;
   }
 
-  .mega-column {
+  .workbench-menu--expanded .mega-column {
     gap: 14px;
   }
 
-  .mega-deep-panel {
-    border-top: 1px solid #e2e8f0;
-    border-left: 0;
+  .mega-deep-tree {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1516,7 +1748,10 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   .workbench-sidebar-brand-enter-active,
   .workbench-sidebar-brand-leave-active,
   .workbench-mega-panel-enter-active,
-  .workbench-mega-panel-leave-active {
+  .workbench-mega-panel-leave-active,
+  .mega-deep-dock-enter-active,
+  .mega-entry-indicator,
+  .root-menu-branch-indicator {
     transition: none !important;
   }
 }
