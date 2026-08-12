@@ -1288,13 +1288,13 @@ function recordTitle(record: QueryListRecord | undefined) {
   align-content: center;
   justify-items: center;
   min-height: calc(100vh - 116px);
-  color: #64748b;
+  color: var(--muyun-text-muted);
   text-align: center;
 }
 
 .dynamic-module-unsupported h2 {
   margin: 0 0 8px;
-  color: #111827;
+  color: var(--muyun-text);
   font-size: 18px;
   font-weight: 600;
 }

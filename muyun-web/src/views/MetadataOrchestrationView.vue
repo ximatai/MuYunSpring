@@ -508,7 +508,7 @@ function fieldCellValue(column: UiDataTableColumn, record: UiDataTableRecord) {
 }
 
 .entity-overview dt {
-  color: #64748b;
+  color: var(--muyun-text-muted);
   font-size: 13px;
 }
 
@@ -525,7 +525,7 @@ function fieldCellValue(column: UiDataTableColumn, record: UiDataTableRecord) {
 
 .field-section-header h3 {
   margin: 0;
-  color: #334155;
+  color: var(--muyun-text-body);
   font-size: 13px;
   font-weight: 700;
 }
@@ -539,7 +539,7 @@ function fieldCellValue(column: UiDataTableColumn, record: UiDataTableRecord) {
 .orchestration-form label {
   display: grid;
   gap: 7px;
-  color: #334155;
+  color: var(--muyun-text-body);
 }
 
 .orchestration-form-flags {

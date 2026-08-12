@@ -49,10 +49,10 @@ const emit = defineEmits<{
   gap: 12px;
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid #f59e0b;
+  border: 1px solid var(--muyun-warning-border);
   border-radius: 8px;
-  background: #fffbeb;
-  color: #78350f;
+  background: var(--muyun-warning-soft);
+  color: var(--muyun-warning-soft-text);
 }
 
 .record-external-change-notice-content {
@@ -66,7 +66,7 @@ const emit = defineEmits<{
 }
 
 .record-external-change-notice-content span {
-  color: #92400e;
+  color: var(--muyun-warning-soft-text);
   font-size: 12px;
   line-height: 1.5;
 }

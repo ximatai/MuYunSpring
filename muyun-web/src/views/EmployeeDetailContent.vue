@@ -208,7 +208,7 @@ const emit = defineEmits<{
   gap: 4px;
 }
 .employee-form-label strong {
-  color: #d92d20;
+  color: var(--muyun-danger-base);
   font-weight: 600;
 }
 .employee-detail-state {

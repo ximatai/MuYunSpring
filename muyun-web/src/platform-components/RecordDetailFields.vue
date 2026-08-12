@@ -137,14 +137,14 @@ function fileSizeValue(field: RecordFormFieldState) {
 }
 
 dt {
-  color: #64748b;
+  color: var(--muyun-text-muted);
   font-size: 12px;
 }
 
 dd {
   overflow-wrap: anywhere;
   margin: 4px 0 0;
-  color: #243447;
+  color: var(--muyun-text-body);
   font-size: 13px;
   line-height: 20px;
 }

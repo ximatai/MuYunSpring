@@ -162,7 +162,7 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
 }
 
 .record-mode-drawer-state span {
-  color: #64748b;
+  color: var(--muyun-text-muted);
   font-size: 13px;
 }
 </style>

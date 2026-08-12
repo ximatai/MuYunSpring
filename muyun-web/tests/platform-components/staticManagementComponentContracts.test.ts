@@ -2105,7 +2105,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(recycleBinButtonSource, /'standard' \| 'expression' \| 'selected'/);
   assert.match(recycleBinButtonSource, /is-expression/);
   assert.match(recycleBinButtonSource, /is-selected/);
-  assert.match(recycleBinButtonSource, /border-color: var\(--muyun-danger-border, #f5e5e7\)/);
+  assert.match(recycleBinButtonSource, /border-color: var\(--muyun-danger-border\)/);
   assert.match(recycleBinButtonSource, /min-width: 14px/);
   assert.match(recycleBinButtonSource, /font-size: 9px/);
   assert.match(recycleBinButtonSource, /:danger="visualState === 'selected'"/);

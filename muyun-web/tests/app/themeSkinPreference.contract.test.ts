@@ -1,11 +1,47 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import type { UserPreferenceStore } from '@muyun/web-core';
+import {
+  restoreThemeSkinPreference,
+  saveThemeSkinPreference,
+  themeSkinPreferenceKey,
+} from '@/app/themeSkinPreference';
 
-it('keeps the device-local skin when the account has no backend preference yet', () => {
-  const appSource = readFileSync(resolve(import.meta.dirname, '../../src/App.vue'), 'utf8');
+function preferenceStore(): UserPreferenceStore {
+  return {
+    get: vi.fn(),
+    restore: vi.fn(),
+    set: vi.fn(),
+    remove: vi.fn(),
+  };
+}
 
-  expect(appSource).toMatch(
-    /userPreferences\.restore\(THEME_SKIN_PREFERENCE_KEY, themeSkinId\.value, \{\s*persistence: 'backend'/,
-  );
+it('restores the account skin and mirrors the normalized value locally', async () => {
+  const store = preferenceStore();
+  vi.mocked(store.restore).mockResolvedValue('dark-navy');
+
+  await expect(restoreThemeSkinPreference(store, 'light-blue')).resolves.toBe('dark-navy');
+  expect(store.restore).toHaveBeenCalledWith(themeSkinPreferenceKey, 'light-blue', {
+    persistence: 'backend',
+  });
+  expect(store.set).toHaveBeenCalledWith(themeSkinPreferenceKey, 'dark-navy', { persistence: 'local' });
+});
+
+it('rolls back the local skin when account persistence fails', async () => {
+  const store = preferenceStore();
+  vi.mocked(store.set)
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValueOnce(undefined);
+
+  await expect(saveThemeSkinPreference(store, 'dark-navy', 'light-blue')).resolves.toEqual({
+    skinId: 'light-blue',
+    error: '皮肤保存失败，已恢复为之前的设置。',
+  });
+  expect(store.set).toHaveBeenNthCalledWith(1, themeSkinPreferenceKey, 'dark-navy', { persistence: 'local' });
+  expect(store.set).toHaveBeenNthCalledWith(2, themeSkinPreferenceKey, 'dark-navy', {
+    persistence: 'backend',
+  });
+  expect(store.set).toHaveBeenNthCalledWith(3, themeSkinPreferenceKey, 'light-blue', {
+    persistence: 'local',
+  });
 });

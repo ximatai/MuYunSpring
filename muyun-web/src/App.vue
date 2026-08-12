@@ -73,6 +73,11 @@ import {
 import { provideWorkbenchNavigation } from './platform-workbench/workbenchNavigation';
 import { router } from './app/router';
 import { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from './app/workbenchRouteSync';
+import {
+  restoreThemeSkinPreference,
+  saveThemeSkinPreference,
+  themeSkinPreferenceKey,
+} from './app/themeSkinPreference';
 
 configureUserPreferenceBackend({
   load: async (key) => {
@@ -108,12 +113,11 @@ const logoutLoading = ref(false);
 const changePasswordOpen = ref(false);
 const changePasswordSaving = ref(false);
 const changePasswordError = ref<string>();
-const THEME_SKIN_PREFERENCE_KEY = 'workbench.theme-skin';
 const themeSkinPreferencesOpen = ref(false);
 const themeSkinSaving = ref(false);
 const themeSkinError = ref<string>();
 const themeSkinId = ref<UiThemeSkinId>(
-  uiThemeSkinById(userPreferences.get('workbench.theme-skin', defaultUiThemeSkinId)).id,
+  uiThemeSkinById(userPreferences.get(themeSkinPreferenceKey, defaultUiThemeSkinId)).id,
 );
 const activeThemeSkin = computed(() => uiThemeSkinById(themeSkinId.value));
 const currentPassword = ref('');
@@ -248,15 +252,11 @@ async function restoreThemeSkinFromBackend() {
   }
   const revision = ++themeSkinPreferenceRevision;
   try {
-    const restored = await userPreferences.restore(THEME_SKIN_PREFERENCE_KEY, themeSkinId.value, {
-      persistence: 'backend',
-    });
+    const restored = await restoreThemeSkinPreference(userPreferences, themeSkinId.value);
     if (revision !== themeSkinPreferenceRevision) {
       return;
     }
-    const skin = uiThemeSkinById(restored);
-    themeSkinId.value = skin.id;
-    await userPreferences.set(THEME_SKIN_PREFERENCE_KEY, skin.id, { persistence: 'local' });
+    themeSkinId.value = restored;
   } catch {
     // Keep the locally restored skin when the preference service is temporarily unavailable.
   }
@@ -271,20 +271,20 @@ async function selectThemeSkin(skinId: UiThemeSkinId) {
   themeSkinId.value = skinId;
   themeSkinSaving.value = true;
   themeSkinError.value = undefined;
-  await userPreferences.set(THEME_SKIN_PREFERENCE_KEY, skinId, { persistence: 'local' });
   if (usesMockStartup()) {
+    await userPreferences.set(themeSkinPreferenceKey, skinId, { persistence: 'local' });
     themeSkinSaving.value = false;
     return;
   }
   try {
-    await userPreferences.set(THEME_SKIN_PREFERENCE_KEY, skinId, { persistence: 'backend' });
-  } catch {
-    if (revision !== themeSkinPreferenceRevision) {
-      return;
+    const result = await saveThemeSkinPreference(userPreferences, skinId, previousSkinId);
+    if (result.error) {
+      if (revision !== themeSkinPreferenceRevision) {
+        return;
+      }
+      themeSkinId.value = result.skinId;
+      themeSkinError.value = result.error;
     }
-    themeSkinId.value = previousSkinId;
-    await userPreferences.set(THEME_SKIN_PREFERENCE_KEY, previousSkinId, { persistence: 'local' });
-    themeSkinError.value = '皮肤保存失败，已恢复为之前的设置。';
   } finally {
     themeSkinSaving.value = false;
   }

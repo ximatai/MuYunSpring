@@ -32,7 +32,7 @@ defineProps<{
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: #0f6b57;
+  color: var(--muyun-positive-soft-text);
   font-size: 12px;
   font-weight: 500;
   line-height: 20px;
@@ -43,27 +43,27 @@ defineProps<{
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: #22a06b;
+  background: var(--muyun-positive-base);
 }
 
 .record-status-tag--neutral {
-  color: #697588;
+  color: var(--muyun-support-text-muted);
 }
 
 .record-status-tag--neutral .record-status-tag-dot {
-  background: #94a3b8;
+  background: var(--muyun-support-icon);
 }
 
 .record-status-tag--warning {
-  color: #9a6700;
+  color: var(--muyun-warning-soft-text);
 }
 .record-status-tag--warning .record-status-tag-dot {
-  background: #d97706;
+  background: var(--muyun-warning-base);
 }
 .record-status-tag--danger {
-  color: #b42318;
+  color: var(--muyun-danger-soft-text);
 }
 .record-status-tag--danger .record-status-tag-dot {
-  background: #d92d20;
+  background: var(--muyun-danger-base);
 }
 </style>

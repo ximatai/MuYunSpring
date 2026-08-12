@@ -67,7 +67,7 @@ const visualState = computed<'standard' | 'expression' | 'selected'>(() => {
 }
 
 .recycle-bin-mode-button.is-expression {
-  border-color: var(--muyun-danger-border, #f5e5e7);
+  border-color: var(--muyun-danger-border);
 }
 
 .recycle-bin-mode-badge :deep(.ant-badge-count) {
@@ -87,7 +87,7 @@ const visualState = computed<'standard' | 'expression' | 'selected'>(() => {
 }
 
 .recycle-bin-mode-button.is-selected {
-  border-color: var(--muyun-danger-border, #f5e5e7);
+  border-color: var(--muyun-danger-border);
   background: var(--muyun-danger-bg);
   color: var(--muyun-danger-text);
 }
