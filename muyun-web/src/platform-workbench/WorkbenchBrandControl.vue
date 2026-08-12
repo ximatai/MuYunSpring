@@ -264,7 +264,7 @@ button.workbench-brand-identity {
 
 .workbench-menu-depth-option.selected {
   background: var(--muyun-brand-accent-base);
-  color: var(--muyun-theme-active);
+  color: var(--muyun-brand-accent-on-base);
   box-shadow: 0 1px 2px color-mix(in srgb, var(--muyun-brand-accent-base) 30%, transparent);
 }
 

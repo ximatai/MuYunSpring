@@ -2,7 +2,7 @@
 
 本文定义 MuYun Web 的颜色设计语言。它将原始调色板、稳定视觉语义和具体组件实现分离，使工作台、平台管理页、动态页面运行器与 UI adapter 使用同一套颜色规则。
 
-本文不引入暗色主题，也不承诺当前阶段支持用户自行选择主题；它先固定默认主题和未来可替换的边界。
+系统提供一组受控的内嵌皮肤，可由用户选择并持久化；不提供任意取色或运行时猜测色阶。
 
 ## 设计目标
 
@@ -41,18 +41,19 @@
 
 `theme`、`brand-accent` 与所有状态色都提供以下 token；组件不得自行从 `base` 推算透明度或临时生成浅色。
 
-| 色阶                         | 用途                               |
-| ---------------------------- | ---------------------------------- |
-| `base`                       | 常规强调、图标、状态点、主按钮底色 |
-| `hover`                      | 指针悬停                           |
-| `active`                     | 按下或持续激活                     |
-| `soft`                       | 轻量选中背景、提示背景、弱强调面   |
-| `soft-text`                  | 在 `soft` 表面上的可读文字         |
-| `border`                     | 该角色对应的结构或提示边界         |
-| `focus`                      | 焦点环、键盘可达提示               |
-| `disabled` / `disabled-text` | 禁用态                             |
+| 色阶                         | 用途                                   |
+| ---------------------------- | -------------------------------------- |
+| `base`                       | 常规强调、图标、状态点、主按钮底色     |
+| `on-base`                    | 放置在该角色 `base` 表面上的文字与图标 |
+| `hover`                      | 指针悬停                               |
+| `active`                     | 按下或持续激活                         |
+| `soft`                       | 轻量选中背景、提示背景、弱强调面       |
+| `soft-text`                  | 在 `soft` 表面上的可读文字             |
+| `border`                     | 该角色对应的结构或提示边界             |
+| `focus`                      | 焦点环、键盘可达提示                   |
+| `disabled` / `disabled-text` | 禁用态                                 |
 
-`support` 采用表面与文本层级，而非强行套用 `base`：`page`、`canvas`、`surface`、`elevated`、`hover`、`border`、`border-subtle`、`text`、`text-muted`、`icon`。这些值由视觉基线中的 surface、border、text palette 映射。
+`support` 采用表面与文本层级，而非强行套用 `base`：`page`、`canvas`、`surface`、`elevated`、`hover`、`border`、`border-subtle`、`text`、`text-muted`、`icon`、`disabled`、`disabled-text`。通用禁用控件消费 `support.disabled` 与 `support.disabled-text`，不得使用主题色的 disabled 色阶伪装成仍可交互的强调状态。这些值由视觉基线中的 surface、border、text palette 映射。
 
 ## 三层映射
 
@@ -76,7 +77,20 @@ palette_surface_subtle   -> --muyun-support-hover    -> 普通 hover 和弱分�
 
 业务页面和 `platform-workbench` 只使用 `--muyun-theme-*`、`--muyun-support-*`、`--muyun-positive-*` 等语义变量。`vue-ui-antdv` 负责把同一主题映射到 Ant Design Vue 的 `ConfigProvider` 与必要的组件级 token；业务层不得直接引用 `--ant-*` 或 `colorPrimary`。
 
-`UiThemeProvider` 是语义颜色和 Ant 主题的同一作用域边界：CSS variables 写在 Provider 根节点而不是 `document.documentElement`，因此嵌套、卸载或临时预览主题不会污染应用其他区域。Provider 使用 `display: contents`，不额外介入业务页面的 flex/grid 布局。应用根 Provider 覆盖整个工作台；需要局部预览时，必须同时由该 Provider 包住 CSS 消费者与 Ant 组件，不能只改其中一侧。
+`UiThemeProvider` 是语义颜色和 Ant 主题的同一作用域边界。默认的 `local` scope 将 CSS variables 写在 Provider 根节点，因此嵌套、卸载或临时预览主题不会污染应用其他区域。应用根使用唯一的 `global` scope 同步 variables 到 `document.documentElement`，以覆盖 Ant 的 Modal、Dropdown 等 Teleport 表面；卸载或切换 scope 时会恢复此前的 document 值。Provider 使用 `display: contents`，不额外介入业务页面的 flex/grid 布局。局部预览必须保持 `local`，并同时由 Provider 包住 CSS 消费者与 Ant 组件，不能只改其中一侧。
+
+## 内嵌皮肤与持久化
+
+当前内嵌四套完整皮肤，各自都提供同一套语义角色、support 表面层级和 Ant Design Vue 的亮/暗算法映射：
+
+| 稳定 ID         | 名称     | 外观 | 定位                   |
+| --------------- | -------- | ---- | ---------------------- |
+| `light-blue`    | 工程蓝   | 亮色 | 默认工作台基线         |
+| `light-amber`   | 暖琥珀   | 亮色 | 暖白表面与琥珀交互焦点 |
+| `dark-navy`     | 深海军蓝 | 暗色 | 低照度工程蓝识别       |
+| `dark-graphite` | 石墨深灰 | 暗色 | 高对比制造控制台       |
+
+用户在“偏好设置”中选择皮肤后立即生效：设备本地先恢复，登录后的账户偏好再异步恢复；修改会同步写入服务端，服务端保存失败则回退到先前皮肤并明确提示。持久化的是稳定 ID `workbench.theme-skin`，而不是颜色值，因此设计可在不改变业务消费者的前提下调整各套配色。
 
 ## 组件使用口径
 
@@ -104,8 +118,8 @@ palette_surface_subtle   -> --muyun-support-hover    -> 普通 hover 和弱分�
 
 后续预留：
 
-- 以相同角色契约新增主题包，例如 `teal`、`violet`；它们只替换 palette 与派生的 `theme` token。
-- 在完整暗色表面、边框、文本和状态色得到设计验证后，再增加暗色主题。
+- 以相同角色契约新增经过设计验证的皮肤；它们只替换 palette 与派生的语义 token。
+- 如果需要“跟随系统”，将其作为新的偏好策略，而不是另建一套颜色定义。
 
 当前明确不做：
 

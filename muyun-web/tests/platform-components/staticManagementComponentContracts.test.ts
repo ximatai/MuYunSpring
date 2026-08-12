@@ -61,6 +61,15 @@ it('record explorer panel uses a single title contract', () => {
   assert.notMatch(layoutSource, /groupTitle/);
 });
 
+it('record metadata uses semantic text colors so dark skins preserve hierarchy', () => {
+  const metaSource = readSource('src/platform-components/RecordMetaSection.vue');
+
+  assert.match(metaSource, /\.record-meta h3[\s\S]*color: var\(--muyun-support-text\)/);
+  assert.match(metaSource, /dt \{[\s\S]*color: var\(--muyun-support-text-muted\)/);
+  assert.match(metaSource, /dd \{[\s\S]*color: var\(--muyun-support-text-body\)/);
+  assert.notMatch(metaSource, /#334155|#64748b|#243447/);
+});
+
 it('reference summary tags keep visual rendering inside the UI adapter', () => {
   const tagListSource = readSource('src/platform-components/RecordTagList.vue');
   const adapterSource = readSource('src/vue-ui-antdv/components/UiTagList.vue');
@@ -474,6 +483,15 @@ it('record picker search supports clearing its keyword', () => {
   const pickerSource = readSource('src/platform-components/RecordPicker.vue');
 
   assert.match(pickerSource, /v-model:value="keyword" allow-clear placeholder="搜索名称、编码或 ID"/);
+  assert.match(
+    pickerSource,
+    /\.record-picker-value:disabled \{[\s\S]*background: var\(--muyun-support-disabled\)/,
+  );
+  assert.match(
+    pickerSource,
+    /\.record-picker-value:disabled \{[\s\S]*color: var\(--muyun-support-disabled-text\)/,
+  );
+  assert.notMatch(pickerSource, /#cfd9e5|#f8fafc|#475569|#172033/);
 });
 
 it('menu management keeps scheme actions inline and delegates search to panel', () => {

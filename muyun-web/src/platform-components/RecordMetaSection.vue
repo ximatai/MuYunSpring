@@ -47,7 +47,7 @@ defineProps<{
 
 .record-meta h3 {
   margin: 0;
-  color: #334155;
+  color: var(--muyun-support-text);
   font-size: 14px;
 }
 
@@ -63,14 +63,14 @@ dl div {
 }
 
 dt {
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
 }
 
 dd {
   overflow: hidden;
   margin: 3px 0 0;
-  color: #243447;
+  color: var(--muyun-support-text-body);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;

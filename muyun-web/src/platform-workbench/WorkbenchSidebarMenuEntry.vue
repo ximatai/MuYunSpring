@@ -274,10 +274,32 @@ function handleMainClick() {
   color: var(--muyun-theme-base);
 }
 
+.sidebar-menu-entry.selected,
+.sidebar-menu-entry.selected-path {
+  position: relative;
+}
+
+.sidebar-menu-entry.selected::before,
+.sidebar-menu-entry.selected-path::before {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  z-index: 1;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: var(--muyun-theme-base);
+  content: '';
+}
+
+.sidebar-menu-entry.selected-path::before {
+  background: var(--muyun-theme-hover);
+  opacity: 0.58;
+}
+
 .sidebar-menu-entry.selected-path {
   background: var(--muyun-theme-soft);
   color: var(--muyun-support-text-muted);
-  box-shadow: inset 2px 0 0 var(--muyun-theme-border);
 }
 
 .sidebar-menu-entry.active.selected,

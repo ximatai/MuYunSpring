@@ -87,13 +87,13 @@ const emit = defineEmits<{
 .change-own-password-fields label {
   display: grid;
   gap: 6px;
-  color: #334155;
+  color: var(--muyun-support-text-body);
   font-size: 13px;
 }
 
 .change-own-password-error {
   margin: 0;
-  color: #b42318;
+  color: var(--muyun-danger-soft-text);
   font-size: 13px;
 }
 </style>
