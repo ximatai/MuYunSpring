@@ -764,7 +764,8 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                 class="root-menu-item root-menu-item--split navigable branch"
                 :class="{
                   active: activeRootNode?.record.id === node.record.id,
-                  selected: isSelectedRoot(node),
+                  selected: isSelectedMenu(node),
+                  'selected-path': isSelectedRoot(node) && !isSelectedMenu(node),
                 }"
                 @mouseenter="openRootMenu(node, $event)"
               >
@@ -793,7 +794,8 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                 class="root-menu-item"
                 :class="{
                   active: activeRootNode?.record.id === node.record.id,
-                  selected: isSelectedRoot(node),
+                  selected: isSelectedMenu(node),
+                  'selected-path': isSelectedRoot(node) && !isSelectedMenu(node),
                   navigable: node.navigable,
                   branch: node.hasChildren,
                 }"
@@ -1333,6 +1335,13 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .root-menu-item.selected {
   background: #e4f2ef;
   color: #0f766e;
+  font-weight: 700;
+}
+
+.root-menu-item.selected-path {
+  background: #f6fbfa;
+  color: #475569;
+  box-shadow: inset 2px 0 0 #c4e2dc;
 }
 
 .root-menu-item.active,
@@ -1341,6 +1350,12 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   border-color: transparent;
   border-radius: 6px 0 0 6px;
   background: var(--workbench-menu-surface);
+}
+
+.root-menu-item.active.selected-path {
+  background: var(--workbench-menu-surface);
+  color: #0f766e;
+  box-shadow: inset 3px 0 0 #75bbb0;
 }
 
 .root-menu-item.navigable {

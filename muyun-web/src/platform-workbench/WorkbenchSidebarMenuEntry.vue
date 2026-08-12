@@ -275,9 +275,16 @@ function handleMainClick() {
 }
 
 .sidebar-menu-entry.selected-path {
-  background: #f0f7f5;
+  background: #f7fbfa;
+  color: #475569;
+  box-shadow: inset 2px 0 0 #c4e2dc;
+}
+
+.sidebar-menu-entry.active.selected,
+.sidebar-menu-entry.active.selected-path {
+  background: #fff;
   color: #0f766e;
-  box-shadow: inset 2px 0 0 #9ccfc7;
+  box-shadow: inset 3px 0 0 #0f766e;
 }
 
 .sidebar-menu-entry:disabled {

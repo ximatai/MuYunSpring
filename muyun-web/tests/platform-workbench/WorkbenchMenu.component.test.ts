@@ -5,12 +5,14 @@ import WorkbenchBrandControl from '@/platform-workbench/WorkbenchBrandControl.vu
 import WorkbenchMenu from '@/platform-workbench/WorkbenchMenu.vue';
 import WorkbenchMenuTree from '@/platform-workbench/WorkbenchMenuTree.vue';
 import { createWorkbenchMenuNodes, findWorkbenchMenuNodeById } from '@/platform-workbench/menuTreeModel.ts';
+import { userPreferences } from '@/web-core';
 
 config.global.stubs = { ...config.global.stubs, WorkbenchSidebarMenuEntry: false };
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  window.localStorage.clear();
 });
 
 function stubHoverCapability(matches: boolean) {
@@ -552,6 +554,25 @@ describe('WorkbenchMenu', () => {
     expect(wrapper.get('.sidebar-menu-entry.active').text()).toBe('分组 A');
   });
 
+  it('keeps the hovered second-level ancestor visually active with its flyout', async () => {
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: {
+        menus: nestedMenus,
+        selectedMenuId: 'application',
+        presentation: 'expanded',
+        expandedMenuDepth: 2,
+      },
+    });
+    const group = wrapper
+      .findAll('.sidebar-menu-level--2 > .sidebar-menu-entry')
+      .find((entry) => entry.text() === '平台配置');
+
+    await group?.trigger('mouseenter');
+
+    expect(group?.classes()).toEqual(expect.arrayContaining(['active', 'selected-path']));
+    expect(wrapper.find('.sidebar-submenu-panel').exists()).toBe(true);
+  });
+
   it('switches sidebar flyouts immediately on a deliberate click', async () => {
     const wrapper = shallowMount(WorkbenchMenu, {
       props: { menus: sidebarAimMenus, presentation: 'expanded', expandedMenuDepth: 2 },
@@ -705,6 +726,17 @@ describe('WorkbenchMenu', () => {
     expect(currentEntry?.find('.mega-entry-main').attributes('aria-current')).toBe('page');
   });
 
+  it('distinguishes the current entry from its lighter ancestor path in the sidebar', () => {
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: nestedMenus, selectedMenuId: 'application', presentation: 'expanded' },
+    });
+
+    const root = wrapper.get('.root-menu-item');
+
+    expect(root.classes()).toContain('selected-path');
+    expect(root.classes()).not.toContain('selected');
+  });
+
   it('uses a separate deep trigger when a branch can also navigate', async () => {
     const wrapper = shallowMount(WorkbenchMenu, {
       props: { menus: nestedMenus, presentation: 'expanded' },
@@ -833,6 +865,19 @@ describe('WorkbenchMenu', () => {
 });
 
 describe('Workbench compact menu', () => {
+  it('restores and persists the selected menu presentation', async () => {
+    await userPreferences.set('workbench.menu-presentation', 'expanded');
+    const wrapper = shallowMount(Workbench);
+    const menu = wrapper.findComponent(WorkbenchMenu);
+
+    expect(menu.props('presentation')).toBe('expanded');
+
+    menu.vm.$emit('changePresentation', 'compact');
+    await wrapper.vm.$nextTick();
+
+    expect(userPreferences.get('workbench.menu-presentation', 'expanded')).toBe('compact');
+  });
+
   it('pins a deliberate click open and closes on the second click', async () => {
     vi.useFakeTimers();
     const wrapper = shallowMount(Workbench);

@@ -67,7 +67,9 @@ const userMenuItems: UiDropdownItem[] = [
   { key: 'settings', title: '偏好设置' },
   { key: 'logout', title: '退出登录', danger: true },
 ];
-const menuPresentation = ref<WorkbenchMenuPresentation>('compact');
+const menuPresentation = ref(
+  normalizeWorkbenchMenuPresentation(userPreferences.get('workbench.menu-presentation', 'compact')),
+);
 const narrowViewport = ref(false);
 const effectiveMenuPresentation = computed(() =>
   effectiveWorkbenchMenuPresentation(menuPresentation.value, narrowViewport.value),
@@ -192,6 +194,7 @@ function setMenuPresentation(presentation: WorkbenchMenuPresentation) {
   }
   suppressCompactMenuPointerEnter.value = presentation === 'compact';
   menuPresentation.value = presentation;
+  void userPreferences.set('workbench.menu-presentation', presentation);
   closeCompactMenu();
   if (presentation === 'compact') {
     compactMenuPointerReleaseFrame = window.requestAnimationFrame(() => {
@@ -213,6 +216,10 @@ function setExpandedMenuDepth(depth: 1 | 2 | 3) {
 
 function normalizeExpandedMenuDepth(value: unknown): 1 | 2 | 3 {
   return value === 2 || value === 3 ? value : 1;
+}
+
+function normalizeWorkbenchMenuPresentation(value: unknown): WorkbenchMenuPresentation {
+  return value === 'expanded' ? value : 'compact';
 }
 
 function updateCompactMenuTop() {
