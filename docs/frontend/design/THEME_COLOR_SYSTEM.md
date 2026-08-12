@@ -76,6 +76,8 @@ palette_surface_subtle   -> --muyun-support-hover    -> 普通 hover 和弱分�
 
 业务页面和 `platform-workbench` 只使用 `--muyun-theme-*`、`--muyun-support-*`、`--muyun-positive-*` 等语义变量。`vue-ui-antdv` 负责把同一主题映射到 Ant Design Vue 的 `ConfigProvider` 与必要的组件级 token；业务层不得直接引用 `--ant-*` 或 `colorPrimary`。
 
+`UiThemeProvider` 是语义颜色和 Ant 主题的同一作用域边界：CSS variables 写在 Provider 根节点而不是 `document.documentElement`，因此嵌套、卸载或临时预览主题不会污染应用其他区域。应用根 Provider 覆盖整个工作台；需要局部预览时，必须同时由该 Provider 包住 CSS 消费者与 Ant 组件，不能只改其中一侧。
+
 ## 组件使用口径
 
 | 场景                                         | 颜色角色       | 禁止用法                                     |
@@ -98,7 +100,7 @@ palette_surface_subtle   -> --muyun-support-hover    -> 普通 hover 和弱分�
 1. 在 `vue-ui-antdv` 建立单一默认主题定义，并生成 CSS semantic variables。
 2. 用该定义配置 Ant Design Vue，补齐主要操作、焦点、输入、开关、表格选中与反馈的 adapter 映射。
 3. 迁移 `platform-workbench` 的硬编码青绿色和全局样式中的零散默认蓝，优先修正导航与状态语义。
-4. 为主题映射、导航选中、成功反馈和危险操作补测试；新增检查防止平台层继续引入未经声明的颜色常量。
+4. 为主题映射、导航选中、成功反馈和危险操作补测试；以工作台颜色契约检查防止平台层继续引入未经声明的十六进制颜色常量。
 
 后续预留：
 

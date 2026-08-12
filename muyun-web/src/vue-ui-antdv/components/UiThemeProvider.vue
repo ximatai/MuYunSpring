@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ConfigProvider as AConfigProvider } from 'ant-design-vue';
-import { computed, watchEffect } from 'vue';
+import { computed } from 'vue';
 import { antDesignThemeOf, cssVariablesOf, defaultUiTheme, type UiTheme } from '../theme';
 
 defineOptions({ name: 'UiThemeProvider', inheritAttrs: false });
@@ -8,16 +8,11 @@ defineOptions({ name: 'UiThemeProvider', inheritAttrs: false });
 const props = withDefaults(defineProps<{ theme?: UiTheme }>(), { theme: () => defaultUiTheme });
 const activeTheme = computed(() => props.theme);
 const antTheme = computed(() => antDesignThemeOf(activeTheme.value));
-
-watchEffect(() => {
-  if (typeof document !== 'undefined') {
-    Object.entries(cssVariablesOf(activeTheme.value)).forEach(([name, value]) =>
-      document.documentElement.style.setProperty(name, value),
-    );
-  }
-});
+const cssVariables = computed(() => cssVariablesOf(activeTheme.value));
 </script>
 
 <template>
-  <AConfigProvider :theme="antTheme"><slot /></AConfigProvider>
+  <div class="ui-theme-provider" :style="cssVariables">
+    <AConfigProvider :theme="antTheme"><slot /></AConfigProvider>
+  </div>
 </template>

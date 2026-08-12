@@ -640,9 +640,9 @@ function requiresLogin(cause: unknown) {
   gap: 12px;
   width: min(400px, 100%);
   padding: 22px;
-  border: 1px solid #d7dee8;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--muyun-support-surface);
   box-shadow: 0 22px 54px rgba(15, 23, 42, 0.24);
 }
 
@@ -652,18 +652,18 @@ function requiresLogin(cause: unknown) {
 }
 
 .security-notification-dialog h2 {
-  color: #111827;
+  color: var(--muyun-support-text);
   font-size: 18px;
 }
 
 .security-notification-dialog p {
-  color: #334155;
+  color: var(--muyun-support-text-body);
   font-size: 14px;
   line-height: 1.6;
 }
 
 .security-notification-countdown {
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
 }
 
 .security-notification-dialog button {
@@ -673,8 +673,8 @@ function requiresLogin(cause: unknown) {
   padding: 0 14px;
   border: 0;
   border-radius: 6px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--muyun-theme-base);
+  color: var(--muyun-support-surface);
   font-size: 14px;
   cursor: pointer;
 }

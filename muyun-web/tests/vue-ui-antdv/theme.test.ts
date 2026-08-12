@@ -32,9 +32,39 @@ describe('UiTheme', () => {
   it('maps semantic status roles to the Ant Design adapter', () => {
     const tokens = antDesignThemeOf(defaultUiTheme).token;
 
+    expect(tokens?.colorPrimaryHover).toBe(defaultUiTheme.theme.hover);
+    expect(tokens?.colorPrimaryActive).toBe(defaultUiTheme.theme.active);
+    expect(tokens?.controlOutline).toBe(defaultUiTheme.theme.focus);
+    expect(tokens?.colorSuccessBg).toBe(defaultUiTheme.positive.soft);
+    expect(tokens?.colorWarningText).toBe(defaultUiTheme.warning.softText);
     expect(tokens?.colorInfo).toBe(defaultUiTheme.info.base);
     expect(tokens?.colorSuccess).toBe(defaultUiTheme.positive.base);
     expect(tokens?.colorWarning).toBe(defaultUiTheme.warning.base);
     expect(tokens?.colorError).toBe(defaultUiTheme.danger.base);
   });
+
+  it('keeps every semantic soft surface readable by normal text', () => {
+    const tones = [
+      defaultUiTheme.theme,
+      defaultUiTheme.brandAccent,
+      defaultUiTheme.positive,
+      defaultUiTheme.warning,
+      defaultUiTheme.danger,
+      defaultUiTheme.info,
+    ];
+
+    tones.forEach((tone) => expect(contrastRatio(tone.soft, tone.softText)).toBeGreaterThanOrEqual(4.5));
+  });
 });
+
+function contrastRatio(first: string, second: string) {
+  const luminance = (hex: string) => {
+    const channels = hex.match(/[a-f\d]{2}/gi)?.map((value) => Number.parseInt(value, 16) / 255) ?? [];
+    const [red, green, blue] = channels.map((channel) =>
+      channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+    );
+    return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+  };
+  const [lighter, darker] = [luminance(first), luminance(second)].sort((left, right) => right - left);
+  return (lighter + 0.05) / (darker + 0.05);
+}

@@ -61,9 +61,9 @@ select {
 
 .hero,
 .panel {
-  border: 1px solid #dbe4f0;
+  border: 1px solid var(--muyun-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--muyun-surface);
   box-shadow: 0 10px 28px rgb(31 41 51 / 0.05);
 }
 
@@ -80,7 +80,7 @@ select {
 .hero p {
   max-width: 840px;
   margin: 10px 0 0;
-  color: #5f6f83;
+  color: var(--muyun-text-muted);
   line-height: 1.65;
 }
 
@@ -98,14 +98,14 @@ select {
   justify-content: space-between;
   gap: 16px;
   padding: 18px 20px;
-  border: 1px solid #dbe4f0;
+  border: 1px solid var(--muyun-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--muyun-surface);
 }
 
 .section-header p {
   margin: 6px 0 0;
-  color: #6b7788;
+  color: var(--muyun-text-muted);
 }
 
 .runtime-grid {
@@ -127,7 +127,7 @@ select {
 .panel pre {
   max-height: 360px;
   overflow: auto;
-  color: #314256;
+  color: var(--muyun-text-body);
   font-size: 12px;
   line-height: 1.5;
 }
