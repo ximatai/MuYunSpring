@@ -643,7 +643,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
-  padding: 8px 0 0;
+  padding: 6px 0 0;
   overflow: hidden;
 }
 
@@ -665,7 +665,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 .tab-strip :deep(.ant-tabs-tab) {
   margin: 0 4px 0 0 !important;
-  padding: 7px 12px !important;
+  padding: 6px 10px !important;
   border: 1px solid var(--muyun-support-border) !important;
   border-bottom-color: var(--muyun-support-border) !important;
   border-radius: 8px 8px 0 0 !important;
@@ -690,6 +690,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .tab-strip :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) {
   color: var(--muyun-theme-base) !important;
   font-weight: 700;
+}
+
+.tab-strip :deep(.ant-tabs-tab-remove) {
+  margin-left: 1px !important;
 }
 
 .tab-strip :deep(.ant-tabs-tab:not(.ant-tabs-tab-active):hover) {
@@ -769,7 +773,6 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
   .workbench-mega-surface {
     min-height: auto;
-    padding: 8px 0 0;
     overflow: visible;
   }
 
