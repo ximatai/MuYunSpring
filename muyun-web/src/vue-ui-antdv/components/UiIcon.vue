@@ -15,6 +15,7 @@ import {
   MenuUnfoldOutlined,
   QuestionCircleOutlined,
   PlusOutlined,
+  PushpinOutlined,
   PoweroffOutlined,
   ReloadOutlined,
   SaveOutlined,
@@ -39,6 +40,7 @@ export type UiIconName =
   | 'menu-expand'
   | 'notification'
   | 'plus'
+  | 'pin'
   | 'power'
   | 'reload'
   | 'save'
@@ -64,6 +66,7 @@ const icons = {
   'menu-expand': MenuUnfoldOutlined,
   notification: BellOutlined,
   plus: PlusOutlined,
+  pin: PushpinOutlined,
   power: PoweroffOutlined,
   reload: ReloadOutlined,
   save: SaveOutlined,

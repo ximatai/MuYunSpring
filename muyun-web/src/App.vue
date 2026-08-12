@@ -25,6 +25,7 @@ import {
 import { configureUserPreferenceBackend } from './web-core/userPreferences';
 import type {
   LoginResult,
+  MenuTab,
   MenuNavigationTarget,
   MenuRecord,
   WebUserNotification,
@@ -64,12 +65,18 @@ import ModuleOpenApiView from './views/ModuleOpenApiView.vue';
 import OpenApiCatalogView from './views/OpenApiCatalogView.vue';
 import {
   closeMenuTab,
+  closeMenuTabs,
+  arrangeLockedMenuTabs,
   menuTargetUrl,
   openDirectTab,
   openMenuTab,
   reorderMenuTabs,
+  removeLockedMenuTabs,
+  restoreLockedMenuTabs,
   restoreWorkbenchStartupStateFromUrl,
+  updateLockedMenuTabs,
 } from './app/workbenchStartup';
+import { restoreLockedTabPreference, saveLockedTabPreference } from './app/lockedTabPreference';
 import { provideWorkbenchNavigation } from './platform-workbench/workbenchNavigation';
 import { router } from './app/router';
 import { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from './app/workbenchRouteSync';
@@ -120,6 +127,7 @@ const themeSkinId = ref<UiThemeSkinId>(
   uiThemeSkinById(userPreferences.get(themeSkinPreferenceKey, defaultUiThemeSkinId)).id,
 );
 const activeThemeSkin = computed(() => uiThemeSkinById(themeSkinId.value));
+const lockedTabs = ref<MenuTab[]>([]);
 const currentPassword = ref('');
 const newPassword = ref('');
 const confirmPassword = ref('');
@@ -136,6 +144,8 @@ let realtimeConnection: ReturnType<typeof connectAppRealtime> | undefined;
 let securityLogoutTimer: number | undefined;
 let pendingWorkbenchNavigation: string | undefined;
 let themeSkinPreferenceRevision = 0;
+let lockedTabPreferenceRevision = 0;
+let lockedTabPreferenceWrite = Promise.resolve();
 
 configureModuleContext({ httpFactory: createBackendHttpClient });
 provideModuleContextConfig({ httpFactory: createBackendHttpClient });
@@ -186,13 +196,20 @@ async function loadWorkbench() {
       currentBrowserPath(),
       platformAdminRouteResolveOptions,
     );
-    startup.value = state;
-    activeTabKey.value = state.activeTabKey;
+    const restoredLockedTabs = restoreLockedMenuTabs(
+      await restoreLockedTabs(),
+      state.menus,
+      platformAdminRouteResolveOptions,
+    );
+    lockedTabs.value = restoredLockedTabs;
+    const arrangedState = { ...state, tabs: arrangeLockedMenuTabs(state.tabs ?? [], restoredLockedTabs) };
+    startup.value = arrangedState;
+    activeTabKey.value = arrangedState.activeTabKey;
     loginRequired.value = false;
     void restoreThemeSkinFromBackend();
     reconnectRealtime();
     if (!openApiCatalogOpen.value) {
-      syncBrowserUrl(state, 'replace');
+      syncBrowserUrl(arrangedState, 'replace');
     }
   } catch (cause) {
     if (isPasswordChangeRequiredError(cause)) {
@@ -552,11 +569,67 @@ function handleReplacePage(pageKey: string, descriptor: import('@muyun/web-contr
       : tab,
   );
   startup.value = { ...current, tabs };
+  const replacement = tabs.find((tab) => tab.key === pageKey);
+  if (replacement && lockedTabs.value.some((tab) => tab.key === pageKey)) {
+    updateLockedTabs(updateLockedMenuTabs(lockedTabs.value, replacement));
+  }
   syncBrowserUrl(startup.value, 'replace');
 }
 
 function openWindow(url: string) {
   window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+async function restoreLockedTabs(): Promise<MenuTab[]> {
+  if (usesMockStartup()) return [];
+  try {
+    return await restoreLockedTabPreference(userPreferences);
+  } catch {
+    return [];
+  }
+}
+
+function lockedTabKeys() {
+  return lockedTabs.value.map((tab) => tab.key);
+}
+
+function updateLockedTabs(nextLockedTabs: MenuTab[]) {
+  const previousLockedTabs = lockedTabs.value;
+  const revision = ++lockedTabPreferenceRevision;
+  lockedTabs.value = nextLockedTabs;
+  void persistLockedTabs(nextLockedTabs, previousLockedTabs, revision);
+}
+
+async function persistLockedTabs(nextLockedTabs: MenuTab[], previousLockedTabs: MenuTab[], revision: number) {
+  try {
+    lockedTabPreferenceWrite = lockedTabPreferenceWrite
+      .catch(() => undefined)
+      .then(async () => {
+        if (usesMockStartup()) return;
+        await saveLockedTabPreference(userPreferences, nextLockedTabs);
+      });
+    await lockedTabPreferenceWrite;
+  } catch {
+    if (revision !== lockedTabPreferenceRevision) return;
+    lockedTabs.value = previousLockedTabs;
+    const current = startup.value;
+    if (current)
+      startup.value = {
+        ...current,
+        tabs: arrangeLockedMenuTabs(current.tabs ?? [], previousLockedTabs, false),
+      };
+  }
+}
+
+function handleToggleTabLock(key: string) {
+  const current = startup.value;
+  const tab = current?.tabs?.find((item) => item.key === key);
+  if (!current || !tab) return;
+  const nextLockedTabs = lockedTabs.value.some((item) => item.key === key)
+    ? removeLockedMenuTabs(lockedTabs.value, [key])
+    : updateLockedMenuTabs(lockedTabs.value, tab);
+  updateLockedTabs(nextLockedTabs);
+  startup.value = { ...current, tabs: arrangeLockedMenuTabs(current.tabs ?? [], nextLockedTabs) };
 }
 
 function handleCloseTab(key: string) {
@@ -572,6 +645,25 @@ function handleCloseTab(key: string) {
     activeTabKey: result.activeTabKey,
   };
   activeTabKey.value = result.activeTabKey;
+  if (lockedTabs.value.some((tab) => tab.key === key))
+    updateLockedTabs(removeLockedMenuTabs(lockedTabs.value, [key]));
+  syncBrowserUrl(startup.value, 'replace');
+}
+
+function handleCloseTabs(keys: string[]) {
+  const current = startup.value;
+  if (!current || keys.length === 0) {
+    return;
+  }
+  const result = closeMenuTabs(current.tabs ?? [], activeTabKey.value, keys);
+  startup.value = {
+    ...current,
+    tabs: result.tabs,
+    activeTabKey: result.activeTabKey,
+  };
+  activeTabKey.value = result.activeTabKey;
+  const nextLockedTabs = removeLockedMenuTabs(lockedTabs.value, keys);
+  if (nextLockedTabs.length !== lockedTabs.value.length) updateLockedTabs(nextLockedTabs);
   syncBrowserUrl(startup.value, 'replace');
 }
 
@@ -592,7 +684,13 @@ function handleChangeTab(key: string) {
 function handleReorderTabs(keys: string[]) {
   const current = startup.value;
   if (!current) return;
-  startup.value = { ...current, tabs: reorderMenuTabs(current.tabs ?? [], keys) };
+  const tabs = reorderMenuTabs(current.tabs ?? [], keys, lockedTabKeys());
+  startup.value = { ...current, tabs };
+  const nextLockedTabs = tabs.filter((tab) =>
+    lockedTabs.value.some((lockedTab) => lockedTab.key === tab.key),
+  );
+  if (nextLockedTabs.map((tab) => tab.key).join('|') !== lockedTabKeys().join('|'))
+    updateLockedTabs(nextLockedTabs);
 }
 
 function currentBrowserPath() {
@@ -667,9 +765,12 @@ function requiresLogin(cause: unknown) {
       :loading="loading"
       :error="error"
       :realtime-status="realtimeStatus"
+      :locked-tab-keys="lockedTabKeys()"
       @select-menu="handleSelectMenu"
       @change-tab="handleChangeTab"
       @close-tab="handleCloseTab"
+      @close-tabs="handleCloseTabs"
+      @toggle-tab-lock="handleToggleTabLock"
       @reorder-tabs="handleReorderTabs"
       @user-command="handleUserCommand"
     >
