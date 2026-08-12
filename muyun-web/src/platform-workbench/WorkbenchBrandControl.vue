@@ -195,7 +195,10 @@ button.workbench-brand-identity {
 }
 
 .workbench-brand-control--compact .workbench-brand-identity--open {
-  background: #fbfcfe;
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  box-shadow: inset 0 -1px 0 #fff;
 }
 
 .workbench-brand-control--compact .workbench-brand-identity:focus-visible {

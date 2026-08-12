@@ -140,7 +140,9 @@ function openCompactMenu(
   if (source === 'pointer' && suppressCompactMenuPointerEnter.value) {
     return;
   }
-  compactMenuAnchor.value = anchor;
+  if (anchor) {
+    compactMenuAnchor.value = anchor;
+  }
   clearCompactMenuCloseTimer();
   compactMenuOpen.value = true;
 }
@@ -471,6 +473,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .workbench--compact-menu-open .topbar-identity {
   position: relative;
   z-index: 31;
+}
+
+.workbench--compact-menu-open .app-topbar {
+  border-bottom-color: transparent;
 }
 
 .workbench-brand-enter-active,

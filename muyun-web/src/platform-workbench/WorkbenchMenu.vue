@@ -128,13 +128,11 @@ const megaOutlinePath = computed(() =>
       width: megaPanelWidth.value,
       height: megaPanelHeight.value,
     },
-    isCompact.value
-      ? undefined
-      : {
-          left: activeRootLeft.value,
-          top: activeRootTop.value,
-          height: activeRootHeight.value,
-        },
+    {
+      left: activeRootLeft.value,
+      top: activeRootTop.value,
+      height: activeRootHeight.value,
+    },
     6,
   ),
 );
@@ -164,16 +162,15 @@ const compactOutlinePath = computed(() => {
     return undefined;
   }
 
-  const anchorLeft = Math.round(anchor.left - shellRect.left);
   const anchorTop = Math.round(anchor.top - shellRect.top);
   const anchorRight = Math.round(anchor.right - shellRect.left);
-  const anchorRadius = 5;
   const panelRadius = 4;
+  const sharedLeft = panel.left;
 
   return [
-    `M ${anchorLeft + anchorRadius} ${anchorTop}`,
-    `H ${anchorRight - anchorRadius}`,
-    `Q ${anchorRight} ${anchorTop} ${anchorRight} ${anchorTop + anchorRadius}`,
+    `M ${sharedLeft} ${anchorTop}`,
+    `H ${anchorRight - panelRadius}`,
+    `Q ${anchorRight} ${anchorTop} ${anchorRight} ${anchorTop + panelRadius}`,
     `V ${panel.top}`,
     `H ${panel.right - panelRadius}`,
     `Q ${panel.right} ${panel.top} ${panel.right} ${panel.top + panelRadius}`,
@@ -181,11 +178,7 @@ const compactOutlinePath = computed(() => {
     `Q ${panel.right} ${panel.bottom} ${panel.right - panelRadius} ${panel.bottom}`,
     `H ${panel.left + panelRadius}`,
     `Q ${panel.left} ${panel.bottom} ${panel.left} ${panel.bottom - panelRadius}`,
-    `V ${panel.top + panelRadius}`,
-    `Q ${panel.left} ${panel.top} ${panel.left + panelRadius} ${panel.top}`,
-    `H ${anchorLeft}`,
-    `V ${anchorTop + anchorRadius}`,
-    `Q ${anchorLeft} ${anchorTop} ${anchorLeft + anchorRadius} ${anchorTop}`,
+    `V ${anchorTop}`,
   ].join(' ');
 });
 let megaPointerAimTimer: number | undefined;
@@ -502,6 +495,10 @@ function handleMenuEnter() {
 }
 
 function handleMenuLeave(event: MouseEvent) {
+  if (isCompact.value) {
+    emit('compactMenuLeave');
+    return;
+  }
   if (startMegaPointerAim(event)) {
     return;
   }
@@ -1124,7 +1121,12 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .workbench-menu--compact.compact-mega-open .menu-sidebar {
   z-index: 2;
   border-color: transparent;
+  background: var(--workbench-menu-surface);
   box-shadow: none;
+}
+
+.workbench-menu--compact.mega-open .menu-sidebar {
+  z-index: 2;
 }
 
 .workbench-menu-panel-enter-active,
@@ -1604,6 +1606,16 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   width: 3px;
   background: var(--workbench-menu-surface);
   content: '';
+}
+
+.workbench-menu--compact.mega-open .root-menu-item.active {
+  background: var(--workbench-menu-surface);
+  box-shadow: inset 3px 0 0 #0f766e;
+}
+
+.workbench-menu--compact.mega-open .root-menu-item.active.selected-path {
+  color: #0f766e;
+  box-shadow: inset 3px 0 0 #0f766e;
 }
 
 .mega-body {

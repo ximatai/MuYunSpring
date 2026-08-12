@@ -375,6 +375,33 @@ describe('WorkbenchMenu', () => {
     expect(wrapper.emitted('selectMenu')?.[0]?.[0]).toMatchObject({ id: 'runtime' });
   });
 
+  it('connects the compact Mega outline to its active root menu row', async () => {
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: mixedRootMenus, presentation: 'compact', compactOpen: true },
+    });
+    const branch = wrapper.get('.root-menu-item');
+    (branch.element as HTMLElement).getBoundingClientRect = () =>
+      ({ left: 8, right: 176, top: 64, bottom: 98, width: 168, height: 34 }) as DOMRect;
+
+    await branch.trigger('mouseenter');
+
+    expect(wrapper.get('.mega-outline path').attributes('d')).toContain('V 98 H 14');
+    expect(wrapper.get('.workbench-menu').classes()).toContain('mega-open');
+  });
+
+  it('keeps the compact Mega panel mounted while the shared hover session is closing', async () => {
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: mixedRootMenus, presentation: 'compact', compactOpen: true },
+    });
+    const branch = wrapper.get('.root-menu-item');
+
+    await branch.trigger('mouseenter');
+    await wrapper.trigger('mouseleave', { clientX: 1000, clientY: 100 });
+
+    expect(wrapper.find('.mega-panel').exists()).toBe(true);
+    expect(wrapper.emitted('compactMenuLeave')).toHaveLength(1);
+  });
+
   it('separates root navigation from child expansion without relying on hover', async () => {
     stubHoverCapability(false);
     const wrapper = shallowMount(WorkbenchMenu, {
@@ -898,6 +925,41 @@ describe('Workbench compact menu', () => {
     await wrapper.vm.$nextTick();
 
     expect(menu.props('compactOpen')).toBe(false);
+  });
+
+  it('keeps the compact Mega surface open when the pointer moves from the brand into the menu', async () => {
+    vi.useFakeTimers();
+    const wrapper = shallowMount(Workbench);
+    const brand = wrapper.findComponent(WorkbenchBrandControl);
+    const menu = wrapper.findComponent(WorkbenchMenu);
+    const anchor = { left: 8, top: 8, right: 120, bottom: 42 };
+
+    brand.vm.$emit('openCompactMenu', 'pointer', anchor);
+    brand.vm.$emit('scheduleCompactMenuClose');
+    menu.vm.$emit('compactMenuEnter');
+    vi.advanceTimersByTime(300);
+    await wrapper.vm.$nextTick();
+
+    expect(menu.props('compactOpen')).toBe(true);
+    expect(menu.props('compactAnchor')).toEqual(anchor);
+  });
+
+  it('keeps the compact Mega surface open when the pointer returns from the menu to the brand', async () => {
+    vi.useFakeTimers();
+    const wrapper = shallowMount(Workbench);
+    const brand = wrapper.findComponent(WorkbenchBrandControl);
+    const menu = wrapper.findComponent(WorkbenchMenu);
+    const anchor = { left: 8, top: 8, right: 120, bottom: 42 };
+
+    brand.vm.$emit('openCompactMenu', 'pointer', anchor);
+    menu.vm.$emit('compactMenuEnter');
+    menu.vm.$emit('compactMenuLeave');
+    brand.vm.$emit('openCompactMenu', 'pointer', anchor);
+    vi.advanceTimersByTime(300);
+    await wrapper.vm.$nextTick();
+
+    expect(menu.props('compactOpen')).toBe(true);
+    expect(menu.props('compactAnchor')).toEqual(anchor);
   });
 
   it('closes a pinned compact menu when interaction moves outside the menu', async () => {
