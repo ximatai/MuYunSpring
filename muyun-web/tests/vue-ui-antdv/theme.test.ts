@@ -17,6 +17,7 @@ describe('UiTheme', () => {
     expect(variables['--muyun-brand-accent-on-base']).toBe('#171F2A');
     expect(variables['--muyun-brand-accent-base']).toBe('#F5B700');
     expect(variables['--muyun-support-surface']).toBe('#FFFFFF');
+    expect(variables['--muyun-support-disabled']).toBe('#EEF1F5');
     expect(variables['--muyun-positive-focus']).toBe('#D3F3E7');
     expect(variables['--muyun-danger-border']).toBe('#F5E5E7');
   });
@@ -50,6 +51,9 @@ describe('UiTheme', () => {
     expect(tokens?.colorSuccess).toBe(defaultUiTheme.positive.base);
     expect(tokens?.colorWarning).toBe(defaultUiTheme.warning.base);
     expect(tokens?.colorError).toBe(defaultUiTheme.danger.base);
+    expect(tokens?.colorBgContainerDisabled).toBe(defaultUiTheme.support.disabled);
+    expect(tokens?.colorTextDisabled).toBe(defaultUiTheme.support.disabledText);
+    expect(tokens?.controlItemBgActiveDisabled).toBe(defaultUiTheme.support.disabled);
   });
 
   it('keeps every semantic soft surface readable by normal text', () => {

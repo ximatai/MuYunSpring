@@ -26,6 +26,8 @@ export interface UiSupportTheme {
   textBody: string;
   textMuted: string;
   icon: string;
+  disabled: string;
+  disabledText: string;
 }
 
 export interface UiTheme {
@@ -86,6 +88,8 @@ export const defaultUiTheme: UiTheme = {
     textBody: '#354255',
     textMuted: '#566577',
     icon: '#425266',
+    disabled: '#EEF1F5',
+    disabledText: '#8A96A6',
   },
   positive: {
     base: '#00A870',
@@ -175,6 +179,8 @@ const lightAmberTheme: UiTheme = {
     textBody: '#4D4232',
     textMuted: '#756958',
     icon: '#645846',
+    disabled: '#F3EFE8',
+    disabledText: '#968B7C',
   },
 };
 
@@ -216,6 +222,8 @@ const darkNavyTheme: UiTheme = {
     textBody: '#D8E1EA',
     textMuted: '#A8B6C7',
     icon: '#94A3B8',
+    disabled: '#202A3A',
+    disabledText: '#748399',
   },
   positive: {
     base: '#42C998',
@@ -306,6 +314,8 @@ const darkGraphiteTheme: UiTheme = {
     textBody: '#D5D9DE',
     textMuted: '#AAB2BC',
     icon: '#96A0AA',
+    disabled: '#2A2E34',
+    disabledText: '#7E8792',
   },
 };
 
@@ -374,16 +384,16 @@ export function antDesignThemeOf(theme: UiTheme): ThemeConfig {
       colorLinkActive: theme.theme.active,
       colorBgLayout: theme.support.canvas,
       colorBgContainer: theme.support.surface,
-      colorBgContainerDisabled: theme.theme.disabled,
+      colorBgContainerDisabled: theme.support.disabled,
       colorBorder: theme.support.border,
       colorText: theme.support.text,
       colorTextSecondary: theme.support.textMuted,
-      colorTextDisabled: theme.theme.disabledText,
+      colorTextDisabled: theme.support.disabledText,
       controlOutline: theme.theme.focus,
       controlItemBgHover: theme.support.hover,
       controlItemBgActive: theme.theme.soft,
       controlItemBgActiveHover: theme.theme.focus,
-      controlItemBgActiveDisabled: theme.theme.disabled,
+      controlItemBgActiveDisabled: theme.support.disabled,
       borderRadius: 4,
     },
   };

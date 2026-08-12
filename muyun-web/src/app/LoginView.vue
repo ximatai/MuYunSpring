@@ -211,7 +211,8 @@ label {
 }
 
 button:disabled {
-  background: var(--muyun-theme-disabled);
+  background: var(--muyun-support-disabled);
+  color: var(--muyun-support-disabled-text);
   cursor: not-allowed;
 }
 </style>

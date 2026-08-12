@@ -483,6 +483,15 @@ it('record picker search supports clearing its keyword', () => {
   const pickerSource = readSource('src/platform-components/RecordPicker.vue');
 
   assert.match(pickerSource, /v-model:value="keyword" allow-clear placeholder="搜索名称、编码或 ID"/);
+  assert.match(
+    pickerSource,
+    /\.record-picker-value:disabled \{[\s\S]*background: var\(--muyun-support-disabled\)/,
+  );
+  assert.match(
+    pickerSource,
+    /\.record-picker-value:disabled \{[\s\S]*color: var\(--muyun-support-disabled-text\)/,
+  );
+  assert.notMatch(pickerSource, /#cfd9e5|#f8fafc|#475569|#172033/);
 });
 
 it('menu management keeps scheme actions inline and delegates search to panel', () => {

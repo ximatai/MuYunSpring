@@ -53,7 +53,7 @@
 | `focus`                      | 焦点环、键盘可达提示                   |
 | `disabled` / `disabled-text` | 禁用态                                 |
 
-`support` 采用表面与文本层级，而非强行套用 `base`：`page`、`canvas`、`surface`、`elevated`、`hover`、`border`、`border-subtle`、`text`、`text-muted`、`icon`。这些值由视觉基线中的 surface、border、text palette 映射。
+`support` 采用表面与文本层级，而非强行套用 `base`：`page`、`canvas`、`surface`、`elevated`、`hover`、`border`、`border-subtle`、`text`、`text-muted`、`icon`、`disabled`、`disabled-text`。通用禁用控件消费 `support.disabled` 与 `support.disabled-text`，不得使用主题色的 disabled 色阶伪装成仍可交互的强调状态。这些值由视觉基线中的 surface、border、text palette 映射。
 
 ## 三层映射
 
