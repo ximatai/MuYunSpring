@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
 import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadata;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceStoragePolicy;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -14,7 +15,8 @@ import java.util.Set;
 public record FileReferenceDefinition(Set<String> allowedMediaTypes,
                                       Long maxFileSizeBytes,
                                       int maxFiles,
-                                      Map<FileReferenceMetadata, String> metadataFields) {
+                                      Map<FileReferenceMetadata, String> metadataFields,
+                                      FileReferenceStoragePolicy storagePolicy) {
     public FileReferenceDefinition {
         allowedMediaTypes = normalizeMediaTypes(allowedMediaTypes);
         if (maxFileSizeBytes != null && maxFileSizeBytes <= 0) {
@@ -24,10 +26,16 @@ public record FileReferenceDefinition(Set<String> allowedMediaTypes,
             throw new IllegalArgumentException("file reference maxFiles must be positive");
         }
         metadataFields = normalizeMetadataFields(metadataFields);
+        storagePolicy = storagePolicy == null ? FileReferenceStoragePolicy.MUYUN_FILE_SERVER : storagePolicy;
     }
 
     public FileReferenceDefinition(Set<String> allowedMediaTypes, Long maxFileSizeBytes, int maxFiles) {
-        this(allowedMediaTypes, maxFileSizeBytes, maxFiles, Map.of());
+        this(allowedMediaTypes, maxFileSizeBytes, maxFiles, Map.of(), FileReferenceStoragePolicy.MUYUN_FILE_SERVER);
+    }
+
+    public FileReferenceDefinition(Set<String> allowedMediaTypes, Long maxFileSizeBytes, int maxFiles,
+                                   Map<FileReferenceMetadata, String> metadataFields) {
+        this(allowedMediaTypes, maxFileSizeBytes, maxFiles, metadataFields, FileReferenceStoragePolicy.MUYUN_FILE_SERVER);
     }
 
     public FileReferenceDefinition(Set<String> allowedMediaTypes, Long maxFileSizeBytes) {

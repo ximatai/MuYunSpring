@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.file.FileReference;
 import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadata;
 import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadataField;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceStoragePolicy;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -20,6 +21,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.LinkedHashSet;
@@ -30,6 +32,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class FileReferenceSaveLifecycleListenerTest {
     @Test
@@ -184,6 +189,54 @@ class FileReferenceSaveLifecycleListenerTest {
     }
 
     @Test
+    void hydratesInlineAssetMetadataThroughTheSameReferenceMetadataContract() {
+        ManagedFileAssetService assets = mock(ManagedFileAssetService.class);
+        ManagedFileAssetReferenceService references = mock(ManagedFileAssetReferenceService.class);
+        when(assets.readReferenceMetadata("tenant-a", "asset-1"))
+                .thenReturn(new FileTransferFileMetadata("asset-1", "logo.png", "png", "image/png", 12,
+                        "sha", "DATABASE_INLINE", false, Instant.now()));
+        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> null, () -> assets, () -> references);
+        InlineDocument incoming = new InlineDocument();
+        incoming.setId("document-1");
+        incoming.setTenantId("tenant-a");
+        incoming.setAssetId("asset-1");
+        incoming.setAssetMimeType("forged/type");
+
+        inTransaction(() -> {
+            listener.beforeSave(new InlineDocumentService(), null, incoming);
+            listener.persisted(new InlineDocumentService(), incoming);
+        });
+
+        assertThat(incoming.getAssetMimeType()).isEqualTo("image/png");
+        verify(references).replaceFieldReferences("tenant-a", "test.inline_document", "document-1", "assetId",
+                List.of("asset-1"));
+    }
+
+    @Test
+    void rejectsInlineReferenceSaveOutsideAnActiveTransaction() {
+        ManagedFileAssetService assets = mock(ManagedFileAssetService.class);
+        ManagedFileAssetReferenceService references = mock(ManagedFileAssetReferenceService.class);
+        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> null, () -> assets, () -> references);
+        InlineDocument incoming = new InlineDocument();
+        incoming.setId("document-1");
+        incoming.setTenantId("tenant-a");
+        incoming.setAssetId("asset-1");
+
+        assertThatThrownBy(() -> listener.beforeSave(new InlineDocumentService(), null, incoming))
+                .isInstanceOf(PlatformException.class)
+                .hasMessage("database inline file reference save requires an active transaction");
+    }
+
+    @Test
+    void rejectsInlineAssetCreationOutsideAnActiveTransaction() {
+        ManagedFileAssetService assets = new ManagedFileAssetService(mock(ManagedFileAssetDao.class));
+
+        assertThatThrownBy(() -> assets.createInline("tenant-a", "data:image/png;base64,AA=="))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("managed inline asset creation requires an active transaction");
+    }
+
+    @Test
     void rejectsNewReferenceWhenTransferIsUnavailable() {
         FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> null);
 
@@ -252,6 +305,17 @@ class FileReferenceSaveLifecycleListenerTest {
         };
     }
 
+    private void inTransaction(Runnable action) {
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        try {
+            action.run();
+        } finally {
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
     private Document document(String fileId) { Document value = new Document(); value.setSourceFileId(fileId); return value; }
     private MultiDocument multiDocument(String... fileIds) {
         MultiDocument value = new MultiDocument();
@@ -274,11 +338,21 @@ class FileReferenceSaveLifecycleListenerTest {
         @FileReference(maxFiles = 3)
         private LinkedHashSet<String> sourceFileIds;
     }
+    @Getter @Setter
+    static class InlineDocument extends StandardEntity {
+        @FileReference(allowedMediaTypes = "image/png", storagePolicy = FileReferenceStoragePolicy.DATABASE_INLINE)
+        private String assetId;
+        @FileReferenceMetadataField(source = "assetId", value = FileReferenceMetadata.MIME_TYPE)
+        private String assetMimeType;
+    }
     static class DocumentService extends AbstractAbilityService<Document> {
         DocumentService() { super("test.document", Document.class, new TestMemoryDao<>()); }
     }
     static class MultiDocumentService extends AbstractAbilityService<MultiDocument> {
         MultiDocumentService() { super("test.multi_document", MultiDocument.class, new TestMemoryDao<>()); }
+    }
+    static class InlineDocumentService extends AbstractAbilityService<InlineDocument> {
+        InlineDocumentService() { super("test.inline_document", InlineDocument.class, new TestMemoryDao<>()); }
     }
     static class DynamicDocumentService extends AbstractAbilityService<DynamicRecord> {
         DynamicDocumentService() { super("test.dynamic_document", DynamicRecord.class, new TestMemoryDao<>()); }
