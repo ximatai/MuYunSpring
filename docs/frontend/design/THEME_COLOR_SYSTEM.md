@@ -76,7 +76,7 @@ palette_surface_subtle   -> --muyun-support-hover    -> 普通 hover 和弱分�
 
 业务页面和 `platform-workbench` 只使用 `--muyun-theme-*`、`--muyun-support-*`、`--muyun-positive-*` 等语义变量。`vue-ui-antdv` 负责把同一主题映射到 Ant Design Vue 的 `ConfigProvider` 与必要的组件级 token；业务层不得直接引用 `--ant-*` 或 `colorPrimary`。
 
-`UiThemeProvider` 是语义颜色和 Ant 主题的同一作用域边界：CSS variables 写在 Provider 根节点而不是 `document.documentElement`，因此嵌套、卸载或临时预览主题不会污染应用其他区域。应用根 Provider 覆盖整个工作台；需要局部预览时，必须同时由该 Provider 包住 CSS 消费者与 Ant 组件，不能只改其中一侧。
+`UiThemeProvider` 是语义颜色和 Ant 主题的同一作用域边界：CSS variables 写在 Provider 根节点而不是 `document.documentElement`，因此嵌套、卸载或临时预览主题不会污染应用其他区域。Provider 使用 `display: contents`，不额外介入业务页面的 flex/grid 布局。应用根 Provider 覆盖整个工作台；需要局部预览时，必须同时由该 Provider 包住 CSS 消费者与 Ant 组件，不能只改其中一侧。
 
 ## 组件使用口径
 

@@ -16,3 +16,9 @@ const cssVariables = computed(() => cssVariablesOf(activeTheme.value));
     <AConfigProvider :theme="antTheme"><slot /></AConfigProvider>
   </div>
 </template>
+
+<style scoped>
+.ui-theme-provider {
+  display: contents;
+}
+</style>
