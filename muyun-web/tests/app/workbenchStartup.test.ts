@@ -5,6 +5,7 @@ import {
   loadWorkbenchStartupState,
   openDirectTab,
   openMenuTab,
+  reorderMenuTabs,
   restoreWorkbenchStartupStateFromUrl,
 } from '@/app/workbenchStartup.ts';
 import { getMenuNavigationTarget } from '@/platform-workbench/menuNavigation.ts';
@@ -417,6 +418,20 @@ it('closeMenuTab keeps active tab when closing an inactive tab', () => {
     result.tabs.map((tab) => tab.key),
     ['ROUTE:runtime'],
   );
+});
+
+it('reorderMenuTabs only reorders the current session tab array', () => {
+  const tabs = [
+    { key: 'A', title: 'A' },
+    { key: 'B', title: 'B' },
+    { key: 'C', title: 'C' },
+  ];
+
+  assert.deepEqual(
+    reorderMenuTabs(tabs, ['C', 'A', 'B']).map((tab) => tab.key),
+    ['C', 'A', 'B'],
+  );
+  assert.strictEqual(reorderMenuTabs(tabs, ['A', 'C']), tabs);
 });
 
 it('closeMenuTab activates the neighboring tab when closing the active tab', () => {

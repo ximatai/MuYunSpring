@@ -1429,7 +1429,7 @@ defineExpose({ clearSelection, refresh });
   padding: 5px 11px;
   border: 1px solid var(--muyun-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--muyun-support-surface);
   color: var(--muyun-text-muted);
   font-size: 14px;
 }

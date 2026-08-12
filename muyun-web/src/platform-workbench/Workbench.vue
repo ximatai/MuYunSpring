@@ -44,6 +44,7 @@ const emit = defineEmits<{
   invalidMenu: [menu: MenuRecord];
   changeTab: [key: string];
   closeTab: [key: string];
+  reorderTabs: [keys: string[]];
   'update:activeTabKey': [key: string];
   userCommand: [key: string];
 }>();
@@ -380,36 +381,39 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
         </UiDropdown>
       </header>
 
-      <div class="tab-strip">
-        <UiTabs
-          v-if="tabs.length > 0"
-          :tabs="tabs"
-          :active-key="activeTabKey"
-          @update:active-key="handleTabChange"
-          @close="emit('closeTab', $event)"
-        />
-        <div v-else class="empty-tabs">暂无打开页面</div>
-      </div>
+      <section class="workbench-mega-surface">
+        <div class="tab-strip">
+          <UiTabs
+            v-if="tabs.length > 0"
+            :tabs="tabs"
+            :active-key="activeTabKey"
+            @update:active-key="handleTabChange"
+            @close="emit('closeTab', $event)"
+            @reorder="emit('reorderTabs', $event)"
+          />
+          <div v-else class="empty-tabs">暂无打开页面</div>
+        </div>
 
-      <section class="app-content">
-        <UiSpin v-if="loading" />
-        <UiError v-else-if="error" :message="error" />
-        <template v-else>
-          <template v-for="tab in openedTabs" :key="tab.key">
-            <UiSidePanelHost
-              v-if="shouldKeepTabMounted(tab)"
-              v-show="tab.key === activeTabKey"
-              class="tab-panel-host"
-            >
-              <div
-                class="tab-page"
-                :class="{ 'tab-page--workspace': pageDescriptorOf(tab)?.layout === 'workspace' }"
+        <section class="app-content">
+          <UiSpin v-if="loading" />
+          <UiError v-else-if="error" :message="error" />
+          <template v-else>
+            <template v-for="tab in openedTabs" :key="tab.key">
+              <UiSidePanelHost
+                v-if="shouldKeepTabMounted(tab)"
+                v-show="tab.key === activeTabKey"
+                class="tab-panel-host"
               >
-                <slot :active-tab="tab" :target="tab.target" :page-descriptor="pageDescriptorOf(tab)" />
-              </div>
-            </UiSidePanelHost>
+                <div
+                  class="tab-page"
+                  :class="{ 'tab-page--workspace': pageDescriptorOf(tab)?.layout === 'workspace' }"
+                >
+                  <slot :active-tab="tab" :target="tab.target" :page-descriptor="pageDescriptorOf(tab)" />
+                </div>
+              </UiSidePanelHost>
+            </template>
           </template>
-        </template>
+        </section>
       </section>
     </section>
   </main>
@@ -436,7 +440,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .app-main {
   grid-column: 2;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -628,10 +632,21 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 }
 
 .tab-strip {
+  position: relative;
+  z-index: 1;
+  margin-bottom: -1px;
   min-width: 0;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--muyun-support-border);
-  background: var(--muyun-support-elevated);
+  padding: 0 10px;
+  background: transparent;
+}
+
+.workbench-mega-surface {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 0 0;
+  overflow: hidden;
 }
 
 .tab-strip :deep(.ant-tabs) {
@@ -646,27 +661,50 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   display: none;
 }
 
+.tab-strip :deep(.ant-tabs-ink-bar) {
+  display: none;
+}
+
 .tab-strip :deep(.ant-tabs-tab) {
-  margin: 6px 4px 6px 0 !important;
-  padding: 5px 10px !important;
+  margin: 0 4px 0 0 !important;
+  padding: 6px 10px !important;
   border: 1px solid var(--muyun-support-border) !important;
-  border-radius: 6px !important;
-  background: var(--muyun-support-surface) !important;
+  border-bottom-color: var(--muyun-support-border) !important;
+  border-radius: 8px 8px 0 0 !important;
+  background: var(--muyun-support-elevated) !important;
   color: var(--muyun-support-text-muted);
   font-size: 12px;
   transition:
     border-color 160ms ease,
+    background-color 160ms ease,
     box-shadow 160ms ease;
 }
 
 .tab-strip :deep(.ant-tabs-tab-active) {
+  position: relative;
+  z-index: 2;
   border-color: var(--muyun-theme-border) !important;
-  box-shadow: 0 8px 18px rgb(15 23 42 / 7%);
+  border-bottom-color: var(--muyun-support-surface) !important;
+  background: var(--muyun-support-surface) !important;
+  box-shadow: 0 -5px 14px rgb(15 23 42 / 5%);
 }
 
 .tab-strip :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) {
   color: var(--muyun-theme-base) !important;
   font-weight: 700;
+}
+
+.tab-strip :deep(.ant-tabs-tab-remove) {
+  margin-left: 1px !important;
+}
+
+.tab-strip :deep(.ant-tabs-tab:not(.ant-tabs-tab-active):hover) {
+  border-color: var(--muyun-theme-border) !important;
+  background: var(--muyun-theme-soft) !important;
+}
+
+.tab-strip :deep(.ant-tabs-tab:not(.ant-tabs-tab-active):hover .ant-tabs-tab-btn) {
+  color: var(--muyun-theme-base) !important;
 }
 
 .tab-strip :deep(.ant-tabs-nav-add) {
@@ -681,8 +719,13 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 .app-content {
   position: relative;
+  z-index: 0;
   min-width: 0;
   min-height: 0;
+  border: 1px solid var(--muyun-support-border);
+  border-left: 0;
+  border-radius: 0;
+  background: var(--muyun-support-surface);
   overflow: hidden;
   overscroll-behavior: contain;
 }
@@ -696,7 +739,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   box-sizing: border-box;
   height: 100%;
   min-height: 0;
-  padding: 14px;
+  padding: 10px;
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -728,6 +771,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   .app-content {
     overflow: visible;
     overscroll-behavior: auto;
+  }
+
+  .workbench-mega-surface {
+    min-height: auto;
+    overflow: visible;
   }
 
   .tab-page {

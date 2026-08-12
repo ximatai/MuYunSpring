@@ -60,7 +60,7 @@ async function load() {
   max-width: 1120px;
   margin: 0 auto;
   padding: 32px 24px;
-  color: #1f2937;
+  color: var(--muyun-support-text);
 }
 header {
   display: flex;
@@ -75,7 +75,7 @@ header span {
 }
 header p,
 header span {
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 14px;
 }
 h1 {
@@ -84,10 +84,10 @@ h1 {
 button {
   min-height: 34px;
   padding: 0 14px;
-  border: 1px solid #2563eb;
+  border: 1px solid var(--muyun-theme-border);
   border-radius: 6px;
-  background: #fff;
-  color: #1d4ed8;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-theme-base);
   cursor: pointer;
 }
 .module-grid {
@@ -100,27 +100,27 @@ button {
   gap: 8px;
   min-height: 144px;
   padding: 18px;
-  border-color: #dbe4ef;
-  color: #1f2937;
+  border-color: var(--muyun-support-border);
+  color: var(--muyun-support-text);
   text-align: left;
 }
 .module-grid > button:hover {
-  border-color: #2563eb;
-  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.12);
+  border-color: var(--muyun-theme-border);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--muyun-theme-base) 12%, transparent);
 }
 .module-kind {
   justify-self: start;
   padding: 2px 7px;
   border-radius: 12px;
-  background: #e0ecff;
-  color: #1d4ed8;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
   font-size: 12px;
 }
 code {
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
 }
 .error {
-  color: #b91c1c;
+  color: var(--muyun-danger-soft-text);
 }
 </style>

@@ -603,9 +603,9 @@ function saveChildEditor() {
   display: grid;
   gap: 12px;
   padding: 16px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--muyun-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--muyun-support-surface);
 }
 .field-ui-control-child-header {
   display: flex;
@@ -619,12 +619,12 @@ function saveChildEditor() {
 }
 .field-ui-control-child-header p {
   margin: 4px 0 0;
-  color: #64748b;
+  color: var(--muyun-text-muted);
   font-size: 12px;
 }
 .field-ui-control-child-notice {
   margin: 0;
-  color: #9a6700;
+  color: var(--muyun-warning-soft-text);
   font-size: 12px;
 }
 .child-editor-form {
@@ -635,7 +635,7 @@ function saveChildEditor() {
 .child-editor-form label {
   display: grid;
   gap: 6px;
-  color: #334155;
+  color: var(--muyun-text-body);
   font-size: 13px;
 }
 </style>

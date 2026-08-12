@@ -892,6 +892,13 @@ describe('WorkbenchMenu', () => {
 });
 
 describe('Workbench compact menu', () => {
+  it('joins the active tab and its page body in one Mega surface', () => {
+    const wrapper = shallowMount(Workbench);
+
+    expect(wrapper.find('.workbench-mega-surface').exists()).toBe(true);
+    expect(wrapper.find('.workbench-mega-surface > .tab-strip + .app-content').exists()).toBe(true);
+  });
+
   it('restores and persists the selected menu presentation', async () => {
     await userPreferences.set('workbench.menu-presentation', 'expanded');
     const wrapper = shallowMount(Workbench);

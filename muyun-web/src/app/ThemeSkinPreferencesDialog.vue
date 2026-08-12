@@ -18,6 +18,26 @@ const emit = defineEmits<{
   close: [];
   select: [skinId: UiThemeSkinId];
 }>();
+
+function moveSkinFocus(event: KeyboardEvent, currentIndex: number) {
+  const keys = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'];
+  if (!keys.includes(event.key)) return;
+  event.preventDefault();
+  const group = event.currentTarget instanceof HTMLElement ? event.currentTarget.parentElement : undefined;
+  const count = group?.children.length ?? 0;
+  if (!count) return;
+  const nextIndex =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? count - 1
+        : (currentIndex + (event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1) + count) % count;
+  const nextCard = group?.children.item(nextIndex) as HTMLElement | null;
+  const nextSkin = nextCard?.dataset.skinId;
+  if (!nextSkin) return;
+  emit('select', nextSkin as UiThemeSkinId);
+  nextCard?.focus();
+}
 </script>
 
 <template>
@@ -37,15 +57,18 @@ const emit = defineEmits<{
       <p v-if="error" class="theme-skin-error" role="alert">{{ error }}</p>
       <div class="theme-skin-grid" role="radiogroup" aria-label="工作台皮肤">
         <button
-          v-for="skin in skins"
+          v-for="(skin, index) in skins"
           :key="skin.id"
           class="theme-skin-card"
           :class="{ selected: skin.id === activeSkinId }"
           type="button"
           role="radio"
           :aria-checked="skin.id === activeSkinId"
+          :tabindex="skin.id === activeSkinId ? 0 : -1"
+          :data-skin-id="skin.id"
           :disabled="saving"
           @click="emit('select', skin.id)"
+          @keydown="moveSkinFocus($event, index)"
         >
           <span
             class="theme-skin-preview"

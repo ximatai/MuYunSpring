@@ -175,12 +175,12 @@ const emit = defineEmits<{
   font-size: 12px;
 }
 .user-session-expanded-presence.is-present {
-  background: rgba(22, 163, 74, 0.1);
-  color: #047857;
+  background: var(--muyun-positive-soft);
+  color: var(--muyun-positive-soft-text);
 }
 .user-session-expanded-presence.is-idle {
-  background: rgba(245, 158, 11, 0.12);
-  color: #92400e;
+  background: var(--muyun-warning-soft);
+  color: var(--muyun-warning-soft-text);
 }
 .user-session-expanded-meta {
   display: grid;
