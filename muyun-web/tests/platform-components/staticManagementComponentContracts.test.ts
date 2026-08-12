@@ -1876,7 +1876,7 @@ it('workbench keeps cacheable tab pages mounted behind their stable tab keys', (
   );
   assert.match(workbenchSource, /:active-tab="tab"[\s\S]*:page-descriptor="pageDescriptorOf\(tab\)"/);
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
-  assert.match(workbenchSource, /\.tab-page \{[\s\S]*padding: 14px;[\s\S]*overflow: auto;/);
+  assert.match(workbenchSource, /\.tab-page \{[\s\S]*padding: 10px;[\s\S]*overflow: auto;/);
   assert.match(workbenchSource, /tab-page--workspace/);
   assert.match(workbenchSource, /\.tab-page--workspace \{\s*overflow-x: auto;\s*overflow-y: hidden;/);
 });
