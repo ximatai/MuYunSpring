@@ -130,6 +130,20 @@ it('record form field state renders a color picker descriptor with the shared co
   assert.equal(resolveRecordFormFieldState('color', { fields }).controlType, 'colorPicker');
 });
 
+it('record form field state uses the single-image field for one image file reference', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'logoAssetId',
+      {
+        ...field('Logo'),
+        fileReference: { maxFiles: 1, allowedMediaTypes: ['image/png', 'image/webp'] },
+      } as RecordFormFieldDescriptor,
+    ],
+  ]);
+
+  assert.equal(resolveRecordFormFieldState('logoAssetId', { fields }).controlType, 'imageFileTransfer');
+});
+
 it('record form field state preserves typed file size presentation for read-only details', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
     ['fileSize', { ...field('文件大小', { readOnly: true }), valuePresentation: 'FILE_SIZE' }],
@@ -262,6 +276,7 @@ it('record form fields attach declared file-reference constraints and infer the 
         allowedMediaTypes: ['application/pdf'],
         maxFileSizeBytes: 1024,
         maxFiles: 1,
+        storagePolicy: 'MUYUN_FILE_SERVER',
         uploadAvailable: true,
       },
     ],

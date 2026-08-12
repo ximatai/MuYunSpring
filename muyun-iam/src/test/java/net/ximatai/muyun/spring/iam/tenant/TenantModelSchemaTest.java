@@ -22,6 +22,7 @@ class TenantModelSchemaTest {
         assertThat(table.getName()).isEqualTo("iam_tenant");
         assertThat(columnNames(table))
                 .contains("id", "tenant_id", "title", "sort_order", "enabled")
+                .contains("light_logo_asset_id", "dark_logo_asset_id")
                 .doesNotContain("parent_id");
     }
 

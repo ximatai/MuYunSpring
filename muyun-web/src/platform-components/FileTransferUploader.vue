@@ -26,7 +26,9 @@ interface UploadItem {
 const props = withDefaults(
   defineProps<{
     /** Business API callback: authorize this exact file and return a short-lived upload target. */
-    requestUploadAccess: (file: File) => Promise<FileTransferUploadAccess>;
+    requestUploadAccess?: (file: File) => Promise<FileTransferUploadAccess>;
+    /** Storage-specific transport; ordinary FileServer fields continue to use upload access tickets. */
+    uploadFile?: (file: File) => Promise<FileTransferUploadReceipt>;
     /** Optional business callback after upload. Standard file-reference fields leave this undefined. */
     confirmUpload?: (receipt: FileTransferUploadReceipt) => Promise<unknown>;
     accept?: string;
@@ -49,6 +51,8 @@ const props = withDefaults(
   }>(),
   {
     confirmUpload: undefined,
+    requestUploadAccess: undefined,
+    uploadFile: undefined,
     accept: undefined,
     allowedMediaTypes: undefined,
     maxFileSizeBytes: undefined,
@@ -202,6 +206,22 @@ async function upload(item: UploadItem) {
   }
   item.error = undefined;
   try {
+    if (props.uploadFile) {
+      item.state = 'uploading';
+      const receipt = await props.uploadFile(item.file);
+      item.progress = 100;
+      item.state = 'completed';
+      item.completedFileId = props.completedFileId?.(receipt);
+      emit('completed', receipt, receipt.payload);
+      presentPlatformSuccess(`“${item.file.name}”上传成功。${props.completionHint ?? ''}`, {
+        source: 'file-transfer',
+        tone: 'success',
+      });
+      return;
+    }
+    if (!props.requestUploadAccess) {
+      throw new Error('当前文件字段未配置上传 transport。');
+    }
     const { receipt, result } = await performBrowserFileTransferUpload(
       item.file,
       props.requestUploadAccess,
@@ -290,6 +310,8 @@ function stateText(item: UploadItem) {
       type="file"
       :accept="accept"
       :multiple="multiple"
+      :disabled="unavailable"
+      @click.stop
       @change="selectFiles"
     />
     <div

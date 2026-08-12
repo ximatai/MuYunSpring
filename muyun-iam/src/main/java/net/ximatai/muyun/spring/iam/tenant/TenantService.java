@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.platform.attachment.ManagedFileAssetService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -40,26 +41,40 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
     public static final String MODULE_ALIAS = "iam.tenant";
     private final ObjectProvider<TenantCreationProvisioner> creationProvisioners;
     private final TenantApplicationService tenantApplicationService;
+    private final ManagedFileAssetService managedFileAssetService;
 
     public TenantService(TenantDao tenantDao) {
         super(MODULE_ALIAS, Tenant.class, tenantDao);
         this.creationProvisioners = null;
         this.tenantApplicationService = null;
+        this.managedFileAssetService = null;
     }
 
     public TenantService(TenantDao tenantDao, ObjectProvider<TenantCreationProvisioner> creationProvisioners) {
         super(MODULE_ALIAS, Tenant.class, tenantDao);
         this.creationProvisioners = creationProvisioners;
         this.tenantApplicationService = null;
+        this.managedFileAssetService = null;
     }
 
-    @Autowired
     public TenantService(TenantDao tenantDao,
                          ObjectProvider<TenantCreationProvisioner> creationProvisioners,
                          TenantApplicationService tenantApplicationService) {
         super(MODULE_ALIAS, Tenant.class, tenantDao);
         this.creationProvisioners = creationProvisioners;
         this.tenantApplicationService = tenantApplicationService;
+        this.managedFileAssetService = null;
+    }
+
+    @Autowired
+    public TenantService(TenantDao tenantDao,
+                         ObjectProvider<TenantCreationProvisioner> creationProvisioners,
+                         TenantApplicationService tenantApplicationService,
+                         ManagedFileAssetService managedFileAssetService) {
+        super(MODULE_ALIAS, Tenant.class, tenantDao);
+        this.creationProvisioners = creationProvisioners;
+        this.tenantApplicationService = tenantApplicationService;
+        this.managedFileAssetService = managedFileAssetService;
     }
 
     @Override
@@ -112,6 +127,14 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
         return requireEnabled(alias, "Tenant is not active: " + alias);
     }
 
+    /** Returns the small, session-scoped branding projection used by the workbench shell. */
+    public TenantBranding branding(String tenantAlias) {
+        Tenant tenant = selectIgnoreSoftDelete(requireTenantAlias(tenantAlias));
+        if (tenant == null || managedFileAssetService == null) return TenantBranding.empty();
+        return new TenantBranding(contentOf(tenant.getId(), tenant.getLightLogoAssetId()),
+                contentOf(tenant.getId(), tenant.getDarkLogoAssetId()));
+    }
+
     @Override
     public void beforeRecycleBinQuery() {
         requireSystemMutationContext();
@@ -148,4 +171,9 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
     private String requireTenantAlias(String alias) {
         return PlatformNameRules.requireIdentifier(alias, "tenantAlias");
     }
+
+    private String contentOf(String tenantId, String assetId) {
+        return assetId == null || assetId.isBlank() ? null : managedFileAssetService.readInlineContent(tenantId, assetId);
+    }
+
 }

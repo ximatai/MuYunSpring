@@ -1945,6 +1945,15 @@ it('tenant management governs application entitlements as tenant child records',
   assert.match(tenantSource, /record\.alias === 'iam'/);
 });
 
+it('tenant branding is saved as ordinary file-reference fields in one CRUD write', () => {
+  const tenantSource = readSource('src/views/TenantManagementView.vue');
+
+  assert.match(tenantSource, /<RecordFormFields[\s\S]*lightLogoAssetId.*darkLogoAssetId/);
+  assert.match(tenantSource, /:file-transfer-context="tenantContext"/);
+  assert.notMatch(tenantSource, /\/branding/);
+  assert.notMatch(tenantSource, /saveTenant/);
+});
+
 it('side panels use an explicit tab host and fixed drawer action regions', () => {
   const uiIndexSource = readSource('src/vue-ui-antdv/index.ts');
   const sidePanelSource = readSource('src/vue-ui-antdv/components/UiSidePanel.vue');

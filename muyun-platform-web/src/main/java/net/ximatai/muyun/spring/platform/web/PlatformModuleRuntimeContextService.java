@@ -17,7 +17,7 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
-import net.ximatai.muyun.spring.platform.attachment.FileReferenceUploadPolicy;
+import net.ximatai.muyun.spring.platform.attachment.FileReferenceFieldPolicy;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
@@ -63,7 +63,7 @@ public class PlatformModuleRuntimeContextService {
     private final ActionExecutionPolicyService actionExecutionPolicyService;
     private final PlatformPageConfigSnapshotService pageConfigSnapshotService;
     private final PlatformPageBootstrapService pageBootstrapService;
-    private final List<FileReferenceUploadPolicy> fileReferenceUploadPolicies;
+    private final List<FileReferenceFieldPolicy> fileReferenceFieldPolicies;
 
     @Autowired
     public PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -73,7 +73,7 @@ public class PlatformModuleRuntimeContextService {
                                                ObjectProvider<PlatformPageConfigSnapshotService> pageConfigSnapshotService,
                                                ObjectProvider<PlatformPageBootstrapService> pageBootstrapService,
                                                ObjectProvider<ActionExecutionPolicyService> actionExecutionPolicyService,
-                                               ObjectProvider<FileReferenceUploadPolicy> fileReferenceUploadPolicies) {
+                                               ObjectProvider<FileReferenceFieldPolicy> fileReferenceFieldPolicies) {
         this(moduleService, actionService, staticModuleCatalog,
                 dynamicRecordService == null ? null : dynamicRecordService.getIfAvailable(),
                 pageConfigSnapshotService == null ? null : pageConfigSnapshotService.getIfAvailable(),
@@ -81,7 +81,7 @@ public class PlatformModuleRuntimeContextService {
                 actionExecutionPolicyService == null
                         ? new AllowAllActionExecutionPolicyService()
                         : actionExecutionPolicyService.getIfAvailable(AllowAllActionExecutionPolicyService::new),
-                fileReferenceUploadPolicies == null ? List.of() : fileReferenceUploadPolicies.orderedStream().toList());
+                fileReferenceFieldPolicies == null ? List.of() : fileReferenceFieldPolicies.orderedStream().toList());
     }
 
     PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -102,7 +102,7 @@ public class PlatformModuleRuntimeContextService {
                                         PlatformPageConfigSnapshotService pageConfigSnapshotService,
                                         PlatformPageBootstrapService pageBootstrapService,
                                         ActionExecutionPolicyService actionExecutionPolicyService,
-                                        List<FileReferenceUploadPolicy> fileReferenceUploadPolicies) {
+                                        List<FileReferenceFieldPolicy> fileReferenceFieldPolicies) {
         this.moduleService = moduleService;
         this.actionService = actionService;
         this.staticModuleCatalog = staticModuleCatalog;
@@ -112,7 +112,7 @@ public class PlatformModuleRuntimeContextService {
         this.actionExecutionPolicyService = actionExecutionPolicyService == null
                 ? new AllowAllActionExecutionPolicyService()
                 : actionExecutionPolicyService;
-        this.fileReferenceUploadPolicies = fileReferenceUploadPolicies == null ? List.of() : List.copyOf(fileReferenceUploadPolicies);
+        this.fileReferenceFieldPolicies = fileReferenceFieldPolicies == null ? List.of() : List.copyOf(fileReferenceFieldPolicies);
     }
 
     public PlatformModuleRuntimeContext context(String moduleAlias) {
@@ -152,10 +152,17 @@ public class PlatformModuleRuntimeContextService {
      * exposes to the browser, for either static or dynamic modules.
      */
     public boolean declaresFileReference(String moduleAlias, String relationCode, String fieldName) {
+        return fileReference(moduleAlias, relationCode, fieldName) != null;
+    }
+
+    /** Resolves the declared file-reference contract used by storage-specific upload transports. */
+    public ResolvedFileReferenceFieldDescriptor fileReference(String moduleAlias, String relationCode, String fieldName) {
         ResolvedModuleUiDescriptor descriptor = context(moduleAlias).uiDescriptor();
-        return descriptor != null && descriptor.fileReferences().stream().anyMatch(reference ->
+        if (descriptor == null) return null;
+        return descriptor.fileReferences().stream().filter(reference ->
                 java.util.Objects.equals(reference.fieldRef().relationCode(), relationCode)
-                        && java.util.Objects.equals(reference.fieldRef().fieldName(), fieldName));
+                        && java.util.Objects.equals(reference.fieldRef().fieldName(), fieldName))
+                .findFirst().orElse(null);
     }
 
     private ResolvedModuleUiDescriptor uiDescriptor(String moduleAlias,
@@ -170,8 +177,7 @@ public class PlatformModuleRuntimeContextService {
                 .map(ModuleUiDescriptorCompiler::compile)
                 .orElse(null);
         return descriptor == null ? null : descriptor.withFileReferences(descriptor.fileReferences().stream()
-                .map(reference -> reference.withUploadAvailable(fileReferenceUploadPolicies.stream().anyMatch(policy ->
-                        policy.supportsField(moduleAlias, reference.fieldRef().relationCode(), reference.fieldRef().fieldName()))))
+                .map(reference -> withFieldAccess(moduleAlias, reference))
                 .toList());
     }
 
@@ -190,9 +196,18 @@ public class PlatformModuleRuntimeContextService {
                 dynamicOptionFields(dynamicDescriptor), dynamicReferenceFields(dynamicDescriptor),
                 dynamicRecordLabelField(dynamicDescriptor), dynamicFieldTypes(dynamicDescriptor, resolvedConfig))
                 .withFileReferences(dynamicFileReferences(dynamicDescriptor, resolvedConfig).stream()
-                        .map(reference -> reference.withUploadAvailable(fileReferenceUploadPolicies.stream().anyMatch(policy ->
-                                policy.supportsField(moduleAlias, reference.fieldRef().relationCode(), reference.fieldRef().fieldName()))))
+                        .map(reference -> withFieldAccess(moduleAlias, reference))
                         .toList());
+    }
+
+    private ResolvedFileReferenceFieldDescriptor withFieldAccess(String moduleAlias,
+                                                                   ResolvedFileReferenceFieldDescriptor reference) {
+        return fileReferenceFieldPolicies.stream()
+                .filter(policy -> policy.supportsField(moduleAlias, reference.fieldRef().relationCode(),
+                        reference.fieldRef().fieldName()))
+                .findFirst()
+                .map(policy -> reference.withAccess(policy.readAvailable()))
+                .orElse(reference);
     }
 
     private java.util.List<ResolvedFileReferenceFieldDescriptor> dynamicFileReferences(
@@ -215,7 +230,8 @@ public class PlatformModuleRuntimeContextService {
                             .get(field.fieldName());
                     return reference == null ? null : new ResolvedFileReferenceFieldDescriptor(
                             new ViewFieldRef(field.relationAlias(), field.fieldName(), field.moduleMetadataFieldId()),
-                            reference.allowedMediaTypes(), reference.maxFileSizeBytes(), reference.maxFiles());
+                            reference.allowedMediaTypes(), reference.maxFileSizeBytes(), reference.maxFiles(),
+                            reference.storagePolicy(), false);
                 })
                 .filter(java.util.Objects::nonNull)
                 .toList();

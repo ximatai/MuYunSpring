@@ -53,6 +53,33 @@ public class ManagedFileAssetService extends AbstractAbilityService<ManagedFileA
         return asset;
     }
 
+    /** Stores a small browser upload as a storage-neutral inline asset and returns its stable id. */
+    public ManagedFileAsset createInline(String tenantId, String originalFilename, String mimeType, byte[] content) {
+        if (!TransactionScopeSupport.isTransactionActive()) {
+            throw new IllegalStateException("managed inline asset creation requires an active transaction");
+        }
+        String normalizedTenantId = requireText(tenantId, "tenantId");
+        String normalizedFilename = requireText(originalFilename, "originalFilename");
+        String normalizedMimeType = requireText(mimeType, "mimeType").toLowerCase(Locale.ROOT);
+        if (content == null || content.length == 0) {
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, "managed file content must not be empty");
+        }
+        if (content.length > MAX_INLINE_BYTES) {
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, "managed file content must not exceed 512 KB");
+        }
+        ManagedFileAsset asset = new ManagedFileAsset();
+        asset.setId(Ids.newId());
+        asset.setTenantId(normalizedTenantId);
+        asset.setStorageKind(ManagedFileStorageKind.DATABASE_INLINE);
+        asset.setContentBase64("data:" + normalizedMimeType + ";base64," + Base64.getEncoder().encodeToString(content));
+        asset.setOriginalFilename(normalizedFilename);
+        asset.setMimeType(normalizedMimeType);
+        asset.setSizeBytes((long) content.length);
+        asset.setSha256(sha256(content));
+        insert(asset);
+        return asset;
+    }
+
     /** Compatibility facade; callers must no longer infer replacement or deletion from this method. */
     @Deprecated(forRemoval = false)
     public ManagedFileAsset replaceInline(String tenantId, String ignoredExistingAssetId, String dataUrl) {

@@ -28,6 +28,10 @@ public class TenantWebController extends WebSupport<TenantService> implements
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(TenantService.MODULE_ALIAS)
                 .typedTextConfirmation("delete", "alias")
+                .formView(form -> form
+                        .title("租户档案")
+                        .field("lightLogoAssetId", field -> field.label("默认 Logo（亮色模式）"))
+                        .field("darkLogoAssetId", field -> field.label("暗色模式 Logo（可选）")))
                 .build();
     }
 }

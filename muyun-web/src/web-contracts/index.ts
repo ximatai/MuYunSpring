@@ -148,6 +148,12 @@ export interface CurrentUser {
 
 export interface SessionContext {
   currentUser: CurrentUser;
+  tenantBranding?: TenantBranding;
+}
+
+export interface TenantBranding {
+  lightLogo?: string;
+  darkLogo?: string;
 }
 
 export interface LoginRequest {
@@ -661,7 +667,9 @@ export interface ResolvedFileReferenceFieldDescriptor {
   allowedMediaTypes: string[];
   maxFileSizeBytes?: number;
   maxFiles: number;
+  storagePolicy: 'MUYUN_FILE_SERVER' | 'DATABASE_INLINE';
   uploadAvailable: boolean;
+  readAvailable: boolean;
 }
 
 export interface ModuleUiDefinition {
@@ -1063,6 +1071,8 @@ export interface ModuleMetadataRelation extends StandardSortableEntity {
 
 export interface Tenant extends StandardEnabledSortableEntity {
   alias?: string;
+  lightLogoAssetId?: string;
+  darkLogoAssetId?: string;
 }
 
 export interface FieldSpec extends StandardEnabledSortableEntity {

@@ -158,27 +158,27 @@ export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
     clearFeedback();
   }
 
-  async function save() {
+  async function save(): Promise<boolean> {
     if (saving.value) {
-      return;
+      return false;
     }
     if (mode.value === 'view') {
-      return;
+      return false;
     }
     if (mode.value === 'create' ? !canCreate.value : !canUpdate.value) {
       presentActionMessage(options.saveDeniedMessage, 'authorization');
-      return;
+      return false;
     }
     clearFeedback();
     const validDraft = options.normalizeDraft(draft.value, selected.value, mode.value);
     if (!options.isValid(validDraft)) {
       presentActionMessage(options.requiredMessage, 'validation');
-      return;
+      return false;
     }
     const validationError = options.validateBeforeSave?.(validDraft);
     if (validationError) {
       presentActionMessage(validationError, 'validation');
-      return;
+      return false;
     }
 
     saving.value = true;
@@ -196,8 +196,10 @@ export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
         platformActionResultReactions.closeEditor(),
         platformActionResultReactions.refreshList(),
       ]);
+      return true;
     } catch (cause) {
       handleActionError(cause, mode.value === 'create' ? 'create' : 'update');
+      return false;
     } finally {
       saving.value = false;
     }

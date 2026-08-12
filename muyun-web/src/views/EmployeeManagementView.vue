@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   ManagementWorkspace,
   ManagementExplorerColumn,
+  CrudRecordListExplorer,
   RecordActionBar,
   RecordDetailDrawer,
   RecordDetailPanel,
@@ -38,10 +39,13 @@ import type {
   EmployeeAccount,
   EmployeeAccountProvisionResponse,
   Organization,
+  Tenant,
   UserAccount,
   WebActionResultEnvelope,
+  WebQueryRequest,
 } from '@muyun/web-contracts';
 import { actionResultData, platformErrorCodes, useModuleContext, type ModuleContext } from '@muyun/web-core';
+import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
   usePageDataChange,
   usePageRecordExternalChange,
@@ -98,6 +102,8 @@ const organizationContext = useModuleContext<Organization>({ moduleAlias: 'iam.o
 const departmentContext = useModuleContext<Department>({ moduleAlias: 'iam.department' });
 const employeeContext = useModuleContext<Employee>({ moduleAlias: 'iam.employee' });
 const userContext = useModuleContext<UserAccount>({ moduleAlias: 'iam.user' });
+const tenantContext = useModuleContext<Tenant>({ moduleAlias: 'iam.tenant' });
+const currentUser = useCurrentUserContext();
 const employeeFormFieldDefinitions = ref(resolveRecordFormFields(undefined));
 const isWorkspaceView = computed(() => Boolean(props.recordId));
 const isDrawerWorkspaceView = computed(
@@ -109,6 +115,9 @@ const shouldRenderEmployeeDetailDrawer = computed(
 const organizationSearchKeyword = ref('');
 const organizationReloadKey = ref(0);
 const employeeReloadKey = ref(0);
+const tenantSearchKeyword = ref('');
+const tenantReloadKey = ref(0);
+const selectedTenant = ref<Tenant>();
 const selectedOrganization = ref<Organization>();
 const selectedEmployeeKey = ref<string>();
 const selectedEmployee = ref<Employee>();
@@ -180,7 +189,23 @@ usePageDataChange({
   },
 });
 
-const employeeListContext = computed(() => employeeContext as unknown as ModuleContext<QueryListRecord>);
+const employeeListContext = computed(
+  () =>
+    createScopedEmployeeModuleContext(
+      employeeContext,
+      selectedTenant.value,
+    ) as ModuleContext<QueryListRecord>,
+);
+const canBrowseTenants = computed(() => currentUser?.value?.system === true);
+const selectedTenantId = computed(() => selectedTenant.value?.id);
+const scopedOrganizationContext = computed(
+  () =>
+    createScopedTreeModuleContext(organizationContext, {
+      scopeFieldName: 'tenantId',
+      scopeValue: selectedTenantId.value,
+      treePath: '/iam.organization/tree',
+    }) as ModuleContext<Organization>,
+);
 const selectedOrganizationId = computed(() => selectedOrganization.value?.id);
 const scopedDepartmentContext = computed(() =>
   createScopedTreeModuleContext(departmentContext, {
@@ -365,6 +390,9 @@ let disposeEmployeeWorkspaceHandoffRecipient: (() => void) | undefined;
 
 onMounted(() => {
   void loadEmployeeFormDefinition();
+  if (!canBrowseTenants.value && currentUser?.value?.tenantId) {
+    selectedTenant.value = { id: currentUser.value.tenantId, title: currentUser.value.tenantId } as Tenant;
+  }
   if (!props.recordId) return;
   const input = { recordId: props.recordId } as const;
   if (!isDrawerWorkspaceView.value) {
@@ -379,6 +407,12 @@ onMounted(() => {
     return;
   }
   void openEmployeeDetail({ id: props.recordId }, props.mode ?? 'view');
+});
+
+watch(selectedTenantId, () => {
+  selectedOrganization.value = undefined;
+  resetEmployeeListSelection();
+  organizationReloadKey.value += 1;
 });
 
 onBeforeUnmount(() => disposeEmployeeWorkspaceHandoffRecipient?.());
@@ -453,9 +487,47 @@ function employeeDetailDisplayValue(
 }
 
 function handleOrganizationsLoaded(records: Organization[]) {
+  if (!selectedTenantId.value) return;
   if (!selectedOrganization.value && records.length > 0) {
     selectedOrganization.value = records[0];
   }
+}
+
+function selectTenant(tenant: Tenant) {
+  if (!canLeaveEmployeeDetailContext()) return;
+  selectedTenant.value = tenant;
+}
+
+function tenantItemOf(record: Tenant): RecordExplorerItemDescriptor {
+  return {
+    title: record.title ?? record.alias ?? record.id ?? '未命名租户',
+    secondary: record.alias ?? record.id,
+    muted: record.enabled === false,
+  };
+}
+
+function createScopedEmployeeModuleContext(
+  context: ModuleContext<Employee>,
+  tenant: Tenant | undefined,
+): ModuleContext<Employee> {
+  return {
+    ...context,
+    crud: {
+      ...context.crud,
+      query: (request) => context.crud.query(scopedEmployeeQuery(request, tenant)),
+    },
+  };
+}
+
+function scopedEmployeeQuery(
+  request: WebQueryRequest | undefined,
+  tenant: Tenant | undefined,
+): WebQueryRequest {
+  const conditions = [...(request?.conditions ?? [])];
+  if (tenant?.id) {
+    conditions.push({ fieldName: 'tenantId', operator: 'EQ', values: [tenant.id] });
+  }
+  return { ...request, conditions };
 }
 
 function selectOrganization(record: Organization) {
@@ -1231,7 +1303,31 @@ const employeeFormFieldFallback: Record<EmployeeFormFieldName, RecordFormFieldFa
 </script>
 
 <template>
-  <ManagementWorkspace v-if="!isWorkspaceView || isDrawerWorkspaceView" class="employee-management-page">
+  <ManagementWorkspace
+    v-if="!isWorkspaceView || isDrawerWorkspaceView"
+    class="employee-management-page"
+    :explorer-count="canBrowseTenants ? 2 : 1"
+  >
+    <ManagementExplorerColumn v-if="canBrowseTenants">
+      <RecordExplorerPanel
+        v-model:search-keyword="tenantSearchKeyword"
+        title="租户"
+        search-placeholder="搜索租户"
+        @refresh="tenantReloadKey += 1"
+      >
+        <CrudRecordListExplorer
+          :context="tenantContext"
+          :selected-id="selectedTenant?.id"
+          :reload-key="tenantReloadKey"
+          :keyword="tenantSearchKeyword"
+          empty-description="暂无租户"
+          loading-tip="加载租户"
+          fallback-title="未命名租户"
+          :item-of="(record) => tenantItemOf(record as Tenant)"
+          @select="selectTenant($event as Tenant)"
+        />
+      </RecordExplorerPanel>
+    </ManagementExplorerColumn>
     <ManagementExplorerColumn>
       <RecordExplorerPanel
         class="employee-scope-panel"
@@ -1243,14 +1339,14 @@ const employeeFormFieldFallback: Record<EmployeeFormFieldName, RecordFormFieldFa
         @update:search-keyword="organizationSearchKeyword = $event"
       >
         <TreeRecordExplorer
-          :context="organizationContext"
+          :context="scopedOrganizationContext"
           :selected-id="selectedOrganization?.id"
           :reload-key="organizationReloadKey"
           :keyword="organizationSearchKeyword"
           search-mode="none"
           search-trigger="external"
-          empty-description="暂无机构"
-          loading-tip="加载机构树"
+          :empty-description="selectedTenantId ? '暂无机构' : '请选择租户'"
+          :loading-tip="selectedTenantId ? '加载机构树' : '等待选择租户'"
           fallback-title="未命名机构"
           :item-of="(record) => organizationItemOf(record as Organization)"
           @loaded="handleOrganizationsLoaded"
