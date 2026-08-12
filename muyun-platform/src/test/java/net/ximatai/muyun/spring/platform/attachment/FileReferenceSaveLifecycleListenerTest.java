@@ -21,6 +21,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.LinkedHashSet;
@@ -201,12 +202,38 @@ class FileReferenceSaveLifecycleListenerTest {
         incoming.setAssetId("asset-1");
         incoming.setAssetMimeType("forged/type");
 
-        listener.beforeSave(new InlineDocumentService(), null, incoming);
-        listener.persisted(new InlineDocumentService(), incoming);
+        inTransaction(() -> {
+            listener.beforeSave(new InlineDocumentService(), null, incoming);
+            listener.persisted(new InlineDocumentService(), incoming);
+        });
 
         assertThat(incoming.getAssetMimeType()).isEqualTo("image/png");
         verify(references).replaceFieldReferences("tenant-a", "test.inline_document", "document-1", "assetId",
                 List.of("asset-1"));
+    }
+
+    @Test
+    void rejectsInlineReferenceSaveOutsideAnActiveTransaction() {
+        ManagedFileAssetService assets = mock(ManagedFileAssetService.class);
+        ManagedFileAssetReferenceService references = mock(ManagedFileAssetReferenceService.class);
+        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> null, () -> assets, () -> references);
+        InlineDocument incoming = new InlineDocument();
+        incoming.setId("document-1");
+        incoming.setTenantId("tenant-a");
+        incoming.setAssetId("asset-1");
+
+        assertThatThrownBy(() -> listener.beforeSave(new InlineDocumentService(), null, incoming))
+                .isInstanceOf(PlatformException.class)
+                .hasMessage("database inline file reference save requires an active transaction");
+    }
+
+    @Test
+    void rejectsInlineAssetCreationOutsideAnActiveTransaction() {
+        ManagedFileAssetService assets = new ManagedFileAssetService(mock(ManagedFileAssetDao.class));
+
+        assertThatThrownBy(() -> assets.createInline("tenant-a", "data:image/png;base64,AA=="))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("managed inline asset creation requires an active transaction");
     }
 
     @Test
@@ -276,6 +303,17 @@ class FileReferenceSaveLifecycleListenerTest {
                         "active", false, Instant.now());
             }
         };
+    }
+
+    private void inTransaction(Runnable action) {
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        try {
+            action.run();
+        } finally {
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     private Document document(String fileId) { Document value = new Document(); value.setSourceFileId(fileId); return value; }

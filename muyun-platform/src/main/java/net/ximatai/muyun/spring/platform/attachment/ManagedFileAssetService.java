@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.attachment;
 
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
+import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.ErrorScope;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
@@ -31,6 +32,9 @@ public class ManagedFileAssetService extends AbstractAbilityService<ManagedFileA
 
     /** Creates an unbound inline asset. Binding and old-asset collection belong to the reference lifecycle. */
     public ManagedFileAsset createInline(String tenantId, String dataUrl) {
+        if (!TransactionScopeSupport.isTransactionActive()) {
+            throw new IllegalStateException("managed inline asset creation requires an active transaction");
+        }
         String normalizedTenantId = requireText(tenantId, "tenantId");
         if (dataUrl == null || dataUrl.isBlank()) {
             return null;
@@ -55,11 +59,6 @@ public class ManagedFileAssetService extends AbstractAbilityService<ManagedFileA
         return createInline(tenantId, dataUrl);
     }
 
-    void deleteOwnedIfUnreferenced(String tenantId, String assetId, ManagedFileAssetReferenceService references) {
-        if (assetId == null || assetId.isBlank() || references.isReferenced(tenantId, assetId)) return;
-        deleteOwned(tenantId, assetId);
-    }
-
     public String readInlineContent(String tenantId, String assetId) {
         ManagedFileAsset asset = requireOwned(tenantId, assetId);
         if (asset.getStorageKind() != ManagedFileStorageKind.DATABASE_INLINE || asset.getContentBase64() == null) {
@@ -82,11 +81,6 @@ public class ManagedFileAssetService extends AbstractAbilityService<ManagedFileA
             throw PlatformErrors.notFound("managed file asset does not exist: " + assetId, ErrorScope.module(MODULE_ALIAS));
         }
         return asset;
-    }
-
-    private void deleteOwned(String tenantId, String assetId) {
-        ManagedFileAsset asset = requireOwned(tenantId, assetId);
-        delete(asset);
     }
 
     private InlineImage parse(String dataUrl) {

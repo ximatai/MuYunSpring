@@ -93,9 +93,11 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
                 }
                 applyMetadataFields(incoming, existing, entry.getKey(), entry.getValue(), incomingFileIds, promotedMetadata);
             }
+            boolean inlineReferenceChanged = hasInlineReferenceValues(existing, incoming, inlineDefinitions);
+            requireTransactionForInlineReferences(inlineReferenceChanged);
             applyInlineMetadataFields(incoming, existing, inlineDefinitions);
-            if (!inlineDefinitions.isEmpty()) {
-                pendingInlineReferences.get().put(incoming, inlineReferenceChange(existing, incoming, inlineDefinitions));
+            if (inlineReferenceChanged) {
+                pendingInlineReferences.get().put(incoming, inlineReferenceChange(incoming, inlineDefinitions));
             }
             trackTransaction(ability, incoming);
         } catch (RuntimeException failure) {
@@ -120,8 +122,7 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
     @Override
     public <T extends EntityContract> void persistFailed(CrudAbility<T> ability, T entity, RuntimeException failure) {
         pendingDeletions.get().remove(entity);
-        InlineReferenceChange inlineChange = pendingInlineReferences.get().remove(entity);
-        if (inlineChange != null) deleteUnboundInlineAssets(entity, inlineChange.newAssetIds());
+        pendingInlineReferences.get().remove(entity);
         Map<String, java.util.List<String>> fileIds = promoted.get().remove(entity);
         if (fileIds != null && !fileIds.isEmpty()) {
             log.error("File reference was promoted but record save did not complete: moduleAlias={}, recordId={}, fileIds={}",
@@ -204,55 +205,36 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
         }
     }
 
-    private InlineReferenceChange inlineReferenceChange(EntityContract existing, EntityContract incoming,
+    private InlineReferenceChange inlineReferenceChange(EntityContract incoming,
                                                         Map<String, FileReferenceDefinition> definitions) {
         Map<String, java.util.List<String>> current = new LinkedHashMap<>();
-        java.util.Set<String> removed = new java.util.LinkedHashSet<>();
-        java.util.Set<String> added = new java.util.LinkedHashSet<>();
         for (Map.Entry<String, FileReferenceDefinition> entry : definitions.entrySet()) {
             java.util.List<String> next = values(incoming, entry.getKey(), entry.getValue());
-            java.util.Set<String> previous = new java.util.LinkedHashSet<>(values(existing, entry.getKey(), entry.getValue()));
             current.put(entry.getKey(), next);
-            for (String id : previous) if (!next.contains(id)) removed.add(id);
-            for (String id : next) if (!previous.contains(id)) added.add(id);
         }
-        return new InlineReferenceChange(Map.copyOf(current), Set.copyOf(removed), Set.copyOf(added));
+        return new InlineReferenceChange(Map.copyOf(current));
     }
 
     private <T extends EntityContract> void synchronizeInlineReferences(CrudAbility<T> ability, T entity,
                                                                          InlineReferenceChange change) {
         ManagedFileAssetReferenceService references = managedAssetReferenceServiceSupplier.get();
-        ManagedFileAssetService assets = managedAssetServiceSupplier.get();
-        if (references == null || assets == null) throw new PlatformException("managed file asset reference service is not configured");
+        if (references == null) throw new PlatformException("managed file asset reference service is not configured");
         String tenantId = ownerTenantId(entity);
         for (Map.Entry<String, java.util.List<String>> entry : change.currentByField().entrySet()) {
             references.replaceFieldReferences(tenantId, ability.getModuleAlias(), entity.getId(), entry.getKey(), entry.getValue());
         }
-        if (!change.removedAssetIds().isEmpty()) {
-            TransactionScopeSupport.afterCommitOrNow(() -> {
-                for (String assetId : change.removedAssetIds()) {
-                    try {
-                        assets.deleteOwnedIfUnreferenced(tenantId, assetId, references);
-                    } catch (RuntimeException failure) {
-                        log.error("Business record saved but replaced inline asset collection failed: moduleAlias={}, recordId={}, assetId={}",
-                                ability.getModuleAlias(), entity.getId(), assetId, failure);
-                    }
-                }
-            });
-        }
     }
 
-    private void deleteUnboundInlineAssets(EntityContract entity, Set<String> assetIds) {
-        ManagedFileAssetReferenceService references = managedAssetReferenceServiceSupplier.get();
-        ManagedFileAssetService assets = managedAssetServiceSupplier.get();
-        if (references == null || assets == null) return;
-        String tenantId = ownerTenantId(entity);
-        for (String assetId : assetIds) {
-            try {
-                assets.deleteOwnedIfUnreferenced(tenantId, assetId, references);
-            } catch (RuntimeException cleanupFailure) {
-                log.error("Failed to collect unbound inline asset after record save failure: assetId={}", assetId, cleanupFailure);
-            }
+    private boolean hasInlineReferenceValues(EntityContract existing, EntityContract incoming,
+                                             Map<String, FileReferenceDefinition> definitions) {
+        return definitions.entrySet().stream().anyMatch(entry ->
+                !values(existing, entry.getKey(), entry.getValue()).isEmpty()
+                        || !values(incoming, entry.getKey(), entry.getValue()).isEmpty());
+    }
+
+    private void requireTransactionForInlineReferences(boolean hasReferenceValues) {
+        if (hasReferenceValues && !TransactionScopeSupport.isTransactionActive()) {
+            throw new PlatformException("database inline file reference save requires an active transaction");
         }
     }
 
@@ -418,9 +400,7 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
     private record ResolvedFileDeletion(String fieldName, String fileId) {
     }
 
-    private record InlineReferenceChange(Map<String, java.util.List<String>> currentByField,
-                                         Set<String> removedAssetIds,
-                                         Set<String> newAssetIds) {
+    private record InlineReferenceChange(Map<String, java.util.List<String>> currentByField) {
     }
 
     private <T extends EntityContract> void trackTransaction(CrudAbility<T> ability, T entity) {

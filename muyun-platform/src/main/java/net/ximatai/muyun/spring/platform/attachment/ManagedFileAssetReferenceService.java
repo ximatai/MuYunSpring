@@ -51,12 +51,6 @@ public class ManagedFileAssetReferenceService extends AbstractAbilityService<Man
         }
     }
 
-    public boolean isReferenced(String tenantId, String assetId) {
-        return !list(Criteria.of().eq("tenantId", required(tenantId, "tenantId"))
-                        .eq("assetId", required(assetId, "assetId")), PAGE, Sort.asc("createdAt"))
-                .isEmpty();
-    }
-
     private Set<String> normalizedIds(Collection<String> assetIds) {
         Set<String> result = new LinkedHashSet<>();
         if (assetIds == null) return result;
