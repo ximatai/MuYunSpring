@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ConfigProvider as AConfigProvider } from 'ant-design-vue';
-import { computed, watchEffect } from 'vue';
+import { computed, onUnmounted, watch } from 'vue';
 import { antDesignThemeOf, cssVariablesOf, defaultUiTheme, type UiTheme } from '../theme';
+import { installGlobalThemeVariables, removeGlobalThemeVariables } from '../themeGlobalScope';
 
 defineOptions({ name: 'UiThemeProvider', inheritAttrs: false });
 
@@ -12,27 +13,23 @@ const props = withDefaults(defineProps<{ theme?: UiTheme; scope?: 'local' | 'glo
 const activeTheme = computed(() => props.theme);
 const antTheme = computed(() => antDesignThemeOf(activeTheme.value));
 const cssVariables = computed(() => cssVariablesOf(activeTheme.value));
-const originalDocumentVariables = new Map<string, string | undefined>();
+const providerId = Symbol('UiThemeProvider');
 
-watchEffect((onCleanup) => {
-  if (props.scope !== 'global' || typeof document === 'undefined') {
-    return;
-  }
-  Object.entries(cssVariables.value).forEach(([name, value]) => {
-    if (!originalDocumentVariables.has(name)) {
-      originalDocumentVariables.set(name, document.documentElement.style.getPropertyValue(name) || undefined);
+watch(
+  () => [props.scope, cssVariables.value] as const,
+  ([scope, variables]) => {
+    if (typeof document === 'undefined') return;
+    if (scope !== 'global') {
+      removeGlobalThemeVariables(providerId);
+      return;
     }
-    document.documentElement.style.setProperty(name, value);
-  });
-  onCleanup(() => {
-    originalDocumentVariables.forEach((value, name) => {
-      if (value === undefined) {
-        document.documentElement.style.removeProperty(name);
-        return;
-      }
-      document.documentElement.style.setProperty(name, value);
-    });
-  });
+    installGlobalThemeVariables(providerId, variables);
+  },
+  { immediate: true },
+);
+
+onUnmounted(() => {
+  removeGlobalThemeVariables(providerId);
 });
 </script>
 
