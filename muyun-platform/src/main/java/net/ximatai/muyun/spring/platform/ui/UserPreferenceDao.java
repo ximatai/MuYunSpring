@@ -4,5 +4,5 @@ import net.ximatai.muyun.database.spring.boot.sql.annotation.MuYunRepository;
 import net.ximatai.muyun.spring.ability.BaseDao;
 
 @MuYunRepository
-public interface PlatformPagePreferenceDao extends BaseDao<PlatformPagePreference, String> {
+public interface UserPreferenceDao extends BaseDao<UserPreference, String> {
 }
