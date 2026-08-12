@@ -71,14 +71,14 @@ public class StaticEntityDefinitionCompiler {
             references.put(field.getName(), new FileReferenceDefinition(
                     Set.of(annotation.allowedMediaTypes()),
                     annotation.maxFileSizeBytes() > 0 ? annotation.maxFileSizeBytes() : null,
-                    annotation.maxFiles()));
+                    annotation.maxFiles(), Map.of(), annotation.storagePolicy()));
         }
         Map<String, Map<FileReferenceMetadata, String>> metadataFields = metadataFields(
                 modelClass, fields, references, fileReferenceFields);
         metadataFields.forEach((source, bindings) -> {
             FileReferenceDefinition definition = references.get(source);
             references.put(source, new FileReferenceDefinition(definition.allowedMediaTypes(),
-                    definition.maxFileSizeBytes(), definition.maxFiles(), bindings));
+                    definition.maxFileSizeBytes(), definition.maxFiles(), bindings, definition.storagePolicy()));
         });
         return Map.copyOf(references);
     }

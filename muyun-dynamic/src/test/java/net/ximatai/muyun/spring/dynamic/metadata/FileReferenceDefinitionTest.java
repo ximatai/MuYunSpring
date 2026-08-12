@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.file.FileReference;
 import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadata;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceStoragePolicy;
 import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadataField;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FileReferenceDefinitionTest {
+    @Test
+    void shouldCompileStaticInlineStoragePolicyIntoTheUnifiedFileReferenceDescriptor() {
+        EntityDefinition entity = new StaticEntityDefinitionCompiler().compile("inline_asset", "test.inline", InlineAssetModel.class);
+
+        assertThat(entity.fileReferences().get("assetId").storagePolicy())
+                .isEqualTo(FileReferenceStoragePolicy.DATABASE_INLINE);
+    }
     @Test
     void shouldCompileStaticFileReferenceConstraintsIntoTheEntityDefinition() {
         EntityDefinition entity = new StaticEntityDefinitionCompiler()
@@ -153,6 +161,13 @@ class FileReferenceDefinitionTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("file reference metadata requires @Column BIGINT Long field: "
                         + StaticInvalidMetadataTypeDocument.class.getName() + ".sourceFileSize");
+    }
+
+    @Table(name = "test_static_document")
+    static class InlineAssetModel extends StandardEntity {
+        @Column(name = "asset_id", type = ColumnType.VARCHAR, length = 32)
+        @FileReference(storagePolicy = FileReferenceStoragePolicy.DATABASE_INLINE)
+        private String assetId;
     }
 
     @Table(name = "test_static_document")
