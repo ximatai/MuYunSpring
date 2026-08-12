@@ -6,6 +6,7 @@ import {
   pageDescriptorToUrl,
   type WorkbenchRealtimeStatus,
 } from '@muyun/platform-workbench';
+import { UiThemeProvider } from '@muyun/vue-ui-antdv';
 import { presentPlatformError, providePlatformTimeZoneContext } from '@muyun/platform-components';
 import {
   configureModuleContext,
@@ -566,59 +567,61 @@ function requiresLogin(cause: unknown) {
 </script>
 
 <template>
-  <LoginView
-    v-if="loginRequired"
-    :auth-client="authClient"
-    :loading="loginLoading"
-    :error="error"
-    @authenticated="handleAuthenticated"
-  />
-  <OpenApiCatalogView v-else-if="openApiCatalogOpen" @open="openModuleOpenApi" @back="returnToWorkbench" />
-  <Workbench
-    v-else
-    v-model:active-tab-key="activeTabKey"
-    :startup="startup"
-    :loading="loading"
-    :error="error"
-    :realtime-status="realtimeStatus"
-    @select-menu="handleSelectMenu"
-    @change-tab="handleChangeTab"
-    @close-tab="handleCloseTab"
-    @user-command="handleUserCommand"
-  >
-    <template #default="{ activeTab, pageDescriptor }">
-      <ModuleOpenApiView
-        v-if="isModuleOpenApiPage(pageDescriptor)"
-        :module-alias="pageDescriptor?.target.moduleAlias ?? ''"
-        @title-resolved="
-          resolveModuleOpenApiTitle(activeTab.key, pageDescriptor?.target.moduleAlias ?? '', $event)
-        "
-      />
-      <PlatformAdminRouteOutlet
-        v-else-if="isPlatformAdminRoutePage(pageDescriptor)"
-        :descriptor="pageDescriptor"
-      />
-      <WorkbenchOutlet v-else :descriptor="pageDescriptor" />
-    </template>
-  </Workbench>
-  <ChangeOwnPasswordDialog
-    v-model:current-password="currentPassword"
-    v-model:new-password="newPassword"
-    v-model:confirm-password="confirmPassword"
-    :open="changePasswordOpen"
-    :saving="changePasswordSaving"
-    :error="changePasswordError"
-    @close="closeChangeOwnPasswordDialog"
-    @submit="submitChangeOwnPassword"
-  />
-  <div v-if="securityNotification" class="security-notification-mask" role="presentation">
-    <section class="security-notification-dialog" role="alertdialog" aria-modal="true">
-      <h2>需要重新登录</h2>
-      <p>{{ securityNotification.message }}</p>
-      <p class="security-notification-countdown">{{ securityLogoutCountdown }} 秒后自动返回登录页</p>
-      <button type="button" @click="forceLocalLogout">立即重新登录</button>
-    </section>
-  </div>
+  <UiThemeProvider>
+    <LoginView
+      v-if="loginRequired"
+      :auth-client="authClient"
+      :loading="loginLoading"
+      :error="error"
+      @authenticated="handleAuthenticated"
+    />
+    <OpenApiCatalogView v-else-if="openApiCatalogOpen" @open="openModuleOpenApi" @back="returnToWorkbench" />
+    <Workbench
+      v-else
+      v-model:active-tab-key="activeTabKey"
+      :startup="startup"
+      :loading="loading"
+      :error="error"
+      :realtime-status="realtimeStatus"
+      @select-menu="handleSelectMenu"
+      @change-tab="handleChangeTab"
+      @close-tab="handleCloseTab"
+      @user-command="handleUserCommand"
+    >
+      <template #default="{ activeTab, pageDescriptor }">
+        <ModuleOpenApiView
+          v-if="isModuleOpenApiPage(pageDescriptor)"
+          :module-alias="pageDescriptor?.target.moduleAlias ?? ''"
+          @title-resolved="
+            resolveModuleOpenApiTitle(activeTab.key, pageDescriptor?.target.moduleAlias ?? '', $event)
+          "
+        />
+        <PlatformAdminRouteOutlet
+          v-else-if="isPlatformAdminRoutePage(pageDescriptor)"
+          :descriptor="pageDescriptor"
+        />
+        <WorkbenchOutlet v-else :descriptor="pageDescriptor" />
+      </template>
+    </Workbench>
+    <ChangeOwnPasswordDialog
+      v-model:current-password="currentPassword"
+      v-model:new-password="newPassword"
+      v-model:confirm-password="confirmPassword"
+      :open="changePasswordOpen"
+      :saving="changePasswordSaving"
+      :error="changePasswordError"
+      @close="closeChangeOwnPasswordDialog"
+      @submit="submitChangeOwnPassword"
+    />
+    <div v-if="securityNotification" class="security-notification-mask" role="presentation">
+      <section class="security-notification-dialog" role="alertdialog" aria-modal="true">
+        <h2>需要重新登录</h2>
+        <p>{{ securityNotification.message }}</p>
+        <p class="security-notification-countdown">{{ securityLogoutCountdown }} 秒后自动返回登录页</p>
+        <button type="button" @click="forceLocalLogout">立即重新登录</button>
+      </section>
+    </div>
+  </UiThemeProvider>
 </template>
 
 <style scoped>

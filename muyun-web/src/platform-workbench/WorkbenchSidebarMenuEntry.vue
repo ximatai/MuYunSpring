@@ -114,7 +114,7 @@ function handleMainClick() {
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font: inherit;
   font-size: 12px;
   text-align: left;
@@ -133,8 +133,8 @@ function handleMainClick() {
 }
 
 .sidebar-menu-entry.navigable:hover {
-  background: #edf4f7;
-  color: #0f766e;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
 }
 
 .sidebar-menu-entry--split {
@@ -170,7 +170,7 @@ function handleMainClick() {
 }
 
 .sidebar-menu-entry-trigger:hover {
-  background: rgb(15 118 110 / 7%);
+  background: var(--muyun-theme-soft);
 }
 
 .sidebar-menu-entry.navigable > span,
@@ -187,7 +187,7 @@ function handleMainClick() {
   bottom: 0;
   left: 0;
   height: 1px;
-  background: #0f766e;
+  background: var(--muyun-theme-base);
   content: '';
   opacity: 0;
   transform: scaleX(0.55);
@@ -209,17 +209,17 @@ function handleMainClick() {
 .sidebar-menu-entry-main:focus-visible,
 .sidebar-menu-entry-trigger:focus-visible {
   outline: 0;
-  background: #eaf5f2;
-  color: #0f766e;
-  box-shadow: inset 0 0 0 2px #8bc9c0;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
+  box-shadow: inset 0 0 0 2px var(--muyun-theme-focus);
 }
 
 .sidebar-menu-entry.active {
   z-index: 2;
   border-radius: 5px 0 0 5px;
-  background: #fff;
-  color: #0f766e;
-  box-shadow: inset 3px 0 0 #0f766e;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-theme-base);
+  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
 }
 
 .sidebar-menu-entry.branch {
@@ -230,7 +230,7 @@ function handleMainClick() {
 .sidebar-menu-entry.branch::after {
   position: absolute;
   right: 9px;
-  color: #94a3b8;
+  color: var(--muyun-support-icon);
   content: '›';
   font-size: 18px;
   font-weight: 400;
@@ -263,28 +263,28 @@ function handleMainClick() {
 }
 
 .sidebar-menu-entry--group {
-  color: #475569;
+  color: var(--muyun-support-text-muted);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 .sidebar-menu-entry.selected {
-  background: #e4f2ef;
-  color: #0f766e;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
 }
 
 .sidebar-menu-entry.selected-path {
-  background: #f7fbfa;
-  color: #475569;
-  box-shadow: inset 2px 0 0 #c4e2dc;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-support-text-muted);
+  box-shadow: inset 2px 0 0 var(--muyun-theme-border);
 }
 
 .sidebar-menu-entry.active.selected,
 .sidebar-menu-entry.active.selected-path {
-  background: #fff;
-  color: #0f766e;
-  box-shadow: inset 3px 0 0 #0f766e;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-theme-base);
+  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
 }
 
 .sidebar-menu-entry:disabled {

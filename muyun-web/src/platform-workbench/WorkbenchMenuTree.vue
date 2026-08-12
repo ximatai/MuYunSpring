@@ -84,7 +84,7 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font: inherit;
   font-size: 12px;
   text-align: left;
@@ -112,7 +112,7 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
   bottom: 0;
   left: 0;
   height: 1px;
-  background: #0f766e;
+  background: var(--muyun-theme-base);
   content: '';
   opacity: 0;
   transform: scaleX(0.55);
@@ -123,8 +123,8 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
 }
 
 .deep-node-button.navigable:hover {
-  background: #eaf5f2;
-  color: #0f766e;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
 }
 
 .deep-node-button.navigable:hover > span::after,
@@ -135,19 +135,19 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
 
 .deep-node-button:focus-visible {
   outline: 0;
-  background: #eaf5f2;
-  color: #0f766e;
-  box-shadow: inset 0 0 0 2px #8bc9c0;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
+  box-shadow: inset 0 0 0 2px var(--muyun-theme-focus);
 }
 
 .deep-node-button.selected {
-  background: #e4f2ef;
-  color: #0f766e;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
 }
 
 .deep-node-button.selected-path {
-  background: #f0f7f5;
-  color: #0f766e;
-  box-shadow: inset 2px 0 0 #9ccfc7;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-soft-text);
+  box-shadow: inset 2px 0 0 var(--muyun-theme-border);
 }
 </style>

@@ -163,9 +163,10 @@ const compactOutlinePath = computed(() => {
   }
 
   const anchorTop = Math.round(anchor.top - shellRect.top);
+  const anchorLeft = Math.round(anchor.left - shellRect.left);
   const anchorRight = Math.round(anchor.right - shellRect.left);
   const panelRadius = 4;
-  const sharedLeft = panel.left;
+  const sharedLeft = Math.min(anchorLeft, panel.left);
 
   return [
     `M ${sharedLeft} ${anchorTop}`,
@@ -1070,8 +1071,8 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 <style scoped>
 .workbench-menu {
-  --workbench-menu-surface: #fff;
-  --workbench-menu-border: #d8e1ea;
+  --workbench-menu-surface: var(--muyun-support-surface);
+  --workbench-menu-border: var(--muyun-support-border);
   --workbench-menu-border-width: 1px;
   --workbench-menu-flyout-shadow: 0 18px 42px rgb(15 23 42 / 16%);
   position: relative;
@@ -1099,7 +1100,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   min-width: 0;
   padding: 12px 10px;
   border-right: var(--workbench-menu-border-width) solid var(--workbench-menu-border);
-  background: #fbfcfe;
+  background: var(--muyun-support-elevated);
 }
 
 .workbench-menu--compact .menu-sidebar {
@@ -1170,7 +1171,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   width: fit-content;
   max-width: 100%;
   padding: 3px 7px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--muyun-support-border-subtle);
 }
 
 .compact-menu-tools .menu-search {
@@ -1185,7 +1186,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .compact-menu-tools .menu-search:focus-within {
-  background: #f1f7f6;
+  background: var(--muyun-support-hover);
 }
 
 .workbench-menu--compact .root-menu {
@@ -1211,8 +1212,8 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   padding: 0 9px;
   border: var(--workbench-menu-border-width) solid var(--workbench-menu-border);
   border-radius: 7px;
-  background: #fff;
-  color: #64748b;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-support-text-muted);
 }
 
 .menu-search :deep(.ant-input-affix-wrapper) {
@@ -1228,7 +1229,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .menu-search :deep(.ant-input) {
   outline: 0;
   background: transparent;
-  color: #172033;
+  color: var(--muyun-support-text);
   font-size: 12px;
 }
 
@@ -1238,7 +1239,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .menu-search :deep(.ant-input::placeholder) {
-  color: #94a3b8;
+  color: var(--muyun-support-icon);
 }
 
 .root-menu {
@@ -1276,7 +1277,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   padding: 7px 8px;
   border: var(--workbench-menu-border-width) solid transparent;
   border-radius: 6px;
-  color: #334155;
+  color: var(--muyun-support-text-body);
   font-size: 13px;
   cursor: default;
 }
@@ -1311,7 +1312,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .root-menu-item-trigger:hover {
-  background: rgb(15 118 110 / 7%);
+  background: var(--muyun-theme-soft);
 }
 
 .root-menu-item-trigger .root-menu-branch-indicator {
@@ -1330,20 +1331,20 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .root-menu-item:hover,
 .root-menu-item.active,
 .root-menu-item.active.selected {
-  background: #edf4f7;
-  color: #0f766e;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
 }
 
 .root-menu-item.selected {
-  background: #e4f2ef;
-  color: #0f766e;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
   font-weight: 700;
 }
 
 .root-menu-item.selected-path {
-  background: #f6fbfa;
-  color: #475569;
-  box-shadow: inset 2px 0 0 #c4e2dc;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-support-text-muted);
+  box-shadow: inset 2px 0 0 var(--muyun-theme-border);
 }
 
 .root-menu-item.active,
@@ -1356,8 +1357,8 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 .root-menu-item.active.selected-path {
   background: var(--workbench-menu-surface);
-  color: #0f766e;
-  box-shadow: inset 3px 0 0 #75bbb0;
+  color: var(--muyun-theme-soft-text);
+  box-shadow: inset 3px 0 0 var(--muyun-theme-border);
 }
 
 .root-menu-item.navigable {
@@ -1386,7 +1387,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   bottom: 0;
   left: 0;
   height: 1px;
-  background: #0f766e;
+  background: var(--muyun-theme-base);
   content: '';
   opacity: 0;
   transform: scaleX(0.55);
@@ -1438,20 +1439,20 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .mega-entry-main:focus-visible,
 .mega-entry-trigger:focus-visible {
   outline: 0;
-  background: #eaf5f2;
-  color: #0f766e;
-  box-shadow: inset 0 0 0 2px #8bc9c0;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
+  box-shadow: inset 0 0 0 2px var(--muyun-theme-focus);
 }
 
 .root-menu-item.active,
 .root-menu-item.active.selected {
-  box-shadow: inset 3px 0 0 #0f766e;
+  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
 }
 
 .root-menu-item.active:focus-visible,
 .root-menu-item.active.selected:focus-visible {
-  background: #f1f8f6;
-  box-shadow: inset 3px 0 0 #0f766e;
+  background: var(--muyun-theme-soft);
+  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
 }
 
 .sidebar-menu-level {
@@ -1473,8 +1474,8 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   padding: 0 9px;
   border: var(--workbench-menu-border-width) solid var(--workbench-menu-border);
   border-radius: 7px;
-  background: #fff;
-  color: #475569;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-support-text-muted);
   font-size: 11px;
 }
 
@@ -1482,17 +1483,17 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: #10b981;
-  box-shadow: 0 0 0 4px rgb(16 185 129 / 12%);
+  background: var(--muyun-positive-base);
+  box-shadow: 0 0 0 4px var(--muyun-positive-focus);
 }
 
 .sidebar-footer.realtime-connecting .status-dot {
-  background: #f59e0b;
-  box-shadow: 0 0 0 4px rgb(245 158 11 / 12%);
+  background: var(--muyun-warning-base);
+  box-shadow: 0 0 0 4px var(--muyun-warning-focus);
 }
 
 .sidebar-footer.realtime-disconnected .status-dot {
-  background: #94a3b8;
+  background: var(--muyun-support-icon);
   box-shadow: none;
 }
 
@@ -1610,12 +1611,12 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 .workbench-menu--compact.mega-open .root-menu-item.active {
   background: var(--workbench-menu-surface);
-  box-shadow: inset 3px 0 0 #0f766e;
+  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
 }
 
 .workbench-menu--compact.mega-open .root-menu-item.active.selected-path {
-  color: #0f766e;
-  box-shadow: inset 3px 0 0 #0f766e;
+  color: var(--muyun-theme-base);
+  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
 }
 
 .mega-body {
@@ -1656,7 +1657,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   align-items: center;
   min-height: 24px;
   padding: 2px 0;
-  color: #475569;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
   font-weight: 800;
   cursor: default;
@@ -1668,7 +1669,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 .mega-group-title.selected,
 .mega-group-title.selected-path {
-  color: #0f766e;
+  color: var(--muyun-theme-base);
 }
 
 .mega-entry-list {
@@ -1683,7 +1684,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   min-height: 30px;
   border-radius: 6px;
   background: transparent;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
   cursor: default;
   overflow: hidden;
@@ -1730,7 +1731,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .mega-entry-trigger:hover {
-  background: rgb(15 118 110 / 7%);
+  background: var(--muyun-theme-soft);
 }
 
 .mega-entry-indicator {
@@ -1758,21 +1759,21 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 .mega-entry:hover,
 .mega-entry.active {
-  background: #eef7f4;
-  color: #0f766e;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
 }
 
 .mega-entry.active {
-  box-shadow: inset 3px 0 0 #0f766e;
+  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
 }
 
 .mega-entry.selected {
-  background: #e4f2ef;
-  color: #0f766e;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
 }
 
 .mega-entry.selected-path {
-  color: #334155;
+  color: var(--muyun-support-text-body);
 }
 
 .mega-deep-panel {
@@ -1782,7 +1783,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   max-height: min(320px, 45vh);
   border-top: var(--workbench-menu-border-width) solid var(--workbench-menu-border);
   border-radius: 0 0 8px 0;
-  background: #f8fbfa;
+  background: var(--muyun-support-elevated);
   box-shadow: inset 0 10px 18px -18px rgb(15 23 42 / 28%);
   overflow: hidden;
 }
@@ -1821,7 +1822,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
     height: auto;
     min-height: 0;
     border-right: 0;
-    border-bottom: 1px solid #d8e1ea;
+    border-bottom: 1px solid var(--muyun-support-border);
   }
 
   .workbench-menu--expanded .root-menu {

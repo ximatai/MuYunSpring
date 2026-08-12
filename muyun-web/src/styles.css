@@ -1,23 +1,23 @@
 :root {
-  --muyun-surface: #fff;
-  --muyun-page-bg: #f4f7fb;
-  --muyun-border: #d8e1ea;
-  --muyun-border-subtle: #e2e8f0;
-  --muyun-text: #172033;
-  --muyun-text-body: #465569;
-  --muyun-text-muted: #64748b;
-  --muyun-hover: #f1f5f9;
-  --muyun-hover-subtle: #f8fafc;
-  --muyun-selected: #e8f3ff;
-  --muyun-danger-text: #b42318;
-  --muyun-danger-bg: #fff5f5;
-  --muyun-danger-border: #f4b8b8;
-  --muyun-success-text: #0f6b57;
-  --muyun-success-bg: #f1fbf7;
-  --muyun-success-border: #a9d7c8;
-  --muyun-warning-text: #9a6700;
-  --muyun-info-text: #2563a8;
-  color: #1f2933;
+  --muyun-surface: var(--muyun-support-surface, #fff);
+  --muyun-page-bg: var(--muyun-support-canvas, #f5f7fb);
+  --muyun-border: var(--muyun-support-border, #e6ecf4);
+  --muyun-border-subtle: var(--muyun-support-border-subtle, #eef2f7);
+  --muyun-text: var(--muyun-support-text, #171f2a);
+  --muyun-text-body: var(--muyun-support-text-body, #354255);
+  --muyun-text-muted: var(--muyun-support-text-muted, #566577);
+  --muyun-hover: var(--muyun-support-hover, #f7f9fc);
+  --muyun-hover-subtle: var(--muyun-support-elevated, #fbfcff);
+  --muyun-selected: var(--muyun-theme-soft, #ecf2fe);
+  --muyun-primary: var(--muyun-theme-base, #0052d9);
+  --muyun-danger-text: var(--muyun-danger-base, #e34d59);
+  --muyun-danger-bg: var(--muyun-danger-soft, #fdecee);
+  --muyun-success-text: var(--muyun-positive-base, #00a870);
+  --muyun-success-bg: var(--muyun-positive-soft, #edf9f5);
+  --muyun-success-border: var(--muyun-positive-border, #e3f3ec);
+  --muyun-warning-text: var(--muyun-warning-base, #ed7b2f);
+  --muyun-info-text: var(--muyun-info-base, #0052d9);
+  color: var(--muyun-text);
   background: var(--muyun-page-bg);
   font-family:
     ui-sans-serif,
@@ -86,7 +86,7 @@ select {
 
 .eyebrow {
   margin: 0 0 8px !important;
-  color: #1677ff !important;
+  color: var(--muyun-theme-base, #0052d9) !important;
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;

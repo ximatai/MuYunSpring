@@ -142,7 +142,7 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
   border: 1px solid transparent;
   border-radius: 3px 3px 0 0;
   background: transparent;
-  color: #172033;
+  color: var(--muyun-support-text);
   font: inherit;
 }
 
@@ -157,8 +157,8 @@ button.workbench-brand-identity {
   height: 30px;
   place-items: center;
   border-radius: 7px;
-  background: #172033;
-  color: #fff;
+  background: var(--muyun-theme-base);
+  color: var(--muyun-support-surface);
 }
 
 .workbench-brand-copy {
@@ -168,7 +168,7 @@ button.workbench-brand-identity {
 }
 
 .workbench-brand-copy strong {
-  color: #172033;
+  color: var(--muyun-support-text);
   font-size: 15px;
   line-height: 1.1;
 }
@@ -176,7 +176,7 @@ button.workbench-brand-identity {
 .workbench-brand-copy small {
   overflow: hidden;
   margin-top: 2px;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 11px;
   line-height: 1.1;
   text-overflow: ellipsis;
@@ -191,18 +191,20 @@ button.workbench-brand-identity {
 .workbench-brand-control--compact .workbench-brand-identity:hover .workbench-brand-mark,
 .workbench-brand-control--compact .workbench-brand-identity:focus-visible .workbench-brand-mark,
 .workbench-brand-control--compact .workbench-brand-identity--open .workbench-brand-mark {
-  background: #0f766e;
+  background: var(--muyun-theme-base);
 }
 
 .workbench-brand-control--compact .workbench-brand-identity--open {
   position: relative;
   z-index: 1;
-  background: #fff;
-  box-shadow: inset 0 -1px 0 #fff;
+  margin-left: -8px;
+  border-radius: 0;
+  background: var(--muyun-support-surface);
+  box-shadow: inset 0 -1px 0 var(--muyun-support-surface);
 }
 
 .workbench-brand-control--compact .workbench-brand-identity:focus-visible {
-  outline: 2px solid #99d5cc;
+  outline: 2px solid var(--muyun-theme-focus);
   outline-offset: 3px;
   border-radius: 5px;
 }
@@ -218,7 +220,7 @@ button.workbench-brand-identity {
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -229,9 +231,9 @@ button.workbench-brand-identity {
   align-items: center;
   gap: 2px;
   padding: 2px;
-  border: 1px solid #d8e1ea;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--muyun-support-surface);
 }
 
 .workbench-menu-depth-option {
@@ -244,7 +246,7 @@ button.workbench-brand-identity {
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font:
     700 11px/1 ui-monospace,
     SFMono-Regular,
@@ -255,21 +257,21 @@ button.workbench-brand-identity {
 
 .workbench-menu-depth-option:hover,
 .workbench-menu-depth-option:focus-visible {
-  background: #edf4f7;
-  color: #0f766e;
+  background: var(--muyun-brand-accent-soft);
+  color: var(--muyun-brand-accent-active);
   outline: 0;
 }
 
 .workbench-menu-depth-option.selected {
-  background: #0f766e;
-  color: #fff;
-  box-shadow: 0 1px 2px rgb(15 118 110 / 22%);
+  background: var(--muyun-brand-accent-base);
+  color: var(--muyun-theme-active);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--muyun-brand-accent-base) 30%, transparent);
 }
 
 .workbench-brand-presentation-toggle:hover,
 .workbench-brand-presentation-toggle:focus-visible {
   outline: 0;
-  background: #eaf5f2;
-  color: #0f766e;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
 }
 </style>

@@ -962,7 +962,7 @@ it('employee management uses organization scope and platform query list panel', 
   assert.match(panelSource, /icon-name="filter"/);
   assert.match(panelSource, /:class="\{ 'is-selected': conditionsExpanded \}"/);
   assert.match(panelSource, /background: var\(--muyun-selected\)/);
-  assert.match(panelSource, /border: 1px solid #91caff/);
+  assert.match(panelSource, /border: 1px solid var\(--muyun-theme-border\)/);
   assert.match(panelSource, /:deep\(\.record-query-list-advanced\.is-selected\.ant-btn\)/);
   assert.match(employeeViewSource, /@action="handleEmployeeListAction"/);
   assert.match(indexSource, /RecordDetailDrawer/);
@@ -2087,7 +2087,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(recycleBinButtonSource, /'standard' \| 'expression' \| 'selected'/);
   assert.match(recycleBinButtonSource, /is-expression/);
   assert.match(recycleBinButtonSource, /is-selected/);
-  assert.match(recycleBinButtonSource, /border-color: var\(--muyun-danger-border\)/);
+  assert.match(recycleBinButtonSource, /border-color: var\(--muyun-danger-border, #f5e5e7\)/);
   assert.match(recycleBinButtonSource, /min-width: 14px/);
   assert.match(recycleBinButtonSource, /font-size: 9px/);
   assert.match(recycleBinButtonSource, /:danger="visualState === 'selected'"/);
