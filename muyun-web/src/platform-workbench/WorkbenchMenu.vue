@@ -5,8 +5,9 @@ import type { MenuNavigationTarget, MenuRecord, MenuTreeNode } from '@muyun/web-
 import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
 import WorkbenchMenuTree from './WorkbenchMenuTree.vue';
 import WorkbenchSidebarMenuEntry from './WorkbenchSidebarMenuEntry.vue';
+import { createMenuHoverClickIntent } from './menuHoverClickIntent';
 import { isPointerHeadingToMenuPanel, type MenuPointerPosition } from './menuPointerAim';
-import { floatingPanelTopOf } from './workbenchLayout';
+import { floatingMenuPanelOutlinePath, floatingPanelTopOf } from './workbenchLayout';
 import {
   buildWorkbenchMegaMenuModel,
   createWorkbenchMenuNodes,
@@ -64,6 +65,7 @@ const MEGA_PANEL_MAX_HEIGHT = 620;
 const MEGA_POINTER_AIM_GRACE_PERIOD = 360;
 const MENU_SWITCH_GRACE_PERIOD = 320;
 const MENU_POINTER_TRAIL_WINDOW = 140;
+const MENU_HOVER_CLICK_GRACE_PERIOD = 240;
 
 const menuShell = ref<HTMLElement>();
 const menuSidebar = ref<HTMLElement>();
@@ -90,6 +92,7 @@ const sidebarSubmenuHeight = ref(0);
 const sidebarSubmenuAnchorLeft = ref(0);
 const sidebarSubmenuAnchorTop = ref(0);
 const sidebarSubmenuAnchorHeight = ref(29);
+const hoverClickIntent = createMenuHoverClickIntent(MENU_HOVER_CLICK_GRACE_PERIOD);
 
 const menuNodes = computed(() => createWorkbenchMenuNodes(props.menus));
 const filteredMenus = computed(() => filterWorkbenchMenuNodes(menuNodes.value, menuFilter.value));
@@ -117,73 +120,42 @@ const activeSidebarSubmenuNode = computed(() =>
     : undefined,
 );
 const megaColumnCount = computed(() => megaMenuModel.value?.columns.length ?? 1);
-const megaOutlinePath = computed(() => {
-  const activeLeft = activeRootLeft.value;
-  const activeTop = activeRootTop.value;
-  const activeBottom = activeTop + activeRootHeight.value;
-  const panelLeft = megaPanelLeft.value;
-  const panelTop = megaPanelTop.value;
-  const panelRight = panelLeft + megaPanelWidth.value;
-  const panelBottom = panelTop + megaPanelHeight.value;
-  const activeRadius = 6;
-  const panelRadius = 8;
-
-  if (isCompact.value) {
-    return [
-      `M ${panelLeft} ${panelTop}`,
-      `H ${panelRight - panelRadius}`,
-      `Q ${panelRight} ${panelTop} ${panelRight} ${panelTop + panelRadius}`,
-      `V ${panelBottom - panelRadius}`,
-      `Q ${panelRight} ${panelBottom} ${panelRight - panelRadius} ${panelBottom}`,
-      `H ${panelLeft}`,
-    ].join(' ');
-  }
-
-  return [
-    `M ${panelLeft} ${panelTop}`,
-    `H ${panelRight - panelRadius}`,
-    `Q ${panelRight} ${panelTop} ${panelRight} ${panelTop + panelRadius}`,
-    `V ${panelBottom - panelRadius}`,
-    `Q ${panelRight} ${panelBottom} ${panelRight - panelRadius} ${panelBottom}`,
-    `H ${panelLeft}`,
-    `V ${activeBottom}`,
-    `H ${activeLeft + activeRadius}`,
-    `Q ${activeLeft} ${activeBottom} ${activeLeft} ${activeBottom - activeRadius}`,
-    `V ${activeTop + activeRadius}`,
-    `Q ${activeLeft} ${activeTop} ${activeLeft + activeRadius} ${activeTop}`,
-    `H ${panelLeft}`,
-    `V ${panelTop}`,
-  ].join(' ');
-});
-const sidebarSubmenuOutlinePath = computed(() => {
-  const anchorLeft = sidebarSubmenuAnchorLeft.value;
-  const anchorTop = sidebarSubmenuAnchorTop.value;
-  const anchorBottom = anchorTop + sidebarSubmenuAnchorHeight.value;
-  const panelLeft = sidebarSubmenuLeft.value;
-  const panelTop = sidebarSubmenuTop.value;
-  const panelRight = panelLeft + sidebarSubmenuWidth.value;
-  const panelBottom = panelTop + sidebarSubmenuHeight.value;
-  const anchorRadius = 5;
-  const panelRadius = 8;
-
-  return [
-    `M ${panelLeft} ${panelTop}`,
-    `H ${panelRight - panelRadius}`,
-    `Q ${panelRight} ${panelTop} ${panelRight} ${panelTop + panelRadius}`,
-    `V ${panelBottom - panelRadius}`,
-    `Q ${panelRight} ${panelBottom} ${panelRight - panelRadius} ${panelBottom}`,
-    `H ${panelLeft}`,
-    `V ${anchorBottom}`,
-    `H ${anchorLeft + anchorRadius}`,
-    `Q ${anchorLeft} ${anchorBottom} ${anchorLeft} ${anchorBottom - anchorRadius}`,
-    `V ${anchorTop + anchorRadius}`,
-    `Q ${anchorLeft} ${anchorTop} ${anchorLeft + anchorRadius} ${anchorTop}`,
-    `H ${panelLeft}`,
-    `V ${panelTop}`,
-  ].join(' ');
-});
+const megaOutlinePath = computed(() =>
+  floatingMenuPanelOutlinePath(
+    {
+      left: megaPanelLeft.value,
+      top: megaPanelTop.value,
+      width: megaPanelWidth.value,
+      height: megaPanelHeight.value,
+    },
+    isCompact.value
+      ? undefined
+      : {
+          left: activeRootLeft.value,
+          top: activeRootTop.value,
+          height: activeRootHeight.value,
+        },
+    6,
+  ),
+);
+const sidebarSubmenuOutlinePath = computed(() =>
+  floatingMenuPanelOutlinePath(
+    {
+      left: sidebarSubmenuLeft.value,
+      top: sidebarSubmenuTop.value,
+      width: sidebarSubmenuWidth.value,
+      height: sidebarSubmenuHeight.value,
+    },
+    {
+      left: sidebarSubmenuAnchorLeft.value,
+      top: sidebarSubmenuAnchorTop.value,
+      height: sidebarSubmenuAnchorHeight.value,
+    },
+  ),
+);
 const menuVisible = computed(() => props.presentation === 'expanded' || props.compactOpen);
 const isCompact = computed(() => props.presentation === 'compact');
+const rootChildrenUseFlyout = computed(() => isCompact.value || props.expandedMenuDepth === 1);
 const compactOutlinePath = computed(() => {
   const anchor = props.compactAnchor;
   const panel = compactPanelBounds.value;
@@ -269,9 +241,13 @@ function selectMenuNode(node: WorkbenchMenuNode) {
 
 function toggleSidebarSubmenu(node: WorkbenchMenuNode, target: EventTarget | null) {
   if (activeSidebarSubmenuId.value === node.record.id) {
+    if (hoverClickIntent.consumeImmediateClick(node.record.id)) {
+      return;
+    }
     closeSidebarSubmenu();
     return;
   }
+  hoverClickIntent.clear();
   activateSidebarSubmenu(node, target);
 }
 
@@ -280,29 +256,37 @@ function handleDeepMenuSelect(menu: MenuRecord, target: MenuNavigationTarget) {
   emit('selectMenu', menu, target);
 }
 
-function openRootMenu(node: WorkbenchMenuNode, event?: MouseEvent | FocusEvent) {
-  const target = event?.currentTarget;
+function openRootMenu(node: WorkbenchMenuNode, event: MouseEvent) {
+  if (!hoverInputAvailable()) {
+    return;
+  }
+  const target = event.currentTarget;
   if (
-    event instanceof MouseEvent &&
-    event.type === 'mouseenter' &&
     shouldDelayPanelSwitch(activeSidebarSubmenuId.value, node.record.id, event, sidebarSubmenuPanel.value)
   ) {
-    scheduleMenuSwitch(() => activateRootMenu(node, target));
+    scheduleMenuSwitch(() => activateRootMenuFromHover(node, target));
     return;
   }
   if (activeRootMenuId.value === node.record.id) {
     clearPendingMenuSwitch();
     return;
   }
-  if (
-    event instanceof MouseEvent &&
-    event.type === 'mouseenter' &&
-    shouldDelayPanelSwitch(activeRootMenuId.value, node.record.id, event, megaPanel.value)
-  ) {
-    scheduleMenuSwitch(() => activateRootMenu(node, target));
+  if (shouldDelayPanelSwitch(activeRootMenuId.value, node.record.id, event, megaPanel.value)) {
+    scheduleMenuSwitch(() => activateRootMenuFromHover(node, target));
     return;
   }
+  activateRootMenuFromHover(node, target);
+}
+
+function hoverInputAvailable() {
+  return typeof window.matchMedia !== 'function' || window.matchMedia('(hover: hover)').matches;
+}
+
+function activateRootMenuFromHover(node: WorkbenchMenuNode, target?: EventTarget | null) {
   activateRootMenu(node, target);
+  if (activeRootMenuId.value === node.record.id) {
+    hoverClickIntent.markHoverActivation(node.record.id);
+  }
 }
 
 function activateRootMenu(node: WorkbenchMenuNode, target?: EventTarget | null) {
@@ -321,6 +305,22 @@ function activateRootMenu(node: WorkbenchMenuNode, target?: EventTarget | null) 
   activeDeepRootId.value = undefined;
   updateMegaPanelTop(target);
   void nextTick(updateMegaPanelSize);
+}
+
+function toggleRootMenu(node: WorkbenchMenuNode, event: MouseEvent) {
+  if (activeRootMenuId.value === node.record.id) {
+    if (hoverClickIntent.consumeImmediateClick(node.record.id)) {
+      return;
+    }
+    closeMenuLayers();
+    return;
+  }
+  hoverClickIntent.clear();
+  const target =
+    event.currentTarget instanceof HTMLElement
+      ? event.currentTarget.closest<HTMLElement>('.root-menu-item')
+      : null;
+  activateRootMenu(node, target);
 }
 
 function shouldDelayPanelSwitch(
@@ -391,6 +391,7 @@ function closeMenuLayers() {
   clearMegaPointerAim();
   clearPendingMenuSwitch();
   recentMenuPointerPositions = [];
+  hoverClickIntent.clear();
   activeRootMenuId.value = undefined;
   activeDeepRootId.value = undefined;
   closeSidebarSubmenu();
@@ -406,18 +407,27 @@ function openSidebarSubmenu(
   event: MouseEvent,
   target: EventTarget | null = event.currentTarget,
 ) {
+  if (!hoverInputAvailable()) {
+    return;
+  }
   if (activeSidebarSubmenuId.value === node.record.id) {
     clearPendingMenuSwitch();
     return;
   }
   if (
-    event.type === 'mouseenter' &&
     shouldDelayPanelSwitch(activeSidebarSubmenuId.value, node.record.id, event, sidebarSubmenuPanel.value)
   ) {
-    scheduleMenuSwitch(() => activateSidebarSubmenu(node, target));
+    scheduleMenuSwitch(() => activateSidebarSubmenuFromHover(node, target));
     return;
   }
+  activateSidebarSubmenuFromHover(node, target);
+}
+
+function activateSidebarSubmenuFromHover(node: WorkbenchMenuNode, target: EventTarget | null) {
   activateSidebarSubmenu(node, target);
+  if (activeSidebarSubmenuId.value === node.record.id) {
+    hoverClickIntent.markHoverActivation(node.record.id);
+  }
 }
 
 function activateSidebarSubmenu(node: WorkbenchMenuNode, target: EventTarget | null) {
@@ -749,7 +759,37 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
         <nav class="root-menu" aria-label="主导航">
           <div v-if="filteredMenus.length > 0" class="root-menu-list">
             <template v-for="node in filteredMenus" :key="node.record.id">
-              <button
+              <div
+                v-if="node.navigable && node.hasChildren && rootChildrenUseFlyout"
+                class="root-menu-item root-menu-item--split navigable branch"
+                :class="{
+                  active: activeRootNode?.record.id === node.record.id,
+                  selected: isSelectedRoot(node),
+                }"
+                @mouseenter="openRootMenu(node, $event)"
+              >
+                <button
+                  class="root-menu-item-main navigable"
+                  type="button"
+                  :aria-current="isSelectedRoot(node) ? 'page' : undefined"
+                  @click="selectMenuNode(node)"
+                >
+                  <span>{{ node.record.title }}</span>
+                </button>
+                <button
+                  class="root-menu-item-trigger"
+                  type="button"
+                  :aria-label="`${activeRootNode?.record.id === node.record.id ? '收起' : '展开'}${node.record.title}下级菜单`"
+                  :aria-expanded="activeRootNode?.record.id === node.record.id"
+                  aria-controls="workbench-mega-panel"
+                  @click.stop="toggleRootMenu(node, $event)"
+                >
+                  <i class="root-menu-branch-indicator" aria-hidden="true" />
+                </button>
+              </div>
+              <component
+                :is="node.navigable || rootChildrenUseFlyout ? 'button' : 'div'"
+                v-else
                 class="root-menu-item"
                 :class="{
                   active: activeRootNode?.record.id === node.record.id,
@@ -757,26 +797,31 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                   navigable: node.navigable,
                   branch: node.hasChildren,
                 }"
-                type="button"
+                :type="node.navigable || rootChildrenUseFlyout ? 'button' : undefined"
                 :aria-expanded="
-                  node.hasChildren && (isCompact || expandedMenuDepth === 1)
+                  node.hasChildren && rootChildrenUseFlyout
                     ? activeRootNode?.record.id === node.record.id
                     : undefined
                 "
                 :aria-controls="
-                  node.hasChildren &&
-                  (isCompact || expandedMenuDepth === 1) &&
-                  activeRootNode?.record.id === node.record.id
+                  node.hasChildren && rootChildrenUseFlyout && activeRootNode?.record.id === node.record.id
                     ? 'workbench-mega-panel'
                     : undefined
                 "
-                @mouseenter="openRootMenu(node, $event)"
-                @focus="openRootMenu(node, $event)"
-                @click="node.navigable && selectMenuNode(node)"
+                @mouseenter="rootChildrenUseFlyout && openRootMenu(node, $event)"
+                @click="
+                  node.navigable
+                    ? selectMenuNode(node)
+                    : rootChildrenUseFlyout && toggleRootMenu(node, $event)
+                "
               >
                 <span>{{ node.record.title }}</span>
-                <i v-if="node.hasChildren" class="root-menu-branch-indicator" aria-hidden="true" />
-              </button>
+                <i
+                  v-if="node.hasChildren && rootChildrenUseFlyout"
+                  class="root-menu-branch-indicator"
+                  aria-hidden="true"
+                />
+              </component>
               <div
                 v-if="!isCompact && expandedMenuDepth >= 2"
                 class="sidebar-menu-level sidebar-menu-level--2"
@@ -1206,7 +1251,9 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .root-menu-item,
-.mega-group-title {
+.mega-group-title,
+.root-menu-item-main,
+.root-menu-item-trigger {
   width: 100%;
   border: 0;
   background: transparent;
@@ -1230,6 +1277,44 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   cursor: default;
 }
 
+.root-menu-item--split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+
+.root-menu-item-main,
+.root-menu-item-trigger {
+  min-width: 0;
+  min-height: 34px;
+  color: inherit;
+}
+
+.root-menu-item-main {
+  display: flex;
+  align-items: center;
+  padding: 7px 8px;
+}
+
+.root-menu-item-trigger {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 0 6px 6px 0;
+  cursor: pointer;
+}
+
+.root-menu-item-trigger:hover {
+  background: rgb(15 118 110 / 7%);
+}
+
+.root-menu-item-trigger .root-menu-branch-indicator {
+  position: relative;
+  left: 4px;
+}
+
 .root-menu-item span,
 .mega-entry-main span,
 .mega-group-title span {
@@ -1248,7 +1333,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .root-menu-item.selected {
   background: #e4f2ef;
   color: #0f766e;
-  font-weight: 700;
 }
 
 .root-menu-item.active,
@@ -1263,7 +1347,12 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   cursor: pointer;
 }
 
+.root-menu-item--split.navigable {
+  cursor: default;
+}
+
 .root-menu-item.navigable > span,
+.root-menu-item-main.navigable > span,
 .mega-group-title.navigable > span,
 .mega-entry.navigable .mega-entry-main > span {
   position: relative;
@@ -1272,6 +1361,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .root-menu-item.navigable > span::after,
+.root-menu-item-main.navigable > span::after,
 .mega-group-title.navigable > span::after,
 .mega-entry.navigable .mega-entry-main > span::after {
   position: absolute;
@@ -1291,6 +1381,8 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 .root-menu-item.navigable:hover > span::after,
 .root-menu-item.navigable:focus-visible > span::after,
+.root-menu-item--split.navigable:hover .root-menu-item-main > span::after,
+.root-menu-item-main.navigable:focus-visible > span::after,
 .mega-group-title.navigable:hover > span::after,
 .mega-group-title.navigable:focus-visible > span::after,
 .mega-entry.navigable:hover .mega-entry-main > span::after,
@@ -1316,10 +1408,15 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .root-menu-item.branch:hover .root-menu-branch-indicator,
 .root-menu-item.branch.active .root-menu-branch-indicator {
   opacity: 0.88;
-  transform: translateX(1px) rotate(-45deg);
+}
+
+.root-menu-item.branch.active .root-menu-branch-indicator {
+  transform: rotate(45deg) translate(-1px, -1px);
 }
 
 .root-menu-item:focus-visible,
+.root-menu-item-main:focus-visible,
+.root-menu-item-trigger:focus-visible,
 .mega-group-title:focus-visible,
 .mega-entry-main:focus-visible,
 .mega-entry-trigger:focus-visible {
@@ -1645,12 +1742,10 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .mega-entry.selected {
   background: #e4f2ef;
   color: #0f766e;
-  font-weight: 700;
 }
 
 .mega-entry.selected-path {
   color: #334155;
-  font-weight: 600;
 }
 
 .mega-deep-panel {

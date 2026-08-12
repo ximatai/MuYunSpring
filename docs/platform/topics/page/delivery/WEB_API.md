@@ -79,7 +79,7 @@ preview/download 会先校验记录权限和附件归属。文件二进制、文
 | --- | --- | --- |
 | `GET` | `/{moduleAlias}/navigation/{sessionId}/{recordId}` | 按列表导航会话返回上一条、当前和下一条记录。 |
 | `GET` | `/platform.user-preference/{preferenceKey}` | 读取当前用户的前端体验偏好；支持 `clientType`。 |
-| `POST` | `/platform.user-preference/{preferenceKey}` | 覆盖保存当前用户的前端体验偏好；请求提供非空 `valueJson`。 |
+| `POST` | `/platform.user-preference/{preferenceKey}` | 覆盖保存当前用户的前端体验偏好；请求提供非空且不超过 64 KiB（UTF-8）的 `valueJson`。 |
 | `DELETE` | `/platform.user-preference/{preferenceKey}` | 删除当前用户的前端体验偏好。 |
 
 用户体验偏好只影响当前用户体验，不改变平台配置和发布快照。`valueJson` 是前端拥有的 JSON，后端只校验 JSON 合法性、用户/租户作用域和偏好 key，不解释其字段结构；后端业务需要使用的设置必须以所属领域的强类型模型交付。

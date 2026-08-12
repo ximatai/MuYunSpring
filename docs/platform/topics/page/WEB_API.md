@@ -31,7 +31,7 @@
 | `POST` | `/{moduleAlias}/references/{fieldName}/resolve` | 解析引用候选、标题和投影。 |
 | `GET` | `/{moduleAlias}/navigation/{sessionId}/{recordId}` | 按列表导航会话计算上一条、当前和下一条记录。 |
 | `GET` | `/platform.user-preference/{preferenceKey}` | 读取当前用户体验偏好；支持 `clientType`。 |
-| `POST` | `/platform.user-preference/{preferenceKey}` | 保存当前用户体验偏好。 |
+| `POST` | `/platform.user-preference/{preferenceKey}` | 保存当前用户体验偏好；`valueJson` 最大为 64 KiB（UTF-8）。 |
 | `DELETE` | `/platform.user-preference/{preferenceKey}` | 删除当前用户体验偏好。 |
 | `GET` | `/{moduleAlias}/describe` | 返回动态模块 descriptor，作为页面交付结构入口。 |
 

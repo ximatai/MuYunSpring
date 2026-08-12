@@ -27,6 +27,14 @@ describe('userPreferences', () => {
     expect(userPreferences.get('workbench.expanded-menu-depth', 1)).toBe(3);
   });
 
+  it('accepts an explicit local persistence route without requiring a backend bridge', async () => {
+    await userPreferences.set('workbench.expanded-menu-depth', 2, { persistence: 'local' });
+
+    await expect(
+      userPreferences.restore('workbench.expanded-menu-depth', 1, { persistence: 'local' }),
+    ).resolves.toBe(2);
+  });
+
   it('uses the supplied fallback when no preference exists', () => {
     expect(userPreferences.get('workbench.expanded-menu-depth', 1)).toBe(1);
   });
@@ -56,13 +64,13 @@ describe('userPreferences', () => {
     expect(load).toHaveBeenCalledWith('workbench.menu-display-depth');
   });
 
-  it('synchronizes the local read cache after a backend-only save', async () => {
+  it('keeps backend-only preferences out of the device-local namespace', async () => {
     storage.set('muyun.preference.workbench.menu-display-depth', '1');
     configureUserPreferenceBackend({ load: vi.fn(), save: vi.fn(), remove: vi.fn() });
 
     await userPreferences.set('workbench.menu-display-depth', 3, { persistence: 'backend' });
 
-    expect(userPreferences.get('workbench.menu-display-depth', 1)).toBe(3);
+    expect(userPreferences.get('workbench.menu-display-depth', 0)).toBe(1);
   });
 
   it('removes a backend-only preference through the platform facade', async () => {
@@ -73,6 +81,20 @@ describe('userPreferences', () => {
     await userPreferences.remove('workbench.menu-display-depth', { persistence: 'backend' });
 
     expect(remove).toHaveBeenCalledWith('workbench.menu-display-depth');
-    expect(userPreferences.get('workbench.menu-display-depth', 1)).toBe(1);
+    expect(userPreferences.get('workbench.menu-display-depth', 1)).toBe(3);
+  });
+
+  it('does not reuse backend data when the next account has no stored preference', async () => {
+    const load = vi.fn().mockResolvedValueOnce('{"depth":3}').mockResolvedValueOnce(undefined);
+    configureUserPreferenceBackend({ load, save: vi.fn(), remove: vi.fn() });
+
+    await expect(
+      userPreferences.restore('workbench.menu-display-depth', { depth: 1 }, { persistence: 'backend' }),
+    ).resolves.toEqual({ depth: 3 });
+    await expect(
+      userPreferences.restore('workbench.menu-display-depth', { depth: 1 }, { persistence: 'backend' }),
+    ).resolves.toEqual({ depth: 1 });
+
+    expect(storage.has('muyun.preference.workbench.menu-display-depth')).toBe(false);
   });
 });

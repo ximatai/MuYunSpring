@@ -1,22 +1,16 @@
-export type UserPreferencePersistence = 'automatic' | 'backend';
-
-export interface UserPreferenceSaveOptions {
+export interface UserPreferenceOptions {
   /**
-   * `automatic` lets the platform choose the active persistence route.
-   * `backend` reserves the preference for a user-account-backed route and never silently falls back.
+   * Local persistence is the default. `backend` reserves the preference for the current account
+   * and never silently falls back to device-local storage.
    */
-  persistence?: UserPreferencePersistence;
+  persistence?: 'local' | 'backend';
 }
 
 export interface UserPreferenceStore {
   get<T>(key: string, fallback: T): T;
-  restore<T>(key: string, fallback: T, options?: UserPreferenceRestoreOptions): Promise<T>;
-  set<T>(key: string, value: T, options?: UserPreferenceSaveOptions): Promise<void>;
-  remove(key: string, options?: UserPreferenceSaveOptions): Promise<void>;
-}
-
-export interface UserPreferenceRestoreOptions {
-  persistence?: UserPreferencePersistence;
+  restore<T>(key: string, fallback: T, options?: UserPreferenceOptions): Promise<T>;
+  set<T>(key: string, value: T, options?: UserPreferenceOptions): Promise<void>;
+  remove(key: string, options?: UserPreferenceOptions): Promise<void>;
 }
 
 /** Internal application-composition bridge; business code only uses userPreferences. */
@@ -43,7 +37,7 @@ class DefaultUserPreferenceStore implements UserPreferenceStore {
     }
   }
 
-  async restore<T>(key: string, fallback: T, options: UserPreferenceRestoreOptions = {}): Promise<T> {
+  async restore<T>(key: string, fallback: T, options: UserPreferenceOptions = {}): Promise<T> {
     if (options.persistence !== 'backend') {
       return this.get(key, fallback);
     }
@@ -55,34 +49,32 @@ class DefaultUserPreferenceStore implements UserPreferenceStore {
       return fallback;
     }
     try {
-      const value = JSON.parse(valueJson) as T;
-      window.localStorage.setItem(storageKeyOf(key), valueJson);
-      return value;
+      return JSON.parse(valueJson) as T;
     } catch {
       return fallback;
     }
   }
 
-  async set<T>(key: string, value: T, options: UserPreferenceSaveOptions = {}): Promise<void> {
+  async set<T>(key: string, value: T, options: UserPreferenceOptions = {}): Promise<void> {
     if (options.persistence === 'backend') {
       if (!backend) {
         throw new Error(`Backend user preference persistence is not configured: ${key}`);
       }
       const valueJson = JSON.stringify(value);
       await backend.save(key, valueJson);
-      this.writeLocal(key, valueJson);
       return;
     }
 
     this.writeLocal(key, JSON.stringify(value));
   }
 
-  async remove(key: string, options: UserPreferenceSaveOptions = {}): Promise<void> {
+  async remove(key: string, options: UserPreferenceOptions = {}): Promise<void> {
     if (options.persistence === 'backend') {
       if (!backend) {
         throw new Error(`Backend user preference persistence is not configured: ${key}`);
       }
       await backend.remove(key);
+      return;
     }
     try {
       window.localStorage.removeItem(storageKeyOf(key));

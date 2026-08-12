@@ -3,16 +3,17 @@ package net.ximatai.muyun.spring.platform.ui;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
-import net.ximatai.muyun.database.core.annotation.CompositeIndex;
 import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 
-/** Opaque current-user experience preference. Its JSON value is owned by the client. */
+/**
+ * Opaque current-user experience preference. Its JSON value is owned by the client.
+ * The primary key is the stable identity of tenant, user, client type and preference key.
+ */
 @Getter
 @Setter
 @Table(name = "platform_user_preference", comment = "Platform user experience preference")
-@CompositeIndex(columns = {"tenant_id", "user_id", "client_type", "preference_key"}, unique = true)
 public class UserPreference extends StandardEntity {
     @Column(name = "user_id", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "User id")
     private String userId;

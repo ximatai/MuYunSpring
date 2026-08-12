@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { config, mount, shallowMount } from '@vue/test-utils';
 import Workbench from '@/platform-workbench/Workbench.vue';
 import WorkbenchBrandControl from '@/platform-workbench/WorkbenchBrandControl.vue';
@@ -7,6 +7,18 @@ import WorkbenchMenuTree from '@/platform-workbench/WorkbenchMenuTree.vue';
 import { createWorkbenchMenuNodes, findWorkbenchMenuNodeById } from '@/platform-workbench/menuTreeModel.ts';
 
 config.global.stubs = { ...config.global.stubs, WorkbenchSidebarMenuEntry: false };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+function stubHoverCapability(matches: boolean) {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn().mockReturnValue({ matches, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
+  );
+}
 
 const menus = [
   {
@@ -119,6 +131,17 @@ const navigableSecondLevelMenus = [
         },
       },
     ],
+  },
+];
+
+const navigableRootBranchMenus = [
+  {
+    ...nestedMenus[0],
+    record: {
+      ...nestedMenus[0].record,
+      openMode: 'tab' as const,
+      moduleAlias: 'platform.root',
+    },
   },
 ];
 
@@ -350,6 +373,52 @@ describe('WorkbenchMenu', () => {
     expect(wrapper.emitted('selectMenu')?.[0]?.[0]).toMatchObject({ id: 'runtime' });
   });
 
+  it('separates root navigation from child expansion without relying on hover', async () => {
+    stubHoverCapability(false);
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: navigableRootBranchMenus, presentation: 'compact', compactOpen: true },
+    });
+    const entry = wrapper.get('.root-menu-item--split');
+    const main = entry.get('.root-menu-item-main');
+    const trigger = entry.get('.root-menu-item-trigger');
+
+    expect(trigger.attributes('aria-expanded')).toBe('false');
+    await entry.trigger('mouseenter');
+    expect(wrapper.find('.mega-panel').exists()).toBe(false);
+
+    await trigger.trigger('click');
+
+    expect(trigger.attributes('aria-expanded')).toBe('true');
+    expect(wrapper.find('.mega-panel').exists()).toBe(true);
+    expect(wrapper.emitted('selectMenu')).toBeUndefined();
+
+    await main.trigger('click');
+
+    expect(wrapper.emitted('selectMenu')?.[0]?.[0]).toMatchObject({ id: 'platform' });
+    expect(wrapper.find('.mega-panel').exists()).toBe(false);
+  });
+
+  it('keeps the root branch open when its first desktop click immediately follows hover', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-12T00:00:00Z'));
+    stubHoverCapability(true);
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: navigableRootBranchMenus, presentation: 'compact', compactOpen: true },
+    });
+    const entry = wrapper.get('.root-menu-item--split');
+    const trigger = entry.get('.root-menu-item-trigger');
+
+    await entry.trigger('mouseenter');
+    expect(wrapper.find('.mega-panel').exists()).toBe(true);
+
+    await trigger.trigger('click');
+    expect(wrapper.find('.mega-panel').exists()).toBe(true);
+
+    vi.advanceTimersByTime(241);
+    await trigger.trigger('click');
+    expect(wrapper.find('.mega-panel').exists()).toBe(false);
+  });
+
   it('keeps the Mega panel open while the pointer follows the diagonal safe corridor', async () => {
     vi.useFakeTimers();
     const wrapper = shallowMount(WorkbenchMenu, {
@@ -371,8 +440,6 @@ describe('WorkbenchMenu', () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('.mega-panel').exists()).toBe(false);
-    wrapper.unmount();
-    vi.useRealTimers();
   });
 
   it('delays sibling root hover while the pointer is heading diagonally into the active Mega panel', async () => {
@@ -406,8 +473,6 @@ describe('WorkbenchMenu', () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.get('.root-menu-item.active').text()).toBe('运营管理');
-    wrapper.unmount();
-    vi.useRealTimers();
   });
 
   it.each([
@@ -457,8 +522,6 @@ describe('WorkbenchMenu', () => {
       await wrapper.vm.$nextTick();
 
       expect(wrapper.get('.sidebar-menu-entry.active').text()).toBe(siblingTitle);
-      wrapper.unmount();
-      vi.useRealTimers();
     },
   );
 
@@ -487,8 +550,6 @@ describe('WorkbenchMenu', () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.get('.sidebar-menu-entry.active').text()).toBe('分组 A');
-    wrapper.unmount();
-    vi.useRealTimers();
   });
 
   it('switches sidebar flyouts immediately on a deliberate click', async () => {
@@ -526,8 +587,6 @@ describe('WorkbenchMenu', () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.get('.root-menu-item.active').text()).toBe('运营管理');
-    wrapper.unmount();
-    vi.useRealTimers();
   });
 
   it.each([
@@ -559,6 +618,52 @@ describe('WorkbenchMenu', () => {
       expect(wrapper.emitted('selectMenu')?.[0]?.[0]).toMatchObject({ title });
     },
   );
+
+  it.each([
+    { depth: 2 as const, menus: navigableSecondLevelMenus, title: '平台配置' },
+    { depth: 3 as const, menus: nestedMenus, title: '元数据管理' },
+  ])(
+    'keeps the sidebar branch open when its first desktop click immediately follows hover at depth $depth',
+    async ({ depth, menus, title }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-12T00:00:00Z'));
+      stubHoverCapability(true);
+      const wrapper = shallowMount(WorkbenchMenu, {
+        props: { menus, presentation: 'expanded', expandedMenuDepth: depth },
+      });
+      const entry = wrapper
+        .findAll('.sidebar-menu-entry--split')
+        .find((candidate) => candidate.text() === title);
+      const trigger = entry?.get('.sidebar-menu-entry-trigger');
+
+      await entry?.trigger('mouseenter');
+      expect(wrapper.find('.sidebar-submenu-panel').exists()).toBe(true);
+
+      await trigger?.trigger('click');
+      expect(wrapper.find('.sidebar-submenu-panel').exists()).toBe(true);
+
+      vi.advanceTimersByTime(241);
+      await trigger?.trigger('click');
+      expect(wrapper.find('.sidebar-submenu-panel').exists()).toBe(false);
+    },
+  );
+
+  it('ignores synthesized sidebar hover on touch-only input and opens from the explicit trigger', async () => {
+    stubHoverCapability(false);
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: navigableSecondLevelMenus, presentation: 'expanded', expandedMenuDepth: 2 },
+    });
+    const entry = wrapper
+      .findAll('.sidebar-menu-entry--split')
+      .find((candidate) => candidate.text() === '平台配置');
+    const trigger = entry?.get('.sidebar-menu-entry-trigger');
+
+    await entry?.trigger('mouseenter');
+    expect(wrapper.find('.sidebar-submenu-panel').exists()).toBe(false);
+
+    await trigger?.trigger('click');
+    expect(wrapper.find('.sidebar-submenu-panel').exists()).toBe(true);
+  });
 
   it('keeps second-level entries structural rather than clickable when the sidebar shows three levels', async () => {
     const wrapper = shallowMount(WorkbenchMenu, {
@@ -748,8 +853,22 @@ describe('Workbench compact menu', () => {
     await wrapper.vm.$nextTick();
 
     expect(menu.props('compactOpen')).toBe(false);
-    wrapper.unmount();
-    vi.useRealTimers();
+  });
+
+  it('closes a pinned compact menu when interaction moves outside the menu', async () => {
+    const wrapper = shallowMount(Workbench, { attachTo: document.body });
+    const brand = wrapper.findComponent(WorkbenchBrandControl);
+    const menu = wrapper.findComponent(WorkbenchMenu);
+    const anchor = { left: 8, top: 8, right: 120, bottom: 42 };
+
+    brand.vm.$emit('openCompactMenu', 'click', anchor);
+    await wrapper.vm.$nextTick();
+    expect(menu.props('compactOpen')).toBe(true);
+
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
+    await wrapper.vm.$nextTick();
+
+    expect(menu.props('compactOpen')).toBe(false);
   });
 });
 

@@ -143,13 +143,11 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
 .deep-node-button.selected {
   background: #e4f2ef;
   color: #0f766e;
-  font-weight: 700;
 }
 
 .deep-node-button.selected-path {
   background: #f0f7f5;
   color: #0f766e;
-  font-weight: 700;
   box-shadow: inset 2px 0 0 #9ccfc7;
 }
 </style>

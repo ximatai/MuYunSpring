@@ -32,6 +32,9 @@ public class UserPreferenceWebController {
     @PostMapping
     public UserPreferenceResponse savePreference(@PathVariable String preferenceKey,
                                                  @RequestBody UserPreferenceRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("user preference request must not be null");
+        }
         return toResponse(preferenceService.saveCurrentUserPreference(
                 request.clientType(), preferenceKey, request.valueJson()));
     }

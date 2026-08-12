@@ -169,6 +169,22 @@ function clearCompactMenuCloseTimer() {
   compactMenuCloseTimer = undefined;
 }
 
+function handleCompactMenuOutsideInteraction(event: Event) {
+  if (!compactMenuOpen.value || !compactMenuPinned.value) {
+    return;
+  }
+  const insideMenu = event
+    .composedPath()
+    .some(
+      (target) =>
+        target instanceof Element &&
+        (target.matches('.workbench-brand-identity') || target.matches('.workbench-menu')),
+    );
+  if (!insideMenu) {
+    closeCompactMenu();
+  }
+}
+
 function setMenuPresentation(presentation: WorkbenchMenuPresentation) {
   if (compactMenuPointerReleaseFrame !== undefined) {
     window.cancelAnimationFrame(compactMenuPointerReleaseFrame);
@@ -209,6 +225,8 @@ function updateCompactMenuTop() {
 }
 
 onMounted(() => {
+  document.addEventListener('pointerdown', handleCompactMenuOutsideInteraction);
+  document.addEventListener('focusin', handleCompactMenuOutsideInteraction);
   if (typeof window.matchMedia === 'function') {
     narrowViewportQuery = window.matchMedia(NARROW_VIEWPORT_QUERY);
     narrowViewport.value = narrowViewportQuery.matches;
@@ -225,6 +243,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  document.removeEventListener('pointerdown', handleCompactMenuOutsideInteraction);
+  document.removeEventListener('focusin', handleCompactMenuOutsideInteraction);
   clearCompactMenuCloseTimer();
   if (compactMenuPointerReleaseFrame !== undefined) {
     window.cancelAnimationFrame(compactMenuPointerReleaseFrame);

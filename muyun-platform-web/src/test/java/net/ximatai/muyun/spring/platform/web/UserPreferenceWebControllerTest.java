@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformUiClientType;
 import net.ximatai.muyun.spring.platform.ui.UserPreference;
 import net.ximatai.muyun.spring.platform.ui.UserPreferenceService;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
+import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
@@ -13,6 +14,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -25,11 +27,7 @@ class UserPreferenceWebControllerTest {
     @Test
     void shouldReadSaveAndDeleteCurrentUserPreference() throws Exception {
         UserPreferenceService service = mock(UserPreferenceService.class);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new UserPreferenceWebController(service))
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(new ObjectMapper()))
-                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
-                        CurrentUser.tenantUser("user-1", "User", "tenant-a"))))
-                .build();
+        MockMvc mvc = mvc(service);
         UserPreference preference = preference();
         when(service.currentUserPreference(PlatformUiClientType.WEB, "workbench.menu-display-depth"))
                 .thenReturn(preference);
@@ -54,13 +52,32 @@ class UserPreferenceWebControllerTest {
     @Test
     void shouldReturnNoContentWhenCurrentUserHasNoPreference() throws Exception {
         UserPreferenceService service = mock(UserPreferenceService.class);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new UserPreferenceWebController(service))
-                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
-                        CurrentUser.tenantUser("user-1", "User", "tenant-a"))))
-                .build();
+        MockMvc mvc = mvc(service);
 
         mvc.perform(get("/platform.user-preference/workbench.menu-display-depth"))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void shouldRejectJsonNullRequestBodyAsBadRequest() throws Exception {
+        UserPreferenceService service = mock(UserPreferenceService.class);
+
+        mvc(service).perform(post("/platform.user-preference/workbench.menu-display-depth")
+                        .contentType("application/json")
+                        .content("null"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+
+        verifyNoInteractions(service);
+    }
+
+    private MockMvc mvc(UserPreferenceService service) {
+        return MockMvcBuilders.standaloneSetup(new UserPreferenceWebController(service))
+                .setControllerAdvice(new PlatformWebExceptionHandler())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(new ObjectMapper()))
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant-a"))))
+                .build();
     }
 
     private UserPreference preference() {

@@ -2,18 +2,23 @@ package net.ximatai.muyun.spring.platform.ui;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.UUID;
 
 @Service
 public class UserPreferenceService extends AbstractAbilityService<UserPreference> {
     public static final String MODULE_ALIAS = "platform.user_preference";
+    public static final int MAX_VALUE_JSON_BYTES = 64 * 1024;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     public UserPreferenceService(BaseDao<UserPreference, String> preferenceDao) {
@@ -21,49 +26,67 @@ public class UserPreferenceService extends AbstractAbilityService<UserPreference
     }
 
     public UserPreference currentUserPreference(PlatformUiClientType clientType, String preferenceKey) {
-        return findOne(scopeCriteria(currentUserId(), clientType, preferenceKey));
+        PreferenceScope scope = currentScope(clientType, preferenceKey);
+        return select(scope.id());
     }
 
     @Transactional
     public UserPreference saveCurrentUserPreference(PlatformUiClientType clientType,
                                                      String preferenceKey,
                                                      String valueJson) {
-        String userId = currentUserId();
-        Criteria scope = scopeCriteria(userId, clientType, preferenceKey);
-        UserPreference preference = findOne(scope);
+        PreferenceScope scope = currentScope(clientType, preferenceKey);
+        String normalizedValue = requireValueJson(valueJson);
+        UserPreference preference = getDao().findById(scope.id());
+        Instant now = Instant.now();
         if (preference == null) {
             preference = new UserPreference();
-            preference.setUserId(userId);
-            preference.setClientType(normalizeClientType(clientType).name());
-            preference.setPreferenceKey(normalizePreferenceKey(preferenceKey));
-            preference.setValueJson(requireValueJson(valueJson));
-            insert(preference);
-            return preference;
+            preference.setId(scope.id());
+            preference.setTenantId(scope.tenantId());
+            preference.setUserId(scope.userId());
+            preference.setClientType(scope.clientType().name());
+            preference.setPreferenceKey(scope.preferenceKey());
+            preference.setValueJson(normalizedValue);
+            EntityLifecycle.prepareInsert(preference, now);
+        } else {
+            preference.setValueJson(normalizedValue);
+            EntityLifecycle.prepareUpdate(preference, now);
         }
-        preference.setValueJson(requireValueJson(valueJson));
-        update(preference);
-        return select(preference.getId());
+        getDao().upsert(preference);
+        return select(scope.id());
     }
 
     @Transactional
     public void deleteCurrentUserPreference(PlatformUiClientType clientType, String preferenceKey) {
-        UserPreference preference = currentUserPreference(clientType, preferenceKey);
-        if (preference != null) {
-            delete(preference);
-        }
+        delete(currentScope(clientType, preferenceKey).id());
     }
 
-    private Criteria scopeCriteria(String userId, PlatformUiClientType clientType, String preferenceKey) {
-        return Criteria.of()
-                .eq("userId", userId)
-                .eq("clientType", normalizeClientType(clientType).name())
-                .eq("preferenceKey", normalizePreferenceKey(preferenceKey));
-    }
-
-    private String currentUserId() {
+    /** Stable scope ids turn the generic DAO's primary-key upsert into an atomic last-write-wins save. */
+    private PreferenceScope currentScope(PlatformUiClientType clientType, String preferenceKey) {
         CurrentUser user = CurrentUserContext.currentUser()
                 .orElseThrow(() -> new PlatformException("user preference requires current user"));
-        return user.userId();
+        PlatformUiClientType normalizedClientType = normalizeClientType(clientType);
+        String normalizedPreferenceKey = normalizePreferenceKey(preferenceKey);
+        String tenantId = currentTenantId(user);
+        String identity = String.join("\u0000",
+                user.system() ? "system" : "tenant",
+                tenantId == null ? "" : tenantId,
+                user.userId(),
+                normalizedClientType.name(),
+                normalizedPreferenceKey);
+        String id = UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8))
+                .toString()
+                .replace("-", "");
+        return new PreferenceScope(id, tenantId, user.userId(), normalizedClientType, normalizedPreferenceKey);
+    }
+
+    private String currentTenantId(CurrentUser user) {
+        if (user.system()) {
+            return null;
+        }
+        if (user.tenantId() == null) {
+            throw new PlatformException("user preference requires tenant id for tenant user");
+        }
+        return user.tenantId();
     }
 
     private PlatformUiClientType normalizeClientType(PlatformUiClientType clientType) {
@@ -72,6 +95,9 @@ public class UserPreferenceService extends AbstractAbilityService<UserPreference
 
     private String normalizePreferenceKey(String preferenceKey) {
         String normalized = requireText(preferenceKey, "preferenceKey");
+        if (normalized.length() > 128) {
+            throw new PlatformException("user preference preferenceKey must not exceed 128 characters");
+        }
         if (!normalized.matches("[a-z][a-z0-9_]*(?:[.-][a-z][a-z0-9_]*)*")) {
             throw new PlatformException("user preference preferenceKey must use lower-case dotted or dashed segments");
         }
@@ -80,6 +106,10 @@ public class UserPreferenceService extends AbstractAbilityService<UserPreference
 
     private String requireValueJson(String valueJson) {
         String normalized = requireText(valueJson, "valueJson");
+        if (normalized.getBytes(StandardCharsets.UTF_8).length > MAX_VALUE_JSON_BYTES) {
+            throw new PlatformException("user preference valueJson must not exceed "
+                    + MAX_VALUE_JSON_BYTES + " UTF-8 bytes");
+        }
         try {
             OBJECT_MAPPER.readTree(normalized);
             return normalized;
@@ -93,5 +123,12 @@ public class UserPreferenceService extends AbstractAbilityService<UserPreference
             throw new PlatformException("user preference " + fieldName + " must not be blank");
         }
         return value.trim();
+    }
+
+    private record PreferenceScope(String id,
+                                   String tenantId,
+                                   String userId,
+                                   PlatformUiClientType clientType,
+                                   String preferenceKey) {
     }
 }

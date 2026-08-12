@@ -272,13 +272,11 @@ function handleMainClick() {
 .sidebar-menu-entry.selected {
   background: #e4f2ef;
   color: #0f766e;
-  font-weight: 700;
 }
 
 .sidebar-menu-entry.selected-path {
   background: #f0f7f5;
   color: #0f766e;
-  font-weight: 700;
   box-shadow: inset 2px 0 0 #9ccfc7;
 }
 
