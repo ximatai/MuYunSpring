@@ -12,6 +12,7 @@ export { default as UiTextArea } from './components/UiTextArea.vue';
 export { default as UiSelect } from './components/UiSelect.vue';
 export { default as UiTreeSelect } from './components/UiTreeSelect.vue';
 export { default as UiTooltip } from './components/UiTooltip.vue';
+export { default as UiThemeProvider } from './components/UiThemeProvider.vue';
 export { default as UiSwitch } from './components/UiSwitch.vue';
 export { default as UiMenu } from './components/UiMenu.vue';
 export { default as UiTabs } from './components/UiTabs.vue';
@@ -42,6 +43,15 @@ export { resolveFieldComponent } from './registry';
 export type { UiIconName } from './components/UiIcon.vue';
 export type { UiTagListItem } from './components/UiTagList.vue';
 export type { UiSidePanelScope } from './components/sidePanelHost';
+export {
+  antDesignThemeOf,
+  cssVariablesOf,
+  defaultUiTheme,
+  defaultUiThemeSkinId,
+  uiThemeSkinById,
+  uiThemeSkins,
+} from './theme';
+export type { UiSupportTheme, UiTheme, UiThemeSkin, UiThemeSkinId, UiThemeTone } from './theme';
 export type {
   UiConfirmOptions,
   UiDataTableColumn,

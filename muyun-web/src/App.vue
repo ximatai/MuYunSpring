@@ -6,16 +6,26 @@ import {
   pageDescriptorToUrl,
   type WorkbenchRealtimeStatus,
 } from '@muyun/platform-workbench';
+import {
+  UiThemeProvider,
+  defaultUiThemeSkinId,
+  uiThemeSkinById,
+  uiThemeSkins,
+  type UiThemeSkinId,
+} from '@muyun/vue-ui-antdv';
 import { presentPlatformError, providePlatformTimeZoneContext } from '@muyun/platform-components';
 import {
   configureModuleContext,
   createAuthClient,
   provideModuleContextConfig,
+  userPreferences,
   type AppError,
   type RealtimeConnectionState,
 } from '@muyun/web-core';
+import { configureUserPreferenceBackend } from './web-core/userPreferences';
 import type {
   LoginResult,
+  MenuTab,
   MenuNavigationTarget,
   MenuRecord,
   WebUserNotification,
@@ -44,6 +54,7 @@ import {
 import { connectAppRealtime } from './platform-admin-runtime/realtime';
 import ChangeOwnPasswordDialog from './app/ChangeOwnPasswordDialog.vue';
 import LoginView from './app/LoginView.vue';
+import ThemeSkinPreferencesDialog from './app/ThemeSkinPreferencesDialog.vue';
 import PlatformAdminRouteOutlet from './platform-admin-runtime/PlatformAdminOutlet.vue';
 import {
   createModuleOpenApiPageDescriptor,
@@ -54,14 +65,48 @@ import ModuleOpenApiView from './views/ModuleOpenApiView.vue';
 import OpenApiCatalogView from './views/OpenApiCatalogView.vue';
 import {
   closeMenuTab,
+  closeMenuTabs,
+  arrangeLockedMenuTabs,
   menuTargetUrl,
   openDirectTab,
   openMenuTab,
+  reorderMenuTabs,
+  removeLockedMenuTabs,
+  restoreLockedMenuTabs,
   restoreWorkbenchStartupStateFromUrl,
+  updateLockedMenuTabs,
 } from './app/workbenchStartup';
+import { restoreLockedTabPreference, saveLockedTabPreference } from './app/lockedTabPreference';
 import { provideWorkbenchNavigation } from './platform-workbench/workbenchNavigation';
 import { router } from './app/router';
 import { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from './app/workbenchRouteSync';
+import {
+  restoreThemeSkinPreference,
+  saveThemeSkinPreference,
+  themeSkinPreferenceKey,
+} from './app/themeSkinPreference';
+
+configureUserPreferenceBackend({
+  load: async (key) => {
+    const response = await createBackendHttpClient().request<{ valueJson?: string } | undefined>({
+      path: `/platform.user-preference/${encodeURIComponent(key)}`,
+      query: { clientType: 'WEB' },
+    });
+    return response?.valueJson;
+  },
+  save: (key, valueJson) =>
+    createBackendHttpClient().request({
+      method: 'POST',
+      path: `/platform.user-preference/${encodeURIComponent(key)}`,
+      body: { clientType: 'WEB', valueJson },
+    }),
+  remove: (key) =>
+    createBackendHttpClient().request({
+      method: 'DELETE',
+      path: `/platform.user-preference/${encodeURIComponent(key)}`,
+      query: { clientType: 'WEB' },
+    }),
+});
 
 const startup = ref<WorkbenchStartupState>();
 const currentUser = computed(() => startup.value?.session.currentUser);
@@ -75,6 +120,14 @@ const logoutLoading = ref(false);
 const changePasswordOpen = ref(false);
 const changePasswordSaving = ref(false);
 const changePasswordError = ref<string>();
+const themeSkinPreferencesOpen = ref(false);
+const themeSkinSaving = ref(false);
+const themeSkinError = ref<string>();
+const themeSkinId = ref<UiThemeSkinId>(
+  uiThemeSkinById(userPreferences.get(themeSkinPreferenceKey, defaultUiThemeSkinId)).id,
+);
+const activeThemeSkin = computed(() => uiThemeSkinById(themeSkinId.value));
+const lockedTabs = ref<MenuTab[]>([]);
 const currentPassword = ref('');
 const newPassword = ref('');
 const confirmPassword = ref('');
@@ -90,6 +143,9 @@ const platformAdminRouteResolveOptions = {
 let realtimeConnection: ReturnType<typeof connectAppRealtime> | undefined;
 let securityLogoutTimer: number | undefined;
 let pendingWorkbenchNavigation: string | undefined;
+let themeSkinPreferenceRevision = 0;
+let lockedTabPreferenceRevision = 0;
+let lockedTabPreferenceWrite = Promise.resolve();
 
 configureModuleContext({ httpFactory: createBackendHttpClient });
 provideModuleContextConfig({ httpFactory: createBackendHttpClient });
@@ -140,12 +196,20 @@ async function loadWorkbench() {
       currentBrowserPath(),
       platformAdminRouteResolveOptions,
     );
-    startup.value = state;
-    activeTabKey.value = state.activeTabKey;
+    const restoredLockedTabs = restoreLockedMenuTabs(
+      await restoreLockedTabs(),
+      state.menus,
+      platformAdminRouteResolveOptions,
+    );
+    lockedTabs.value = restoredLockedTabs;
+    const arrangedState = { ...state, tabs: arrangeLockedMenuTabs(state.tabs ?? [], restoredLockedTabs) };
+    startup.value = arrangedState;
+    activeTabKey.value = arrangedState.activeTabKey;
     loginRequired.value = false;
+    void restoreThemeSkinFromBackend();
     reconnectRealtime();
     if (!openApiCatalogOpen.value) {
-      syncBrowserUrl(state, 'replace');
+      syncBrowserUrl(arrangedState, 'replace');
     }
   } catch (cause) {
     if (isPasswordChangeRequiredError(cause)) {
@@ -189,8 +253,63 @@ async function handleUserCommand(command: string) {
     openChangeOwnPasswordDialog();
     return;
   }
+  if (command === 'settings') {
+    themeSkinError.value = undefined;
+    themeSkinPreferencesOpen.value = true;
+    return;
+  }
   if (command === 'logout') {
     await handleLogout();
+  }
+}
+
+async function restoreThemeSkinFromBackend() {
+  if (usesMockStartup()) {
+    return;
+  }
+  const revision = ++themeSkinPreferenceRevision;
+  try {
+    const restored = await restoreThemeSkinPreference(userPreferences, themeSkinId.value);
+    if (revision !== themeSkinPreferenceRevision) {
+      return;
+    }
+    themeSkinId.value = restored;
+  } catch {
+    // Keep the locally restored skin when the preference service is temporarily unavailable.
+  }
+}
+
+async function selectThemeSkin(skinId: UiThemeSkinId) {
+  if (themeSkinSaving.value || skinId === themeSkinId.value) {
+    return;
+  }
+  const revision = ++themeSkinPreferenceRevision;
+  const previousSkinId = themeSkinId.value;
+  themeSkinId.value = skinId;
+  themeSkinSaving.value = true;
+  themeSkinError.value = undefined;
+  if (usesMockStartup()) {
+    await userPreferences.set(themeSkinPreferenceKey, skinId, { persistence: 'local' });
+    themeSkinSaving.value = false;
+    return;
+  }
+  try {
+    const result = await saveThemeSkinPreference(userPreferences, skinId, previousSkinId);
+    if (result.error) {
+      if (revision !== themeSkinPreferenceRevision) {
+        return;
+      }
+      themeSkinId.value = result.skinId;
+      themeSkinError.value = result.error;
+    }
+  } finally {
+    themeSkinSaving.value = false;
+  }
+}
+
+function closeThemeSkinPreferences() {
+  if (!themeSkinSaving.value) {
+    themeSkinPreferencesOpen.value = false;
   }
 }
 
@@ -450,11 +569,67 @@ function handleReplacePage(pageKey: string, descriptor: import('@muyun/web-contr
       : tab,
   );
   startup.value = { ...current, tabs };
+  const replacement = tabs.find((tab) => tab.key === pageKey);
+  if (replacement && lockedTabs.value.some((tab) => tab.key === pageKey)) {
+    updateLockedTabs(updateLockedMenuTabs(lockedTabs.value, replacement));
+  }
   syncBrowserUrl(startup.value, 'replace');
 }
 
 function openWindow(url: string) {
   window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+async function restoreLockedTabs(): Promise<MenuTab[]> {
+  if (usesMockStartup()) return [];
+  try {
+    return await restoreLockedTabPreference(userPreferences);
+  } catch {
+    return [];
+  }
+}
+
+function lockedTabKeys() {
+  return lockedTabs.value.map((tab) => tab.key);
+}
+
+function updateLockedTabs(nextLockedTabs: MenuTab[]) {
+  const previousLockedTabs = lockedTabs.value;
+  const revision = ++lockedTabPreferenceRevision;
+  lockedTabs.value = nextLockedTabs;
+  void persistLockedTabs(nextLockedTabs, previousLockedTabs, revision);
+}
+
+async function persistLockedTabs(nextLockedTabs: MenuTab[], previousLockedTabs: MenuTab[], revision: number) {
+  try {
+    lockedTabPreferenceWrite = lockedTabPreferenceWrite
+      .catch(() => undefined)
+      .then(async () => {
+        if (usesMockStartup()) return;
+        await saveLockedTabPreference(userPreferences, nextLockedTabs);
+      });
+    await lockedTabPreferenceWrite;
+  } catch {
+    if (revision !== lockedTabPreferenceRevision) return;
+    lockedTabs.value = previousLockedTabs;
+    const current = startup.value;
+    if (current)
+      startup.value = {
+        ...current,
+        tabs: arrangeLockedMenuTabs(current.tabs ?? [], previousLockedTabs, false),
+      };
+  }
+}
+
+function handleToggleTabLock(key: string) {
+  const current = startup.value;
+  const tab = current?.tabs?.find((item) => item.key === key);
+  if (!current || !tab) return;
+  const nextLockedTabs = lockedTabs.value.some((item) => item.key === key)
+    ? removeLockedMenuTabs(lockedTabs.value, [key])
+    : updateLockedMenuTabs(lockedTabs.value, tab);
+  updateLockedTabs(nextLockedTabs);
+  startup.value = { ...current, tabs: arrangeLockedMenuTabs(current.tabs ?? [], nextLockedTabs) };
 }
 
 function handleCloseTab(key: string) {
@@ -470,6 +645,25 @@ function handleCloseTab(key: string) {
     activeTabKey: result.activeTabKey,
   };
   activeTabKey.value = result.activeTabKey;
+  if (lockedTabs.value.some((tab) => tab.key === key))
+    updateLockedTabs(removeLockedMenuTabs(lockedTabs.value, [key]));
+  syncBrowserUrl(startup.value, 'replace');
+}
+
+function handleCloseTabs(keys: string[]) {
+  const current = startup.value;
+  if (!current || keys.length === 0) {
+    return;
+  }
+  const result = closeMenuTabs(current.tabs ?? [], activeTabKey.value, keys);
+  startup.value = {
+    ...current,
+    tabs: result.tabs,
+    activeTabKey: result.activeTabKey,
+  };
+  activeTabKey.value = result.activeTabKey;
+  const nextLockedTabs = removeLockedMenuTabs(lockedTabs.value, keys);
+  if (nextLockedTabs.length !== lockedTabs.value.length) updateLockedTabs(nextLockedTabs);
   syncBrowserUrl(startup.value, 'replace');
 }
 
@@ -485,6 +679,18 @@ function handleChangeTab(key: string) {
     activeTabKey: key,
   };
   syncBrowserUrl(startup.value, 'push');
+}
+
+function handleReorderTabs(keys: string[]) {
+  const current = startup.value;
+  if (!current) return;
+  const tabs = reorderMenuTabs(current.tabs ?? [], keys, lockedTabKeys());
+  startup.value = { ...current, tabs };
+  const nextLockedTabs = tabs.filter((tab) =>
+    lockedTabs.value.some((lockedTab) => lockedTab.key === tab.key),
+  );
+  if (nextLockedTabs.map((tab) => tab.key).join('|') !== lockedTabKeys().join('|'))
+    updateLockedTabs(nextLockedTabs);
 }
 
 function currentBrowserPath() {
@@ -543,59 +749,74 @@ function requiresLogin(cause: unknown) {
 </script>
 
 <template>
-  <LoginView
-    v-if="loginRequired"
-    :auth-client="authClient"
-    :loading="loginLoading"
-    :error="error"
-    @authenticated="handleAuthenticated"
-  />
-  <OpenApiCatalogView v-else-if="openApiCatalogOpen" @open="openModuleOpenApi" @back="returnToWorkbench" />
-  <Workbench
-    v-else
-    v-model:active-tab-key="activeTabKey"
-    :startup="startup"
-    :loading="loading"
-    :error="error"
-    :realtime-status="realtimeStatus"
-    @select-menu="handleSelectMenu"
-    @change-tab="handleChangeTab"
-    @close-tab="handleCloseTab"
-    @user-command="handleUserCommand"
-  >
-    <template #default="{ activeTab, pageDescriptor }">
-      <ModuleOpenApiView
-        v-if="isModuleOpenApiPage(pageDescriptor)"
-        :module-alias="pageDescriptor?.target.moduleAlias ?? ''"
-        @title-resolved="
-          resolveModuleOpenApiTitle(activeTab.key, pageDescriptor?.target.moduleAlias ?? '', $event)
-        "
-      />
-      <PlatformAdminRouteOutlet
-        v-else-if="isPlatformAdminRoutePage(pageDescriptor)"
-        :descriptor="pageDescriptor"
-      />
-      <WorkbenchOutlet v-else :descriptor="pageDescriptor" />
-    </template>
-  </Workbench>
-  <ChangeOwnPasswordDialog
-    v-model:current-password="currentPassword"
-    v-model:new-password="newPassword"
-    v-model:confirm-password="confirmPassword"
-    :open="changePasswordOpen"
-    :saving="changePasswordSaving"
-    :error="changePasswordError"
-    @close="closeChangeOwnPasswordDialog"
-    @submit="submitChangeOwnPassword"
-  />
-  <div v-if="securityNotification" class="security-notification-mask" role="presentation">
-    <section class="security-notification-dialog" role="alertdialog" aria-modal="true">
-      <h2>需要重新登录</h2>
-      <p>{{ securityNotification.message }}</p>
-      <p class="security-notification-countdown">{{ securityLogoutCountdown }} 秒后自动返回登录页</p>
-      <button type="button" @click="forceLocalLogout">立即重新登录</button>
-    </section>
-  </div>
+  <UiThemeProvider :theme="activeThemeSkin.theme" scope="global">
+    <LoginView
+      v-if="loginRequired"
+      :auth-client="authClient"
+      :loading="loginLoading"
+      :error="error"
+      @authenticated="handleAuthenticated"
+    />
+    <OpenApiCatalogView v-else-if="openApiCatalogOpen" @open="openModuleOpenApi" @back="returnToWorkbench" />
+    <Workbench
+      v-else
+      v-model:active-tab-key="activeTabKey"
+      :startup="startup"
+      :loading="loading"
+      :error="error"
+      :realtime-status="realtimeStatus"
+      :locked-tab-keys="lockedTabKeys()"
+      @select-menu="handleSelectMenu"
+      @change-tab="handleChangeTab"
+      @close-tab="handleCloseTab"
+      @close-tabs="handleCloseTabs"
+      @toggle-tab-lock="handleToggleTabLock"
+      @reorder-tabs="handleReorderTabs"
+      @user-command="handleUserCommand"
+    >
+      <template #default="{ activeTab, pageDescriptor }">
+        <ModuleOpenApiView
+          v-if="isModuleOpenApiPage(pageDescriptor)"
+          :module-alias="pageDescriptor?.target.moduleAlias ?? ''"
+          @title-resolved="
+            resolveModuleOpenApiTitle(activeTab.key, pageDescriptor?.target.moduleAlias ?? '', $event)
+          "
+        />
+        <PlatformAdminRouteOutlet
+          v-else-if="isPlatformAdminRoutePage(pageDescriptor)"
+          :descriptor="pageDescriptor"
+        />
+        <WorkbenchOutlet v-else :descriptor="pageDescriptor" />
+      </template>
+    </Workbench>
+    <ChangeOwnPasswordDialog
+      v-model:current-password="currentPassword"
+      v-model:new-password="newPassword"
+      v-model:confirm-password="confirmPassword"
+      :open="changePasswordOpen"
+      :saving="changePasswordSaving"
+      :error="changePasswordError"
+      @close="closeChangeOwnPasswordDialog"
+      @submit="submitChangeOwnPassword"
+    />
+    <ThemeSkinPreferencesDialog
+      :open="themeSkinPreferencesOpen"
+      :skins="uiThemeSkins"
+      :active-skin-id="themeSkinId"
+      :saving="themeSkinSaving"
+      :error="themeSkinError"
+      @close="closeThemeSkinPreferences"
+      @select="selectThemeSkin"
+    />
+    <div v-if="securityNotification" class="security-notification-mask" role="presentation">
+      <section class="security-notification-dialog" role="alertdialog" aria-modal="true">
+        <h2>需要重新登录</h2>
+        <p>{{ securityNotification.message }}</p>
+        <p class="security-notification-countdown">{{ securityLogoutCountdown }} 秒后自动返回登录页</p>
+        <button type="button" @click="forceLocalLogout">立即重新登录</button>
+      </section>
+    </div>
+  </UiThemeProvider>
 </template>
 
 <style scoped>
@@ -614,9 +835,9 @@ function requiresLogin(cause: unknown) {
   gap: 12px;
   width: min(400px, 100%);
   padding: 22px;
-  border: 1px solid #d7dee8;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--muyun-support-surface);
   box-shadow: 0 22px 54px rgba(15, 23, 42, 0.24);
 }
 
@@ -626,18 +847,18 @@ function requiresLogin(cause: unknown) {
 }
 
 .security-notification-dialog h2 {
-  color: #111827;
+  color: var(--muyun-support-text);
   font-size: 18px;
 }
 
 .security-notification-dialog p {
-  color: #334155;
+  color: var(--muyun-support-text-body);
   font-size: 14px;
   line-height: 1.6;
 }
 
 .security-notification-countdown {
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
 }
 
 .security-notification-dialog button {
@@ -647,8 +868,8 @@ function requiresLogin(cause: unknown) {
   padding: 0 14px;
   border: 0;
   border-radius: 6px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--muyun-theme-base);
+  color: var(--muyun-support-surface);
   font-size: 14px;
   cursor: pointer;
 }

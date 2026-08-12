@@ -13,10 +13,10 @@
   min-height: 240px;
   align-content: center;
   justify-items: center;
-  border: 1px solid #dbe4ef;
+  border: 1px solid var(--muyun-border);
   border-radius: 8px;
-  background: #fff;
-  color: #5f6f83;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-text-body);
   text-align: center;
 }
 
@@ -27,13 +27,13 @@ p {
 }
 
 .home-eyebrow {
-  color: #6b7788;
+  color: var(--muyun-text-muted);
   font-size: 12px;
   font-weight: 700;
 }
 
 h2 {
-  color: #1f2933;
+  color: var(--muyun-text);
   font-size: 18px;
 }
 </style>

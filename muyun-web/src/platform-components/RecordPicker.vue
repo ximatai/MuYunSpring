@@ -276,10 +276,10 @@ function handleDocumentKeydown(event: KeyboardEvent) {
   height: 34px;
   overflow: hidden;
   padding: 0 10px;
-  border: 1px solid #cfd9e5;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 6px;
-  background: #fff;
-  color: #172033;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-support-text);
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -294,21 +294,21 @@ function handleDocumentKeydown(event: KeyboardEvent) {
 }
 
 .record-picker-value:disabled {
-  background: #f8fafc;
-  color: #475569;
+  background: var(--muyun-support-disabled);
+  color: var(--muyun-support-disabled-text);
   cursor: not-allowed;
 }
 
 .record-picker-placeholder {
-  color: #94a3b8;
+  color: var(--muyun-support-text-muted);
 }
 
 .record-picker-caret {
   flex: 0 0 auto;
   width: 7px;
   height: 7px;
-  border-right: 1px solid #64748b;
-  border-bottom: 1px solid #64748b;
+  border-right: 1px solid var(--muyun-support-icon);
+  border-bottom: 1px solid var(--muyun-support-icon);
   transform: rotate(45deg) translateY(-2px);
 }
 
@@ -324,9 +324,9 @@ function handleDocumentKeydown(event: KeyboardEvent) {
   max-height: 320px;
   overflow: auto;
   padding: 10px;
-  border: 1px solid #d8e1ea;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--muyun-support-surface);
 }
 
 .record-picker-list {
@@ -345,21 +345,21 @@ function handleDocumentKeydown(event: KeyboardEvent) {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #172033;
+  color: var(--muyun-support-text);
   text-align: left;
 }
 
 .record-picker-list button:hover:not(:disabled) {
-  background: #f1f5f9;
+  background: var(--muyun-support-hover);
 }
 
 .record-picker-list button:disabled {
-  color: #94a3b8;
+  color: var(--muyun-support-disabled-text);
   cursor: not-allowed;
 }
 
 .record-picker-list small {
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
 }
 </style>

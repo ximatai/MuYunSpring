@@ -9,7 +9,7 @@ export interface MenuPanelEdge {
   bottom: number;
 }
 
-/** Keeps an active root menu open while the pointer crosses towards its panel. */
+/** Keeps the active menu item stable while the pointer crosses towards its flyout panel. */
 export function isPointerHeadingToMenuPanel(
   pointer: MenuPointerPosition,
   origin: MenuPointerPosition,

@@ -9,11 +9,16 @@ import type {
   WorkbenchStartupState,
 } from '@muyun/web-contracts';
 import type { UiDropdownItem, UiTabItem } from '@muyun/vue-ui-antdv';
+import { userPreferences } from '@muyun/web-core';
 import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
 import WorkbenchMenu from './WorkbenchMenu.vue';
 import { resolvePageDescriptor } from './menuNavigation';
 import type { WorkbenchRealtimeStatus } from './realtimeStatus';
-import { compactMenuTopOf } from './workbenchLayout';
+import {
+  compactMenuTopOf,
+  effectiveWorkbenchMenuPresentation,
+  type WorkbenchMenuPresentation,
+} from './workbenchLayout';
 
 defineOptions({ name: 'Workbench' });
 
@@ -23,6 +28,7 @@ const props = withDefaults(
     loading?: boolean;
     error?: string;
     activeTabKey?: string;
+    lockedTabKeys?: string[];
     realtimeStatus?: WorkbenchRealtimeStatus;
   }>(),
   {
@@ -30,6 +36,7 @@ const props = withDefaults(
     error: undefined,
     startup: undefined,
     activeTabKey: undefined,
+    lockedTabKeys: () => [],
     realtimeStatus: 'unavailable',
   },
 );
@@ -39,6 +46,9 @@ const emit = defineEmits<{
   invalidMenu: [menu: MenuRecord];
   changeTab: [key: string];
   closeTab: [key: string];
+  closeTabs: [keys: string[]];
+  toggleTabLock: [key: string];
+  reorderTabs: [keys: string[]];
   'update:activeTabKey': [key: string];
   userCommand: [key: string];
 }>();
@@ -62,8 +72,19 @@ const userMenuItems: UiDropdownItem[] = [
   { key: 'settings', title: '偏好设置' },
   { key: 'logout', title: '退出登录', danger: true },
 ];
-const menuPresentation = ref<'compact' | 'expanded'>('compact');
+const menuPresentation = ref(
+  normalizeWorkbenchMenuPresentation(userPreferences.get('workbench.menu-presentation', 'compact')),
+);
+const narrowViewport = ref(false);
+const effectiveMenuPresentation = computed(() =>
+  effectiveWorkbenchMenuPresentation(menuPresentation.value, narrowViewport.value),
+);
+const expandedMenuDepth = ref(
+  normalizeExpandedMenuDepth(userPreferences.get('workbench.expanded-menu-depth', 1)),
+);
 const compactMenuOpen = ref(false);
+const compactMenuPinned = ref(false);
+const compactMenuAnchor = ref<{ left: number; top: number; right: number; bottom: number }>();
 const suppressCompactMenuPointerEnter = ref(false);
 const workbenchRoot = ref<HTMLElement>();
 const appTopbar = ref<HTMLElement>();
@@ -71,7 +92,9 @@ const compactMenuTop = ref(54);
 let compactMenuCloseTimer: number | undefined;
 let compactMenuPointerReleaseFrame: number | undefined;
 let topbarResizeObserver: ResizeObserver | undefined;
+let narrowViewportQuery: MediaQueryList | undefined;
 const COMPACT_MENU_CLOSE_DELAY = 220;
+const NARROW_VIEWPORT_QUERY = '(max-width: 980px)';
 
 function pageDescriptorOf(tab: MenuTab | undefined): PageDescriptor | undefined {
   if (!tab) {
@@ -91,6 +114,7 @@ function toTabItem(tab: MenuTab): UiTabItem {
     key: tab.key,
     title: tab.title,
     closable: tab.closable,
+    pinned: props.lockedTabKeys.includes(tab.key),
   };
 }
 
@@ -108,15 +132,31 @@ function handleSelectMenu(menu: MenuRecord, target: MenuNavigationTarget) {
   closeCompactMenu();
 }
 
-function openCompactMenu(source: 'pointer' | 'focus' | 'click' = 'pointer') {
+function openCompactMenu(
+  source: 'pointer' | 'focus' | 'click' = 'pointer',
+  anchor?: { left: number; top: number; right: number; bottom: number },
+) {
+  if (source === 'click') {
+    if (compactMenuOpen.value && compactMenuPinned.value) {
+      closeCompactMenu();
+      return;
+    }
+    compactMenuPinned.value = true;
+  }
   if (source === 'pointer' && suppressCompactMenuPointerEnter.value) {
     return;
+  }
+  if (anchor) {
+    compactMenuAnchor.value = anchor;
   }
   clearCompactMenuCloseTimer();
   compactMenuOpen.value = true;
 }
 
 function scheduleCompactMenuClose() {
+  if (compactMenuPinned.value) {
+    return;
+  }
   clearCompactMenuCloseTimer();
   compactMenuCloseTimer = window.setTimeout(() => {
     compactMenuOpen.value = false;
@@ -127,6 +167,8 @@ function scheduleCompactMenuClose() {
 function closeCompactMenu() {
   clearCompactMenuCloseTimer();
   compactMenuOpen.value = false;
+  compactMenuPinned.value = false;
+  compactMenuAnchor.value = undefined;
 }
 
 function clearCompactMenuCloseTimer() {
@@ -137,13 +179,30 @@ function clearCompactMenuCloseTimer() {
   compactMenuCloseTimer = undefined;
 }
 
-function setMenuPresentation(presentation: 'compact' | 'expanded') {
+function handleCompactMenuOutsideInteraction(event: Event) {
+  if (!compactMenuOpen.value || !compactMenuPinned.value) {
+    return;
+  }
+  const insideMenu = event
+    .composedPath()
+    .some(
+      (target) =>
+        target instanceof Element &&
+        (target.matches('.workbench-brand-identity') || target.matches('.workbench-menu')),
+    );
+  if (!insideMenu) {
+    closeCompactMenu();
+  }
+}
+
+function setMenuPresentation(presentation: WorkbenchMenuPresentation) {
   if (compactMenuPointerReleaseFrame !== undefined) {
     window.cancelAnimationFrame(compactMenuPointerReleaseFrame);
     compactMenuPointerReleaseFrame = undefined;
   }
   suppressCompactMenuPointerEnter.value = presentation === 'compact';
   menuPresentation.value = presentation;
+  void userPreferences.set('workbench.menu-presentation', presentation);
   closeCompactMenu();
   if (presentation === 'compact') {
     compactMenuPointerReleaseFrame = window.requestAnimationFrame(() => {
@@ -151,6 +210,24 @@ function setMenuPresentation(presentation: 'compact' | 'expanded') {
       compactMenuPointerReleaseFrame = undefined;
     });
   }
+}
+
+function handleNarrowViewportChange(event: MediaQueryListEvent) {
+  narrowViewport.value = event.matches;
+  closeCompactMenu();
+}
+
+function setExpandedMenuDepth(depth: 1 | 2 | 3) {
+  expandedMenuDepth.value = depth;
+  void userPreferences.set('workbench.expanded-menu-depth', depth);
+}
+
+function normalizeExpandedMenuDepth(value: unknown): 1 | 2 | 3 {
+  return value === 2 || value === 3 ? value : 1;
+}
+
+function normalizeWorkbenchMenuPresentation(value: unknown): WorkbenchMenuPresentation {
+  return value === 'expanded' ? value : 'compact';
 }
 
 function updateCompactMenuTop() {
@@ -163,6 +240,13 @@ function updateCompactMenuTop() {
 }
 
 onMounted(() => {
+  document.addEventListener('pointerdown', handleCompactMenuOutsideInteraction);
+  document.addEventListener('focusin', handleCompactMenuOutsideInteraction);
+  if (typeof window.matchMedia === 'function') {
+    narrowViewportQuery = window.matchMedia(NARROW_VIEWPORT_QUERY);
+    narrowViewport.value = narrowViewportQuery.matches;
+    narrowViewportQuery.addEventListener('change', handleNarrowViewportChange);
+  }
   void nextTick(() => {
     updateCompactMenuTop();
     if (typeof ResizeObserver === 'undefined' || !appTopbar.value) {
@@ -174,11 +258,14 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  document.removeEventListener('pointerdown', handleCompactMenuOutsideInteraction);
+  document.removeEventListener('focusin', handleCompactMenuOutsideInteraction);
   clearCompactMenuCloseTimer();
   if (compactMenuPointerReleaseFrame !== undefined) {
     window.cancelAnimationFrame(compactMenuPointerReleaseFrame);
   }
   topbarResizeObserver?.disconnect();
+  narrowViewportQuery?.removeEventListener('change', handleNarrowViewportChange);
 });
 
 function pageTypeLabelOf(pageType: string | undefined) {
@@ -219,8 +306,8 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
     ref="workbenchRoot"
     class="workbench"
     :class="{
-      'workbench--menu-expanded': menuPresentation === 'expanded',
-      'workbench--compact-menu-open': menuPresentation === 'compact' && compactMenuOpen,
+      'workbench--menu-expanded': effectiveMenuPresentation === 'expanded',
+      'workbench--compact-menu-open': effectiveMenuPresentation === 'compact' && compactMenuOpen,
     }"
   >
     <WorkbenchMenu
@@ -228,15 +315,18 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
       :selected-menu-id="activeTab?.target?.menuId"
       :tenant-label="tenantLabel"
       :realtime-status="realtimeStatus"
-      :presentation="menuPresentation"
+      :presentation="effectiveMenuPresentation"
+      :expanded-menu-depth="expandedMenuDepth"
       :compact-open="compactMenuOpen"
       :compact-top="compactMenuTop"
+      :compact-anchor="compactMenuAnchor"
       @select-menu="handleSelectMenu"
       @invalid-menu="emit('invalidMenu', $event)"
       @compact-menu-enter="openCompactMenu"
       @compact-menu-leave="scheduleCompactMenuClose"
       @compact-menu-close="closeCompactMenu"
       @change-presentation="setMenuPresentation"
+      @change-expanded-menu-depth="setExpandedMenuDepth"
     />
 
     <section class="app-main">
@@ -244,10 +334,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
         <div class="topbar-identity">
           <Transition name="workbench-brand">
             <WorkbenchBrandControl
-              v-if="menuPresentation === 'compact'"
+              v-if="effectiveMenuPresentation === 'compact'"
               presentation="compact"
               :compact-open="compactMenuOpen"
               :tenant-label="tenantLabel"
+              :presentation-toggle-visible="!narrowViewport"
               @open-compact-menu="openCompactMenu"
               @schedule-compact-menu-close="scheduleCompactMenuClose"
               @close-compact-menu="closeCompactMenu"
@@ -255,7 +346,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             />
           </Transition>
           <Transition name="workbench-divider">
-            <span v-if="menuPresentation === 'compact'" class="header-title-divider" aria-hidden="true" />
+            <span
+              v-if="effectiveMenuPresentation === 'compact'"
+              class="header-title-divider"
+              aria-hidden="true"
+            />
           </Transition>
           <div class="topbar-title">
             <h1>{{ activeTab?.title ?? '控制台' }}</h1>
@@ -291,36 +386,41 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
         </UiDropdown>
       </header>
 
-      <div class="tab-strip">
-        <UiTabs
-          v-if="tabs.length > 0"
-          :tabs="tabs"
-          :active-key="activeTabKey"
-          @update:active-key="handleTabChange"
-          @close="emit('closeTab', $event)"
-        />
-        <div v-else class="empty-tabs">暂无打开页面</div>
-      </div>
+      <section class="workbench-mega-surface">
+        <div class="tab-strip">
+          <UiTabs
+            v-if="tabs.length > 0"
+            :tabs="tabs"
+            :active-key="activeTabKey"
+            @toggle-pin="emit('toggleTabLock', $event)"
+            @update:active-key="handleTabChange"
+            @close="emit('closeTab', $event)"
+            @close-tabs="emit('closeTabs', $event)"
+            @reorder="emit('reorderTabs', $event)"
+          />
+          <div v-else class="empty-tabs">暂无打开页面</div>
+        </div>
 
-      <section class="app-content">
-        <UiSpin v-if="loading" />
-        <UiError v-else-if="error" :message="error" />
-        <template v-else>
-          <template v-for="tab in openedTabs" :key="tab.key">
-            <UiSidePanelHost
-              v-if="shouldKeepTabMounted(tab)"
-              v-show="tab.key === activeTabKey"
-              class="tab-panel-host"
-            >
-              <div
-                class="tab-page"
-                :class="{ 'tab-page--workspace': pageDescriptorOf(tab)?.layout === 'workspace' }"
+        <section class="app-content">
+          <UiSpin v-if="loading" />
+          <UiError v-else-if="error" :message="error" />
+          <template v-else>
+            <template v-for="tab in openedTabs" :key="tab.key">
+              <UiSidePanelHost
+                v-if="shouldKeepTabMounted(tab)"
+                v-show="tab.key === activeTabKey"
+                class="tab-panel-host"
               >
-                <slot :active-tab="tab" :target="tab.target" :page-descriptor="pageDescriptorOf(tab)" />
-              </div>
-            </UiSidePanelHost>
+                <div
+                  class="tab-page"
+                  :class="{ 'tab-page--workspace': pageDescriptorOf(tab)?.layout === 'workspace' }"
+                >
+                  <slot :active-tab="tab" :target="tab.target" :page-descriptor="pageDescriptorOf(tab)" />
+                </div>
+              </UiSidePanelHost>
+            </template>
           </template>
-        </template>
+        </section>
       </section>
     </section>
   </main>
@@ -336,7 +436,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
-  background: #f5f7fa;
+  background: var(--muyun-support-canvas);
   transition: grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -347,7 +447,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .app-main {
   grid-column: 2;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -361,8 +461,8 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   gap: 12px;
   min-height: 54px;
   padding: 8px 16px;
-  border-bottom: 1px solid #dde5ef;
-  background: #fff;
+  border-bottom: 1px solid var(--muyun-support-border);
+  background: var(--muyun-support-surface);
 }
 
 .app-topbar h1,
@@ -379,6 +479,15 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   display: flex;
   align-items: center;
   min-width: 0;
+}
+
+.workbench--compact-menu-open .topbar-identity {
+  position: relative;
+  z-index: 31;
+}
+
+.workbench--compact-menu-open .app-topbar {
+  border-bottom-color: transparent;
 }
 
 .workbench-brand-enter-active,
@@ -411,11 +520,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   width: 1px;
   height: 30px;
   margin: 0 14px;
-  background: #d8e1ea;
+  background: var(--muyun-support-border);
 }
 
 .app-topbar h1 {
-  color: #1f2933;
+  color: var(--muyun-support-text);
   font-size: 16px;
   line-height: 1.2;
 }
@@ -424,7 +533,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   overflow: hidden;
   max-width: 560px;
   margin-top: 3px;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -445,10 +554,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   gap: 8px;
   width: 32px;
   height: 32px;
-  border: 1px solid #d6e0ec;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 7px;
-  background: #fff;
-  color: #334155;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-support-text-body);
   cursor: pointer;
   transition:
     border-color 160ms ease,
@@ -462,13 +571,13 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   min-width: 112px;
   padding: 0 10px;
   justify-content: flex-start;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
 }
 
 .icon-button:hover {
-  border-color: #9cc8c2;
-  color: #0f766e;
+  border-color: var(--muyun-theme-border);
+  color: var(--muyun-theme-base);
   box-shadow: 0 8px 18px rgb(15 23 42 / 8%);
   transform: translateY(-1px);
 }
@@ -480,10 +589,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   min-width: 154px;
   height: 32px;
   padding: 3px 7px 3px 3px;
-  border: 1px solid #d6e0ec;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 7px;
-  background: #fff;
-  color: #1f2933;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-support-text);
   cursor: pointer;
 }
 
@@ -493,8 +602,8 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   height: 24px;
   place-items: center;
   border-radius: 6px;
-  background: #172033;
-  color: #fff;
+  background: var(--muyun-theme-base);
+  color: var(--muyun-support-surface);
   font-size: 11px;
   font-weight: 800;
 }
@@ -514,26 +623,37 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 }
 
 .user-meta strong {
-  color: #172033;
+  color: var(--muyun-support-text);
   font-size: 12px;
 }
 
 .user-meta small {
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 11px;
 }
 
 .user-caret {
   margin-left: auto;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 11px;
 }
 
 .tab-strip {
+  position: relative;
+  z-index: 1;
+  margin-bottom: -1px;
   min-width: 0;
-  padding: 0 12px;
-  border-bottom: 1px solid #dde5ef;
-  background: #f8fafc;
+  padding: 0 10px;
+  background: transparent;
+}
+
+.workbench-mega-surface {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 0 0;
+  overflow: hidden;
 }
 
 .tab-strip :deep(.ant-tabs) {
@@ -548,27 +668,50 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   display: none;
 }
 
+.tab-strip :deep(.ant-tabs-ink-bar) {
+  display: none;
+}
+
 .tab-strip :deep(.ant-tabs-tab) {
-  margin: 6px 4px 6px 0 !important;
-  padding: 5px 10px !important;
-  border: 1px solid #d8e1ea !important;
-  border-radius: 6px !important;
-  background: #fff !important;
-  color: #475569;
+  margin: 0 4px 0 0 !important;
+  padding: 6px 10px !important;
+  border: 1px solid var(--muyun-support-border) !important;
+  border-bottom-color: var(--muyun-support-border) !important;
+  border-radius: 8px 8px 0 0 !important;
+  background: var(--muyun-support-elevated) !important;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
   transition:
     border-color 160ms ease,
+    background-color 160ms ease,
     box-shadow 160ms ease;
 }
 
 .tab-strip :deep(.ant-tabs-tab-active) {
-  border-color: #9cc8c2 !important;
-  box-shadow: 0 8px 18px rgb(15 23 42 / 7%);
+  position: relative;
+  z-index: 2;
+  border-color: var(--muyun-theme-border) !important;
+  border-bottom-color: var(--muyun-support-surface) !important;
+  background: var(--muyun-support-surface) !important;
+  box-shadow: 0 -5px 14px rgb(15 23 42 / 5%);
 }
 
 .tab-strip :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) {
-  color: #0f766e !important;
+  color: var(--muyun-theme-base) !important;
   font-weight: 700;
+}
+
+.tab-strip :deep(.ant-tabs-tab-remove) {
+  margin-left: 1px !important;
+}
+
+.tab-strip :deep(.ant-tabs-tab:not(.ant-tabs-tab-active):hover) {
+  border-color: var(--muyun-theme-border) !important;
+  background: var(--muyun-theme-soft) !important;
+}
+
+.tab-strip :deep(.ant-tabs-tab:not(.ant-tabs-tab-active):hover .ant-tabs-tab-btn) {
+  color: var(--muyun-theme-base) !important;
 }
 
 .tab-strip :deep(.ant-tabs-nav-add) {
@@ -577,14 +720,19 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 .empty-tabs {
   padding: 9px 4px;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
 }
 
 .app-content {
   position: relative;
+  z-index: 0;
   min-width: 0;
   min-height: 0;
+  border: 1px solid var(--muyun-support-border);
+  border-left: 0;
+  border-radius: 0;
+  background: var(--muyun-support-surface);
   overflow: hidden;
   overscroll-behavior: contain;
 }
@@ -598,7 +746,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   box-sizing: border-box;
   height: 100%;
   min-height: 0;
-  padding: 14px;
+  padding: 10px;
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -630,6 +778,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   .app-content {
     overflow: visible;
     overscroll-behavior: auto;
+  }
+
+  .workbench-mega-surface {
+    min-height: auto;
+    overflow: visible;
   }
 
   .tab-page {

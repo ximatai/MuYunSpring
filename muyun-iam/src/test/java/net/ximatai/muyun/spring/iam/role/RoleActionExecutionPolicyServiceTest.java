@@ -61,7 +61,7 @@ class RoleActionExecutionPolicyServiceTest {
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
         TenantAdminImplicitGrantPolicy tenantAdminPolicy = mock(TenantAdminImplicitGrantPolicy.class);
         CurrentUser user = CurrentUser.tenantUser("user-1", "Alice", "tenant_a");
-        when(tenantAdminPolicy.grants(user, "sales.contract", "query")).thenReturn(true);
+        when(tenantAdminPolicy.grants(user, "sales.contract", "view")).thenReturn(true);
         RoleActionExecutionPolicyService policy = new RoleActionExecutionPolicyService(roleService,
                 tenantApplicationService, tenantAdminPolicy);
 
@@ -69,6 +69,7 @@ class RoleActionExecutionPolicyServiceTest {
 
         assertThat(result.decision()).isEqualTo(RoleActionExecutionPolicyService.DECISION_TENANT_ADMIN_GRANTED);
         verify(tenantApplicationService).requireApplicationOpened("tenant_a", "sales");
+        verify(tenantAdminPolicy).grants(user, "sales.contract", "view");
         verify(roleService, never()).hasActionPermission("user-1", "sales.contract", "view");
     }
 

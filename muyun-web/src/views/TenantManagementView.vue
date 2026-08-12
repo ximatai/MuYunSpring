@@ -422,7 +422,7 @@ function resetTenantSelection() {
 }
 .tenant-applications p {
   margin-top: 4px;
-  color: var(--ui-text-muted, #8c8c8c);
+  color: var(--muyun-text-muted);
   font-size: 13px;
 }
 .tenant-application-configuration {
@@ -431,6 +431,6 @@ function resetTenantSelection() {
 }
 .tenant-application-configuration p {
   margin: 0;
-  color: var(--ui-text-muted, #8c8c8c);
+  color: var(--muyun-text-muted);
 }
 </style>

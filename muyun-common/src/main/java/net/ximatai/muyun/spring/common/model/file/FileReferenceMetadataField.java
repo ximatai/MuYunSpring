@@ -6,8 +6,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Declares this field as a platform-managed snapshot of one FileServer metadata
- * fact from a single-file {@link FileReference} source.
+ * Declares this field as a platform-managed snapshot of one file fact from a
+ * single-file {@link FileReference} source, regardless of its storage policy.
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.FIELD)

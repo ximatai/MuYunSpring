@@ -35,7 +35,8 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
 
 <template>
   <li class="deep-node" :style="{ '--depth': depth }">
-    <button
+    <component
+      :is="node.navigable ? 'button' : 'div'"
       class="deep-node-button"
       :class="{
         navigable: node.navigable,
@@ -43,14 +44,12 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
         selected,
         'selected-path': selectedPath,
       }"
-      type="button"
-      :disabled="!node.navigable && !node.hasChildren"
-      :aria-current="selected ? 'page' : undefined"
-      @click="handleClick"
+      :type="node.navigable ? 'button' : undefined"
+      :aria-current="node.navigable && selected ? 'page' : undefined"
+      @click="node.navigable && handleClick()"
     >
       <span>{{ node.record.title }}</span>
-      <small v-if="node.navigable">打开</small>
-    </button>
+    </component>
 
     <ul v-if="node.hasChildren" class="deep-children">
       <WorkbenchMenuTree
@@ -85,7 +84,7 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font: inherit;
   font-size: 12px;
   text-align: left;
@@ -97,38 +96,79 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
   white-space: nowrap;
 }
 
-.deep-node-button small {
-  flex: 0 0 auto;
-  color: #0f766e;
-  font-size: 10px;
-}
-
 .deep-node-button.navigable {
-  color: #1e293b;
   cursor: pointer;
 }
 
-.deep-node-button.branch {
-  font-weight: 600;
+.deep-node-button.navigable > span {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.deep-node-button.navigable > span::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--muyun-theme-base);
+  content: '';
+  opacity: 0;
+  transform: scaleX(0.55);
+  transform-origin: center;
+  transition:
+    opacity 140ms ease,
+    transform 160ms ease;
 }
 
 .deep-node-button.navigable:hover {
-  background: #eaf5f2;
-  color: #0f766e;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
+}
+
+.deep-node-button.navigable:hover > span::after,
+.deep-node-button.navigable:focus-visible > span::after {
+  opacity: 0.62;
+  transform: scaleX(1);
+}
+
+.deep-node-button:focus-visible {
+  outline: 0;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
+  box-shadow: inset 0 0 0 2px var(--muyun-theme-focus);
 }
 
 .deep-node-button.selected {
-  background: #e4f2ef;
-  color: #0f766e;
-  font-weight: 700;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-base);
+}
+
+.deep-node-button.selected,
+.deep-node-button.selected-path {
+  position: relative;
+}
+
+.deep-node-button.selected::before,
+.deep-node-button.selected-path::before {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: var(--muyun-theme-base);
+  content: '';
+}
+
+.deep-node-button.selected-path::before {
+  background: var(--muyun-theme-hover);
+  opacity: 0.58;
 }
 
 .deep-node-button.selected-path {
-  color: #334155;
-  font-weight: 600;
-}
-
-.deep-node-button:disabled {
-  cursor: default;
+  background: var(--muyun-theme-soft);
+  color: var(--muyun-theme-soft-text);
 }
 </style>

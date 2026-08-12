@@ -2,11 +2,17 @@ import { assert, it } from 'vitest';
 import type { CurrentUser, MenuTab, MenuTreeNode } from '@muyun/web-contracts';
 import {
   activeTabUrlOf,
+  arrangeLockedMenuTabs,
   closeMenuTab,
+  closeMenuTabs,
   loadWorkbenchStartupState,
   openDirectTab,
   openMenuTab,
+  removeLockedMenuTabs,
+  reorderMenuTabs,
+  restoreLockedMenuTabs,
   restoreWorkbenchStartupStateFromUrl,
+  updateLockedMenuTabs,
 } from '@/app/workbenchStartup.ts';
 import { getMenuNavigationTarget } from '@/platform-workbench/menuNavigation.ts';
 import { presentWorkbenchRealtimeStatus } from '@/platform-workbench/realtimeStatus.ts';
@@ -436,6 +442,20 @@ it('closeMenuTab keeps active tab when closing an inactive tab', () => {
   );
 });
 
+it('reorderMenuTabs only reorders the current session tab array', () => {
+  const tabs = [
+    { key: 'A', title: 'A' },
+    { key: 'B', title: 'B' },
+    { key: 'C', title: 'C' },
+  ];
+
+  assert.deepEqual(
+    reorderMenuTabs(tabs, ['C', 'A', 'B']).map((tab) => tab.key),
+    ['C', 'A', 'B'],
+  );
+  assert.strictEqual(reorderMenuTabs(tabs, ['A', 'C']), tabs);
+});
+
 it('closeMenuTab activates the neighboring tab when closing the active tab', () => {
   const tabs: MenuTab[] = [
     { key: 'A', title: 'A', target: { menuId: 'a', menuType: 'route', openMode: 'tab', route: '/a' } },
@@ -448,6 +468,73 @@ it('closeMenuTab activates the neighboring tab when closing the active tab', () 
 
   assert.equal(middle.activeTabKey, 'C');
   assert.equal(last.activeTabKey, 'B');
+});
+
+it('closeMenuTabs keeps non-closable tabs and chooses the nearest remaining active tab', () => {
+  const tabs = [
+    { key: 'home', title: '首页', closable: false },
+    { key: 'A', title: 'A', closable: true },
+    { key: 'B', title: 'B', closable: true },
+    { key: 'C', title: 'C', closable: true },
+  ];
+
+  assert.deepEqual(closeMenuTabs(tabs, 'B', ['home', 'A', 'B']), {
+    tabs: [
+      { key: 'home', title: '首页', closable: false },
+      { key: 'C', title: 'C', closable: true },
+    ],
+    activeTabKey: 'C',
+  });
+});
+
+it('keeps persisted locked tabs on the left and preserves their own ordering', () => {
+  const tabs = [
+    { key: 'A', title: 'A' },
+    { key: 'B', title: 'B' },
+    { key: 'C', title: 'C' },
+  ];
+  const locked = updateLockedMenuTabs([], tabs[1]);
+  const lockedInOrder = updateLockedMenuTabs(locked, tabs[0]);
+
+  assert.deepEqual(
+    arrangeLockedMenuTabs(tabs, lockedInOrder).map((tab) => tab.key),
+    ['B', 'A', 'C'],
+  );
+  assert.deepEqual(
+    arrangeLockedMenuTabs([{ key: 'C', title: 'C' }], lockedInOrder, false).map((tab) => tab.key),
+    ['C'],
+  );
+  assert.deepEqual(
+    reorderMenuTabs(tabs, ['C', 'B', 'A'], ['B']).map((tab) => tab.key),
+    ['B', 'C', 'A'],
+  );
+  assert.deepEqual(
+    removeLockedMenuTabs(lockedInOrder, ['B']).map((tab) => tab.key),
+    ['A'],
+  );
+});
+
+it('restores locked tabs only when their tab menu remains visible to the current account', () => {
+  const available = restoreLockedMenuTabs(
+    [
+      {
+        key: 'menu:metadata',
+        title: '旧名称',
+        target: { menuId: 'metadata', menuType: 'route', openMode: 'tab', route: '/old' },
+      },
+      {
+        key: 'menu:revoked',
+        title: '已撤销',
+        target: { menuId: 'revoked', menuType: 'route', openMode: 'tab', route: '/revoked' },
+      },
+    ],
+    menus,
+  );
+
+  assert.deepEqual(
+    available.map((tab) => [tab.key, tab.title, tab.target?.menuId]),
+    [['menu:metadata', 'Metadata', 'metadata']],
+  );
 });
 
 it('activeTabUrlOf returns the active tab descriptor URL', () => {

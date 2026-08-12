@@ -35,6 +35,7 @@ export interface UiTabItem {
   key: string;
   title: string;
   closable?: boolean;
+  pinned?: boolean;
 }
 
 export interface UiDropdownItem {

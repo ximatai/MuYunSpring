@@ -41,7 +41,7 @@ withDefaults(
   gap: 10px;
   padding: 12px 16px 14px 46px;
   border-top: 1px solid var(--muyun-border-subtle);
-  background: #fbfcfe;
+  background: var(--muyun-hover-subtle);
 }
 .record-expanded-subtable-header {
   display: flex;

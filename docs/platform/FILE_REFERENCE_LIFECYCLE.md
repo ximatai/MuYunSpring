@@ -4,6 +4,27 @@
 
 MuYunSpring 的 Starter 以 `muyun.file-transfer.muyun-fileserver` 配置启用官方无状态适配器；`base-url`、`issuer` 和 `secret` 是必填项，系统态写入还必须显式配置 `system-scope-id`。适配器从可信当前用户上下文签发短时 token，并固定传递 `purpose`、`tenant_id` 和 `sub` 等协同声明，业务请求不能自行指定租户或主体。FileServer 的 public API、token 校验和存储部署细节以其仓库为准，本仓库不重复维护另一份传输接口文档。
 
+## 存储中立引用与小文件资产
+
+`@FileReference` 是业务模型持有的稳定文件资产 ID 契约，而不是某个 provider 的裸 ID。默认
+`storagePolicy = MUYUN_FILE_SERVER`，完全保持既有上传 ticket、临时转正、元数据确认和提交后删除链路。
+需要数据库内联存储的小型、受限资产（例如租户 Logo）显式声明
+`storagePolicy = DATABASE_INLINE`；内容、MIME、大小、SHA-256 和未来的 `providerFileId` 存在
+`platform_managed_file_asset`，业务表只保存资产 ID。动态 `FileReferenceDefinition` 使用同一策略。
+
+内联资产未来如需迁移到 FileServer，必须保留资产 ID：治理任务应上传已校验内容、核验 SHA-256
+和元数据、写入 `providerFileId`、切换物理存储类型后再清除内联内容。业务字段、引用关系和
+引用元数据字段不变。本阶段不提供平台级迁移执行器；`storageKind`、`providerFileId` 与引用表仅
+保留可审计、可分批治理的迁移边界。
+`@FileReferenceMetadataField` 继续是单文件引用的统一元数据快照声明；不同存储策略的具体读取和写入由
+相应生命周期实现提供，不允许业务绕过资产服务直接读写 provider 或 Base64 内容。
+
+`platform_managed_file_asset_reference` 保存 `tenantId + moduleAlias + recordId + fieldName + assetId`。
+它由标准保存生命周期在业务记录持久化后、同一事务内同步；内联资产创建和引用字段保存都必须处于活动事务，
+避免业务记录与引用事实出现部分提交。保存链路不立即回收无引用资产：跨节点并发绑定时，“一次查无引用再删除”
+不是可靠的原子契约。无引用资产保留给后续显式、可审计的资产治理任务处理。因此业务服务只创建候选资产并提交
+稳定资产 ID，不得自行删除旧资产。
+
 ## 两类业务绑定
 
 - `RecordAttachment` 是已保存业务记录的多附件关系，保存 `moduleAlias + recordId + fileId` 及展示关系属性。它当前只维护关系与访问授权；删除关系不等于删除 FileServer 中的物理文件。

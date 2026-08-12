@@ -81,16 +81,16 @@ async function load() {
   height: 100%;
   min-height: 0;
   padding: 0;
-  color: #1f2937;
+  color: var(--muyun-support-text);
   overflow: hidden;
 }
 .module-openapi-view button {
   min-height: 34px;
   padding: 0 14px;
-  border: 1px solid #2563eb;
+  border: 1px solid var(--muyun-theme-border);
   border-radius: 6px;
-  background: #fff;
-  color: #1d4ed8;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-theme-base);
   cursor: pointer;
 }
 .module-openapi-view button:disabled {
@@ -100,21 +100,21 @@ async function load() {
 .module-openapi-view__error {
   align-self: start;
   padding: 16px;
-  border: 1px solid #dbe4ef;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--muyun-support-surface);
 }
 .module-openapi-view__message {
   align-self: start;
   margin: 0;
-  color: #475569;
+  color: var(--muyun-support-text-muted);
 }
 .module-openapi-view__reference {
   display: block;
   width: 100%;
   height: 100%;
   min-height: 0;
-  border: 1px solid #dbe4ef;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -140,6 +140,6 @@ async function load() {
   max-height: 100% !important;
 }
 .module-openapi-view__error {
-  color: #b91c1c;
+  color: var(--muyun-danger-soft-text);
 }
 </style>

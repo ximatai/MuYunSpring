@@ -61,7 +61,7 @@ class RoleDataScopeCriteriaServiceTest {
         RoleService roleService = mock(RoleService.class);
         TenantAdminImplicitGrantPolicy tenantAdminPolicy = mock(TenantAdminImplicitGrantPolicy.class);
         CurrentUser user = CurrentUser.tenantUser("user-1", "User", "tenant-a");
-        when(tenantAdminPolicy.grants(user, "mr.expert", "query")).thenReturn(true);
+        when(tenantAdminPolicy.grants(user, "mr.expert", "view")).thenReturn(true);
         RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService, tenantAdminPolicy);
 
         DataScopeCriteriaResult result = service.resolveReadScope(
@@ -74,6 +74,7 @@ class RoleDataScopeCriteriaServiceTest {
         assertThat(result.restricted()).isFalse();
         assertThat(result.crossTenant()).isFalse();
         assertThat(compile(result.criteria()).getSql()).contains("\"enabled\" = :p0").doesNotContain("1 = 0");
+        verify(tenantAdminPolicy).grants(user, "mr.expert", "view");
         verify(roleService, never()).effectiveActionGrantsWithContext("user-1", "mr.expert", "view");
     }
 

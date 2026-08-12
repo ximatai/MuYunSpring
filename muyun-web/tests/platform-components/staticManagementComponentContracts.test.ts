@@ -61,6 +61,15 @@ it('record explorer panel uses a single title contract', () => {
   assert.notMatch(layoutSource, /groupTitle/);
 });
 
+it('record metadata uses semantic text colors so dark skins preserve hierarchy', () => {
+  const metaSource = readSource('src/platform-components/RecordMetaSection.vue');
+
+  assert.match(metaSource, /\.record-meta h3[\s\S]*color: var\(--muyun-support-text\)/);
+  assert.match(metaSource, /dt \{[\s\S]*color: var\(--muyun-support-text-muted\)/);
+  assert.match(metaSource, /dd \{[\s\S]*color: var\(--muyun-support-text-body\)/);
+  assert.notMatch(metaSource, /#334155|#64748b|#243447/);
+});
+
 it('reference summary tags keep visual rendering inside the UI adapter', () => {
   const tagListSource = readSource('src/platform-components/RecordTagList.vue');
   const adapterSource = readSource('src/vue-ui-antdv/components/UiTagList.vue');
@@ -474,6 +483,15 @@ it('record picker search supports clearing its keyword', () => {
   const pickerSource = readSource('src/platform-components/RecordPicker.vue');
 
   assert.match(pickerSource, /v-model:value="keyword" allow-clear placeholder="搜索名称、编码或 ID"/);
+  assert.match(
+    pickerSource,
+    /\.record-picker-value:disabled \{[\s\S]*background: var\(--muyun-support-disabled\)/,
+  );
+  assert.match(
+    pickerSource,
+    /\.record-picker-value:disabled \{[\s\S]*color: var\(--muyun-support-disabled-text\)/,
+  );
+  assert.notMatch(pickerSource, /#cfd9e5|#f8fafc|#475569|#172033/);
 });
 
 it('menu management keeps scheme actions inline and delegates search to panel', () => {
@@ -962,7 +980,7 @@ it('employee management uses organization scope and platform query list panel', 
   assert.match(panelSource, /icon-name="filter"/);
   assert.match(panelSource, /:class="\{ 'is-selected': conditionsExpanded \}"/);
   assert.match(panelSource, /background: var\(--muyun-selected\)/);
-  assert.match(panelSource, /border: 1px solid #91caff/);
+  assert.match(panelSource, /border: 1px solid var\(--muyun-theme-border\)/);
   assert.match(panelSource, /:deep\(\.record-query-list-advanced\.is-selected\.ant-btn\)/);
   assert.match(employeeViewSource, /@action="handleEmployeeListAction"/);
   assert.match(indexSource, /RecordDetailDrawer/);
@@ -1858,7 +1876,7 @@ it('workbench keeps cacheable tab pages mounted behind their stable tab keys', (
   );
   assert.match(workbenchSource, /:active-tab="tab"[\s\S]*:page-descriptor="pageDescriptorOf\(tab\)"/);
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
-  assert.match(workbenchSource, /\.tab-page \{[\s\S]*padding: 14px;[\s\S]*overflow: auto;/);
+  assert.match(workbenchSource, /\.tab-page \{[\s\S]*padding: 10px;[\s\S]*overflow: auto;/);
   assert.match(workbenchSource, /tab-page--workspace/);
   assert.match(workbenchSource, /\.tab-page--workspace \{\s*overflow-x: auto;\s*overflow-y: hidden;/);
 });

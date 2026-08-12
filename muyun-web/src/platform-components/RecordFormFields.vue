@@ -383,7 +383,7 @@ function updateSelectField(field: RecordFormFieldState, value: OptionValue | Opt
 }
 
 .record-form-field-label strong {
-  color: #d92d20;
+  color: var(--muyun-danger-base);
   font-weight: 600;
 }
 
@@ -391,7 +391,7 @@ function updateSelectField(field: RecordFormFieldState, value: OptionValue | Opt
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #d92d20;
+  color: var(--muyun-danger-base);
   font-size: 12px;
 }
 </style>
