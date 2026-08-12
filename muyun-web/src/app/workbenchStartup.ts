@@ -167,6 +167,14 @@ export function closeMenuTab(
   };
 }
 
+/** Reorders the open tabs for the current browser session without affecting URL restoration. */
+export function reorderMenuTabs(tabs: MenuTab[], keys: string[]): MenuTab[] {
+  if (tabs.length !== keys.length || new Set(keys).size !== tabs.length) return tabs;
+  const tabsByKey = new Map(tabs.map((tab) => [tab.key, tab]));
+  if (keys.some((key) => !tabsByKey.has(key))) return tabs;
+  return keys.map((key) => tabsByKey.get(key)!);
+}
+
 function initialTabOf(menus: WorkbenchStartupState['menus'], options: PageDescriptorResolveOptions) {
   const menu = findFirstNavigationMenu(menus);
   const target = menu ? getMenuNavigationTarget(menu) : undefined;

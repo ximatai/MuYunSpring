@@ -44,6 +44,7 @@ const emit = defineEmits<{
   invalidMenu: [menu: MenuRecord];
   changeTab: [key: string];
   closeTab: [key: string];
+  reorderTabs: [keys: string[]];
   'update:activeTabKey': [key: string];
   userCommand: [key: string];
 }>();
@@ -388,6 +389,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             :active-key="activeTabKey"
             @update:active-key="handleTabChange"
             @close="emit('closeTab', $event)"
+            @reorder="emit('reorderTabs', $event)"
           />
           <div v-else class="empty-tabs">暂无打开页面</div>
         </div>

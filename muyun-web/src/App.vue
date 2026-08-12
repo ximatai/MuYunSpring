@@ -67,6 +67,7 @@ import {
   menuTargetUrl,
   openDirectTab,
   openMenuTab,
+  reorderMenuTabs,
   restoreWorkbenchStartupStateFromUrl,
 } from './app/workbenchStartup';
 import { provideWorkbenchNavigation } from './platform-workbench/workbenchNavigation';
@@ -588,6 +589,12 @@ function handleChangeTab(key: string) {
   syncBrowserUrl(startup.value, 'push');
 }
 
+function handleReorderTabs(keys: string[]) {
+  const current = startup.value;
+  if (!current) return;
+  startup.value = { ...current, tabs: reorderMenuTabs(current.tabs ?? [], keys) };
+}
+
 function currentBrowserPath() {
   return router.currentRoute.value.fullPath;
 }
@@ -663,6 +670,7 @@ function requiresLogin(cause: unknown) {
       @select-menu="handleSelectMenu"
       @change-tab="handleChangeTab"
       @close-tab="handleCloseTab"
+      @reorder-tabs="handleReorderTabs"
       @user-command="handleUserCommand"
     >
       <template #default="{ activeTab, pageDescriptor }">
