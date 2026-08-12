@@ -32,9 +32,9 @@ const title = computed(() => props.descriptor.title ?? props.descriptor.target.u
   display: block;
   width: 100%;
   min-height: 520px;
-  border: 1px solid #d8e1ea;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--muyun-support-surface);
   box-shadow: 0 16px 34px rgb(15 23 42 / 7%);
 }
 
@@ -44,9 +44,9 @@ const title = computed(() => props.descriptor.title ?? props.descriptor.target.u
   gap: 10px;
   min-height: 280px;
   padding: 28px;
-  border: 1px solid #d8e1ea;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--muyun-support-surface);
   box-shadow: 0 16px 34px rgb(15 23 42 / 7%);
 }
 
@@ -54,15 +54,15 @@ const title = computed(() => props.descriptor.title ?? props.descriptor.target.u
   width: fit-content;
   padding: 4px 8px;
   border-radius: 999px;
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--muyun-support-hover);
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
   font-weight: 700;
 }
 
 h2 {
   margin: 0;
-  color: #1f2933;
+  color: var(--muyun-support-text);
   font-size: 22px;
 }
 
@@ -70,7 +70,7 @@ h2 {
   display: inline-flex;
   width: fit-content;
   margin-top: 8px;
-  color: #1677ff;
+  color: var(--muyun-theme-base);
   text-decoration: none;
 }
 </style>

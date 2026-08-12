@@ -42,9 +42,9 @@ const workspaceView = computed(() => resolveWorkspaceView(props.descriptor));
   gap: 16px;
   min-height: 76px;
   padding: 14px;
-  border: 1px solid #d8e1ea;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--muyun-support-surface);
 }
 
 header {
@@ -57,8 +57,8 @@ header {
   width: fit-content;
   padding: 4px 8px;
   border-radius: 999px;
-  background: #fff7ed;
-  color: #a34a0a;
+  background: var(--muyun-warning-soft);
+  color: var(--muyun-warning-soft-text);
   font-size: 12px;
   font-weight: 700;
 }
@@ -66,7 +66,7 @@ header {
 h2 {
   overflow: hidden;
   margin: 0;
-  color: #1f2933;
+  color: var(--muyun-support-text);
   font-size: 15px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -75,7 +75,7 @@ h2 {
 p {
   overflow: hidden;
   margin: 0;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;

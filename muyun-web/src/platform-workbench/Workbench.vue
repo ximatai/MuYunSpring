@@ -425,7 +425,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
-  background: #f5f7fa;
+  background: var(--muyun-support-canvas);
   transition: grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -450,8 +450,8 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   gap: 12px;
   min-height: 54px;
   padding: 8px 16px;
-  border-bottom: 1px solid #dde5ef;
-  background: #fff;
+  border-bottom: 1px solid var(--muyun-support-border);
+  background: var(--muyun-support-surface);
 }
 
 .app-topbar h1,
@@ -509,11 +509,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   width: 1px;
   height: 30px;
   margin: 0 14px;
-  background: #d8e1ea;
+  background: var(--muyun-support-border);
 }
 
 .app-topbar h1 {
-  color: #1f2933;
+  color: var(--muyun-support-text);
   font-size: 16px;
   line-height: 1.2;
 }
@@ -522,7 +522,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   overflow: hidden;
   max-width: 560px;
   margin-top: 3px;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -543,10 +543,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   gap: 8px;
   width: 32px;
   height: 32px;
-  border: 1px solid #d6e0ec;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 7px;
-  background: #fff;
-  color: #334155;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-support-text-body);
   cursor: pointer;
   transition:
     border-color 160ms ease,
@@ -560,13 +560,13 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   min-width: 112px;
   padding: 0 10px;
   justify-content: flex-start;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
 }
 
 .icon-button:hover {
-  border-color: #9cc8c2;
-  color: #0f766e;
+  border-color: var(--muyun-theme-border);
+  color: var(--muyun-theme-base);
   box-shadow: 0 8px 18px rgb(15 23 42 / 8%);
   transform: translateY(-1px);
 }
@@ -578,10 +578,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   min-width: 154px;
   height: 32px;
   padding: 3px 7px 3px 3px;
-  border: 1px solid #d6e0ec;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 7px;
-  background: #fff;
-  color: #1f2933;
+  background: var(--muyun-support-surface);
+  color: var(--muyun-support-text);
   cursor: pointer;
 }
 
@@ -591,8 +591,8 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   height: 24px;
   place-items: center;
   border-radius: 6px;
-  background: #172033;
-  color: #fff;
+  background: var(--muyun-theme-base);
+  color: var(--muyun-support-surface);
   font-size: 11px;
   font-weight: 800;
 }
@@ -612,26 +612,26 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 }
 
 .user-meta strong {
-  color: #172033;
+  color: var(--muyun-support-text);
   font-size: 12px;
 }
 
 .user-meta small {
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 11px;
 }
 
 .user-caret {
   margin-left: auto;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 11px;
 }
 
 .tab-strip {
   min-width: 0;
   padding: 0 12px;
-  border-bottom: 1px solid #dde5ef;
-  background: #f8fafc;
+  border-bottom: 1px solid var(--muyun-support-border);
+  background: var(--muyun-support-elevated);
 }
 
 .tab-strip :deep(.ant-tabs) {
@@ -649,10 +649,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .tab-strip :deep(.ant-tabs-tab) {
   margin: 6px 4px 6px 0 !important;
   padding: 5px 10px !important;
-  border: 1px solid #d8e1ea !important;
+  border: 1px solid var(--muyun-support-border) !important;
   border-radius: 6px !important;
-  background: #fff !important;
-  color: #475569;
+  background: var(--muyun-support-surface) !important;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
   transition:
     border-color 160ms ease,
@@ -660,12 +660,12 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 }
 
 .tab-strip :deep(.ant-tabs-tab-active) {
-  border-color: #9cc8c2 !important;
+  border-color: var(--muyun-theme-border) !important;
   box-shadow: 0 8px 18px rgb(15 23 42 / 7%);
 }
 
 .tab-strip :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) {
-  color: #0f766e !important;
+  color: var(--muyun-theme-base) !important;
   font-weight: 700;
 }
 
@@ -675,7 +675,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 .empty-tabs {
   padding: 9px 4px;
-  color: #64748b;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
 }
 

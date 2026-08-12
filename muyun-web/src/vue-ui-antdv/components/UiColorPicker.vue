@@ -148,7 +148,7 @@ function commitDraft() {
   cursor: pointer;
 }
 .ui-color-picker-swatch.selected {
-  outline: 2px solid #1677ff;
+  outline: 2px solid var(--muyun-theme-base, #0052d9);
   outline-offset: 2px;
 }
 .ui-color-picker-native {

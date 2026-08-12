@@ -1388,15 +1388,15 @@ defineExpose({ clearSelection, refresh });
 }
 
 :deep(.record-query-list-advanced.is-selected.ant-btn) {
-  border: 1px solid #91caff;
+  border: 1px solid var(--muyun-theme-border);
   background: var(--muyun-selected);
-  color: #1677ff;
+  color: var(--muyun-theme-base);
 }
 
 :deep(.record-query-list-advanced.is-selected.ant-btn:hover) {
-  border-color: #69b1ff;
-  background: #d6eaff;
-  color: #1677ff;
+  border-color: var(--muyun-theme-hover);
+  background: var(--muyun-theme-focus);
+  color: var(--muyun-theme-base);
 }
 
 .record-query-conditions {
