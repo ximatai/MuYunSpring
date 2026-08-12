@@ -892,6 +892,26 @@ describe('WorkbenchMenu', () => {
 });
 
 describe('Workbench compact menu', () => {
+  it('selects a dark tenant logo first and falls back to the default logo in light mode', () => {
+    const startup = {
+      session: {
+        currentUser: { userId: 'user-1', tenantId: 'tenant-a', system: false },
+        tenantBranding: {
+          lightLogo: 'data:image/png;base64,bGlnaHQ=',
+          darkLogo: 'data:image/png;base64,ZGFyaw==',
+        },
+      },
+      menus: [],
+    };
+    const dark = shallowMount(Workbench, { props: { startup, themeAppearance: 'dark' } });
+    const light = shallowMount(Workbench, { props: { startup, themeAppearance: 'light' } });
+
+    expect(dark.findComponent(WorkbenchBrandControl).props('logoSrc')).toBe('data:image/png;base64,ZGFyaw==');
+    expect(light.findComponent(WorkbenchBrandControl).props('logoSrc')).toBe(
+      'data:image/png;base64,bGlnaHQ=',
+    );
+  });
+
   it('joins the active tab and its page body in one Mega surface', () => {
     const wrapper = shallowMount(Workbench);
 
@@ -1089,5 +1109,14 @@ describe('WorkbenchBrandControl', () => {
 
     expect(wrapper.find('.workbench-brand-presentation-toggle').exists()).toBe(false);
     expect(wrapper.get('[aria-label="系统菜单"]').exists()).toBe(true);
+  });
+
+  it('renders a tenant-provided logo in place of the fallback app mark', () => {
+    const wrapper = mount(WorkbenchBrandControl, {
+      props: { presentation: 'compact', logoSrc: 'data:image/png;base64,bG9nbw==' },
+    });
+
+    expect(wrapper.get('.workbench-brand-logo').attributes('src')).toBe('data:image/png;base64,bG9nbw==');
+    expect(wrapper.find('.workbench-brand-mark .ui-icon').exists()).toBe(false);
   });
 });

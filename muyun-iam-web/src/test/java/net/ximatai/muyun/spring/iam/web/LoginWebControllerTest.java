@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
+import net.ximatai.muyun.spring.iam.tenant.TenantBranding;
+import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -63,6 +65,25 @@ class LoginWebControllerTest {
                 .andExpect(jsonPath("$.code").value(PlatformErrorCodes.AUTH_REQUIRED))
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.message").value("current user context is not available"));
+    }
+
+    @Test
+    void shouldExposeOnlyTheCurrentTenantBrandingToWorkbenchStartup() throws Exception {
+        TenantService tenantService = mock(TenantService.class);
+        when(tenantService.branding("tenant-a"))
+                .thenReturn(new TenantBranding("data:image/png;base64,bGlnaHQ=", "data:image/png;base64,ZGFyaw=="));
+        LoginWebController controller = new LoginWebController(mock(UserSessionService.class), tenantService);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .addFilters(new CurrentUserWebFilter(() -> Optional.of(
+                        CurrentUser.tenantUser("user-1", "Alice", "tenant-a", "org-1"))))
+                .build();
+
+        mvc.perform(get("/iam.auth/tenant-branding"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lightLogo").value("data:image/png;base64,bGlnaHQ="))
+                .andExpect(jsonPath("$.darkLogo").value("data:image/png;base64,ZGFyaw=="));
+
+        verify(tenantService).branding("tenant-a");
     }
 
     @Test

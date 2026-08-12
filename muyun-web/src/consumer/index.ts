@@ -54,6 +54,7 @@ export { default as PlatformAdminOutlet } from './PlatformAdminOutlet.vue';
 export { default as DateTimeText } from '../platform-components/DateTimeText.vue';
 export { default as FileSizeText } from '../platform-components/FileSizeText.vue';
 export { default as FileTransferUploader } from '../platform-components/FileTransferUploader.vue';
+export { default as SingleImageFileReferenceField } from '../platform-components/SingleImageFileReferenceField.vue';
 export {
   presentPlatformError,
   presentPlatformInfo,

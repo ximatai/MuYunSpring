@@ -37,18 +37,28 @@ export async function loadWorkbenchStartupState(
   clients: WorkbenchStartupClients,
   options: PageDescriptorResolveOptions = {},
 ): Promise<WorkbenchStartupState> {
-  const [currentUser, menuResponse] = await Promise.all([
+  const [currentUser, menuResponse, tenantBranding] = await Promise.all([
     clients.sessionClient.current(),
     clients.menuClient.mine(),
+    loadTenantBranding(clients.sessionClient),
   ]);
   const initialTab = initialTabOf(menuResponse.records, options);
 
   return {
-    session: { currentUser },
+    session: { currentUser, ...(tenantBranding ? { tenantBranding } : {}) },
     menus: menuResponse.records,
     tabs: initialTab ? [initialTab] : [],
     activeTabKey: initialTab?.key,
   };
+}
+
+/** Branding is decorative; a transient failure must not prevent an authenticated workbench from starting. */
+async function loadTenantBranding(sessionClient: SessionClient) {
+  try {
+    return await sessionClient.tenantBranding?.();
+  } catch {
+    return undefined;
+  }
 }
 
 export function openMenuTab(

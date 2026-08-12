@@ -7,6 +7,7 @@ import {
   RecordDetailDrawer,
   RecordActionBar,
   RecordMetaSection,
+  RecordFormFields,
   presentPlatformError,
   RecordStatusSwitch,
   RecycleBinModeButton,
@@ -21,6 +22,7 @@ import { useModuleContext } from '@muyun/web-core';
 import { confirmAction, UiButton, UiDataTable, UiInput } from '@muyun/vue-ui-antdv';
 import type { UiDataTableColumn, UiDataTableRecord } from '@muyun/vue-ui-antdv';
 import { createTenantManagementState } from './tenantManagementState';
+import { resolveRecordFormFields } from '../platform-components/recordFormFieldModel';
 
 defineOptions({ name: 'TenantManagementView' });
 
@@ -34,6 +36,7 @@ const tenantApplicationsLoading = ref(false);
 const applicationConfigurationOpen = ref(false);
 const applicationConfigurationSaving = ref(false);
 const configuredApplicationAliases = ref<Set<string>>(new Set());
+const tenantFormFields = ref(resolveRecordFormFields(undefined));
 let tenantApplicationsLoadVersion = 0;
 const {
   selected,
@@ -49,7 +52,7 @@ const {
   handleListLoaded,
   handleReadonlyListLoaded,
   handleSelect,
-  startCreate,
+  startCreate: startCrudCreate,
   startEdit,
   cancelEdit,
   save,
@@ -100,7 +103,10 @@ watch(
   },
   { immediate: true },
 );
-onMounted(() => void loadApplications());
+onMounted(() => {
+  void loadApplications();
+  void loadTenantFormFields();
+});
 
 const cardActions = computed<RecordActionItem[]>(() => {
   if (recycleBinExplorer.active.value) {
@@ -152,6 +158,10 @@ function handleTenantSelect(record: CrudRecordListBase) {
   handleSelect(record as Tenant);
 }
 
+function startCreate() {
+  startCrudCreate();
+}
+
 async function handleCardAction(action: RecordActionItem) {
   if (action.key === 'edit') return startEdit();
   if (action.key === 'delete') return removeSelected();
@@ -162,6 +172,21 @@ async function handleCardAction(action: RecordActionItem) {
 async function handleFormSubmit() {
   if (!recycleBinExplorer.active.value) {
     await save();
+  }
+}
+
+async function loadTenantFormFields() {
+  try {
+    const runtime = await tenantContext.runtime.ready;
+    tenantFormFields.value = resolveRecordFormFields(runtime.uiDescriptor);
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'tenant-management-form', phase: 'load' });
+  }
+}
+
+function updateTenantFormField(fieldName: string, value: unknown) {
+  if (fieldName === 'lightLogoAssetId' || fieldName === 'darkLogoAssetId') {
+    draft.value[fieldName] = typeof value === 'string' ? value : undefined;
   }
 }
 
@@ -343,6 +368,15 @@ function resetTenantSelection() {
         <span>租户名称</span>
         <UiInput v-model:value="draft.title" :disabled="recycleBinExplorer.active.value || readonly" />
       </label>
+      <RecordFormFields
+        :record="draft"
+        :fields="tenantFormFields"
+        :field-names="['lightLogoAssetId', 'darkLogoAssetId']"
+        :file-transfer-context="tenantContext"
+        :form-session-key="`${mode}:${selected?.id ?? draft.alias ?? ''}`"
+        :disabled="recycleBinExplorer.active.value || readonly"
+        @update:field="updateTenantFormField"
+      />
     </form>
 
     <section
@@ -408,6 +442,7 @@ function resetTenantSelection() {
   gap: 12px;
   margin-top: 20px;
 }
+
 .tenant-applications-header {
   display: flex;
   align-items: center;

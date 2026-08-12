@@ -82,6 +82,21 @@ class TenantServiceContractTest {
     }
 
     @Test
+    void shouldKeepLogoContentOutOfTenantPersistenceModel() {
+        TenantDao dao = mock(TenantDao.class);
+        when(dao.insert(any())).thenAnswer(invocation -> invocation.<Tenant>getArgument(0).getId());
+        TenantService service = new TenantService(dao);
+        Tenant tenant = tenant("ximatai", "Ximatai");
+        tenant.setLightLogoAssetId("asset-1");
+
+        try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
+            service.insert(tenant);
+        }
+
+        assertThat(tenant.getLightLogoAssetId()).isEqualTo("asset-1");
+    }
+
+    @Test
     void shouldExplainConflictWithSoftDeletedTenantInsteadOfLeakingPrimaryKeyFailure() {
         TenantDao dao = mock(TenantDao.class);
         Tenant deleted = tenant("demo", "演示租户");
@@ -192,4 +207,5 @@ class TenantServiceContractTest {
         tenant.setEnabled(Boolean.FALSE);
         return tenant;
     }
+
 }

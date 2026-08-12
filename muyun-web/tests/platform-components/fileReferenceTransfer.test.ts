@@ -16,6 +16,7 @@ const single: ResolvedFileReferenceFieldDescriptor = {
   allowedMediaTypes: ['application/pdf'],
   maxFileSizeBytes: 1024,
   maxFiles: 1,
+  storagePolicy: 'MUYUN_FILE_SERVER',
   uploadAvailable: true,
 };
 

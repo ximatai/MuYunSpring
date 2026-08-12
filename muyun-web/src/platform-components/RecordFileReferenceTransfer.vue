@@ -10,6 +10,7 @@ import {
   fileReferenceIds,
   fileReferenceUploadIntent,
   issueFileReferenceUploadAccess,
+  uploadInlineFileReference,
   uploadedFileId,
 } from './fileReferenceTransfer';
 import type { FileTransferUploadReceipt } from './fileTransferUpload';
@@ -25,6 +26,11 @@ const props = defineProps<{
   formSessionKey?: string | number;
   disabled?: boolean;
   disabledHint?: string;
+  showBoundFiles?: boolean;
+  uploaderPresentation?: 'dropzone' | 'button';
+  uploadText?: string;
+  uploadButtonType?: 'default' | 'primary' | 'dashed' | 'link' | 'text';
+  showCompletedUploadItems?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -60,6 +66,17 @@ function requestUploadAccess(file: File) {
   );
 }
 
+function uploadFile(file: File) {
+  return uploadInlineFileReference(
+    props.context.http,
+    props.context.moduleAlias,
+    props.definition,
+    props.record,
+    file,
+    fileReferenceUploadIntent(props.value, props.definition),
+  );
+}
+
 function applyUploadedFile(receipt: FileTransferUploadReceipt) {
   const fileId = uploadedFileId(receipt.payload);
   uploadedFileIds.value = new Set([...uploadedFileIds.value, fileId]);
@@ -85,7 +102,10 @@ function releaseUploadedFile(fileId: string) {
 </script>
 
 <template>
-  <div v-if="fileReferenceIds(value).length" class="record-file-reference-transfer__bound-files">
+  <div
+    v-if="showBoundFiles !== false && fileReferenceIds(value).length"
+    class="record-file-reference-transfer__bound-files"
+  >
     <span
       v-for="fileId in fileReferenceIds(value)"
       :key="fileId"
@@ -106,6 +126,7 @@ function releaseUploadedFile(fileId: string) {
   </div>
   <FileTransferUploader
     :request-upload-access="requestUploadAccess"
+    :upload-file="definition.storagePolicy === 'DATABASE_INLINE' ? uploadFile : undefined"
     :accept="accept"
     :allowed-media-types="definition.allowedMediaTypes"
     :max-file-size-bytes="definition.maxFileSizeBytes"
@@ -117,6 +138,10 @@ function releaseUploadedFile(fileId: string) {
     :released-completed-file-ids="releasedUploadedFileIds"
     :completed-file-id="(receipt) => uploadedFileId(receipt.payload)"
     :allow-completed-removal="false"
+    :presentation="uploaderPresentation"
+    :upload-text="uploadText"
+    :upload-button-type="uploadButtonType"
+    :show-completed-items="showCompletedUploadItems"
     @completed="(receipt) => applyUploadedFile(receipt)"
   />
 </template>

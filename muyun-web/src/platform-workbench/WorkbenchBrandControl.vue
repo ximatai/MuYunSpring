@@ -15,12 +15,14 @@ const props = withDefaults(
     presentation: 'compact' | 'expanded';
     compactOpen?: boolean;
     tenantLabel?: string;
+    logoSrc?: string;
     expandedMenuDepth?: 1 | 2 | 3;
     presentationToggleVisible?: boolean;
   }>(),
   {
     compactOpen: false,
     tenantLabel: '系统工作区',
+    logoSrc: undefined,
     expandedMenuDepth: 1,
     presentationToggleVisible: true,
   },
@@ -85,7 +87,10 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
       @click="requestCompactMenuOpen('click', $event)"
       @keydown="handleIdentityKeydown"
     >
-      <span class="workbench-brand-mark"><UiIcon name="app" /></span>
+      <span class="workbench-brand-mark">
+        <img v-if="logoSrc" class="workbench-brand-logo" :src="logoSrc" alt="" />
+        <UiIcon v-else name="app" />
+      </span>
       <span class="workbench-brand-copy">
         <strong>MuYun</strong>
         <small>{{ tenantLabel }}</small>
@@ -159,6 +164,13 @@ button.workbench-brand-identity {
   border-radius: 7px;
   background: var(--muyun-theme-base);
   color: var(--muyun-support-surface);
+}
+
+.workbench-brand-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .workbench-brand-copy {

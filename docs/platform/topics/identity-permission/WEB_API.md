@@ -11,6 +11,7 @@
 | `POST` | `/iam.auth/login`   | 用户登录。请求包含 `tenantId`、`username`、`password`；返回 Bearer token、当前登录 `sessionId`、签发时间和当前用户信息。 |
 | `POST` | `/iam.auth/logout`  | 当前 Bearer token 登出。token 从 `Authorization: Bearer ...` 读取。                                |
 | `GET`  | `/iam.auth/context` | 返回当前请求解析出的用户上下文，用于前端会话恢复和启动态确认。                                     |
+| `GET`  | `/iam.auth/tenant-branding` | 返回当前租户的工作台品牌投影（`lightLogo`、可选的 `darkLogo`）；Logo 以受限 Base64 图片 data URL 保存。 |
 
 后续请求通过 `Authorization: Bearer <token>` 解析当前用户。服务端在 `iam_user_session` 中保存 token hash，不保存明文 token；session 使用滑动过期并受绝对过期时间约束；同一用户允许多端登录。解析成功后，Web Filter 会写入 `CurrentUserContext`；租户用户同步写入 `TenantContext`，系统用户进入系统态。登出和修改密码会撤销对应 session。
 

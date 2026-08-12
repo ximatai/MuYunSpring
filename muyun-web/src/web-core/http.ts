@@ -76,7 +76,7 @@ async function send(
       method: options.method ?? 'GET',
       credentials: context.credentials,
       headers: { ...headersOf(context, options), ...headerOverrides },
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: requestBody(options.body),
     });
   } catch (error) {
     throw new AppError('Network request failed', {
@@ -130,7 +130,7 @@ function headersOf(context: RequestContext, options: HttpRequestOptions) {
     Accept: 'application/json',
     ...context.headers,
   };
-  if (options.body !== undefined) {
+  if (options.body !== undefined && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
   if (context.token) {
@@ -141,6 +141,12 @@ function headersOf(context: RequestContext, options: HttpRequestOptions) {
   }
   Object.assign(headers, options.headers);
   return headers;
+}
+
+/** Preserve multipart boundaries when a platform capability uploads browser files. */
+function requestBody(body: unknown): BodyInit | undefined {
+  if (body === undefined) return undefined;
+  return body instanceof FormData ? body : JSON.stringify(body);
 }
 
 async function appErrorFromResponse(response: Response) {

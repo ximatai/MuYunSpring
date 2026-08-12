@@ -34,7 +34,8 @@ export type RecordFormFieldControlType =
   | 'switch'
   | 'recordPicker'
   | 'recordMultiPicker'
-  | 'fileTransfer';
+  | 'fileTransfer'
+  | 'imageFileTransfer';
 
 export interface RecordFormFieldFallback {
   label: string;
@@ -236,7 +237,7 @@ function controlTypeOf(
   fallback: RecordFormFieldFallback | undefined,
 ): RecordFormFieldControlType {
   if (field?.fileReference) {
-    return 'fileTransfer';
+    return isSingleImageFileReference(field.fileReference) ? 'imageFileTransfer' : 'fileTransfer';
   }
   const referenceControlType = referenceControlTypeOf(field?.reference, field?.uiType);
   if (referenceControlType) {
@@ -270,6 +271,14 @@ function controlTypeOf(
     return 'select';
   }
   return fallback?.controlType ?? 'input';
+}
+
+function isSingleImageFileReference(reference: ResolvedFileReferenceFieldDescriptor) {
+  return (
+    reference.maxFiles === 1 &&
+    reference.allowedMediaTypes.length > 0 &&
+    reference.allowedMediaTypes.every((mediaType) => mediaType.trim().toLowerCase().startsWith('image/'))
+  );
 }
 
 function fieldRefKey(fieldRef: { relationCode?: string; fieldName: string }) {

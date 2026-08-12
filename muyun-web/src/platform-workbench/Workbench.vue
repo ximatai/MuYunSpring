@@ -30,6 +30,7 @@ const props = withDefaults(
     activeTabKey?: string;
     lockedTabKeys?: string[];
     realtimeStatus?: WorkbenchRealtimeStatus;
+    themeAppearance?: 'light' | 'dark';
   }>(),
   {
     loading: false,
@@ -38,6 +39,7 @@ const props = withDefaults(
     activeTabKey: undefined,
     lockedTabKeys: () => [],
     realtimeStatus: 'unavailable',
+    themeAppearance: 'light',
   },
 );
 
@@ -64,6 +66,10 @@ const currentUser = computed(() => props.startup?.session.currentUser);
 const userDisplayName = computed(() => currentUser.value?.username ?? currentUser.value?.userId ?? '未登录');
 const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || 'M');
 const tenantLabel = computed(() => currentUser.value?.tenantId ?? '系统工作区');
+const tenantLogo = computed(() => {
+  const branding = props.startup?.session.tenantBranding;
+  return props.themeAppearance === 'dark' ? branding?.darkLogo || branding?.lightLogo : branding?.lightLogo;
+});
 const activePageTypeLabel = computed(() => pageTypeLabelOf(activePageDescriptor.value?.pageType));
 const activeTargetLabel = computed(() => targetLabelOf(activePageDescriptor.value));
 const userMenuItems: UiDropdownItem[] = [
@@ -338,6 +344,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
               presentation="compact"
               :compact-open="compactMenuOpen"
               :tenant-label="tenantLabel"
+              :logo-src="tenantLogo"
               :presentation-toggle-visible="!narrowViewport"
               @open-compact-menu="openCompactMenu"
               @schedule-compact-menu-close="scheduleCompactMenuClose"
