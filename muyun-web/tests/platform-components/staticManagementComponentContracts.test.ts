@@ -61,6 +61,15 @@ it('record explorer panel uses a single title contract', () => {
   assert.notMatch(layoutSource, /groupTitle/);
 });
 
+it('record metadata uses semantic text colors so dark skins preserve hierarchy', () => {
+  const metaSource = readSource('src/platform-components/RecordMetaSection.vue');
+
+  assert.match(metaSource, /\.record-meta h3[\s\S]*color: var\(--muyun-support-text\)/);
+  assert.match(metaSource, /dt \{[\s\S]*color: var\(--muyun-support-text-muted\)/);
+  assert.match(metaSource, /dd \{[\s\S]*color: var\(--muyun-support-text-body\)/);
+  assert.notMatch(metaSource, /#334155|#64748b|#243447/);
+});
+
 it('reference summary tags keep visual rendering inside the UI adapter', () => {
   const tagListSource = readSource('src/platform-components/RecordTagList.vue');
   const adapterSource = readSource('src/vue-ui-antdv/components/UiTagList.vue');

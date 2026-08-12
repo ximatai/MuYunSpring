@@ -17,4 +17,20 @@ describe('UiThemeProvider', () => {
     wrapper.unmount();
     expect(document.documentElement.style.getPropertyValue('--muyun-theme-base')).toBe(original);
   });
+
+  it('sets global variables for teleport surfaces and restores them after unmounting', () => {
+    const name = '--muyun-theme-base';
+    const original = document.documentElement.style.getPropertyValue(name);
+    const wrapper = mount(UiThemeProvider, {
+      props: {
+        scope: 'global',
+        theme: { ...defaultUiTheme, theme: { ...defaultUiTheme.theme, base: '#5B43D6' } },
+      },
+    });
+
+    expect(document.documentElement.style.getPropertyValue(name)).toBe('#5B43D6');
+
+    wrapper.unmount();
+    expect(document.documentElement.style.getPropertyValue(name)).toBe(original);
+  });
 });

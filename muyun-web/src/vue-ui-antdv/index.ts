@@ -43,8 +43,15 @@ export { resolveFieldComponent } from './registry';
 export type { UiIconName } from './components/UiIcon.vue';
 export type { UiTagListItem } from './components/UiTagList.vue';
 export type { UiSidePanelScope } from './components/sidePanelHost';
-export { antDesignThemeOf, cssVariablesOf, defaultUiTheme } from './theme';
-export type { UiSupportTheme, UiTheme, UiThemeTone } from './theme';
+export {
+  antDesignThemeOf,
+  cssVariablesOf,
+  defaultUiTheme,
+  defaultUiThemeSkinId,
+  uiThemeSkinById,
+  uiThemeSkins,
+} from './theme';
+export type { UiSupportTheme, UiTheme, UiThemeSkin, UiThemeSkinId, UiThemeTone } from './theme';
 export type {
   UiConfirmOptions,
   UiDataTableColumn,

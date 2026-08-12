@@ -145,9 +145,30 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
   color: var(--muyun-theme-base);
 }
 
+.deep-node-button.selected,
+.deep-node-button.selected-path {
+  position: relative;
+}
+
+.deep-node-button.selected::before,
+.deep-node-button.selected-path::before {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: var(--muyun-theme-base);
+  content: '';
+}
+
+.deep-node-button.selected-path::before {
+  background: var(--muyun-theme-hover);
+  opacity: 0.58;
+}
+
 .deep-node-button.selected-path {
   background: var(--muyun-theme-soft);
   color: var(--muyun-theme-soft-text);
-  box-shadow: inset 2px 0 0 var(--muyun-theme-border);
 }
 </style>

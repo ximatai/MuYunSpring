@@ -6,12 +6,19 @@ import {
   pageDescriptorToUrl,
   type WorkbenchRealtimeStatus,
 } from '@muyun/platform-workbench';
-import { UiThemeProvider } from '@muyun/vue-ui-antdv';
+import {
+  UiThemeProvider,
+  defaultUiThemeSkinId,
+  uiThemeSkinById,
+  uiThemeSkins,
+  type UiThemeSkinId,
+} from '@muyun/vue-ui-antdv';
 import { presentPlatformError, providePlatformTimeZoneContext } from '@muyun/platform-components';
 import {
   configureModuleContext,
   createAuthClient,
   provideModuleContextConfig,
+  userPreferences,
   type AppError,
   type RealtimeConnectionState,
 } from '@muyun/web-core';
@@ -46,6 +53,7 @@ import {
 import { connectAppRealtime } from './platform-admin-runtime/realtime';
 import ChangeOwnPasswordDialog from './app/ChangeOwnPasswordDialog.vue';
 import LoginView from './app/LoginView.vue';
+import ThemeSkinPreferencesDialog from './app/ThemeSkinPreferencesDialog.vue';
 import PlatformAdminRouteOutlet from './platform-admin-runtime/PlatformAdminOutlet.vue';
 import {
   createModuleOpenApiPageDescriptor,
@@ -99,6 +107,14 @@ const logoutLoading = ref(false);
 const changePasswordOpen = ref(false);
 const changePasswordSaving = ref(false);
 const changePasswordError = ref<string>();
+const THEME_SKIN_PREFERENCE_KEY = 'workbench.theme-skin';
+const themeSkinPreferencesOpen = ref(false);
+const themeSkinSaving = ref(false);
+const themeSkinError = ref<string>();
+const themeSkinId = ref<UiThemeSkinId>(
+  uiThemeSkinById(userPreferences.get('workbench.theme-skin', defaultUiThemeSkinId)).id,
+);
+const activeThemeSkin = computed(() => uiThemeSkinById(themeSkinId.value));
 const currentPassword = ref('');
 const newPassword = ref('');
 const confirmPassword = ref('');
@@ -114,6 +130,7 @@ const platformAdminRouteResolveOptions = {
 let realtimeConnection: ReturnType<typeof connectAppRealtime> | undefined;
 let securityLogoutTimer: number | undefined;
 let pendingWorkbenchNavigation: string | undefined;
+let themeSkinPreferenceRevision = 0;
 
 configureModuleContext({ httpFactory: createBackendHttpClient });
 provideModuleContextConfig({ httpFactory: createBackendHttpClient });
@@ -167,6 +184,7 @@ async function loadWorkbench() {
     startup.value = state;
     activeTabKey.value = state.activeTabKey;
     loginRequired.value = false;
+    void restoreThemeSkinFromBackend();
     reconnectRealtime();
     if (!openApiCatalogOpen.value) {
       syncBrowserUrl(state, 'replace');
@@ -213,8 +231,67 @@ async function handleUserCommand(command: string) {
     openChangeOwnPasswordDialog();
     return;
   }
+  if (command === 'settings') {
+    themeSkinError.value = undefined;
+    themeSkinPreferencesOpen.value = true;
+    return;
+  }
   if (command === 'logout') {
     await handleLogout();
+  }
+}
+
+async function restoreThemeSkinFromBackend() {
+  if (usesMockStartup()) {
+    return;
+  }
+  const revision = ++themeSkinPreferenceRevision;
+  try {
+    const restored = await userPreferences.restore(THEME_SKIN_PREFERENCE_KEY, themeSkinId.value, {
+      persistence: 'backend',
+    });
+    if (revision !== themeSkinPreferenceRevision) {
+      return;
+    }
+    const skin = uiThemeSkinById(restored);
+    themeSkinId.value = skin.id;
+    await userPreferences.set(THEME_SKIN_PREFERENCE_KEY, skin.id, { persistence: 'local' });
+  } catch {
+    // Keep the locally restored skin when the preference service is temporarily unavailable.
+  }
+}
+
+async function selectThemeSkin(skinId: UiThemeSkinId) {
+  if (themeSkinSaving.value || skinId === themeSkinId.value) {
+    return;
+  }
+  const revision = ++themeSkinPreferenceRevision;
+  const previousSkinId = themeSkinId.value;
+  themeSkinId.value = skinId;
+  themeSkinSaving.value = true;
+  themeSkinError.value = undefined;
+  await userPreferences.set(THEME_SKIN_PREFERENCE_KEY, skinId, { persistence: 'local' });
+  if (usesMockStartup()) {
+    themeSkinSaving.value = false;
+    return;
+  }
+  try {
+    await userPreferences.set(THEME_SKIN_PREFERENCE_KEY, skinId, { persistence: 'backend' });
+  } catch {
+    if (revision !== themeSkinPreferenceRevision) {
+      return;
+    }
+    themeSkinId.value = previousSkinId;
+    await userPreferences.set(THEME_SKIN_PREFERENCE_KEY, previousSkinId, { persistence: 'local' });
+    themeSkinError.value = '皮肤保存失败，已恢复为之前的设置。';
+  } finally {
+    themeSkinSaving.value = false;
+  }
+}
+
+function closeThemeSkinPreferences() {
+  if (!themeSkinSaving.value) {
+    themeSkinPreferencesOpen.value = false;
   }
 }
 
@@ -567,7 +644,7 @@ function requiresLogin(cause: unknown) {
 </script>
 
 <template>
-  <UiThemeProvider>
+  <UiThemeProvider :theme="activeThemeSkin.theme" scope="global">
     <LoginView
       v-if="loginRequired"
       :auth-client="authClient"
@@ -612,6 +689,15 @@ function requiresLogin(cause: unknown) {
       :error="changePasswordError"
       @close="closeChangeOwnPasswordDialog"
       @submit="submitChangeOwnPassword"
+    />
+    <ThemeSkinPreferencesDialog
+      :open="themeSkinPreferencesOpen"
+      :skins="uiThemeSkins"
+      :active-skin-id="themeSkinId"
+      :saving="themeSkinSaving"
+      :error="themeSkinError"
+      @close="closeThemeSkinPreferences"
+      @select="selectThemeSkin"
     />
     <div v-if="securityNotification" class="security-notification-mask" role="presentation">
       <section class="security-notification-dialog" role="alertdialog" aria-modal="true">

@@ -141,7 +141,7 @@ async function submitPasswordChange() {
   min-height: 100vh;
   place-items: center;
   padding: 24px;
-  background: #eef3f8;
+  background: var(--muyun-support-canvas);
 }
 
 .login-panel {
@@ -149,15 +149,15 @@ async function submitPasswordChange() {
   width: min(100%, 380px);
   gap: 18px;
   padding: 28px;
-  border: 1px solid #d8e2ee;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--muyun-support-surface);
   box-shadow: 0 16px 48px rgb(25 39 52 / 0.12);
 }
 
 header p {
   margin: 0 0 8px;
-  color: #526579;
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0;
@@ -166,7 +166,7 @@ header p {
 
 header h1 {
   margin: 0;
-  color: #172331;
+  color: var(--muyun-support-text);
   font-size: 22px;
   line-height: 1.25;
 }
@@ -174,10 +174,10 @@ header h1 {
 .login-error {
   margin: 0;
   padding: 10px 12px;
-  border: 1px solid #ffccc7;
+  border: 1px solid var(--muyun-danger-border);
   border-radius: 6px;
-  color: #a8071a;
-  background: #fff2f0;
+  color: var(--muyun-danger-soft-text);
+  background: var(--muyun-danger-soft);
   font-size: 13px;
 }
 
@@ -189,10 +189,10 @@ header h1 {
 .login-context {
   margin: 0;
   padding: 10px 12px;
-  border: 1px solid #d8e2ee;
+  border: 1px solid var(--muyun-support-border);
   border-radius: 6px;
-  color: #334155;
-  background: #f8fafc;
+  color: var(--muyun-support-text-body);
+  background: var(--muyun-support-elevated);
   font-size: 13px;
   font-weight: 600;
 }
@@ -200,7 +200,7 @@ header h1 {
 label {
   display: grid;
   gap: 6px;
-  color: #334155;
+  color: var(--muyun-support-text-body);
   font-size: 13px;
   font-weight: 600;
 }
@@ -211,7 +211,7 @@ label {
 }
 
 button:disabled {
-  background: #8bbcff;
+  background: var(--muyun-theme-disabled);
   cursor: not-allowed;
 }
 </style>

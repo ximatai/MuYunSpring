@@ -1341,10 +1341,42 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   font-weight: 700;
 }
 
+.root-menu-item.selected,
+.root-menu-item.selected-path,
+.mega-group-title.selected,
+.mega-group-title.selected-path,
+.mega-entry.selected,
+.mega-entry.selected-path {
+  position: relative;
+}
+
+.root-menu-item.selected::before,
+.root-menu-item.selected-path::before,
+.mega-group-title.selected::before,
+.mega-group-title.selected-path::before,
+.mega-entry.selected::before,
+.mega-entry.selected-path::before {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  z-index: 1;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: var(--muyun-theme-base);
+  content: '';
+}
+
+.root-menu-item.selected-path::before,
+.mega-group-title.selected-path::before,
+.mega-entry.selected-path::before {
+  background: var(--muyun-theme-hover);
+  opacity: 0.58;
+}
+
 .root-menu-item.selected-path {
   background: var(--muyun-theme-soft);
   color: var(--muyun-support-text-muted);
-  box-shadow: inset 2px 0 0 var(--muyun-theme-border);
 }
 
 .root-menu-item.active,
@@ -1670,6 +1702,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .mega-group-title.selected,
 .mega-group-title.selected-path {
   color: var(--muyun-theme-base);
+  padding-left: 8px;
 }
 
 .mega-entry-list {
