@@ -244,7 +244,7 @@ function updateSelectField(field: RecordFormFieldState, value: OptionValue | Opt
     class="record-form-field"
     :class="{ 'record-form-field-full-row': field.columnSpan === 2 }"
   >
-    <span class="record-form-field-label">
+    <span v-if="field.controlType !== 'imageFileTransfer'" class="record-form-field-label">
       {{ field.label }}
       <strong v-if="field.required" aria-hidden="true">*</strong>
     </span>
@@ -303,6 +303,8 @@ function updateSelectField(field: RecordFormFieldState, value: OptionValue | Opt
       v-else-if="
         field.controlType === 'imageFileTransfer' && field.fileReference && resolvedFileTransferContext()
       "
+      :label="field.label"
+      :required="field.required"
       :value="record[field.fieldName]"
       :record="record"
       :context="resolvedFileTransferContext()!"

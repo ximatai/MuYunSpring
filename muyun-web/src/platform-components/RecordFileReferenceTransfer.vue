@@ -27,6 +27,10 @@ const props = defineProps<{
   disabled?: boolean;
   disabledHint?: string;
   showBoundFiles?: boolean;
+  uploaderPresentation?: 'dropzone' | 'button';
+  uploadText?: string;
+  uploadButtonType?: 'default' | 'primary' | 'dashed' | 'link' | 'text';
+  showCompletedUploadItems?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -134,6 +138,10 @@ function releaseUploadedFile(fileId: string) {
     :released-completed-file-ids="releasedUploadedFileIds"
     :completed-file-id="(receipt) => uploadedFileId(receipt.payload)"
     :allow-completed-removal="false"
+    :presentation="uploaderPresentation"
+    :upload-text="uploadText"
+    :upload-button-type="uploadButtonType"
+    :show-completed-items="showCompletedUploadItems"
     @completed="(receipt) => applyUploadedFile(receipt)"
   />
 </template>

@@ -41,6 +41,9 @@ const props = withDefaults(
     existingFileCount?: number;
     autoUpload?: boolean;
     uploadText?: string;
+    presentation?: 'dropzone' | 'button';
+    uploadButtonType?: 'default' | 'primary' | 'dashed' | 'link' | 'text';
+    showCompletedItems?: boolean;
     disabledHint?: string;
     completionHint?: string;
     /** Completed items may be retained when the surrounding form owns deletion semantics. */
@@ -62,6 +65,9 @@ const props = withDefaults(
     existingFileCount: 0,
     autoUpload: true,
     uploadText: '选择文件上传',
+    presentation: 'dropzone',
+    uploadButtonType: 'default',
+    showCompletedItems: true,
     disabledHint: undefined,
     completionHint: undefined,
     allowCompletedRemoval: true,
@@ -101,6 +107,9 @@ const occupiedCount = computed(
 );
 const atCapacity = computed(() => props.maxFiles !== undefined && occupiedCount.value >= props.maxFiles);
 const unavailable = computed(() => props.disabled || active.value || atCapacity.value);
+const visibleItems = computed(() =>
+  props.showCompletedItems ? items.value : items.value.filter((item) => item.state !== 'completed'),
+);
 
 function chooseFiles() {
   if (unavailable.value) return;
@@ -314,7 +323,17 @@ function stateText(item: UploadItem) {
       @click.stop
       @change="selectFiles"
     />
+    <UiButton
+      v-if="presentation === 'button'"
+      class="file-transfer-uploader__choose-button"
+      :type="uploadButtonType"
+      :disabled="unavailable"
+      @click="chooseFiles"
+    >
+      {{ uploadText }}
+    </UiButton>
     <div
+      v-else
       class="file-transfer-uploader__drop-zone"
       :class="{ 'is-dragging': dragging, 'is-disabled': unavailable }"
       :tabindex="unavailable ? -1 : 0"
@@ -337,8 +356,8 @@ function stateText(item: UploadItem) {
             : '点击选择，或将文件拖拽到此处'
       }}</span>
     </div>
-    <div v-if="items.length" class="file-transfer-uploader__list" aria-live="polite">
-      <div v-for="item in items" :key="item.id" class="file-transfer-uploader__item">
+    <div v-if="visibleItems.length" class="file-transfer-uploader__list" aria-live="polite">
+      <div v-for="item in visibleItems" :key="item.id" class="file-transfer-uploader__item">
         <div class="file-transfer-uploader__name" :title="item.file.name">{{ item.file.name }}</div>
         <div class="file-transfer-uploader__state" :class="`is-${item.state}`">{{ stateText(item) }}</div>
         <div class="file-transfer-uploader__actions">
@@ -379,6 +398,9 @@ function stateText(item: UploadItem) {
 }
 .file-transfer-uploader__input {
   display: none;
+}
+.file-transfer-uploader__choose-button {
+  width: fit-content;
 }
 .file-transfer-uploader__drop-zone {
   display: grid;

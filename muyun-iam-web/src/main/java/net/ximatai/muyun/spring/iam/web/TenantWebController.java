@@ -30,8 +30,8 @@ public class TenantWebController extends WebSupport<TenantService> implements
                 .typedTextConfirmation("delete", "alias")
                 .formView(form -> form
                         .title("租户档案")
-                        .field("lightLogoAssetId", field -> field.label("默认 Logo（亮色模式）"))
-                        .field("darkLogoAssetId", field -> field.label("暗色模式 Logo（可选）")))
+                        .field("lightLogoAssetId", field -> field.label("展示 Logo（默认）"))
+                        .field("darkLogoAssetId", field -> field.label("展示 Logo（暗色模式）")))
                 .build();
     }
 }
