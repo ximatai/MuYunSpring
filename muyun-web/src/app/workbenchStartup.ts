@@ -3,6 +3,7 @@ import type {
   MenuNavigationTarget,
   MenuRecord,
   MenuTab,
+  MenuTreeNode,
   PageDescriptor,
   WorkbenchStartupState,
 } from '@muyun/web-contracts';
@@ -167,12 +168,91 @@ export function closeMenuTab(
   };
 }
 
+/** Closes the selected closable tabs and chooses the nearest remaining tab when the active one closes. */
+export function closeMenuTabs(
+  tabs: MenuTab[],
+  activeTabKey: string | undefined,
+  closedTabKeys: string[],
+): { tabs: MenuTab[]; activeTabKey: string | undefined } {
+  const closedKeys = new Set(closedTabKeys);
+  const activeIndex = tabs.findIndex((tab) => tab.key === activeTabKey);
+  const nextTabs = tabs.filter((tab) => !closedKeys.has(tab.key) || tab.closable === false);
+  if (!activeTabKey || !closedKeys.has(activeTabKey)) {
+    return { tabs: nextTabs, activeTabKey };
+  }
+  const nextActive = nextTabs.find((tab) => tabs.indexOf(tab) > activeIndex) ?? nextTabs.at(-1);
+  return { tabs: nextTabs, activeTabKey: nextActive?.key };
+}
+
+/** Keeps account-pinned tabs at the left while ordinary tab order remains a browser-session concern. */
+export function arrangeLockedMenuTabs(
+  tabs: MenuTab[],
+  lockedTabs: MenuTab[],
+  includeMissingLockedTabs = true,
+): MenuTab[] {
+  const currentTabs = new Map(tabs.map((tab) => [tab.key, tab]));
+  const lockedKeys = new Set<string>();
+  const pinned = lockedTabs.flatMap((lockedTab) => {
+    if (lockedKeys.has(lockedTab.key)) return [];
+    lockedKeys.add(lockedTab.key);
+    const currentTab = currentTabs.get(lockedTab.key);
+    return currentTab ? [currentTab] : includeMissingLockedTabs ? [lockedTab] : [];
+  });
+  return [...pinned, ...tabs.filter((tab) => !lockedKeys.has(tab.key))];
+}
+
+/** Restores only currently visible tab menus, rebuilding their descriptors from the active menu scheme. */
+export function restoreLockedMenuTabs(
+  lockedTabs: MenuTab[],
+  menus: MenuTreeNode[],
+  options: PageDescriptorResolveOptions = {},
+): MenuTab[] {
+  const availableMenus = new Map<string, { menu: MenuRecord; target: MenuNavigationTarget }>();
+  collectTabMenus(menus, availableMenus);
+  const restoredKeys = new Set<string>();
+  return lockedTabs.flatMap((tab) => {
+    const menuId = tab.pageDescriptor?.menuId ?? tab.target?.menuId;
+    if (!menuId || restoredKeys.has(menuId)) return [];
+    const available = availableMenus.get(menuId);
+    if (!available) return [];
+    restoredKeys.add(menuId);
+    return [createMenuTab(available.menu, available.target, options)];
+  });
+}
+
+export function updateLockedMenuTabs(lockedTabs: MenuTab[], tab: MenuTab): MenuTab[] {
+  const existing = lockedTabs.findIndex((item) => item.key === tab.key);
+  if (existing < 0) return [...lockedTabs, tab];
+  return lockedTabs.map((item, index) => (index === existing ? tab : item));
+}
+
+function collectTabMenus(
+  nodes: MenuTreeNode[],
+  targetMenus: Map<string, { menu: MenuRecord; target: MenuNavigationTarget }>,
+) {
+  for (const node of nodes) {
+    const target = getMenuNavigationTarget(node.record);
+    if (target && isTabMenuTarget(target)) targetMenus.set(node.record.id, { menu: node.record, target });
+    collectTabMenus(node.children, targetMenus);
+  }
+}
+
+export function removeLockedMenuTabs(lockedTabs: MenuTab[], keys: string[]): MenuTab[] {
+  const removed = new Set(keys);
+  return lockedTabs.filter((tab) => !removed.has(tab.key));
+}
+
 /** Reorders the open tabs for the current browser session without affecting URL restoration. */
-export function reorderMenuTabs(tabs: MenuTab[], keys: string[]): MenuTab[] {
+export function reorderMenuTabs(tabs: MenuTab[], keys: string[], lockedTabKeys: string[] = []): MenuTab[] {
   if (tabs.length !== keys.length || new Set(keys).size !== tabs.length) return tabs;
   const tabsByKey = new Map(tabs.map((tab) => [tab.key, tab]));
   if (keys.some((key) => !tabsByKey.has(key))) return tabs;
-  return keys.map((key) => tabsByKey.get(key)!);
+  const orderedTabs = keys.map((key) => tabsByKey.get(key)!);
+  const lockedKeys = new Set(lockedTabKeys);
+  return [
+    ...orderedTabs.filter((tab) => lockedKeys.has(tab.key)),
+    ...orderedTabs.filter((tab) => !lockedKeys.has(tab.key)),
+  ];
 }
 
 function initialTabOf(menus: WorkbenchStartupState['menus'], options: PageDescriptorResolveOptions) {

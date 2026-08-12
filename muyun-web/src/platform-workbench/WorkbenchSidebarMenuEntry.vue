@@ -265,7 +265,6 @@ function handleMainClick() {
 .sidebar-menu-entry--group {
   color: var(--muyun-support-text-muted);
   font-size: 11px;
-  font-weight: 700;
   letter-spacing: 0.02em;
 }
 

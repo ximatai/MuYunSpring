@@ -28,6 +28,7 @@ const props = withDefaults(
     loading?: boolean;
     error?: string;
     activeTabKey?: string;
+    lockedTabKeys?: string[];
     realtimeStatus?: WorkbenchRealtimeStatus;
   }>(),
   {
@@ -35,6 +36,7 @@ const props = withDefaults(
     error: undefined,
     startup: undefined,
     activeTabKey: undefined,
+    lockedTabKeys: () => [],
     realtimeStatus: 'unavailable',
   },
 );
@@ -44,6 +46,8 @@ const emit = defineEmits<{
   invalidMenu: [menu: MenuRecord];
   changeTab: [key: string];
   closeTab: [key: string];
+  closeTabs: [keys: string[]];
+  toggleTabLock: [key: string];
   reorderTabs: [keys: string[]];
   'update:activeTabKey': [key: string];
   userCommand: [key: string];
@@ -110,6 +114,7 @@ function toTabItem(tab: MenuTab): UiTabItem {
     key: tab.key,
     title: tab.title,
     closable: tab.closable,
+    pinned: props.lockedTabKeys.includes(tab.key),
   };
 }
 
@@ -387,8 +392,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             v-if="tabs.length > 0"
             :tabs="tabs"
             :active-key="activeTabKey"
+            @toggle-pin="emit('toggleTabLock', $event)"
             @update:active-key="handleTabChange"
             @close="emit('closeTab', $event)"
+            @close-tabs="emit('closeTabs', $event)"
             @reorder="emit('reorderTabs', $event)"
           />
           <div v-else class="empty-tabs">暂无打开页面</div>
