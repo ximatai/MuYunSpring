@@ -1950,6 +1950,10 @@ it('tenant branding is saved as ordinary file-reference fields in one CRUD write
 
   assert.match(tenantSource, /<RecordFormFields[\s\S]*lightLogoAssetId.*darkLogoAssetId/);
   assert.match(tenantSource, /:file-transfer-context="tenantContext"/);
+  assert.match(tenantSource, /:image-upload-hint-of="tenantLogoUploadHint"/);
+  assert.match(tenantSource, /:image-upload-advisory-of="tenantLogoUploadAdvisory"/);
+  assert.match(tenantSource, /400 × 120 px 以内效果最佳，最大 512 KB/);
+  assert.match(tenantSource, /可能影响顶部展示；建议使用横向透明 Logo/);
   assert.notMatch(tenantSource, /\/branding/);
   assert.notMatch(tenantSource, /saveTenant/);
 });

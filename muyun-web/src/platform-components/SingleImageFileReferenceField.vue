@@ -15,6 +15,8 @@ const props = defineProps<{
   record: Record<string, unknown>;
   context: ModuleContext<unknown>;
   definition: ResolvedFileReferenceFieldDescriptor;
+  uploadHint?: string;
+  uploadAdvisory?: (file: File) => string | undefined | Promise<string | undefined>;
   formSessionKey?: string | number;
   disabled?: boolean;
   disabledHint?: string;
@@ -120,6 +122,8 @@ function browserViewUrl(url: string) {
           :upload-text="uploadText"
           upload-button-type="link"
           :show-completed-upload-items="false"
+          :release-completed-upload-on-bind="true"
+          :upload-advisory="uploadAdvisory"
           @update:value="emit('update:value', typeof $event === 'string' ? $event : undefined)"
         />
       </div>
@@ -131,7 +135,9 @@ function browserViewUrl(url: string) {
           fileId ? '◫' : '+'
         }}</span>
         <strong>{{ previewLoading ? '正在加载预览' : fileId ? '预览暂不可用' : '尚未配置图片' }}</strong>
-        <span>{{ previewLoading ? '请稍候' : (previewError ?? '可上传 PNG、JPG、GIF 或 WebP 图片') }}</span>
+        <span>{{
+          previewLoading ? '请稍候' : (previewError ?? uploadHint ?? '可上传 PNG、JPG、GIF 或 WebP 图片')
+        }}</span>
       </template>
     </div>
   </div>

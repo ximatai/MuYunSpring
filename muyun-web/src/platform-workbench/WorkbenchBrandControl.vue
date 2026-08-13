@@ -87,14 +87,16 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
       @click="requestCompactMenuOpen('click', $event)"
       @keydown="handleIdentityKeydown"
     >
-      <span class="workbench-brand-mark">
-        <img v-if="logoSrc" class="workbench-brand-logo" :src="logoSrc" alt="" />
-        <UiIcon v-else name="app" />
-      </span>
-      <span class="workbench-brand-copy">
-        <strong>MuYun</strong>
-        <small>{{ tenantLabel }}</small>
-      </span>
+      <template v-if="logoSrc">
+        <img class="workbench-brand-logo" :src="logoSrc" :alt="`${tenantLabel} 标志`" />
+      </template>
+      <template v-else>
+        <span class="workbench-brand-mark"><UiIcon name="app" /></span>
+        <span class="workbench-brand-copy">
+          <strong>MuYun</strong>
+          <small>{{ tenantLabel }}</small>
+        </span>
+      </template>
     </component>
     <button
       v-if="presentationToggleVisible"
@@ -138,10 +140,11 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
 
 .workbench-brand-identity {
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   align-items: center;
   gap: 7px;
   min-width: 0;
+  overflow: hidden;
   margin: -4px -6px;
   padding: 3px 5px;
   border: 1px solid transparent;
@@ -168,9 +171,13 @@ button.workbench-brand-identity {
 
 .workbench-brand-logo {
   display: block;
-  width: 100%;
-  height: 100%;
+  flex: 0 1 auto;
+  min-width: 0;
+  width: auto;
+  max-width: min(164px, 100%);
+  height: 30px;
   object-fit: contain;
+  object-position: left center;
 }
 
 .workbench-brand-copy {
@@ -198,6 +205,11 @@ button.workbench-brand-identity {
 .workbench-brand-control--expanded .workbench-brand-identity {
   margin: 0;
   padding: 0;
+}
+
+.workbench-brand-control--compact .workbench-brand-identity {
+  /* Keep the menu-toggle touch target outside the tenant brand area. */
+  max-width: 132px;
 }
 
 .workbench-brand-control--compact .workbench-brand-identity:hover .workbench-brand-mark,

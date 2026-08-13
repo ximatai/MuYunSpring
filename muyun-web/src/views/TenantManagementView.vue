@@ -190,6 +190,51 @@ function updateTenantFormField(fieldName: string, value: unknown) {
   }
 }
 
+function tenantLogoUploadHint(fieldName: string) {
+  if (fieldName === 'lightLogoAssetId' || fieldName === 'darkLogoAssetId') {
+    return '建议使用横向透明 Logo（400 × 120 px 以内效果最佳，最大 512 KB）';
+  }
+  return undefined;
+}
+
+function tenantLogoUploadAdvisory(fieldName: string) {
+  return fieldName === 'lightLogoAssetId' || fieldName === 'darkLogoAssetId'
+    ? adviseTenantLogoDimensions
+    : undefined;
+}
+
+async function adviseTenantLogoDimensions(file: File) {
+  if (!file.type.startsWith('image/') || typeof Image === 'undefined') {
+    return undefined;
+  }
+  try {
+    const { width, height } = await imageDimensionsOf(file);
+    const ratio = width / height;
+    if (ratio >= 1.5 && ratio <= 6 && width <= 1200 && height <= 360) {
+      return undefined;
+    }
+    return `“${file.name}”为 ${width} × ${height} px，可能影响顶部展示；建议使用横向透明 Logo（400 × 120 px 以内效果最佳）。`;
+  } catch {
+    return undefined;
+  }
+}
+
+function imageDimensionsOf(file: File) {
+  const objectUrl = URL.createObjectURL(file);
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('无法读取图片尺寸'));
+    };
+    image.src = objectUrl;
+  });
+}
+
 async function loadApplications() {
   applicationsLoading.value = true;
   try {
@@ -375,6 +420,8 @@ function resetTenantSelection() {
         :file-transfer-context="tenantContext"
         :form-session-key="`${mode}:${selected?.id ?? draft.alias ?? ''}`"
         :disabled="recycleBinExplorer.active.value || readonly"
+        :image-upload-hint-of="tenantLogoUploadHint"
+        :image-upload-advisory-of="tenantLogoUploadAdvisory"
         @update:field="updateTenantFormField"
       />
     </form>

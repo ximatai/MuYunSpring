@@ -264,11 +264,14 @@ describe('WorkbenchMenu', () => {
 
   it('keeps the existing expanded sidebar available as the alternate presentation', () => {
     const wrapper = shallowMount(WorkbenchMenu, {
-      props: { menus, presentation: 'expanded' },
+      props: { menus, presentation: 'expanded', logoSrc: 'data:image/png;base64,bG9nbw==' },
     });
 
     expect(wrapper.find('.workbench-menu--expanded').exists()).toBe(true);
     expect(wrapper.findComponent({ name: 'WorkbenchBrandControl' }).props('presentation')).toBe('expanded');
+    expect(wrapper.findComponent({ name: 'WorkbenchBrandControl' }).props('logoSrc')).toBe(
+      'data:image/png;base64,bG9nbw==',
+    );
   });
 
   it('renders nested sidebar levels only when selected for the expanded presentation', async () => {
@@ -912,6 +915,23 @@ describe('Workbench compact menu', () => {
     );
   });
 
+  it('uses the same tenant logo for the expanded sidebar brand', async () => {
+    await userPreferences.set('workbench.menu-presentation', 'expanded');
+    const wrapper = shallowMount(Workbench, {
+      props: {
+        startup: {
+          session: {
+            currentUser: { userId: 'user-1', tenantId: 'tenant-a', system: false },
+            tenantBranding: { lightLogo: 'data:image/png;base64,bGlnaHQ=' },
+          },
+          menus: [],
+        },
+      },
+    });
+
+    expect(wrapper.findComponent(WorkbenchMenu).props('logoSrc')).toBe('data:image/png;base64,bGlnaHQ=');
+  });
+
   it('joins the active tab and its page body in one Mega surface', () => {
     const wrapper = shallowMount(Workbench);
 
@@ -1111,12 +1131,13 @@ describe('WorkbenchBrandControl', () => {
     expect(wrapper.get('[aria-label="系统菜单"]').exists()).toBe(true);
   });
 
-  it('renders a tenant-provided logo in place of the fallback app mark', () => {
+  it('renders a tenant-provided logo as the complete brand lockup', () => {
     const wrapper = mount(WorkbenchBrandControl, {
       props: { presentation: 'compact', logoSrc: 'data:image/png;base64,bG9nbw==' },
     });
 
     expect(wrapper.get('.workbench-brand-logo').attributes('src')).toBe('data:image/png;base64,bG9nbw==');
-    expect(wrapper.find('.workbench-brand-mark .ui-icon').exists()).toBe(false);
+    expect(wrapper.find('.workbench-brand-mark').exists()).toBe(false);
+    expect(wrapper.find('.workbench-brand-copy').exists()).toBe(false);
   });
 });

@@ -47,6 +47,11 @@ const props = withDefaults(
     disabled?: boolean;
     disabledOf?: (fieldName: string, field: RecordFormFieldState) => boolean;
     placeholderOf?: (fieldName: string, field: RecordFormFieldState) => string | undefined;
+    imageUploadHintOf?: (fieldName: string, field: RecordFormFieldState) => string | undefined;
+    imageUploadAdvisoryOf?: (
+      fieldName: string,
+      field: RecordFormFieldState,
+    ) => ((file: File) => string | undefined | Promise<string | undefined>) | undefined;
   }>(),
   {
     fieldNames: undefined,
@@ -60,6 +65,8 @@ const props = withDefaults(
     disabled: false,
     disabledOf: undefined,
     placeholderOf: undefined,
+    imageUploadHintOf: undefined,
+    imageUploadAdvisoryOf: undefined,
   },
 );
 
@@ -309,6 +316,8 @@ function updateSelectField(field: RecordFormFieldState, value: OptionValue | Opt
       :record="record"
       :context="resolvedFileTransferContext()!"
       :definition="field.fileReference"
+      :upload-hint="imageUploadHintOf?.(field.fieldName, field)"
+      :upload-advisory="imageUploadAdvisoryOf?.(field.fieldName, field)"
       :form-session-key="formSessionKey"
       :disabled="fieldDisabled(field)"
       :disabled-hint="field.disabledHint"

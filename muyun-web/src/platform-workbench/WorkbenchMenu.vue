@@ -25,6 +25,7 @@ const props = withDefaults(
     menus: MenuTreeNode[];
     selectedMenuId?: string;
     tenantLabel?: string;
+    logoSrc?: string;
     searchPlaceholder?: string;
     realtimeStatus?: WorkbenchRealtimeStatus;
     presentation?: 'compact' | 'expanded';
@@ -36,6 +37,7 @@ const props = withDefaults(
   {
     selectedMenuId: undefined,
     tenantLabel: '系统工作区',
+    logoSrc: undefined,
     searchPlaceholder: '搜索菜单、模块或路由',
     realtimeStatus: 'unavailable',
     presentation: 'expanded',
@@ -737,6 +739,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
             v-if="!isCompact"
             presentation="expanded"
             :tenant-label="tenantLabel"
+            :logo-src="logoSrc"
             :expanded-menu-depth="expandedMenuDepth"
             @change-presentation="changePresentation"
             @change-expanded-menu-depth="changeExpandedMenuDepth"

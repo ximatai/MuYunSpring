@@ -320,6 +320,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
       :menus="startup?.menus ?? []"
       :selected-menu-id="activeTab?.target?.menuId"
       :tenant-label="tenantLabel"
+      :logo-src="tenantLogo"
       :realtime-status="realtimeStatus"
       :presentation="effectiveMenuPresentation"
       :expanded-menu-depth="expandedMenuDepth"

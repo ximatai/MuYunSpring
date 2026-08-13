@@ -7,7 +7,11 @@ import {
   type FileTransferUploadReceipt,
   type FileTransferUploadTask,
 } from './fileTransferUpload';
-import { presentPlatformError, presentPlatformSuccess } from './platformErrorFeedback';
+import {
+  presentPlatformError,
+  presentPlatformSuccess,
+  presentPlatformWarning,
+} from './platformErrorFeedback';
 
 defineOptions({ name: 'FileTransferUploader' });
 
@@ -44,6 +48,8 @@ const props = withDefaults(
     presentation?: 'dropzone' | 'button';
     uploadButtonType?: 'default' | 'primary' | 'dashed' | 'link' | 'text';
     showCompletedItems?: boolean;
+    /** Non-blocking, browser-side guidance evaluated after file selection and before transfer. */
+    uploadAdvisory?: (file: File) => string | undefined | Promise<string | undefined>;
     disabledHint?: string;
     completionHint?: string;
     /** Completed items may be retained when the surrounding form owns deletion semantics. */
@@ -68,6 +74,7 @@ const props = withDefaults(
     presentation: 'dropzone',
     uploadButtonType: 'default',
     showCompletedItems: true,
+    uploadAdvisory: undefined,
     disabledHint: undefined,
     completionHint: undefined,
     allowCompletedRemoval: true,
@@ -85,6 +92,7 @@ const emit = defineEmits<{
 const input = ref<HTMLInputElement>();
 const items = ref<UploadItem[]>([]);
 const dragging = ref(false);
+const preparingSelection = ref(false);
 let nextId = 1;
 
 watch(
@@ -106,7 +114,9 @@ const occupiedCount = computed(
     items.value.filter((item) => !['failed', 'cancelled'].includes(item.state)).length,
 );
 const atCapacity = computed(() => props.maxFiles !== undefined && occupiedCount.value >= props.maxFiles);
-const unavailable = computed(() => props.disabled || active.value || atCapacity.value);
+const unavailable = computed(
+  () => props.disabled || preparingSelection.value || active.value || atCapacity.value,
+);
 const visibleItems = computed(() =>
   props.showCompletedItems ? items.value : items.value.filter((item) => item.state !== 'completed'),
 );
@@ -117,48 +127,70 @@ function chooseFiles() {
 }
 
 function selectFiles(event: Event) {
-  addFiles(Array.from((event.target as HTMLInputElement).files ?? []));
+  void addFiles(Array.from((event.target as HTMLInputElement).files ?? []));
   // Selecting the same file again must still produce a change event.
   (event.target as HTMLInputElement).value = '';
 }
 
-function addFiles(selected: readonly File[]) {
+async function addFiles(selected: readonly File[]) {
   if (unavailable.value) return;
-  const rejected = selected
-    .map((file) => ({ file, error: validationError(file) }))
-    .filter((candidate): candidate is { file: File; error: string } => candidate.error != null)
-    .map((candidate) =>
-      reactive<UploadItem>({
-        id: nextId++,
-        file: candidate.file,
-        state: 'failed',
-        progress: 0,
-        error: candidate.error,
-      }),
-    );
-  if (rejected.length) {
-    items.value.push(...rejected);
-  }
-  const valid = selected.filter((file) => validationError(file) == null);
-  const capacity =
-    props.maxFiles === undefined ? valid.length : Math.max(0, props.maxFiles - occupiedCount.value);
-  const accepted = valid.slice(0, props.multiple ? capacity : Math.min(1, capacity));
-  if (accepted.length) {
-    // `upload()` mutates the item throughout its lifecycle. Keep the very same
-    // reactive instance both in the rendered list and in that async workflow;
-    // otherwise Vue cannot observe mutations made through the pre-insertion raw
-    // object and the UI can remain stuck at its first state.
-    const additions = accepted.map((file) =>
-      reactive<UploadItem>({ id: nextId++, file, state: 'ready', progress: 0 }),
-    );
-    items.value.push(...additions);
-    emit(
-      'changed',
-      items.value.map((item) => item.file),
-    );
-    if (props.autoUpload) {
-      additions.forEach((item) => void upload(item));
+  preparingSelection.value = true;
+  try {
+    const rejected = selected
+      .map((file) => ({ file, error: validationError(file) }))
+      .filter((candidate): candidate is { file: File; error: string } => candidate.error != null)
+      .map((candidate) =>
+        reactive<UploadItem>({
+          id: nextId++,
+          file: candidate.file,
+          state: 'failed',
+          progress: 0,
+          error: candidate.error,
+        }),
+      );
+    if (rejected.length) {
+      items.value.push(...rejected);
     }
+    const valid = selected.filter((file) => validationError(file) == null);
+    const capacity =
+      props.maxFiles === undefined ? valid.length : Math.max(0, props.maxFiles - occupiedCount.value);
+    const accepted = valid.slice(0, props.multiple ? capacity : Math.min(1, capacity));
+    if (accepted.length) {
+      await presentUploadAdvisories(accepted);
+      // `upload()` mutates the item throughout its lifecycle. Keep the very same
+      // reactive instance both in the rendered list and in that async workflow;
+      // otherwise Vue cannot observe mutations made through the pre-insertion raw
+      // object and the UI can remain stuck at its first state.
+      const additions = accepted.map((file) =>
+        reactive<UploadItem>({ id: nextId++, file, state: 'ready', progress: 0 }),
+      );
+      items.value.push(...additions);
+      emit(
+        'changed',
+        items.value.map((item) => item.file),
+      );
+      if (props.autoUpload) {
+        additions.forEach((item) => void upload(item));
+      }
+    }
+  } finally {
+    preparingSelection.value = false;
+  }
+}
+
+async function presentUploadAdvisories(files: readonly File[]) {
+  if (!props.uploadAdvisory) return;
+  const advisories = await Promise.all(
+    files.map(async (file) => {
+      try {
+        return await props.uploadAdvisory?.(file);
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  for (const advisory of advisories) {
+    if (advisory) presentPlatformWarning(advisory);
   }
 }
 
@@ -199,7 +231,7 @@ function dragLeave(event: DragEvent) {
 function dropFiles(event: DragEvent) {
   event.preventDefault();
   dragging.value = false;
-  addFiles(Array.from(event.dataTransfer?.files ?? []));
+  void addFiles(Array.from(event.dataTransfer?.files ?? []));
 }
 
 function handleDropZoneKeydown(event: KeyboardEvent) {
