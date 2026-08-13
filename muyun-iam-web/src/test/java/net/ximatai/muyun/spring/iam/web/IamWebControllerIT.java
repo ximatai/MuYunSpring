@@ -406,8 +406,7 @@ class IamWebControllerIT {
                         .value(org.hamcrest.Matchers.contains("iam.gender")))
                 .andExpect(jsonPath("$.fields[?(@.name == 'gender')].optionTitleField")
                         .value(org.hamcrest.Matchers.contains("genderTitle")))
-                .andExpect(jsonPath("$.fields[?(@.name == 'avatarAssetId')].title")
-                        .value(org.hamcrest.Matchers.contains("头像")));
+                .andExpect(jsonPath("$.fields[?(@.name == 'avatarAssetId')]").isEmpty());
 
     }
 

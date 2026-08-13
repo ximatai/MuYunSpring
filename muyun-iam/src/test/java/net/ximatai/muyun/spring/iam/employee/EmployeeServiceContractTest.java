@@ -2,12 +2,19 @@ package net.ximatai.muyun.spring.iam.employee;
 
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
+import net.ximatai.muyun.spring.ability.EntitySaveLifecycleListener;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.ability.form.FormAbility;
 import net.ximatai.muyun.spring.ability.option.StaticOptionFieldValueValidator;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.option.OptionBinding;
+import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
+import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.department.Department;
@@ -19,6 +26,8 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -33,6 +42,7 @@ class EmployeeServiceContractTest {
     @AfterEach
     void resetPlatformAbilityRuntime() {
         PlatformAbilityRuntime.resetStaticOptionFieldValueValidator();
+        PlatformAbilityRuntime.resetEntitySaveLifecycleListener();
     }
 
     @Test
@@ -198,21 +208,50 @@ class EmployeeServiceContractTest {
     }
 
     @Test
-    void shouldPersistSelfManagedProfileWithoutEmployeeManagementAction() {
+    void shouldPersistSelfManagedProfileThroughTheStandardSaveLifecycle() {
         EmployeeDao dao = mock(EmployeeDao.class);
-        when(dao.updateById(any())).thenReturn(1);
         Employee employee = employee("org-1", "dept-1", "E001", "Alice");
         employee.setId("employee-1");
+        employee.setTenantId("tenant-a");
+        employee.setVersion(0);
         employee.setEnabled(Boolean.TRUE);
         when(dao.query(any(), any())).thenReturn(List.of(employee));
-        EmployeeService service = new EmployeeService(dao, activeTenantVerifier(), organizationService(), departmentService());
+        when(dao.updateByIdAndVersion(any(), any())).thenReturn(1);
+        OrganizationService organizations = organizationService();
+        DepartmentService departments = departmentService();
+        when(organizations.requireEnabled(eq("org-1"), any())).thenReturn(organization("org-1"));
+        when(departments.requireEnabled(eq("dept-1"), any())).thenReturn(department("org-1", "dept-1"));
+        EmployeeService service = new EmployeeService(dao, activeTenantVerifier(), organizations, departments);
+        boolean[] lifecycle = {false, false};
+        PlatformAbilityRuntime.configureEntitySaveLifecycleListener(new EntitySaveLifecycleListener() {
+            @Override
+            public <T extends net.ximatai.muyun.spring.common.model.contract.EntityContract> void beforeSave(
+                    net.ximatai.muyun.spring.ability.CrudAbility<T> ability, T existing, T incoming) {
+                lifecycle[0] = true;
+            }
 
-        assertThat(service.updateSelfManagedProfile("employee-1", " 13800000001 ", "alice@example.test", "asset-1"))
-                .isEqualTo(1);
-        verify(dao).updateById(argThat(updated -> updated == employee
+            @Override
+            public <T extends net.ximatai.muyun.spring.common.model.contract.EntityContract> void persisted(
+                    net.ximatai.muyun.spring.ability.CrudAbility<T> ability, T entity) {
+                lifecycle[1] = true;
+            }
+        });
+
+        ActionExecutionPolicy selfProfile = new ActionExecutionPolicy("selfProfile", PlatformActionLevel.RECORD,
+                ActionAccessMode.LOGIN_REQUIRED, false, false, ActionDefaultGrantPolicy.NONE, null);
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a");
+             ActionExecutionContextHolder.Scope ignoredAction = ActionExecutionContextHolder.use(
+                     ActionExecutionContext.ofPolicy(EmployeeService.MODULE_ALIAS, selfProfile,
+                             Set.of("employee-1"), Optional.empty()))) {
+            assertThat(service.updateSelfManagedProfile("employee-1", " 13800000001 ", "alice@example.test", "asset-1"))
+                    .isEqualTo(1);
+        }
+
+        verify(dao).updateByIdAndVersion(argThat(updated -> updated == employee
                 && "13800000001".equals(updated.getMobile())
                 && "alice@example.test".equals(updated.getEmail())
-                && "asset-1".equals(updated.getAvatarAssetId())));
+                && "asset-1".equals(updated.getAvatarAssetId())), eq(0));
+        assertThat(lifecycle).containsExactly(true, true);
     }
 
     @Test

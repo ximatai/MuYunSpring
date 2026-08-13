@@ -236,7 +236,7 @@ class StaticModuleDefinitionScannerTest {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.LIST);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
                                     .containsExactly("employeeNo", "organizationTitle", "title", "username",
-                                            "mobile", "email", "enabled", "accountBound");
+                                            "mobile", "email", "enabled", "avatarAssetId", "accountBound");
                         });
                 assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_form"))
                         .singleElement()
@@ -244,7 +244,7 @@ class StaticModuleDefinitionScannerTest {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
                                     .containsExactly("organizationId", "departmentId", "employeeNo", "title",
-                                            "avatarAssetId", "gender", "mobile", "email", "enabled");
+                                            "gender", "mobile", "email", "enabled");
                             assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("departmentId"))
                                     .singleElement()
                                     .satisfies(field -> assertThat(field.uiType()).isEqualTo("recordPicker"));

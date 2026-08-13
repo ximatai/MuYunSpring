@@ -166,7 +166,7 @@ public class EmployeeService extends TenantStandardBusinessService<Employee> imp
         employee.setMobile(normalizeSelfManagedField(mobile, 32, "mobile"));
         employee.setEmail(normalizeSelfManagedField(email, 128, "email"));
         employee.setAvatarAssetId(normalizeSelfManagedField(avatarAssetId, 32, "avatarAssetId"));
-        return getDao().updateById(employee);
+        return update(employee);
     }
 
     private String normalizeSelfManagedField(String value, int maxLength, String field) {
