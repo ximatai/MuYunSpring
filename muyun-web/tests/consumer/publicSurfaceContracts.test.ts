@@ -24,6 +24,10 @@ it('consumer surface exposes the stable app-shell feedback and lifecycle facades
   assert.match(runtimeSource, /disconnectAppRealtime,/);
   assert.match(runtimeSource, /AppRealtimeConnection/);
   assert.ok(!/createAppRealtimeClient,/.test(runtimeSource));
+  assert.match(consumerSource, /AppWorkbenchShell/);
+  assert.match(consumerSource, /AppWorkbenchNavigation/);
+  assert.ok(!/workbenchRouteSync/.test(consumerSource));
+  assert.ok(!/openDirectTab|openMenuTab|closeMenuTab/.test(consumerSource));
 });
 
 it('app realtime consumer contract accepts runtime connection configuration without exposing a raw client', () => {

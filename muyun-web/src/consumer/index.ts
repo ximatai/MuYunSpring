@@ -19,18 +19,12 @@ export * from '../platform-admin-runtime/index';
 export {
   activeTabUrlOf,
   arrangeLockedMenuTabs,
-  closeMenuTab,
-  closeMenuTabs,
-  openDirectTab,
-  openMenuTab,
-  reorderMenuTabs,
   removeLockedMenuTabs,
   restoreWorkbenchStartupStateFromUrl,
   restoreLockedMenuTabs,
   updateLockedMenuTabs,
 } from '../app/workbenchStartup';
 export { restoreLockedTabPreference, saveLockedTabPreference } from '../app/lockedTabPreference';
-export { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from '../app/workbenchRouteSync';
 export {
   configureModulePageEnhancements,
   createModulePageEnhancementRegistry,
@@ -73,6 +67,7 @@ export {
 } from '../vue-ui-antdv/index';
 export { default as PlatformAdminOutlet } from './PlatformAdminOutlet.vue';
 export { default as AppWorkbenchShell } from './AppWorkbenchShell.vue';
+export type { AppWorkbenchNavigation } from './workbenchNavigation';
 export { configureUserPreferencePersistence } from './userPreferencePersistence';
 export { default as ChangeOwnPasswordDialog } from '../app/ChangeOwnPasswordDialog.vue';
 export { default as ThemeSkinPreferencesDialog } from '../app/ThemeSkinPreferencesDialog.vue';

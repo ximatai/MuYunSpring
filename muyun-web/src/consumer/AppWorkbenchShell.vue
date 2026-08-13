@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type {
   MenuNavigationTarget,
   MenuRecord,
@@ -16,6 +16,7 @@ import {
   arrangeLockedMenuTabs,
   closeMenuTab,
   closeMenuTabs,
+  menuTargetUrl,
   openDirectTab,
   openMenuTab,
   reorderMenuTabs,
@@ -26,12 +27,15 @@ import {
 } from '../app/workbenchStartup';
 import { restoreLockedTabPreference, saveLockedTabPreference } from '../app/lockedTabPreference';
 import { workbenchRouteWriteFor } from '../app/workbenchRouteSync';
+import type { AppWorkbenchNavigation } from './workbenchNavigation';
 
 defineOptions({ name: 'AppWorkbenchShell' });
 
 const props = withDefaults(
   defineProps<{
     startup: WorkbenchStartupState;
+    /** The consumer router's current full path, including search and hash. */
+    location: string;
     resolveOptions?: PageDescriptorResolveOptions;
     loading?: boolean;
     error?: string;
@@ -49,6 +53,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:startup': [value: WorkbenchStartupState];
+  navigate: [navigation: AppWorkbenchNavigation];
   userCommand: [key: string];
 }>();
 
@@ -62,15 +67,18 @@ provideWorkbenchNavigation({ openPage, replacePage });
 
 onMounted(() => {
   isMounted = true;
-  window.addEventListener('popstate', restoreFromBrowserUrl);
   void restoreLockedTabs();
-  restoreFromBrowserUrl();
+  restoreFromLocation(props.location);
 });
 
 onBeforeUnmount(() => {
   isMounted = false;
-  window.removeEventListener('popstate', restoreFromBrowserUrl);
 });
+
+watch(
+  () => props.location,
+  (location) => restoreFromLocation(location),
+);
 
 function update(startup: WorkbenchStartupState, mode: 'push' | 'replace' | undefined = undefined) {
   emit('update:startup', startup);
@@ -79,9 +87,7 @@ function update(startup: WorkbenchStartupState, mode: 'push' | 'replace' | undef
 
 function selectMenu(menu: MenuRecord, target: MenuNavigationTarget) {
   if (target.openMode === 'window') {
-    const url =
-      target.menuType === 'link' ? target.externalUrl : target.menuType === 'route' ? target.route : '/';
-    window.open(url, '_blank', 'noopener,noreferrer');
+    window.open(menuTargetUrl(menu, target), '_blank', 'noopener,noreferrer');
     return;
   }
   const result = openMenuTab(props.startup.tabs ?? [], menu, target, props.resolveOptions);
@@ -192,17 +198,13 @@ function replacePage(pageKey: string, descriptor: PageDescriptor) {
   );
 }
 
-function currentBrowserUrl() {
-  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
-}
-
 function syncBrowserUrl(state: WorkbenchStartupState, mode: 'push' | 'replace') {
-  const navigation = workbenchRouteWriteFor(state, currentBrowserUrl(), mode);
-  if (navigation) window.history[`${navigation.mode}State`](null, '', navigation.url);
+  const navigation = workbenchRouteWriteFor(state, props.location, mode);
+  if (navigation) emit('navigate', navigation);
 }
 
-function restoreFromBrowserUrl() {
-  update(restoreWorkbenchStartupStateFromUrl(props.startup, currentBrowserUrl(), props.resolveOptions));
+function restoreFromLocation(location: string) {
+  update(restoreWorkbenchStartupStateFromUrl(props.startup, location, props.resolveOptions));
 }
 
 async function restoreLockedTabs() {

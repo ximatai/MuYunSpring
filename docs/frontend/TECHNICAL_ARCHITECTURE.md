@@ -59,6 +59,8 @@ muyun-web/src/app                   框架仓库自身的启动、登录和开�
 
 组合包同时公开 App 自定义轻量页面必需的 `UiButton`、`UiInput` 和 `UiSwitch`。它们是受控的基础消费面，业务 App 应优先使用这些组件而不是原生控件或直接依赖 Ant Design Vue；其余 adapter 组件仍属于内部实现，待独立版本策略稳定后再按职责拆包，避免把当前源码目录直接变成长期发布承诺。
 
+`AppWorkbenchShell` 是组合包提供的受控工作台壳层：它集中菜单、页签、锁定页签偏好和工作台内页面导航，但不拥有消费 App 的 Router。业务 App 将 Router 的 `currentRoute.fullPath` 作为 `location` 传入，并在 Shell 发出 `navigate` 请求时以自己的 `router.push` 或 `router.replace` 执行导航。这样标准工作台 URL 恢复与业务页面 host 始终经过同一条消费 App 路由链路，业务 App 不会因为平台组件直接写浏览器 history 而发生 URL 与 `RouterView` 不一致。
+
 ## 能力分层
 
 ### web-contracts

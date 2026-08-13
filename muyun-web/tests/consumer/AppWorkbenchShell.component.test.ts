@@ -1,4 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
+import { defineComponent, h, ref } from 'vue';
+import { createMemoryHistory, createRouter } from 'vue-router';
 import { expect, it, vi } from 'vitest';
 import AppWorkbenchShell from '@/consumer/AppWorkbenchShell.vue';
 import Workbench from '@/platform-workbench/Workbench.vue';
@@ -46,6 +48,7 @@ function mountShell() {
   return mount(AppWorkbenchShell, {
     props: {
       startup: startup(),
+      location: '/a',
       realtimeStatus: 'connected',
       themeAppearance: 'dark',
     },
@@ -106,4 +109,68 @@ it('passes standard appearance and connection state through to the workbench', (
 
   expect(workbench.props('themeAppearance')).toBe('dark');
   expect(workbench.props('realtimeStatus')).toBe('connected');
+});
+
+it('uses the consumer router to apply an active tab change', async () => {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }],
+  });
+  await router.push('/a');
+  await router.isReady();
+  const startupState = ref(startup());
+  const ShellHarness = defineComponent({
+    setup() {
+      return () =>
+        h(
+          AppWorkbenchShell,
+          {
+            startup: startupState.value,
+            location: router.currentRoute.value.fullPath,
+            realtimeStatus: 'connected',
+            themeAppearance: 'dark',
+            'onUpdate:startup': (value) => (startupState.value = value),
+            onNavigate: ({ url, mode }) => router[mode](url),
+          },
+          { default: () => [] },
+        );
+    },
+  });
+  const wrapper = mount(ShellHarness, { global: { plugins: [router] } });
+  const workbench = wrapper.findComponent(Workbench);
+
+  await workbench.vm.$emit('changeTab', 'menu:B');
+  await flushPromises();
+
+  expect(router.currentRoute.value.fullPath).toBe('/b');
+});
+
+it('preserves descriptor URL semantics when a menu opens in a new window', async () => {
+  const open = vi.spyOn(window, 'open').mockReturnValue(null);
+  const wrapper = mountShell();
+  const workbench = wrapper.findComponent(Workbench);
+  const menu = {
+    id: 'external-bi',
+    schemeId: 'default',
+    title: 'External BI',
+    moduleAlias: 'ops.report',
+    openMode: 'window' as const,
+    externalUrl: 'https://bi.example.com/report',
+  };
+  const target = {
+    menuId: menu.id,
+    menuType: 'link' as const,
+    openMode: 'window' as const,
+    moduleAlias: menu.moduleAlias,
+    externalUrl: menu.externalUrl,
+  };
+
+  await workbench.vm.$emit('selectMenu', menu, target);
+
+  expect(open).toHaveBeenCalledWith(
+    '/platform/external?_muyunMenuId=external-bi&_muyunTitle=External+BI&mode=new-window&url=https%3A%2F%2Fbi.example.com%2Freport',
+    '_blank',
+    'noopener,noreferrer',
+  );
+  open.mockRestore();
 });
