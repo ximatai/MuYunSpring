@@ -3,7 +3,9 @@ import { defineComponent, h, ref } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { expect, it, vi } from 'vitest';
 import AppWorkbenchShell from '@/consumer/AppWorkbenchShell.vue';
+import type { AppWorkbenchNavigation } from '@/consumer/workbenchNavigation';
 import Workbench from '@/platform-workbench/Workbench.vue';
+import type { WorkbenchStartupState } from '@/web-contracts';
 import { configureUserPreferenceBackend } from '@/web-core/userPreferences';
 
 const tabs = [
@@ -35,9 +37,9 @@ const tabs = [
   },
 ];
 
-function startup() {
+function startup(): WorkbenchStartupState {
   return {
-    session: { currentUser: { userId: 'u1', username: 'tester', tenantId: 'tenant' } },
+    session: { currentUser: { userId: 'u1', username: 'tester', tenantId: 'tenant', system: false } },
     menus: [],
     tabs: structuredClone(tabs),
     activeTabKey: 'menu:A',
@@ -56,7 +58,7 @@ function mountShell() {
 }
 
 async function syncStartup(wrapper: ReturnType<typeof mountShell>) {
-  const state = wrapper.emitted('update:startup')?.at(-1)?.[0];
+  const state = wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState | undefined;
   if (state) await wrapper.setProps({ startup: state });
 }
 
@@ -73,19 +75,15 @@ it('keeps pinned tab order in account preferences after a drag reorder', async (
   await workbench.vm.$emit('reorderTabs', ['menu:B', 'menu:A']);
   await flushPromises();
 
-  expect(
-    wrapper
-      .emitted('update:startup')
-      ?.at(-1)?.[0]
-      .tabs.map((tab) => tab.key),
-  ).toEqual(['menu:B', 'menu:A']);
+  const state = wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState | undefined;
+  expect(state?.tabs?.map((tab) => tab.key)).toEqual(['menu:B', 'menu:A']);
   expect(save).toHaveBeenLastCalledWith('workbench.locked-tabs', expect.stringContaining('"key":"menu:B"'));
   wrapper.unmount();
   configureUserPreferenceBackend(undefined);
 });
 
 it('does not let a slow pinned-tab restore overwrite a local lock change', async () => {
-  let resolveLoad: (value: unknown) => void;
+  let resolveLoad!: (value: unknown) => void;
   const load = new Promise<unknown>((resolve) => {
     resolveLoad = resolve;
   });
@@ -118,7 +116,7 @@ it('uses the consumer router to apply an active tab change', async () => {
   });
   await router.push('/a');
   await router.isReady();
-  const startupState = ref(startup());
+  const startupState = ref<WorkbenchStartupState>(startup());
   const ShellHarness = defineComponent({
     setup() {
       return () =>
@@ -129,8 +127,8 @@ it('uses the consumer router to apply an active tab change', async () => {
             location: router.currentRoute.value.fullPath,
             realtimeStatus: 'connected',
             themeAppearance: 'dark',
-            'onUpdate:startup': (value) => (startupState.value = value),
-            onNavigate: ({ url, mode }) => router[mode](url),
+            'onUpdate:startup': (value: WorkbenchStartupState) => (startupState.value = value),
+            onNavigate: ({ url, mode }: AppWorkbenchNavigation) => router[mode](url),
           },
           { default: () => [] },
         );
