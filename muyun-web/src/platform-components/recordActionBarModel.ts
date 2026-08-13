@@ -49,22 +49,23 @@ export function resolveRecordActions(
     }
     const authorizationContext = action.authorizationContext ?? context;
     const authorizationRecordId = action.authorizationContext ? action.authorizationRecordId : recordId;
+    const awaitingAuthorizationRecord = action.authorizationContext != null && !authorizationRecordId;
     const actionState =
-      action.actionCode && (!action.authorizationContext || authorizationRecordId)
+      action.actionCode && !awaitingAuthorizationRecord
         ? authorizationContext.action(action.actionCode, authorizationRecordId)
         : undefined;
     if (
       action.actionCode &&
       actionState == null &&
-      (!action.authorizationContext || authorizationRecordId) &&
+      !awaitingAuthorizationRecord &&
       actionIsConfirmedMissing(authorizationContext, action.actionCode, authorizationRecordId)
     ) {
       return [];
     }
     const authorized =
-      action.actionCode && (!action.authorizationContext || authorizationRecordId)
+      action.actionCode && !awaitingAuthorizationRecord
         ? actionState?.available === true
-        : true;
+        : !awaitingAuthorizationRecord;
     const loading = action.loading ?? defaultLoading;
     return [
       {
@@ -72,7 +73,7 @@ export function resolveRecordActions(
         key: action.key ?? action.actionCode ?? `action-${index}`,
         iconName: action.iconName ?? defaultActionIcon(action),
         authorized,
-        reason: actionState?.reason,
+        reason: actionState?.reason ?? (awaitingAuthorizationRecord ? '请先选择作用域记录' : undefined),
         disabled: loading || action.disabled === true || !authorized,
         loading,
       },

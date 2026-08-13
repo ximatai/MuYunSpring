@@ -152,6 +152,23 @@ it('resolveRecordActions uses an attached scope authorization context and record
   assert.isFalse(actions[0].disabled);
 });
 
+it('resolveRecordActions denies scope-record authorization until a scope record is selected', () => {
+  const scopeContext = { action: () => ({ available: true }) };
+
+  const actions = resolveRecordActions({ action: () => ({ available: true }) }, [
+    {
+      key: 'ask',
+      actionCode: 'agent_chat_ask',
+      title: '模拟问答',
+      authorizationContext: scopeContext as never,
+    },
+  ]);
+
+  assert.isFalse(actions[0].authorized);
+  assert.isTrue(actions[0].disabled);
+  assert.equal(actions[0].reason, '请先选择作用域记录');
+});
+
 it('resolveRecordActions retains a record-level authorization reason for disabled-action feedback', () => {
   const actions = resolveRecordActions(
     {
