@@ -900,9 +900,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
       <svg class="compact-mega-outline compact-mega-outline--shadow" aria-hidden="true">
         <path :d="compactOutlinePath" />
       </svg>
-      <svg class="compact-mega-outline compact-mega-outline--stroke" aria-hidden="true">
-        <path :d="compactOutlinePath" />
-      </svg>
     </template>
 
     <svg v-if="activeRootNode" class="mega-outline mega-outline--shadow" aria-hidden="true">
@@ -1605,14 +1602,12 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .sidebar-submenu-outline--stroke,
-.mega-outline--stroke,
-.compact-mega-outline--stroke {
+.mega-outline--stroke {
   z-index: 3;
 }
 
 .sidebar-submenu-outline--stroke path,
-.mega-outline--stroke path,
-.compact-mega-outline--stroke path {
+.mega-outline--stroke path {
   fill: none;
   stroke: var(--workbench-menu-border);
   stroke-linejoin: round;

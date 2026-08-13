@@ -295,11 +295,11 @@ button.workbench-brand-identity {
 
 .workbench-brand-control--compact .workbench-brand-identity--with-title .workbench-brand-mark,
 .workbench-brand-control--compact .workbench-brand-identity--with-title .workbench-brand-logo {
-  flex-basis: 33px;
-  min-width: 33px;
-  max-width: 33px;
-  width: 33px;
-  height: 33px;
+  flex-basis: 30px;
+  min-width: 30px;
+  max-width: 30px;
+  width: 30px;
+  height: 30px;
 }
 
 .workbench-brand-control--compact .workbench-brand-identity:hover .workbench-brand-mark,
