@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
+import net.ximatai.muyun.spring.iam.user.CurrentUserProfile;
+import net.ximatai.muyun.spring.iam.user.CurrentUserProfileService;
 import net.ximatai.muyun.spring.iam.tenant.TenantBranding;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import org.junit.jupiter.api.AfterEach;
@@ -173,5 +175,23 @@ class LoginWebControllerTest {
                 .andExpect(status().isOk());
 
         verify(userSessionService).changeOwnPassword("user-1", "old-secret", "new-secret");
+    }
+
+    @Test
+    void shouldExposeCurrentUserProfileWithoutUsingEmployeeCrudPermissions() throws Exception {
+        CurrentUserProfileService profileService = mock(CurrentUserProfileService.class);
+        when(profileService.currentProfile(org.mockito.ArgumentMatchers.any(CurrentUser.class))).thenReturn(
+                new CurrentUserProfile("alice", "Asia/Shanghai", null));
+        LoginWebController controller = new LoginWebController(mock(UserSessionService.class), mock(TenantService.class),
+                profileService);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .addFilters(new CurrentUserWebFilter(() -> Optional.of(
+                        CurrentUser.tenantUser("user-1", "alice", "tenant-a"))))
+                .build();
+
+        mvc.perform(get("/iam.auth/profile"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("alice"))
+                .andExpect(jsonPath("$.employee").doesNotExist());
     }
 }

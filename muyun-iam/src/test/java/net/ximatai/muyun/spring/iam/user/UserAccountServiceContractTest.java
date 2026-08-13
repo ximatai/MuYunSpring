@@ -84,9 +84,6 @@ class UserAccountServiceContractTest {
         UserAccount user = new UserAccount();
         user.setUsername("alice");
         user.setTitle("Alice");
-        user.setMobile("13800000000");
-        user.setEmail("alice@example.test");
-        user.setOrganizationId("org-1");
         user.setSortOrder(1);
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
@@ -97,9 +94,6 @@ class UserAccountServiceContractTest {
         assertThat(user.getAuthOrganizationId()).isNull();
         assertThat(user.getAuthModuleAlias()).isEqualTo(UserAccountService.MODULE_ALIAS);
         assertThat(user.getTitle()).isEqualTo("alice");
-        assertThat(user.getMobile()).isNull();
-        assertThat(user.getEmail()).isNull();
-        assertThat(user.getOrganizationId()).isNull();
         assertThat(user.getSortOrder()).isNull();
         assertThat(user.getPasswordStatus()).isEqualTo(PasswordStatus.INITIAL);
         assertThat(user.getPasswordChangedAt()).isNotNull();

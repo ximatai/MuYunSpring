@@ -5,9 +5,6 @@ public record UserAccountView(
         String tenantId,
         String username,
         String title,
-        String mobile,
-        String email,
-        String organizationId,
         Boolean enabled
 ) {
     public static UserAccountView of(UserAccount user) {
@@ -19,9 +16,6 @@ public record UserAccountView(
                 user.getTenantId(),
                 user.getUsername(),
                 user.getTitle(),
-                user.getMobile(),
-                user.getEmail(),
-                user.getOrganizationId(),
                 user.getEnabled()
         );
     }

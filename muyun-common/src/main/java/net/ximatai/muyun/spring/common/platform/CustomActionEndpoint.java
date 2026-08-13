@@ -14,6 +14,14 @@ public @interface CustomActionEndpoint {
 
     PlatformActionLevel level() default PlatformActionLevel.DEFAULT;
 
+    /**
+     * Keeps independent endpoints in the same action policy model as standard module operations.
+     * Login-required endpoints still need their domain service to constrain the business subject.
+     */
+    ActionAccessMode accessMode() default ActionAccessMode.AUTH_REQUIRED;
+
+    boolean actionAuth() default true;
+
     boolean dataAuth() default false;
 
     String recordIdPathVariable() default "id";

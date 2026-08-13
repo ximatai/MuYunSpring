@@ -31,6 +31,20 @@ class ManagedFileAssetServiceTest {
     }
 
     @Test
+    void allowsInlineImagesUpToOneMegabyte() {
+        ManagedFileAssetDao dao = mock(ManagedFileAssetDao.class);
+        when(dao.insert(any())).thenAnswer(invocation -> invocation.<ManagedFileAsset>getArgument(0).getId());
+        ManagedFileAssetService service = new ManagedFileAssetService(dao);
+        byte[] image = new byte[1024 * 1024];
+        image[0] = (byte) 0xff;
+        image[1] = (byte) 0xd8;
+        image[2] = (byte) 0xff;
+
+        inTransaction(() -> assertThat(service.createInline("tenant-a", "avatar.jpg", "image/jpeg", image)
+                .getSizeBytes()).isEqualTo(1024 * 1024));
+    }
+
+    @Test
     void rejectsADeclaredMimeTypeThatDoesNotMatchImageBytes() {
         ManagedFileAssetService service = new ManagedFileAssetService(mock(ManagedFileAssetDao.class));
 

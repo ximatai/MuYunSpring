@@ -226,7 +226,6 @@ class UserSessionServiceTest {
         user.setTenantId("tenant-a");
         user.setUsername("alice");
         user.setTitle("Alice");
-        user.setOrganizationId("org-1");
         user.setEnabled(Boolean.TRUE);
         user.setPasswordHash(passwordHashingService.hash("secret1"));
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
@@ -368,7 +367,7 @@ class UserSessionServiceTest {
         UserSessionService sessionService = sessionService(userService, sessionDao, accessClock);
 
         assertThat(sessionService.currentUser("token-1")).contains(
-                CurrentUser.tenantUser("user-1", "alice", "tenant-a", "org-1"));
+                CurrentUser.tenantUser("user-1", "alice", "tenant-a"));
 
         assertThat(session.getLastSeenAt()).isEqualTo(accessClock.instant());
         assertThat(session.getExpiresAt()).isEqualTo(session.getMaxExpiresAt());
@@ -395,7 +394,7 @@ class UserSessionServiceTest {
         UserSessionService sessionService = sessionService(userService, sessionDao, accessClock);
 
         assertThat(sessionService.currentUserSnapshot("token-1")).contains(
-                CurrentUser.tenantUser("user-1", "alice", "tenant-a", "org-1"));
+                CurrentUser.tenantUser("user-1", "alice", "tenant-a"));
 
         assertThat(session.getLastSeenAt()).isEqualTo(originalLastSeenAt);
         assertThat(session.getExpiresAt()).isEqualTo(originalExpiresAt);
@@ -420,7 +419,7 @@ class UserSessionServiceTest {
         UserSessionService sessionService = sessionService(userService, sessionDao, accessClock);
 
         assertThat(sessionService.currentUser("token-1")).contains(
-                CurrentUser.tenantUser("user-1", "alice", "tenant-a", "org-1", true));
+                CurrentUser.tenantUser("user-1", "alice", "tenant-a", null, true));
     }
 
     @Test
@@ -771,6 +770,7 @@ class UserSessionServiceTest {
                     publisher.publish((UserSessionLifecycleEvent) event);
                 },
                 timeZoneResolver,
+                null,
                 presenceLookup);
         return new UserSessionService(userAccountService, userSessionRecordService, activeTenantVerifier,
                 collaborators, clock);
@@ -782,7 +782,6 @@ class UserSessionServiceTest {
         user.setTenantId("tenant-a");
         user.setUsername("alice");
         user.setTitle("Alice");
-        user.setOrganizationId("org-1");
         user.setEnabled(Boolean.TRUE);
         user.setPasswordHash(passwordHashingService.hash("secret1"));
         return user;

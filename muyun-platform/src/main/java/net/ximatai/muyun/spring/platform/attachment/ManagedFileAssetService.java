@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
 @Service
 public class ManagedFileAssetService extends AbstractAbilityService<ManagedFileAsset> implements SoftDeleteAbility<ManagedFileAsset> {
     public static final String MODULE_ALIAS = "platform.managed_file_asset";
-    public static final long MAX_INLINE_BYTES = 512 * 1024;
+    public static final long MAX_INLINE_BYTES = 1024 * 1024;
     private static final Pattern IMAGE_DATA_URL = Pattern.compile(
             "^data:(image/(png|jpeg|gif|webp));base64,([A-Za-z0-9+/]+={0,2})$");
 
@@ -65,7 +65,7 @@ public class ManagedFileAssetService extends AbstractAbilityService<ManagedFileA
             throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, "managed file content must not be empty");
         }
         if (content.length > MAX_INLINE_BYTES) {
-            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, "managed file content must not exceed 512 KB");
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, "managed file content must not exceed 1024 KB");
         }
         String verifiedMimeType = requireImageMimeType(content, declaredMimeType);
         ManagedFileAsset asset = new ManagedFileAsset();
@@ -121,7 +121,7 @@ public class ManagedFileAssetService extends AbstractAbilityService<ManagedFileA
             throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, "managed file content must contain valid Base64 data");
         }
         if (bytes.length > MAX_INLINE_BYTES) {
-            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, "managed file content must not exceed 512 KB");
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, "managed file content must not exceed 1024 KB");
         }
         String verifiedMimeType = requireImageMimeType(bytes, matcher.group(1).toLowerCase(Locale.ROOT));
         return new InlineImage("data:" + verifiedMimeType + ";base64," + matcher.group(3), verifiedMimeType, bytes);

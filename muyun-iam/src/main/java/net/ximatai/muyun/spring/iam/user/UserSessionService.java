@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.common.exception.AuthenticationFailedException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserTimeZoneResolver;
+import net.ximatai.muyun.spring.common.identity.CurrentUserOrganizationResolver;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
@@ -40,6 +41,7 @@ public class UserSessionService {
     private final Supplier<UserSessionPresenceLookup> userSessionPresenceLookup;
     private final Clock clock;
     private final CurrentUserTimeZoneResolver currentUserTimeZoneResolver;
+    private final CurrentUserOrganizationResolver currentUserOrganizationResolver;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
@@ -62,6 +64,7 @@ public class UserSessionService {
         this.userSessionLifecycleEventPublisher = lifecycleEventPublisher;
         this.clock = effectiveClock;
         this.currentUserTimeZoneResolver = resolved.timeZoneResolver();
+        this.currentUserOrganizationResolver = resolved.organizationResolver();
         this.userSessionPresenceLookup = resolved.presenceLookup();
     }
 
@@ -412,11 +415,15 @@ public class UserSessionService {
             currentUser = CurrentUser.systemUser(user.getId(), user.getUsername(), passwordChangeRequired);
         } else {
             currentUser = CurrentUser.tenantUser(user.getId(), user.getUsername(), user.getTenantId(),
-                    user.getOrganizationId(), passwordChangeRequired);
+                    null, passwordChangeRequired);
         }
-        return currentUserTimeZoneResolver.resolveZoneId(currentUser)
-                .map(zoneId -> currentUser.withTimeZone(zoneId.getId()))
+        currentUser = currentUserOrganizationResolver.resolveOrganizationId(currentUser)
+                .map(currentUser::withOrganizationId)
                 .orElse(currentUser);
+        CurrentUser resolvedCurrentUser = currentUser;
+        return currentUserTimeZoneResolver.resolveZoneId(resolvedCurrentUser)
+                .map(zoneId -> resolvedCurrentUser.withTimeZone(zoneId.getId()))
+                .orElse(resolvedCurrentUser);
     }
 
     private String normalizeBlank(String value) {

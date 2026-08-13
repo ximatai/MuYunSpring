@@ -896,6 +896,46 @@ describe('WorkbenchMenu', () => {
 });
 
 describe('Workbench compact menu', () => {
+  it('does not expose the deferred notification entry in the global toolbar', () => {
+    const wrapper = shallowMount(Workbench);
+
+    expect(wrapper.find('[aria-label="搜索"]').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="通知"]').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="刷新当前页"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="皮肤切换"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="设置"]').exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'UiDropdown' }).props('items')).not.toContainEqual(
+      expect.objectContaining({ key: 'settings' }),
+    );
+  });
+
+  it('opens the shared theme skin preferences from the global toolbar', async () => {
+    const wrapper = shallowMount(Workbench);
+
+    await wrapper.get('[aria-label="皮肤切换"]').trigger('click');
+
+    expect(wrapper.emitted('userCommand')).toEqual([['themeSkin']]);
+  });
+
+  it('remounts only the active tab page host when refreshing', async () => {
+    const wrapper = shallowMount(Workbench, {
+      props: {
+        startup: {
+          session: { currentUser: { userId: 'user-1', tenantId: 'tenant-a', system: false } },
+          menus: [],
+          tabs: [{ key: 'application', title: '应用管理' }],
+          activeTabKey: 'application',
+        },
+      },
+    });
+    const hostBeforeRefresh = wrapper.findComponent({ name: 'UiSidePanelHost' });
+    const hostKeyBeforeRefresh = hostBeforeRefresh.vm.$.vnode.key;
+
+    await wrapper.get('[aria-label="刷新当前页"]').trigger('click');
+
+    expect(wrapper.findComponent({ name: 'UiSidePanelHost' }).vm.$.vnode.key).not.toBe(hostKeyBeforeRefresh);
+  });
+
   it('selects a dark tenant logo first and falls back to the default logo in light mode', () => {
     const startup = {
       session: {

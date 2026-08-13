@@ -405,7 +405,9 @@ class IamWebControllerIT {
                 .andExpect(jsonPath("$.fields[?(@.name == 'gender')].optionBinding.source")
                         .value(org.hamcrest.Matchers.contains("iam.gender")))
                 .andExpect(jsonPath("$.fields[?(@.name == 'gender')].optionTitleField")
-                        .value(org.hamcrest.Matchers.contains("genderTitle")));
+                        .value(org.hamcrest.Matchers.contains("genderTitle")))
+                .andExpect(jsonPath("$.fields[?(@.name == 'avatarAssetId')].title")
+                        .value(org.hamcrest.Matchers.contains("头像")));
 
     }
 

@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
+import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
+import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -25,10 +27,35 @@ class ActionEndpointContextResolverTest {
         assertThat(context.actionCode()).isEqualTo(PlatformAction.CREATE.code());
     }
 
+    @Test
+    void shouldAllowIndependentLoginRequiredCustomActionWithoutRoleGrant() throws Exception {
+        ProfileController controller = new ProfileController();
+        HandlerMethod handler = new HandlerMethod(controller,
+                ProfileController.class.getMethod("updateProfile"));
+        CustomActionEndpoint endpoint = handler.getMethodAnnotation(CustomActionEndpoint.class);
+
+        var context = new ActionEndpointContextResolver()
+                .resolve(new MockHttpServletRequest(), handler, endpoint)
+                .orElseThrow();
+
+        assertThat(context.moduleAlias()).isEqualTo("iam.user");
+        assertThat(context.actionCode()).isEqualTo("selfProfile");
+        assertThat(context.actionPolicy().accessMode()).isEqualTo(ActionAccessMode.LOGIN_REQUIRED);
+        assertThat(context.actionPolicy().actionAuth()).isFalse();
+    }
+
     @PlatformStaticActionScope(module = "mr.knowledge_file")
     static class ProjectionController {
         @ActionEndpoint(PlatformAction.CREATE)
         public void issueTransferTicket() {
+        }
+    }
+
+    @PlatformStaticActionScope(module = "iam.user")
+    static class ProfileController {
+        @CustomActionEndpoint(value = "selfProfile", accessMode = ActionAccessMode.LOGIN_REQUIRED,
+                actionAuth = false)
+        public void updateProfile() {
         }
     }
 }

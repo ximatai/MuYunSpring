@@ -54,7 +54,6 @@ class PlatformBaselineInitialDataTest {
             UserAccount user = userAccountService.select(UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID);
             assertThat(user).isNotNull();
             assertThat(user.getTenantId()).isNull();
-            assertThat(user.getOrganizationId()).isNull();
             assertThat(userAccountService.passwordMatches(user, "admin123")).isTrue();
         }
     }

@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.platform.web.code.CodeSequenceStateWebController
 import net.ximatai.muyun.spring.platform.application.PlatformStaticApplication;
 import net.ximatai.muyun.spring.iam.web.DepartmentWebController;
 import net.ximatai.muyun.spring.iam.web.EmployeeWebController;
+import net.ximatai.muyun.spring.iam.web.LoginWebController;
 import net.ximatai.muyun.spring.iam.web.OrganizationWebController;
 import net.ximatai.muyun.spring.iam.web.PasswordPolicyRuleWebController;
 import net.ximatai.muyun.spring.iam.web.PositionCategoryWebController;
@@ -53,8 +54,10 @@ import net.ximatai.muyun.spring.platform.menu.MenuSchemeService;
 import net.ximatai.muyun.spring.platform.metadata.FieldSpecService;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.user.PasswordHashingService;
+import net.ximatai.muyun.spring.iam.user.CurrentUserProfileService;
 import net.ximatai.muyun.spring.iam.user.UserAccountDao;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
+import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowActionPolicyService;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowDefinitionService;
@@ -144,6 +147,8 @@ class StaticModuleDefinitionScannerTest {
                 ReflectionTestUtils.setField(controller, "service", userAccountService);
                 return controller;
             });
+            context.registerBean(LoginWebController.class, () -> new LoginWebController(
+                    mock(UserSessionService.class), mock(TenantService.class), mock(CurrentUserProfileService.class)));
             context.registerBean(SystemUserAccountWebController.class);
             context.registerBean(PasswordPolicyRuleWebController.class,
                     () -> withService(new PasswordPolicyRuleWebController(), mock(PasswordPolicyRuleService.class)));
@@ -239,7 +244,7 @@ class StaticModuleDefinitionScannerTest {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
                                     .containsExactly("organizationId", "departmentId", "employeeNo", "title",
-                                            "gender", "mobile", "email", "enabled");
+                                            "avatarAssetId", "gender", "mobile", "email", "enabled");
                             assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("departmentId"))
                                     .singleElement()
                                     .satisfies(field -> assertThat(field.uiType()).isEqualTo("recordPicker"));
@@ -338,7 +343,13 @@ class StaticModuleDefinitionScannerTest {
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                                 "enable", "disable", "userSelector", "changePassword", "resetPassword",
                                 "forceLogout", "sessions", "sessionStatuses", "revokeSession", "revokeSessions",
-                                "employeeBinding");
+                                "employeeBinding", "selfProfile");
+                assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("selfProfile"))
+                        .singleElement()
+                        .satisfies(action -> {
+                            assertThat(action.accessMode()).isEqualTo(EntityActionAccessMode.LOGIN_REQUIRED);
+                            assertThat(action.actionAuth()).isFalse();
+                        });
                 assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("userSelector"))
                         .singleElement()
                         .satisfies(action -> {

@@ -87,8 +87,8 @@ public class ActionEndpointContextResolver {
                 .orElseGet(() -> new ActionExecutionPolicy(
                         actionCode,
                         endpoint.level(),
-                        ActionAccessMode.AUTH_REQUIRED,
-                        true,
+                        endpoint.accessMode(),
+                        endpoint.actionAuth(),
                         endpoint.dataAuth(),
                         ActionDefaultGrantPolicy.NONE,
                         null

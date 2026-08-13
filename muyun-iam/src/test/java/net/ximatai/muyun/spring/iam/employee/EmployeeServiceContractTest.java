@@ -23,6 +23,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -194,6 +195,24 @@ class EmployeeServiceContractTest {
     @Test
     void shouldNotExposeFormSchemaFromServiceAbility() {
         assertThat(FormAbility.class.isAssignableFrom(EmployeeService.class)).isFalse();
+    }
+
+    @Test
+    void shouldPersistSelfManagedProfileWithoutEmployeeManagementAction() {
+        EmployeeDao dao = mock(EmployeeDao.class);
+        when(dao.updateById(any())).thenReturn(1);
+        Employee employee = employee("org-1", "dept-1", "E001", "Alice");
+        employee.setId("employee-1");
+        employee.setEnabled(Boolean.TRUE);
+        when(dao.query(any(), any())).thenReturn(List.of(employee));
+        EmployeeService service = new EmployeeService(dao, activeTenantVerifier(), organizationService(), departmentService());
+
+        assertThat(service.updateSelfManagedProfile("employee-1", " 13800000001 ", "alice@example.test", "asset-1"))
+                .isEqualTo(1);
+        verify(dao).updateById(argThat(updated -> updated == employee
+                && "13800000001".equals(updated.getMobile())
+                && "alice@example.test".equals(updated.getEmail())
+                && "asset-1".equals(updated.getAvatarAssetId())));
     }
 
     @Test

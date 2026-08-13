@@ -8,9 +8,16 @@ import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.iam.user.LoginResult;
+import net.ximatai.muyun.spring.iam.user.CurrentUserProfile;
+import net.ximatai.muyun.spring.iam.user.CurrentUserProfileService;
+import net.ximatai.muyun.spring.iam.user.UpdateCurrentUserProfileRequest;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.iam.tenant.TenantBranding;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
+import net.ximatai.muyun.spring.platform.web.PlatformStaticActionScope;
+import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
+import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
+import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,20 +26,29 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
 
 @RestController
+@PlatformStaticActionScope(module = "iam.user")
 @RequestMapping("/iam.auth")
 public class LoginWebController {
     private final UserSessionService userSessionService;
     private final TenantService tenantService;
+    private final CurrentUserProfileService currentUserProfileService;
 
     public LoginWebController(UserSessionService userSessionService) {
         this.userSessionService = userSessionService;
         this.tenantService = null;
+        this.currentUserProfileService = null;
+    }
+
+    public LoginWebController(UserSessionService userSessionService, TenantService tenantService) {
+        this(userSessionService, tenantService, null);
     }
 
     @Autowired
-    public LoginWebController(UserSessionService userSessionService, TenantService tenantService) {
+    public LoginWebController(UserSessionService userSessionService, TenantService tenantService,
+                              CurrentUserProfileService currentUserProfileService) {
         this.userSessionService = userSessionService;
         this.tenantService = tenantService;
+        this.currentUserProfileService = currentUserProfileService;
     }
 
     @PostMapping("/login")
@@ -60,6 +76,20 @@ public class LoginWebController {
                 .orElseThrow(() -> new AuthenticationRequiredException("current user context is not available"));
     }
 
+    @GetMapping("/profile")
+    @CustomActionEndpoint(value = "selfProfile", title = "查看个人资料", level = PlatformActionLevel.RECORD,
+            accessMode = ActionAccessMode.LOGIN_REQUIRED, actionAuth = false)
+    public CurrentUserProfile profile() {
+        return requireCurrentUserProfileService().currentProfile(currentUser());
+    }
+
+    @PostMapping("/profile")
+    @CustomActionEndpoint(value = "selfProfile", title = "维护个人资料", level = PlatformActionLevel.RECORD,
+            accessMode = ActionAccessMode.LOGIN_REQUIRED, actionAuth = false)
+    public CurrentUserProfile updateProfile(@RequestBody UpdateCurrentUserProfileRequest request) {
+        return requireCurrentUserProfileService().updateCurrentProfile(currentUser(), request);
+    }
+
     @GetMapping("/tenant-branding")
     public TenantBranding tenantBranding() {
         CurrentUser currentUser = CurrentUserContext.currentUser()
@@ -80,6 +110,18 @@ public class LoginWebController {
             return null;
         }
         return header.substring(prefix.length()).trim();
+    }
+
+    private CurrentUser currentUser() {
+        return CurrentUserContext.currentUser()
+                .orElseThrow(() -> new AuthenticationRequiredException("current user context is not available"));
+    }
+
+    private CurrentUserProfileService requireCurrentUserProfileService() {
+        if (currentUserProfileService == null) {
+            throw new IllegalStateException("current user profile service is not available");
+        }
+        return currentUserProfileService;
     }
 
     private String clientIp(HttpServletRequest request) {

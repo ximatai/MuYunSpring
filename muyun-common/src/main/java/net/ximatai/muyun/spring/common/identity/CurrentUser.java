@@ -59,6 +59,10 @@ public record CurrentUser(
         return new CurrentUser(userId, username, tenantId, organizationId, system, passwordChangeRequired, timeZone);
     }
 
+    public CurrentUser withOrganizationId(String organizationId) {
+        return new CurrentUser(userId, username, tenantId, organizationId, system, passwordChangeRequired, timeZone);
+    }
+
     private static String requireText(String value, String name) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(name + " must not be blank");

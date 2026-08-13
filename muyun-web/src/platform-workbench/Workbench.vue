@@ -62,6 +62,7 @@ const activeTabKey = computed(
 );
 const activeTab = computed(() => openedTabs.value.find((tab) => tab.key === activeTabKey.value));
 const activePageDescriptor = computed(() => pageDescriptorOf(activeTab.value));
+const activeTabRefreshEpoch = ref(0);
 const currentUser = computed(() => props.startup?.session.currentUser);
 const userDisplayName = computed(() => currentUser.value?.username ?? currentUser.value?.userId ?? '未登录');
 const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || 'M');
@@ -80,7 +81,6 @@ const activeTargetLabel = computed(() => targetLabelOf(activePageDescriptor.valu
 const userMenuItems: UiDropdownItem[] = [
   { key: 'changePassword', title: '修改密码' },
   { key: 'profile', title: '个人信息' },
-  { key: 'settings', title: '偏好设置' },
   { key: 'logout', title: '退出登录', danger: true },
 ];
 const menuPresentation = ref(
@@ -132,6 +132,17 @@ function toTabItem(tab: MenuTab): UiTabItem {
 function handleTabChange(key: string) {
   emit('update:activeTabKey', key);
   emit('changeTab', key);
+}
+
+function refreshActiveTab() {
+  if (!activeTab.value) {
+    return;
+  }
+  activeTabRefreshEpoch.value += 1;
+}
+
+function tabHostKey(tab: MenuTab) {
+  return tab.key === activeTabKey.value ? `${tab.key}:refresh:${activeTabRefreshEpoch.value}` : tab.key;
 }
 
 function handleUserCommand(key: string) {
@@ -378,18 +389,23 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
         </div>
 
         <div class="topbar-actions" aria-label="全局工具">
-          <button class="icon-button wide" type="button" aria-label="搜索">
-            <UiIcon name="search" />
-            <span>搜索</span>
-          </button>
-          <button class="icon-button" type="button" aria-label="刷新">
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="刷新当前页"
+            title="刷新当前页"
+            :disabled="!activeTab"
+            @click="refreshActiveTab"
+          >
             <UiIcon name="reload" />
           </button>
-          <button class="icon-button" type="button" aria-label="通知">
-            <UiIcon name="notification" />
-          </button>
-          <button class="icon-button" type="button" aria-label="设置">
-            <UiIcon name="settings" />
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="皮肤切换"
+            @click="emit('userCommand', 'themeSkin')"
+          >
+            <UiIcon name="skin" />
           </button>
         </div>
 
@@ -428,6 +444,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
               <UiSidePanelHost
                 v-if="shouldKeepTabMounted(tab)"
                 v-show="tab.key === activeTabKey"
+                :key="tabHostKey(tab)"
                 class="tab-panel-host"
               >
                 <div

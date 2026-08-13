@@ -224,9 +224,6 @@ class EmployeeAccountServiceContractTest {
         assertThat(result.user()).isEqualTo(persisted);
         assertThat(result.binding()).isEqualTo(binding);
         assertThat(account.getTitle()).isNull();
-        assertThat(account.getMobile()).isNull();
-        assertThat(account.getEmail()).isNull();
-        assertThat(account.getOrganizationId()).isNull();
         assertThat(account.getEnabled()).isTrue();
         verify(service).bindAccount(eq("employee-1"), any(EmployeeAccount.class));
     }
