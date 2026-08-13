@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 import FileTransferUploader from '@/platform-components/FileTransferUploader.vue';
 
 describe('FileTransferUploader', () => {
+  it('keeps a field boundary below the dropzone presentation', () => {
+    const dropzone = mount(FileTransferUploader);
+    const button = mount(FileTransferUploader, { props: { presentation: 'button' } });
+
+    expect(dropzone.classes()).toContain('file-transfer-uploader--dropzone');
+    expect(button.classes()).not.toContain('file-transfer-uploader--dropzone');
+  });
+
   it('does not expose a native file chooser while disabled', async () => {
     const wrapper = mount(FileTransferUploader, {
       props: { disabled: true },

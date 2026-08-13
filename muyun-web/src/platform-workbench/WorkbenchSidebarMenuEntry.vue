@@ -219,7 +219,7 @@ function handleMainClick() {
   border-radius: 5px 0 0 5px;
   background: var(--muyun-support-surface);
   color: var(--muyun-theme-base);
-  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
+  box-shadow: inset var(--workbench-menu-selection-indicator-width, 4px) 0 0 var(--muyun-theme-base);
 }
 
 .sidebar-menu-entry.branch {
@@ -281,11 +281,11 @@ function handleMainClick() {
 .sidebar-menu-entry.selected::before,
 .sidebar-menu-entry.selected-path::before {
   position: absolute;
-  top: 5px;
-  bottom: 5px;
+  top: var(--workbench-menu-selection-indicator-inset, 3px);
+  bottom: var(--workbench-menu-selection-indicator-inset, 3px);
   left: 0;
   z-index: 1;
-  width: 3px;
+  width: var(--workbench-menu-selection-indicator-width, 4px);
   border-radius: 0 999px 999px 0;
   background: var(--muyun-theme-base);
   content: '';
@@ -305,7 +305,7 @@ function handleMainClick() {
 .sidebar-menu-entry.active.selected-path {
   background: var(--muyun-support-surface);
   color: var(--muyun-theme-base);
-  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
+  box-shadow: inset var(--workbench-menu-selection-indicator-width, 4px) 0 0 var(--muyun-theme-base);
 }
 
 .sidebar-menu-entry:disabled {

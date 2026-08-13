@@ -13,9 +13,9 @@ describe('UiTheme', () => {
   it('exposes semantic CSS variables from one theme input', () => {
     const variables = cssVariablesOf(defaultUiTheme);
 
-    expect(variables['--muyun-theme-base']).toBe('#0052D9');
+    expect(variables['--muyun-theme-base']).toBe('#0062B0');
     expect(variables['--muyun-brand-accent-on-base']).toBe('#171F2A');
-    expect(variables['--muyun-brand-accent-base']).toBe('#F5B700');
+    expect(variables['--muyun-brand-accent-base']).toBe('#F5BE2C');
     expect(variables['--muyun-support-surface']).toBe('#FFFFFF');
     expect(variables['--muyun-support-disabled']).toBe('#EEF1F5');
     expect(variables['--muyun-positive-focus']).toBe('#D3F3E7');

@@ -12,6 +12,12 @@ it('consumer surface exposes the stable app-shell feedback and lifecycle facades
   const consumerSource = readSource('consumer/index.ts');
   const runtimeSource = readSource('platform-admin-runtime/index.ts');
 
+  assert.match(consumerSource, /import '\.\.\/vue-ui-antdv\/styles\.css';/);
+  assert.match(consumerSource, /import '\.\.\/styles\.css';/);
+  assert.match(
+    consumerSource,
+    /export \{ uploadedFileId \} from '\.\.\/platform-components\/fileReferenceTransfer';/,
+  );
   assert.match(consumerSource, /presentPlatformInfo/);
   assert.match(consumerSource, /refreshModulePageList/);
   assert.match(runtimeSource, /connectAppRealtime,/);
