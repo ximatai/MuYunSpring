@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { Switch as ASwitch } from 'ant-design-vue';
 
 defineOptions({ name: 'UiSwitch', inheritAttrs: false });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     checked?: boolean;
     disabled?: boolean;
@@ -20,6 +21,8 @@ withDefaults(
   },
 );
 
+const hasText = computed(() => Boolean(props.checkedText || props.uncheckedText));
+
 const emit = defineEmits<{
   'update:checked': [checked: boolean];
   change: [checked: boolean];
@@ -34,14 +37,30 @@ function handleChange(checked: unknown) {
 
 <template>
   <ASwitch
-    :checked="checked"
-    :disabled="disabled"
-    :loading="loading"
-    :class="$attrs.class"
+    v-if="hasText"
+    :checked="props.checked"
+    :disabled="props.disabled"
+    :loading="props.loading"
+    :class="[$attrs.class, { 'ui-switch--icon-only': !hasText }]"
     :style="$attrs.style"
     @change="handleChange"
   >
-    <template v-if="checkedText" #checkedChildren>{{ checkedText }}</template>
-    <template v-if="uncheckedText" #unCheckedChildren>{{ uncheckedText }}</template>
+    <template v-if="props.checkedText" #checkedChildren>{{ props.checkedText }}</template>
+    <template v-if="props.uncheckedText" #unCheckedChildren>{{ props.uncheckedText }}</template>
   </ASwitch>
+  <ASwitch
+    v-else
+    :checked="props.checked"
+    :disabled="props.disabled"
+    :loading="props.loading"
+    :class="[$attrs.class, 'ui-switch--icon-only']"
+    :style="$attrs.style"
+    @change="handleChange"
+  />
 </template>
+
+<style>
+.ui-switch--icon-only.ant-switch {
+  width: 44px;
+}
+</style>

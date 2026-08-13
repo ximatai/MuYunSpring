@@ -10,7 +10,8 @@ public record ViewDefinition(String viewCode,
                              String title,
                              List<ViewFieldDefinition> fields,
                              String sourceUiConfigId,
-                             ScopedListWorkspaceDefinition scopedListWorkspace) {
+                             ScopedListWorkspaceDefinition scopedListWorkspace,
+                             List<FormGroupDefinition> formGroups) {
     public ViewDefinition {
         if (viewCode == null || viewCode.isBlank()) {
             throw new IllegalArgumentException("view code must not be blank");
@@ -26,11 +27,21 @@ public record ViewDefinition(String viewCode,
         if (scopedListWorkspace != null && viewKind != ModuleViewKind.LIST) {
             throw new IllegalArgumentException("scoped list workspace is only supported by list views: " + viewCode);
         }
+        formGroups = formGroups == null ? List.of() : List.copyOf(formGroups);
+        if (!formGroups.isEmpty() && viewKind != ModuleViewKind.FORM) {
+            throw new IllegalArgumentException("form groups are only supported by form views: " + viewCode);
+        }
     }
 
     public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                           List<ViewFieldDefinition> fields) {
-        this(viewCode, viewKind, clientType, title, fields, null, null);
+        this(viewCode, viewKind, clientType, title, fields, null, null, null);
+    }
+
+    public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
+                          List<ViewFieldDefinition> fields, String sourceUiConfigId,
+                          ScopedListWorkspaceDefinition scopedListWorkspace) {
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, scopedListWorkspace, null);
     }
 
     public static Builder list() {
@@ -57,6 +68,7 @@ public record ViewDefinition(String viewCode,
         private String sourceUiConfigId;
         private ScopedListWorkspaceDefinition scopedListWorkspace;
         private final List<ViewFieldDefinition> fields = new ArrayList<>();
+        private final List<FormGroupDefinition> formGroups = new ArrayList<>();
 
         private Builder(String viewCode, ModuleViewKind viewKind) {
             this.viewCode = viewCode;
@@ -124,9 +136,25 @@ public record ViewDefinition(String viewCode,
             return this;
         }
 
+        /** Adds a semantic form group that owns its nested fields. */
+        public Builder group(String groupCode, String title, String subtitle,
+                             Consumer<FormGroupDefinition.Builder> customizer) {
+            if (viewKind != ModuleViewKind.FORM) {
+                throw new IllegalStateException("form groups are only supported by form views");
+            }
+            FormGroupDefinition.Builder builder = FormGroupDefinition.builder(groupCode, title, subtitle);
+            if (customizer != null) {
+                customizer.accept(builder);
+            }
+            FormGroupDefinition group = builder.build();
+            formGroups.add(group);
+            fields.addAll(group.fields());
+            return this;
+        }
+
         public ViewDefinition build() {
             return new ViewDefinition(viewCode, viewKind, clientType, title, fields, sourceUiConfigId,
-                    scopedListWorkspace);
+                    scopedListWorkspace, formGroups);
         }
     }
 }

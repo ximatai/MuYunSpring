@@ -146,6 +146,48 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldDefaultEditableBusinessBooleansToSwitchWhileKeepingEnablementSemantic() {
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("demo", "demo.brand", "品牌配置")
+                .entities(List.of(new EntityDefinition("brand", "demo_brand", "Brand",
+                        List.of(
+                                FieldDefinition.bool("showTitleArea", "展示标题区"),
+                                FieldDefinition.bool("enabled", "启用状态")
+                        ))))
+                .uiDefinition(ModuleUiDefinition.builder("demo.brand")
+                        .formView(form -> form
+                                .field("showTitleArea", field -> field.label("展示标题区"))
+                                .field("enabled", field -> field.label("启用状态")))
+                        .build())
+                .build();
+
+        List<ResolvedViewFieldDescriptor> fields = ModuleUiDescriptorCompiler.compile(definition)
+                .views().getFirst().fields();
+
+        assertThat(fields).extracting(field -> field.fieldRef().fieldName())
+                .containsExactly("showTitleArea", "enabled");
+        assertThat(fields).extracting(ResolvedViewFieldDescriptor::uiType)
+                .containsExactly("switch", "enabledStatus");
+    }
+
+    @Test
+    void shouldPublishFormFieldGroupMetadataWithStaticFields() {
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("demo", "demo.brand", "品牌配置")
+                .entities(List.of(new EntityDefinition("brand", "demo_brand", "Brand",
+                        List.of(FieldDefinition.bool("showTitleArea", "展示标题区")))))
+                .uiDefinition(ModuleUiDefinition.builder("demo.brand")
+                        .formView(form -> form.group("branding", "品牌配置", "配置标题和 Logo", group -> group
+                                .field("showTitleArea", field -> { })))
+                        .build())
+                .build();
+
+        ResolvedFormGroupDescriptor group = ModuleUiDescriptorCompiler.compile(definition)
+                .views().getFirst().formGroups().getFirst();
+
+        assertThat(group).isEqualTo(new ResolvedFormGroupDescriptor("branding", "品牌配置", "配置标题和 Logo",
+                List.of(ViewFieldRef.main("showTitleArea"))));
+    }
+
+    @Test
     void shouldCompileFileSizeAsTypedPresentationWithoutChangingLongValueType() {
         StaticModuleDefinition definition = StaticModuleDefinition.builder("mr", "mr.knowledge_file", "知识文件")
                 .entities(List.of(new EntityDefinition("knowledge_file", "mr_knowledge_file", "Knowledge File",

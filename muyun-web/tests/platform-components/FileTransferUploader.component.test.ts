@@ -28,4 +28,22 @@ describe('FileTransferUploader', () => {
     expect(wrapper.find('.file-transfer-uploader__choose-button').attributes('disabled')).toBeDefined();
     expect(click).not.toHaveBeenCalled();
   });
+
+  it('rejects a business-invalid selected file before upload', async () => {
+    const uploadFile = vi.fn();
+    const wrapper = mount(FileTransferUploader, {
+      props: {
+        uploadFile,
+        uploadValidation: () => '仅允许正方形 Logo',
+      },
+    });
+    const file = new File(['image'], 'horizontal.png', { type: 'image/png' });
+    const input = wrapper.get('input[type="file"]');
+
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [file] });
+    await input.trigger('change');
+    await vi.waitFor(() => expect(wrapper.text()).toContain('仅允许正方形 Logo'));
+
+    expect(uploadFile).not.toHaveBeenCalled();
+  });
 });

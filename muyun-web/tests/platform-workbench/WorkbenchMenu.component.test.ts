@@ -247,7 +247,7 @@ describe('WorkbenchMenu', () => {
     });
 
     expect(wrapper.get('.compact-menu-tools').get('[aria-label="搜索菜单"]').exists()).toBe(true);
-    expect(wrapper.findComponent({ name: 'UiInput' }).props('placeholder')).toBe('搜索菜单、模块或路由');
+    expect(wrapper.findComponent({ name: 'UiInput' }).props('placeholder')).toBe('');
     expect(wrapper.find('[aria-label="展开侧栏菜单"]').exists()).toBe(false);
   });
 
@@ -264,11 +264,14 @@ describe('WorkbenchMenu', () => {
 
   it('keeps the existing expanded sidebar available as the alternate presentation', () => {
     const wrapper = shallowMount(WorkbenchMenu, {
-      props: { menus, presentation: 'expanded' },
+      props: { menus, presentation: 'expanded', logoSrc: 'data:image/png;base64,bG9nbw==' },
     });
 
     expect(wrapper.find('.workbench-menu--expanded').exists()).toBe(true);
     expect(wrapper.findComponent({ name: 'WorkbenchBrandControl' }).props('presentation')).toBe('expanded');
+    expect(wrapper.findComponent({ name: 'WorkbenchBrandControl' }).props('logoSrc')).toBe(
+      'data:image/png;base64,bG9nbw==',
+    );
   });
 
   it('renders nested sidebar levels only when selected for the expanded presentation', async () => {
@@ -912,6 +915,48 @@ describe('Workbench compact menu', () => {
     );
   });
 
+  it('uses the same tenant logo for the expanded sidebar brand', async () => {
+    await userPreferences.set('workbench.menu-presentation', 'expanded');
+    const wrapper = shallowMount(Workbench, {
+      props: {
+        startup: {
+          session: {
+            currentUser: { userId: 'user-1', tenantId: 'tenant-a', system: false },
+            tenantBranding: { lightLogo: 'data:image/png;base64,bGlnaHQ=' },
+          },
+          menus: [],
+        },
+      },
+    });
+
+    expect(wrapper.findComponent(WorkbenchMenu).props('logoSrc')).toBe('data:image/png;base64,bGlnaHQ=');
+  });
+
+  it('passes logo-only branding mode to both workbench brand presentations', () => {
+    const wrapper = shallowMount(Workbench, {
+      props: {
+        startup: {
+          session: {
+            currentUser: { userId: 'user-1', tenantId: 'tenant-a', system: false },
+            tenantBranding: { mode: 'logoOnly', title: '不应显示', subtitle: '不应显示' },
+          },
+          menus: [],
+        },
+      },
+    });
+
+    expect(wrapper.findComponent(WorkbenchBrandControl).props()).toMatchObject({
+      showTitleArea: false,
+      brandTitle: '不应显示',
+      brandSubtitle: '不应显示',
+    });
+    expect(wrapper.findComponent(WorkbenchMenu).props()).toMatchObject({
+      showTitleArea: false,
+      brandTitle: '不应显示',
+      brandSubtitle: '不应显示',
+    });
+  });
+
   it('joins the active tab and its page body in one Mega surface', () => {
     const wrapper = shallowMount(Workbench);
 
@@ -1088,7 +1133,7 @@ describe('WorkbenchBrandControl', () => {
     );
   });
 
-  it('shows the expanded sidebar depth chooser beside the presentation toggle', async () => {
+  it('stacks the expanded sidebar depth chooser above the presentation toggle', async () => {
     const wrapper = mount(WorkbenchBrandControl, {
       props: { presentation: 'expanded', expandedMenuDepth: 1 },
     });
@@ -1096,6 +1141,11 @@ describe('WorkbenchBrandControl', () => {
     expect(wrapper.findAll('.workbench-menu-depth-option')).toHaveLength(3);
     expect(wrapper.get('[aria-label="侧栏菜单层级"]').text()).toBe('123');
     expect(wrapper.get('.workbench-menu-depth-option.selected').text()).toBe('1');
+    const actions = wrapper.get('.workbench-brand-actions');
+    expect(actions.element.firstElementChild).toBe(wrapper.get('[aria-label="侧栏菜单层级"]').element);
+    expect(actions.element.lastElementChild).toBe(
+      wrapper.get('.workbench-brand-presentation-toggle').element,
+    );
 
     await wrapper.findAll('.workbench-menu-depth-option')[2].trigger('click');
 
@@ -1111,12 +1161,51 @@ describe('WorkbenchBrandControl', () => {
     expect(wrapper.get('[aria-label="系统菜单"]').exists()).toBe(true);
   });
 
-  it('renders a tenant-provided logo in place of the fallback app mark', () => {
+  it('renders a tenant-provided logo and title without a subtitle in compact mode', () => {
     const wrapper = mount(WorkbenchBrandControl, {
-      props: { presentation: 'compact', logoSrc: 'data:image/png;base64,bG9nbw==' },
+      props: {
+        presentation: 'compact',
+        logoSrc: 'data:image/png;base64,bG9nbw==',
+        brandTitle: '木云工作台',
+        brandSubtitle: '租户 A',
+      },
     });
 
     expect(wrapper.get('.workbench-brand-logo').attributes('src')).toBe('data:image/png;base64,bG9nbw==');
-    expect(wrapper.find('.workbench-brand-mark .ui-icon').exists()).toBe(false);
+    expect(wrapper.find('.workbench-brand-mark').exists()).toBe(false);
+    expect(wrapper.get('.workbench-brand-copy').text()).toContain('木云工作台');
+    expect(wrapper.find('.workbench-brand-copy small').exists()).toBe(false);
+  });
+
+  it('renders the configured subtitle in expanded mode', () => {
+    const wrapper = mount(WorkbenchBrandControl, {
+      props: {
+        presentation: 'expanded',
+        brandTitle: '木云工作台',
+        brandSubtitle: '租户 A',
+      },
+    });
+
+    expect(wrapper.get('.workbench-brand-copy').text()).toContain('木云工作台');
+    expect(wrapper.get('.workbench-brand-copy small').text()).toBe('租户 A');
+  });
+
+  it('keeps the brand mark but hides both titles when the tenant disables the title area', () => {
+    const wrapper = mount(WorkbenchBrandControl, {
+      props: { presentation: 'compact', showTitleArea: false },
+    });
+
+    expect(wrapper.find('.workbench-brand-mark').exists()).toBe(true);
+    expect(wrapper.find('.workbench-brand-copy').exists()).toBe(false);
+  });
+
+  it('gives the brand mark additional visual weight when it accompanies a title', () => {
+    const wrapper = mount(WorkbenchBrandControl, {
+      props: { presentation: 'compact', showTitleArea: true },
+    });
+
+    expect(wrapper.get('.workbench-brand-identity').classes()).toContain(
+      'workbench-brand-identity--with-title',
+    );
   });
 });

@@ -47,6 +47,11 @@ const props = withDefaults(
     disabled?: boolean;
     disabledOf?: (fieldName: string, field: RecordFormFieldState) => boolean;
     placeholderOf?: (fieldName: string, field: RecordFormFieldState) => string | undefined;
+    imageUploadHintOf?: (fieldName: string, field: RecordFormFieldState) => string | undefined;
+    imageUploadAdvisoryOf?: (
+      fieldName: string,
+      field: RecordFormFieldState,
+    ) => ((file: File) => string | undefined | Promise<string | undefined>) | undefined;
   }>(),
   {
     fieldNames: undefined,
@@ -60,6 +65,8 @@ const props = withDefaults(
     disabled: false,
     disabledOf: undefined,
     placeholderOf: undefined,
+    imageUploadHintOf: undefined,
+    imageUploadAdvisoryOf: undefined,
   },
 );
 
@@ -235,149 +242,174 @@ function updateSelectField(field: RecordFormFieldState, value: OptionValue | Opt
   }
   emit('update:field', field.fieldName, value ?? undefined);
 }
+
+function groupOf(field: RecordFormFieldState | undefined) {
+  return field?.formGroup;
+}
+
+function groupStartsAt(field: RecordFormFieldState, index: number) {
+  return groupOf(field)?.groupCode !== groupOf(fieldStates.value[index - 1])?.groupCode;
+}
+
+function groupEndsAt(field: RecordFormFieldState, index: number) {
+  return (
+    groupOf(field) != null && groupOf(field)?.groupCode !== groupOf(fieldStates.value[index + 1])?.groupCode
+  );
+}
 </script>
 
 <template>
-  <label
-    v-for="field in fieldStates"
-    :key="field.fieldName"
-    class="record-form-field"
-    :class="{ 'record-form-field-full-row': field.columnSpan === 2 }"
-  >
-    <span v-if="field.controlType !== 'imageFileTransfer'" class="record-form-field-label">
-      {{ field.label }}
-      <strong v-if="field.required" aria-hidden="true">*</strong>
-    </span>
-    <RecordStatusSwitch
-      v-if="field.controlType === 'enabledStatus'"
-      :enabled="booleanFieldValue(field.fieldName)"
-      :disabled="fieldDisabled(field)"
-      :show-label="false"
-      @change="updateField(field.fieldName, $event)"
-    />
-    <RecordStatusTag
-      v-else-if="field.controlType === 'booleanStatus'"
-      :enabled="businessBooleanStatusValue(field.fieldName)"
-      :enabled-label="field.booleanStatus?.trueLabel"
-      :disabled-label="field.booleanStatus?.falseLabel"
-      :enabled-tone="field.booleanStatus?.trueTone"
-      :disabled-tone="field.booleanStatus?.falseTone"
-    />
-    <UiSwitch
-      v-else-if="field.controlType === 'switch'"
-      :checked="booleanFieldValue(field.fieldName)"
-      :disabled="fieldDisabled(field)"
-      @change="updateField(field.fieldName, $event)"
-    />
-    <RecordPicker
-      v-else-if="field.controlType === 'recordPicker' && field.pickerConfig"
-      :value="scalarFieldValue(field.fieldName)"
-      :context="field.pickerConfig.context"
-      :reload-key="field.pickerConfig.reloadKey"
-      :mode="field.pickerConfig.mode"
-      :placeholder="field.placeholder"
-      :disabled="fieldDisabled(field)"
-      :allow-clear="field.pickerConfig.allowClear"
-      :constraints="field.pickerConfig.constraints"
-      :title-of="field.pickerConfig.titleOf"
-      :description-of="field.pickerConfig.descriptionOf"
-      :filter-option="field.pickerConfig.filterOption"
-      @update:value="updateField(field.fieldName, $event)"
-    />
-    <RecordMultiPicker
-      v-else-if="field.controlType === 'recordMultiPicker' && field.pickerConfig"
-      :value="stringArrayFieldValue(field.fieldName)"
-      :context="field.pickerConfig.context"
-      :reload-key="field.pickerConfig.reloadKey"
-      :mode="field.pickerConfig.mode"
-      :placeholder="field.placeholder"
-      :disabled="fieldDisabled(field)"
-      :allow-clear="field.pickerConfig.allowClear"
-      :constraints="field.pickerConfig.constraints"
-      :title-of="field.pickerConfig.titleOf"
-      :description-of="field.pickerConfig.descriptionOf"
-      :filter-option="field.pickerConfig.filterOption"
-      @update:value="updateField(field.fieldName, $event)"
-    />
-    <SingleImageFileReferenceField
-      v-else-if="
-        field.controlType === 'imageFileTransfer' && field.fileReference && resolvedFileTransferContext()
-      "
-      :label="field.label"
-      :required="field.required"
-      :value="record[field.fieldName]"
-      :record="record"
-      :context="resolvedFileTransferContext()!"
-      :definition="field.fileReference"
-      :form-session-key="formSessionKey"
-      :disabled="fieldDisabled(field)"
-      :disabled-hint="field.disabledHint"
-      @update:value="updateField(field.fieldName, $event)"
-    />
-    <RecordFileReferenceTransfer
-      v-else-if="field.controlType === 'fileTransfer' && field.fileReference && resolvedFileTransferContext()"
-      :value="record[field.fieldName]"
-      :record="record"
-      :context="resolvedFileTransferContext()!"
-      :definition="field.fileReference"
-      :form-session-key="formSessionKey"
-      :disabled="fieldDisabled(field)"
-      :disabled-hint="field.disabledHint"
-      @update:value="updateField(field.fieldName, $event)"
-    />
-    <UiTreeSelect
-      v-else-if="field.controlType === 'select' && optionFieldIsTree(field)"
-      :value="optionFieldValue(field.fieldName)"
-      :tree-data="optionFieldTree(field)"
-      :mode="optionFieldMultiple(field) ? 'multiple' : undefined"
-      :placeholder="field.placeholder"
-      :disabled="fieldDisabled(field)"
-      :allow-clear="!field.required"
-      :loading="optionFieldLoading(field)"
-      @update:value="updateSelectField(field, $event)"
-    />
-    <UiSelect
-      v-else-if="field.controlType === 'select' && (field.hasOption || optionFieldOptions(field).length > 0)"
-      :value="optionFieldValue(field.fieldName)"
-      :options="optionFieldOptions(field)"
-      :mode="optionFieldMultiple(field) ? 'multiple' : undefined"
-      :placeholder="field.placeholder"
-      :disabled="fieldDisabled(field)"
-      :allow-clear="!field.required"
-      :loading="optionFieldLoading(field)"
-      @update:value="updateSelectField(field, $event)"
-    />
-    <UiTextArea
-      v-else-if="field.controlType === 'textarea'"
-      :value="scalarFieldValue(field.fieldName)"
-      :disabled="fieldDisabled(field)"
-      :placeholder="field.placeholder"
-      @update:value="updateField(field.fieldName, $event)"
-    />
-    <UiColorPicker
-      v-else-if="field.controlType === 'colorPicker'"
-      :value="scalarFieldValue(field.fieldName)"
-      :disabled="fieldDisabled(field)"
-      @update:value="updateField(field.fieldName, $event)"
-    />
-    <FileSizeText
-      v-else-if="field.valuePresentation === 'FILE_SIZE'"
-      :value="fileSizeValue(field.fieldName)"
-    />
-    <UiInput
-      v-else
-      :value="scalarFieldValue(field.fieldName)"
-      :disabled="fieldDisabled(field)"
-      :placeholder="field.placeholder"
-      @update:value="updateField(field.fieldName, $event)"
-    />
-    <div v-if="optionFieldError(field)" class="record-form-field-error">
-      <span>{{ optionFieldError(field) }}</span>
-      <UiButton type="link" :disabled="optionFieldLoading(field)" @click="retryOptionField(field)">
-        重试
-      </UiButton>
-    </div>
-  </label>
+  <template v-for="(field, index) in fieldStates" :key="field.fieldName">
+    <template v-if="groupOf(field) && groupStartsAt(field, index)">
+      <div v-if="!groupOf(fieldStates[index - 1])" class="record-form-group-divider" aria-hidden="true" />
+      <header class="record-form-group-heading">
+        <h3>{{ groupOf(field)?.title }}</h3>
+        <p v-if="groupOf(field)?.subtitle">{{ groupOf(field)?.subtitle }}</p>
+      </header>
+    </template>
+    <label class="record-form-field" :class="{ 'record-form-field-full-row': field.columnSpan === 2 }">
+      <span v-if="field.controlType !== 'imageFileTransfer'" class="record-form-field-label">
+        {{ field.label }}
+        <strong v-if="field.required" aria-hidden="true">*</strong>
+      </span>
+      <RecordStatusSwitch
+        v-if="field.controlType === 'enabledStatus'"
+        :enabled="booleanFieldValue(field.fieldName)"
+        :disabled="fieldDisabled(field)"
+        :show-label="false"
+        @change="updateField(field.fieldName, $event)"
+      />
+      <RecordStatusTag
+        v-else-if="field.controlType === 'booleanStatus'"
+        :enabled="businessBooleanStatusValue(field.fieldName)"
+        :enabled-label="field.booleanStatus?.trueLabel"
+        :disabled-label="field.booleanStatus?.falseLabel"
+        :enabled-tone="field.booleanStatus?.trueTone"
+        :disabled-tone="field.booleanStatus?.falseTone"
+      />
+      <UiSwitch
+        v-else-if="field.controlType === 'switch'"
+        :checked="booleanFieldValue(field.fieldName)"
+        :disabled="fieldDisabled(field)"
+        @change="updateField(field.fieldName, $event)"
+      />
+      <RecordPicker
+        v-else-if="field.controlType === 'recordPicker' && field.pickerConfig"
+        :value="scalarFieldValue(field.fieldName)"
+        :context="field.pickerConfig.context"
+        :reload-key="field.pickerConfig.reloadKey"
+        :mode="field.pickerConfig.mode"
+        :placeholder="field.placeholder"
+        :disabled="fieldDisabled(field)"
+        :allow-clear="field.pickerConfig.allowClear"
+        :constraints="field.pickerConfig.constraints"
+        :title-of="field.pickerConfig.titleOf"
+        :description-of="field.pickerConfig.descriptionOf"
+        :filter-option="field.pickerConfig.filterOption"
+        @update:value="updateField(field.fieldName, $event)"
+      />
+      <RecordMultiPicker
+        v-else-if="field.controlType === 'recordMultiPicker' && field.pickerConfig"
+        :value="stringArrayFieldValue(field.fieldName)"
+        :context="field.pickerConfig.context"
+        :reload-key="field.pickerConfig.reloadKey"
+        :mode="field.pickerConfig.mode"
+        :placeholder="field.placeholder"
+        :disabled="fieldDisabled(field)"
+        :allow-clear="field.pickerConfig.allowClear"
+        :constraints="field.pickerConfig.constraints"
+        :title-of="field.pickerConfig.titleOf"
+        :description-of="field.pickerConfig.descriptionOf"
+        :filter-option="field.pickerConfig.filterOption"
+        @update:value="updateField(field.fieldName, $event)"
+      />
+      <SingleImageFileReferenceField
+        v-else-if="
+          field.controlType === 'imageFileTransfer' && field.fileReference && resolvedFileTransferContext()
+        "
+        :label="field.label"
+        :required="field.required"
+        :value="record[field.fieldName]"
+        :record="record"
+        :context="resolvedFileTransferContext()!"
+        :definition="field.fileReference"
+        :upload-hint="imageUploadHintOf?.(field.fieldName, field)"
+        :upload-advisory="imageUploadAdvisoryOf?.(field.fieldName, field)"
+        :form-session-key="formSessionKey"
+        :disabled="fieldDisabled(field)"
+        :disabled-hint="field.disabledHint"
+        @update:value="updateField(field.fieldName, $event)"
+      />
+      <RecordFileReferenceTransfer
+        v-else-if="
+          field.controlType === 'fileTransfer' && field.fileReference && resolvedFileTransferContext()
+        "
+        :value="record[field.fieldName]"
+        :record="record"
+        :context="resolvedFileTransferContext()!"
+        :definition="field.fileReference"
+        :form-session-key="formSessionKey"
+        :disabled="fieldDisabled(field)"
+        :disabled-hint="field.disabledHint"
+        @update:value="updateField(field.fieldName, $event)"
+      />
+      <UiTreeSelect
+        v-else-if="field.controlType === 'select' && optionFieldIsTree(field)"
+        :value="optionFieldValue(field.fieldName)"
+        :tree-data="optionFieldTree(field)"
+        :mode="optionFieldMultiple(field) ? 'multiple' : undefined"
+        :placeholder="field.placeholder"
+        :disabled="fieldDisabled(field)"
+        :allow-clear="!field.required"
+        :loading="optionFieldLoading(field)"
+        @update:value="updateSelectField(field, $event)"
+      />
+      <UiSelect
+        v-else-if="
+          field.controlType === 'select' && (field.hasOption || optionFieldOptions(field).length > 0)
+        "
+        :value="optionFieldValue(field.fieldName)"
+        :options="optionFieldOptions(field)"
+        :mode="optionFieldMultiple(field) ? 'multiple' : undefined"
+        :placeholder="field.placeholder"
+        :disabled="fieldDisabled(field)"
+        :allow-clear="!field.required"
+        :loading="optionFieldLoading(field)"
+        @update:value="updateSelectField(field, $event)"
+      />
+      <UiTextArea
+        v-else-if="field.controlType === 'textarea'"
+        :value="scalarFieldValue(field.fieldName)"
+        :disabled="fieldDisabled(field)"
+        :placeholder="field.placeholder"
+        @update:value="updateField(field.fieldName, $event)"
+      />
+      <UiColorPicker
+        v-else-if="field.controlType === 'colorPicker'"
+        :value="scalarFieldValue(field.fieldName)"
+        :disabled="fieldDisabled(field)"
+        @update:value="updateField(field.fieldName, $event)"
+      />
+      <FileSizeText
+        v-else-if="field.valuePresentation === 'FILE_SIZE'"
+        :value="fileSizeValue(field.fieldName)"
+      />
+      <UiInput
+        v-else
+        :value="scalarFieldValue(field.fieldName)"
+        :disabled="fieldDisabled(field)"
+        :placeholder="field.placeholder"
+        @update:value="updateField(field.fieldName, $event)"
+      />
+      <div v-if="optionFieldError(field)" class="record-form-field-error">
+        <span>{{ optionFieldError(field) }}</span>
+        <UiButton type="link" :disabled="optionFieldLoading(field)" @click="retryOptionField(field)">
+          重试
+        </UiButton>
+      </div>
+    </label>
+    <div v-if="groupEndsAt(field, index)" class="record-form-group-divider" aria-hidden="true" />
+  </template>
 </template>
 
 <style scoped>
@@ -390,6 +422,38 @@ function updateSelectField(field: RecordFormFieldState, value: OptionValue | Opt
 
 .record-form-field-full-row {
   grid-column: 1 / -1;
+}
+
+.record-form-group-divider {
+  grid-column: 1 / -1;
+  height: 1px;
+  margin: 4px 0 0;
+  background: var(--muyun-border-subtle);
+}
+
+.record-form-group-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  grid-column: 1 / -1;
+}
+
+.record-form-group-heading h3,
+.record-form-group-heading p {
+  margin: 0;
+}
+
+.record-form-group-heading h3 {
+  color: var(--muyun-text);
+  font-size: 14px;
+}
+
+.record-form-group-heading p {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: right;
 }
 
 .record-form-field-label {
@@ -409,5 +473,17 @@ function updateSelectField(field: RecordFormFieldState, value: OptionValue | Opt
   gap: 4px;
   color: var(--muyun-danger-base);
   font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .record-form-group-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .record-form-group-heading p {
+    text-align: left;
+  }
 }
 </style>

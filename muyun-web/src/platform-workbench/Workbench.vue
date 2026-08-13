@@ -70,6 +70,11 @@ const tenantLogo = computed(() => {
   const branding = props.startup?.session.tenantBranding;
   return props.themeAppearance === 'dark' ? branding?.darkLogo || branding?.lightLogo : branding?.lightLogo;
 });
+const showTenantTitleArea = computed(() => props.startup?.session.tenantBranding?.mode !== 'logoOnly');
+const tenantBrandTitle = computed(() => props.startup?.session.tenantBranding?.title?.trim() || 'MuYun');
+const tenantBrandSubtitle = computed(
+  () => props.startup?.session.tenantBranding?.subtitle?.trim() || tenantLabel.value,
+);
 const activePageTypeLabel = computed(() => pageTypeLabelOf(activePageDescriptor.value?.pageType));
 const activeTargetLabel = computed(() => targetLabelOf(activePageDescriptor.value));
 const userMenuItems: UiDropdownItem[] = [
@@ -320,6 +325,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
       :menus="startup?.menus ?? []"
       :selected-menu-id="activeTab?.target?.menuId"
       :tenant-label="tenantLabel"
+      :logo-src="tenantLogo"
+      :show-title-area="showTenantTitleArea"
+      :brand-title="tenantBrandTitle"
+      :brand-subtitle="tenantBrandSubtitle"
       :realtime-status="realtimeStatus"
       :presentation="effectiveMenuPresentation"
       :expanded-menu-depth="expandedMenuDepth"
@@ -345,6 +354,9 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
               :compact-open="compactMenuOpen"
               :tenant-label="tenantLabel"
               :logo-src="tenantLogo"
+              :show-title-area="showTenantTitleArea"
+              :brand-title="tenantBrandTitle"
+              :brand-subtitle="tenantBrandSubtitle"
               :presentation-toggle-visible="!narrowViewport"
               @open-compact-menu="openCompactMenu"
               @schedule-compact-menu-close="scheduleCompactMenuClose"

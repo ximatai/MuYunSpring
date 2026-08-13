@@ -2,6 +2,7 @@ import { assert, it } from 'vitest';
 import {
   childResourceDefaultFormViewCode,
   resolveRecordFormFields,
+  resolveRecordFormGroups,
   resolveRecordBooleanStatusValue,
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
@@ -96,6 +97,47 @@ it('record form field state resolves select options from fallback metadata', () 
       { label: '目录', value: 'FOLDER' },
     ],
   });
+});
+
+it('record form groups preserve fields nested by the UI descriptor and attach them to rendered fields', () => {
+  const uiDescriptor = {
+    schemaVersion: '1',
+    moduleAlias: 'iam.tenant',
+    views: [
+      {
+        viewCode: 'default_form',
+        viewKind: 'FORM',
+        fields: [
+          {
+            fieldRef: { fieldName: 'workbenchTitle' },
+            label: '主标题',
+          },
+        ],
+        formGroups: [
+          {
+            groupCode: 'workbench_branding',
+            title: '主标题UI个性化配置',
+            subtitle: '控制工作台标题和 Logo。',
+            fields: [{ fieldName: 'workbenchTitle' }],
+          },
+        ],
+      },
+    ],
+  } as const;
+  const groups = resolveRecordFormGroups(uiDescriptor);
+
+  assert.deepEqual(groups, [
+    {
+      groupCode: 'workbench_branding',
+      title: '主标题UI个性化配置',
+      subtitle: '控制工作台标题和 Logo。',
+      fields: [{ fieldName: 'workbenchTitle' }],
+    },
+  ]);
+  assert.equal(
+    resolveRecordFormFields(uiDescriptor).get('workbenchTitle')?.formGroup?.groupCode,
+    'workbench_branding',
+  );
 });
 
 it('record form field state preserves a descriptor switch as a generic boolean control', () => {

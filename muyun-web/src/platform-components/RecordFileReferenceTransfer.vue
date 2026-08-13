@@ -31,6 +31,10 @@ const props = defineProps<{
   uploadText?: string;
   uploadButtonType?: 'default' | 'primary' | 'dashed' | 'link' | 'text';
   showCompletedUploadItems?: boolean;
+  /** The enclosing field has already rendered the bound file and needs the uploader slot immediately reusable. */
+  releaseCompletedUploadOnBind?: boolean;
+  uploadAdvisory?: (file: File) => string | undefined | Promise<string | undefined>;
+  uploadValidation?: (file: File) => string | undefined | Promise<string | undefined>;
 }>();
 
 const emit = defineEmits<{
@@ -81,6 +85,9 @@ function applyUploadedFile(receipt: FileTransferUploadReceipt) {
   const fileId = uploadedFileId(receipt.payload);
   uploadedFileIds.value = new Set([...uploadedFileIds.value, fileId]);
   emit('update:value', appendUploadedFileReference(props.value, fileId, props.definition));
+  if (props.releaseCompletedUploadOnBind) {
+    releaseUploadedFile(fileId);
+  }
 }
 
 function removeBoundFile(fileId: string) {
@@ -142,6 +149,8 @@ function releaseUploadedFile(fileId: string) {
     :upload-text="uploadText"
     :upload-button-type="uploadButtonType"
     :show-completed-items="showCompletedUploadItems"
+    :upload-advisory="uploadAdvisory"
+    :upload-validation="uploadValidation"
     @completed="(receipt) => applyUploadedFile(receipt)"
   />
 </template>

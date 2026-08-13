@@ -123,11 +123,14 @@ class IamWebControllerTest {
     private MockMvc mvc;
 
     @Test
-    void shouldExposeTenantLogosAsOrdinaryFileReferenceFormFields() {
+    void shouldExposeTenantBrandingInfrastructureFieldsWithoutEncodingTenantPageLayout() {
         assertThat(new TenantWebController().moduleUiDefinition().views())
                 .flatExtracting(view -> view.fields())
                 .extracting(field -> field.fieldRef().fieldName())
-                .contains("lightLogoAssetId", "darkLogoAssetId");
+                .contains("alias", "title", "workbenchBrandMode", "workbenchTitle", "workbenchSubtitle",
+                        "lightLogoAssetId", "darkLogoAssetId");
+        assertThat(new TenantWebController().moduleUiDefinition().views().getFirst().formGroups())
+                .isEmpty();
     }
 
     @BeforeEach

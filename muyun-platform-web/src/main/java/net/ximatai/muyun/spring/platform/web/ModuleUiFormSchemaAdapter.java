@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler;
 
 import java.util.List;
+import java.util.Map;
 
 public final class ModuleUiFormSchemaAdapter {
     private ModuleUiFormSchemaAdapter() {
@@ -27,11 +28,12 @@ public final class ModuleUiFormSchemaAdapter {
             return null;
         }
         validate(definition, formView, modelClass);
+        Map<String, FormValueType> valueTypes = fieldValueTypes(modelClass);
         FormDescriptor.Builder descriptor = FormDescriptor.builder(definition.moduleAlias())
                 .title(formView.title());
         formView.fields().stream()
                 .filter(field -> !Boolean.FALSE.equals(field.visible().constant()))
-                .map(ModuleUiFormSchemaAdapter::field)
+                .map(field -> field(field, valueTypes))
                 .forEach(descriptor::field);
         return FormSchema.from(descriptor.build(), modelClass);
     }
@@ -44,8 +46,8 @@ public final class ModuleUiFormSchemaAdapter {
                 .orElse(null);
     }
 
-    private static FormField field(ViewFieldDefinition field) {
-        FormValueType valueType = valueType(field);
+    private static FormField field(ViewFieldDefinition field, Map<String, FormValueType> valueTypes) {
+        FormValueType valueType = valueType(field, valueTypes);
         FormField formField = new FormField(
                 field.fieldRef().fieldName(),
                 field.label() == null ? field.fieldRef().fieldName() : field.label(),
@@ -60,14 +62,31 @@ public final class ModuleUiFormSchemaAdapter {
         return formField;
     }
 
-    private static FormValueType valueType(ViewFieldDefinition field) {
-        if ("enabledStatus".equals(field.uiType()) || "enabled".equals(field.fieldRef().fieldName())) {
+    private static FormValueType valueType(ViewFieldDefinition field, Map<String, FormValueType> valueTypes) {
+        FormValueType modelValueType = valueTypes.get(field.fieldRef().fieldName());
+        if (modelValueType != null) {
+            return modelValueType;
+        }
+        if ("enabledStatus".equals(field.uiType()) || "switch".equals(field.uiType())
+                || "enabled".equals(field.fieldRef().fieldName())) {
             return FormValueType.BOOLEAN;
         }
         if ("textarea".equals(field.uiType())) {
             return FormValueType.TEXT;
         }
         return FormValueType.STRING;
+    }
+
+    private static Map<String, FormValueType> fieldValueTypes(Class<?> modelClass) {
+        if (modelClass == null || modelClass == Object.class) {
+            return Map.of();
+        }
+        return new StaticEntityDefinitionCompiler().compile("form", "form", modelClass).fields().stream()
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        field -> field.fieldName(),
+                        field -> FormValueType.valueOf(field.type().name()),
+                        (left, right) -> left
+                ));
     }
 
     private static FormControlType controlType(FormValueType valueType) {
