@@ -17,6 +17,10 @@ export interface RecordActionItem {
   primary?: boolean;
   danger?: boolean;
   iconName?: UiIconName;
+  /** Runtime-only authorization source for actions rendered outside their owning module surface. */
+  authorizationContext?: ModuleContext<unknown>;
+  /** Runtime-only record ID used with authorizationContext. */
+  authorizationRecordId?: string;
 }
 
 export interface ResolvedRecordActionItem extends RecordActionItem {
@@ -43,11 +47,24 @@ export function resolveRecordActions(
     if (action.visible === false) {
       return [];
     }
-    const actionState = action.actionCode ? context.action(action.actionCode, recordId) : undefined;
-    if (action.actionCode && !actionState && actionIsConfirmedMissing(context, action.actionCode, recordId)) {
+    const authorizationContext = action.authorizationContext ?? context;
+    const authorizationRecordId = action.authorizationContext ? action.authorizationRecordId : recordId;
+    const actionState =
+      action.actionCode && (!action.authorizationContext || authorizationRecordId)
+        ? authorizationContext.action(action.actionCode, authorizationRecordId)
+        : undefined;
+    if (
+      action.actionCode &&
+      actionState == null &&
+      (!action.authorizationContext || authorizationRecordId) &&
+      actionIsConfirmedMissing(authorizationContext, action.actionCode, authorizationRecordId)
+    ) {
       return [];
     }
-    const authorized = action.actionCode ? actionState?.available === true : true;
+    const authorized =
+      action.actionCode && (!action.authorizationContext || authorizationRecordId)
+        ? actionState?.available === true
+        : true;
     const loading = action.loading ?? defaultLoading;
     return [
       {

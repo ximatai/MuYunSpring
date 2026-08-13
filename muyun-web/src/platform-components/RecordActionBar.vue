@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, watch, watchEffect } from 'vue';
 import type { ModuleContext } from '@muyun/web-core';
 import { UiActionButton, UiTooltip } from '@muyun/vue-ui-antdv';
 import { resolveRecordActions, type RecordActionItem } from './recordActionBarModel';
@@ -36,6 +36,16 @@ watch(
   },
   { immediate: true },
 );
+
+watchEffect(() => {
+  for (const action of props.actions) {
+    if (action.authorizationContext && action.authorizationRecordId) {
+      action.authorizationContext.recordActions(action.authorizationRecordId).catch(() => {
+        // Action execution still performs backend checks; keep authorization loading errors non-blocking here.
+      });
+    }
+  }
+});
 
 const resolvedActions = computed(() =>
   resolveRecordActions(props.context, props.actions, props.loading, props.recordId),

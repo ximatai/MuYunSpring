@@ -157,10 +157,20 @@ const enhancementActionContributions = computed<ModulePageActionContribution[]>(
   () => pageEnhancement.value?.list?.actions ?? [],
 );
 const enhancementActions = computed<ModulePageActionContribution[]>(() =>
-  enhancementActionContributions.value.map(({ state, ...action }) => ({
-    ...action,
-    ...state?.(modulePageActionStateContext()),
-  })),
+  enhancementActionContributions.value.map(({ state, authorization, ...action }) => {
+    const stateContext = modulePageActionStateContext();
+    const scopeRecordId = stateContext.scope?.record?.id;
+    return {
+      ...action,
+      ...state?.(stateContext),
+      ...(authorization === 'scope-record' && scopeContext.value
+        ? {
+            authorizationContext: scopeContext.value,
+            authorizationRecordId: scopeRecordId == null ? undefined : String(scopeRecordId),
+          }
+        : {}),
+    };
+  }),
 );
 const enhancementColumns = computed<ModulePageColumnContribution[]>(
   () => pageEnhancement.value?.list?.columns ?? [],
