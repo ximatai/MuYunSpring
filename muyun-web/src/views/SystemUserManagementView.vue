@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
+  DateTimeText,
   RecordActionBar,
   RecordDetailFields,
   RecordDetailPanel,
@@ -24,7 +25,7 @@ import {
   type RecordQueryListColumn,
   type ResolvedRecordActionItem,
 } from '@muyun/platform-components';
-import { UiButton, UiInput, confirmAction } from '@muyun/vue-ui-antdv';
+import { UiButton, UiError, UiInput, UiSpin, confirmAction } from '@muyun/vue-ui-antdv';
 import type {
   ResetPasswordResponse,
   UserAccount,

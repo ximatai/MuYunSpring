@@ -1597,6 +1597,7 @@ function parseRoleIds(value: unknown) {
 .role-platform-scope,
 .role-tenant-root-scope {
   display: block;
+  flex: 0 0 auto;
   width: 100%;
   margin: 0 0 8px;
   padding: 0 0 8px;

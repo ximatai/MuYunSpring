@@ -43,6 +43,7 @@ export default [
       'vue/html-self-closing': 'off',
       'vue/html-closing-bracket-newline': 'off',
       'vue/singleline-html-element-content-newline': 'off',
+      'vue/no-undef-components': 'error',
       '@typescript-eslint/no-explicit-any': 'warn',
     },
   },

@@ -731,11 +731,14 @@ it('three-column management pages use the platform detail panel', () => {
   assert.match(layoutSource, /<slot name="explorer-actions" \/>/);
   assert.match(layoutSource, /<slot name="detail-actions" \/>/);
   assert.notMatch(layoutSource, /RecordStatusTag|card-header|title-line/);
-  for (const source of [applicationViewSource, tenantViewSource, organizationViewSource]) {
+  for (const source of [applicationViewSource, tenantViewSource]) {
     assert.match(source, /<template #detail-status>/);
     assert.match(source, /<RecordStatusSwitch/);
     assert.notMatch(source, /EnabledSelect|启用状态|toggle-enabled|show-status/);
   }
+  assert.match(organizationViewSource, /<RecordDetailPanel :title="cardTitle">/);
+  assert.match(organizationViewSource, /<template #status>/);
+  assert.match(organizationViewSource, /<RecordStatusSwitch/);
   assert.equal(matchCount(positionViewSource, /<RecordDetailPanel/g), 1);
   assert.equal(matchCount(dictionaryViewSource, /<RecordDetailPanel/g), 1);
   assert.equal(matchCount(departmentViewSource, /<RecordDetailPanel/g), 1);
@@ -781,7 +784,7 @@ it('department management uses organization as read-only scope and department as
   assert.match(departmentViewSource, /function departmentItemOf/);
   assert.match(departmentViewSource, /actions: departmentTreeActionsOf\(department\)/);
   assert.match(departmentViewSource, /:item-of="departmentItemOf"/);
-  assert.match(departmentViewSource, /onMounted\(loadDepartmentFormDefinition\)/);
+  assert.match(departmentViewSource, /void loadDepartmentFormDefinition\(\)/);
   assert.match(departmentViewSource, /resolveRecordFormFields\(runtimeContext\.uiDescriptor\)/);
   assert.match(departmentViewSource, /<RecordFormFields/);
   assert.match(departmentViewSource, /resolveRecordFormFieldState/);
@@ -800,6 +803,9 @@ it('department management uses organization as read-only scope and department as
   assert.match(departmentStateSource, /executeStaticFormSave<Department>/);
   assert.match(departmentStateSource, /executeStaticRecordAction/);
   assert.notMatch(departmentStateSource, /已启用|已停用/);
+  assert.match(departmentViewSource, /moduleAlias: 'iam\.tenant'/);
+  assert.match(departmentViewSource, /treePath: '\/iam\.organization\/tree'/);
+  assert.match(departmentViewSource, /:context="scopedOrganizationContext"/);
 });
 
 it('employee management uses organization scope and platform query list panel', () => {
@@ -2081,10 +2087,10 @@ it('public management and drawer contracts use business roles instead of layout 
   const recordModeDrawerSource = readSource('src/platform-components/RecordModeDrawer.vue');
   const managementPageSources = [
     readSource('src/views/ApplicationManagementView.vue'),
-    readSource('src/views/OrganizationManagementView.vue'),
     readSource('src/views/PasswordManagementView.vue'),
     readSource('src/views/TenantManagementView.vue'),
   ];
+  const organizationManagementSource = readSource('src/views/OrganizationManagementView.vue');
   const standardDrawerSources = [
     readSource('src/views/UserManagementView.vue'),
     readSource('src/views/RoleManagementView.vue'),
@@ -2111,6 +2117,10 @@ it('public management and drawer contracts use business roles instead of layout 
       /sidebar-search|sidebar-title|card-title|sidebar-actions|card-actions|card-status/,
     );
   }
+  assert.match(organizationManagementSource, /<ManagementWorkspace/);
+  assert.match(organizationManagementSource, /moduleAlias: 'iam\.tenant'/);
+  assert.match(organizationManagementSource, /treePath: '\/iam\.organization\/tree'/);
+  assert.match(organizationManagementSource, /tenantId: selectedTenantId\.value/);
 
   assert.notMatch(recordDetailDrawerSource, /<slot name="actions" \/>/);
   assert.notMatch(recordModeDrawerSource, /<slot name="actions" \/>/);
