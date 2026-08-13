@@ -710,6 +710,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   position: relative;
   z-index: 2;
   border-color: var(--muyun-theme-border) !important;
+  border-top-color: var(--muyun-brand-accent-base) !important;
   border-bottom-color: var(--muyun-support-surface) !important;
   background: var(--muyun-support-surface) !important;
   box-shadow: 0 -5px 14px rgb(15 23 42 / 5%);
