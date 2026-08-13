@@ -54,17 +54,19 @@ function handleClick(action: RecordActionItem, event: MouseEvent) {
       :key="action.key"
       :title="action.disabled ? action.disabledReason : undefined"
     >
-      <UiActionButton
-        :emphasis="action.primary ? 'primary' : size === 'compact' && !action.danger ? 'quiet' : 'secondary'"
-        :disabled="action.disabled"
-        :loading="action.loading"
-        :intent="action.danger ? 'danger' : 'normal'"
-        :density="size === 'compact' ? 'compact' : 'regular'"
-        :icon-name="action.iconName"
-        @click="handleClick(action, $event)"
-      >
-        {{ action.title }}
-      </UiActionButton>
+      <span class="record-action-tooltip-trigger">
+        <UiActionButton
+          :emphasis="action.primary ? 'primary' : size === 'compact' && !action.danger ? 'quiet' : 'secondary'"
+          :disabled="action.disabled"
+          :loading="action.loading"
+          :intent="action.danger ? 'danger' : 'normal'"
+          :density="size === 'compact' ? 'compact' : 'regular'"
+          :icon-name="action.iconName"
+          @click="handleClick(action, $event)"
+        >
+          {{ action.title }}
+        </UiActionButton>
+      </span>
     </ATooltip>
   </div>
 </template>
@@ -79,6 +81,10 @@ function handleClick(action: RecordActionItem, event: MouseEvent) {
 
 .record-action-bar.compact {
   gap: 4px;
+}
+
+.record-action-tooltip-trigger {
+  display: inline-flex;
 }
 
 .record-action-bar.compact :deep(.ant-btn) {
