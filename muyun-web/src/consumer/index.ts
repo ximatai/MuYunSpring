@@ -19,6 +19,11 @@ export * from '../platform-admin-runtime/index';
 export {
   activeTabUrlOf,
   arrangeLockedMenuTabs,
+  closeMenuTab,
+  closeMenuTabs,
+  openDirectTab,
+  openMenuTab,
+  reorderMenuTabs,
   removeLockedMenuTabs,
   restoreWorkbenchStartupStateFromUrl,
   restoreLockedMenuTabs,
@@ -67,6 +72,7 @@ export {
   UiTree,
 } from '../vue-ui-antdv/index';
 export { default as PlatformAdminOutlet } from './PlatformAdminOutlet.vue';
+export { default as AppWorkbenchShell } from './AppWorkbenchShell.vue';
 export { configureUserPreferencePersistence } from './userPreferencePersistence';
 export { default as ChangeOwnPasswordDialog } from '../app/ChangeOwnPasswordDialog.vue';
 export { default as ThemeSkinPreferencesDialog } from '../app/ThemeSkinPreferencesDialog.vue';

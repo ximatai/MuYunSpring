@@ -818,18 +818,20 @@ describe('WorkbenchMenu', () => {
     const deepTransition = wrapper
       .findAllComponents({ name: 'Transition' })
       .find((transition) => transition.props('name') === 'mega-deep-dock');
+    if (!trigger || !deepTransition) {
+      throw new Error('Expected the navigable deep menu trigger and its transition.');
+    }
 
-    await trigger?.trigger('click');
-    deepTransition?.vm.$emit('after-enter');
+    await trigger.trigger('click');
+    deepTransition.vm.$emit('after-enter');
     await wrapper.vm.$nextTick();
     expect(wrapper.find('.mega-panel').exists()).toBe(true);
 
-    await trigger?.trigger('click');
-    deepTransition?.vm.$emit('after-leave');
+    await trigger.trigger('click');
+    deepTransition.vm.$emit('after-leave');
     await wrapper.vm.$nextTick();
 
-    expect(deepTransition).toBeDefined();
-    expect(panel.exists()).toBe(true);
+    expect(wrapper.element.contains(panel.element)).toBe(true);
   });
 
   it('uses the whole row to toggle a structural branch without a navigation target', async () => {
