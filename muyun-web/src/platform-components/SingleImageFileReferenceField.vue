@@ -17,6 +17,7 @@ const props = defineProps<{
   definition: ResolvedFileReferenceFieldDescriptor;
   uploadHint?: string;
   uploadAdvisory?: (file: File) => string | undefined | Promise<string | undefined>;
+  uploadValidation?: (file: File) => string | undefined | Promise<string | undefined>;
   formSessionKey?: string | number;
   disabled?: boolean;
   disabledHint?: string;
@@ -124,6 +125,7 @@ function browserViewUrl(url: string) {
           :show-completed-upload-items="false"
           :release-completed-upload-on-bind="true"
           :upload-advisory="uploadAdvisory"
+          :upload-validation="uploadValidation"
           @update:value="emit('update:value', typeof $event === 'string' ? $event : undefined)"
         />
       </div>

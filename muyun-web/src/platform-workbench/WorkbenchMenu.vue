@@ -26,6 +26,9 @@ const props = withDefaults(
     selectedMenuId?: string;
     tenantLabel?: string;
     logoSrc?: string;
+    showTitleArea?: boolean;
+    brandTitle?: string;
+    brandSubtitle?: string;
     searchPlaceholder?: string;
     realtimeStatus?: WorkbenchRealtimeStatus;
     presentation?: 'compact' | 'expanded';
@@ -38,7 +41,10 @@ const props = withDefaults(
     selectedMenuId: undefined,
     tenantLabel: '系统工作区',
     logoSrc: undefined,
-    searchPlaceholder: '搜索菜单、模块或路由',
+    showTitleArea: true,
+    brandTitle: 'MuYun',
+    brandSubtitle: undefined,
+    searchPlaceholder: '',
     realtimeStatus: 'unavailable',
     presentation: 'expanded',
     expandedMenuDepth: 1,
@@ -740,6 +746,9 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
             presentation="expanded"
             :tenant-label="tenantLabel"
             :logo-src="logoSrc"
+            :show-title-area="showTitleArea"
+            :brand-title="brandTitle"
+            :brand-subtitle="brandSubtitle"
             :expanded-menu-depth="expandedMenuDepth"
             @change-presentation="changePresentation"
             @change-expanded-menu-depth="changeExpandedMenuDepth"
@@ -1160,9 +1169,9 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .workbench-menu--expanded :deep(.workbench-brand-control) {
-  gap: 6px;
-  height: 40px;
-  padding: 0 5px;
+  gap: 4px;
+  min-height: 50px;
+  padding: 0 2px;
 }
 
 .compact-menu-tools {
@@ -1188,10 +1197,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   background: transparent;
 }
 
-.compact-menu-tools .menu-search:focus-within {
-  background: var(--muyun-support-hover);
-}
-
 .workbench-menu--compact .root-menu {
   width: 100%;
   padding: 0;
@@ -1210,7 +1215,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .menu-search {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   height: 34px;
   padding: 0 9px;
   border: var(--workbench-menu-border-width) solid var(--workbench-menu-border);

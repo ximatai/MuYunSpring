@@ -71,7 +71,8 @@ class LoginWebControllerTest {
     void shouldExposeOnlyTheCurrentTenantBrandingToWorkbenchStartup() throws Exception {
         TenantService tenantService = mock(TenantService.class);
         when(tenantService.branding("tenant-a"))
-                .thenReturn(new TenantBranding("data:image/png;base64,bGlnaHQ=", "data:image/png;base64,ZGFyaw=="));
+                .thenReturn(new TenantBranding("data:image/png;base64,bGlnaHQ=", "data:image/png;base64,ZGFyaw==",
+                        "logoWithTitle", "木云工作台", "租户 A"));
         LoginWebController controller = new LoginWebController(mock(UserSessionService.class), tenantService);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
                 .addFilters(new CurrentUserWebFilter(() -> Optional.of(
@@ -81,7 +82,10 @@ class LoginWebControllerTest {
         mvc.perform(get("/iam.auth/tenant-branding"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.lightLogo").value("data:image/png;base64,bGlnaHQ="))
-                .andExpect(jsonPath("$.darkLogo").value("data:image/png;base64,ZGFyaw=="));
+                .andExpect(jsonPath("$.darkLogo").value("data:image/png;base64,ZGFyaw=="))
+                .andExpect(jsonPath("$.mode").value("logoWithTitle"))
+                .andExpect(jsonPath("$.title").value("木云工作台"))
+                .andExpect(jsonPath("$.subtitle").value("租户 A"));
 
         verify(tenantService).branding("tenant-a");
     }

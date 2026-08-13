@@ -50,6 +50,8 @@ const props = withDefaults(
     showCompletedItems?: boolean;
     /** Non-blocking, browser-side guidance evaluated after file selection and before transfer. */
     uploadAdvisory?: (file: File) => string | undefined | Promise<string | undefined>;
+    /** Business-owned preflight validation; returning a message rejects the selected file before transfer. */
+    uploadValidation?: (file: File) => string | undefined | Promise<string | undefined>;
     disabledHint?: string;
     completionHint?: string;
     /** Completed items may be retained when the surrounding form owns deletion semantics. */
@@ -75,6 +77,7 @@ const props = withDefaults(
     uploadButtonType: 'default',
     showCompletedItems: true,
     uploadAdvisory: undefined,
+    uploadValidation: undefined,
     disabledHint: undefined,
     completionHint: undefined,
     allowCompletedRemoval: true,
@@ -136,8 +139,10 @@ async function addFiles(selected: readonly File[]) {
   if (unavailable.value) return;
   preparingSelection.value = true;
   try {
-    const rejected = selected
-      .map((file) => ({ file, error: validationError(file) }))
+    const candidates = await Promise.all(
+      selected.map(async (file) => ({ file, error: await validationError(file) })),
+    );
+    const rejected = candidates
       .filter((candidate): candidate is { file: File; error: string } => candidate.error != null)
       .map((candidate) =>
         reactive<UploadItem>({
@@ -151,7 +156,9 @@ async function addFiles(selected: readonly File[]) {
     if (rejected.length) {
       items.value.push(...rejected);
     }
-    const valid = selected.filter((file) => validationError(file) == null);
+    const valid = candidates
+      .filter((candidate) => candidate.error == null)
+      .map((candidate) => candidate.file);
     const capacity =
       props.maxFiles === undefined ? valid.length : Math.max(0, props.maxFiles - occupiedCount.value);
     const accepted = valid.slice(0, props.multiple ? capacity : Math.min(1, capacity));
@@ -194,7 +201,7 @@ async function presentUploadAdvisories(files: readonly File[]) {
   }
 }
 
-function validationError(file: File): string | undefined {
+async function validationError(file: File): Promise<string | undefined> {
   if (
     props.allowedMediaTypes?.length &&
     !props.allowedMediaTypes.some((allowed) => matchesMediaType(allowed, file.type))
@@ -204,7 +211,7 @@ function validationError(file: File): string | undefined {
   if (props.maxFileSizeBytes != null && file.size > props.maxFileSizeBytes) {
     return `文件超过单文件大小限制（${props.maxFileSizeBytes} 字节）。`;
   }
-  return undefined;
+  return props.uploadValidation?.(file);
 }
 
 /** Matches exact MIME types and the standard top-level wildcard form (for example image/*). */
@@ -315,9 +322,9 @@ function remove(item: UploadItem) {
   );
 }
 
-function retry(item: UploadItem) {
+async function retry(item: UploadItem) {
   if (item.state === 'failed' || item.state === 'cancelled') {
-    const error = validationError(item.file);
+    const error = await validationError(item.file);
     if (error) {
       item.error = error;
       return;

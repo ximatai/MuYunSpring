@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Set;
 
 public final class ModuleUiDescriptorCompiler {
+    private static final String ALIAS_FIELD = "alias";
     private static final Set<String> PLATFORM_FIELD_NAMES = platformFieldNames();
     private static final Map<String, FieldValueType> STANDARD_FIELD_TYPES = standardFieldTypes();
 
@@ -36,6 +37,7 @@ public final class ModuleUiDescriptorCompiler {
         fields.add(PlatformAbilityFields.ENABLED_FIELD);
         fields.add(PlatformAbilityFields.TREE_PARENT_FIELD);
         fields.add(PlatformAbilityFields.SORT_FIELD);
+        fields.add(ALIAS_FIELD);
         return Set.copyOf(fields);
     }
 
@@ -203,7 +205,10 @@ public final class ModuleUiDescriptorCompiler {
                                 referenceSummaryFields, fieldTypes))
                         .toList(),
                 view.sourceUiConfigId(),
-                ResolvedScopedListWorkspaceDescriptor.from(view.scopedListWorkspace())
+                ResolvedScopedListWorkspaceDescriptor.from(view.scopedListWorkspace()),
+                view.formGroups().stream().map(group -> new ResolvedFormGroupDescriptor(
+                        group.groupCode(), group.title(), group.subtitle(),
+                        group.fields().stream().map(ViewFieldDefinition::fieldRef).toList())).toList()
         );
     }
 
@@ -225,7 +230,7 @@ public final class ModuleUiDescriptorCompiler {
                 field.visible(),
                 field.required(),
                 field.readOnly(),
-                field.uiType(),
+                resolvedUiType(viewKind, field, resolvedValueType),
                 resolvedValueType,
                 field.valuePresentation(),
                 field.width(),
@@ -238,6 +243,22 @@ public final class ModuleUiDescriptorCompiler {
                 referenceSummary,
                 field.maxDisplayLines()
         );
+    }
+
+    /**
+     * Editable business booleans share the standard switch control by default. Lifecycle enablement is a
+     * platform capability rather than an ordinary field, so it keeps its dedicated status control.
+     */
+    private static String resolvedUiType(ModuleViewKind viewKind,
+                                         ViewFieldDefinition field,
+                                         FieldValueType valueType) {
+        if (field.uiType() != null) {
+            return field.uiType();
+        }
+        if (viewKind != ModuleViewKind.FORM || valueType != FieldValueType.BOOLEAN) {
+            return null;
+        }
+        return PlatformAbilityFields.ENABLED_FIELD.equals(field.fieldRef().fieldName()) ? "enabledStatus" : "switch";
     }
 
     private static void validateValuePresentation(ModuleViewKind viewKind,
@@ -313,6 +334,7 @@ public final class ModuleUiDescriptorCompiler {
     private static Map<String, FieldValueType> standardFieldTypes() {
         return Map.ofEntries(
                 Map.entry(StandardEntitySchema.ID_FIELD, FieldValueType.STRING),
+                Map.entry(ALIAS_FIELD, FieldValueType.STRING),
                 Map.entry(StandardEntitySchema.TENANT_ID_FIELD, FieldValueType.STRING),
                 Map.entry(StandardEntitySchema.VERSION_FIELD, FieldValueType.INTEGER),
                 Map.entry(StandardEntitySchema.DELETED_FIELD, FieldValueType.BOOLEAN),
@@ -334,6 +356,7 @@ public final class ModuleUiDescriptorCompiler {
                     + field.fieldRef().fieldName());
         }
     }
+
 
     private static void validateTagList(ModuleViewKind viewKind,
                                         ViewFieldDefinition field,

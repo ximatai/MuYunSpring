@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.web.*;
 
 import net.ximatai.muyun.database.core.annotation.Column;
 import net.ximatai.muyun.database.core.annotation.Table;
+import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
@@ -89,7 +90,10 @@ class CrudWebFormSchemaTest {
                     .andExpect(jsonPath("$.fields[1].optionTitleField").value("statusTitle"))
                     .andExpect(jsonPath("$.fields[2].name").value("enabled"))
                     .andExpect(jsonPath("$.fields[2].valueType").value("BOOLEAN"))
-                    .andExpect(jsonPath("$.fields[2].controlType").value("SWITCH"));
+                    .andExpect(jsonPath("$.fields[2].controlType").value("SWITCH"))
+                    .andExpect(jsonPath("$.fields[3].name").value("showTitleArea"))
+                    .andExpect(jsonPath("$.fields[3].valueType").value("BOOLEAN"))
+                    .andExpect(jsonPath("$.fields[3].controlType").value("SWITCH"));
         }
     }
 
@@ -167,7 +171,8 @@ class CrudWebFormSchemaTest {
                             .title("UI Demo Record")
                             .field("title", field -> field.label("UI 名称").required().readOnly())
                             .field("status", field -> field.label("状态"))
-                            .field("enabled", field -> field.label("启用状态").uiType("enabledStatus")))
+                            .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))
+                            .field("showTitleArea", field -> field.label("展示标题区")))
                     .build();
         }
     }
@@ -245,6 +250,9 @@ class CrudWebFormSchemaTest {
         @Column(name = "status", comment = "状态")
         private String status;
 
+        @Column(name = "show_title_area", type = ColumnType.BOOLEAN, comment = "展示标题区")
+        private Boolean showTitleArea;
+
         @OptionLoad(source = "status")
         private String statusTitle;
 
@@ -262,6 +270,14 @@ class CrudWebFormSchemaTest {
 
         public void setStatus(String status) {
             this.status = status;
+        }
+
+        public Boolean getShowTitleArea() {
+            return showTitleArea;
+        }
+
+        public void setShowTitleArea(Boolean showTitleArea) {
+            this.showTitleArea = showTitleArea;
         }
 
         public String getStatusTitle() {

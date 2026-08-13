@@ -8,6 +8,7 @@ import type {
   ResolvedModuleUiDescriptor,
   ResolvedViewFieldDescriptor,
   FieldValuePresentation,
+  FormGroupDescriptor,
   UiFormula,
   UiRule,
   ViewFieldDefinition,
@@ -19,6 +20,7 @@ export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewField
   option?: ResolvedOptionFieldDescriptor;
   reference?: ResolvedReferenceFieldDescriptor;
   fileReference?: ResolvedFileReferenceFieldDescriptor;
+  formGroup?: FormGroupDescriptor;
 };
 export type RecordFormRecord = Record<string, unknown>;
 export type RecordFormFieldValue = string | number | boolean | OptionValueList | string[] | undefined;
@@ -80,6 +82,7 @@ export interface RecordFormFieldState {
   disabledHint?: string;
   placeholder?: string;
   options?: Option[];
+  formGroup?: FormGroupDescriptor;
 }
 
 export interface ResolveRecordFormFieldNamesOptions {
@@ -119,6 +122,10 @@ export function resolveRecordFormFields(
   const references = new Map(
     (uiDescriptor?.fileReferences ?? []).map((reference) => [fieldRefKey(reference.fieldRef), reference]),
   );
+  const formGroupsByFieldName = new Map<string, FormGroupDescriptor>();
+  formView?.formGroups?.forEach((group) => {
+    group.fields.forEach((reference) => formGroupsByFieldName.set(reference.fieldName, group));
+  });
   return new Map(
     formView?.fields.map((field) => [
       field.fieldRef.fieldName,
@@ -127,8 +134,21 @@ export function resolveRecordFormFields(
         ...(references.has(fieldRefKey(field.fieldRef))
           ? { fileReference: references.get(fieldRefKey(field.fieldRef)) }
           : {}),
+        ...(formGroupsByFieldName.has(field.fieldRef.fieldName)
+          ? { formGroup: formGroupsByFieldName.get(field.fieldRef.fieldName) }
+          : {}),
       },
     ]) ?? [],
+  );
+}
+
+export function resolveRecordFormGroups(
+  uiDescriptor: ResolvedModuleUiDescriptor | undefined,
+  viewCode = 'default_form',
+): FormGroupDescriptor[] {
+  return (
+    uiDescriptor?.views?.find((view) => view.viewKind === 'FORM' && view.viewCode === viewCode)?.formGroups ??
+    []
   );
 }
 
@@ -175,6 +195,7 @@ export function resolveRecordFormFieldState(
     ...(field?.fileReference ? { fileReference: field.fileReference } : {}),
     ...(booleanStatus ? { booleanStatus } : {}),
     ...(field?.valuePresentation ? { valuePresentation: field.valuePresentation } : {}),
+    ...(field?.formGroup ? { formGroup: field.formGroup } : {}),
     ...((field?.readOnly?.disabledHint ?? fallback?.disabledHint)
       ? { disabledHint: field?.readOnly?.disabledHint ?? fallback?.disabledHint }
       : {}),

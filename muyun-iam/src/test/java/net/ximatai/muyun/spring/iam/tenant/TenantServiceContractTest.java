@@ -8,12 +8,18 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.tenant.TenantCreationProvisioner;
+import net.ximatai.muyun.spring.platform.attachment.ManagedFileAssetService;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Base64;
 import java.util.stream.Stream;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -94,6 +100,33 @@ class TenantServiceContractTest {
         }
 
         assertThat(tenant.getLightLogoAssetId()).isEqualTo("asset-1");
+    }
+
+    @Test
+    void shouldRequireSquareLogoForLogoWithTitleBranding() throws Exception {
+        ManagedFileAssetService assets = mock(ManagedFileAssetService.class);
+        when(assets.readInlineContent("ximatai", "asset-1")).thenReturn(imageDataUrl(200, 80));
+        TenantService service = new TenantService(mock(TenantDao.class), null, null, assets);
+        Tenant tenant = tenant("ximatai", "Ximatai");
+        tenant.setWorkbenchBrandMode(TenantWorkbenchBrandMode.LOGO_WITH_TITLE);
+        tenant.setLightLogoAssetId("asset-1");
+
+        assertThatThrownBy(() -> service.normalizeBeforeMutation(tenant))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("正方形图片");
+    }
+
+    @Test
+    void shouldAllowHorizontalLogoForLogoOnlyBranding() throws Exception {
+        ManagedFileAssetService assets = mock(ManagedFileAssetService.class);
+        TenantService service = new TenantService(mock(TenantDao.class), null, null, assets);
+        Tenant tenant = tenant("ximatai", "Ximatai");
+        tenant.setWorkbenchBrandMode(TenantWorkbenchBrandMode.LOGO_ONLY);
+        tenant.setLightLogoAssetId("asset-1");
+
+        service.normalizeBeforeMutation(tenant);
+
+        org.mockito.Mockito.verifyNoInteractions(assets);
     }
 
     @Test
@@ -206,6 +239,13 @@ class TenantServiceContractTest {
         Tenant tenant = tenant(alias, title);
         tenant.setEnabled(Boolean.FALSE);
         return tenant;
+    }
+
+    private String imageDataUrl(int width, int height) throws Exception {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", bytes);
+        return "data:image/png;base64," + Base64.getEncoder().encodeToString(bytes.toByteArray());
     }
 
 }

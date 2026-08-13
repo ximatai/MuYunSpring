@@ -34,6 +34,7 @@ const props = defineProps<{
   /** The enclosing field has already rendered the bound file and needs the uploader slot immediately reusable. */
   releaseCompletedUploadOnBind?: boolean;
   uploadAdvisory?: (file: File) => string | undefined | Promise<string | undefined>;
+  uploadValidation?: (file: File) => string | undefined | Promise<string | undefined>;
 }>();
 
 const emit = defineEmits<{
@@ -149,6 +150,7 @@ function releaseUploadedFile(fileId: string) {
     :upload-button-type="uploadButtonType"
     :show-completed-items="showCompletedUploadItems"
     :upload-advisory="uploadAdvisory"
+    :upload-validation="uploadValidation"
     @completed="(receipt) => applyUploadedFile(receipt)"
   />
 </template>

@@ -1945,15 +1945,16 @@ it('tenant management governs application entitlements as tenant child records',
   assert.match(tenantSource, /record\.alias === 'iam'/);
 });
 
-it('tenant branding is saved as ordinary file-reference fields in one CRUD write', () => {
+it('tenant form statically owns its mode-dependent branding experience while reusing governed image transfer', () => {
   const tenantSource = readSource('src/views/TenantManagementView.vue');
 
-  assert.match(tenantSource, /<RecordFormFields[\s\S]*lightLogoAssetId.*darkLogoAssetId/);
-  assert.match(tenantSource, /:file-transfer-context="tenantContext"/);
-  assert.match(tenantSource, /:image-upload-hint-of="tenantLogoUploadHint"/);
-  assert.match(tenantSource, /:image-upload-advisory-of="tenantLogoUploadAdvisory"/);
-  assert.match(tenantSource, /400 × 120 px 以内效果最佳，最大 512 KB/);
-  assert.match(tenantSource, /可能影响顶部展示；建议使用横向透明 Logo/);
+  assert.match(tenantSource, /tenantFormFields = ref\(resolveRecordFormFields\(undefined\)\)/);
+  assert.match(tenantSource, /<SingleImageFileReferenceField/);
+  assert.match(tenantSource, /:upload-validation="validateTenantLogo"/);
+  assert.match(tenantSource, /Logo \+ 标题模式仅支持正方形图片/);
+  assert.match(tenantSource, /v-model:value="workbenchBrandMode"/);
+  assert.match(tenantSource, /v-if="logoWithTitle"/);
+  assert.match(tenantSource, /\.static-record-form > \.tenant-branding[\s\S]*grid-column: 1 \/ -1/);
   assert.notMatch(tenantSource, /\/branding/);
   assert.notMatch(tenantSource, /saveTenant/);
 });
