@@ -91,6 +91,120 @@ describe('DynamicModuleHost', () => {
     ]);
   });
 
+  it('supplies scoped-list selection to extension action state, execution, and drawers', async () => {
+    const stateScopes: Array<{ moduleAlias: string; record?: { id?: string } } | undefined> = [];
+    let executedScope: { moduleAlias: string; record?: { id?: string } } | undefined;
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/mr.knowledge_file/context')) {
+        return Response.json({
+          moduleAlias: 'mr.knowledge_file',
+          capabilities: [],
+          actions: [{ actionCode: 'mr.knowledge_file.agent_chat_ask', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'mr.knowledge_file',
+            views: [
+              {
+                viewCode: 'default_list',
+                viewKind: 'LIST',
+                fields: [],
+                scopedListWorkspace: {
+                  scopeModuleAlias: 'mr.knowledge_directory',
+                  scopeField: 'directoryId',
+                  queryCriteriaKey: 'directoryId',
+                  scopeTitle: '知识库目录',
+                  scopeSearchPlaceholder: '搜索目录',
+                  showScopeItemSubtitle: false,
+                  createPolicy: 'REQUIRE_SCOPE',
+                },
+              },
+            ],
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/mr.knowledge_directory/context')) {
+        return Response.json({ moduleAlias: 'mr.knowledge_directory', capabilities: [], actions: [] });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({
+      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+    });
+    const ScopeDrawer = {
+      name: 'ScopeDrawer',
+      props: ['context'],
+      template: '<span class="scope-drawer">{{ context.scope?.record?.id }}</span>',
+    };
+    configureModulePageEnhancements([
+      {
+        id: 'knowledge-file-simulation',
+        target: { moduleAlias: 'mr.knowledge_file', viewCode: 'default_list' },
+        list: {
+          actions: [
+            {
+              key: 'agent-chat',
+              actionCode: 'mr.knowledge_file.agent_chat_ask',
+              title: '模拟问答',
+              state: ({ scope }) => {
+                stateScopes.push(scope);
+                return { disabled: scope?.record?.id == null };
+              },
+              run: ({ scope, openDrawer }) => {
+                executedScope = scope;
+                openDrawer({ title: '模拟问答', component: ScopeDrawer });
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'mr.knowledge_file', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /></section>' },
+          RecordDetailDrawer: { template: '<section><slot /></section>' },
+          ScopeDrawer,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(panel.props('extraActions')).toEqual([
+      expect.objectContaining({ key: 'agent-chat', disabled: true }),
+    ]);
+    expect(stateScopes.at(-1)).toMatchObject({ moduleAlias: 'mr.knowledge_directory' });
+
+    wrapper.findComponent({ name: 'CrudRecordListExplorer' }).vm.$emit('select', { id: 'directory-1', title: '设备资料' });
+    await flushPromises();
+
+    expect(panel.props('extraActions')).toEqual([
+      expect.objectContaining({ key: 'agent-chat', disabled: false }),
+    ]);
+    panel.vm.$emit('action', { key: 'agent-chat' });
+    await flushPromises();
+
+    expect(executedScope).toMatchObject({
+      moduleAlias: 'mr.knowledge_directory',
+      record: { id: 'directory-1', title: '设备资料' },
+    });
+    expect(wrapper.find('.scope-drawer').text()).toBe('directory-1');
+  });
+
   it('blocks every list runner when its menu bootstrap fails', async () => {
     globalThis.fetch = async (input) => {
       const request = new Request(input);

@@ -11,7 +11,7 @@ it('resolveRecordActions filters invisible actions and applies authorization', (
     },
     [
       { key: 'edit', actionCode: 'update', title: '编辑' },
-      { key: 'delete', actionCode: 'delete', title: '删除', danger: true },
+      { key: 'delete', actionCode: 'delete', title: '删除', danger: true, disabledReason: '当前用户没有删除权限' },
       { key: 'hidden', title: '隐藏', visible: false },
     ],
   );
@@ -21,11 +21,18 @@ it('resolveRecordActions filters invisible actions and applies authorization', (
       key: action.key,
       authorized: action.authorized,
       disabled: action.disabled,
+      disabledReason: action.disabledReason,
       danger: action.danger,
     })),
     [
-      { key: 'edit', authorized: true, disabled: false, danger: undefined },
-      { key: 'delete', authorized: false, disabled: true, danger: true },
+      { key: 'edit', authorized: true, disabled: false, disabledReason: undefined, danger: undefined },
+      {
+        key: 'delete',
+        authorized: false,
+        disabled: true,
+        disabledReason: '当前用户没有删除权限',
+        danger: true,
+      },
     ],
   );
 });
