@@ -55,7 +55,9 @@ function handleClick(action: RecordActionItem, event: MouseEvent) {
     >
       <span class="record-action-tooltip-trigger">
         <UiActionButton
-          :emphasis="action.primary ? 'primary' : size === 'compact' && !action.danger ? 'quiet' : 'secondary'"
+          :emphasis="
+            action.primary ? 'primary' : size === 'compact' && !action.danger ? 'quiet' : 'secondary'
+          "
           :disabled="action.disabled"
           :loading="action.loading"
           :intent="action.danger ? 'danger' : 'normal'"

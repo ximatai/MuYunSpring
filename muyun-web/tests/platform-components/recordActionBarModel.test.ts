@@ -11,7 +11,13 @@ it('resolveRecordActions filters invisible actions and applies authorization', (
     },
     [
       { key: 'edit', actionCode: 'update', title: '编辑' },
-      { key: 'delete', actionCode: 'delete', title: '删除', danger: true, disabledReason: '当前用户没有删除权限' },
+      {
+        key: 'delete',
+        actionCode: 'delete',
+        title: '删除',
+        danger: true,
+        disabledReason: '当前用户没有删除权限',
+      },
       { key: 'hidden', title: '隐藏', visible: false },
     ],
   );

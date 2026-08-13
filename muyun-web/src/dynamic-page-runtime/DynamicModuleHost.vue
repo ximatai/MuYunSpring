@@ -156,12 +156,11 @@ const pageEnhancement = computed(() =>
 const enhancementActionContributions = computed<ModulePageActionContribution[]>(
   () => pageEnhancement.value?.list?.actions ?? [],
 );
-const enhancementActions = computed<ModulePageActionContribution[]>(
-  () =>
-    enhancementActionContributions.value.map(({ state, ...action }) => ({
-      ...action,
-      ...state?.(modulePageActionStateContext()),
-    })),
+const enhancementActions = computed<ModulePageActionContribution[]>(() =>
+  enhancementActionContributions.value.map(({ state, ...action }) => ({
+    ...action,
+    ...state?.(modulePageActionStateContext()),
+  })),
 );
 const enhancementColumns = computed<ModulePageColumnContribution[]>(
   () => pageEnhancement.value?.list?.columns ?? [],
@@ -753,7 +752,10 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
 function modulePageActionStateContext(): ModulePageActionStateContext {
   const workspace = scopedListWorkspace.value;
   return workspace
-    ? { module: context, scope: { moduleAlias: workspace.scopeModuleAlias, record: selectedScopeRecord.value } }
+    ? {
+        module: context,
+        scope: { moduleAlias: workspace.scopeModuleAlias, record: selectedScopeRecord.value },
+      }
     : { module: context };
 }
 

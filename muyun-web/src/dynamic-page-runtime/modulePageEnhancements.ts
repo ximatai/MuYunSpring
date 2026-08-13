@@ -44,7 +44,9 @@ export interface ModuleDetailEnhancement {
 export interface ModulePageActionContribution extends RecordActionItem {
   key: string;
   /** Derives the action state from the current scoped-list selection when the page has one. */
-  state?(context: ModulePageActionStateContext): Partial<Pick<RecordActionItem, 'visible' | 'disabled' | 'disabledReason'>> | undefined;
+  state?(
+    context: ModulePageActionStateContext,
+  ): Partial<Pick<RecordActionItem, 'visible' | 'disabled' | 'disabledReason'>> | undefined;
   run(context: ModulePageActionContext): void | Promise<void>;
 }
 

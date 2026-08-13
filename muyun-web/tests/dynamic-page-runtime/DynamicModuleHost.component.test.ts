@@ -189,7 +189,9 @@ describe('DynamicModuleHost', () => {
     ]);
     expect(stateScopes.at(-1)).toMatchObject({ moduleAlias: 'mr.knowledge_directory' });
 
-    wrapper.findComponent({ name: 'CrudRecordListExplorer' }).vm.$emit('select', { id: 'directory-1', title: '设备资料' });
+    wrapper
+      .findComponent({ name: 'CrudRecordListExplorer' })
+      .vm.$emit('select', { id: 'directory-1', title: '设备资料' });
     await flushPromises();
 
     expect(panel.props('extraActions')).toEqual([
