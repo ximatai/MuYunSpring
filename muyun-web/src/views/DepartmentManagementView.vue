@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import {
+  CrudRecordListExplorer,
   ModuleActionButton,
   parentRecordConstraints,
   RecordActionBar,
@@ -21,9 +22,10 @@ import {
   resolveRecordFormFields,
   resolveRecordFormFieldState,
 } from '@muyun/platform-components';
-import type { Department, Organization } from '@muyun/web-contracts';
+import type { Department, Organization, Tenant } from '@muyun/web-contracts';
 import { useModuleContext, type ModuleContext } from '@muyun/web-core';
 import { confirmAction, UiEmpty, UiInput, type UiRecordInlineAction } from '@muyun/vue-ui-antdv';
+import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
   createDepartmentManagementState,
   departmentTitleOf,
@@ -37,9 +39,25 @@ type DepartmentFormPickerFieldName = 'parentId';
 
 const organizationContext = useModuleContext<Organization>({ moduleAlias: 'iam.organization' });
 const departmentContext = useModuleContext<Department>({ moduleAlias: 'iam.department' });
+const tenantContext = useModuleContext<Tenant>({ moduleAlias: 'iam.tenant' });
+const currentUser = useCurrentUserContext();
 const departmentFormFieldDefinitions = ref(resolveRecordFormFields(undefined));
 const organizationSearchKeyword = ref('');
 const departmentSearchKeyword = ref('');
+const tenantSearchKeyword = ref('');
+const tenantReloadKey = ref(0);
+const selectedTenant = ref<Tenant>();
+const canBrowseTenants = computed(() => currentUser?.value?.system === true);
+const selectedTenantId = computed(() => selectedTenant.value?.id);
+const organizationScopeOptions = {
+  scopeFieldName: 'tenantId',
+  scopeValue: () => selectedTenantId.value,
+  treePath: '/iam.organization/tree',
+};
+const scopedOrganizationContext = createScopedTreeModuleContext(
+  organizationContext,
+  organizationScopeOptions,
+) as ModuleContext<Organization>;
 const {
   organizationReloadKey,
   departmentReloadKey,
@@ -121,7 +139,17 @@ const departmentActions = computed<RecordActionItem[]>(() => {
   ];
 });
 
-onMounted(loadDepartmentFormDefinition);
+onMounted(() => {
+  void loadDepartmentFormDefinition();
+  if (!canBrowseTenants.value && currentUser?.value?.tenantId) {
+    selectedTenant.value = { id: currentUser.value.tenantId, title: currentUser.value.tenantId } as Tenant;
+  }
+});
+
+watch(selectedTenantId, () => {
+  handleOrganizationsLoaded([]);
+  organizationReloadKey.value += 1;
+});
 
 async function loadDepartmentFormDefinition() {
   try {
@@ -179,6 +207,18 @@ function organizationItemOf(record: TreeRecordBase): RecordExplorerItemDescripto
   return {
     title: organizationTitleOf(record as Organization),
     secondary: record.code ?? record.id,
+    muted: record.enabled === false,
+  };
+}
+
+function selectTenant(tenant: Tenant) {
+  selectedTenant.value = tenant;
+}
+
+function tenantItemOf(record: Tenant): RecordExplorerItemDescriptor {
+  return {
+    title: record.title ?? record.alias ?? record.id ?? '未命名租户',
+    secondary: record.alias ?? record.id,
     muted: record.enabled === false,
   };
 }
@@ -264,7 +304,27 @@ const departmentFormFieldFallback: Record<DepartmentFormFieldName, RecordFormFie
 </script>
 
 <template>
-  <section class="department-workspace">
+  <section class="department-workspace" :class="{ 'department-workspace--system': canBrowseTenants }">
+    <RecordExplorerPanel
+      v-if="canBrowseTenants"
+      v-model:search-keyword="tenantSearchKeyword"
+      class="tenant-column"
+      title="租户"
+      search-placeholder="搜索租户"
+      @refresh="tenantReloadKey += 1"
+    >
+      <CrudRecordListExplorer
+        :context="tenantContext"
+        :selected-id="selectedTenant?.id"
+        :reload-key="tenantReloadKey"
+        :keyword="tenantSearchKeyword"
+        empty-description="暂无租户"
+        loading-tip="加载租户"
+        fallback-title="未命名租户"
+        :item-of="(record) => tenantItemOf(record as Tenant)"
+        @select="selectTenant($event as Tenant)"
+      />
+    </RecordExplorerPanel>
     <RecordExplorerPanel
       v-model:search-keyword="organizationSearchKeyword"
       class="organization-column"
@@ -273,14 +333,14 @@ const departmentFormFieldFallback: Record<DepartmentFormFieldName, RecordFormFie
       @refresh="organizationReloadKey += 1"
     >
       <TreeRecordExplorer
-        :context="organizationContext"
+        :context="scopedOrganizationContext"
         :selected-id="selectedOrganization?.id"
         :reload-key="organizationReloadKey"
         :keyword="organizationSearchKeyword"
         search-mode="none"
         search-placeholder="搜索机构名称、编码或 ID"
-        empty-description="暂无机构"
-        loading-tip="加载机构树"
+        :empty-description="selectedTenantId ? '暂无机构' : '请选择租户'"
+        :loading-tip="selectedTenantId ? '加载机构树' : '等待选择租户'"
         fallback-title="未命名机构"
         :item-of="organizationItemOf"
         @loaded="handleOrganizationsLoaded"
@@ -377,6 +437,11 @@ const departmentFormFieldFallback: Record<DepartmentFormFieldName, RecordFormFie
   overflow: hidden;
 }
 
+.department-workspace--system {
+  grid-template-columns: minmax(200px, 220px) minmax(220px, 240px) minmax(240px, 260px) minmax(340px, 1fr);
+}
+
+.tenant-column,
 .organization-column,
 .department-column {
   min-height: 0;

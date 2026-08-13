@@ -57,7 +57,7 @@ export function createOrganizationManagementState(
     const first = records[0];
     selected.value = first;
     draft.value = first ? copyRecord(first) : emptyDraft();
-    mode.value = first ? 'view' : 'create';
+    mode.value = 'view';
   }
 
   function handleSelect(organization: Organization) {
@@ -90,7 +90,7 @@ export function createOrganizationManagementState(
 
   function cancelEdit() {
     draft.value = selected.value ? copyRecord(selected.value) : emptyDraft();
-    mode.value = selected.value ? 'view' : 'create';
+    mode.value = 'view';
     clearFeedback();
   }
 
@@ -228,7 +228,7 @@ export function createOrganizationManagementState(
       clearSelection: () => {
         selected.value = undefined;
         draft.value = emptyDraft();
-        mode.value = 'create';
+        mode.value = 'view';
       },
     });
     return mergePlatformActionResultReactionHandlers(defaultHandlers, options.actionResultReactionHandlers);

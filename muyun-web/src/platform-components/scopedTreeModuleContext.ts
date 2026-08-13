@@ -1,9 +1,9 @@
-import type { WebListResponse, WebQueryRequest, WebTreeNode } from '@muyun/web-contracts';
+import type { WebListResponse, WebPageResponse, WebQueryRequest, WebTreeNode } from '@muyun/web-contracts';
 import type { ModuleContext, StaticCountMutationResult, StaticModuleTreeClient } from '@muyun/web-core';
 
 export interface ScopedTreeModuleContextOptions {
   scopeFieldName: string;
-  scopeValue: string | undefined;
+  scopeValue: string | undefined | (() => string | undefined);
   treePath: string;
   sortPath?: string;
   treeQueryParam?: string;
@@ -30,9 +30,14 @@ export function createScopedTreeClient<TRecord>(
 ): StaticModuleTreeClient<TRecord> {
   return {
     ...context.crud,
-    query: (request) => context.crud.query(scopedQuery(request, options)),
+    query: (request) => {
+      if (!scopeValueOf(options)) {
+        return emptyPageResponse<TRecord>(request);
+      }
+      return context.crud.query(scopedQuery(request, options));
+    },
     tree: () => {
-      if (!options.scopeValue) {
+      if (!scopeValueOf(options)) {
         return emptyTreeResponse<TRecord>();
       }
       return context.http.request<WebListResponse<WebTreeNode<TRecord>>>({
@@ -41,7 +46,7 @@ export function createScopedTreeClient<TRecord>(
       });
     },
     treeFlat: (treeOptions) => {
-      if (!options.scopeValue) {
+      if (!scopeValueOf(options)) {
         return emptyListResponse<TRecord>();
       }
       return context.http.request<WebListResponse<TRecord>>({
@@ -53,16 +58,23 @@ export function createScopedTreeClient<TRecord>(
         },
       });
     },
-    subtree: (id, subtreeOptions) =>
-      context.http.request<WebListResponse<WebTreeNode<TRecord>>>({
+    subtree: (id, subtreeOptions) => {
+      if (!scopeValueOf(options)) {
+        return emptyTreeResponse<TRecord>();
+      }
+      return context.http.request<WebListResponse<WebTreeNode<TRecord>>>({
         path: treePathOf(options.treePath, id),
         query: {
           ...scopeQueryParams(options),
           ...subtreeOptions,
         },
-      }),
-    sort: (id, request) =>
-      context.http.request<StaticCountMutationResult>({
+      });
+    },
+    sort: (id, request) => {
+      if (!scopeValueOf(options)) {
+        return Promise.resolve(0);
+      }
+      return context.http.request<StaticCountMutationResult>({
         method: 'POST',
         path: `${(options.sortPath ?? `${options.treePath.replace(/\/tree\/?$/, '')}/sort`).replace(
           /\/$/,
@@ -70,25 +82,31 @@ export function createScopedTreeClient<TRecord>(
         )}/${encodeURIComponent(id)}`,
         query: scopeQueryParams(options),
         body: request,
-      }),
+      });
+    },
   };
 }
 
 function scopedQuery(request: WebQueryRequest | undefined, options: ScopedTreeModuleContextOptions) {
-  if (!options.scopeValue) {
+  const scopeValue = scopeValueOf(options);
+  if (!scopeValue) {
     return request;
   }
   return {
     ...request,
     conditions: [
       ...(request?.conditions ?? []),
-      { fieldName: options.scopeFieldName, operator: 'EQ', values: [options.scopeValue] },
+      { fieldName: options.scopeFieldName, operator: 'EQ', values: [scopeValue] },
     ],
   };
 }
 
 function scopeQueryParams(options: ScopedTreeModuleContextOptions) {
-  return { [options.treeQueryParam ?? options.scopeFieldName]: options.scopeValue };
+  return { [options.treeQueryParam ?? options.scopeFieldName]: scopeValueOf(options) };
+}
+
+function scopeValueOf(options: ScopedTreeModuleContextOptions) {
+  return typeof options.scopeValue === 'function' ? options.scopeValue() : options.scopeValue;
 }
 
 function treePathOf(treePath: string, rootId: string | undefined) {
@@ -102,4 +120,16 @@ async function emptyTreeResponse<TRecord>(): Promise<WebListResponse<WebTreeNode
 
 async function emptyListResponse<TRecord>(): Promise<WebListResponse<TRecord>> {
   return { records: [] };
+}
+
+async function emptyPageResponse<TRecord>(request?: WebQueryRequest): Promise<WebPageResponse<TRecord>> {
+  const page = request?.page;
+  return {
+    records: [],
+    total: 0,
+    pageNum: page?.pageNum ?? 1,
+    pageSize: page?.pageSize ?? 20,
+    pages: 0,
+    totalKnown: true,
+  };
 }

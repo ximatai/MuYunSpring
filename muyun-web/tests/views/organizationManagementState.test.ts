@@ -106,7 +106,7 @@ it('organization management state clears selection through standard delete react
 
   assert.equal(state.selected.value, undefined);
   assert.equal(state.draft.value.title, '');
-  assert.equal(state.mode.value, 'create');
+  assert.equal(state.mode.value, 'view');
   assert.equal(state.reloadKey.value, 1);
 });
 
@@ -169,7 +169,17 @@ it('organization management state respects delete confirmation result', async ()
 
   assert.deepEqual(calls, ['delete:org-root']);
   assert.equal(state.selected.value, undefined);
-  assert.equal(state.mode.value, 'create');
+  assert.equal(state.mode.value, 'view');
+});
+
+it('organization management state keeps an empty tree in view mode until an explicit create action', () => {
+  const state = createOrganizationManagementState(createContext(), async () => true);
+
+  state.handleTreeLoaded([]);
+
+  assert.equal(state.selected.value, undefined);
+  assert.equal(state.mode.value, 'view');
+  assert.equal(state.draft.value.title, '');
 });
 
 it('organization management state exposes action authorization flags', () => {

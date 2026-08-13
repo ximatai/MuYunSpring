@@ -50,9 +50,7 @@ const canBrowseTenants = computed(() => currentUser?.value?.system === true);
 const selectedTenantId = computed(() => selectedTenant.value?.id);
 const categoryScopeOptions = {
   scopeFieldName: 'tenantId',
-  get scopeValue() {
-    return selectedTenantId.value;
-  },
+  scopeValue: () => selectedTenantId.value,
   treePath: '/iam.position_category/tree',
 };
 const scopedCategoryContext = createScopedTreeModuleContext(
