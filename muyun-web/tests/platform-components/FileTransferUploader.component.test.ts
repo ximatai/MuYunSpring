@@ -11,6 +11,16 @@ describe('FileTransferUploader', () => {
     expect(button.classes()).not.toContain('file-transfer-uploader--dropzone');
   });
 
+  it('shows caller-provided guidance before file selection', () => {
+    const wrapper = mount(FileTransferUploader, {
+      props: { dropzoneHint: '建议上传 128 × 128 px 的图片，最大 512 KB' },
+    });
+
+    expect(wrapper.get('.file-transfer-uploader__drop-zone-hint').text()).toBe(
+      '建议上传 128 × 128 px 的图片，最大 512 KB',
+    );
+  });
+
   it('does not expose a native file chooser while disabled', async () => {
     const wrapper = mount(FileTransferUploader, {
       props: { disabled: true },

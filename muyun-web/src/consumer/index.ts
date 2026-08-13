@@ -18,12 +18,14 @@ export * from '../platform-workbench/index';
 export * from '../platform-admin-runtime/index';
 export {
   activeTabUrlOf,
+  arrangeLockedMenuTabs,
+  removeLockedMenuTabs,
   restoreWorkbenchStartupStateFromUrl,
+  restoreLockedMenuTabs,
+  updateLockedMenuTabs,
 } from '../app/workbenchStartup';
-export {
-  shouldRestoreWorkbenchFromRoute,
-  workbenchRouteWriteFor,
-} from '../app/workbenchRouteSync';
+export { restoreLockedTabPreference, saveLockedTabPreference } from '../app/lockedTabPreference';
+export { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from '../app/workbenchRouteSync';
 export {
   configureModulePageEnhancements,
   createModulePageEnhancementRegistry,

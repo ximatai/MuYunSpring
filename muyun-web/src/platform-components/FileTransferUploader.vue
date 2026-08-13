@@ -53,6 +53,8 @@ const props = withDefaults(
     /** Business-owned preflight validation; returning a message rejects the selected file before transfer. */
     uploadValidation?: (file: File) => string | undefined | Promise<string | undefined>;
     disabledHint?: string;
+    /** Persistent guidance displayed in the dropzone before a file is selected. */
+    dropzoneHint?: string;
     completionHint?: string;
     /** Completed items may be retained when the surrounding form owns deletion semantics. */
     allowCompletedRemoval?: boolean;
@@ -79,6 +81,7 @@ const props = withDefaults(
     uploadAdvisory: undefined,
     uploadValidation: undefined,
     disabledHint: undefined,
+    dropzoneHint: undefined,
     completionHint: undefined,
     allowCompletedRemoval: true,
     releasedCompletedFileIds: () => [],
@@ -248,6 +251,12 @@ function handleDropZoneKeydown(event: KeyboardEvent) {
   }
 }
 
+function dropZoneHint() {
+  if (props.disabled) return props.disabledHint ?? '当前不可上传';
+  if (atCapacity.value) return '已达该字段允许的文件数量上限';
+  return props.dropzoneHint ?? '点击选择，或将文件拖拽到此处';
+}
+
 async function upload(item: UploadItem) {
   if (props.disabled) {
     return;
@@ -390,13 +399,7 @@ function stateText(item: UploadItem) {
     >
       <span class="file-transfer-uploader__drop-zone-icon">+</span>
       <span class="file-transfer-uploader__drop-zone-title">{{ uploadText }}</span>
-      <span class="file-transfer-uploader__drop-zone-hint">{{
-        disabled
-          ? (disabledHint ?? '当前不可上传')
-          : atCapacity
-            ? '已达该字段允许的文件数量上限'
-            : '点击选择，或将文件拖拽到此处'
-      }}</span>
+      <span class="file-transfer-uploader__drop-zone-hint">{{ dropZoneHint() }}</span>
     </div>
     <div v-if="visibleItems.length" class="file-transfer-uploader__list" aria-live="polite">
       <div v-for="item in visibleItems" :key="item.id" class="file-transfer-uploader__item">

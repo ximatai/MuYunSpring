@@ -139,6 +139,7 @@ function browserViewUrl(url: string) {
       :form-session-key="formSessionKey"
       :disabled="disabled"
       :disabled-hint="disabledHint"
+      :dropzone-hint="uploadHint"
       :show-bound-files="false"
       uploader-presentation="dropzone"
       :upload-text="uploadText"
