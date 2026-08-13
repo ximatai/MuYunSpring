@@ -10,7 +10,9 @@ describe('configureUserPreferencePersistence', () => {
     const request = vi.fn().mockResolvedValue({ valueJson: '"midnight"' });
     configureUserPreferencePersistence(() => ({ request }) as HttpClient);
 
-    await expect(userPreferences.restore('workbench.theme-skin', 'default', { persistence: 'backend' })).resolves.toBe('midnight');
+    await expect(
+      userPreferences.restore('workbench.theme-skin', 'default', { persistence: 'backend' }),
+    ).resolves.toBe('midnight');
     await userPreferences.set('workbench.theme-skin', 'daylight', { persistence: 'backend' });
     await userPreferences.remove('workbench.theme-skin', { persistence: 'backend' });
 

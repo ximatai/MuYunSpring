@@ -61,12 +61,7 @@ export {
   saveThemeSkinPreference,
   themeSkinPreferenceKey,
 } from '../app/themeSkinPreference';
-export {
-  defaultUiThemeSkinId,
-  UiThemeProvider,
-  uiThemeSkinById,
-  uiThemeSkins,
-} from '../vue-ui-antdv/index';
+export { defaultUiThemeSkinId, UiThemeProvider, uiThemeSkinById, uiThemeSkins } from '../vue-ui-antdv/index';
 export type { UiThemeSkin, UiThemeSkinId } from '../vue-ui-antdv/index';
 export { default as DateTimeText } from '../platform-components/DateTimeText.vue';
 export { default as FileSizeText } from '../platform-components/FileSizeText.vue';
