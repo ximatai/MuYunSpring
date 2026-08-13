@@ -35,6 +35,9 @@ export function isModuleOpenApiPage(descriptor?: PageDescriptor): boolean {
     return false;
   }
 
+  if (!('route' in descriptor.target)) {
+    return false;
+  }
   const moduleAlias = moduleAliasFromOpenApiPath(descriptor.target.route ?? '');
   return moduleAlias !== undefined && descriptor.target.moduleAlias === moduleAlias;
 }

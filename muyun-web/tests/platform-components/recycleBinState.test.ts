@@ -505,6 +505,9 @@ function fakeRuntimeState(): ModuleRuntimeContextState {
     error: () => undefined,
     hasAbility: () => undefined,
     action: () => undefined,
+    runtimeAction: () => undefined,
     can: () => undefined,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
   };
 }

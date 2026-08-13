@@ -50,13 +50,14 @@ it('user session rows keep latest session refresh when earlier request finishes 
   rows.loadUserSessions('user-1');
   await waitFor(() => sessionRequests.length === 2);
 
-  sessionRequests[1].resolve([{ id: 'session-latest' } as UserSessionView]);
+  const latest = userSession('session-latest');
+  sessionRequests[1].resolve([latest]);
   await flushPromises();
-  assert.deepEqual(rows.userSessionState('user-1').records, [{ id: 'session-latest' }]);
+  assert.deepEqual(rows.userSessionState('user-1').records, [latest]);
 
-  sessionRequests[0].resolve([{ id: 'session-stale' } as UserSessionView]);
+  sessionRequests[0].resolve([userSession('session-stale')]);
   await flushPromises();
-  assert.deepEqual(rows.userSessionState('user-1').records, [{ id: 'session-latest' }]);
+  assert.deepEqual(rows.userSessionState('user-1').records, [latest]);
 });
 
 it('user session rows keep latest online status when earlier request finishes last', async () => {
@@ -163,12 +164,22 @@ function sessionRowsContext(
       request: <T>(options: HttpRequestOptions) =>
         Promise.resolve(request({ path: options.path, body: options.body })) as Promise<T>,
     },
-    can: (actionCode) => (actionCode === 'sessions' ? true : undefined),
+    can: (actionCode: string) => (actionCode === 'sessions' ? true : undefined),
     recordActions: async () => ({
       recordId: 'user-1',
       actions: [{ actionCode: 'sessions', available: true }],
     }),
-  } as ModuleContext<UserAccount>;
+  } as unknown as ModuleContext<UserAccount>;
+}
+
+function userSession(id: string): UserSessionView {
+  return {
+    id,
+    userId: 'user-1',
+    issuedAt: '2026-01-01T00:00:00Z',
+    expiresAt: '2026-01-02T00:00:00Z',
+    current: false,
+  };
 }
 
 function sessionChangedEvent(userId: string) {

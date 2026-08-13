@@ -637,6 +637,13 @@ function createContext<TRecord>(
   can: (actionCode: string) => boolean = () => true,
 ): ModuleContext<TRecord> {
   const crud: ModuleContext<TRecord>['crud'] = {
+    querySchema: async () => ({
+      scopeName: moduleAlias,
+      quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+      fields: [],
+      externalCriteria: [],
+      defaultSorts: [],
+    }),
     query: async () => ({
       records: [],
       total: 0,
@@ -666,6 +673,7 @@ function createContext<TRecord>(
   };
   return {
     moduleAlias,
+    http: { request: async () => undefined as never },
     crud,
     runtime: fakeRuntimeState(moduleAlias),
     abilities: {
@@ -681,7 +689,10 @@ function createContext<TRecord>(
       hasEnable: () => undefined,
     },
     action: () => undefined,
+    runtimeAction: () => undefined,
     can,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
   };
 }
 
@@ -703,6 +714,9 @@ function fakeRuntimeState(moduleAlias: string): ModuleRuntimeContextState {
     error: () => undefined,
     hasAbility: () => undefined,
     action: () => undefined,
+    runtimeAction: () => undefined,
     can: () => undefined,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
   };
 }

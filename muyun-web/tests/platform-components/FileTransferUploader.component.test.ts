@@ -26,7 +26,7 @@ describe('FileTransferUploader', () => {
       props: { disabled: true },
     });
     const input = wrapper.find('input[type="file"]');
-    const click = vi.spyOn(input.element, 'click');
+    const click = vi.spyOn(input.element as HTMLInputElement, 'click');
 
     await wrapper.find('.file-transfer-uploader__drop-zone').trigger('click');
 
@@ -39,7 +39,7 @@ describe('FileTransferUploader', () => {
       props: { disabled: true, presentation: 'button' },
     });
     const input = wrapper.find('input[type="file"]');
-    const click = vi.spyOn(input.element, 'click');
+    const click = vi.spyOn(input.element as HTMLInputElement, 'click');
 
     await wrapper.find('.file-transfer-uploader__choose-button').trigger('click');
 

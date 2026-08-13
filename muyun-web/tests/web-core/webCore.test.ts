@@ -1,3 +1,4 @@
+import type { IMessage } from '@stomp/stompjs';
 import { assert, expect, it } from 'vitest';
 import { computed, nextTick } from 'vue';
 import {
@@ -84,7 +85,8 @@ it('menu client normalizes backend enum values before workbench navigation', asy
 
   try {
     const response = await createMenuClient(createHttpClient({ baseUrl: 'http://api.local' })).mine();
-    const menu = response.records[0].record;
+    const menu = response.records[0]?.record;
+    if (!menu) throw new Error('Expected a menu record.');
     const target = getMenuNavigationTarget(menu);
 
     assert.equal(menu.openMode, 'tab');
@@ -96,7 +98,11 @@ it('menu client normalizes backend enum values before workbench navigation', asy
       route: '/app/todo',
       entryParamsJson: undefined,
     });
-    assert.equal(createMenuTab(menu, target!).pageDescriptor.pageType, 'platform-route');
+    if (!target) throw new Error('Expected a navigation target.');
+    const tab = createMenuTab(menu, target);
+    if (!tab) throw new Error('Expected a menu tab.');
+    if (!tab.pageDescriptor) throw new Error('Expected a page descriptor.');
+    assert.equal(tab.pageDescriptor.pageType, 'platform-route');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -946,13 +952,13 @@ it('module context creates standard CRUD capabilities from configured http facto
     const context = createModuleContext({ moduleAlias: 'iam.organization' });
 
     await context.runtime.ready;
-    await context.abilities.crud().query({ keyword: '总部' });
+    await context.abilities.crud().query({ quickSearch: '总部' });
 
     assert.equal(context.moduleAlias, 'iam.organization');
     assert.equal(requests[0].url, 'http://api.local/platform.module/iam.organization/context');
     assert.equal(requests[1].url, 'http://api.local/iam.organization/query');
     assert.equal(requests[1].method, 'POST');
-    assert.deepEqual(await requests[1].json(), { keyword: '总部' });
+    assert.deepEqual(await requests[1].json(), { quickSearch: '总部' });
     assert.equal(context.runtime.can('update'), true);
     assert.equal(context.runtime.action('update')?.available, true);
     assert.equal(context.runtime.action('update')?.title, 'Update');
@@ -1112,7 +1118,7 @@ it('module context abilities compose tree and enable capabilities', async () => 
     const tree = context.abilities.tree();
     const enable = context.abilities.enable();
 
-    await context.abilities.crud().query({ keyword: '总部' });
+    await context.abilities.crud().query({ quickSearch: '总部' });
     await tree.tree();
     await enable.disable('org-1', { version: 4 });
 
@@ -1333,7 +1339,7 @@ class FakeStompClient implements StompClientAdapter {
   options?: StompClientFactoryOptions;
   activateCalls = 0;
   subscribeCalls = 0;
-  private readonly subscriptions = new Map<string, Set<(message: { body: string }) => void>>();
+  private readonly subscriptions = new Map<string, Set<(message: IMessage) => void>>();
 
   activate() {
     this.activateCalls += 1;
@@ -1350,7 +1356,7 @@ class FakeStompClient implements StompClientAdapter {
     this.options?.onConnect();
   }
 
-  subscribe(destination: string, handler: (message: { body: string }) => void): StompSubscriptionLike {
+  subscribe(destination: string, handler: (message: IMessage) => void): StompSubscriptionLike {
     this.subscribeCalls += 1;
     const handlers = this.subscriptions.get(destination) ?? new Set();
     handlers.add(handler);
@@ -1368,7 +1374,7 @@ class FakeStompClient implements StompClientAdapter {
 
   emit(destination: string, body: string) {
     for (const handler of this.subscriptions.get(destination) ?? []) {
-      handler({ body });
+      handler({ body } as IMessage);
     }
   }
 

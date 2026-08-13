@@ -246,7 +246,7 @@ describe('WorkbenchMenu', () => {
       props: { menus, presentation: 'compact', compactOpen: true },
     });
 
-    expect(wrapper.get('.compact-menu-tools').get('[aria-label="搜索菜单"]').exists()).toBe(true);
+    expect(wrapper.get('.compact-menu-tools').find('[aria-label="搜索菜单"]').exists()).toBe(true);
     expect(wrapper.findComponent({ name: 'UiInput' }).props('placeholder')).toBe('');
     expect(wrapper.find('[aria-label="展开侧栏菜单"]').exists()).toBe(false);
   });
@@ -1159,7 +1159,7 @@ describe('WorkbenchBrandControl', () => {
     });
 
     expect(wrapper.find('.workbench-brand-presentation-toggle').exists()).toBe(false);
-    expect(wrapper.get('[aria-label="系统菜单"]').exists()).toBe(true);
+    expect(wrapper.get('[aria-label="系统菜单"]').attributes('aria-label')).toBe('系统菜单');
   });
 
   it('renders a tenant-provided logo and title without a subtitle in compact mode', () => {

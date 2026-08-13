@@ -1,4 +1,5 @@
 import { assert, it } from 'vitest';
+import type { CurrentUser, MenuTab, MenuTreeNode } from '@muyun/web-contracts';
 import {
   activeTabUrlOf,
   arrangeLockedMenuTabs,
@@ -35,12 +36,12 @@ it('workbench realtime status presents transport state without claiming platform
   assert.equal(presentWorkbenchRealtimeStatus('unavailable'), undefined);
 });
 
-const currentUser = {
+const currentUser: CurrentUser = {
   userId: 'user-1',
   system: false,
 };
 
-const menus = [
+const menus: MenuTreeNode[] = [
   {
     record: {
       id: 'root',
@@ -97,7 +98,7 @@ const menus = [
   },
 ];
 
-const platformAdminMenus = [
+const platformAdminMenus: MenuTreeNode[] = [
   {
     record: {
       id: 'platform.menu.group.platform',
@@ -230,6 +231,22 @@ const platformAdminMenus = [
     ],
   },
 ];
+
+function platformRouteTargetOf(tab: MenuTab | undefined) {
+  const descriptor = tab?.pageDescriptor;
+  if (!descriptor || descriptor.pageType !== 'platform-route') {
+    throw new Error('Expected a platform route tab.');
+  }
+  return descriptor.target;
+}
+
+function businessRouteTargetOf(tab: MenuTab | undefined) {
+  const descriptor = tab?.pageDescriptor;
+  if (!descriptor || descriptor.pageType !== 'business-route') {
+    throw new Error('Expected a business route tab.');
+  }
+  return descriptor.target;
+}
 
 it('loadWorkbenchStartupState creates the first available navigation tab', async () => {
   const state = await loadWorkbenchStartupState({
@@ -469,7 +486,7 @@ it('reorderMenuTabs only reorders the current session tab array', () => {
 });
 
 it('closeMenuTab activates the neighboring tab when closing the active tab', () => {
-  const tabs = [
+  const tabs: MenuTab[] = [
     { key: 'A', title: 'A', target: { menuId: 'a', menuType: 'route', openMode: 'tab', route: '/a' } },
     { key: 'B', title: 'B', target: { menuId: 'b', menuType: 'route', openMode: 'tab', route: '/b' } },
     { key: 'C', title: 'C', target: { menuId: 'c', menuType: 'route', openMode: 'tab', route: '/c' } },
@@ -555,7 +572,7 @@ it('activeTabUrlOf returns the active tab descriptor URL', () => {
 
   assert.ok(target);
 
-  const tab = {
+  const tab: MenuTab = {
     key: 'menu:metadata',
     title: 'Metadata',
     target,
@@ -581,7 +598,7 @@ it('activeTabUrlOf returns the active tab descriptor URL', () => {
 });
 
 it('activeTabUrlOf keeps new-window external links on workbench-owned URLs', () => {
-  const tab = {
+  const tab: MenuTab = {
     key: 'menu:external-bi',
     title: 'BI',
     pageDescriptor: {
@@ -675,7 +692,7 @@ it('restoreWorkbenchStartupStateFromUrl preserves query when URL matches a menu 
 
   assert.equal(restored.activeTabKey, 'menu:metadata');
   assert.equal(restored.tabs?.length, 1);
-  assert.equal(restored.tabs?.[0]?.pageDescriptor?.target.query?.view, 'advanced');
+  assert.equal(platformRouteTargetOf(restored.tabs?.[0]).query?.view, 'advanced');
   assert.equal(
     activeTabUrlOf(restored),
     '/platform/metadata?_muyunMenuId=metadata&_muyunTitle=Metadata&view=advanced',
@@ -782,7 +799,7 @@ it('restoreWorkbenchStartupStateFromUrl creates direct tab when URL has no menu 
 
   assert.equal(restored.activeTabKey, 'platform-route:/crm/customer/list');
   assert.equal(restored.tabs?.[0]?.target, undefined);
-  assert.equal(restored.tabs?.[0]?.pageDescriptor?.target.route, '/crm/customer/list');
+  assert.equal(platformRouteTargetOf(restored.tabs?.[0]).route, '/crm/customer/list');
 });
 
 it('restoreWorkbenchStartupStateFromUrl restores a module OpenAPI document as a direct tab', () => {
@@ -832,7 +849,7 @@ it('restoreWorkbenchStartupStateFromUrl restores a declared workspace view ahead
   );
   assert.equal(restored.tabs?.[0]?.title, 'Alice');
   assert.equal(restored.tabs?.[0]?.target, undefined);
-  assert.equal(restored.tabs?.[0]?.pageDescriptor?.target.query?.workspaceView, 'iam.employee.detail');
+  assert.equal(businessRouteTargetOf(restored.tabs?.[0]).query?.workspaceView, 'iam.employee.detail');
 });
 
 it('restoreWorkbenchStartupStateFromUrl does not restore window menus as workbench menu tabs', () => {

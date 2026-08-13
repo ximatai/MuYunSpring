@@ -708,6 +708,7 @@ it('dictionary management state keeps category editor closed after deleting cate
 
 function createContext(can: (actionCode: string) => boolean = () => true): ModuleContext<DictionaryCategory> {
   const crud: ModuleContext<DictionaryCategory>['crud'] = {
+    querySchema: async () => emptyQuerySchema(),
     query: async () => ({
       records: [],
       total: 0,
@@ -747,7 +748,10 @@ function createContext(can: (actionCode: string) => boolean = () => true): Modul
       hasEnable: () => undefined,
     },
     action: () => undefined,
+    runtimeAction: () => undefined,
     can,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
   };
 }
 
@@ -774,6 +778,7 @@ function createItemClient(
     subtree: async () => ({ records: [] }),
     sort: async () => 1,
     ...overrides,
+    querySchema: overrides.querySchema ?? (() => Promise.resolve(emptyQuerySchema())),
   };
 }
 
@@ -800,19 +805,41 @@ function createCategoryClient(
     subtree: async () => ({ records: [] }),
     sort: async () => 1,
     ...overrides,
+    querySchema: overrides.querySchema ?? (() => Promise.resolve(emptyQuerySchema())),
   };
 }
 
 function fakeRuntimeState(): ModuleRuntimeContextState {
   return {
-    loading: { value: false },
-    loaded: { value: true },
-    error: { value: undefined },
-    actions: { value: [] },
-    permissions: { value: {} },
-    ready: Promise.resolve(),
-    reload: async () => undefined,
+    ready: Promise.resolve({
+      moduleAlias: 'platform.dictionary_category',
+      capabilities: ['CRUD', 'TREE', 'ENABLE'],
+      abilities: ['crud', 'tree', 'enable'],
+      actions: [],
+    }),
+    load: async () => ({
+      moduleAlias: 'platform.dictionary_category',
+      capabilities: ['CRUD', 'TREE', 'ENABLE'],
+      abilities: ['crud', 'tree', 'enable'],
+      actions: [],
+    }),
+    snapshot: () => undefined,
+    error: () => undefined,
+    hasAbility: () => undefined,
     action: () => undefined,
-    can: () => true,
+    runtimeAction: () => undefined,
+    can: () => undefined,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
+  };
+}
+
+function emptyQuerySchema() {
+  return {
+    scopeName: 'platform.dictionary_category',
+    quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+    fields: [],
+    externalCriteria: [],
+    defaultSorts: [],
   };
 }

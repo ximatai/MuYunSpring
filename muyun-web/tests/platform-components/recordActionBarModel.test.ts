@@ -53,7 +53,7 @@ it('resolveRecordActions omits actions that the module does not publish', () => 
               actionCode,
               available: true,
             },
-      runtime: { snapshot: () => ({}) },
+      runtime: { snapshot: () => ({ moduleAlias: 'test', capabilities: [], actions: [] }) },
     },
     [
       { key: 'create', actionCode: 'create', title: '新建' },
@@ -128,7 +128,7 @@ it('resolveRecordActions passes record id into authorization check', () => {
 });
 
 it('resolveRecordActions uses an attached scope authorization context and record ID', () => {
-  const pageContext = { action: () => ({ available: false }) };
+  const pageContext = { action: (actionCode: string) => ({ actionCode, available: false }) };
   const calls: Array<[string, string | undefined]> = [];
   const scopeContext = {
     action: (actionCode: string, recordId?: string) => {
@@ -153,9 +153,9 @@ it('resolveRecordActions uses an attached scope authorization context and record
 });
 
 it('resolveRecordActions denies scope-record authorization until a scope record is selected', () => {
-  const scopeContext = { action: () => ({ available: true }) };
+  const scopeContext = { action: (actionCode: string) => ({ actionCode, available: true }) };
 
-  const actions = resolveRecordActions({ action: () => ({ available: true }) }, [
+  const actions = resolveRecordActions({ action: (actionCode) => ({ actionCode, available: true }) }, [
     {
       key: 'ask',
       actionCode: 'agent_chat_ask',
@@ -172,7 +172,8 @@ it('resolveRecordActions denies scope-record authorization until a scope record 
 it('resolveRecordActions retains a record-level authorization reason for disabled-action feedback', () => {
   const actions = resolveRecordActions(
     {
-      action: (_actionCode, recordId) => ({
+      action: (actionCode, recordId) => ({
+        actionCode,
         available: false,
         reason: `无权操作记录 ${recordId}`,
       }),
