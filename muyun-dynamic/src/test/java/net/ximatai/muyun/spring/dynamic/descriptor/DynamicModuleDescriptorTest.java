@@ -25,6 +25,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityViewFieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FileReferenceDefinition;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceStoragePolicy;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldTemporalSemantics;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
@@ -38,6 +39,20 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DynamicModuleDescriptorTest {
+    @Test
+    void shouldExposeDatabaseInlineStoragePolicyToTheSharedFormRuntime() {
+        EntityDefinition document = new EntityDefinition("document", "crm_document", "Document", List.of(
+                FieldDefinition.string("logoAssetId", "Logo").column("logo_asset_id")))
+                .withFileReferences(Map.of("logoAssetId", new FileReferenceDefinition(Set.of("image/png"), 1024L, 1,
+                        Map.of(), FileReferenceStoragePolicy.DATABASE_INLINE)));
+
+        DynamicEntityDescriptor entity = DynamicModuleDescriptor.from(new ModuleDefinition(
+                "crm.document", "Document", List.of(document))).entities().getFirst();
+
+        assertThat(entity.fileReferences().getFirst().storagePolicy())
+                .isEqualTo(FileReferenceStoragePolicy.DATABASE_INLINE);
+    }
+
     @Test
     void shouldExposeDeclaredSingleFileReferencesInTheRuntimeDescriptor() {
         EntityDefinition document = new EntityDefinition("document", "crm_document", "Document", List.of(

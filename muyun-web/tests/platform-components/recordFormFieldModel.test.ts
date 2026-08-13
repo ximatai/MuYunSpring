@@ -2,6 +2,7 @@ import { assert, it } from 'vitest';
 import {
   childResourceDefaultFormViewCode,
   resolveRecordFormFields,
+  resolveRecordFormGroups,
   resolveRecordBooleanStatusValue,
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
@@ -99,6 +100,47 @@ it('record form field state resolves select options from fallback metadata', () 
   });
 });
 
+it('record form groups preserve fields nested by the UI descriptor and attach them to rendered fields', () => {
+  const uiDescriptor = {
+    schemaVersion: '1',
+    moduleAlias: 'iam.tenant',
+    views: [
+      {
+        viewCode: 'default_form',
+        viewKind: 'FORM',
+        fields: [
+          {
+            fieldRef: { fieldName: 'workbenchTitle' },
+            label: '主标题',
+          },
+        ],
+        formGroups: [
+          {
+            groupCode: 'workbench_branding',
+            title: '主标题UI个性化配置',
+            subtitle: '控制工作台标题和 Logo。',
+            fields: [{ fieldName: 'workbenchTitle' }],
+          },
+        ],
+      },
+    ],
+  } satisfies ResolvedModuleUiDescriptor;
+  const groups = resolveRecordFormGroups(uiDescriptor);
+
+  assert.deepEqual(groups, [
+    {
+      groupCode: 'workbench_branding',
+      title: '主标题UI个性化配置',
+      subtitle: '控制工作台标题和 Logo。',
+      fields: [{ fieldName: 'workbenchTitle' }],
+    },
+  ]);
+  assert.equal(
+    resolveRecordFormFields(uiDescriptor).get('workbenchTitle')?.formGroup?.groupCode,
+    'workbench_branding',
+  );
+});
+
 it('record form field state preserves a descriptor switch as a generic boolean control', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
     ['completed', field('已完成', { uiType: 'switch' })],
@@ -129,6 +171,20 @@ it('record form field state renders a color picker descriptor with the shared co
   ]);
 
   assert.equal(resolveRecordFormFieldState('color', { fields }).controlType, 'colorPicker');
+});
+
+it('record form field state uses the single-image field for one image file reference', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'logoAssetId',
+      {
+        ...field('Logo'),
+        fileReference: { maxFiles: 1, allowedMediaTypes: ['image/png', 'image/webp'] },
+      } as RecordFormFieldDescriptor,
+    ],
+  ]);
+
+  assert.equal(resolveRecordFormFieldState('logoAssetId', { fields }).controlType, 'imageFileTransfer');
 });
 
 it('record form field state preserves typed file size presentation for read-only details', () => {
@@ -263,7 +319,9 @@ it('record form fields attach declared file-reference constraints and infer the 
         allowedMediaTypes: ['application/pdf'],
         maxFileSizeBytes: 1024,
         maxFiles: 1,
+        storagePolicy: 'MUYUN_FILE_SERVER',
         uploadAvailable: true,
+        readAvailable: true,
       },
     ],
     views: [

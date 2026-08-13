@@ -266,6 +266,35 @@ it('loadWorkbenchStartupState creates the first available navigation tab', async
   );
 });
 
+it('loads tenant branding with the workbench session when the client supports it', async () => {
+  const state = await loadWorkbenchStartupState({
+    sessionClient: {
+      current: async () => currentUser,
+      tenantBranding: async () => ({ lightLogo: 'data:image/png;base64,bGlnaHQ=' }),
+    },
+    menuClient: {
+      mine: async () => ({ records: menus }),
+    },
+  });
+
+  assert.equal(state.session.tenantBranding?.lightLogo, 'data:image/png;base64,bGlnaHQ=');
+});
+
+it('continues workbench startup with the default mark when tenant branding is unavailable', async () => {
+  const state = await loadWorkbenchStartupState({
+    sessionClient: {
+      current: async () => currentUser,
+      tenantBranding: async () => Promise.reject(new Error('temporary branding outage')),
+    },
+    menuClient: {
+      mine: async () => ({ records: menus }),
+    },
+  });
+
+  assert.equal(state.session.tenantBranding, undefined);
+  assert.equal(state.activeTabKey, 'menu:metadata');
+});
+
 it('loadWorkbenchStartupState skips disabled navigation menus', async () => {
   const state = await loadWorkbenchStartupState({
     sessionClient: {

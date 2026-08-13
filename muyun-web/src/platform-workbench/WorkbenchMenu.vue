@@ -25,6 +25,10 @@ const props = withDefaults(
     menus: MenuTreeNode[];
     selectedMenuId?: string;
     tenantLabel?: string;
+    logoSrc?: string;
+    showTitleArea?: boolean;
+    brandTitle?: string;
+    brandSubtitle?: string;
     searchPlaceholder?: string;
     realtimeStatus?: WorkbenchRealtimeStatus;
     presentation?: 'compact' | 'expanded';
@@ -36,7 +40,11 @@ const props = withDefaults(
   {
     selectedMenuId: undefined,
     tenantLabel: '系统工作区',
-    searchPlaceholder: '搜索菜单、模块或路由',
+    logoSrc: undefined,
+    showTitleArea: true,
+    brandTitle: 'MuYun',
+    brandSubtitle: undefined,
+    searchPlaceholder: '',
     realtimeStatus: 'unavailable',
     presentation: 'expanded',
     expandedMenuDepth: 1,
@@ -737,6 +745,10 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
             v-if="!isCompact"
             presentation="expanded"
             :tenant-label="tenantLabel"
+            :logo-src="logoSrc"
+            :show-title-area="showTitleArea"
+            :brand-title="brandTitle"
+            :brand-subtitle="brandSubtitle"
             :expanded-menu-depth="expandedMenuDepth"
             @change-presentation="changePresentation"
             @change-expanded-menu-depth="changeExpandedMenuDepth"
@@ -886,9 +898,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
     <template v-if="compactOutlinePath">
       <svg class="compact-mega-outline compact-mega-outline--shadow" aria-hidden="true">
-        <path :d="compactOutlinePath" />
-      </svg>
-      <svg class="compact-mega-outline compact-mega-outline--stroke" aria-hidden="true">
         <path :d="compactOutlinePath" />
       </svg>
     </template>
@@ -1157,9 +1166,9 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .workbench-menu--expanded :deep(.workbench-brand-control) {
-  gap: 6px;
-  height: 40px;
-  padding: 0 5px;
+  gap: 4px;
+  min-height: 50px;
+  padding: 0 2px;
 }
 
 .compact-menu-tools {
@@ -1185,10 +1194,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   background: transparent;
 }
 
-.compact-menu-tools .menu-search:focus-within {
-  background: var(--muyun-support-hover);
-}
-
 .workbench-menu--compact .root-menu {
   width: 100%;
   padding: 0;
@@ -1207,7 +1212,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .menu-search {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   height: 34px;
   padding: 0 9px;
   border: var(--workbench-menu-border-width) solid var(--workbench-menu-border);
@@ -1597,14 +1602,12 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .sidebar-submenu-outline--stroke,
-.mega-outline--stroke,
-.compact-mega-outline--stroke {
+.mega-outline--stroke {
   z-index: 3;
 }
 
 .sidebar-submenu-outline--stroke path,
-.mega-outline--stroke path,
-.compact-mega-outline--stroke path {
+.mega-outline--stroke path {
   fill: none;
   stroke: var(--workbench-menu-border);
   stroke-linejoin: round;

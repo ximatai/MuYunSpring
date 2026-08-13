@@ -7,7 +7,11 @@ import {
   type FileTransferUploadReceipt,
   type FileTransferUploadTask,
 } from './fileTransferUpload';
-import { presentPlatformError, presentPlatformSuccess } from './platformErrorFeedback';
+import {
+  presentPlatformError,
+  presentPlatformSuccess,
+  presentPlatformWarning,
+} from './platformErrorFeedback';
 
 defineOptions({ name: 'FileTransferUploader' });
 
@@ -26,7 +30,9 @@ interface UploadItem {
 const props = withDefaults(
   defineProps<{
     /** Business API callback: authorize this exact file and return a short-lived upload target. */
-    requestUploadAccess: (file: File) => Promise<FileTransferUploadAccess>;
+    requestUploadAccess?: (file: File) => Promise<FileTransferUploadAccess>;
+    /** Storage-specific transport; ordinary FileServer fields continue to use upload access tickets. */
+    uploadFile?: (file: File) => Promise<FileTransferUploadReceipt>;
     /** Optional business callback after upload. Standard file-reference fields leave this undefined. */
     confirmUpload?: (receipt: FileTransferUploadReceipt) => Promise<unknown>;
     accept?: string;
@@ -39,6 +45,13 @@ const props = withDefaults(
     existingFileCount?: number;
     autoUpload?: boolean;
     uploadText?: string;
+    presentation?: 'dropzone' | 'button';
+    uploadButtonType?: 'default' | 'primary' | 'dashed' | 'link' | 'text';
+    showCompletedItems?: boolean;
+    /** Non-blocking, browser-side guidance evaluated after file selection and before transfer. */
+    uploadAdvisory?: (file: File) => string | undefined | Promise<string | undefined>;
+    /** Business-owned preflight validation; returning a message rejects the selected file before transfer. */
+    uploadValidation?: (file: File) => string | undefined | Promise<string | undefined>;
     disabledHint?: string;
     completionHint?: string;
     /** Completed items may be retained when the surrounding form owns deletion semantics. */
@@ -49,6 +62,8 @@ const props = withDefaults(
   }>(),
   {
     confirmUpload: undefined,
+    requestUploadAccess: undefined,
+    uploadFile: undefined,
     accept: undefined,
     allowedMediaTypes: undefined,
     maxFileSizeBytes: undefined,
@@ -58,6 +73,11 @@ const props = withDefaults(
     existingFileCount: 0,
     autoUpload: true,
     uploadText: '选择文件上传',
+    presentation: 'dropzone',
+    uploadButtonType: 'default',
+    showCompletedItems: true,
+    uploadAdvisory: undefined,
+    uploadValidation: undefined,
     disabledHint: undefined,
     completionHint: undefined,
     allowCompletedRemoval: true,
@@ -75,6 +95,7 @@ const emit = defineEmits<{
 const input = ref<HTMLInputElement>();
 const items = ref<UploadItem[]>([]);
 const dragging = ref(false);
+const preparingSelection = ref(false);
 let nextId = 1;
 
 watch(
@@ -96,7 +117,12 @@ const occupiedCount = computed(
     items.value.filter((item) => !['failed', 'cancelled'].includes(item.state)).length,
 );
 const atCapacity = computed(() => props.maxFiles !== undefined && occupiedCount.value >= props.maxFiles);
-const unavailable = computed(() => props.disabled || active.value || atCapacity.value);
+const unavailable = computed(
+  () => props.disabled || preparingSelection.value || active.value || atCapacity.value,
+);
+const visibleItems = computed(() =>
+  props.showCompletedItems ? items.value : items.value.filter((item) => item.state !== 'completed'),
+);
 
 function chooseFiles() {
   if (unavailable.value) return;
@@ -104,52 +130,78 @@ function chooseFiles() {
 }
 
 function selectFiles(event: Event) {
-  addFiles(Array.from((event.target as HTMLInputElement).files ?? []));
+  void addFiles(Array.from((event.target as HTMLInputElement).files ?? []));
   // Selecting the same file again must still produce a change event.
   (event.target as HTMLInputElement).value = '';
 }
 
-function addFiles(selected: readonly File[]) {
+async function addFiles(selected: readonly File[]) {
   if (unavailable.value) return;
-  const rejected = selected
-    .map((file) => ({ file, error: validationError(file) }))
-    .filter((candidate): candidate is { file: File; error: string } => candidate.error != null)
-    .map((candidate) =>
-      reactive<UploadItem>({
-        id: nextId++,
-        file: candidate.file,
-        state: 'failed',
-        progress: 0,
-        error: candidate.error,
-      }),
+  preparingSelection.value = true;
+  try {
+    const candidates = await Promise.all(
+      selected.map(async (file) => ({ file, error: await validationError(file) })),
     );
-  if (rejected.length) {
-    items.value.push(...rejected);
-  }
-  const valid = selected.filter((file) => validationError(file) == null);
-  const capacity =
-    props.maxFiles === undefined ? valid.length : Math.max(0, props.maxFiles - occupiedCount.value);
-  const accepted = valid.slice(0, props.multiple ? capacity : Math.min(1, capacity));
-  if (accepted.length) {
-    // `upload()` mutates the item throughout its lifecycle. Keep the very same
-    // reactive instance both in the rendered list and in that async workflow;
-    // otherwise Vue cannot observe mutations made through the pre-insertion raw
-    // object and the UI can remain stuck at its first state.
-    const additions = accepted.map((file) =>
-      reactive<UploadItem>({ id: nextId++, file, state: 'ready', progress: 0 }),
-    );
-    items.value.push(...additions);
-    emit(
-      'changed',
-      items.value.map((item) => item.file),
-    );
-    if (props.autoUpload) {
-      additions.forEach((item) => void upload(item));
+    const rejected = candidates
+      .filter((candidate): candidate is { file: File; error: string } => candidate.error != null)
+      .map((candidate) =>
+        reactive<UploadItem>({
+          id: nextId++,
+          file: candidate.file,
+          state: 'failed',
+          progress: 0,
+          error: candidate.error,
+        }),
+      );
+    if (rejected.length) {
+      items.value.push(...rejected);
     }
+    const valid = candidates
+      .filter((candidate) => candidate.error == null)
+      .map((candidate) => candidate.file);
+    const capacity =
+      props.maxFiles === undefined ? valid.length : Math.max(0, props.maxFiles - occupiedCount.value);
+    const accepted = valid.slice(0, props.multiple ? capacity : Math.min(1, capacity));
+    if (accepted.length) {
+      await presentUploadAdvisories(accepted);
+      // `upload()` mutates the item throughout its lifecycle. Keep the very same
+      // reactive instance both in the rendered list and in that async workflow;
+      // otherwise Vue cannot observe mutations made through the pre-insertion raw
+      // object and the UI can remain stuck at its first state.
+      const additions = accepted.map((file) =>
+        reactive<UploadItem>({ id: nextId++, file, state: 'ready', progress: 0 }),
+      );
+      items.value.push(...additions);
+      emit(
+        'changed',
+        items.value.map((item) => item.file),
+      );
+      if (props.autoUpload) {
+        additions.forEach((item) => void upload(item));
+      }
+    }
+  } finally {
+    preparingSelection.value = false;
   }
 }
 
-function validationError(file: File): string | undefined {
+async function presentUploadAdvisories(files: readonly File[]) {
+  if (!props.uploadAdvisory) return;
+  const advisories = await Promise.all(
+    files.map(async (file) => {
+      try {
+        return await props.uploadAdvisory?.(file);
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  for (const advisory of advisories) {
+    if (advisory) presentPlatformWarning(advisory);
+  }
+}
+
+async function validationError(file: File): Promise<string | undefined> {
   if (
     props.allowedMediaTypes?.length &&
     !props.allowedMediaTypes.some((allowed) => matchesMediaType(allowed, file.type))
@@ -159,7 +211,7 @@ function validationError(file: File): string | undefined {
   if (props.maxFileSizeBytes != null && file.size > props.maxFileSizeBytes) {
     return `文件超过单文件大小限制（${props.maxFileSizeBytes} 字节）。`;
   }
-  return undefined;
+  return props.uploadValidation?.(file);
 }
 
 /** Matches exact MIME types and the standard top-level wildcard form (for example image/*). */
@@ -186,7 +238,7 @@ function dragLeave(event: DragEvent) {
 function dropFiles(event: DragEvent) {
   event.preventDefault();
   dragging.value = false;
-  addFiles(Array.from(event.dataTransfer?.files ?? []));
+  void addFiles(Array.from(event.dataTransfer?.files ?? []));
 }
 
 function handleDropZoneKeydown(event: KeyboardEvent) {
@@ -202,6 +254,22 @@ async function upload(item: UploadItem) {
   }
   item.error = undefined;
   try {
+    if (props.uploadFile) {
+      item.state = 'uploading';
+      const receipt = await props.uploadFile(item.file);
+      item.progress = 100;
+      item.state = 'completed';
+      item.completedFileId = props.completedFileId?.(receipt);
+      emit('completed', receipt, receipt.payload);
+      presentPlatformSuccess(`“${item.file.name}”上传成功。${props.completionHint ?? ''}`, {
+        source: 'file-transfer',
+        tone: 'success',
+      });
+      return;
+    }
+    if (!props.requestUploadAccess) {
+      throw new Error('当前文件字段未配置上传 transport。');
+    }
     const { receipt, result } = await performBrowserFileTransferUpload(
       item.file,
       props.requestUploadAccess,
@@ -254,9 +322,9 @@ function remove(item: UploadItem) {
   );
 }
 
-function retry(item: UploadItem) {
+async function retry(item: UploadItem) {
   if (item.state === 'failed' || item.state === 'cancelled') {
-    const error = validationError(item.file);
+    const error = await validationError(item.file);
     if (error) {
       item.error = error;
       return;
@@ -290,9 +358,21 @@ function stateText(item: UploadItem) {
       type="file"
       :accept="accept"
       :multiple="multiple"
+      :disabled="unavailable"
+      @click.stop
       @change="selectFiles"
     />
+    <UiButton
+      v-if="presentation === 'button'"
+      class="file-transfer-uploader__choose-button"
+      :type="uploadButtonType"
+      :disabled="unavailable"
+      @click="chooseFiles"
+    >
+      {{ uploadText }}
+    </UiButton>
     <div
+      v-else
       class="file-transfer-uploader__drop-zone"
       :class="{ 'is-dragging': dragging, 'is-disabled': unavailable }"
       :tabindex="unavailable ? -1 : 0"
@@ -315,8 +395,8 @@ function stateText(item: UploadItem) {
             : '点击选择，或将文件拖拽到此处'
       }}</span>
     </div>
-    <div v-if="items.length" class="file-transfer-uploader__list" aria-live="polite">
-      <div v-for="item in items" :key="item.id" class="file-transfer-uploader__item">
+    <div v-if="visibleItems.length" class="file-transfer-uploader__list" aria-live="polite">
+      <div v-for="item in visibleItems" :key="item.id" class="file-transfer-uploader__item">
         <div class="file-transfer-uploader__name" :title="item.file.name">{{ item.file.name }}</div>
         <div class="file-transfer-uploader__state" :class="`is-${item.state}`">{{ stateText(item) }}</div>
         <div class="file-transfer-uploader__actions">
@@ -357,6 +437,9 @@ function stateText(item: UploadItem) {
 }
 .file-transfer-uploader__input {
   display: none;
+}
+.file-transfer-uploader__choose-button {
+  width: fit-content;
 }
 .file-transfer-uploader__drop-zone {
   display: grid;

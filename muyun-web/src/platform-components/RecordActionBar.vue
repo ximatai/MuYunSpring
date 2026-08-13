@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, watch, watchEffect } from 'vue';
 import type { ModuleContext } from '@muyun/web-core';
-import { UiActionButton } from '@muyun/vue-ui-antdv';
+import { UiActionButton, UiTooltip } from '@muyun/vue-ui-antdv';
 import { resolveRecordActions, type RecordActionItem } from './recordActionBarModel';
 
 defineOptions({ name: 'RecordActionBar' });
@@ -37,6 +37,16 @@ watch(
   { immediate: true },
 );
 
+watchEffect(() => {
+  for (const action of props.actions) {
+    if (action.authorizationContext && action.authorizationRecordId) {
+      action.authorizationContext.recordActions(action.authorizationRecordId).catch(() => {
+        // Action execution still performs backend checks; keep authorization loading errors non-blocking here.
+      });
+    }
+  }
+});
+
 const resolvedActions = computed(() =>
   resolveRecordActions(props.context, props.actions, props.loading, props.recordId),
 );
@@ -48,19 +58,27 @@ function handleClick(action: RecordActionItem, event: MouseEvent) {
 
 <template>
   <div class="record-action-bar" :class="{ compact: size === 'compact' }">
-    <UiActionButton
+    <UiTooltip
       v-for="action in resolvedActions"
       :key="action.key"
-      :emphasis="action.primary ? 'primary' : size === 'compact' && !action.danger ? 'quiet' : 'secondary'"
-      :disabled="action.disabled"
-      :loading="action.loading"
-      :intent="action.danger ? 'danger' : 'normal'"
-      :density="size === 'compact' ? 'compact' : 'regular'"
-      :icon-name="action.iconName"
-      @click="handleClick(action, $event)"
+      :title="action.disabled ? (action.disabledReason ?? action.reason ?? '') : ''"
     >
-      {{ action.title }}
-    </UiActionButton>
+      <span class="record-action-tooltip-trigger">
+        <UiActionButton
+          :emphasis="
+            action.primary ? 'primary' : size === 'compact' && !action.danger ? 'quiet' : 'secondary'
+          "
+          :disabled="action.disabled"
+          :loading="action.loading"
+          :intent="action.danger ? 'danger' : 'normal'"
+          :density="size === 'compact' ? 'compact' : 'regular'"
+          :icon-name="action.iconName"
+          @click="handleClick(action, $event)"
+        >
+          {{ action.title }}
+        </UiActionButton>
+      </span>
+    </UiTooltip>
   </div>
 </template>
 
@@ -74,6 +92,10 @@ function handleClick(action: RecordActionItem, event: MouseEvent) {
 
 .record-action-bar.compact {
   gap: 4px;
+}
+
+.record-action-tooltip-trigger {
+  display: inline-flex;
 }
 
 .record-action-bar.compact :deep(.ant-btn) {

@@ -5,14 +5,19 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.EnableAbility;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticActionContribution;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticWebProjection;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
+import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
 import net.ximatai.muyun.spring.platform.module.StaticServiceAbilityCompiler;
 import net.ximatai.muyun.spring.web.ScopedWeb;
 import net.ximatai.muyun.spring.web.WebPageRequest;
@@ -105,6 +110,9 @@ class MuYunSpringApplicationContextIT {
 
     @Autowired
     private StaticRecordReadProjectionService staticRecordReadProjectionService;
+
+    @Autowired
+    private StaticAbilityCatalog staticAbilityCatalog;
 
     @Autowired
     private StaticModuleDefinitionCatalog staticModuleDefinitionCatalog;
@@ -214,6 +222,19 @@ class MuYunSpringApplicationContextIT {
                 .contains("/platform.measure_unit/categories/enable/{id}",
                         "/platform.measure_unit/categories/{categoryAlias}/units/enable/{id}",
                         "/platform.measure_unit/conversion-rules/enable/{id}");
+    }
+
+    @Test
+    void shouldRegisterTenantAsStaticReferenceTarget() {
+        assertThat(applicationContext.getBean(TenantService.class)).isInstanceOf(ReferenceAbility.class);
+        assertThat(staticAbilityCatalog.abilities())
+                .extracting(ability -> ReferenceTargets.of(ability))
+                .contains(ReferenceTarget.of("iam", "tenant"));
+        assertThat(PlatformAbilityRuntime.referenceTargetResolver()
+                .resolve(ReferenceTarget.of("iam", "tenant")))
+                .isPresent()
+                .get()
+                .isInstanceOf(TenantService.class);
     }
 
     @Test

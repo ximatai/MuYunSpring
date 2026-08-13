@@ -53,6 +53,34 @@ public class ManagedFileAssetService extends AbstractAbilityService<ManagedFileA
         return asset;
     }
 
+    /** Stores a small browser upload as a storage-neutral inline asset and returns its stable id. */
+    public ManagedFileAsset createInline(String tenantId, String originalFilename, String mimeType, byte[] content) {
+        if (!TransactionScopeSupport.isTransactionActive()) {
+            throw new IllegalStateException("managed inline asset creation requires an active transaction");
+        }
+        String normalizedTenantId = requireText(tenantId, "tenantId");
+        String normalizedFilename = requireText(originalFilename, "originalFilename");
+        String declaredMimeType = requireText(mimeType, "mimeType").toLowerCase(Locale.ROOT);
+        if (content == null || content.length == 0) {
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, "managed file content must not be empty");
+        }
+        if (content.length > MAX_INLINE_BYTES) {
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, "managed file content must not exceed 512 KB");
+        }
+        String verifiedMimeType = requireImageMimeType(content, declaredMimeType);
+        ManagedFileAsset asset = new ManagedFileAsset();
+        asset.setId(Ids.newId());
+        asset.setTenantId(normalizedTenantId);
+        asset.setStorageKind(ManagedFileStorageKind.DATABASE_INLINE);
+        asset.setContentBase64("data:" + verifiedMimeType + ";base64," + Base64.getEncoder().encodeToString(content));
+        asset.setOriginalFilename(normalizedFilename);
+        asset.setMimeType(verifiedMimeType);
+        asset.setSizeBytes((long) content.length);
+        asset.setSha256(sha256(content));
+        insert(asset);
+        return asset;
+    }
+
     /** Compatibility facade; callers must no longer infer replacement or deletion from this method. */
     @Deprecated(forRemoval = false)
     public ManagedFileAsset replaceInline(String tenantId, String ignoredExistingAssetId, String dataUrl) {
@@ -95,8 +123,36 @@ public class ManagedFileAssetService extends AbstractAbilityService<ManagedFileA
         if (bytes.length > MAX_INLINE_BYTES) {
             throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, "managed file content must not exceed 512 KB");
         }
-        return new InlineImage("data:" + matcher.group(1).toLowerCase(Locale.ROOT) + ";base64," + matcher.group(3),
-                matcher.group(1).toLowerCase(Locale.ROOT), bytes);
+        String verifiedMimeType = requireImageMimeType(bytes, matcher.group(1).toLowerCase(Locale.ROOT));
+        return new InlineImage("data:" + verifiedMimeType + ";base64," + matcher.group(3), verifiedMimeType, bytes);
+    }
+
+    /** Detects the supported image formats from their binary signatures; browser multipart metadata is never trusted. */
+    private String requireImageMimeType(byte[] content, String declaredMimeType) {
+        String detectedMimeType = detectImageMimeType(content);
+        if (detectedMimeType == null) {
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED,
+                    "managed file content must be a PNG, JPEG, GIF, or WebP image");
+        }
+        if (!detectedMimeType.equals(declaredMimeType)) {
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED,
+                    "managed file media type does not match its binary content");
+        }
+        return detectedMimeType;
+    }
+
+    private String detectImageMimeType(byte[] content) {
+        if (content.length >= 8 && content[0] == (byte) 0x89 && content[1] == 0x50 && content[2] == 0x4e
+                && content[3] == 0x47 && content[4] == 0x0d && content[5] == 0x0a && content[6] == 0x1a
+                && content[7] == 0x0a) return "image/png";
+        if (content.length >= 3 && content[0] == (byte) 0xff && content[1] == (byte) 0xd8
+                && content[2] == (byte) 0xff) return "image/jpeg";
+        if (content.length >= 6 && content[0] == 'G' && content[1] == 'I' && content[2] == 'F'
+                && ((content[3] == '8' && content[4] == '7' && content[5] == 'a')
+                || (content[3] == '8' && content[4] == '9' && content[5] == 'a'))) return "image/gif";
+        if (content.length >= 12 && content[0] == 'R' && content[1] == 'I' && content[2] == 'F' && content[3] == 'F'
+                && content[8] == 'W' && content[9] == 'E' && content[10] == 'B' && content[11] == 'P') return "image/webp";
+        return null;
     }
 
     private String requireText(String value, String name) {

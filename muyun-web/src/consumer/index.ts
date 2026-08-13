@@ -23,6 +23,7 @@ export type {
   ModuleDetailEnhancement,
   ModulePageActionContext,
   ModulePageActionContribution,
+  ModulePageActionStateContext,
   ModulePageBatchActionContext,
   ModulePageBatchActionContribution,
   ModulePageColumnContribution,
@@ -34,6 +35,7 @@ export type {
   ModulePageEnhancementTarget,
   ModulePageRecordActionContext,
   ModulePageRecordActionContribution,
+  ModulePageScopeContext,
   ModulePageWorkspaceView,
   ModulePageWorkspaceViewInput,
 } from '../dynamic-page-runtime/modulePageEnhancements';
@@ -51,9 +53,20 @@ export {
   UiTree,
 } from '../vue-ui-antdv/index';
 export { default as PlatformAdminOutlet } from './PlatformAdminOutlet.vue';
+export { configureUserPreferencePersistence } from './userPreferencePersistence';
+export { default as ChangeOwnPasswordDialog } from '../app/ChangeOwnPasswordDialog.vue';
+export { default as ThemeSkinPreferencesDialog } from '../app/ThemeSkinPreferencesDialog.vue';
+export {
+  restoreThemeSkinPreference,
+  saveThemeSkinPreference,
+  themeSkinPreferenceKey,
+} from '../app/themeSkinPreference';
+export { defaultUiThemeSkinId, UiThemeProvider, uiThemeSkinById, uiThemeSkins } from '../vue-ui-antdv/index';
+export type { UiThemeSkin, UiThemeSkinId } from '../vue-ui-antdv/index';
 export { default as DateTimeText } from '../platform-components/DateTimeText.vue';
 export { default as FileSizeText } from '../platform-components/FileSizeText.vue';
 export { default as FileTransferUploader } from '../platform-components/FileTransferUploader.vue';
+export { default as SingleImageFileReferenceField } from '../platform-components/SingleImageFileReferenceField.vue';
 export {
   presentPlatformError,
   presentPlatformInfo,

@@ -7,6 +7,7 @@ import {
   RecordDetailDrawer,
   RecordActionBar,
   RecordMetaSection,
+  SingleImageFileReferenceField,
   presentPlatformError,
   RecordStatusSwitch,
   RecycleBinModeButton,
@@ -16,11 +17,18 @@ import {
   type RecordActionItem,
   type RecordExplorerItemDescriptor,
 } from '@muyun/platform-components';
-import type { Application, Tenant, TenantApplication, WebPageResponse } from '@muyun/web-contracts';
+import type {
+  Application,
+  ResolvedFileReferenceFieldDescriptor,
+  Tenant,
+  TenantApplication,
+  WebPageResponse,
+} from '@muyun/web-contracts';
 import { useModuleContext } from '@muyun/web-core';
-import { confirmAction, UiButton, UiDataTable, UiInput } from '@muyun/vue-ui-antdv';
+import { confirmAction, UiButton, UiDataTable, UiInput, UiSelect } from '@muyun/vue-ui-antdv';
 import type { UiDataTableColumn, UiDataTableRecord } from '@muyun/vue-ui-antdv';
 import { createTenantManagementState } from './tenantManagementState';
+import { resolveRecordFormFields } from '../platform-components/recordFormFieldModel';
 
 defineOptions({ name: 'TenantManagementView' });
 
@@ -34,6 +42,7 @@ const tenantApplicationsLoading = ref(false);
 const applicationConfigurationOpen = ref(false);
 const applicationConfigurationSaving = ref(false);
 const configuredApplicationAliases = ref<Set<string>>(new Set());
+const tenantFormFields = ref(resolveRecordFormFields(undefined));
 let tenantApplicationsLoadVersion = 0;
 const {
   selected,
@@ -49,7 +58,7 @@ const {
   handleListLoaded,
   handleReadonlyListLoaded,
   handleSelect,
-  startCreate,
+  startCreate: startCrudCreate,
   startEdit,
   cancelEdit,
   save,
@@ -71,6 +80,24 @@ const recycleBinExplorer = useRecycleBinExplorerMode({
 });
 
 const enabledReadonly = computed(() => false);
+const tenantFormDisabled = computed(() => recycleBinExplorer.active.value || readonly.value);
+const logoWithTitle = computed(() => draft.value.workbenchBrandMode !== 'logoOnly');
+const workbenchBrandMode = computed({
+  get: () => draft.value.workbenchBrandMode ?? 'logoWithTitle',
+  set: (value: 'logoOnly' | 'logoWithTitle' | null) => {
+    draft.value.workbenchBrandMode = value ?? 'logoWithTitle';
+  },
+});
+const lightLogoDefinition = computed<ResolvedFileReferenceFieldDescriptor | undefined>(
+  () => tenantFormFields.value.get('lightLogoAssetId')?.fileReference,
+);
+const darkLogoDefinition = computed<ResolvedFileReferenceFieldDescriptor | undefined>(
+  () => tenantFormFields.value.get('darkLogoAssetId')?.fileReference,
+);
+const brandModeOptions = [
+  { value: 'logoOnly', label: '纯 Logo' },
+  { value: 'logoWithTitle', label: 'Logo + 标题' },
+];
 const tenantApplicationColumns: UiDataTableColumn[] = [{ key: 'applicationAlias', title: '已开通应用' }];
 const tenantApplicationRows = computed(() => tenantApplications.value as unknown as UiDataTableRecord[]);
 const applicationRows = computed(() => applications.value as unknown as UiDataTableRecord[]);
@@ -100,7 +127,10 @@ watch(
   },
   { immediate: true },
 );
-onMounted(() => void loadApplications());
+onMounted(() => {
+  void loadApplications();
+  void loadTenantFormFields();
+});
 
 const cardActions = computed<RecordActionItem[]>(() => {
   if (recycleBinExplorer.active.value) {
@@ -152,6 +182,10 @@ function handleTenantSelect(record: CrudRecordListBase) {
   handleSelect(record as Tenant);
 }
 
+function startCreate() {
+  startCrudCreate();
+}
+
 async function handleCardAction(action: RecordActionItem) {
   if (action.key === 'edit') return startEdit();
   if (action.key === 'delete') return removeSelected();
@@ -163,6 +197,54 @@ async function handleFormSubmit() {
   if (!recycleBinExplorer.active.value) {
     await save();
   }
+}
+
+async function loadTenantFormFields() {
+  try {
+    const runtime = await tenantContext.runtime.ready;
+    tenantFormFields.value = resolveRecordFormFields(runtime.uiDescriptor);
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'tenant-management-form', phase: 'load' });
+  }
+}
+
+function tenantLogoUploadHint() {
+  return logoWithTitle.value
+    ? 'Logo + 标题模式仅支持正方形图片（建议 128 × 128 px，最大 512 KB）'
+    : '纯 Logo 模式支持横向或正方形图片（最大 512 KB）';
+}
+
+async function validateTenantLogo(file: File) {
+  if (!logoWithTitle.value) return undefined;
+  if (!file.type.startsWith('image/') || typeof Image === 'undefined') {
+    return 'Logo + 标题模式需要可读取的正方形图片。';
+  }
+  try {
+    const { width, height } = await imageDimensionsOf(file);
+    const ratio = width / height;
+    if (ratio >= 0.9 && ratio <= 1.1) {
+      return undefined;
+    }
+    return `“${file.name}”为 ${width} × ${height} px；Logo + 标题模式仅允许上传正方形 Logo。`;
+  } catch {
+    return '无法读取图片尺寸，请选择正方形 PNG、JPG 或 GIF 图片。';
+  }
+}
+
+function imageDimensionsOf(file: File) {
+  const objectUrl = URL.createObjectURL(file);
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('无法读取图片尺寸'));
+    };
+    image.src = objectUrl;
+  });
 }
 
 async function loadApplications() {
@@ -335,14 +417,75 @@ function resetTenantSelection() {
     </template>
 
     <form class="static-record-form" @submit.prevent="handleFormSubmit">
-      <label>
-        <span>租户 alias</span>
-        <UiInput v-model:value="draft.alias" :disabled="recycleBinExplorer.active.value || aliasReadonly" />
-      </label>
-      <label>
-        <span>租户名称</span>
-        <UiInput v-model:value="draft.title" :disabled="recycleBinExplorer.active.value || readonly" />
-      </label>
+      <div class="tenant-form-grid">
+        <label>
+          <span>租户 alias</span>
+          <UiInput v-model:value="draft.alias" :disabled="tenantFormDisabled || aliasReadonly" />
+        </label>
+        <label>
+          <span>租户名称</span>
+          <UiInput v-model:value="draft.title" :disabled="tenantFormDisabled" />
+        </label>
+      </div>
+
+      <section class="tenant-branding">
+        <div class="tenant-branding__heading">
+          <h3>主标题 UI 个性化配置</h3>
+          <p>选择一种明确的品牌组合，避免横向 Logo 与标题文字在紧凑侧栏中相互挤压。</p>
+        </div>
+        <div class="tenant-form-grid">
+          <label>
+            <span>工作台品牌展示方式</span>
+            <UiSelect
+              v-model:value="workbenchBrandMode"
+              :options="brandModeOptions"
+              :disabled="tenantFormDisabled"
+              :allow-clear="false"
+            />
+          </label>
+          <p class="tenant-branding__mode-hint">
+            {{ logoWithTitle ? '使用正方形图标搭配主标题。' : '仅展示 Logo，不显示主标题和副标题。' }}
+          </p>
+          <template v-if="logoWithTitle">
+            <label>
+              <span>主标题</span>
+              <UiInput v-model:value="draft.workbenchTitle" :disabled="tenantFormDisabled" />
+            </label>
+            <label>
+              <span>副标题（可选）</span>
+              <UiInput v-model:value="draft.workbenchSubtitle" :disabled="tenantFormDisabled" />
+            </label>
+          </template>
+        </div>
+        <div class="tenant-branding__logos">
+          <SingleImageFileReferenceField
+            v-if="lightLogoDefinition"
+            label="展示 Logo（默认）"
+            :value="draft.lightLogoAssetId"
+            :record="draft"
+            :context="tenantContext"
+            :definition="lightLogoDefinition"
+            :disabled="tenantFormDisabled"
+            :form-session-key="`${mode}:${selected?.id ?? draft.alias ?? ''}`"
+            :upload-hint="tenantLogoUploadHint()"
+            :upload-validation="validateTenantLogo"
+            @update:value="draft.lightLogoAssetId = $event"
+          />
+          <SingleImageFileReferenceField
+            v-if="darkLogoDefinition"
+            label="展示 Logo（暗色模式）"
+            :value="draft.darkLogoAssetId"
+            :record="draft"
+            :context="tenantContext"
+            :definition="darkLogoDefinition"
+            :disabled="tenantFormDisabled"
+            :form-session-key="`${mode}:${selected?.id ?? draft.alias ?? ''}`"
+            :upload-hint="tenantLogoUploadHint()"
+            :upload-validation="validateTenantLogo"
+            @update:value="draft.darkLogoAssetId = $event"
+          />
+        </div>
+      </section>
     </form>
 
     <section
@@ -403,11 +546,65 @@ function resetTenantSelection() {
 </template>
 
 <style scoped>
+.tenant-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.static-record-form > .tenant-form-grid,
+.static-record-form > .tenant-branding {
+  grid-column: 1 / -1;
+}
+.tenant-form-grid > label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.tenant-form-grid > label > span {
+  color: var(--muyun-text-muted);
+  font-size: 13px;
+}
+.tenant-branding {
+  display: grid;
+  gap: 16px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--muyun-border);
+}
+.tenant-branding__heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.tenant-branding__heading h3,
+.tenant-branding__heading p,
+.tenant-branding__mode-hint {
+  margin: 0;
+}
+.tenant-branding__heading h3 {
+  font-size: 15px;
+}
+.tenant-branding__heading p,
+.tenant-branding__mode-hint {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+.tenant-branding__mode-hint {
+  align-self: end;
+  padding-bottom: 7px;
+}
+.tenant-branding__logos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
 .tenant-applications {
   display: grid;
   gap: 12px;
   margin-top: 20px;
 }
+
 .tenant-applications-header {
   display: flex;
   align-items: center;
@@ -432,5 +629,11 @@ function resetTenantSelection() {
 .tenant-application-configuration p {
   margin: 0;
   color: var(--muyun-text-muted);
+}
+@media (max-width: 720px) {
+  .tenant-form-grid,
+  .tenant-branding__logos {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

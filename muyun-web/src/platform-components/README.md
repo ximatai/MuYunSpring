@@ -13,12 +13,17 @@ Typical examples:
 
 ## File transfers
 
-`FileTransferUploader` is the common browser-to-MuYunFileServer interaction
-component. It deliberately does not know an application record. An application
-supplies two callbacks: `requestUploadAccess(file)` authorizes the file and
-returns a short-lived multipart target; `confirmUpload(receipt)` turns the
-FileServer result into an application fact. The component owns selection,
-multipart upload, progress, cancellation, retry and standard feedback.
+`FileTransferUploader` is the common browser upload component. It deliberately
+does not know an application record. A caller supplies either the FileServer
+ticket transport or a storage-specific upload callback; the component owns
+selection, multipart upload, progress, cancellation, retry and standard
+feedback.
+
+`SingleImageFileReferenceField` is the one-image field presentation for a
+declared `@FileReference`: it composes that uploader with preview, download,
+replacement and removal. It always persists the same `fileId`; preview and
+download first request a policy-authorized target, so the component remains
+neutral between MuYunFileServer and database-inline assets.
 
 This layer may compose `vue-ui-antdv`, `web-core`, `dynamic-page-runtime`, and `web-contracts`, but should only accept business semantics that are stable across multiple business projects.
 

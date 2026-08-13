@@ -148,6 +148,15 @@ export interface CurrentUser {
 
 export interface SessionContext {
   currentUser: CurrentUser;
+  tenantBranding?: TenantBranding;
+}
+
+export interface TenantBranding {
+  lightLogo?: string;
+  darkLogo?: string;
+  mode?: 'logoOnly' | 'logoWithTitle';
+  title?: string;
+  subtitle?: string;
 }
 
 export interface LoginRequest {
@@ -536,6 +545,14 @@ export interface ViewFieldDefinition {
   maxDisplayLines?: number;
 }
 
+/** Semantic group that owns a contiguous set of standard-form fields. */
+export interface FormGroupDescriptor {
+  groupCode: string;
+  title: string;
+  subtitle?: string;
+  fields: ViewFieldRef[];
+}
+
 export interface BooleanStatusPresentation {
   trueLabel: string;
   falseLabel: string;
@@ -620,6 +637,7 @@ export interface ViewDefinition {
   clientType?: ModuleUiClientType;
   title?: string;
   fields: ViewFieldDefinition[];
+  formGroups?: FormGroupDescriptor[];
 }
 
 export interface ResolvedViewDescriptor {
@@ -631,6 +649,7 @@ export interface ResolvedViewDescriptor {
   /** Dynamic-page provenance used to select the view configured by a menu entry. */
   sourceUiConfigId?: string;
   scopedListWorkspace?: ResolvedScopedListWorkspaceDescriptor;
+  formGroups?: FormGroupDescriptor[];
 }
 
 export interface ResolvedUiActionConfirmationDescriptor {
@@ -661,7 +680,9 @@ export interface ResolvedFileReferenceFieldDescriptor {
   allowedMediaTypes: string[];
   maxFileSizeBytes?: number;
   maxFiles: number;
+  storagePolicy: 'MUYUN_FILE_SERVER' | 'DATABASE_INLINE';
   uploadAvailable: boolean;
+  readAvailable: boolean;
 }
 
 export interface ModuleUiDefinition {
@@ -1063,6 +1084,11 @@ export interface ModuleMetadataRelation extends StandardSortableEntity {
 
 export interface Tenant extends StandardEnabledSortableEntity {
   alias?: string;
+  lightLogoAssetId?: string;
+  darkLogoAssetId?: string;
+  workbenchBrandMode?: 'logoOnly' | 'logoWithTitle';
+  workbenchTitle?: string;
+  workbenchSubtitle?: string;
 }
 
 export interface FieldSpec extends StandardEnabledSortableEntity {

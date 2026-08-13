@@ -85,6 +85,7 @@ import org.springframework.http.converter.json.MappingJackson2HttpMessageConvert
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import java.util.List;
@@ -120,6 +121,17 @@ class IamWebControllerTest {
     private RoleGrantableActionResolver grantableActionResolver;
     private CurrentUser currentUser;
     private MockMvc mvc;
+
+    @Test
+    void shouldExposeTenantBrandingInfrastructureFieldsWithoutEncodingTenantPageLayout() {
+        assertThat(new TenantWebController().moduleUiDefinition().views())
+                .flatExtracting(view -> view.fields())
+                .extracting(field -> field.fieldRef().fieldName())
+                .contains("alias", "title", "workbenchBrandMode", "workbenchTitle", "workbenchSubtitle",
+                        "lightLogoAssetId", "darkLogoAssetId");
+        assertThat(new TenantWebController().moduleUiDefinition().views().getFirst().formGroups())
+                .isEmpty();
+    }
 
     @BeforeEach
     void setUp() {

@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="$ROOT_DIR/muyun-web"
 BACKEND_PORT="${MUYUN_BACKEND_PORT:-8080}"
 FRONTEND_PORT="${MUYUN_FRONTEND_PORT:-5173}"
+FRONTEND_API_BASE_URL="${VITE_MUYUN_API_BASE_URL:-http://127.0.0.1:${BACKEND_PORT}}"
 FORCE_RESTART=false
 RUN_MODE="demo"
 
@@ -30,6 +31,7 @@ Options:
 Environment:
   MUYUN_BACKEND_PORT=8080             Backend port to clean and display.
   MUYUN_FRONTEND_PORT=5173            Frontend port to clean and display.
+  VITE_MUYUN_API_BASE_URL=<backend>   Frontend API base URL. Defaults to the selected backend port.
 USAGE
 }
 
@@ -119,39 +121,6 @@ force_stop_port() {
   done
 }
 
-force_stop_project_processes() {
-  local label="$1"
-  shift
-  local needles=("$@")
-  local pids=()
-  local pid
-  local command
-  while IFS=$'\t' read -r pid command; do
-    if [[ -n "$pid" ]]; then
-      local matches=true
-      local needle
-      for needle in "${needles[@]}"; do
-        if [[ "$command" != *"$needle"* ]]; then
-          matches=false
-          break
-        fi
-      done
-      if [[ "$matches" == "true" ]]; then
-        pids+=("$pid")
-      fi
-    fi
-  done < <(ps -axo pid=,command= | awk -v root="$ROOT_DIR" '
-    index($0, root) > 0 { sub(/^[[:space:]]+/, ""); pid = $1; sub(/^[^[:space:]]+[[:space:]]+/, ""); print pid "\t" $0 }
-  ')
-  if ((${#pids[@]} == 0)); then
-    return
-  fi
-  echo "Stopping existing $label process(es): ${pids[*]}"
-  for pid in "${pids[@]}"; do
-    stop_process_tree "$pid"
-  done
-}
-
 force_stop_existing_processes() {
   if [[ "$FORCE_RESTART" != "true" ]]; then
     return
@@ -162,11 +131,6 @@ force_stop_existing_processes() {
   fi
   force_stop_port "$BACKEND_PORT" "backend"
   force_stop_port "$FRONTEND_PORT" "frontend"
-  force_stop_project_processes "continuous compiler" "demoClasses" "--continuous"
-  force_stop_project_processes "continuous compiler" ":muyun-boot:classes" "--continuous"
-  force_stop_project_processes "boot runner" ":muyun-boot:demoBootRun"
-  force_stop_project_processes "boot runner" ":muyun-boot:bootRun"
-  force_stop_project_processes "frontend dev server" "node_modules/.bin/vite" "--port $FRONTEND_PORT"
 }
 
 start_process() {
@@ -230,6 +194,7 @@ watch_backend_classes() {
 
 start_frontend() {
   cd "$ROOT_DIR"
+  export VITE_MUYUN_API_BASE_URL="$FRONTEND_API_BASE_URL"
   exec npm run dev:backend --prefix muyun-web -- --port "$FRONTEND_PORT"
 }
 
@@ -291,6 +256,7 @@ start_process frontend start_frontend
 echo
 echo "Backend:  http://127.0.0.1:${BACKEND_PORT}"
 echo "Frontend: http://127.0.0.1:${FRONTEND_PORT}/"
+echo "Frontend API: ${FRONTEND_API_BASE_URL}"
 echo "Press Ctrl-C to stop backend and frontend."
 
 wait_for_children

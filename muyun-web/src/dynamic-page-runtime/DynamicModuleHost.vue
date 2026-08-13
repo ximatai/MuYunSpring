@@ -52,6 +52,7 @@ import {
   resolveModulePageEnhancement,
   type ModulePageActionContribution,
   type ModulePageActionContext,
+  type ModulePageActionStateContext,
   type ModulePageBatchActionContribution,
   type ModulePageColumnContribution,
   type ModulePageDetailSection,
@@ -152,8 +153,24 @@ const activeListView = computed(() => {
 const pageEnhancement = computed(() =>
   resolveModulePageEnhancement(context.moduleAlias, activeListView.value?.viewCode),
 );
-const enhancementActions = computed<ModulePageActionContribution[]>(
+const enhancementActionContributions = computed<ModulePageActionContribution[]>(
   () => pageEnhancement.value?.list?.actions ?? [],
+);
+const enhancementActions = computed<ModulePageActionContribution[]>(() =>
+  enhancementActionContributions.value.map(({ state, authorization, ...action }) => {
+    const stateContext = modulePageActionStateContext();
+    const scopeRecordId = stateContext.scope?.record?.id;
+    return {
+      ...action,
+      ...state?.(stateContext),
+      ...(authorization === 'scope-record' && scopeContext.value
+        ? {
+            authorizationContext: scopeContext.value,
+            authorizationRecordId: scopeRecordId == null ? undefined : String(scopeRecordId),
+          }
+        : {}),
+    };
+  }),
 );
 const enhancementColumns = computed<ModulePageColumnContribution[]>(
   () => pageEnhancement.value?.list?.columns ?? [],
@@ -661,7 +678,7 @@ function handleListAction(action: { key?: string }) {
     createRecord();
     return;
   }
-  const contribution = enhancementActions.value.find((item) => item.key === action.key);
+  const contribution = enhancementActionContributions.value.find((item) => item.key === action.key);
   if (contribution) {
     void executeEnhancementAction(contribution, modulePageActionContext());
   }
@@ -719,12 +736,14 @@ function detailSectionContext(record: QueryListRecord): ModulePageDetailSectionC
 function modulePageActionContext(record?: QueryListRecord): ModulePageActionContext {
   return {
     module: context,
+    scope: modulePageActionStateContext().scope,
     refreshList,
     reload: reloadModulePage,
     openDrawer: (definition: ModulePageDrawer) => {
       const drawerContext: ModulePageDrawerContext = {
         module: context,
         record,
+        scope: modulePageActionStateContext().scope,
         refreshList,
         close: closeEnhancementDrawer,
         reload: reloadModulePage,
@@ -738,6 +757,16 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
       modulePageNavigation.openWorkspaceTab(view, input);
     },
   };
+}
+
+function modulePageActionStateContext(): ModulePageActionStateContext {
+  const workspace = scopedListWorkspace.value;
+  return workspace
+    ? {
+        module: context,
+        scope: { moduleAlias: workspace.scopeModuleAlias, record: selectedScopeRecord.value },
+      }
+    : { module: context };
 }
 
 function closeEnhancementDrawer() {

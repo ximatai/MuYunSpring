@@ -7,11 +7,13 @@ import type {
   MenuOpenMode,
   MenuTreeNode,
   PageBootstrap,
+  TenantBranding,
 } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
 
 export interface SessionClient {
   current(): Promise<CurrentUser>;
+  tenantBranding?(): Promise<TenantBranding>;
 }
 
 export interface MenuClient {
@@ -32,6 +34,7 @@ export interface AuthClient {
 export function createSessionClient(http: HttpClient): SessionClient {
   return {
     current: () => http.request<CurrentUser>({ path: '/iam.auth/context' }),
+    tenantBranding: () => http.request<TenantBranding>({ path: '/iam.auth/tenant-branding' }),
   };
 }
 

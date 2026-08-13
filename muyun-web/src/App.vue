@@ -765,6 +765,7 @@ function requiresLogin(cause: unknown) {
       :loading="loading"
       :error="error"
       :realtime-status="realtimeStatus"
+      :theme-appearance="activeThemeSkin.theme.appearance"
       :locked-tab-keys="lockedTabKeys()"
       @select-menu="handleSelectMenu"
       @change-tab="handleChangeTab"

@@ -43,13 +43,19 @@ export interface ModuleDetailEnhancement {
 
 export interface ModulePageActionContribution extends RecordActionItem {
   key: string;
+  /** Authorizes this toolbar action against the selected scoped-list record instead of the page module. */
+  authorization?: 'scope-record';
+  /** Derives the action state from the current scoped-list selection when the page has one. */
+  state?(
+    context: ModulePageActionStateContext,
+  ): Partial<Pick<RecordActionItem, 'visible' | 'disabled' | 'disabledReason'>> | undefined;
   run(context: ModulePageActionContext): void | Promise<void>;
 }
 
 export interface ModulePageRecordActionContribution extends RecordActionItem {
   key: string;
   /** Resolves record-specific visibility or enabled state without letting business code own the table shell. */
-  state?(record: QueryListRecord): Pick<RecordActionItem, 'visible' | 'disabled'> | undefined;
+  state?(record: QueryListRecord): Partial<Pick<RecordActionItem, 'visible' | 'disabled'>> | undefined;
   run(context: ModulePageRecordActionContext): void | Promise<void>;
 }
 
@@ -104,6 +110,8 @@ export interface ModulePageWorkspaceView<
 export interface ModulePageDrawerContext {
   module: ModuleContext<QueryListRecord>;
   record?: QueryListRecord;
+  /** The currently selected scope record for a scoped list workspace, if applicable. */
+  scope?: ModulePageScopeContext;
   /** Reloads only the current list query and preserves its query and editor state. */
   refreshList(): void;
   close(): void;
@@ -112,6 +120,8 @@ export interface ModulePageDrawerContext {
 
 export interface ModulePageActionContext {
   module: ModuleContext<QueryListRecord>;
+  /** The currently selected scope record for a scoped list workspace, if applicable. */
+  scope?: ModulePageScopeContext;
   /** Reloads only the current list query and preserves its query and editor state. */
   refreshList(): void;
   openDrawer(drawer: ModulePageDrawer): void;
@@ -120,6 +130,18 @@ export interface ModulePageActionContext {
     input: TInput,
   ): void;
   reload(): void;
+}
+
+/** Read-only scope state supplied by a descriptor-owned scoped list workspace. */
+export interface ModulePageScopeContext {
+  moduleAlias: string;
+  record?: QueryListRecord;
+}
+
+/** Small state-only context used while resolving a toolbar action's visibility or enabled state. */
+export interface ModulePageActionStateContext {
+  module: ModuleContext<QueryListRecord>;
+  scope?: ModulePageScopeContext;
 }
 
 export interface ModulePageRecordActionContext extends ModulePageActionContext {

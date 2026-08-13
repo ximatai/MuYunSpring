@@ -11,7 +11,13 @@ it('resolveRecordActions filters invisible actions and applies authorization', (
     },
     [
       { key: 'edit', actionCode: 'update', title: '编辑' },
-      { key: 'delete', actionCode: 'delete', title: '删除', danger: true },
+      {
+        key: 'delete',
+        actionCode: 'delete',
+        title: '删除',
+        danger: true,
+        disabledReason: '当前用户没有删除权限',
+      },
       { key: 'hidden', title: '隐藏', visible: false },
     ],
   );
@@ -21,11 +27,18 @@ it('resolveRecordActions filters invisible actions and applies authorization', (
       key: action.key,
       authorized: action.authorized,
       disabled: action.disabled,
+      disabledReason: action.disabledReason,
       danger: action.danger,
     })),
     [
-      { key: 'edit', authorized: true, disabled: false, danger: undefined },
-      { key: 'delete', authorized: false, disabled: true, danger: true },
+      { key: 'edit', authorized: true, disabled: false, disabledReason: undefined, danger: undefined },
+      {
+        key: 'delete',
+        authorized: false,
+        disabled: true,
+        disabledReason: '当前用户没有删除权限',
+        danger: true,
+      },
     ],
   );
 });
@@ -112,6 +125,66 @@ it('resolveRecordActions passes record id into authorization check', () => {
   assert.equal(actions[0].disabled, false);
   assert.equal(actions[1].disabled, true);
   assert.equal(actions[1].reason, 'cannot reset current user');
+});
+
+it('resolveRecordActions uses an attached scope authorization context and record ID', () => {
+  const pageContext = { action: (actionCode: string) => ({ actionCode, available: false }) };
+  const calls: Array<[string, string | undefined]> = [];
+  const scopeContext = {
+    action: (actionCode: string, recordId?: string) => {
+      calls.push([actionCode, recordId]);
+      return { actionCode, available: true };
+    },
+  };
+
+  const actions = resolveRecordActions(pageContext, [
+    {
+      key: 'ask',
+      actionCode: 'agent_chat_ask',
+      title: '模拟问答',
+      authorizationContext: scopeContext as never,
+      authorizationRecordId: 'directory-1',
+    },
+  ]);
+
+  assert.deepEqual(calls, [['agent_chat_ask', 'directory-1']]);
+  assert.isTrue(actions[0].authorized);
+  assert.isFalse(actions[0].disabled);
+});
+
+it('resolveRecordActions denies scope-record authorization until a scope record is selected', () => {
+  const scopeContext = { action: (actionCode: string) => ({ actionCode, available: true }) };
+
+  const actions = resolveRecordActions({ action: (actionCode) => ({ actionCode, available: true }) }, [
+    {
+      key: 'ask',
+      actionCode: 'agent_chat_ask',
+      title: '模拟问答',
+      authorizationContext: scopeContext as never,
+    },
+  ]);
+
+  assert.isFalse(actions[0].authorized);
+  assert.isTrue(actions[0].disabled);
+  assert.equal(actions[0].reason, '请先选择作用域记录');
+});
+
+it('resolveRecordActions retains a record-level authorization reason for disabled-action feedback', () => {
+  const actions = resolveRecordActions(
+    {
+      action: (actionCode, recordId) => ({
+        actionCode,
+        available: false,
+        reason: `无权操作记录 ${recordId}`,
+      }),
+    },
+    [{ key: 'delete', actionCode: 'delete', title: '删除' }],
+    false,
+    'knowledge-file-1',
+  );
+
+  assert.equal(actions[0].disabled, true);
+  assert.equal(actions[0].reason, '无权操作记录 knowledge-file-1');
 });
 
 it('mergeRecordActions inserts extension actions around standard anchors', () => {

@@ -28,6 +28,17 @@ public class TenantWebController extends WebSupport<TenantService> implements
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(TenantService.MODULE_ALIAS)
                 .typedTextConfirmation("delete", "alias")
+                .formView(form -> form
+                        .title("租户档案")
+                        .field("alias", field -> field.label("租户 alias"))
+                        .field("title", field -> field.label("租户名称"))
+                        // These fields expose the governed file-reference contract. The tenant page itself owns
+                        // the mode-dependent layout, validation, and user guidance as static business UI.
+                        .field("workbenchBrandMode", field -> field.label("工作台品牌展示方式"))
+                        .field("workbenchTitle", field -> field.label("主标题"))
+                        .field("workbenchSubtitle", field -> field.label("副标题"))
+                        .field("lightLogoAssetId", field -> field.label("展示 Logo（默认）"))
+                        .field("darkLogoAssetId", field -> field.label("展示 Logo（暗色模式）")))
                 .build();
     }
 }

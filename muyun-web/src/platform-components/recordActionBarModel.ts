@@ -11,10 +11,16 @@ export interface RecordActionItem {
   /** Keep the row action visible beside the default row action instead of placing it in “more”. */
   pinned?: boolean;
   disabled?: boolean;
+  /** Explains why an otherwise visible action cannot be used. */
+  disabledReason?: string;
   loading?: boolean;
   primary?: boolean;
   danger?: boolean;
   iconName?: UiIconName;
+  /** Runtime-only authorization source for actions rendered outside their owning module surface. */
+  authorizationContext?: ModuleContext<unknown>;
+  /** Runtime-only record ID used with authorizationContext. */
+  authorizationRecordId?: string;
 }
 
 export interface ResolvedRecordActionItem extends RecordActionItem {
@@ -41,11 +47,25 @@ export function resolveRecordActions(
     if (action.visible === false) {
       return [];
     }
-    const actionState = action.actionCode ? context.action(action.actionCode, recordId) : undefined;
-    if (action.actionCode && !actionState && actionIsConfirmedMissing(context, action.actionCode, recordId)) {
+    const authorizationContext = action.authorizationContext ?? context;
+    const authorizationRecordId = action.authorizationContext ? action.authorizationRecordId : recordId;
+    const awaitingAuthorizationRecord = action.authorizationContext != null && !authorizationRecordId;
+    const actionState =
+      action.actionCode && !awaitingAuthorizationRecord
+        ? authorizationContext.action(action.actionCode, authorizationRecordId)
+        : undefined;
+    if (
+      action.actionCode &&
+      actionState == null &&
+      !awaitingAuthorizationRecord &&
+      actionIsConfirmedMissing(authorizationContext, action.actionCode, authorizationRecordId)
+    ) {
       return [];
     }
-    const authorized = action.actionCode ? actionState?.available === true : true;
+    const authorized =
+      action.actionCode && !awaitingAuthorizationRecord
+        ? actionState?.available === true
+        : !awaitingAuthorizationRecord;
     const loading = action.loading ?? defaultLoading;
     return [
       {
@@ -53,7 +73,7 @@ export function resolveRecordActions(
         key: action.key ?? action.actionCode ?? `action-${index}`,
         iconName: action.iconName ?? defaultActionIcon(action),
         authorized,
-        reason: actionState?.reason,
+        reason: actionState?.reason ?? (awaitingAuthorizationRecord ? '请先选择作用域记录' : undefined),
         disabled: loading || action.disabled === true || !authorized,
         loading,
       },

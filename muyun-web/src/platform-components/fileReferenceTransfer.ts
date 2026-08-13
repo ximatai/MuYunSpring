@@ -6,6 +6,10 @@ interface FileReferenceUploadTicket {
   url?: unknown;
 }
 
+interface FileReferenceAccessTicket {
+  url?: unknown;
+}
+
 /** Issues the module-owned short-lived upload ticket for a declared file-reference field. */
 export async function issueFileReferenceUploadAccess(
   http: HttpClient,
@@ -30,6 +34,60 @@ export async function issueFileReferenceUploadAccess(
     throw new Error('文件上传凭证未提供上传地址。');
   }
   return { uploadUrl: ticket.url };
+}
+
+/** Uploads one DATABASE_INLINE field through the same authenticated platform HTTP client. */
+export async function uploadInlineFileReference(
+  http: HttpClient,
+  moduleAlias: string,
+  definition: ResolvedFileReferenceFieldDescriptor,
+  draft: Record<string, unknown>,
+  file: File,
+  intent: FileReferenceUploadIntent,
+) {
+  const form = new FormData();
+  form.append(
+    'request',
+    JSON.stringify({
+      relationCode: definition.fieldRef.relationCode,
+      fieldName: definition.fieldRef.fieldName,
+      draft,
+      file: { name: file.name, mediaType: file.type || undefined, sizeBytes: file.size },
+      intent,
+    }),
+  );
+  form.append('file', file, file.name);
+  const payload = await http.request<unknown>({
+    method: 'POST',
+    path: `/${encodeURIComponent(moduleAlias)}/file-transfer/inline-upload`,
+    body: form,
+  });
+  return { file, payload, response: payload };
+}
+
+/** Resolves a policy-authorized preview or download target without coupling a field to either storage provider. */
+export async function issueFileReferenceAccess(
+  http: HttpClient,
+  moduleAlias: string,
+  definition: ResolvedFileReferenceFieldDescriptor,
+  draft: Record<string, unknown>,
+  fileId: string,
+  operation: 'preview' | 'download',
+): Promise<string> {
+  const ticket = await http.request<FileReferenceAccessTicket>({
+    method: 'POST',
+    path: `/${encodeURIComponent(moduleAlias)}/file-transfer/${operation}-ticket`,
+    body: {
+      relationCode: definition.fieldRef.relationCode,
+      fieldName: definition.fieldRef.fieldName,
+      draft,
+      fileId,
+    },
+  });
+  if (typeof ticket?.url !== 'string' || !ticket.url.trim()) {
+    throw new Error('文件访问凭证未提供访问地址。');
+  }
+  return ticket.url;
 }
 
 /** A policy-visible upload fact, derived from the field cardinality and its current binding. */

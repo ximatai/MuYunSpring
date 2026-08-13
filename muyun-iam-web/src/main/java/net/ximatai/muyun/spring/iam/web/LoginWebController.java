@@ -9,19 +9,30 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.iam.user.LoginResult;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
+import net.ximatai.muyun.spring.iam.tenant.TenantBranding;
+import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @RestController
 @RequestMapping("/iam.auth")
 public class LoginWebController {
     private final UserSessionService userSessionService;
+    private final TenantService tenantService;
 
     public LoginWebController(UserSessionService userSessionService) {
         this.userSessionService = userSessionService;
+        this.tenantService = null;
+    }
+
+    @Autowired
+    public LoginWebController(UserSessionService userSessionService, TenantService tenantService) {
+        this.userSessionService = userSessionService;
+        this.tenantService = tenantService;
     }
 
     @PostMapping("/login")
@@ -47,6 +58,16 @@ public class LoginWebController {
     public CurrentUser context() {
         return CurrentUserContext.currentUser()
                 .orElseThrow(() -> new AuthenticationRequiredException("current user context is not available"));
+    }
+
+    @GetMapping("/tenant-branding")
+    public TenantBranding tenantBranding() {
+        CurrentUser currentUser = CurrentUserContext.currentUser()
+                .orElseThrow(() -> new AuthenticationRequiredException("current user context is not available"));
+        String tenantId = currentUser.tenantId();
+        return tenantId == null || tenantId.isBlank() || tenantService == null
+                ? TenantBranding.empty()
+                : tenantService.branding(tenantId);
     }
 
     private String bearerToken(HttpServletRequest request) {

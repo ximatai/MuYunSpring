@@ -16,7 +16,9 @@ const single: ResolvedFileReferenceFieldDescriptor = {
   allowedMediaTypes: ['application/pdf'],
   maxFileSizeBytes: 1024,
   maxFiles: 1,
+  storagePolicy: 'MUYUN_FILE_SERVER',
   uploadAvailable: true,
+  readAvailable: true,
 };
 
 it('file-reference upload tickets use the current module standard endpoint', async () => {
