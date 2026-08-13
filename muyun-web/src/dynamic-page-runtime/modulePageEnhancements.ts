@@ -43,6 +43,8 @@ export interface ModuleDetailEnhancement {
 
 export interface ModulePageActionContribution extends RecordActionItem {
   key: string;
+  /** Authorizes this toolbar action against the selected scoped-list record instead of the page module. */
+  authorization?: 'scope-record';
   /** Derives the action state from the current scoped-list selection when the page has one. */
   state?(
     context: ModulePageActionStateContext,
