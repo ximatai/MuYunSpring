@@ -13,7 +13,10 @@ import { normalizeRecordDraft } from '@/platform-components/recordDraftNormalize
 
 interface TestRecord {
   id?: string;
-  title: string;
+  version?: number;
+  title?: string;
+  username?: string;
+  enabled?: boolean;
 }
 
 it('static form save executes mutation once and calls saved callback', async () => {
@@ -50,7 +53,7 @@ it('record draft normalizer preserves standard fields while overriding normalize
   };
 
   assert.deepEqual(
-    normalizeRecordDraft(draft, {
+    normalizeRecordDraft<TestRecord>(draft, {
       username: draft.username.trim(),
       enabled: false,
     }),

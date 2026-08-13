@@ -13,6 +13,13 @@ import {
 import type { PageDescriptor } from '@/web-contracts/index.ts';
 import { platformAdminRoutes } from '@/platform-admin-runtime/platformAdminRoutes.ts';
 
+function assertPageType<T extends PageDescriptor['pageType']>(
+  descriptor: PageDescriptor,
+  pageType: T,
+): asserts descriptor is Extract<PageDescriptor, { pageType: T }> {
+  assert.equal(descriptor.pageType, pageType);
+}
+
 it('resolvePageDescriptor resolves ROUTE targets as platform routes by default', () => {
   const descriptor = resolvePageDescriptor(
     {
@@ -24,7 +31,7 @@ it('resolvePageDescriptor resolves ROUTE targets as platform routes by default',
     { title: 'Metadata' },
   );
 
-  assert.equal(descriptor.pageType, 'platform-route');
+  assertPageType(descriptor, 'platform-route');
   assert.equal(descriptor.openMode, 'workbench-route');
   assert.equal(descriptor.hostType, 'platform-route-host');
   assert.equal(descriptor.title, 'Metadata');
@@ -95,12 +102,12 @@ it('resolvePageDescriptor keeps path, routeName, and pageKey available for offli
     { businessPageKeys: ['customerList'] },
   );
 
-  assert.equal(pathDescriptor.pageType, 'business-route');
+  assertPageType(pathDescriptor, 'business-route');
   assert.equal(pathDescriptor.hostType, 'business-route-host');
   assert.equal(pathDescriptor.target.route, '/crm/customer/list');
-  assert.equal(routeNameDescriptor.pageType, 'business-route');
+  assertPageType(routeNameDescriptor, 'business-route');
   assert.equal(routeNameDescriptor.target.routeName, 'crm.customer.list');
-  assert.equal(pageKeyDescriptor.pageType, 'business-route');
+  assertPageType(pageKeyDescriptor, 'business-route');
   assert.equal(pageKeyDescriptor.target.pageKey, 'customerList');
 });
 
@@ -119,7 +126,7 @@ it('resolvePageDescriptor carries a static business route layout without putting
     },
   );
 
-  assert.equal(descriptor.pageType, 'business-route');
+  assertPageType(descriptor, 'business-route');
   assert.equal(descriptor.layout, 'workspace');
   assert.notMatch(pageDescriptorToUrl(descriptor), /workspace/);
   const restored = pageDescriptorFromUrl(pageDescriptorToUrl(descriptor), {
@@ -200,7 +207,7 @@ it('resolvePageDescriptor carries route menu module alias for business module co
   assert.ok(target);
   const descriptor = resolvePageDescriptor(target, { businessRoutePrefixes: ['/iam'] });
 
-  assert.equal(descriptor.pageType, 'business-route');
+  assertPageType(descriptor, 'business-route');
   assert.equal(descriptor.target.route, '/iam/organizations');
   assert.equal(descriptor.target.moduleAlias, 'iam.organization');
 });
@@ -220,7 +227,7 @@ it('resolvePageDescriptor lets registered business routes under platform namespa
     businessRoutePrefixes: ['/platform/security/passwords'],
   });
 
-  assert.equal(descriptor.pageType, 'business-route');
+  assertPageType(descriptor, 'business-route');
   assert.equal(descriptor.hostType, 'business-route-host');
   assert.equal(descriptor.target.route, '/platform/security/passwords');
   assert.equal(descriptor.target.moduleAlias, 'iam.password_policy_rule');
@@ -239,7 +246,7 @@ it('resolvePageDescriptor resolves MODULE targets as dynamic module descriptors'
     query: { recordId: 'customer-1' },
   });
 
-  assert.equal(descriptor.pageType, 'dynamic-module');
+  assertPageType(descriptor, 'dynamic-module');
   assert.equal(descriptor.openMode, 'dynamic-runner');
   assert.equal(descriptor.hostType, 'dynamic-module-host');
   assert.equal(descriptor.target.moduleAlias, 'crm.customer');
@@ -273,7 +280,7 @@ it('resolvePageDescriptor resolves configured MODULE targets as business routes'
     },
   );
 
-  assert.equal(descriptor.pageType, 'business-route');
+  assertPageType(descriptor, 'business-route');
   assert.equal(descriptor.hostType, 'business-route-host');
   assert.equal(descriptor.title, '应用管理');
   assert.equal(descriptor.target.route, '/config/applications');
@@ -297,7 +304,7 @@ it('resolvePageDescriptor resolves tenant MODULE target as business route', () =
     },
   );
 
-  assert.equal(descriptor.pageType, 'business-route');
+  assertPageType(descriptor, 'business-route');
   assert.equal(descriptor.target.route, '/iam/tenants');
   assert.equal(descriptor.target.moduleAlias, 'iam.tenant');
 });
@@ -369,7 +376,7 @@ it('pageDescriptorToUrl keeps new-window external links on workbench-owned URLs'
   );
 
   const restored = pageDescriptorFromUrl(pageDescriptorToUrl(descriptor));
-  assert.equal(restored.pageType, 'external-link');
+  assertPageType(restored, 'external-link');
   assert.equal(restored.openMode, 'new-window');
   assert.equal(restored.target.url, 'https://bi.example.com/report');
   assert.equal(restored.menuId, 'external-bi');
@@ -448,12 +455,12 @@ it('pageDescriptorFromUrl restores readable dynamic, external, and business URLs
     businessRoutePrefixes: ['/crm'],
   });
 
-  assert.equal(dynamicDescriptor.pageType, 'dynamic-module');
+  assertPageType(dynamicDescriptor, 'dynamic-module');
   assert.equal(dynamicDescriptor.target.moduleAlias, 'crm.customer');
   assert.equal(dynamicDescriptor.target.pageMode, 'LIST');
-  assert.equal(externalDescriptor.pageType, 'remote-url');
+  assertPageType(externalDescriptor, 'remote-url');
   assert.equal(externalDescriptor.target.url, '/crm/customer/list');
-  assert.equal(businessDescriptor.pageType, 'business-route');
+  assertPageType(businessDescriptor, 'business-route');
   assert.equal(businessDescriptor.target.route, '/crm/customer/list');
   assert.deepEqual(businessDescriptor.params, { status: 'active' });
 });
@@ -463,7 +470,7 @@ it('pageDescriptorFromUrl restores dynamic module params and entry params', () =
     '/platform/dynamic/crm.customer/list?entryParamsJson=%7B%22source%22%3A%22menu%22%7D&recordId=customer-1&uiConfigId=customer-list-v1',
   );
 
-  assert.equal(descriptor.pageType, 'dynamic-module');
+  assertPageType(descriptor, 'dynamic-module');
   assert.equal(descriptor.entryParamsJson, '{"source":"menu"}');
   assert.deepEqual(descriptor.params, { recordId: 'customer-1' });
   assert.equal(descriptor.target.defaultUiConfigId, 'customer-list-v1');
@@ -483,7 +490,7 @@ it('pageDescriptorFromUrl keeps workbench metadata separate from business route 
     { businessRoutePrefixes: ['/crm'] },
   );
 
-  assert.equal(descriptor.pageType, 'business-route');
+  assertPageType(descriptor, 'business-route');
   assert.equal(descriptor.menuId, 'customer-list');
   assert.equal(descriptor.title, 'Customers');
   assert.equal(descriptor.entryParamsJson, '{"source":"workbench"}');
@@ -518,12 +525,12 @@ it('pageDescriptorToUrl and pageDescriptorFromUrl preserve routeName and pageKey
   const routeNameRoundTrip = pageDescriptorFromUrl(pageDescriptorToUrl(routeNameDescriptor));
   const pageKeyRoundTrip = pageDescriptorFromUrl(pageDescriptorToUrl(pageKeyDescriptor));
 
-  assert.equal(routeNameRoundTrip.pageType, 'business-route');
+  assertPageType(routeNameRoundTrip, 'business-route');
   assert.equal(routeNameRoundTrip.target.routeName, 'crm.customer.list');
   assert.equal(routeNameRoundTrip.target.query?.status, 'active');
   assert.equal(routeNameRoundTrip.menuId, 'customer-name');
   assert.equal(routeNameRoundTrip.tabPolicy.identity, 'by-menu');
-  assert.equal(pageKeyRoundTrip.pageType, 'business-route');
+  assertPageType(pageKeyRoundTrip, 'business-route');
   assert.equal(pageKeyRoundTrip.target.pageKey, 'customerList');
   assert.equal(pageKeyRoundTrip.menuId, 'customer-page');
   assert.equal(pageKeyRoundTrip.tabPolicy.identity, 'by-menu');

@@ -305,6 +305,13 @@ function createContext(
   canAction: (actionCode: string) => boolean | undefined = () => true,
 ): ModuleContext<Tenant> {
   const crud: ModuleContext<Tenant>['crud'] = {
+    querySchema: async () => ({
+      scopeName: 'iam.tenant',
+      quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+      fields: [],
+      externalCriteria: [],
+      defaultSorts: [],
+    }),
     query: async () => ({
       records: [],
       total: 0,
@@ -334,6 +341,7 @@ function createContext(
   };
   return {
     moduleAlias: 'iam.tenant',
+    http: { request: async () => undefined as never },
     crud,
     runtime: fakeRuntimeState(),
     abilities: {
@@ -349,7 +357,10 @@ function createContext(
       hasEnable: () => undefined,
     },
     action: () => undefined,
+    runtimeAction: () => undefined,
     can: canAction,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
   };
 }
 
@@ -378,6 +389,9 @@ function fakeRuntimeState(): ModuleRuntimeContextState {
     error: () => undefined,
     hasAbility: () => undefined,
     action: () => undefined,
+    runtimeAction: () => undefined,
     can: () => undefined,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
   };
 }

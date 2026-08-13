@@ -56,27 +56,32 @@ it('empty static tree client is mutation-safe for unavailable scopes', async () 
   const client = createEmptyStaticTreeClient<DictionaryCategory>('platform.dictionary_item');
 
   assert.equal(await client.delete('missing', { version: 0 }), 0);
-  assert.equal(await client.sort('missing', { beforeId: 'other' }), 0);
+  assert.equal(await client.sort('missing', { nextId: 'other' }), 0);
 });
 
 function createContext(options: { hasTree?: boolean } = {}): ModuleContext<DictionaryCategory> {
   const hasTree = options.hasTree ?? true;
   const crud = createTreeClient();
+  const runtimeContext = {
+    moduleAlias: 'platform.dictionary_category',
+    capabilities: [],
+    actions: [],
+  };
   return {
     moduleAlias: 'platform.dictionary_category',
     http: { request: async () => undefined as never },
     crud,
     runtime: {
-      loading: { value: false },
-      loaded: { value: true },
-      error: { value: undefined },
-      actions: { value: [] },
-      permissions: { value: {} },
-      ready: Promise.resolve(),
-      reload: async () => undefined,
-      action: () => undefined,
-      can: () => true,
+      ready: Promise.resolve(runtimeContext),
+      load: async () => runtimeContext,
+      snapshot: () => runtimeContext,
+      error: () => undefined,
       hasAbility: () => hasTree,
+      action: () => undefined,
+      runtimeAction: () => undefined,
+      can: () => true,
+      recordActions: async (recordId) => ({ recordId, actions: [] }),
+      recordActionsSnapshot: () => undefined,
     },
     abilities: {
       crud: () => crud,
@@ -91,7 +96,10 @@ function createContext(options: { hasTree?: boolean } = {}): ModuleContext<Dicti
       hasEnable: () => true,
     },
     action: () => undefined,
+    runtimeAction: () => undefined,
     can: () => true,
+    recordActions: async (recordId) => ({ recordId, actions: [] }),
+    recordActionsSnapshot: () => undefined,
   };
 }
 

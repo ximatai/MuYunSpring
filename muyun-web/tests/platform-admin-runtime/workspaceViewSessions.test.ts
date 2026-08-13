@@ -10,14 +10,18 @@ import {
 } from '@/platform-admin-runtime/workspaceViewSessions.ts';
 import { defineWorkspaceView } from '@/platform-admin-runtime/workspaceViewContract.ts';
 
-const view = defineWorkspaceView({
+const view = defineWorkspaceView<{ recordId: string; mode: string }>({
   type: 'iam.user.detail.session-test',
   route: '/iam/users',
   moduleAlias: 'iam.user',
   component: {} as Component,
   presentations: ['drawer', 'tab'],
   titleOf: () => '用户详情',
-  parse: () => undefined,
+  parse: (query) => {
+    const recordId = query.recordId;
+    const mode = query.mode;
+    return typeof recordId === 'string' && typeof mode === 'string' ? { recordId, mode } : undefined;
+  },
 });
 
 it('workspace view session identity is stable across input key order', () => {
@@ -43,10 +47,14 @@ it('workspace view session is shared by matching view identity and can be discar
 it('workspace hand-off delivers to a mounted target and leaves no pending session', async () => {
   const input = { recordId: 'user-3', mode: 'view' };
   let received: { draft: string } | undefined;
-  const dispose = registerWorkspaceViewHandoffRecipient(view, input, (session) => {
-    received = session;
-    return true;
-  });
+  const dispose = registerWorkspaceViewHandoffRecipient<typeof input, { draft: string }>(
+    view,
+    input,
+    (session) => {
+      received = session;
+      return true;
+    },
+  );
 
   assert.equal(await handOffWorkspaceViewSession(view, input, { draft: 'alice' }), 'accepted');
   assert.deepEqual(received, { draft: 'alice' });
