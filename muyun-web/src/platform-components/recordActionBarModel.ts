@@ -11,6 +11,8 @@ export interface RecordActionItem {
   /** Keep the row action visible beside the default row action instead of placing it in “more”. */
   pinned?: boolean;
   disabled?: boolean;
+  /** Explains why an otherwise visible action cannot be used. */
+  disabledReason?: string;
   loading?: boolean;
   primary?: boolean;
   danger?: boolean;

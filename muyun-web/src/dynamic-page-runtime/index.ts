@@ -19,6 +19,7 @@ export type {
   ModuleDetailEnhancement,
   ModulePageActionContext,
   ModulePageActionContribution,
+  ModulePageActionStateContext,
   ModulePageBatchActionContext,
   ModulePageBatchActionContribution,
   ModulePageColumnContribution,
@@ -31,6 +32,7 @@ export type {
   ModulePageEnhancementTarget,
   ModulePageRecordActionContext,
   ModulePageRecordActionContribution,
+  ModulePageScopeContext,
   ModulePageWorkspaceView,
   ModulePageWorkspaceViewInput,
 } from './modulePageEnhancements';
