@@ -58,6 +58,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             definitions.put(definition.moduleAlias(), definition);
         }
         addActionContributions(definitions);
+        addActionScopes(definitions);
         return List.copyOf(definitions.values());
     }
 
@@ -337,6 +338,29 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
     }
 
+    private void addActionScopes(LinkedHashMap<String, StaticModuleDefinition> definitions) {
+        for (String beanName : applicationContext.getBeanNamesForAnnotation(PlatformStaticActionScope.class)) {
+            Object bean = applicationContext.getBean(beanName);
+            Class<?> beanClass = AopUtils.getTargetClass(bean);
+            PlatformStaticActionScope scope = AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionScope.class);
+            if (scope == null) {
+                continue;
+            }
+            StaticModuleDefinition target = definitions.get(scope.module());
+            if (target == null) {
+                throw new IllegalStateException("@PlatformStaticActionScope target module is not scanned: "
+                        + scope.module() + " <- " + beanClass.getName());
+            }
+            LinkedHashMap<String, StaticModuleActionDefinition> merged = new LinkedHashMap<>();
+            target.actions().forEach(action -> merged.put(action.actionCode(), action));
+            LinkedHashMap<String, StaticModuleActionDefinition> scopedActions = new LinkedHashMap<>();
+            ReflectionUtils.doWithMethods(beanClass,
+                    method -> addAnnotatedAction(scopedActions, method, java.util.Set.of()));
+            scopedActions.values().forEach(action -> mergeContributionAction(target.moduleAlias(), beanClass, merged, action));
+            definitions.put(target.moduleAlias(), target.toBuilder().actions(List.copyOf(merged.values())).build());
+        }
+    }
+
     private List<EntityDefinition> contributionEntities(Object bean,
                                                         PlatformStaticActionContribution contribution) {
         Object service = service(bean);
@@ -585,8 +609,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                     custom.value(),
                     custom.title().isBlank() ? custom.value() : custom.title(),
                     toEntityLevel(custom.level()),
-                    net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode.AUTH_REQUIRED,
-                    true,
+                    net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode.valueOf(custom.accessMode().name()),
+                    custom.actionAuth(),
                     custom.dataAuth(),
                     net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy.NONE
             ));
@@ -611,8 +635,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                     PlatformStaticActionContributionSupport.title(contribution,
                             custom.title().isBlank() ? custom.value() : custom.title()),
                     toEntityLevel(custom.level()),
-                    net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode.AUTH_REQUIRED,
-                    true,
+                    net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode.valueOf(custom.accessMode().name()),
+                    custom.actionAuth(),
                     custom.dataAuth(),
                     net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy.NONE
             ));

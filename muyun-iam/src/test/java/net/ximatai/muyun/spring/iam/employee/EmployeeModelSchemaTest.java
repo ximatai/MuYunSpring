@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.iam.employee;
 
 import net.ximatai.muyun.database.core.builder.TableWrapper;
 import net.ximatai.muyun.spring.common.schema.StaticEntityTableMapper;
+import net.ximatai.muyun.spring.common.model.file.FileReference;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashSet;
@@ -18,7 +19,7 @@ class EmployeeModelSchemaTest {
 
         assertThat(table.getName()).isEqualTo("iam_employee");
         assertThat(columnNames(table))
-                .contains("id", "tenant_id", "organization_id", "department_id", "employee_no",
+                .contains("id", "tenant_id", "avatar_asset_id", "organization_id", "department_id", "employee_no",
                         "title", "gender", "mobile", "email", "sort_order", "enabled", "deleted", "version");
         assertThat(table.getColumns().stream().filter(column -> "organization_id".equals(column.getName())).findFirst())
                 .get()
@@ -37,6 +38,14 @@ class EmployeeModelSchemaTest {
                     assertThat(index.isUnique()).isTrue();
                     assertThat(index.getColumns()).containsExactly("tenant_id", "organization_id", "employee_no");
                 });
+    }
+
+    @Test
+    void shouldAllowEmployeeAvatarUpToOneMegabyte() throws NoSuchFieldException {
+        FileReference avatarReference = Employee.class.getDeclaredField("avatarAssetId")
+                .getAnnotation(FileReference.class);
+
+        assertThat(avatarReference.maxFileSizeBytes()).isEqualTo(1024 * 1024);
     }
 
     private Set<String> columnNames(TableWrapper table) {

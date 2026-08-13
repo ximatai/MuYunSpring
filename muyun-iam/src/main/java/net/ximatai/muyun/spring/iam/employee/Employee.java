@@ -10,6 +10,8 @@ import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.common.initialdata.InitialDataFields;
+import net.ximatai.muyun.spring.common.model.file.FileReference;
+import net.ximatai.muyun.spring.common.model.file.FileReferenceStoragePolicy;
 import net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraint;
 import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEntity;
 import net.ximatai.muyun.spring.common.option.DictionaryField;
@@ -27,6 +29,12 @@ import net.ximatai.muyun.spring.iam.organization.OrganizationService;
         operator = {"title", "gender", "mobile", "email", "enabled", "sortOrder"}
 )
 public class Employee extends StandardEnabledSortableEntity {
+    @FileReference(allowedMediaTypes = {"image/png", "image/jpeg", "image/gif", "image/webp"},
+            maxFileSizeBytes = 1048576, storagePolicy = FileReferenceStoragePolicy.DATABASE_INLINE)
+    @Column(name = "avatar_asset_id", type = ColumnType.VARCHAR, length = 32,
+            comment = "Employee avatar managed file asset id")
+    private String avatarAssetId;
+
     @Column(name = "organization_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Organization id")
     @ReferenceTo(target = OrganizationService.class,

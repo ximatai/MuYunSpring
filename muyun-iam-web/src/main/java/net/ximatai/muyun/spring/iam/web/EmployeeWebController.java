@@ -119,6 +119,9 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
                         .field("email", field -> field.label("邮箱"))
                         .field("enabled", field -> field.label("状态").uiType("enabledStatus")
                                 .width("90px").align("center"))
+                        // Declares the self-service avatar reference for the shared file-transfer runtime
+                        // without exposing it to organization administrators in the employee management UI.
+                        .field("avatarAssetId", field -> field.hidden())
                         .field("accountBound", field -> field.hidden()))
                 .formView(form -> form
                         .title("职员档案")

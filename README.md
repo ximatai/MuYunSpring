@@ -145,7 +145,7 @@ cp muyun-boot/src/main/resources/application-local.yml.example \
 ./gradlew :muyun-boot:bootRun --args='--spring.profiles.active=local'
 ```
 
-`application-local.yml` 已被 Git 忽略，可通过环境变量覆盖数据库和初始管理员密码。完整学校演示使用 `:muyun-boot:demoBootRun`。前端在另一个终端启动：
+`application-local.yml` 已被 Git 忽略，可通过环境变量覆盖数据库和初始管理员密码；它也包含本地 Vite 地址的 CORS 白名单。前端本地联调必须以 `local` profile 启动后端，或使用 `./scripts/dev-local.sh`，不要直接执行未带 profile/白名单参数的 `bootRun`，否则浏览器会因 CORS 预检失败而显示网络错误。完整学校演示使用 `:muyun-boot:demoBootRun`。前端在另一个终端启动：
 
 ```bash
 npm ci --prefix muyun-web

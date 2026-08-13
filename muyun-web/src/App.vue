@@ -13,9 +13,14 @@ import {
   uiThemeSkins,
   type UiThemeSkinId,
 } from '@muyun/vue-ui-antdv';
-import { presentPlatformError, providePlatformTimeZoneContext } from '@muyun/platform-components';
+import {
+  presentPlatformError,
+  presentPlatformSuccess,
+  providePlatformTimeZoneContext,
+} from '@muyun/platform-components';
 import {
   configureModuleContext,
+  createModuleContext,
   createAuthClient,
   provideModuleContextConfig,
   userPreferences,
@@ -25,6 +30,7 @@ import {
 import { configureUserPreferenceBackend } from './web-core/userPreferences';
 import type {
   LoginResult,
+  CurrentUserProfile,
   MenuTab,
   MenuNavigationTarget,
   MenuRecord,
@@ -53,6 +59,7 @@ import {
 } from './platform-admin-runtime/platformAdminRoutes';
 import { connectAppRealtime } from './platform-admin-runtime/realtime';
 import ChangeOwnPasswordDialog from './app/ChangeOwnPasswordDialog.vue';
+import CurrentUserProfileDialog from './app/CurrentUserProfileDialog.vue';
 import LoginView from './app/LoginView.vue';
 import ThemeSkinPreferencesDialog from './app/ThemeSkinPreferencesDialog.vue';
 import PlatformAdminRouteOutlet from './platform-admin-runtime/PlatformAdminOutlet.vue';
@@ -120,6 +127,11 @@ const logoutLoading = ref(false);
 const changePasswordOpen = ref(false);
 const changePasswordSaving = ref(false);
 const changePasswordError = ref<string>();
+const profileOpen = ref(false);
+const profileLoading = ref(false);
+const profileSaving = ref(false);
+const profileError = ref<string>();
+const profile = ref<CurrentUserProfile>();
 const themeSkinPreferencesOpen = ref(false);
 const themeSkinSaving = ref(false);
 const themeSkinError = ref<string>();
@@ -149,6 +161,7 @@ let lockedTabPreferenceWrite = Promise.resolve();
 
 configureModuleContext({ httpFactory: createBackendHttpClient });
 provideModuleContextConfig({ httpFactory: createBackendHttpClient });
+const employeeProfileContext = createModuleContext({ moduleAlias: 'iam.employee' });
 provideCurrentUserContext(currentUser);
 providePlatformTimeZoneContext(currentTimeZone);
 provideWorkbenchNavigation({ openPage: handleOpenPage, replacePage: handleReplacePage });
@@ -253,14 +266,22 @@ async function handleUserCommand(command: string) {
     openChangeOwnPasswordDialog();
     return;
   }
-  if (command === 'settings') {
-    themeSkinError.value = undefined;
-    themeSkinPreferencesOpen.value = true;
+  if (command === 'themeSkin') {
+    openThemeSkinPreferences();
+    return;
+  }
+  if (command === 'profile') {
+    await openCurrentUserProfile();
     return;
   }
   if (command === 'logout') {
     await handleLogout();
   }
+}
+
+function openThemeSkinPreferences() {
+  themeSkinError.value = undefined;
+  themeSkinPreferencesOpen.value = true;
 }
 
 async function restoreThemeSkinFromBackend() {
@@ -319,6 +340,52 @@ function openChangeOwnPasswordDialog() {
   confirmPassword.value = '';
   changePasswordError.value = undefined;
   changePasswordOpen.value = true;
+}
+
+async function openCurrentUserProfile() {
+  const token = effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN);
+  if (!token) {
+    return;
+  }
+  profileOpen.value = true;
+  profileLoading.value = true;
+  profileError.value = undefined;
+  try {
+    profile.value = await authClient.currentProfile(token);
+  } catch (cause) {
+    profileError.value = presentPlatformError(cause, {
+      source: 'current-user-profile',
+      phase: 'load',
+    }).message;
+  } finally {
+    profileLoading.value = false;
+  }
+}
+
+function closeCurrentUserProfile() {
+  if (!profileSaving.value) {
+    profileOpen.value = false;
+    profileError.value = undefined;
+  }
+}
+
+async function submitCurrentUserProfile(value: { mobile: string; email: string; avatarAssetId?: string }) {
+  const token = effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN);
+  if (!token || profileSaving.value) return;
+  profileSaving.value = true;
+  profileError.value = undefined;
+  try {
+    profile.value = await authClient.updateCurrentProfile(value, token);
+    profileOpen.value = false;
+    presentPlatformSuccess('个人资料已保存', { source: 'current-user-profile', phase: 'action' });
+  } catch (cause) {
+    profileError.value = presentPlatformError(cause, {
+      source: 'current-user-profile',
+      phase: 'action',
+    }).message;
+  } finally {
+    profileSaving.value = false;
+  }
 }
 
 function closeChangeOwnPasswordDialog() {
@@ -799,6 +866,16 @@ function requiresLogin(cause: unknown) {
       :error="changePasswordError"
       @close="closeChangeOwnPasswordDialog"
       @submit="submitChangeOwnPassword"
+    />
+    <CurrentUserProfileDialog
+      :open="profileOpen"
+      :profile="profile"
+      :loading="profileLoading"
+      :saving="profileSaving"
+      :error="profileError"
+      :avatar-context="employeeProfileContext"
+      @close="closeCurrentUserProfile"
+      @submit="submitCurrentUserProfile"
     />
     <ThemeSkinPreferencesDialog
       :open="themeSkinPreferencesOpen"

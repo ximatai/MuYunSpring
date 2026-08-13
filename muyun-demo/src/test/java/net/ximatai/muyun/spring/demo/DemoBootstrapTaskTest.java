@@ -356,7 +356,6 @@ class DemoBootstrapTaskTest {
 
             assertThat(user).isNotNull();
             assertThat(user.getUsername()).isEqualTo("demo_admin");
-            assertThat(user.getOrganizationId()).isNull();
             assertThat(user.getTenantId()).isEqualTo(DemoBootstrapTask.TENANT_ALIAS);
             assertThat(userAccountService.passwordMatches(user, "demo123")).isTrue();
 
@@ -557,7 +556,6 @@ class DemoBootstrapTaskTest {
             user.setId(DemoBootstrapTask.USER_ID);
             user.setUsername("other_admin");
             user.setPassword("demo123");
-            user.setOrganizationId(DemoBootstrapTask.ORGANIZATION_ID);
             user.setEnabled(Boolean.TRUE);
             userAccountService.insert(user);
         }

@@ -21,6 +21,7 @@ import {
   SaveOutlined,
   SearchOutlined,
   SettingOutlined,
+  SkinOutlined,
 } from '@ant-design/icons-vue';
 
 defineOptions({ name: 'UiIcon', inheritAttrs: false });
@@ -45,6 +46,7 @@ export type UiIconName =
   | 'reload'
   | 'save'
   | 'search'
+  | 'skin'
   | 'settings';
 
 const props = defineProps<{
@@ -71,6 +73,7 @@ const icons = {
   reload: ReloadOutlined,
   save: SaveOutlined,
   search: SearchOutlined,
+  skin: SkinOutlined,
   settings: SettingOutlined,
 } as const;
 

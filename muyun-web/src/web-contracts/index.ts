@@ -146,6 +146,39 @@ export interface CurrentUser {
   timeZone?: string;
 }
 
+export interface CurrentUserProfilePosition {
+  id?: string;
+  title?: string;
+  primary?: boolean;
+}
+
+export interface CurrentUserEmployeeProfile {
+  id?: string;
+  employeeNo?: string;
+  title?: string;
+  avatarAssetId?: string;
+  mobile?: string;
+  email?: string;
+  organizationId?: string;
+  organizationTitle?: string;
+  departmentId?: string;
+  departmentTitle?: string;
+  contactEditable?: boolean;
+  positions?: CurrentUserProfilePosition[];
+}
+
+export interface CurrentUserProfile {
+  username?: string;
+  timeZone?: string;
+  employee?: CurrentUserEmployeeProfile;
+}
+
+export interface UpdateCurrentUserProfileRequest {
+  mobile?: string;
+  email?: string;
+  avatarAssetId?: string;
+}
+
 export interface SessionContext {
   currentUser: CurrentUser;
   tenantBranding?: TenantBranding;

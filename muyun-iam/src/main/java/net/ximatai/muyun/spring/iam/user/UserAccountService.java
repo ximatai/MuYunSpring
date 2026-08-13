@@ -239,9 +239,6 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         String username = requireUsername(user.getUsername());
         user.setUsername(username);
         user.setTitle(username);
-        user.setMobile(null);
-        user.setEmail(null);
-        user.setOrganizationId(null);
         user.setSortOrder(null);
         user.setAuthOrganizationId(null);
         user.setAuthModuleAlias(MODULE_ALIAS);

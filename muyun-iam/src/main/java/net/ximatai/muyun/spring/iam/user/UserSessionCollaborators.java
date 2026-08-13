@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.iam.user;
 
 import net.ximatai.muyun.spring.common.identity.CurrentUserTimeZoneResolver;
+import net.ximatai.muyun.spring.common.identity.CurrentUserOrganizationResolver;
 
 import java.util.function.Supplier;
 
@@ -9,6 +10,7 @@ public record UserSessionCollaborators(
         Supplier<UserSecurityEventPublisher> securityEventPublisher,
         Supplier<UserSessionLifecycleEventPublisher> lifecycleEventPublisher,
         CurrentUserTimeZoneResolver timeZoneResolver,
+        CurrentUserOrganizationResolver organizationResolver,
         Supplier<UserSessionPresenceLookup> presenceLookup
 ) {
     public UserSessionCollaborators {
@@ -20,10 +22,11 @@ public record UserSessionCollaborators(
                 ? () -> UserSessionLifecycleEventPublisher.NOOP
                 : lifecycleEventPublisher;
         timeZoneResolver = timeZoneResolver == null ? CurrentUserTimeZoneResolver.NONE : timeZoneResolver;
+        organizationResolver = organizationResolver == null ? CurrentUserOrganizationResolver.NONE : organizationResolver;
         presenceLookup = presenceLookup == null ? () -> UserSessionPresenceLookup.NONE : presenceLookup;
     }
 
     public static UserSessionCollaborators empty() {
-        return new UserSessionCollaborators(null, null, null, null, null);
+        return new UserSessionCollaborators(null, null, null, null, null, null);
     }
 }

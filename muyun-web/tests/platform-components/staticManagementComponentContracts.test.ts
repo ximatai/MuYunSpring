@@ -97,6 +97,41 @@ it('workbench keeps the sidebar separator when the mega menu opens', () => {
   assert.notMatch(workbenchMenuSource, /border-right-color: transparent/);
 });
 
+it('workbench routes the skin toolbar entry to the shared preference dialog', () => {
+  const appSource = readSource('src/App.vue');
+  const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
+
+  assert.notMatch(workbenchSource, /aria-label="搜索"/);
+  assert.match(workbenchSource, /aria-label="皮肤切换"[\s\S]*emit\('userCommand', 'themeSkin'\)/);
+  assert.match(appSource, /command === 'themeSkin'/);
+  assert.notMatch(workbenchSource, /key: 'settings'/);
+  assert.match(appSource, /function openThemeSkinPreferences\(\)/);
+  assert.match(appSource, /themeSkinPreferencesOpen\.value = true/);
+  assert.match(appSource, /<ThemeSkinPreferencesDialog/);
+});
+
+it('workbench opens the signed-in user profile through the dedicated self-service contract', () => {
+  const appSource = readSource('src/App.vue');
+  const profileDialogSource = readSource('src/app/CurrentUserProfileDialog.vue');
+  const clientSource = readSource('src/web-core/clients.ts');
+
+  assert.match(appSource, /command === 'profile'/);
+  assert.match(appSource, /function openCurrentUserProfile\(\)/);
+  assert.match(appSource, /authClient\.currentProfile\(token\)/);
+  assert.match(appSource, /authClient\.updateCurrentProfile\(value, token\)/);
+  assert.match(appSource, /<CurrentUserProfileDialog/);
+  assert.ok(
+    appSource.indexOf('configureModuleContext({ httpFactory: createBackendHttpClient })') <
+      appSource.indexOf("createModuleContext({ moduleAlias: 'iam.employee' })"),
+  );
+  assert.match(clientSource, /path: '\/iam\.auth\/profile'/);
+  assert.match(profileDialogSource, /title="个人信息"/);
+  assert.match(profileDialogSource, /保存联系方式/);
+  assert.match(profileDialogSource, /机构 \/ 部门/);
+  assert.match(profileDialogSource, /SingleImageFileReferenceField/);
+  assert.match(profileDialogSource, /avatarAssetId/);
+});
+
 it('workbench presents realtime transport state through an application facade', () => {
   const appSource = readSource('src/App.vue');
   const appRealtimeSource = readSource('src/platform-admin-runtime/realtime.ts');
@@ -1823,6 +1858,8 @@ it('platform error feedback respects global error presentation slots', () => {
     uiFeedbackSource,
     /options\.tone === 'error' \|\| options\.tone === 'warning' \? 'top' : 'topRight'/,
   );
+  assert.match(uiFeedbackSource, /const FEEDBACK_TOP_OFFSET = '80px'/);
+  assert.match(uiFeedbackSource, /notification\.config\(\{ top: FEEDBACK_TOP_OFFSET \}\)/);
   assert.match(uiFeedbackSource, /muyun-feedback-notification-\$\{options\.tone\}/);
   assert.match(uiFeedbackSource, /width: 'fit-content'/);
   assert.match(uiFeedbackSource, /DEFAULT_DURATION_SECONDS/);
@@ -1849,8 +1886,9 @@ it('platform error feedback respects global error presentation slots', () => {
   assert.match(uiStylesSource, /font-size: 16px/);
   assert.match(uiStylesSource, /align-items: center/);
   assert.match(uiStylesSource, /gap: 8px/);
-  assert.match(uiStylesSource, /padding-top: 2px/);
-  assert.match(uiStylesSource, /margin-bottom: -2px/);
+  assert.match(uiStylesSource, /min-height: 24px/);
+  assert.match(uiStylesSource, /top: 50%/);
+  assert.match(uiStylesSource, /translateY\(-50%\)/);
   assert.match(uiStylesSource, /muyun-feedback-notification:hover \.muyun-feedback-timebar/);
   assert.match(uiStylesSource, /transform: scaleX\(1\)/);
   assert.match(uiStylesSource, /animation: none/);

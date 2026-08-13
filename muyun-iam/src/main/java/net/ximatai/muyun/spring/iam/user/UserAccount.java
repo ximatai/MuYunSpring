@@ -29,15 +29,6 @@ public class UserAccount extends StandardDataScopedEnabledSortableEntity {
     @Column(name = "username", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Username")
     private String username;
 
-    @Column(name = "mobile", type = ColumnType.VARCHAR, length = 32, comment = "Mobile")
-    private String mobile;
-
-    @Column(name = "email", type = ColumnType.VARCHAR, length = 128, comment = "Email")
-    private String email;
-
-    @Column(name = "organization_id", type = ColumnType.VARCHAR, length = 32, comment = "Organization id")
-    private String organizationId;
-
     @Column(name = "password_hash", type = ColumnType.VARCHAR, length = 256, nullable = false,
             comment = "Password hash")
     @JsonIgnore

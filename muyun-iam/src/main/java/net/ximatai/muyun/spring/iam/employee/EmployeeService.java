@@ -156,6 +156,27 @@ public class EmployeeService extends TenantStandardBusinessService<Employee> imp
         employee.setEmail(normalizeBlank(employee.getEmail()));
     }
 
+    /** Persists only the contact and avatar fields an authenticated employee may maintain for themself. */
+    public int updateSelfManagedProfile(String employeeId, String mobile, String email, String avatarAssetId) {
+        if (employeeId == null || employeeId.isBlank()) {
+            throw new IllegalArgumentException("employee id is required");
+        }
+        Employee employee = requireEnabled(employeeId,
+                "当前职员已停用，不能维护个人资料");
+        employee.setMobile(normalizeSelfManagedField(mobile, 32, "mobile"));
+        employee.setEmail(normalizeSelfManagedField(email, 128, "email"));
+        employee.setAvatarAssetId(normalizeSelfManagedField(avatarAssetId, 32, "avatarAssetId"));
+        return update(employee);
+    }
+
+    private String normalizeSelfManagedField(String value, int maxLength, String field) {
+        String normalized = normalizeBlank(value);
+        if (normalized != null && normalized.length() > maxLength) {
+            throw new IllegalArgumentException(field + " must not exceed " + maxLength + " characters");
+        }
+        return normalized;
+    }
+
     @Override
     protected void validateBeforeSave(Employee employee) {
         organizationService.requireEnabled(employee.getOrganizationId(),

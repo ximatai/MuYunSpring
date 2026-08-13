@@ -1,8 +1,10 @@
 import type {
   ChangeOwnPasswordRequest,
+  CurrentUserProfile,
   CurrentUser,
   LoginRequest,
   LoginResult,
+  UpdateCurrentUserProfileRequest,
   MenuMineResponse,
   MenuOpenMode,
   MenuTreeNode,
@@ -28,6 +30,8 @@ export interface PageBootstrapClient {
 export interface AuthClient {
   login(request: LoginRequest): Promise<LoginResult>;
   changeOwnPassword(request: ChangeOwnPasswordRequest, token: string): Promise<void>;
+  currentProfile(token: string): Promise<CurrentUserProfile>;
+  updateCurrentProfile(request: UpdateCurrentUserProfileRequest, token: string): Promise<CurrentUserProfile>;
   logout(token?: string): Promise<void>;
 }
 
@@ -109,6 +113,18 @@ export function createAuthClient(http: HttpClient): AuthClient {
       http.request<void>({
         method: 'POST',
         path: '/iam.auth/changeOwnPassword',
+        body: request,
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    currentProfile: (token) =>
+      http.request<CurrentUserProfile>({
+        path: '/iam.auth/profile',
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    updateCurrentProfile: (request, token) =>
+      http.request<CurrentUserProfile>({
+        method: 'POST',
+        path: '/iam.auth/profile',
         body: request,
         headers: { Authorization: `Bearer ${token}` },
       }),
