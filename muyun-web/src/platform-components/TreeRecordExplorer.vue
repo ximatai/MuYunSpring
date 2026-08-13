@@ -78,6 +78,7 @@ const localKeyword = ref('');
 const searchExpanded = ref(false);
 const tree = ref<WebTreeNode<TreeRecordBase>[]>([]);
 const expandedKeys = ref<string[]>([]);
+let treeRequestSeq = 0;
 
 const currentKeyword = computed(() => props.keyword ?? localKeyword.value);
 const effectiveKeyword = computed(() =>
@@ -120,21 +121,30 @@ watch(effectiveKeyword, () => {
 });
 
 async function loadTree() {
+  const requestSeq = ++treeRequestSeq;
   loading.value = true;
   try {
     await props.context.runtime.ready;
     const treeCapability = props.context.abilities.tree();
     const response = await treeCapability.tree();
+    if (requestSeq !== treeRequestSeq) {
+      return;
+    }
     tree.value = response.records;
     expandedKeys.value = firstTwoTreeLevels(response.records);
     emit('loaded', flattenTreeRecords(response.records));
   } catch (cause) {
+    if (requestSeq !== treeRequestSeq) {
+      return;
+    }
     tree.value = [];
     expandedKeys.value = [];
     emit('loaded', []);
     presentPlatformError(cause, { source: 'tree-record-explorer', phase: 'load' });
   } finally {
-    loading.value = false;
+    if (requestSeq === treeRequestSeq) {
+      loading.value = false;
+    }
   }
 }
 
