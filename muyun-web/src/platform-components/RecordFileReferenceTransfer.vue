@@ -26,6 +26,7 @@ const props = defineProps<{
   formSessionKey?: string | number;
   disabled?: boolean;
   disabledHint?: string;
+  dropzoneHint?: string;
   showBoundFiles?: boolean;
   uploaderPresentation?: 'dropzone' | 'button';
   uploadText?: string;
@@ -142,6 +143,7 @@ function releaseUploadedFile(fileId: string) {
     :existing-file-count="existingFileCount"
     :disabled="disabled || !definition.uploadAvailable"
     :disabled-hint="definition.uploadAvailable ? disabledHint : '当前模块未配置文件上传策略'"
+    :dropzone-hint="dropzoneHint"
     :released-completed-file-ids="releasedUploadedFileIds"
     :completed-file-id="(receipt) => uploadedFileId(receipt.payload)"
     :allow-completed-removal="false"

@@ -53,6 +53,8 @@ const props = withDefaults(
     /** Business-owned preflight validation; returning a message rejects the selected file before transfer. */
     uploadValidation?: (file: File) => string | undefined | Promise<string | undefined>;
     disabledHint?: string;
+    /** Persistent guidance displayed in the dropzone before a file is selected. */
+    dropzoneHint?: string;
     completionHint?: string;
     /** Completed items may be retained when the surrounding form owns deletion semantics. */
     allowCompletedRemoval?: boolean;
@@ -79,6 +81,7 @@ const props = withDefaults(
     uploadAdvisory: undefined,
     uploadValidation: undefined,
     disabledHint: undefined,
+    dropzoneHint: undefined,
     completionHint: undefined,
     allowCompletedRemoval: true,
     releasedCompletedFileIds: () => [],
@@ -248,6 +251,12 @@ function handleDropZoneKeydown(event: KeyboardEvent) {
   }
 }
 
+function dropZoneHint() {
+  if (props.disabled) return props.disabledHint ?? '当前不可上传';
+  if (atCapacity.value) return '已达该字段允许的文件数量上限';
+  return props.dropzoneHint ?? '点击选择，或将文件拖拽到此处';
+}
+
 async function upload(item: UploadItem) {
   if (props.disabled) {
     return;
@@ -351,7 +360,10 @@ function stateText(item: UploadItem) {
 </script>
 
 <template>
-  <div class="file-transfer-uploader">
+  <div
+    class="file-transfer-uploader"
+    :class="{ 'file-transfer-uploader--dropzone': presentation === 'dropzone' }"
+  >
     <input
       ref="input"
       class="file-transfer-uploader__input"
@@ -387,13 +399,7 @@ function stateText(item: UploadItem) {
     >
       <span class="file-transfer-uploader__drop-zone-icon">+</span>
       <span class="file-transfer-uploader__drop-zone-title">{{ uploadText }}</span>
-      <span class="file-transfer-uploader__drop-zone-hint">{{
-        disabled
-          ? (disabledHint ?? '当前不可上传')
-          : atCapacity
-            ? '已达该字段允许的文件数量上限'
-            : '点击选择，或将文件拖拽到此处'
-      }}</span>
+      <span class="file-transfer-uploader__drop-zone-hint">{{ dropZoneHint() }}</span>
     </div>
     <div v-if="visibleItems.length" class="file-transfer-uploader__list" aria-live="polite">
       <div v-for="item in visibleItems" :key="item.id" class="file-transfer-uploader__item">
@@ -435,6 +441,9 @@ function stateText(item: UploadItem) {
   display: grid;
   gap: 8px;
 }
+.file-transfer-uploader--dropzone {
+  margin-block-end: 12px;
+}
 .file-transfer-uploader__input {
   display: none;
 }
@@ -444,13 +453,13 @@ function stateText(item: UploadItem) {
 .file-transfer-uploader__drop-zone {
   display: grid;
   justify-items: center;
-  gap: 4px;
-  min-height: 112px;
-  padding: 20px;
-  color: var(--ant-color-text-secondary);
-  background: var(--ant-color-fill-quaternary);
-  border: 1px dashed var(--ant-color-border-secondary);
-  border-radius: 8px;
+  gap: 5px;
+  min-height: 128px;
+  padding: 22px;
+  color: var(--muyun-support-text-muted);
+  background: var(--muyun-theme-soft);
+  border: 1px dashed var(--muyun-theme-border);
+  border-radius: 10px;
   cursor: pointer;
   outline: none;
   transition:
@@ -458,14 +467,19 @@ function stateText(item: UploadItem) {
     background-color 160ms ease,
     box-shadow 160ms ease;
 }
-.file-transfer-uploader__drop-zone:hover,
+.file-transfer-uploader__drop-zone:not(.is-disabled):hover,
 .file-transfer-uploader__drop-zone:focus-visible,
 .file-transfer-uploader__drop-zone.is-dragging {
-  background: var(--ant-color-primary-bg);
-  border-color: var(--ant-color-primary);
-  box-shadow: 0 0 0 3px var(--ant-color-primary-bg);
+  background: var(--muyun-theme-focus);
+  border-color: var(--muyun-theme-base);
+  box-shadow: 0 0 0 3px var(--muyun-theme-focus);
+}
+.file-transfer-uploader__drop-zone.is-dragging {
+  border-style: solid;
 }
 .file-transfer-uploader__drop-zone.is-disabled {
+  background: var(--muyun-support-disabled);
+  border-color: var(--muyun-support-border);
   cursor: not-allowed;
   opacity: 0.65;
 }
@@ -474,19 +488,23 @@ function stateText(item: UploadItem) {
   width: 28px;
   height: 28px;
   place-items: center;
-  color: var(--ant-color-primary);
+  color: var(--muyun-theme-base);
   font-size: 22px;
   font-weight: 300;
   line-height: 1;
-  background: var(--ant-color-primary-bg);
+  background: var(--muyun-support-surface);
+  border: 1px solid var(--muyun-theme-border);
   border-radius: 50%;
 }
 .file-transfer-uploader__drop-zone-title {
-  color: var(--ant-color-text);
+  color: var(--muyun-support-text-body);
   font-size: 14px;
+  font-weight: 600;
 }
 .file-transfer-uploader__drop-zone-hint {
+  color: var(--muyun-support-text-muted);
   font-size: 12px;
+  line-height: 1.5;
 }
 .file-transfer-uploader__list {
   display: grid;

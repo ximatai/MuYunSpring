@@ -153,10 +153,10 @@ function handleChildSelect(menu: MenuRecord, menuTarget: MenuNavigationTarget) {
 .deep-node-button.selected::before,
 .deep-node-button.selected-path::before {
   position: absolute;
-  top: 5px;
-  bottom: 5px;
+  top: var(--workbench-menu-selection-indicator-inset, 3px);
+  bottom: var(--workbench-menu-selection-indicator-inset, 3px);
   left: 0;
-  width: 3px;
+  width: var(--workbench-menu-selection-indicator-width, 4px);
   border-radius: 0 999px 999px 0;
   background: var(--muyun-theme-base);
   content: '';

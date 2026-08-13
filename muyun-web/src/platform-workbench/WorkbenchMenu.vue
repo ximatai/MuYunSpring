@@ -7,7 +7,7 @@ import WorkbenchMenuTree from './WorkbenchMenuTree.vue';
 import WorkbenchSidebarMenuEntry from './WorkbenchSidebarMenuEntry.vue';
 import { createMenuHoverClickIntent } from './menuHoverClickIntent';
 import { isPointerHeadingToMenuPanel, type MenuPointerPosition } from './menuPointerAim';
-import { floatingMenuPanelOutlinePath, floatingPanelTopOf } from './workbenchLayout';
+import { floatingPanelTopOf } from './workbenchLayout';
 import {
   buildWorkbenchMegaMenuModel,
   createWorkbenchMenuNodes,
@@ -76,7 +76,6 @@ const MENU_POINTER_TRAIL_WINDOW = 140;
 const MENU_HOVER_CLICK_GRACE_PERIOD = 240;
 
 const menuShell = ref<HTMLElement>();
-const menuSidebar = ref<HTMLElement>();
 const megaPanel = ref<HTMLElement>();
 const sidebarSubmenuPanel = ref<HTMLElement>();
 const menuFilter = ref('');
@@ -85,21 +84,12 @@ const activeDeepRootId = ref<string>();
 const activeSidebarSubmenuId = ref<string>();
 const megaPanelTop = ref(8);
 const megaPanelLeft = ref(0);
-const activeRootLeft = ref(0);
 const activeRootTop = ref(0);
-const activeRootHeight = ref(34);
-const megaPanelWidth = ref(0);
-const megaPanelHeight = ref(0);
 const megaPanelPreferredWidth = ref(820);
 const megaGroupColumnCount = ref(3);
-const compactPanelBounds = ref<{ left: number; top: number; right: number; bottom: number }>();
 const sidebarSubmenuTop = ref(0);
 const sidebarSubmenuLeft = ref(0);
-const sidebarSubmenuWidth = ref(0);
-const sidebarSubmenuHeight = ref(0);
-const sidebarSubmenuAnchorLeft = ref(0);
 const sidebarSubmenuAnchorTop = ref(0);
-const sidebarSubmenuAnchorHeight = ref(29);
 const hoverClickIntent = createMenuHoverClickIntent(MENU_HOVER_CLICK_GRACE_PERIOD);
 
 const menuNodes = computed(() => createWorkbenchMenuNodes(props.menus));
@@ -128,68 +118,9 @@ const activeSidebarSubmenuNode = computed(() =>
     : undefined,
 );
 const megaColumnCount = computed(() => megaMenuModel.value?.columns.length ?? 1);
-const megaOutlinePath = computed(() =>
-  floatingMenuPanelOutlinePath(
-    {
-      left: megaPanelLeft.value,
-      top: megaPanelTop.value,
-      width: megaPanelWidth.value,
-      height: megaPanelHeight.value,
-    },
-    {
-      left: activeRootLeft.value,
-      top: activeRootTop.value,
-      height: activeRootHeight.value,
-    },
-    6,
-  ),
-);
-const sidebarSubmenuOutlinePath = computed(() =>
-  floatingMenuPanelOutlinePath(
-    {
-      left: sidebarSubmenuLeft.value,
-      top: sidebarSubmenuTop.value,
-      width: sidebarSubmenuWidth.value,
-      height: sidebarSubmenuHeight.value,
-    },
-    {
-      left: sidebarSubmenuAnchorLeft.value,
-      top: sidebarSubmenuAnchorTop.value,
-      height: sidebarSubmenuAnchorHeight.value,
-    },
-  ),
-);
 const menuVisible = computed(() => props.presentation === 'expanded' || props.compactOpen);
 const isCompact = computed(() => props.presentation === 'compact');
 const rootChildrenUseFlyout = computed(() => isCompact.value || props.expandedMenuDepth === 1);
-const compactOutlinePath = computed(() => {
-  const anchor = props.compactAnchor;
-  const panel = compactPanelBounds.value;
-  const shellRect = menuShell.value?.getBoundingClientRect();
-  if (!isCompact.value || !props.compactOpen || !anchor || !panel || !shellRect) {
-    return undefined;
-  }
-
-  const anchorTop = Math.round(anchor.top - shellRect.top);
-  const anchorLeft = Math.round(anchor.left - shellRect.left);
-  const anchorRight = Math.round(anchor.right - shellRect.left);
-  const panelRadius = 4;
-  const sharedLeft = Math.min(anchorLeft, panel.left);
-
-  return [
-    `M ${sharedLeft} ${anchorTop}`,
-    `H ${anchorRight - panelRadius}`,
-    `Q ${anchorRight} ${anchorTop} ${anchorRight} ${anchorTop + panelRadius}`,
-    `V ${panel.top}`,
-    `H ${panel.right - panelRadius}`,
-    `Q ${panel.right} ${panel.top} ${panel.right} ${panel.top + panelRadius}`,
-    `V ${panel.bottom - panelRadius}`,
-    `Q ${panel.right} ${panel.bottom} ${panel.right - panelRadius} ${panel.bottom}`,
-    `H ${panel.left + panelRadius}`,
-    `Q ${panel.left} ${panel.bottom} ${panel.left} ${panel.bottom - panelRadius}`,
-    `V ${anchorTop}`,
-  ].join(' ');
-});
 let megaPointerAimTimer: number | undefined;
 let megaPointerAimOrigin: { x: number; y: number } | undefined;
 let megaPointerAimPanel: { left: number; top: number; bottom: number } | undefined;
@@ -214,17 +145,6 @@ watch(
 watch(
   () => props.presentation,
   () => closeMenuLayers(),
-);
-
-watch(
-  () => [props.compactOpen, props.compactAnchor, props.presentation],
-  () => {
-    if (props.presentation === 'compact' && props.compactOpen) {
-      void nextTick(updateCompactOutline);
-      return;
-    }
-    compactPanelBounds.value = undefined;
-  },
 );
 
 onUnmounted(() => {
@@ -457,9 +377,7 @@ function updateSidebarSubmenuPosition(target: EventTarget | null) {
   const panelHeight = Math.min(window.innerHeight - 16, MEGA_PANEL_MAX_HEIGHT);
   sidebarSubmenuTop.value = floatingPanelTopOf(targetRect.top, panelHeight, window.innerHeight, shellTop);
   sidebarSubmenuLeft.value = Math.round(targetRect.right - shellLeft);
-  sidebarSubmenuAnchorLeft.value = Math.round(targetRect.left - shellLeft);
   sidebarSubmenuAnchorTop.value = Math.round(targetRect.top - shellTop);
-  sidebarSubmenuAnchorHeight.value = Math.round(targetRect.height);
 }
 
 function updateSidebarSubmenuSize() {
@@ -469,30 +387,12 @@ function updateSidebarSubmenuSize() {
   }
   const shellTop = menuShell.value?.getBoundingClientRect().top ?? 0;
   const panelHeight = panel.offsetHeight;
-  sidebarSubmenuWidth.value = panel.offsetWidth;
-  sidebarSubmenuHeight.value = panelHeight;
   sidebarSubmenuTop.value = floatingPanelTopOf(
     shellTop + sidebarSubmenuAnchorTop.value,
     panelHeight,
     window.innerHeight,
     shellTop,
   );
-}
-
-function updateCompactOutline() {
-  const panel = menuSidebar.value;
-  const shellRect = menuShell.value?.getBoundingClientRect();
-  if (!panel || !shellRect || !props.compactAnchor) {
-    compactPanelBounds.value = undefined;
-    return;
-  }
-  const panelRect = panel.getBoundingClientRect();
-  compactPanelBounds.value = {
-    left: Math.round(panelRect.left - shellRect.left),
-    top: Math.round(panelRect.top - shellRect.top),
-    right: Math.round(panelRect.right - shellRect.left),
-    bottom: Math.round(panelRect.bottom - shellRect.top),
-  };
 }
 
 function handleMenuEnter() {
@@ -609,10 +509,7 @@ function updateMegaPanelTop(target: EventTarget | null | undefined) {
   const shellLeft = shellRect?.left ?? 0;
   megaPanelTop.value = floatingPanelTopOf(rect.top, panelHeight, window.innerHeight, shellTop);
   megaPanelLeft.value = Math.round(rect.right - shellLeft);
-  activeRootLeft.value = Math.round(rect.left - shellLeft);
   activeRootTop.value = Math.round(rect.top - shellTop);
-  activeRootHeight.value = Math.round(rect.height);
-  megaPanelHeight.value = panelHeight;
   updateMegaPanelLayout();
 }
 
@@ -622,8 +519,6 @@ function updateMegaPanelSize() {
     return;
   }
 
-  megaPanelWidth.value = panel.offsetWidth;
-  megaPanelHeight.value = panel.offsetHeight;
   const shellTop = menuShell.value?.getBoundingClientRect().top ?? 0;
   megaPanelTop.value = floatingPanelTopOf(
     shellTop + activeRootTop.value,
@@ -656,7 +551,6 @@ function updateMegaPanelLayout() {
 
   megaGroupColumnCount.value = columnCount;
   megaPanelPreferredWidth.value = Math.max(280, preferredWidth);
-  megaPanelWidth.value = megaPanelPreferredWidth.value;
 }
 
 function availableMegaPanelWidth() {
@@ -723,7 +617,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
       'workbench-menu--compact': isCompact,
       'workbench-menu--expanded': !isCompact,
       'workbench-menu--compact-open': isCompact && compactOpen,
-      'compact-mega-open': isCompact && compactOutlinePath,
     }"
     :style="isCompact ? { '--compact-menu-top': `${compactTop}px` } : undefined"
     @mouseenter="handleMenuEnter"
@@ -734,12 +627,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
     @keydown="handleMenuKeydown"
   >
     <Transition name="workbench-menu-panel">
-      <aside
-        v-if="menuVisible"
-        :id="isCompact ? 'workbench-compact-menu' : undefined"
-        ref="menuSidebar"
-        class="menu-sidebar"
-      >
+      <aside v-if="menuVisible" :id="isCompact ? 'workbench-compact-menu' : undefined" class="menu-sidebar">
         <Transition name="workbench-sidebar-brand">
           <WorkbenchBrandControl
             v-if="!isCompact"
@@ -896,20 +784,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
       </aside>
     </Transition>
 
-    <template v-if="compactOutlinePath">
-      <svg class="compact-mega-outline compact-mega-outline--shadow" aria-hidden="true">
-        <path :d="compactOutlinePath" />
-      </svg>
-    </template>
-
-    <svg v-if="activeRootNode" class="mega-outline mega-outline--shadow" aria-hidden="true">
-      <path :d="megaOutlinePath" />
-    </svg>
-
-    <svg v-if="activeRootNode" class="mega-outline mega-outline--stroke" aria-hidden="true">
-      <path :d="megaOutlinePath" />
-    </svg>
-
     <Transition name="workbench-mega-panel">
       <section
         v-if="activeRootNode"
@@ -1034,22 +908,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
       </section>
     </Transition>
 
-    <svg
-      v-if="activeSidebarSubmenuNode"
-      class="sidebar-submenu-outline sidebar-submenu-outline--shadow"
-      aria-hidden="true"
-    >
-      <path :d="sidebarSubmenuOutlinePath" />
-    </svg>
-
-    <svg
-      v-if="activeSidebarSubmenuNode"
-      class="sidebar-submenu-outline sidebar-submenu-outline--stroke"
-      aria-hidden="true"
-    >
-      <path :d="sidebarSubmenuOutlinePath" />
-    </svg>
-
     <Transition name="workbench-mega-panel">
       <aside
         v-if="activeSidebarSubmenuNode"
@@ -1084,6 +942,8 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   --workbench-menu-border: var(--muyun-support-border);
   --workbench-menu-border-width: 1px;
   --workbench-menu-flyout-shadow: 0 18px 42px rgb(15 23 42 / 16%);
+  --workbench-menu-selection-indicator-width: 4px;
+  --workbench-menu-selection-indicator-inset: 3px;
   position: relative;
   z-index: 20;
   min-width: 0;
@@ -1126,13 +986,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   gap: 0;
   border-radius: 0 0 4px 4px;
   box-shadow: 0 14px 28px rgb(15 23 42 / 13%);
-}
-
-.workbench-menu--compact.compact-mega-open .menu-sidebar {
-  z-index: 2;
-  border-color: transparent;
-  background: var(--workbench-menu-surface);
-  box-shadow: none;
 }
 
 .workbench-menu--compact.mega-open .menu-sidebar {
@@ -1362,11 +1215,11 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .mega-entry.selected::before,
 .mega-entry.selected-path::before {
   position: absolute;
-  top: 5px;
-  bottom: 5px;
+  top: var(--workbench-menu-selection-indicator-inset);
+  bottom: var(--workbench-menu-selection-indicator-inset);
   left: 0;
   z-index: 1;
-  width: 3px;
+  width: var(--workbench-menu-selection-indicator-width);
   border-radius: 0 999px 999px 0;
   background: var(--muyun-theme-base);
   content: '';
@@ -1387,15 +1240,13 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .root-menu-item.active,
 .root-menu-item.active.selected {
   z-index: 2;
-  border-color: transparent;
-  border-radius: 6px 0 0 6px;
-  background: var(--workbench-menu-surface);
+  border-radius: 6px;
+  background: var(--muyun-theme-soft);
 }
 
 .root-menu-item.active.selected-path {
-  background: var(--workbench-menu-surface);
+  background: var(--muyun-theme-soft);
   color: var(--muyun-theme-soft-text);
-  box-shadow: inset 3px 0 0 var(--muyun-theme-border);
 }
 
 .root-menu-item.navigable {
@@ -1483,13 +1334,13 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 .root-menu-item.active,
 .root-menu-item.active.selected {
-  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
+  box-shadow: inset var(--workbench-menu-selection-indicator-width) 0 0 var(--muyun-theme-base);
 }
 
 .root-menu-item.active:focus-visible,
 .root-menu-item.active.selected:focus-visible {
   background: var(--muyun-theme-soft);
-  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
+  box-shadow: inset var(--workbench-menu-selection-indicator-width) 0 0 var(--muyun-theme-base);
 }
 
 .sidebar-menu-level {
@@ -1543,11 +1394,11 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   grid-template-rows: minmax(0, 1fr);
   width: min(var(--mega-panel-width), calc(100vw - var(--mega-panel-left) - 24px));
   max-height: calc(100vh - 16px);
-  border: 0;
-  border-radius: 0 8px 8px 0;
+  border: var(--workbench-menu-border-width) solid var(--workbench-menu-border);
+  border-radius: 8px;
   background: var(--workbench-menu-surface);
-  box-shadow: none;
-  overflow: visible;
+  box-shadow: var(--workbench-menu-flyout-shadow);
+  overflow: hidden;
 }
 
 .sidebar-submenu-panel {
@@ -1561,10 +1412,10 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   min-width: min(240px, calc(100vw - var(--sidebar-submenu-left) - 24px));
   max-width: min(360px, calc(100vw - var(--sidebar-submenu-left) - 24px));
   max-height: min(620px, calc(100vh - 16px));
-  border: 0;
-  border-radius: 0 8px 8px 0;
+  border: var(--workbench-menu-border-width) solid var(--workbench-menu-border);
+  border-radius: 8px;
   background: var(--workbench-menu-surface);
-  box-shadow: none;
+  box-shadow: var(--workbench-menu-flyout-shadow);
   overflow: hidden;
 }
 
@@ -1573,46 +1424,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   margin: 0;
   padding: 8px;
   overflow: auto;
-}
-
-.sidebar-submenu-outline,
-.mega-outline,
-.compact-mega-outline {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  overflow: visible;
-  pointer-events: none;
-}
-
-.sidebar-submenu-outline--shadow,
-.mega-outline--shadow,
-.compact-mega-outline--shadow {
-  z-index: 1;
-  filter: drop-shadow(var(--workbench-menu-flyout-shadow));
-}
-
-.sidebar-submenu-outline--shadow path,
-.mega-outline--shadow path,
-.compact-mega-outline--shadow path {
-  fill: var(--workbench-menu-surface);
-  stroke: none;
-}
-
-.sidebar-submenu-outline--stroke,
-.mega-outline--stroke {
-  z-index: 3;
-}
-
-.sidebar-submenu-outline--stroke path,
-.mega-outline--stroke path {
-  fill: none;
-  stroke: var(--workbench-menu-border);
-  stroke-linejoin: round;
-  stroke-width: var(--workbench-menu-border-width);
-  vector-effect: non-scaling-stroke;
 }
 
 .workbench-mega-panel-enter-active,
@@ -1630,28 +1441,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .workbench-menu--compact .mega-panel {
-  box-shadow: none;
-}
-
-.workbench-menu--compact.mega-open .root-menu-item.active::after {
-  position: absolute;
-  z-index: 3;
-  top: -1px;
-  right: -2px;
-  bottom: -1px;
-  width: 3px;
-  background: var(--workbench-menu-surface);
-  content: '';
-}
-
-.workbench-menu--compact.mega-open .root-menu-item.active {
-  background: var(--workbench-menu-surface);
-  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
-}
-
-.workbench-menu--compact.mega-open .root-menu-item.active.selected-path {
-  color: var(--muyun-theme-base);
-  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
+  box-shadow: var(--workbench-menu-flyout-shadow);
 }
 
 .mega-body {
@@ -1800,7 +1590,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 .mega-entry.active {
-  box-shadow: inset 3px 0 0 var(--muyun-theme-base);
+  box-shadow: inset var(--workbench-menu-selection-indicator-width) 0 0 var(--muyun-theme-base);
 }
 
 .mega-entry.selected {
@@ -1847,12 +1637,6 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 }
 
 @media (max-width: 980px) {
-  .workbench-menu--expanded .mega-outline,
-  .workbench-menu--expanded .sidebar-submenu-outline,
-  .workbench-menu--expanded .compact-mega-outline {
-    display: none;
-  }
-
   .workbench-menu--expanded .menu-sidebar {
     position: relative;
     height: auto;

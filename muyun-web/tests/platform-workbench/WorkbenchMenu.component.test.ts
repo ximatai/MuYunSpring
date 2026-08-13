@@ -378,7 +378,7 @@ describe('WorkbenchMenu', () => {
     expect(wrapper.emitted('selectMenu')?.[0]?.[0]).toMatchObject({ id: 'runtime' });
   });
 
-  it('connects the compact Mega outline to its active root menu row', async () => {
+  it('keeps compact navigation content above its single sidebar panel', async () => {
     const wrapper = shallowMount(WorkbenchMenu, {
       props: { menus: mixedRootMenus, presentation: 'compact', compactOpen: true },
     });
@@ -388,7 +388,8 @@ describe('WorkbenchMenu', () => {
 
     await branch.trigger('mouseenter');
 
-    expect(wrapper.get('.mega-outline path').attributes('d')).toContain('V 98 H 14');
+    expect(wrapper.get('.mega-panel').text()).toContain('元数据管理');
+    expect(wrapper.find('.compact-mega-outline').exists()).toBe(false);
     expect(wrapper.get('.workbench-menu').classes()).toContain('mega-open');
   });
 
@@ -803,7 +804,7 @@ describe('WorkbenchMenu', () => {
     expect(wrapper.find('.mega-deep-panel').exists()).toBe(false);
   });
 
-  it('remeasures the Mega outline after the deep dock leaves', async () => {
+  it('keeps the Mega panel available while a deep dock opens and closes', async () => {
     const wrapper = shallowMount(WorkbenchMenu, {
       props: { menus: nestedMenus, presentation: 'expanded' },
     });
@@ -817,20 +818,20 @@ describe('WorkbenchMenu', () => {
     const deepTransition = wrapper
       .findAllComponents({ name: 'Transition' })
       .find((transition) => transition.props('name') === 'mega-deep-dock');
+    if (!trigger || !deepTransition) {
+      throw new Error('Expected the navigable deep menu trigger and its transition.');
+    }
 
-    Object.defineProperty(panel.element, 'offsetHeight', { configurable: true, value: 420 });
-    await trigger?.trigger('click');
-    deepTransition?.vm.$emit('after-enter');
+    await trigger.trigger('click');
+    deepTransition.vm.$emit('after-enter');
     await wrapper.vm.$nextTick();
-    const expandedOutline = wrapper.get('.mega-outline--stroke path').attributes('d');
+    expect(wrapper.find('.mega-panel').exists()).toBe(true);
 
-    Object.defineProperty(panel.element, 'offsetHeight', { configurable: true, value: 180 });
-    await trigger?.trigger('click');
-    deepTransition?.vm.$emit('after-leave');
+    await trigger.trigger('click');
+    deepTransition.vm.$emit('after-leave');
     await wrapper.vm.$nextTick();
 
-    expect(deepTransition).toBeDefined();
-    expect(wrapper.get('.mega-outline--stroke path').attributes('d')).not.toBe(expandedOutline);
+    expect(wrapper.element.contains(panel.element)).toBe(true);
   });
 
   it('uses the whole row to toggle a structural branch without a navigation target', async () => {

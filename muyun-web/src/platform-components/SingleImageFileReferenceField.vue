@@ -28,7 +28,7 @@ const fileId = computed(() => fileReferenceIds(props.value)[0]);
 const previewUrl = ref<string>();
 const previewLoading = ref(false);
 const previewError = ref<string>();
-const uploadText = computed(() => (fileId.value ? '替换' : '上传'));
+const uploadText = computed(() => (fileId.value ? '替换图片' : '选择图片上传'));
 
 watch(
   [fileId, () => props.formSessionKey],
@@ -105,8 +105,8 @@ function browserViewUrl(url: string) {
         {{ label }}
         <strong v-if="required" aria-hidden="true">*</strong>
       </span>
-      <div class="single-image-file-reference-field__actions">
-        <template v-if="fileId && definition.readAvailable">
+      <div v-if="fileId" class="single-image-file-reference-field__actions">
+        <template v-if="definition.readAvailable">
           <UiButton type="link" :disabled="previewLoading" @click="viewOriginal">查看</UiButton>
           <UiButton type="link" @click="download">下载</UiButton>
         </template>
@@ -130,7 +130,26 @@ function browserViewUrl(url: string) {
         />
       </div>
     </div>
-    <div class="single-image-file-reference-field__preview" :class="{ 'has-image': !!previewUrl }">
+    <RecordFileReferenceTransfer
+      v-if="!fileId"
+      :value="value"
+      :record="record"
+      :context="context"
+      :definition="definition"
+      :form-session-key="formSessionKey"
+      :disabled="disabled"
+      :disabled-hint="disabledHint"
+      :dropzone-hint="uploadHint"
+      :show-bound-files="false"
+      uploader-presentation="dropzone"
+      :upload-text="uploadText"
+      :show-completed-upload-items="false"
+      :release-completed-upload-on-bind="true"
+      :upload-advisory="uploadAdvisory"
+      :upload-validation="uploadValidation"
+      @update:value="emit('update:value', typeof $event === 'string' ? $event : undefined)"
+    />
+    <div v-else class="single-image-file-reference-field__preview" :class="{ 'has-image': !!previewUrl }">
       <img v-if="previewUrl" :src="previewUrl" alt="已上传图片预览" />
       <template v-else>
         <span class="single-image-file-reference-field__state-icon" aria-hidden="true">{{
@@ -176,14 +195,15 @@ function browserViewUrl(url: string) {
   justify-items: center;
   gap: 5px;
   overflow: hidden;
-  color: var(--ant-color-text-secondary);
+  color: var(--muyun-support-text-muted);
   text-align: center;
-  background: var(--ant-color-fill-quaternary);
-  border: 1px solid color-mix(in srgb, var(--ant-color-border-secondary) 60%, transparent);
-  border-radius: 0;
+  background: var(--muyun-theme-soft);
+  border: 1px dashed var(--muyun-theme-border);
+  border-radius: 10px;
 }
 .single-image-file-reference-field__preview.has-image {
-  background: var(--ant-color-bg-container);
+  background: var(--muyun-support-surface);
+  border-style: solid;
 }
 .single-image-file-reference-field__preview img {
   display: block;
@@ -199,12 +219,12 @@ function browserViewUrl(url: string) {
   gap: 14px;
 }
 .single-image-file-reference-field__state-icon {
-  color: var(--ant-color-primary);
+  color: var(--muyun-theme-base);
   font-size: 24px;
   line-height: 1;
 }
 .single-image-file-reference-field__preview strong {
-  color: var(--ant-color-text);
+  color: var(--muyun-support-text-body);
   font-size: 13px;
   font-weight: 600;
 }

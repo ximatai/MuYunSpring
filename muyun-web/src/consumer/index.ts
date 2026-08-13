@@ -6,12 +6,25 @@
  * Consumers must import `@ximatai/muyun-web-app/style.css` explicitly.
  */
 
+// The public stylesheet must include the adapter's global feedback overrides.
+// Consumers only import `@ximatai/muyun-web-app/style.css`, so importing the
+// app baseline alone would leave notification feedback on Ant Design Vue defaults.
+import '../vue-ui-antdv/styles.css';
 import '../styles.css';
 
 export * from '../web-contracts/index';
 export * from '../web-core/index';
 export * from '../platform-workbench/index';
 export * from '../platform-admin-runtime/index';
+export {
+  activeTabUrlOf,
+  arrangeLockedMenuTabs,
+  removeLockedMenuTabs,
+  restoreWorkbenchStartupStateFromUrl,
+  restoreLockedMenuTabs,
+  updateLockedMenuTabs,
+} from '../app/workbenchStartup';
+export { restoreLockedTabPreference, saveLockedTabPreference } from '../app/lockedTabPreference';
 export {
   configureModulePageEnhancements,
   createModulePageEnhancementRegistry,
@@ -53,6 +66,8 @@ export {
   UiTree,
 } from '../vue-ui-antdv/index';
 export { default as PlatformAdminOutlet } from './PlatformAdminOutlet.vue';
+export { default as AppWorkbenchShell } from './AppWorkbenchShell.vue';
+export type { AppWorkbenchNavigation } from './workbenchNavigation';
 export { configureUserPreferencePersistence } from './userPreferencePersistence';
 export { default as ChangeOwnPasswordDialog } from '../app/ChangeOwnPasswordDialog.vue';
 export { default as ThemeSkinPreferencesDialog } from '../app/ThemeSkinPreferencesDialog.vue';
@@ -67,6 +82,7 @@ export { default as DateTimeText } from '../platform-components/DateTimeText.vue
 export { default as FileSizeText } from '../platform-components/FileSizeText.vue';
 export { default as FileTransferUploader } from '../platform-components/FileTransferUploader.vue';
 export { default as SingleImageFileReferenceField } from '../platform-components/SingleImageFileReferenceField.vue';
+export { uploadedFileId } from '../platform-components/fileReferenceTransfer';
 export {
   presentPlatformError,
   presentPlatformInfo,
