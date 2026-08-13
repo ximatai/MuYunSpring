@@ -121,6 +121,23 @@ it('resolveRecordActions passes record id into authorization check', () => {
   assert.equal(actions[1].reason, 'cannot reset current user');
 });
 
+it('resolveRecordActions retains a record-level authorization reason for disabled-action feedback', () => {
+  const actions = resolveRecordActions(
+    {
+      action: (_actionCode, recordId) => ({
+        available: false,
+        reason: `无权操作记录 ${recordId}`,
+      }),
+    },
+    [{ key: 'delete', actionCode: 'delete', title: '删除' }],
+    false,
+    'knowledge-file-1',
+  );
+
+  assert.equal(actions[0].disabled, true);
+  assert.equal(actions[0].reason, '无权操作记录 knowledge-file-1');
+});
+
 it('mergeRecordActions inserts extension actions around standard anchors', () => {
   const actions = mergeRecordActions(
     [

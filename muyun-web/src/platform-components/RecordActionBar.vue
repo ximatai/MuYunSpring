@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue';
-import { Tooltip as ATooltip } from 'ant-design-vue';
 import type { ModuleContext } from '@muyun/web-core';
-import { UiActionButton } from '@muyun/vue-ui-antdv';
+import { UiActionButton, UiTooltip } from '@muyun/vue-ui-antdv';
 import { resolveRecordActions, type RecordActionItem } from './recordActionBarModel';
 
 defineOptions({ name: 'RecordActionBar' });
@@ -49,10 +48,10 @@ function handleClick(action: RecordActionItem, event: MouseEvent) {
 
 <template>
   <div class="record-action-bar" :class="{ compact: size === 'compact' }">
-    <ATooltip
+    <UiTooltip
       v-for="action in resolvedActions"
       :key="action.key"
-      :title="action.disabled ? action.disabledReason : undefined"
+      :title="action.disabled ? (action.disabledReason ?? action.reason ?? '') : ''"
     >
       <span class="record-action-tooltip-trigger">
         <UiActionButton
@@ -67,7 +66,7 @@ function handleClick(action: RecordActionItem, event: MouseEvent) {
           {{ action.title }}
         </UiActionButton>
       </span>
-    </ATooltip>
+    </UiTooltip>
   </div>
 </template>
 
