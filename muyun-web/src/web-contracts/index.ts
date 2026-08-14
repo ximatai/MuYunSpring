@@ -192,6 +192,12 @@ export interface TenantBranding {
   subtitle?: string;
 }
 
+/** Public branding facts for a tenant locked by the unauthenticated login URL. */
+export interface TenantLoginContext {
+  tenantId: string;
+  branding?: TenantBranding;
+}
+
 export interface LoginRequest {
   tenantId?: string;
   username: string;

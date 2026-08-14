@@ -9,6 +9,7 @@
 | 方法   | URL                 | 功能                                                                                               |
 | ------ | ------------------- | -------------------------------------------------------------------------------------------------- |
 | `POST` | `/iam.auth/login`   | 用户登录。请求包含 `tenantId`、`username`、`password`；返回 Bearer token、当前登录 `sessionId`、签发时间和当前用户信息。 |
+| `GET`  | `/iam.auth/login-context?tenantId={tenantId}` | 匿名读取 URL 锁定租户的公开登录上下文。该端点以平台 `ANONYMOUS_ALLOWED` 动作登记并经统一策略链路执行；仅返回锁定租户标识及工作台品牌投影，供标准登录页展示 Logo、主标题和副标题；目标租户必须处于启用状态。 |
 | `POST` | `/iam.auth/logout`  | 当前 Bearer token 登出。token 从 `Authorization: Bearer ...` 读取。                                |
 | `GET`  | `/iam.auth/context` | 返回当前请求解析出的用户上下文，用于前端会话恢复和启动态确认。                                     |
 | `GET`  | `/iam.auth/tenant-branding` | 返回当前租户的工作台品牌投影（`lightLogo`、可选的 `darkLogo`）；Logo 以受限 Base64 图片 data URL 保存。 |

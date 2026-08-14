@@ -5,6 +5,7 @@ import {
   AppError,
   configureModuleContext,
   createAuthClient,
+  createLoginContextClient,
   createHttpClient,
   createMenuClient,
   createPageBootstrapClient,
@@ -165,6 +166,30 @@ it('auth logout posts bearer token to backend logout endpoint', async () => {
     assert.equal(requests[0].url, 'http://api.local/iam.auth/logout');
     assert.equal(requests[0].method, 'POST');
     assert.equal(requests[0].headers.get('Authorization'), 'Bearer token-1');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('auth client resolves the public login context for a URL-locked tenant', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return Response.json({
+      tenantId: 'tenant-a',
+      branding: { title: '租户 A', subtitle: '租户专属工作台' },
+    });
+  };
+
+  try {
+    const context = await createLoginContextClient(
+      createHttpClient({ baseUrl: 'http://api.local' }),
+    ).loginContext('tenant-a');
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, 'http://api.local/iam.auth/login-context?tenantId=tenant-a');
+    assert.equal(context.branding?.title, '租户 A');
   } finally {
     globalThis.fetch = originalFetch;
   }

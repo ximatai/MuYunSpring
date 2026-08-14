@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.iam.user.CurrentUserProfileService;
 import net.ximatai.muyun.spring.iam.user.UpdateCurrentUserProfileRequest;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.iam.tenant.TenantBranding;
+import net.ximatai.muyun.spring.iam.tenant.TenantLoginContext;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticActionDeclaration;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -100,6 +102,18 @@ public class LoginWebController {
                 : tenantService.branding(tenantId);
     }
 
+    /**
+     * Resolves branding for a tenant explicitly selected by the unauthenticated login entry.
+     */
+    @GetMapping("/login-context")
+    @CustomActionEndpoint(value = "loginContext", title = "获取登录入口上下文",
+            accessMode = ActionAccessMode.ANONYMOUS_ALLOWED, actionAuth = false, dataAuth = false)
+    public TenantLoginContext loginContext(@RequestParam String tenantId) {
+        TenantService service = requireTenantService();
+        service.requireActiveTenant(tenantId);
+        return new TenantLoginContext(tenantId, service.branding(tenantId));
+    }
+
     private String bearerToken(HttpServletRequest request) {
         String header = request.getHeader("Authorization");
         if (header == null || header.isBlank()) {
@@ -122,6 +136,13 @@ public class LoginWebController {
             throw new IllegalStateException("current user profile service is not available");
         }
         return currentUserProfileService;
+    }
+
+    private TenantService requireTenantService() {
+        if (tenantService == null) {
+            throw new IllegalStateException("tenant service is not available");
+        }
+        return tenantService;
     }
 
     private String clientIp(HttpServletRequest request) {

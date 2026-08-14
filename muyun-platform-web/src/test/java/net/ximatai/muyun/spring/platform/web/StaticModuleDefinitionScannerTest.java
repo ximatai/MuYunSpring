@@ -348,12 +348,19 @@ class StaticModuleDefinitionScannerTest {
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                                 "enable", "disable", "userSelector", "changePassword", "resetPassword",
                                 "forceLogout", "sessions", "sessionStatuses", "revokeSession", "revokeSessions",
-                                "employeeBinding", "selfProfile");
+                                "employeeBinding", "selfProfile", "loginContext");
                 assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("selfProfile"))
                         .singleElement()
                         .satisfies(action -> {
                             assertThat(action.accessMode()).isEqualTo(EntityActionAccessMode.LOGIN_REQUIRED);
                             assertThat(action.actionAuth()).isFalse();
+                        });
+                assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("loginContext"))
+                        .singleElement()
+                        .satisfies(action -> {
+                            assertThat(action.accessMode()).isEqualTo(EntityActionAccessMode.ANONYMOUS_ALLOWED);
+                            assertThat(action.actionAuth()).isFalse();
+                            assertThat(action.dataAuth()).isFalse();
                         });
                 assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("userSelector"))
                         .singleElement()
