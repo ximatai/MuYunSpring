@@ -7,6 +7,8 @@ import net.ximatai.muyun.spring.ability.reference.CompositeReferenceDeletionGuar
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferencedByResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadFacade;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
 import net.ximatai.muyun.spring.ability.child.ChildAbilityResolver;
 import net.ximatai.muyun.spring.platform.reference.DynamicReferenceDeletionGuard;
 import net.ximatai.muyun.spring.platform.reference.PlatformReferenceTargetResolver;
@@ -72,9 +74,32 @@ public class MuYunSpringReferenceConfiguration {
     }
 
     @Bean
+    /** 提供静态实体声明的引用读事实解析器。 */
+    ReferenceLoadResolver referenceLoadResolver(StaticAbilityCatalog abilities) {
+        return new PlatformReferenceLoadResolver(abilities);
+    }
+
+    @Bean
+    /** 向领域 read facade 暴露已声明读事实的批量 enrich 边界。 */
+    ReferenceReadFacade referenceReadFacade(ReferenceLoadResolver resolver) {
+        return new ReferenceReadFacade(resolver);
+    }
+
+    @Bean
+    /** 可选注册引用读观测器；没有业务声明时保持无事件的默认实现。 */
+    ReferenceReadObserverRegistration referenceReadObserverRegistration(
+            ObjectProvider<ReferenceReadObserver> observerProvider) {
+        List<ReferenceReadObserver> observers = observerProvider.orderedStream().toList();
+        ReferenceReadObserver composite = observers.isEmpty()
+                ? ReferenceReadObserver.NONE
+                : request -> observers.forEach(observer -> observer.onProjection(request));
+        return new ReferenceReadObserverRegistration(composite);
+    }
+
+    @Bean
     /** 注册多跳引用字段加载解析器，静态与动态路径共享其投影语义。 */
-    ReferenceLoadResolverRegistration referenceLoadResolverRegistration(StaticAbilityCatalog abilities) {
-        return new ReferenceLoadResolverRegistration(new PlatformReferenceLoadResolver(abilities));
+    ReferenceLoadResolverRegistration referenceLoadResolverRegistration(ReferenceLoadResolver resolver) {
+        return new ReferenceLoadResolverRegistration(resolver);
     }
 
     @Bean
@@ -124,6 +149,17 @@ public class MuYunSpringReferenceConfiguration {
         @Override
         public void destroy() {
             PlatformAbilityRuntime.resetReferenceLoadResolver();
+        }
+    }
+
+    static final class ReferenceReadObserverRegistration implements DisposableBean {
+        ReferenceReadObserverRegistration(ReferenceReadObserver observer) {
+            PlatformAbilityRuntime.configureReferenceReadObserver(observer);
+        }
+
+        @Override
+        public void destroy() {
+            PlatformAbilityRuntime.resetReferenceReadObserver();
         }
     }
 

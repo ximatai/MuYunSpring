@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.ability.event.RuntimeEventType;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.schema.PlatformSchemaMigrationPolicy;
 import net.ximatai.muyun.spring.common.time.BusinessCalendarService;
@@ -206,6 +207,25 @@ class MuYunSpringDynamicRuntimeConfigurationTest {
                     assertThat(PlatformAbilityRuntime.referenceTargetResolver()
                             .resolve(ReferenceTarget.of("sales.contract", "contract")))
                             .isPresent();
+                });
+    }
+
+    @Test
+    void shouldRegisterOptionalReferenceReadObservers() {
+        List<ReferenceReadObserver.ProjectionRequest> observed = new ArrayList<>();
+
+        contextRunner.withUserConfiguration(MuYunSpringReferenceConfiguration.class)
+                .withBean(ReferenceReadObserver.class, () -> observed::add)
+                .run(context -> {
+                    PlatformAbilityRuntime.referenceReadObserver().onProjection(
+                            new ReferenceReadObserver.ProjectionRequest(
+                                    ReferenceTarget.of("sales.contract", "contract"), List.of("title"), 2,
+                                    ReferenceReadObserver.Kind.DIRECT, null, null, 0));
+
+                    assertThat(observed).singleElement().satisfies(request -> {
+                        assertThat(request.target()).isEqualTo(ReferenceTarget.of("sales.contract", "contract"));
+                        assertThat(request.idCount()).isEqualTo(2);
+                    });
                 });
     }
 

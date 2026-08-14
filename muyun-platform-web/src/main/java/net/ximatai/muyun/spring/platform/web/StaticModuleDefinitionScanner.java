@@ -19,6 +19,9 @@ import net.ximatai.muyun.spring.web.SortWeb;
 import net.ximatai.muyun.spring.web.TreeWeb;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.reference.ModuleReadProjectionContributor;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
+import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
+import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
@@ -81,7 +84,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .entities(entities(bean, module, projectionJoins))
                 .uiDefinition(uiDefinition(bean, module))
                 .references(references(bean))
-                .readProjections(readProjections(bean))
+                .readProjections(readProjections(bean, module.alias()))
                 .modelClass(modelClass(bean))
                 .projectionJoins(projectionJoins)
                 .openApiAvailable(AnnotationUtils.findAnnotation(beanClass, StaticModuleOpenApi.class) != null)
@@ -127,7 +130,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         return StaticReferenceCompiler.compile(modelClass);
     }
 
-    private List<StaticModuleReadProjectionDefinition> readProjections(Object bean) {
+    private List<StaticModuleReadProjectionDefinition> readProjections(Object bean, String moduleAlias) {
         Object service = service(bean);
         if (!(service instanceof ModuleReadProjectionContributor contributor)) {
             return List.of();
@@ -139,7 +142,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
         return projections.stream()
                 .map(projection -> new StaticModuleReadProjectionDefinition(
-                        projection.path(),
+                        declaredPath(modelClass(bean), moduleAlias, projection),
                         projection.referencePath(),
                         projection.outputField(),
                         projection.projectionType(),
@@ -147,6 +150,35 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                         projection.sortable()
                 ))
                 .toList();
+    }
+
+    private String declaredPath(Class<?> modelClass,
+                                String moduleAlias,
+                                net.ximatai.muyun.spring.ability.reference.ModuleReadProjection projection) {
+        if (projection.path() != null || projection.referencePath() != null) return projection.path();
+        if (modelClass == null) {
+            throw new IllegalArgumentException("declared read projection requires a static entity model: "
+                    + projection.outputField());
+        }
+        List<ReferencePlan> plans = StaticReferenceResolver.plans(modelClass).stream()
+                .filter(plan -> plan.cardinality() == net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE)
+                .filter(plan -> plan.projections().stream().anyMatch(item -> item.outputField().equals(projection.outputField())))
+                .toList();
+        if (plans.size() != 1) {
+            throw new IllegalArgumentException("declared read projection requires exactly one direct @ReferenceLoad: "
+                    + moduleAlias + "." + projection.outputField());
+        }
+        ReferencePlan plan = plans.getFirst();
+        ReferenceProjection output = plan.projections().stream()
+                .filter(item -> item.outputField().equals(projection.outputField())).findFirst().orElseThrow();
+        String referenceCode = StaticReferenceCompiler.compile(modelClass).stream()
+                .filter(reference -> reference.sourceField().equals(plan.sourceField()))
+                .map(StaticReferenceDefinition::code)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "declared read projection source is not a static reference: "
+                                + moduleAlias + "." + plan.sourceField()));
+        return referenceCode + "." + output.targetField();
     }
 
     private List<RelationProjectionJoinDefinition> projectionJoins(Object bean) {

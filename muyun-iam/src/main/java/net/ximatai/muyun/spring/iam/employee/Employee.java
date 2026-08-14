@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceIntegrity;
 import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
 import net.ximatai.muyun.spring.common.initialdata.InitialDataFields;
 import net.ximatai.muyun.spring.common.model.file.FileReference;
 import net.ximatai.muyun.spring.common.model.file.FileReferenceStoragePolicy;
@@ -41,11 +42,19 @@ public class Employee extends StandardEnabledSortableEntity {
             integrity = @ReferenceIntegrity(onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
     private String organizationId;
 
+    /** Stable read fact reused by detail, list and domain read facades. */
+    @ReferenceLoad(source = "organizationId", field = "title")
+    private transient String organizationTitle;
+
     @Column(name = "department_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Department id")
     @ReferenceTo(target = DepartmentService.class,
             integrity = @ReferenceIntegrity(onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
     private String departmentId;
+
+    /** Stable read fact reused by detail, list and domain read facades. */
+    @ReferenceLoad(source = "departmentId", field = "title")
+    private transient String departmentTitle;
 
     @Column(name = "employee_no", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Employee number")

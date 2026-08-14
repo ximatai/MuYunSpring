@@ -8,6 +8,10 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceDeletionGuard;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferencedByResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
+import net.ximatai.muyun.spring.common.model.contract.EntityContract;
+
+import java.util.List;
 
 public final class PlatformAbilityRuntime {
     private PlatformAbilityRuntime() {
@@ -91,5 +95,27 @@ public final class PlatformAbilityRuntime {
 
     public static void resetReferenceLoadResolver() {
         PlatformAbilityDispatcher.resetReferenceLoadResolver();
+    }
+
+    public static void configureReferenceReadObserver(ReferenceReadObserver observer) {
+        PlatformAbilityDispatcher.setReferenceReadObserver(observer);
+    }
+
+    public static void resetReferenceReadObserver() {
+        PlatformAbilityDispatcher.resetReferenceReadObserver();
+    }
+
+    public static ReferenceReadObserver referenceReadObserver() {
+        return PlatformAbilityDispatcher.referenceReadObserver();
+    }
+
+    /** Explicit domain-read entry point for batch enrichment of declared reference read facts. */
+    public static void populateReferenceReads(CrudAbility<?> ability, List<? extends EntityContract> records) {
+        PlatformAbilityDispatcher.populateReferenceReads(ability, records);
+    }
+
+    /** Explicit domain-read entry point for declared inverse collections. */
+    public static void populateReferencedBy(CrudAbility<?> ability, List<? extends EntityContract> records) {
+        PlatformAbilityDispatcher.populateReferencedBy(ability, records);
     }
 }

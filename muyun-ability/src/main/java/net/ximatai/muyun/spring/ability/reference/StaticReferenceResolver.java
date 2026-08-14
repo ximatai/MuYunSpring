@@ -90,6 +90,11 @@ public final class StaticReferenceResolver {
         writeByFieldName(record, outputField, value);
     }
 
+    /** Reads a declared model field for source-independent inverse association grouping. */
+    public static Object readLoadedValue(Object record, String fieldName) {
+        return record == null || fieldName == null || fieldName.isBlank() ? null : readByFieldName(record, fieldName);
+    }
+
     public static void requireReadableField(Class<?> modelClass, String fieldName, String purpose) {
         if (modelClass == null || fieldName == null || fieldName.isBlank()) {
             throw new PlatformException(purpose + " field must not be blank");

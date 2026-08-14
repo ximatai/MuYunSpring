@@ -33,7 +33,6 @@ import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.util.Preconditions;
 import net.ximatai.muyun.spring.iam.department.Department;
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
-import net.ximatai.muyun.spring.iam.organization.Organization;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
 import net.ximatai.muyun.spring.iam.user.UserAccount;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -264,10 +263,7 @@ public class EmployeeService extends TenantStandardBusinessService<Employee> imp
     @Override
     public List<ModuleReadProjection> moduleReadProjections() {
         return List.of(
-                ModuleReadProjection.of(
-                        ReferencePath.from(Employee::getOrganizationId)
-                                .select(Organization::getTitle),
-                        "organizationTitle"),
+                ModuleReadProjection.declared("organizationTitle", false, true),
                 ModuleReadProjection.filterableOnly(
                         ReferencePath.inverseOne(EmployeeAccount::getEmployeeId)
                                 .then(EmployeeAccount::getUserId)

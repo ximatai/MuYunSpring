@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadPath;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadReader;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
 import net.ximatai.muyun.spring.ability.reference.ReferenceSummaryPlan;
@@ -187,7 +188,7 @@ final class ReferenceReadProjectionPostProcessor {
                     // deliberately needs no target read, but must retain every normalized id.
                     ? ids.stream().collect(java.util.stream.Collectors.toMap(
                             id -> id, ignored -> Map.of(), (first, ignored) -> first, LinkedHashMap::new))
-                    : resolveTarget(entry.getKey()).projections(ids, fields);
+                    : readTargetProjection(entry.getKey(), ids, fields);
             resolved.put(entry.getKey(), new TargetValues(projections));
         }
         return resolved;
@@ -197,6 +198,15 @@ final class ReferenceReadProjectionPostProcessor {
         return PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
                 .orElseThrow(() -> new PlatformException("reference target is not registered: "
                         + target.qualifiedName()));
+    }
+
+    private static Map<String, Map<String, Object>> readTargetProjection(ReferenceTarget target,
+                                                                           List<String> ids,
+                                                                           List<String> fields) {
+        PlatformAbilityRuntime.referenceReadObserver().onProjection(
+                new ReferenceReadObserver.ProjectionRequest(target, fields, ids.size(),
+                        ReferenceReadObserver.Kind.DIRECT, null, null, 0));
+        return resolveTarget(target).projections(ids, fields);
     }
 
     private static void applyPlan(Map<String, Object> record, ReferencePlan plan, TargetValues target) {
@@ -243,7 +253,8 @@ final class ReferenceReadProjectionPostProcessor {
                     .toList();
             Map<String, Object> values = ReferenceLoadReader.readAll(path, sourceIds,
                     target -> PlatformAbilityRuntime.referenceTargetResolver().resolve(target).orElseThrow(
-                            () -> new PlatformException("reference target is not registered: " + target.qualifiedName())));
+                            () -> new PlatformException("reference target is not registered: " + target.qualifiedName())),
+                    PlatformAbilityRuntime.referenceReadObserver());
             for (Map<String, Object> record : records) {
                 List<String> ids = source.normalizeValues(record.get(path.sourceField()));
                 record.put(path.outputField(), ids.isEmpty() ? null : values.get(ids.getFirst()));

@@ -13,6 +13,11 @@ import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import net.ximatai.muyun.spring.common.model.capability.SortCapable;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
+import net.ximatai.muyun.spring.iam.organization.OrganizationService;
+import net.ximatai.muyun.spring.iam.department.DepartmentService;
+import net.ximatai.muyun.spring.iam.position.PositionService;
 
 @Getter
 @Setter
@@ -26,14 +31,26 @@ public class EmployeePosition extends StandardEntity implements EnabledCapable, 
 
     @Column(name = "organization_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Organization id")
+    @ReferenceTo(target = OrganizationService.class)
     private String organizationId;
+
+    @ReferenceLoad(source = "organizationId", field = "title")
+    private transient String organizationTitle;
 
     @Column(name = "department_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Department id")
+    @ReferenceTo(target = DepartmentService.class)
     private String departmentId;
 
+    @ReferenceLoad(source = "departmentId", field = "title")
+    private transient String departmentTitle;
+
     @Column(name = "position_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Position id")
+    @ReferenceTo(target = PositionService.class)
     private String positionId;
+
+    @ReferenceLoad(source = "positionId", field = "title")
+    private transient String positionTitle;
 
     @Column(name = "primary_position", type = ColumnType.BOOLEAN, comment = "Primary position",
             defaultVal = @Default(bool = TrueOrFalse.FALSE))
