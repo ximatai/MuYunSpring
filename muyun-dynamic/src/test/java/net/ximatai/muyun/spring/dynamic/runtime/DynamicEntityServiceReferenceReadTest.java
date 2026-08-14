@@ -140,24 +140,33 @@ class DynamicEntityServiceReferenceReadTest {
                 .referencedBys(List.of(new EntityReferencedByDefinition("classroom", "member", "classroomId", "members")))
                 .build();
         new ModuleDefinitionValidator().validate(module);
-        DynamicRecord classroomRecord = new DynamicRecord(classroom);
-        classroomRecord.setId("classroom-1");
-        DynamicRecord memberRecord = new DynamicRecord(member);
-        memberRecord.setId("member-1");
-        memberRecord.setValue("classroomId", "classroom-1");
+        DynamicRecord firstClassroom = new DynamicRecord(classroom);
+        firstClassroom.setId("classroom-1");
+        DynamicRecord secondClassroom = new DynamicRecord(classroom);
+        secondClassroom.setId("classroom-2");
+        DynamicRecord firstMember = new DynamicRecord(member);
+        firstMember.setId("member-1");
+        firstMember.setValue("classroomId", "classroom-1");
+        DynamicRecord secondMember = new DynamicRecord(member);
+        secondMember.setId("member-2");
+        secondMember.setValue("classroomId", "classroom-2");
         DynamicRecordDao classroomDao = mock(DynamicRecordDao.class);
         when(classroomDao.getEntity()).thenReturn(classroom);
-        when(classroomDao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class))).thenReturn(List.of(classroomRecord));
+        when(classroomDao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(List.of(firstClassroom, secondClassroom));
         DynamicEntityService memberService = mock(DynamicEntityService.class);
-        when(memberService.list(any(Criteria.class))).thenReturn(List.of(memberRecord));
+        when(memberService.list(any(Criteria.class))).thenReturn(List.of(firstMember, secondMember));
 
         DynamicEntityService service = new DynamicEntityService(classroomDao, "education.school", DynamicRecordLifecycle.NONE,
                 module, alias -> "member".equals(alias) ? memberService : null,
                 ignored -> { throw new IllegalStateException("targets are not read"); }, null, DynamicFieldValueValidator.NONE,
                 FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE, new PlatformTimeService());
 
-        assertThat((List<Object>) service.list(Criteria.of(), PageRequest.of(1, 20)).getFirst().getValue("members"))
-                .containsExactly(memberRecord);
+        List<DynamicRecord> classrooms = service.list(Criteria.of(), PageRequest.of(1, 20));
+
+        assertThat((List<Object>) classrooms.getFirst().getValue("members")).containsExactly(firstMember);
+        assertThat((List<Object>) classrooms.get(1).getValue("members")).containsExactly(secondMember);
+        verify(memberService, times(1)).list(any(Criteria.class));
     }
 
     @Test

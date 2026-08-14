@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceDependencyRegistryTestAccess;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
@@ -1846,6 +1847,39 @@ class AbilityContractTest {
         assertThat(service.pageQuery(Criteria.of(), PageRequest.of(1, 10)).getRecords())
                 .extracting(DemoOrganization::getId)
                 .containsExactly(activeId, nullDeletedId);
+    }
+
+    @Test
+    void listReadsShouldBatchPopulateReferenceLoadsWithoutLoadingInverseCollections() {
+        StandardDemoBusinessService service = new StandardDemoBusinessService();
+        String firstId = service.insert(new DemoPlainRecord("First"));
+        String secondId = service.insert(new DemoPlainRecord("Second"));
+        List<List<String>> batches = new ArrayList<>();
+        PlatformAbilityRuntime.configureReferenceLoadResolver(new ReferenceLoadResolver() {
+            @Override
+            public void populate(CrudAbility<?> ability, EntityContract entity) {
+                throw new AssertionError("list reads must use the batch reference-load entry point");
+            }
+
+            @Override
+            public void populateAll(CrudAbility<?> ability, java.util.Collection<? extends EntityContract> entities) {
+                batches.add(entities.stream().map(EntityContract::getId).toList());
+            }
+        });
+        PlatformAbilityRuntime.configureReferencedByResolver((ability, entity) -> {
+            throw new AssertionError("ordinary list reads must not populate inverse collections");
+        });
+
+        assertThat(service.list(Criteria.of())).extracting(DemoPlainRecord::getId)
+                .containsExactly(firstId, secondId);
+        assertThat(service.list(Criteria.of(), PageRequest.of(1, 10))).extracting(DemoPlainRecord::getId)
+                .containsExactly(firstId, secondId);
+        assertThat(service.pageQuery(Criteria.of(), PageRequest.of(1, 10)).getRecords())
+                .extracting(DemoPlainRecord::getId)
+                .containsExactly(firstId, secondId);
+
+        assertThat(batches).containsExactly(List.of(firstId, secondId), List.of(firstId, secondId),
+                List.of(firstId, secondId));
     }
 
     @Test

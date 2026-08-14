@@ -39,21 +39,26 @@ public interface FieldProtectionAbility<T extends EntityContract> extends CrudAb
         List<T> records = page.getRecords().stream()
                 .peek(this::restoreProtectedFieldsFromStorage)
                 .toList();
+        populateDeclaredReferenceLoads(records);
         return PageResult.of(records, page.getTotal(), pageRequest);
     }
 
     @Override
     default List<T> list(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
-        return getDao().query(activeCriteria(criteria), pageRequest, sorts).stream()
+        List<T> records = getDao().query(activeCriteria(criteria), pageRequest, sorts).stream()
                 .peek(this::restoreProtectedFieldsFromStorage)
                 .toList();
+        populateDeclaredReferenceLoads(records);
+        return records;
     }
 
     @Override
     default List<T> list(Criteria criteria, Sort... sorts) {
-        return getDao().list(activeCriteria(criteria), sorts).stream()
+        List<T> records = getDao().list(activeCriteria(criteria), sorts).stream()
                 .peek(this::restoreProtectedFieldsFromStorage)
                 .toList();
+        populateDeclaredReferenceLoads(records);
+        return records;
     }
 
     default FieldProtectionMutation protectFieldsForStorage(T entity) {

@@ -3,8 +3,6 @@ package net.ximatai.muyun.spring.iam.user;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
-import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
-import net.ximatai.muyun.spring.ability.reference.ReferenceReadFacade;
 import net.ximatai.muyun.spring.iam.employee.Employee;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
@@ -28,8 +26,7 @@ class CurrentUserProfileServiceTest {
         when(accountService.employeeIdOfUser("user-1")).thenReturn("employee-1");
         when(employeeService.select("employee-1")).thenReturn(employee);
         when(positionService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(java.util.List.of());
-        CurrentUserProfileService service = new CurrentUserProfileService(accountService, employeeService, positionService,
-                new ReferenceReadFacade(ReferenceLoadResolver.NONE));
+        CurrentUserProfileService service = new CurrentUserProfileService(accountService, employeeService, positionService);
 
         CurrentUserProfile profile = service.updateCurrentProfile(
                 CurrentUser.tenantUser("user-1", "demo.user", "tenant-a"),

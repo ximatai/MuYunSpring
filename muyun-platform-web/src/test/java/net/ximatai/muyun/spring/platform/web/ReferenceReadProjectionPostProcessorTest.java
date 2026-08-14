@@ -1,12 +1,18 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadFacade;
 import net.ximatai.muyun.spring.ability.reference.ReferenceSummary;
 import net.ximatai.muyun.spring.ability.reference.ReferenceHop;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
+import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
+import net.ximatai.muyun.spring.platform.reference.PlatformReferenceLoadResolver;
+import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -15,7 +21,9 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,6 +57,34 @@ class ReferenceReadProjectionPostProcessorTest {
                 Map.of("id", "order-2", "customerId", "customer-2", "customerTitle", "客户二", "customerLevel", "B")
         );
         verify(target).projections(List.of("customer-1", "customer-2"), List.of("title", "level"));
+    }
+
+    @Test
+    void shouldKeepDeclaredReferenceLoadEqualBetweenDomainFacadeAndListProjection() {
+        DomainOrder domainOrder = new DomainOrder();
+        domainOrder.setId("order-1");
+        domainOrder.customerId = "customer-1";
+        @SuppressWarnings("unchecked") CrudAbility<DomainOrder> orders = mock(CrudAbility.class);
+        doReturn(DomainOrder.class).when(orders).modelClass();
+        when(orders.getModuleAlias()).thenReturn("crm.order");
+        @SuppressWarnings("unchecked") ReferenceAbility<CustomerRecord> customer = mock(ReferenceAbility.class);
+        doReturn(CustomerRecord.class).when(customer).modelClass();
+        when(customer.getModuleAlias()).thenReturn("crm.customer");
+        when(customer.projections(eq(List.of("customer-1")), eq(List.of("title"))))
+                .thenReturn(Map.of("customer-1", Map.of("title", "客户一")));
+        ReferenceTarget customerTarget = ReferenceTarget.of("crm", "customer");
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target -> customerTarget.equals(target)
+                ? java.util.Optional.of(customer) : java.util.Optional.empty());
+
+        new ReferenceReadFacade(new PlatformReferenceLoadResolver(
+                new StaticAbilityCatalog(List.of(orders, customer)))).enrich(orders, List.of(domainOrder));
+        List<Map<String, Object>> listed = ReferenceReadProjectionPostProcessor.apply(DomainOrder.class,
+                List.of(Map.of("id", "order-1", "customerId", "customer-1")));
+
+        assertThat(domainOrder.customerTitle).isEqualTo("客户一");
+        assertThat(listed).containsExactly(Map.of(
+                "id", "order-1", "customerId", "customer-1", "customerTitle", "客户一"));
+        verify(customer, times(2)).projections(List.of("customer-1"), List.of("title"));
     }
 
     @Test
@@ -134,6 +170,17 @@ class ReferenceReadProjectionPostProcessorTest {
 
         @ReferenceLoad(source = "customerId", field = "level")
         private transient String customerLevel;
+    }
+
+    private static final class DomainOrder extends StandardEntity {
+        @ReferenceTo(moduleAlias = "crm", entityAlias = "customer")
+        private String customerId;
+
+        @ReferenceLoad(source = "customerId", field = "title")
+        private transient String customerTitle;
+    }
+
+    private static final class CustomerRecord extends StandardTitledEntity {
     }
 
     private static final class PlainRecord {

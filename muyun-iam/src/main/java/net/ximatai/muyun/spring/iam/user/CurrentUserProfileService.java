@@ -3,7 +3,6 @@ package net.ximatai.muyun.spring.iam.user;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
-import net.ximatai.muyun.spring.ability.reference.ReferenceReadFacade;
 import net.ximatai.muyun.spring.iam.employee.Employee;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeePosition;
@@ -20,16 +19,13 @@ public class CurrentUserProfileService {
     private final EmployeeAccountService employeeAccountService;
     private final EmployeeService employeeService;
     private final EmployeePositionService employeePositionService;
-    private final ReferenceReadFacade referenceReads;
 
     public CurrentUserProfileService(EmployeeAccountService employeeAccountService,
                                      EmployeeService employeeService,
-                                     EmployeePositionService employeePositionService,
-                                     ReferenceReadFacade referenceReads) {
+                                     EmployeePositionService employeePositionService) {
         this.employeeAccountService = employeeAccountService;
         this.employeeService = employeeService;
         this.employeePositionService = employeePositionService;
-        this.referenceReads = referenceReads;
     }
 
     public CurrentUserProfile currentProfile(CurrentUser currentUser) {
@@ -70,7 +66,6 @@ public class CurrentUserProfileService {
     private List<CurrentUserProfile.PositionProfile> positions(String employeeId) {
         List<EmployeePosition> relations = employeePositionService.list(
                 Criteria.of().eq("employeeId", employeeId).eq("enabled", true), new PageRequest(0, 100));
-        referenceReads.enrich(employeePositionService, relations);
         return relations
                 .stream()
                 .map(relation -> new CurrentUserProfile.PositionProfile(relation.getPositionId(),
