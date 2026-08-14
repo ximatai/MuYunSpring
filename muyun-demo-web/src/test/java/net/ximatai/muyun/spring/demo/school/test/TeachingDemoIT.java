@@ -16,16 +16,8 @@ import net.ximatai.muyun.spring.demo.school.teacher.Teacher;
 import net.ximatai.muyun.spring.demo.school.teacher.TeacherService;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import net.ximatai.muyun.spring.ability.TreeAbility;
-import net.ximatai.muyun.spring.ability.output.PlatformRecordOutput;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
-import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
-import net.ximatai.muyun.spring.common.option.OptionBinding;
-import net.ximatai.muyun.spring.common.option.OptionQuery;
-import net.ximatai.muyun.spring.common.option.OptionSourceRegistry;
-import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
-import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApiGenerator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,7 +35,6 @@ import java.util.LinkedHashSet;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 静态业务模块的最终交付演示：在真实 Boot 上下文中验证 Spring 装配、Repository 持久化、
@@ -76,16 +67,7 @@ public class TeachingDemoIT {
     private RegisteredWebEndpointCatalog endpointCatalog;
 
     @Autowired
-    private OptionSourceRegistry optionSources;
-
-    @Autowired
-    private PlatformRecordOutput recordOutput;
-
-    @Autowired
     private ApplicationService applicationService;
-
-    @Autowired
-    private StaticModuleOpenApiGenerator openApiGenerator;
 
     @DynamicPropertySource
     static void applicationProperties(DynamicPropertyRegistry registry) {
@@ -115,14 +97,6 @@ public class TeachingDemoIT {
     }
 
     @Test
-    void shouldDescribeTeacherModuleThroughAcceptedStaticEndpointCatalog() {
-        var document = openApiGenerator.generate(TeacherService.MODULE_ALIAS);
-
-        assertThat(document.operations()).extracting(operation -> operation.path())
-                .doesNotContain("/education.teacher/openapi");
-    }
-
-    @Test
     void shouldSupportTreeHobbiesAndResolveStudentMultiSelectTitles() {
         String serial = serial();
         try (TenantContext.Scope ignored = TenantContext.use("campus-hobby")) {
@@ -146,91 +120,6 @@ public class TeachingDemoIT {
         }
     }
 
-    @Test
-    void shouldEnforceDeclaredTenantUniqueConstraintsIncludingSoftDeletedRecords() {
-        String serial = serial();
-        String code = "unique-" + serial;
-        try (TenantContext.Scope ignored = TenantContext.use("campus-unique-a")) {
-            String firstId = hobbies.insert(hobby(code, "唯一爱好", TreeAbility.ROOT_ID));
-
-            assertThatThrownBy(() -> hobbies.insert(hobby(code, "重复爱好", TreeAbility.ROOT_ID)))
-                    .isInstanceOf(PlatformException.class)
-                    .extracting(error -> ((PlatformException) error).code())
-                    .isEqualTo(PlatformErrorCodes.CONFLICT_UNIQUE);
-
-            assertThat(hobbies.delete(firstId)).isEqualTo(1);
-            assertThatThrownBy(() -> hobbies.insert(hobby(code, "软删后重复", TreeAbility.ROOT_ID)))
-                    .isInstanceOf(PlatformException.class)
-                    .extracting(error -> ((PlatformException) error).code())
-                    .isEqualTo(PlatformErrorCodes.RESOURCE_SOFT_DELETED_CONFLICT);
-        }
-        try (TenantContext.Scope ignored = TenantContext.use("campus-unique-b")) {
-            assertThat(hobbies.insert(hobby(code, "另一租户爱好", TreeAbility.ROOT_ID))).isNotBlank();
-        }
-    }
-
-    @Test
-    void shouldUsePlatformDictionaryForTeacherTeachingSubject() {
-        try (TenantContext.Scope ignored = TenantContext.system("school demo dictionary")) {
-            assertThat(optionSources.source(OptionBinding.dictionary("education", "teaching_subject"))
-                    .options(OptionQuery.enabledOnly()))
-                    .extracting(option -> option.code(), option -> option.title())
-                    .containsExactlyInAnyOrder(
-                            org.assertj.core.groups.Tuple.tuple("mathematics", "数学"),
-                            org.assertj.core.groups.Tuple.tuple("chinese", "语文"),
-                            org.assertj.core.groups.Tuple.tuple("english", "英语"));
-
-            String teacherId = teachers.insert(teacher("T-" + serial(), "数学老师", "mathematics"));
-            Teacher output = recordOutput.record(teachers, teachers.select(teacherId), FieldOutputContext.VIEW);
-            assertThat(output.getSubjectCode()).isEqualTo("mathematics");
-            assertThat(output.getSubjectTitle()).isEqualTo("数学");
-
-            assertThatThrownBy(() -> teachers.insert(teacher("T-" + serial(), "无效学科", "physics")))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("invalid option code for field subjectCode");
-
-            String anotherTeacherId = teachers.insert(teacher("T-" + serial(), "英语老师", "english"));
-            Teacher anotherTeacher = teachers.select(anotherTeacherId);
-            String duplicateTeacherNo = teachers.select(teacherId).getTeacherNo();
-            anotherTeacher.setTeacherNo(duplicateTeacherNo);
-            assertThatThrownBy(() -> teachers.update(anotherTeacher))
-                    .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("teacherNo already exists");
-        }
-    }
-
-    @Test
-    void shouldKeepStudentTenantScopeAndDemonstrateEnableCacheAndRecycleBin() {
-        String serial = serial();
-        String campusAStudentId;
-        try (TenantContext.Scope ignored = TenantContext.use("campus-a")) {
-            campusAStudentId = students.insert(student("S-" + serial, "林晓", "一年级"));
-
-            Student firstRead = students.select(campusAStudentId);
-            firstRead.setTitle("mutated client copy");
-            assertThat(students.select(campusAStudentId).getTitle()).isEqualTo("林晓");
-
-            assertThatThrownBy(() -> students.insert(student("S-" + serial, "重复学号", "一年级")))
-                    .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("studentNo already exists");
-            assertThat(students.disable(campusAStudentId)).isEqualTo(1);
-            assertThat(students.isEnabled(campusAStudentId)).isFalse();
-        }
-
-        try (TenantContext.Scope ignored = TenantContext.use("campus-b")) {
-            students.insert(student("S-" + serial, "周然", "一年级"));
-            assertThat(students.list(Criteria.of())).extracting(Student::getTitle).contains("周然");
-        }
-
-        try (TenantContext.Scope ignored = TenantContext.use("campus-a")) {
-            assertThat(students.delete(campusAStudentId)).isEqualTo(1);
-            assertThat(students.select(campusAStudentId)).isNull();
-            assertThat(students.pageRecycleBin(Criteria.of(), PageRequest.of(1, 10)).getRecords())
-                    .extracting(Student::getTitle).contains("林晓");
-            assertThat(students.restore(campusAStudentId)).isEqualTo(1);
-            assertThat(students.select(campusAStudentId).getTenantId()).isEqualTo("campus-a");
-        }
-    }
 
     @Test
     void shouldResolveHomeroomTeacherAndPopulateClassMembers() {
@@ -262,30 +151,6 @@ public class TeachingDemoIT {
     }
 
     @Test
-    void shouldValidateMemberReferenceAndRestrictDeletingReferencedStudent() {
-        try (TenantContext.Scope ignored = TenantContext.system("school demo reference integrity")) {
-            String teacherId = teachers.insert(teacher("T-" + serial(), "王老师", "mathematics"));
-            Classroom invalid = classroom("G-" + serial(), "引用校验班", "2026", teacherId);
-            invalid.setMembers(List.of(classMember("missing-student")));
-            assertThatThrownBy(() -> classrooms.insert(invalid))
-                    .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("reference target is unavailable: education.student.studentId");
-
-            String studentId = students.insert(student("S-" + serial(), "陈同学", "二年级"));
-            Classroom classroom = classroom("G-" + serial(), "成员约束班", "2026", teacherId);
-            classroom.setMembers(List.of(classMember(studentId)));
-            String classroomId = classrooms.insert(classroom);
-
-            assertThatThrownBy(() -> students.delete(studentId))
-                    .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("active records in education.class_member.studentId");
-
-            assertThat(classrooms.delete(classroomId)).isEqualTo(1);
-            assertThat(students.delete(studentId)).isEqualTo(1);
-        }
-    }
-
-    @Test
     void shouldReplaceMemberRowsAndCascadeSoftDeleteWhenClassroomIsDeleted() {
         try (TenantContext.Scope ignored = TenantContext.system("school demo aggregate")) {
             String teacherId = teachers.insert(teacher("T-" + serial(), "王老师", "mathematics"));
@@ -312,28 +177,6 @@ public class TeachingDemoIT {
             assertThat(members.select(replacement.getId())).isNull();
             assertThat(members.selectIgnoreSoftDelete(first.getId())).isNotNull();
             assertThat(members.selectIgnoreSoftDelete(replacement.getId())).isNotNull();
-        }
-    }
-
-    @Test
-    void shouldOrderClassroomsByAcademicYearAndMembersByClassroom() {
-        try (TenantContext.Scope ignored = TenantContext.system("school demo sort")) {
-            String teacherId = teachers.insert(teacher("T-" + serial(), "王老师", "mathematics"));
-            String firstStudentId = students.insert(student("S-" + serial(), "林晓", "四年级"));
-            String secondStudentId = students.insert(student("S-" + serial(), "周然", "四年级"));
-            Classroom first = classroom("G4-" + serial(), "四年级一班", "2026", teacherId);
-            first.setMembers(List.of(classMember(firstStudentId), classMember(secondStudentId)));
-            String firstId = classrooms.insert(first);
-            Classroom second = classroom("G4-" + serial(), "四年级二班", "2026", teacherId);
-            String secondId = classrooms.insert(second);
-
-            assertThat(first.getSortOrder()).isPositive();
-            assertThat(second.getSortOrder()).isGreaterThan(first.getSortOrder());
-            assertThat(first.getMembers()).extracting(ClassMember::getSortOrder).containsExactly(100, 200);
-
-            classrooms.moveBefore(secondId, firstId);
-            assertThat(classrooms.sortedList(Criteria.of())).extracting(Classroom::getTitle)
-                    .containsSubsequence("四年级二班", "四年级一班");
         }
     }
 

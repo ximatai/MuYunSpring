@@ -120,7 +120,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         PlatformWebExceptionHandler.class,
         StaticRecordReadProjectionService.class
 })
-class IamWebControllerIT {
+class IamWebMvcSliceTest {
     @Autowired
     private MockMvc mvc;
 

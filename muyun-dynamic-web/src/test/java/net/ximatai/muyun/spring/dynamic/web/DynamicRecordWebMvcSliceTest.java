@@ -50,13 +50,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         PlatformModuleRuntimeActionWebController.class
 })
 @Import({
-        DynamicRecordWebControllerIT.StaticContractController.class,
+        DynamicRecordWebMvcSliceTest.StaticContractController.class,
         CurrentUserWebFilter.class,
         DynamicRecordJacksonConfiguration.class,
         DynamicRelationProjectionReadService.class,
         DynamicRecordWebServiceConfiguration.class
 })
-class DynamicRecordWebControllerIT {
+class DynamicRecordWebMvcSliceTest {
     private static final String MODULE = "sales.contract";
     private static final String ENTITY = "contract";
 
@@ -75,7 +75,7 @@ class DynamicRecordWebControllerIT {
     private PlatformRecordActionAvailabilityService recordActionAvailabilityService;
 
     @Autowired
-    DynamicRecordWebControllerIT(MockMvc mvc) {
+    DynamicRecordWebMvcSliceTest(MockMvc mvc) {
         this.mvc = mvc;
     }
 
