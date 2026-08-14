@@ -395,6 +395,10 @@ export function antDesignThemeOf(theme: UiTheme): ThemeConfig {
       controlItemBgActiveHover: theme.theme.focus,
       controlItemBgActiveDisabled: theme.support.disabled,
       borderRadius: 4,
+      fontSize: 13,
+      controlHeight: 30,
+      controlHeightSM: 22,
+      controlHeightLG: 38,
     },
   };
 }

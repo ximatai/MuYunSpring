@@ -849,7 +849,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 .tab-strip :deep(.ant-tabs-tab) {
   margin: 0 4px 0 0 !important;
-  padding: 6px 10px !important;
+  padding: 5px 0 !important;
   border: 1px solid var(--muyun-support-border) !important;
   border-bottom-color: var(--muyun-support-border) !important;
   border-radius: 8px 8px 0 0 !important;
@@ -879,6 +879,16 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 .tab-strip :deep(.ant-tabs-tab-remove) {
   margin-left: 1px !important;
+}
+
+.tab-strip :deep(.ant-tabs-tab-with-remove .ant-tabs-tab-btn) {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tab-strip :deep(.ant-tabs-tab-with-remove .ant-tabs-tab-btn::before) {
+  flex: 0 0 13px;
+  content: '';
 }
 
 .tab-strip :deep(.ant-tabs-tab:not(.ant-tabs-tab-active):hover) {

@@ -32,6 +32,13 @@ const pageLayout = usePageLayout();
   --muyun-management-explorer-width: 280px;
   --muyun-management-detail-min-width: 560px;
   --muyun-management-column-gap: 12px;
+  --muyun-management-panel-padding-block: 10px;
+  --muyun-management-panel-padding-inline: 12px;
+  --muyun-management-panel-header-height: 30px;
+  --muyun-management-panel-header-gap: 8px;
+  --muyun-management-panel-title-font-size: 16px;
+  --muyun-management-panel-title-line-height: 22px;
+  --muyun-management-panel-content-gap: 8px;
 
   display: grid;
   align-items: start;

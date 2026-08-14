@@ -10,6 +10,7 @@ import {
   EditOutlined,
   ExportOutlined,
   FilterOutlined,
+  LeftOutlined,
   LockOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -18,6 +19,7 @@ import {
   PushpinOutlined,
   PoweroffOutlined,
   ReloadOutlined,
+  RightOutlined,
   SaveOutlined,
   SearchOutlined,
   SettingOutlined,
@@ -36,6 +38,7 @@ export type UiIconName =
   | 'export'
   | 'filter'
   | 'help'
+  | 'left'
   | 'lock'
   | 'menu-collapse'
   | 'menu-expand'
@@ -44,6 +47,7 @@ export type UiIconName =
   | 'pin'
   | 'power'
   | 'reload'
+  | 'right'
   | 'save'
   | 'search'
   | 'skin'
@@ -63,6 +67,7 @@ const icons = {
   export: ExportOutlined,
   filter: FilterOutlined,
   help: QuestionCircleOutlined,
+  left: LeftOutlined,
   lock: LockOutlined,
   'menu-collapse': MenuFoldOutlined,
   'menu-expand': MenuUnfoldOutlined,
@@ -71,6 +76,7 @@ const icons = {
   pin: PushpinOutlined,
   power: PoweroffOutlined,
   reload: ReloadOutlined,
+  right: RightOutlined,
   save: SaveOutlined,
   search: SearchOutlined,
   skin: SkinOutlined,

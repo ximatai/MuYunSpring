@@ -255,9 +255,19 @@ function isExpandTriggerEvent(event: MouseEvent) {
 }
 
 .ui-data-table :deep(.ant-table-thead > tr > th) {
+  /* Keep adapter density above Ant's generated physical padding shorthand. */
+  padding-block: 8px !important;
   background: var(--muyun-hover-subtle);
   color: var(--muyun-text);
   font-weight: 700;
+}
+
+.ui-data-table :deep(.ant-table-tbody > tr > td) {
+  padding-block: 6px !important;
+}
+
+.ui-data-table :deep(.ant-table-tbody > tr.ant-table-measure-row > td) {
+  padding-block: 0 !important;
 }
 
 .ui-data-table :deep(.ant-table-thead > tr > th.ui-data-table-action-cell) {
@@ -274,6 +284,51 @@ function isExpandTriggerEvent(event: MouseEvent) {
 
 .ui-data-table :deep(.ant-table-tbody > tr.muted > td) {
   color: var(--muyun-text-muted);
+}
+
+.ui-data-table :deep(.ant-table-row-expand-icon) {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  place-items: center;
+  background: transparent;
+  color: var(--muyun-text-muted);
+  transform: none;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease;
+}
+
+.ui-data-table :deep(.ant-table-row-expand-icon::before) {
+  position: static;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentcolor;
+  border-bottom: 1.5px solid currentcolor;
+  background: transparent;
+  transform: rotate(-45deg);
+  transition: transform 160ms ease;
+}
+
+.ui-data-table :deep(.ant-table-row-expand-icon::after) {
+  display: none;
+}
+
+.ui-data-table :deep(.ant-table-row-expand-icon-expanded::before) {
+  transform: rotate(45deg);
+}
+
+.ui-data-table :deep(.ant-table-row-expand-icon:hover) {
+  background: var(--muyun-hover-subtle);
+  color: var(--muyun-theme-base);
+}
+
+.ui-data-table :deep(.ant-table-row-expand-icon:focus-visible) {
+  outline: 2px solid var(--muyun-theme-focus);
+  outline-offset: 1px;
 }
 
 .ui-data-table :deep(.ant-table-cell-fix-right),

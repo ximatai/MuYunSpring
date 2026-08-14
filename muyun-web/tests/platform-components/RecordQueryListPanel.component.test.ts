@@ -49,6 +49,20 @@ describe('RecordQueryListPanel', () => {
     expect(cells[1].attributes('style')).toContain('--record-query-list-max-lines: 3');
     expect(cells[1].attributes('title')).toBe('显示三行以内，全文仍可通过提示查看');
   });
+
+  it('keeps icon-only pagination controls accessible', async () => {
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1' }),
+        title: '备注',
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.find('[aria-label="上一页"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="下一页"]').exists()).toBe(true);
+  });
 });
 
 function createContext(record: QueryListRecord): ModuleContext<QueryListRecord> {
