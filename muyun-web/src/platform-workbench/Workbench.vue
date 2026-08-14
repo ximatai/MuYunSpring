@@ -685,7 +685,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   color: var(--muyun-theme-base);
   background:
     linear-gradient(var(--muyun-support-surface), var(--muyun-support-surface)) padding-box,
-    linear-gradient(120deg, #2b82e8, #7367f0 34%, #cf5ca7 66%, #e6ad42) border-box;
+    var(--muyun-skin-picker-border-gradient) border-box;
   background-size:
     100% 100%,
     220% 100%;
@@ -704,14 +704,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   inset: -14px;
   z-index: -1;
   content: '';
-  background: conic-gradient(
-    from 210deg,
-    transparent 0deg,
-    rgb(43 130 232 / 0.12) 80deg,
-    rgb(115 103 240 / 0.14) 145deg,
-    rgb(207 92 167 / 0.1) 205deg,
-    transparent 275deg
-  );
+  background: var(--muyun-skin-picker-glow);
   opacity: 0;
   transform: rotate(-20deg) scale(0.88);
   transition:
@@ -725,7 +718,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   background-position:
     0 0,
     100% 0;
-  box-shadow: inset 0 0 0 1px rgb(115 103 240 / 20%);
+  box-shadow: inset 0 0 0 1px var(--muyun-skin-picker-focus-ring);
   transform: none;
 }
 

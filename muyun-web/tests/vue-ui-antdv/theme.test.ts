@@ -20,6 +20,8 @@ describe('UiTheme', () => {
     expect(variables['--muyun-support-disabled']).toBe('#EEF1F5');
     expect(variables['--muyun-positive-focus']).toBe('#D3F3E7');
     expect(variables['--muyun-danger-border']).toBe('#F5E5E7');
+    expect(variables['--muyun-skin-picker-border-gradient']).toContain('linear-gradient');
+    expect(variables['--muyun-skin-picker-glow']).toContain('conic-gradient');
   });
 
   it('allows a future palette adjustment without changing semantic consumers', () => {
@@ -102,6 +104,8 @@ describe('UiTheme', () => {
       expect(variables['--muyun-theme-base']).toBeTruthy();
       expect(variables['--muyun-support-surface']).toBeTruthy();
       expect(variables['--muyun-danger-soft-text']).toBeTruthy();
+      expect(variables['--muyun-skin-picker-border-gradient']).toBeTruthy();
+      expect(variables['--muyun-skin-picker-glow']).toBeTruthy();
       expect(antDesignThemeOf(skin.theme).algorithm).toBeTruthy();
     });
   });
