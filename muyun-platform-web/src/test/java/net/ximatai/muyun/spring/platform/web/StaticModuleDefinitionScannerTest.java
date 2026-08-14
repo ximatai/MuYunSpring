@@ -83,6 +83,8 @@ import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.reference.ModuleReadProjection;
+import net.ximatai.muyun.spring.ability.reference.ModuleReadProjectionContributor;
 import net.ximatai.muyun.spring.common.measure.MeasureUnitField;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
@@ -219,13 +221,15 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.references()).extracting(StaticReferenceDefinition::targetModuleAlias)
                         .containsExactly("iam.organization", "iam.department");
                 assertThat(definition.readProjections()).extracting(StaticModuleReadProjectionDefinition::path)
-                        .containsOnlyNulls();
-                assertThat(definition.readProjections()).extracting(projection ->
+                        .containsExactly("organization.title", null, null);
+                assertThat(definition.readProjections()).filteredOn(projection -> projection.referencePath() != null)
+                        .extracting(projection ->
                         projection.referencePath().steps().getFirst().referenceField().fieldName())
-                        .containsExactly("organizationId", "employeeId", "employeeId");
-                assertThat(definition.readProjections()).extracting(projection ->
+                        .containsExactly("employeeId", "employeeId");
+                assertThat(definition.readProjections()).filteredOn(projection -> projection.referencePath() != null)
+                        .extracting(projection ->
                         projection.referencePath().targetField().fieldName())
-                        .containsExactly("title", "username", "id");
+                        .containsExactly("username", "id");
                 assertThat(definition.readProjections()).extracting(StaticModuleReadProjectionDefinition::outputField)
                         .containsExactly("organizationTitle", "username", "accountBound");
                 assertThat(definition.uiDefinition()).isNotNull();
@@ -740,6 +744,20 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @Test
+    void shouldRejectDeclaredReadProjectionWithoutModelReadFact() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(DeclaredProjectionWithoutReferenceWeb.class,
+                    () -> new DeclaredProjectionWithoutReferenceWeb(new DeclaredProjectionWithoutReferenceService()));
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("declared read projection requires exactly one direct @ReferenceLoad")
+                    .hasMessageContaining("demo.declared_projection_without_reference.organizationTitle");
+        }
+    }
+
+    @Test
     void shouldScanSnakeCaseWebScopeForCamelCaseStaticAlias() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(FieldSpecWebController.class,
@@ -1215,6 +1233,29 @@ class StaticModuleDefinitionScannerTest {
         @SuppressWarnings("unchecked")
         MultiSegmentModuleService() {
             super("platform.workflow.definition", StaticMeasureOrderLine.class, mock(BaseDao.class));
+        }
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.declared_projection_without_reference", title = "Declared projection without reference")
+    static class DeclaredProjectionWithoutReferenceWeb
+            extends net.ximatai.muyun.spring.web.WebSupport<DeclaredProjectionWithoutReferenceService> {
+        DeclaredProjectionWithoutReferenceWeb(DeclaredProjectionWithoutReferenceService service) {
+            this.service = service;
+        }
+    }
+
+    private static class DeclaredProjectionWithoutReferenceService extends AbstractAbilityService<StaticMeasureOrderLine>
+            implements ModuleReadProjectionContributor {
+        @SuppressWarnings("unchecked")
+        DeclaredProjectionWithoutReferenceService() {
+            super("demo.declared_projection_without_reference", StaticMeasureOrderLine.class, mock(BaseDao.class));
+        }
+
+        @Override
+        public List<ModuleReadProjection> moduleReadProjections() {
+            return List.of(ModuleReadProjection.declared("organizationTitle", false, true));
         }
     }
 

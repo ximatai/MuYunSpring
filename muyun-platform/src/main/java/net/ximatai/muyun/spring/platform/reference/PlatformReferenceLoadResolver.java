@@ -1,12 +1,12 @@
 package net.ximatai.muyun.spring.platform.reference;
 
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadPath;
-import net.ximatai.muyun.spring.ability.reference.ReferenceLoadReader;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
-import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadPipeline;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
@@ -15,6 +15,8 @@ import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 
 /** Executes compiled reference-load paths through the common reference projection contract. */
 public final class PlatformReferenceLoadResolver implements ReferenceLoadResolver {
@@ -27,57 +29,29 @@ public final class PlatformReferenceLoadResolver implements ReferenceLoadResolve
 
     @Override
     public void populate(CrudAbility<?> ability, EntityContract entity) {
-        if (ability == null || entity == null) {
-            return;
-        }
-        Class<?> modelClass = ability.modelClass() == null ? entity.getClass() : ability.modelClass();
-        for (ReferencePlan plan : StaticReferenceResolver.plans(modelClass)) {
-            populateDirectProjections(entity, plan);
-        }
-        for (ReferenceLoadPath path : StaticReferenceResolver.loadPaths(modelClass)) {
-            populatePath(entity, path);
-        }
+        populateAll(ability, entity == null ? List.of() : List.of(entity));
     }
 
-    /**
-     * Direct {@code @ReferenceLoad} declarations are compiled into reference-plan projections.
-     * Populate them after a normal select as well as in list projection pipelines, so a standard
-     * detail endpoint never exposes a raw foreign key when its title projection is available.
-     */
-    private void populateDirectProjections(EntityContract entity, ReferencePlan plan) {
-        if (plan.projections().isEmpty()) {
-            return;
-        }
-        List<String> ids = StaticReferenceResolver.values(entity, plan);
-        if (ids.isEmpty()) {
-            plan.projections().forEach(projection ->
-                    StaticReferenceResolver.writeLoadedValue(entity, projection.outputField(), null));
-            return;
-        }
-        List<String> fields = plan.projections().stream().map(ReferenceProjection::targetField).distinct().toList();
-        Map<String, Map<String, Object>> values = requireReferenceAbility(plan.target()).projections(ids, fields);
-        for (ReferenceProjection projection : plan.projections()) {
-            Object value = plan.cardinality() == ReferenceCardinality.MANY
-                    ? ids.stream().map(id -> projectionValue(values, id, projection.targetField()))
-                            .filter(java.util.Objects::nonNull).toList()
-                    : projectionValue(values, ids.getFirst(), projection.targetField());
-            StaticReferenceResolver.writeLoadedValue(entity, projection.outputField(), value);
-        }
+    @Override
+    public void populateAll(CrudAbility<?> ability, Collection<? extends EntityContract> entities) {
+        if (ability == null || entities == null || entities.isEmpty()) return;
+        Class<?> modelClass = ability.modelClass() == null ? entities.iterator().next().getClass() : ability.modelClass();
+        List<ReferencePlan> plans = StaticReferenceResolver.plans(modelClass);
+        List<ReferenceLoadPath> paths = StaticReferenceResolver.loadPaths(modelClass).stream()
+                .map(this::resolvePath).toList();
+        List<EntityContract> records = entities.stream().map(entity -> (EntityContract) entity).toList();
+        new ReferenceReadPipeline<EntityContract>(plans, paths,
+                entity -> sourceValues(entity, plans),
+                (entity, output) -> output.forEach((field, value) -> StaticReferenceResolver.writeLoadedValue(entity, field, value)),
+                this::requireReferenceAbility,
+                PlatformAbilityRuntime.referenceReadObserver())
+                .populate(records);
     }
 
-    private Object projectionValue(Map<String, Map<String, Object>> values, String id, String field) {
-        Map<String, Object> projection = values.get(id);
-        return projection == null ? null : projection.get(field);
-    }
-
-    private void populatePath(EntityContract entity, ReferenceLoadPath path) {
-        List<String> currentIds = StaticReferenceResolver.values(entity, sourcePlan(entity.getClass(), path.sourceField()));
-        if (currentIds.isEmpty()) {
-            StaticReferenceResolver.writeLoadedValue(entity, path.outputField(), null);
-            return;
-        }
-        StaticReferenceResolver.writeLoadedValue(entity, path.outputField(),
-                ReferenceLoadReader.read(resolvePath(path), currentIds, this::requireReferenceAbility));
+    private Map<String, Object> sourceValues(EntityContract entity, List<ReferencePlan> plans) {
+        Map<String, Object> values = new LinkedHashMap<>();
+        plans.forEach(plan -> values.put(plan.sourceField(), StaticReferenceResolver.values(entity, plan)));
+        return values;
     }
 
     private void validatePaths() {
@@ -124,15 +98,6 @@ public final class PlatformReferenceLoadResolver implements ReferenceLoadResolve
         }
         return new ReferenceLoadPath(path.sourceField(), path.sourceTarget(), resolved,
                 path.terminalField(), path.outputField());
-    }
-
-    private net.ximatai.muyun.spring.ability.reference.ReferencePlan sourcePlan(Class<?> modelClass, String sourceField) {
-        return StaticReferenceResolver.rules(modelClass).stream()
-                .filter(rule -> sourceField.equals(rule.plan().sourceField()))
-                .findFirst()
-                .map(StaticReferenceResolver.ReferenceRule::plan)
-                .orElseThrow(() -> new PlatformException("ReferenceLoad source is unavailable: "
-                        + modelClass.getName() + "." + sourceField));
     }
 
     private CrudAbility<?> requireAbility(ReferenceTarget target, String role) {

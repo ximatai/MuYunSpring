@@ -4,17 +4,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.iam.department.Department;
-import net.ximatai.muyun.spring.iam.department.DepartmentService;
-import net.ximatai.muyun.spring.iam.employee.Employee;
-import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
-import net.ximatai.muyun.spring.iam.employee.EmployeePosition;
-import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
-import net.ximatai.muyun.spring.iam.employee.EmployeeService;
-import net.ximatai.muyun.spring.iam.organization.Organization;
-import net.ximatai.muyun.spring.iam.organization.OrganizationService;
-import net.ximatai.muyun.spring.iam.position.Position;
-import net.ximatai.muyun.spring.iam.position.PositionService;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadFacade;
 import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
@@ -31,20 +21,18 @@ import java.util.stream.Collectors;
 public class EmployeeEmploymentReadService {
     private final EmployeePositionService employeePositionService;
     private final EmployeeService employeeService;
-    private final OrganizationService organizationService;
-    private final DepartmentService departmentService;
-    private final PositionService positionService;
     private final EmployeeAccountService employeeAccountService;
     private final UserAccountService userAccountService;
+    private final ReferenceReadFacade referenceReads;
 
     public EmployeeEmploymentReadService(EmployeePositionService employeePositionService, EmployeeService employeeService,
-                                         OrganizationService organizationService, DepartmentService departmentService,
-                                         PositionService positionService, EmployeeAccountService employeeAccountService,
-                                         UserAccountService userAccountService) {
+                                         EmployeeAccountService employeeAccountService,
+                                         UserAccountService userAccountService,
+                                         ReferenceReadFacade referenceReads) {
         this.employeePositionService = employeePositionService; this.employeeService = employeeService;
-        this.organizationService = organizationService; this.departmentService = departmentService;
-        this.positionService = positionService; this.employeeAccountService = employeeAccountService;
+        this.employeeAccountService = employeeAccountService;
         this.userAccountService = userAccountService;
+        this.referenceReads = referenceReads;
     }
 
     public PageResult<EmployeeEmploymentView> page(Query query) {
@@ -73,6 +61,7 @@ public class EmployeeEmploymentReadService {
         if (normalized.organizationId() != null && !normalized.organizationId().isBlank()) criteria.eq("organizationId", normalized.organizationId().trim());
         if (normalized.departmentId() != null && !normalized.departmentId().isBlank()) criteria.eq("departmentId", normalized.departmentId().trim());
         PageResult<EmployeePosition> page = employeePositionService.pageQuery(criteria, normalized.pageRequest(), Sort.asc("employeeId"));
+        referenceReads.enrich(employeePositionService, page.getRecords());
         return PageResult.of(views(page.getRecords(), employeeOverrides), page.getTotal(), normalized.pageRequest());
     }
 
@@ -83,38 +72,26 @@ public class EmployeeEmploymentReadService {
         Map<String, Employee> employees = new java.util.LinkedHashMap<>(
                 byId(employeeService.list(Criteria.of().in("id", employeeIds), pageOf(employeeIds))));
         employees.putAll(employeeOverrides);
-        List<String> organizationIds = distinctIds(relations, EmployeePosition::getOrganizationId);
-        Map<String, Organization> organizations = byId(organizationService.list(Criteria.of().in("id", organizationIds), pageOf(organizationIds)));
-        List<String> departmentIds = distinctIds(relations, EmployeePosition::getDepartmentId);
-        Map<String, Department> departments = byId(departmentService.list(Criteria.of().in("id", departmentIds), pageOf(departmentIds)));
-        List<String> positionIds = distinctIds(relations, EmployeePosition::getPositionId);
-        Map<String, Position> positions = byId(positionService.list(Criteria.of().in("id", positionIds), pageOf(positionIds)));
         Map<String, net.ximatai.muyun.spring.iam.employee.EmployeeAccount> accountsByEmployee = employeeAccountService.list(
                 Criteria.of().in("employeeId", employeeIds), pageOf(employeeIds)).stream()
                 .collect(Collectors.toMap(net.ximatai.muyun.spring.iam.employee.EmployeeAccount::getEmployeeId,
                         Function.identity(), (left, right) -> left));
         List<String> userIds = distinctIds(accountsByEmployee.values(), net.ximatai.muyun.spring.iam.employee.EmployeeAccount::getUserId);
         Map<String, UserAccount> users = byId(userAccountService.list(Criteria.of().in("id", userIds), pageOf(userIds)));
-        return relations.stream().map(relation -> view(relation, employees, organizations, departments, positions,
-                accountsByEmployee, users)).toList();
+        return relations.stream().map(relation -> view(relation, employees, accountsByEmployee, users)).toList();
     }
 
     private EmployeeEmploymentView view(EmployeePosition relation, Map<String, Employee> employees,
-                                        Map<String, Organization> organizations, Map<String, Department> departments,
-                                        Map<String, Position> positions,
                                         Map<String, net.ximatai.muyun.spring.iam.employee.EmployeeAccount> accountsByEmployee,
                                         Map<String, UserAccount> users) {
         Employee employee = employees.get(relation.getEmployeeId());
-        Organization organization = organizations.get(relation.getOrganizationId());
-        Department department = departments.get(relation.getDepartmentId());
-        Position position = positions.get(relation.getPositionId());
         var account = accountsByEmployee.get(relation.getEmployeeId());
         UserAccount user = account == null ? null : users.get(account.getUserId());
         return new EmployeeEmploymentView(relation.getId(), relation.getVersion(), relation.getEmployeeId(),
                 employee == null ? null : employee.getEmployeeNo(), employee == null ? null : employee.getTitle(),
-                relation.getOrganizationId(), organization == null ? null : organization.getTitle(),
-                relation.getDepartmentId(), department == null ? null : department.getTitle(),
-                relation.getPositionId(), position == null ? null : position.getTitle(), relation.getPrimaryPosition(),
+                relation.getOrganizationId(), relation.getOrganizationTitle(),
+                relation.getDepartmentId(), relation.getDepartmentTitle(),
+                relation.getPositionId(), relation.getPositionTitle(), relation.getPrimaryPosition(),
                 relation.getEnabled(), user == null ? null : user.getUsername());
     }
 

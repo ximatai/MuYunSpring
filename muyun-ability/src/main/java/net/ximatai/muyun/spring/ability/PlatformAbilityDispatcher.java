@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.ability.option.StaticOptionFieldValueValidator;
 import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferencedByResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceDeletionGuard;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
@@ -31,6 +32,7 @@ final class PlatformAbilityDispatcher {
     private static volatile ReferenceTargetResolver referenceTargetResolver = ReferenceTargetResolver.NONE;
     private static volatile ReferencedByResolver referencedByResolver = ReferencedByResolver.NONE;
     private static volatile ReferenceLoadResolver referenceLoadResolver = ReferenceLoadResolver.NONE;
+    private static volatile ReferenceReadObserver referenceReadObserver = ReferenceReadObserver.NONE;
     private static volatile ChildAbilityResolver childAbilityResolver = ChildAbilityResolver.NONE;
     private static volatile EntitySaveLifecycleListener entitySaveLifecycleListener = EntitySaveLifecycleListener.NONE;
 
@@ -119,6 +121,18 @@ final class PlatformAbilityDispatcher {
 
     static void resetReferenceLoadResolver() {
         referenceLoadResolver = ReferenceLoadResolver.NONE;
+    }
+
+    static void setReferenceReadObserver(ReferenceReadObserver observer) {
+        referenceReadObserver = observer == null ? ReferenceReadObserver.NONE : observer;
+    }
+
+    static void resetReferenceReadObserver() {
+        referenceReadObserver = ReferenceReadObserver.NONE;
+    }
+
+    static ReferenceReadObserver referenceReadObserver() {
+        return referenceReadObserver;
     }
 
     static <T extends EntityContract> void beforeTargetUnavailable(CrudAbility<T> ability,

@@ -3,17 +3,12 @@ package net.ximatai.muyun.spring.iam.user;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
-import net.ximatai.muyun.spring.iam.department.Department;
-import net.ximatai.muyun.spring.iam.department.DepartmentService;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadFacade;
 import net.ximatai.muyun.spring.iam.employee.Employee;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeePosition;
 import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeService;
-import net.ximatai.muyun.spring.iam.organization.Organization;
-import net.ximatai.muyun.spring.iam.organization.OrganizationService;
-import net.ximatai.muyun.spring.iam.position.Position;
-import net.ximatai.muyun.spring.iam.position.PositionService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,23 +19,17 @@ import java.util.Objects;
 public class CurrentUserProfileService {
     private final EmployeeAccountService employeeAccountService;
     private final EmployeeService employeeService;
-    private final OrganizationService organizationService;
-    private final DepartmentService departmentService;
     private final EmployeePositionService employeePositionService;
-    private final PositionService positionService;
+    private final ReferenceReadFacade referenceReads;
 
     public CurrentUserProfileService(EmployeeAccountService employeeAccountService,
                                      EmployeeService employeeService,
-                                     OrganizationService organizationService,
-                                     DepartmentService departmentService,
                                      EmployeePositionService employeePositionService,
-                                     PositionService positionService) {
+                                     ReferenceReadFacade referenceReads) {
         this.employeeAccountService = employeeAccountService;
         this.employeeService = employeeService;
-        this.organizationService = organizationService;
-        this.departmentService = departmentService;
         this.employeePositionService = employeePositionService;
-        this.positionService = positionService;
+        this.referenceReads = referenceReads;
     }
 
     public CurrentUserProfile currentProfile(CurrentUser currentUser) {
@@ -71,29 +60,22 @@ public class CurrentUserProfileService {
         if (employee == null) {
             return null;
         }
-        Organization organization = employee.getOrganizationId() == null ? null
-                : organizationService.select(employee.getOrganizationId());
-        Department department = employee.getDepartmentId() == null ? null
-                : departmentService.select(employee.getDepartmentId());
         return new CurrentUserProfile.EmployeeProfile(employee.getId(), employee.getEmployeeNo(), employee.getTitle(),
                 employee.getAvatarAssetId(), employee.getMobile(), employee.getEmail(),
-                employee.getOrganizationId(), organization == null ? null : organization.getTitle(),
-                employee.getDepartmentId(), department == null ? null : department.getTitle(),
+                employee.getOrganizationId(), employee.getOrganizationTitle(),
+                employee.getDepartmentId(), employee.getDepartmentTitle(),
                 Boolean.TRUE.equals(employee.getEnabled()), positions(employee.getId()));
     }
 
     private List<CurrentUserProfile.PositionProfile> positions(String employeeId) {
-        return employeePositionService.list(Criteria.of().eq("employeeId", employeeId).eq("enabled", true),
-                        new PageRequest(0, 100))
+        List<EmployeePosition> relations = employeePositionService.list(
+                Criteria.of().eq("employeeId", employeeId).eq("enabled", true), new PageRequest(0, 100));
+        referenceReads.enrich(employeePositionService, relations);
+        return relations
                 .stream()
                 .map(relation -> new CurrentUserProfile.PositionProfile(relation.getPositionId(),
-                        titleOf(relation), Boolean.TRUE.equals(relation.getPrimaryPosition())))
+                        relation.getPositionTitle(), Boolean.TRUE.equals(relation.getPrimaryPosition())))
                 .toList();
-    }
-
-    private String titleOf(EmployeePosition relation) {
-        Position position = positionService.select(relation.getPositionId());
-        return position == null ? null : position.getTitle();
     }
 
 }

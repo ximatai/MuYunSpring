@@ -9,6 +9,8 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.form.FormAbility;
 import net.ximatai.muyun.spring.ability.query.QueryCompiler;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
@@ -500,21 +502,28 @@ class IamWebControllerIT {
         when(employeeService.pageQueryForAction(eq(PlatformAction.QUERY),
                 any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
                 .thenReturn(PageResult.of(List.of(employee), 1, PageRequest.of(1, 20)));
-
-        mvc.perform(post("/iam.employee/query")
-                        .contentType("application/json")
-                        .content("{}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.records[0].id").value("employee-1"))
-                .andExpect(jsonPath("$.records[0].employeeNo").value("E001"))
-                .andExpect(jsonPath("$.records[0].title").value("Alice"))
-                .andExpect(jsonPath("$.records[0].mobile").value("13800000000"))
-                .andExpect(jsonPath("$.records[0].email").value("alice@example.test"))
-                .andExpect(jsonPath("$.records[0].enabled").value(true))
-                .andExpect(jsonPath("$.records[0].organizationId").doesNotExist())
-                .andExpect(jsonPath("$.records[0].departmentId").doesNotExist())
-                .andExpect(jsonPath("$.records[0].tenantId").doesNotExist())
-                .andExpect(jsonPath("$.records[0].version").value(7));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target ->
+                ReferenceTarget.of("iam", "organization").equals(target)
+                        ? java.util.Optional.of(organizationService)
+                        : java.util.Optional.empty());
+        try {
+            mvc.perform(post("/iam.employee/query")
+                            .contentType("application/json")
+                            .content("{}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.records[0].id").value("employee-1"))
+                    .andExpect(jsonPath("$.records[0].employeeNo").value("E001"))
+                    .andExpect(jsonPath("$.records[0].title").value("Alice"))
+                    .andExpect(jsonPath("$.records[0].mobile").value("13800000000"))
+                    .andExpect(jsonPath("$.records[0].email").value("alice@example.test"))
+                    .andExpect(jsonPath("$.records[0].enabled").value(true))
+                    .andExpect(jsonPath("$.records[0].organizationId").doesNotExist())
+                    .andExpect(jsonPath("$.records[0].departmentId").doesNotExist())
+                    .andExpect(jsonPath("$.records[0].tenantId").doesNotExist())
+                    .andExpect(jsonPath("$.records[0].version").value(7));
+        } finally {
+            PlatformAbilityRuntime.resetReferenceTargetResolver();
+        }
     }
 
     @Test
