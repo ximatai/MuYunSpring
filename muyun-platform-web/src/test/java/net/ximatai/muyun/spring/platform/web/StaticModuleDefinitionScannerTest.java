@@ -667,6 +667,20 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @Test
+    void shouldRejectControllerWithMultipleStaticActionEndpointOrigins() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ConflictingActionEndpointOriginsWeb.class);
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("static action endpoint origin annotations are mutually exclusive")
+                    .hasMessageContaining("@PlatformStaticActionDeclaration")
+                    .hasMessageContaining("@PlatformStaticActionScope");
+        }
+    }
+
+    @Test
     void shouldRejectIdenticalActionDefinitionsFromMultipleContributions() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(ContributedActionTargetWeb.class);
@@ -1265,6 +1279,12 @@ class StaticModuleDefinitionScannerTest {
         @ActionEndpoint(PlatformAction.CREATE)
         public void create() {
         }
+    }
+
+    @RestController
+    @PlatformStaticActionDeclaration(module = "demo.conflicting_action_origin")
+    @PlatformStaticActionScope(module = "demo.conflicting_action_origin")
+    static class ConflictingActionEndpointOriginsWeb {
     }
 
     @RestController

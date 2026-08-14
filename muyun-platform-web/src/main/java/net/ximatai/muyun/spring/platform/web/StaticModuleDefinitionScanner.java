@@ -38,9 +38,12 @@ import org.springframework.core.ResolvableType;
 import org.springframework.util.ReflectionUtils;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSource {
     private final ApplicationContext applicationContext;
@@ -50,6 +53,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
     }
 
     public List<StaticModuleDefinition> scan() {
+        validateActionEndpointOrigins();
         LinkedHashMap<String, StaticModuleDefinition> definitions = new LinkedHashMap<>();
         for (String beanName : applicationContext.getBeanNamesForAnnotation(PlatformStaticModule.class)) {
             Object bean = applicationContext.getBean(beanName);
@@ -65,6 +69,43 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         addActionDeclarations(definitions);
         addActionScopes(definitions);
         return List.copyOf(definitions.values());
+    }
+
+    private void validateActionEndpointOrigins() {
+        for (String beanName : actionEndpointOriginBeanNames()) {
+            Object bean = applicationContext.getBean(beanName);
+            Class<?> beanClass = AopUtils.getTargetClass(bean);
+            List<String> origins = new ArrayList<>();
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticModule.class) != null) {
+                origins.add("@PlatformStaticModule");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionContribution.class) != null) {
+                origins.add("@PlatformStaticActionContribution");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionDeclaration.class) != null) {
+                origins.add("@PlatformStaticActionDeclaration");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionScope.class) != null) {
+                origins.add("@PlatformStaticActionScope");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticWebProjection.class) != null) {
+                origins.add("@PlatformStaticWebProjection");
+            }
+            if (origins.size() > 1) {
+                throw new IllegalStateException("static action endpoint origin annotations are mutually exclusive: "
+                        + beanClass.getName() + " -> " + origins);
+            }
+        }
+    }
+
+    private Set<String> actionEndpointOriginBeanNames() {
+        Set<String> beanNames = new LinkedHashSet<>();
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticModule.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticActionContribution.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticActionDeclaration.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticActionScope.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticWebProjection.class)));
+        return beanNames;
     }
 
     @Override
