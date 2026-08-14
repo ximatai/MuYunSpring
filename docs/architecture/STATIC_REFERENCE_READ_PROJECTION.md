@@ -109,7 +109,7 @@ private transient String cStatus;
 | 领域读取聚合 | 领域 read facade + `ReferenceReadFacade.enrich(...)` | 已授权根记录上的业务组合，如任职视图中的账号绑定 | 手工查询并重复拼接已声明的关联标题 |
 
 领域读取需要实体关联字段时，先以根实体 service 和记录集合调用 `ReferenceReadFacade.enrich(...)`。
-它只批量回填模型已经声明的 `@ReferenceLoad` 事实，不暴露目标服务、引用图或 SQL planner；账号、权限、统计、
+它只批量回填模型已经声明的 `@ReferenceLoad`、`@ReferencedBy` 事实，不暴露目标服务、引用图或 SQL planner；账号、权限、统计、
 生命周期等额外业务信息仍由领域 facade 显式组合。`PlatformAbilityRuntime` 是平台内部的装配入口，普通业务
 service 不应直接依赖它。
 

@@ -72,9 +72,15 @@ public class MuYunSpringReferenceConfiguration {
     }
 
     @Bean
-    /** 注册反向引用解析器，为 {@code @ReferencedBy} 提供运行时装配能力。 */
-    ReferencedByResolverRegistration referencedByResolverRegistration(StaticAbilityCatalog abilities) {
-        return new ReferencedByResolverRegistration(new PlatformReferencedByResolver(abilities));
+    /** 提供静态实体声明的反向引用读事实解析器。 */
+    ReferencedByResolver referencedByResolver(StaticAbilityCatalog abilities) {
+        return new PlatformReferencedByResolver(abilities);
+    }
+
+    @Bean
+    /** 注册反向引用解析器，为单条读取兼容链路提供运行时装配能力。 */
+    ReferencedByResolverRegistration referencedByResolverRegistration(ReferencedByResolver resolver) {
+        return new ReferencedByResolverRegistration(resolver);
     }
 
     @Bean
@@ -85,8 +91,9 @@ public class MuYunSpringReferenceConfiguration {
 
     @Bean
     /** 向领域 read facade 暴露已声明读事实的批量 enrich 边界。 */
-    ReferenceReadFacade referenceReadFacade(ReferenceLoadResolver resolver) {
-        return new ReferenceReadFacade(resolver);
+    ReferenceReadFacade referenceReadFacade(ReferenceLoadResolver referenceLoadResolver,
+                                            ReferencedByResolver referencedByResolver) {
+        return new ReferenceReadFacade(referenceLoadResolver, referencedByResolver);
     }
 
     @Bean
