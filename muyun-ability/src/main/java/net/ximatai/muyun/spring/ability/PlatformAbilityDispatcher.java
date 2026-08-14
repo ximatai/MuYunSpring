@@ -310,14 +310,6 @@ final class PlatformAbilityDispatcher {
         referenceLoadResolver.populate(ability, entity);
     }
 
-    static void populateReferenceReads(CrudAbility<?> ability, List<? extends EntityContract> entities) {
-        referenceLoadResolver.populateAll(ability, entities);
-    }
-
-    static void populateReferencedBy(CrudAbility<?> ability, List<? extends EntityContract> entities) {
-        referencedByResolver.populateAll(ability, entities);
-    }
-
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static <T extends EntityContract> void runReferenceIntegrityValidation(CrudAbility<T> ability,
                                                                                    T existing,

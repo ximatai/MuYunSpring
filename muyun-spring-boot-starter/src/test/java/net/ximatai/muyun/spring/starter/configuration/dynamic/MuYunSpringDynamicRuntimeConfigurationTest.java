@@ -56,6 +56,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -227,6 +228,18 @@ class MuYunSpringDynamicRuntimeConfigurationTest {
                         assertThat(request.idCount()).isEqualTo(2);
                     });
                 });
+    }
+
+    @Test
+    void shouldIgnoreReferenceReadObserverFailure() {
+        contextRunner.withUserConfiguration(MuYunSpringReferenceConfiguration.class)
+                .withBean(ReferenceReadObserver.class,
+                        () -> request -> { throw new IllegalStateException("observer unavailable"); })
+                .run(context -> assertThatCode(() -> PlatformAbilityRuntime.referenceReadObserver().onProjection(
+                        new ReferenceReadObserver.ProjectionRequest(
+                                ReferenceTarget.of("sales.contract", "contract"), List.of("title"), 2,
+                                ReferenceReadObserver.Kind.DIRECT, null, null, 0)))
+                        .doesNotThrowAnyException());
     }
 
     @Test

@@ -22,6 +22,8 @@ import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -31,6 +33,8 @@ import java.util.List;
  */
 @Configuration(proxyBeanMethods = false)
 public class MuYunSpringReferenceConfiguration {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MuYunSpringReferenceConfiguration.class);
+
     @Bean
     /** 收集静态 CRUD Ability，作为引用、反向引用和子表解析的共同事实来源。 */
     StaticAbilityCatalog staticAbilityCatalog(List<CrudAbility<?>> abilities) {
@@ -86,14 +90,22 @@ public class MuYunSpringReferenceConfiguration {
     }
 
     @Bean
-    /** 可选注册引用读观测器；没有业务声明时保持无事件的默认实现。 */
+    /** 可选注册引用读观测器；观测异常只记录，不得阻断正常的引用读取。 */
     ReferenceReadObserverRegistration referenceReadObserverRegistration(
             ObjectProvider<ReferenceReadObserver> observerProvider) {
         List<ReferenceReadObserver> observers = observerProvider.orderedStream().toList();
         ReferenceReadObserver composite = observers.isEmpty()
                 ? ReferenceReadObserver.NONE
-                : request -> observers.forEach(observer -> observer.onProjection(request));
+                : request -> observers.forEach(observer -> observe(observer, request));
         return new ReferenceReadObserverRegistration(composite);
+    }
+
+    private static void observe(ReferenceReadObserver observer, ReferenceReadObserver.ProjectionRequest request) {
+        try {
+            observer.onProjection(request);
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Reference read observer failed and was ignored", exception);
+        }
     }
 
     @Bean
