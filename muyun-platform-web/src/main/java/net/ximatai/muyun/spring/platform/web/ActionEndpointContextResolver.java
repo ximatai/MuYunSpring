@@ -179,6 +179,11 @@ public class ActionEndpointContextResolver {
         if (projection != null && !projection.module().isBlank()) {
             return projection.module();
         }
+        PlatformStaticActionDeclaration declaration = handlerMethod.getBeanType()
+                .getAnnotation(PlatformStaticActionDeclaration.class);
+        if (declaration != null && !declaration.module().isBlank()) {
+            return declaration.module();
+        }
         String pathModuleAlias = pathVariable(request, MODULE_ALIAS_PATH_KEY);
         if (pathModuleAlias != null && !pathModuleAlias.isBlank()) {
             return pathModuleAlias;

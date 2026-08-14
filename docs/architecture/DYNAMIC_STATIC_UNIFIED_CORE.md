@@ -93,6 +93,7 @@ Web 层通过标准投射描述组合模块基础路径、动作相对路径、H
 - 静态模块、子资源贡献和额外投影的标准端点映射由应用上下文契约测试统一核验：按 Service 能力与局部收窄规则计算期望映射，并与 Spring 已接受的端点目录逐项一致，避免共享路径或后续接入出现静默缺口。
 - 开发态会输出已注册端点目录（`endpointId`、模块、动作、方法、路径和来源）；编译端点执行期间将 `endpointId` 与既有 `traceId` 一同进入日志上下文，用于从异常、权限和运行日志回溯实际端点。
 - 真正独立的业务 HTTP 契约继续使用原生 Spring Controller。确需完全替换某个标准端点时，先在具体 Service 用 `@DisablePlatformOperations` 停用对应动作，再声明显式 `@ActionEndpoint`；标准动作仍启用时发生同路径覆写会在启动期失败。
+- 独立 Controller 新增目标模块动作时使用 `@PlatformStaticActionDeclaration(module = "...")`，动作目录由该声明一次性发布；`@PlatformStaticActionScope(module = "...")` 只可绑定目标模块已声明且语义完全一致的动作，不得借 Web scope 创建或覆盖动作。子资源仍使用 `@PlatformStaticActionContribution`，其资源前缀动作与模块级动作保持不同来源边界。
 
 旧 `EnableWeb`、`SortWeb`、`TreeWeb`、`RecycleBinWeb` 只作为动态链路和存量兼容入口，不是新的静态模块接入方式。静态业务行为扩展优先留在 Service/Ability hook；仅 HTTP 语境差异进入类型化 Web 投影策略，避免把 URL、请求 DTO 或路径变量污染到 Service。
 2. 动态模型没有 Java 类，才直接使用 `ModuleDefinition`、`EntityDefinition`、`FieldDefinition` 表达配置态。

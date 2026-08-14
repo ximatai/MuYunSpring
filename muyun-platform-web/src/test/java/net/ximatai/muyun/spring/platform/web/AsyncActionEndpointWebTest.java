@@ -77,7 +77,7 @@ class AsyncActionEndpointWebTest {
     }
 
     @RestController
-    @PlatformStaticActionScope(module = "demo.agent")
+    @PlatformStaticActionDeclaration(module = "demo.agent")
     private static final class StreamingActionController {
         private SseEmitter emitter;
 

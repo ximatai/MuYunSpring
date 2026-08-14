@@ -122,7 +122,7 @@ class WorkflowRuntimeAdminWebControllerTest {
         CustomActionEndpoint endpoint = method.getAnnotation(CustomActionEndpoint.class);
 
         assertThat(endpoint.value()).isEqualTo(WorkflowActionPolicyService.MANAGEMENT_FORCE_APPROVE_ACTION);
-        assertThat(endpoint.title()).isEqualTo("Force Handle Candidate Query");
+        assertThat(endpoint.title()).isEqualTo("Force Handle");
     }
 
     @Test
