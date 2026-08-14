@@ -1298,13 +1298,21 @@ defineExpose({ clearSelection, refresh });
           :disabled="queryActionsDisabled"
           @update:value="handlePageSizeChange"
         />
-        <UiButton :disabled="queryActionsDisabled || pageNum <= 1" @click="goPage(pageNum - 1)">
-          上一页
-        </UiButton>
+        <UiButton
+          aria-label="上一页"
+          title="上一页"
+          icon-name="left"
+          :disabled="queryActionsDisabled || pageNum <= 1"
+          @click="goPage(pageNum - 1)"
+        />
         <span>第 {{ pageNum }} / {{ pages }} 页</span>
-        <UiButton :disabled="queryActionsDisabled || pageNum >= pages" @click="goPage(pageNum + 1)">
-          下一页
-        </UiButton>
+        <UiButton
+          aria-label="下一页"
+          title="下一页"
+          icon-name="right"
+          :disabled="queryActionsDisabled || pageNum >= pages"
+          @click="goPage(pageNum + 1)"
+        />
       </div>
     </footer>
   </main>
@@ -1320,11 +1328,12 @@ defineExpose({ clearSelection, refresh });
     'body'
     'pagination';
   align-content: stretch;
-  gap: 12px;
+  gap: var(--muyun-management-panel-content-gap, 8px);
   min-width: 0;
   min-height: 0;
   height: 100%;
-  padding: 14px;
+  padding: var(--muyun-management-panel-padding-block, 10px)
+    var(--muyun-management-panel-padding-inline, 12px);
   border: 1px solid var(--muyun-border);
   border-radius: 8px;
   background: var(--muyun-surface);

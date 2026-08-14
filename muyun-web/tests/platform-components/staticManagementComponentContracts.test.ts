@@ -55,10 +55,17 @@ it('record list explorer exposes visible secondary identity text', () => {
 
 it('record explorer panel uses a single title contract', () => {
   const panelSource = readSource('src/platform-components/RecordExplorerPanel.vue');
+  const detailPanelSource = readSource('src/platform-components/RecordDetailPanel.vue');
+  const headerSource = readSource('src/platform-components/ManagementPanelHeader.vue');
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
+  const workspaceSource = readSource('src/platform-components/ManagementWorkspace.vue');
 
   assert.notMatch(panelSource, /eyebrow/);
   assert.notMatch(layoutSource, /groupTitle/);
+  assert.match(panelSource, /<ManagementPanelHeader/);
+  assert.match(detailPanelSource, /<ManagementPanelHeader/);
+  assert.match(headerSource, /--muyun-management-panel-header-height/);
+  assert.match(workspaceSource, /--muyun-management-panel-padding-block/);
 });
 
 it('record metadata uses semantic text colors so dark skins preserve hierarchy', () => {

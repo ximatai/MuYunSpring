@@ -27,19 +27,21 @@ withDefaults(
     class="record-detail-layout"
     :class="[`record-detail-layout--${surface}`, { 'record-detail-layout--scrollable': scrollableContent }]"
   >
-    <header class="record-detail-layout-header">
-      <div class="record-detail-layout-title-group">
-        <div class="record-detail-layout-title-copy">
-          <h2>{{ title }}</h2>
-          <p v-if="subtitle">{{ subtitle }}</p>
+    <slot name="header">
+      <header class="record-detail-layout-header">
+        <div class="record-detail-layout-title-group">
+          <div class="record-detail-layout-title-copy">
+            <h2>{{ title }}</h2>
+            <p v-if="subtitle">{{ subtitle }}</p>
+          </div>
+          <slot name="status" />
+          <slot name="title-actions" />
         </div>
-        <slot name="status" />
-        <slot name="title-actions" />
-      </div>
-      <div v-if="$slots.actions" class="record-detail-layout-actions">
-        <slot name="actions" />
-      </div>
-    </header>
+        <div v-if="$slots.actions" class="record-detail-layout-actions">
+          <slot name="actions" />
+        </div>
+      </header>
+    </slot>
     <div v-if="scrollableContent" class="record-detail-layout-content">
       <slot />
     </div>
@@ -64,6 +66,9 @@ withDefaults(
 }
 
 .record-detail-layout--workspace {
+  gap: var(--muyun-management-panel-content-gap, 8px);
+  padding: var(--muyun-management-panel-padding-block, 10px)
+    var(--muyun-management-panel-padding-inline, 12px);
   border: 1px solid var(--muyun-border);
   border-radius: 8px;
 }
@@ -146,6 +151,12 @@ withDefaults(
   padding: 12px 14px;
   border-top: 1px solid var(--muyun-border);
   background: var(--muyun-surface);
+}
+
+.record-detail-layout--workspace .record-detail-layout-operation {
+  margin: 0 calc(-1 * var(--muyun-management-panel-padding-inline, 12px))
+    calc(-1 * var(--muyun-management-panel-padding-block, 10px));
+  padding-inline: var(--muyun-management-panel-padding-inline, 12px);
 }
 
 @media (max-width: 720px) {

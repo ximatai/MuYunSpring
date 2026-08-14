@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import { UiDropdown, UiError, UiIcon, UiSidePanelHost, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
+import { UiButton, UiDropdown, UiError, UiIcon, UiSidePanelHost, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
 import type {
   MenuNavigationTarget,
   MenuRecord,
@@ -383,26 +383,28 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             />
           </Transition>
           <div class="topbar-title">
-            <h1>{{ activeTab?.title ?? '控制台' }}</h1>
+            <div class="topbar-title-heading">
+              <h1>{{ activeTab?.title ?? '控制台' }}</h1>
+              <UiButton
+                class="title-refresh-action"
+                aria-label="刷新当前页"
+                icon-name="reload"
+                type="text"
+                :title="`刷新${activeTab?.title ?? '当前页'}`"
+                :disabled="!activeTab"
+                @click="refreshActiveTab"
+              />
+            </div>
             <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>
           </div>
         </div>
 
         <div class="topbar-actions" aria-label="全局工具">
           <button
-            class="icon-button"
-            type="button"
-            aria-label="刷新当前页"
-            title="刷新当前页"
-            :disabled="!activeTab"
-            @click="refreshActiveTab"
-          >
-            <UiIcon name="reload" />
-          </button>
-          <button
-            class="icon-button"
+            class="icon-button skin-button"
             type="button"
             aria-label="皮肤切换"
+            title="切换皮肤"
             @click="emit('userCommand', 'themeSkin')"
           >
             <UiIcon name="skin" />
@@ -509,6 +511,61 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .topbar-title {
   display: grid;
   min-width: 0;
+}
+
+.topbar-title-heading {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+}
+
+.title-refresh-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  margin-inline-start: 0;
+  color: var(--muyun-support-text-muted);
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    width 120ms ease,
+    margin-inline-start 120ms ease,
+    opacity 120ms ease;
+}
+
+.topbar-title-heading:hover .title-refresh-action,
+.title-refresh-action:focus-visible {
+  width: 12px;
+  margin-inline-start: 6px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+:deep(.title-refresh-action.ant-btn-text:not(:disabled):hover),
+.title-refresh-action:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+:deep(.title-refresh-action .anticon) {
+  display: block;
+  font-size: 12px;
+}
+
+:deep(.title-refresh-action .ant-btn-icon) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .topbar-identity {
@@ -618,6 +675,81 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   transform: translateY(-1px);
 }
 
+.skin-button {
+  position: relative;
+  width: 29px;
+  height: 29px;
+  isolation: isolate;
+  overflow: hidden;
+  border-color: transparent;
+  color: var(--muyun-theme-base);
+  background:
+    linear-gradient(var(--muyun-support-surface), var(--muyun-support-surface)) padding-box,
+    var(--muyun-skin-picker-border-gradient) border-box;
+  background-size:
+    100% 100%,
+    220% 100%;
+  background-position:
+    0 0,
+    0 0;
+}
+
+.skin-button :deep(.anticon) {
+  position: relative;
+  z-index: 1;
+}
+
+.skin-button::before {
+  position: absolute;
+  inset: -14px;
+  z-index: -1;
+  content: '';
+  background: var(--muyun-skin-picker-glow);
+  opacity: 0;
+  transform: rotate(-20deg) scale(0.88);
+  transition:
+    opacity 180ms ease,
+    transform 320ms ease;
+}
+
+.skin-button:hover,
+.skin-button:focus-visible {
+  border-color: transparent;
+  background-position:
+    0 0,
+    100% 0;
+  box-shadow: inset 0 0 0 1px var(--muyun-skin-picker-focus-ring);
+  transform: none;
+}
+
+.skin-button:hover::before,
+.skin-button:focus-visible::before {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .skin-button:hover,
+  .skin-button:focus-visible {
+    animation: skin-spectrum-shift 2.8s linear infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skin-button,
+  .skin-button::before {
+    transition: none;
+  }
+}
+
+@keyframes skin-spectrum-shift {
+  to {
+    background-position:
+      0 0,
+      220% 0;
+  }
+}
+
 .user-button {
   display: inline-flex;
   align-items: center;
@@ -710,7 +842,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 .tab-strip :deep(.ant-tabs-tab) {
   margin: 0 4px 0 0 !important;
-  padding: 6px 10px !important;
+  padding: 5px 0 !important;
   border: 1px solid var(--muyun-support-border) !important;
   border-bottom-color: var(--muyun-support-border) !important;
   border-radius: 8px 8px 0 0 !important;
@@ -740,6 +872,16 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 .tab-strip :deep(.ant-tabs-tab-remove) {
   margin-left: 1px !important;
+}
+
+.tab-strip :deep(.ant-tabs-tab-with-remove .ant-tabs-tab-btn) {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tab-strip :deep(.ant-tabs-tab-with-remove .ant-tabs-tab-btn::before) {
+  flex: 0 0 13px;
+  content: '';
 }
 
 .tab-strip :deep(.ant-tabs-tab:not(.ant-tabs-tab-active):hover) {
