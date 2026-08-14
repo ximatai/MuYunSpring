@@ -4,7 +4,6 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.ability.reference.ReferenceReadFacade;
 import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
@@ -23,16 +22,13 @@ public class EmployeeEmploymentReadService {
     private final EmployeeService employeeService;
     private final EmployeeAccountService employeeAccountService;
     private final UserAccountService userAccountService;
-    private final ReferenceReadFacade referenceReads;
 
     public EmployeeEmploymentReadService(EmployeePositionService employeePositionService, EmployeeService employeeService,
                                          EmployeeAccountService employeeAccountService,
-                                         UserAccountService userAccountService,
-                                         ReferenceReadFacade referenceReads) {
+                                         UserAccountService userAccountService) {
         this.employeePositionService = employeePositionService; this.employeeService = employeeService;
         this.employeeAccountService = employeeAccountService;
         this.userAccountService = userAccountService;
-        this.referenceReads = referenceReads;
     }
 
     public PageResult<EmployeeEmploymentView> page(Query query) {
@@ -61,7 +57,6 @@ public class EmployeeEmploymentReadService {
         if (normalized.organizationId() != null && !normalized.organizationId().isBlank()) criteria.eq("organizationId", normalized.organizationId().trim());
         if (normalized.departmentId() != null && !normalized.departmentId().isBlank()) criteria.eq("departmentId", normalized.departmentId().trim());
         PageResult<EmployeePosition> page = employeePositionService.pageQuery(criteria, normalized.pageRequest(), Sort.asc("employeeId"));
-        referenceReads.enrich(employeePositionService, page.getRecords());
         return PageResult.of(views(page.getRecords(), employeeOverrides), page.getTotal(), normalized.pageRequest());
     }
 
