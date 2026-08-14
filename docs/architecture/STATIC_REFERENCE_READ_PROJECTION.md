@@ -113,6 +113,10 @@ private transient String cStatus;
 生命周期等额外业务信息仍由领域 facade 显式组合。`PlatformAbilityRuntime` 是平台内部的装配入口，普通业务
 service 不应直接依赖它。
 
+静态 `CrudAbility` 的标准 `list(...)` 与 `pageQuery(...)` 会自动批量回填声明的 `@ReferenceLoad`，
+因此普通列表和分页业务代码不需要再调用读取门面。列表默认不自动回填 `@ReferencedBy`，避免一对多集合随
+分页记录膨胀；单条读取和明确的领域聚合仍按各自读取边界处理。
+
 ## 读投影声明
 
 当前模块对外可带出的关联字段声明在 service 上：
