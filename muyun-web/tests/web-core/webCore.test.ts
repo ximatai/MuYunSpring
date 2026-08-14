@@ -5,6 +5,7 @@ import {
   AppError,
   configureModuleContext,
   createAuthClient,
+  createLoginContextClient,
   createHttpClient,
   createMenuClient,
   createPageBootstrapClient,
@@ -182,9 +183,9 @@ it('auth client resolves the public login context for a URL-locked tenant', asyn
   };
 
   try {
-    const context = await createAuthClient(createHttpClient({ baseUrl: 'http://api.local' })).loginContext(
-      'tenant-a',
-    );
+    const context = await createLoginContextClient(
+      createHttpClient({ baseUrl: 'http://api.local' }),
+    ).loginContext('tenant-a');
 
     assert.equal(requests.length, 1);
     assert.equal(requests[0].url, 'http://api.local/iam.auth/login-context?tenantId=tenant-a');

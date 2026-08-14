@@ -30,17 +30,28 @@ export interface PageBootstrapClient {
 
 export interface AuthClient {
   login(request: LoginRequest): Promise<LoginResult>;
-  loginContext(tenantId: string): Promise<TenantLoginContext>;
   changeOwnPassword(request: ChangeOwnPasswordRequest, token: string): Promise<void>;
   currentProfile(token: string): Promise<CurrentUserProfile>;
   updateCurrentProfile(request: UpdateCurrentUserProfileRequest, token: string): Promise<CurrentUserProfile>;
   logout(token?: string): Promise<void>;
 }
 
+/** Resolves the public context used by a tenant-locked login entry. */
+export interface LoginContextClient {
+  loginContext(tenantId: string): Promise<TenantLoginContext>;
+}
+
 export function createSessionClient(http: HttpClient): SessionClient {
   return {
     current: () => http.request<CurrentUser>({ path: '/iam.auth/context' }),
     tenantBranding: () => http.request<TenantBranding>({ path: '/iam.auth/tenant-branding' }),
+  };
+}
+
+export function createLoginContextClient(http: HttpClient): LoginContextClient {
+  return {
+    loginContext: (tenantId) =>
+      http.request<TenantLoginContext>({ path: '/iam.auth/login-context', query: { tenantId } }),
   };
 }
 
@@ -111,8 +122,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function createAuthClient(http: HttpClient): AuthClient {
   return {
     login: (request) => http.request<LoginResult>({ method: 'POST', path: '/iam.auth/login', body: request }),
-    loginContext: (tenantId) =>
-      http.request<TenantLoginContext>({ path: '/iam.auth/login-context', query: { tenantId } }),
     changeOwnPassword: (request, token) =>
       http.request<void>({
         method: 'POST',

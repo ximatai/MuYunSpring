@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import type { AuthClient } from '@muyun/web-core';
+import type { AuthClient, LoginContextClient } from '@muyun/web-core';
 import type { LoginResult, TenantBranding } from '@muyun/web-contracts';
 import { UiButton, UiInput } from '@muyun/vue-ui-antdv';
 import { normalizeInitialValue, resolveLoginTenantDefaults } from './loginTenant';
@@ -9,6 +9,7 @@ defineOptions({ name: 'LoginView' });
 
 const props = defineProps<{
   authClient: AuthClient;
+  loginContextClient?: LoginContextClient;
   loading?: boolean;
   error?: string;
   /** Used only when the form is first created; URL-locked tenants always take precedence. */
@@ -37,6 +38,7 @@ const tenantBranding = ref<TenantBranding>();
 const loginContextLoading = ref(false);
 const loginContextError = ref<string>();
 const canSubmit = computed(() => !tenantLocked || (!loginContextLoading.value && !loginContextError.value));
+const showLoginTitleArea = computed(() => tenantBranding.value?.mode !== 'logoOnly');
 const loginTitle = computed(() => tenantBranding.value?.title || '平台登录');
 const loginSubtitle = computed(() => tenantBranding.value?.subtitle);
 
@@ -46,7 +48,10 @@ onMounted(async () => {
   }
   loginContextLoading.value = true;
   try {
-    const context = await props.authClient.loginContext(tenantId.value);
+    if (!props.loginContextClient) {
+      throw new Error('login context client is unavailable');
+    }
+    const context = await props.loginContextClient.loginContext(tenantId.value);
     tenantBranding.value = context.branding;
   } catch {
     loginContextError.value = '无法打开该租户的登录入口';
@@ -119,7 +124,7 @@ async function submitPasswordChange() {
       <header>
         <div class="login-brand">
           <img v-if="tenantBranding?.lightLogo" class="login-logo" :src="tenantBranding.lightLogo" alt="" />
-          <div>
+          <div v-if="showLoginTitleArea">
             <p v-if="!tenantBranding?.lightLogo">MuYun Platform</p>
             <h1>{{ loginTitle }}</h1>
             <p v-if="loginSubtitle" class="login-subtitle">{{ loginSubtitle }}</p>

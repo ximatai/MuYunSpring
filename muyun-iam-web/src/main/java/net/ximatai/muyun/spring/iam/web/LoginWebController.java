@@ -106,6 +106,8 @@ public class LoginWebController {
      * Resolves branding for a tenant explicitly selected by the unauthenticated login entry.
      */
     @GetMapping("/login-context")
+    @CustomActionEndpoint(value = "loginContext", title = "获取登录入口上下文",
+            accessMode = ActionAccessMode.ANONYMOUS_ALLOWED, actionAuth = false, dataAuth = false)
     public TenantLoginContext loginContext(@RequestParam String tenantId) {
         TenantService service = requireTenantService();
         service.requireActiveTenant(tenantId);

@@ -22,6 +22,7 @@ import {
   configureModuleContext,
   createModuleContext,
   createAuthClient,
+  createLoginContextClient,
   provideModuleContextConfig,
   userPreferences,
   type AppError,
@@ -166,7 +167,9 @@ provideCurrentUserContext(currentUser);
 providePlatformTimeZoneContext(currentTimeZone);
 provideWorkbenchNavigation({ openPage: handleOpenPage, replacePage: handleReplacePage });
 
-const authClient = createAuthClient(createBackendHttpClient({ withAuth: false }));
+const anonymousHttpClient = createBackendHttpClient({ withAuth: false });
+const authClient = createAuthClient(anonymousHttpClient);
+const loginContextClient = createLoginContextClient(anonymousHttpClient);
 
 configureAuthenticationRecovery((error, token) => {
   if (!isCurrentAuthToken(token)) {
@@ -820,6 +823,7 @@ function requiresLogin(cause: unknown) {
     <LoginView
       v-if="loginRequired"
       :auth-client="authClient"
+      :login-context-client="loginContextClient"
       :loading="loginLoading"
       :error="error"
       @authenticated="handleAuthenticated"
