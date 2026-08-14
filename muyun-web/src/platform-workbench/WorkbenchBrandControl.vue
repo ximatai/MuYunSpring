@@ -287,6 +287,7 @@ button.workbench-brand-identity {
 .workbench-brand-control--compact .workbench-brand-identity {
   /* Keep the menu-toggle touch target outside the tenant brand area. */
   max-width: 132px;
+  margin-left: -8px;
 }
 
 .workbench-brand-control--compact .workbench-brand-copy strong {

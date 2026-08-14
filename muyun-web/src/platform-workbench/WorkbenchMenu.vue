@@ -1066,7 +1066,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   display: flex;
   align-items: center;
   gap: 0;
-  height: 34px;
+  height: 28px;
   padding: 0 9px;
   border: var(--workbench-menu-border-width) solid var(--workbench-menu-border);
   border-radius: 7px;
