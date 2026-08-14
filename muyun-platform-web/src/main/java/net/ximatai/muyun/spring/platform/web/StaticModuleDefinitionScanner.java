@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefini
 import net.ximatai.muyun.spring.platform.application.PlatformStaticApplication;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
+import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.module.StaticModuleRegistrationSource;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceCompiler;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
@@ -37,9 +38,12 @@ import org.springframework.core.ResolvableType;
 import org.springframework.util.ReflectionUtils;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSource {
     private final ApplicationContext applicationContext;
@@ -49,6 +53,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
     }
 
     public List<StaticModuleDefinition> scan() {
+        validateActionEndpointOrigins();
         LinkedHashMap<String, StaticModuleDefinition> definitions = new LinkedHashMap<>();
         for (String beanName : applicationContext.getBeanNamesForAnnotation(PlatformStaticModule.class)) {
             Object bean = applicationContext.getBean(beanName);
@@ -61,8 +66,46 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             definitions.put(definition.moduleAlias(), definition);
         }
         addActionContributions(definitions);
+        addActionDeclarations(definitions);
         addActionScopes(definitions);
         return List.copyOf(definitions.values());
+    }
+
+    private void validateActionEndpointOrigins() {
+        for (String beanName : actionEndpointOriginBeanNames()) {
+            Object bean = applicationContext.getBean(beanName);
+            Class<?> beanClass = AopUtils.getTargetClass(bean);
+            List<String> origins = new ArrayList<>();
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticModule.class) != null) {
+                origins.add("@PlatformStaticModule");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionContribution.class) != null) {
+                origins.add("@PlatformStaticActionContribution");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionDeclaration.class) != null) {
+                origins.add("@PlatformStaticActionDeclaration");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionScope.class) != null) {
+                origins.add("@PlatformStaticActionScope");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticWebProjection.class) != null) {
+                origins.add("@PlatformStaticWebProjection");
+            }
+            if (origins.size() > 1) {
+                throw new IllegalStateException("static action endpoint origin annotations are mutually exclusive: "
+                        + beanClass.getName() + " -> " + origins);
+            }
+        }
+    }
+
+    private Set<String> actionEndpointOriginBeanNames() {
+        Set<String> beanNames = new LinkedHashSet<>();
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticModule.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticActionContribution.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticActionDeclaration.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticActionScope.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticWebProjection.class)));
+        return beanNames;
     }
 
     @Override
@@ -353,7 +396,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             LinkedHashMap<String, StaticModuleActionDefinition> merged = new LinkedHashMap<>();
             target.actions().forEach(action -> merged.put(action.actionCode(), action));
             contributionActions(bean, beanClass, contribution)
-                    .forEach(action -> mergeContributionAction(target.moduleAlias(), beanClass, merged, action));
+                    .forEach(action -> mergeDeclaredAction("@PlatformStaticActionContribution", target.moduleAlias(),
+                            beanClass, merged, action));
             List<EntityDefinition> entities = mergeContributionEntities(
                     target.moduleAlias(), beanClass, target.entities(), contributionEntities(bean, contribution));
             ModuleUiDefinition uiDefinition = mergeContributionUiDefinition(
@@ -370,6 +414,32 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
     }
 
+    private void addActionDeclarations(LinkedHashMap<String, StaticModuleDefinition> definitions) {
+        for (String beanName : applicationContext.getBeanNamesForAnnotation(PlatformStaticActionDeclaration.class)) {
+            Object bean = applicationContext.getBean(beanName);
+            Class<?> beanClass = AopUtils.getTargetClass(bean);
+            PlatformStaticActionDeclaration declaration =
+                    AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionDeclaration.class);
+            if (declaration == null) {
+                continue;
+            }
+            String targetModule = PlatformNameRules.requireModuleAlias(declaration.module());
+            StaticModuleDefinition target = definitions.get(targetModule);
+            if (target == null) {
+                throw new IllegalStateException("@PlatformStaticActionDeclaration target module is not scanned: "
+                        + targetModule + " <- " + beanClass.getName());
+            }
+            LinkedHashMap<String, StaticModuleActionDefinition> merged = new LinkedHashMap<>();
+            target.actions().forEach(action -> merged.put(action.actionCode(), action));
+            LinkedHashMap<String, StaticModuleActionDefinition> declaredActions = new LinkedHashMap<>();
+            ReflectionUtils.doWithMethods(beanClass,
+                    method -> addAnnotatedAction(declaredActions, method, java.util.Set.of()));
+            declaredActions.values().forEach(action -> mergeDeclaredAction("@PlatformStaticActionDeclaration",
+                    target.moduleAlias(), beanClass, merged, action));
+            definitions.put(target.moduleAlias(), target.toBuilder().actions(List.copyOf(merged.values())).build());
+        }
+    }
+
     private void addActionScopes(LinkedHashMap<String, StaticModuleDefinition> definitions) {
         for (String beanName : applicationContext.getBeanNamesForAnnotation(PlatformStaticActionScope.class)) {
             Object bean = applicationContext.getBean(beanName);
@@ -383,13 +453,13 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 throw new IllegalStateException("@PlatformStaticActionScope target module is not scanned: "
                         + scope.module() + " <- " + beanClass.getName());
             }
-            LinkedHashMap<String, StaticModuleActionDefinition> merged = new LinkedHashMap<>();
-            target.actions().forEach(action -> merged.put(action.actionCode(), action));
+            LinkedHashMap<String, StaticModuleActionDefinition> targetActions = new LinkedHashMap<>();
+            target.actions().forEach(action -> targetActions.put(action.actionCode(), action));
             LinkedHashMap<String, StaticModuleActionDefinition> scopedActions = new LinkedHashMap<>();
             ReflectionUtils.doWithMethods(beanClass,
                     method -> addAnnotatedAction(scopedActions, method, java.util.Set.of()));
-            scopedActions.values().forEach(action -> mergeContributionAction(target.moduleAlias(), beanClass, merged, action));
-            definitions.put(target.moduleAlias(), target.toBuilder().actions(List.copyOf(merged.values())).build());
+            scopedActions.values().forEach(action -> validateScopedAction(target.moduleAlias(), beanClass,
+                    targetActions, action));
         }
     }
 
@@ -475,15 +545,31 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         return new ModuleUiDefinition(targetModule, List.copyOf(views.values()), List.copyOf(actions.values()));
     }
 
-    private void mergeContributionAction(String targetModule,
-                                         Class<?> contributor,
-                                         LinkedHashMap<String, StaticModuleActionDefinition> actions,
-                                         StaticModuleActionDefinition action) {
+    private void mergeDeclaredAction(String sourceAnnotation,
+                                     String targetModule,
+                                     Class<?> contributor,
+                                     LinkedHashMap<String, StaticModuleActionDefinition> actions,
+                                     StaticModuleActionDefinition action) {
         if (actions.containsKey(action.actionCode())) {
-            throw new IllegalStateException("@PlatformStaticActionContribution action conflicts with target module: "
+            throw new IllegalStateException(sourceAnnotation + " action conflicts with target module: "
                     + targetModule + "." + action.actionCode() + " <- " + contributor.getName());
         }
         actions.put(action.actionCode(), action);
+    }
+
+    private void validateScopedAction(String targetModule,
+                                      Class<?> scope,
+                                      Map<String, StaticModuleActionDefinition> targetActions,
+                                      StaticModuleActionDefinition action) {
+        StaticModuleActionDefinition targetAction = targetActions.get(action.actionCode());
+        if (targetAction == null) {
+            throw new IllegalStateException("@PlatformStaticActionScope action is not declared by target module: "
+                    + targetModule + "." + action.actionCode() + " <- " + scope.getName());
+        }
+        if (!targetAction.equals(action)) {
+            throw new IllegalStateException("@PlatformStaticActionScope action conflicts with target module: "
+                    + targetModule + "." + action.actionCode() + " <- " + scope.getName());
+        }
     }
 
     private List<StaticModuleActionDefinition> contributionActions(Object bean,
@@ -636,7 +722,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
         CustomActionEndpoint custom = AnnotationUtils.findAnnotation(method, CustomActionEndpoint.class);
         if (custom != null) {
-            actions.put(custom.value(), new StaticModuleActionDefinition(
+            addAnnotatedCustomAction(actions, method, custom.value(), new StaticModuleActionDefinition(
                     custom.value(),
                     custom.value(),
                     custom.title().isBlank() ? custom.value() : custom.title(),
@@ -661,7 +747,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         CustomActionEndpoint custom = AnnotationUtils.findAnnotation(method, CustomActionEndpoint.class);
         if (custom != null) {
             String actionCode = PlatformStaticActionContributionSupport.actionCode(contribution, custom.value());
-            actions.put(actionCode, new StaticModuleActionDefinition(
+            addAnnotatedCustomAction(actions, method, actionCode, new StaticModuleActionDefinition(
                     actionCode,
                     actionCode,
                     PlatformStaticActionContributionSupport.title(contribution,
@@ -672,6 +758,17 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                     custom.dataAuth(),
                     net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy.NONE
             ));
+        }
+    }
+
+    private void addAnnotatedCustomAction(Map<String, StaticModuleActionDefinition> actions,
+                                          Method method,
+                                          String actionCode,
+                                          StaticModuleActionDefinition action) {
+        StaticModuleActionDefinition existing = actions.putIfAbsent(actionCode, action);
+        if (existing != null && !existing.equals(action)) {
+            throw new IllegalStateException("@CustomActionEndpoint action conflicts within controller: "
+                    + method.getDeclaringClass().getName() + "." + actionCode + " <- " + method.getName());
         }
     }
 

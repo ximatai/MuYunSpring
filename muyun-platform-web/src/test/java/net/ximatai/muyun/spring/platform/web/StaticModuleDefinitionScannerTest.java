@@ -31,6 +31,7 @@ import net.ximatai.muyun.spring.platform.web.workflow.WorkflowRuntimeAdminWebCon
 import net.ximatai.muyun.spring.platform.web.workflow.WorkflowDefinitionWebController;
 import net.ximatai.muyun.spring.platform.web.workflow.WorkflowVersionWebController;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
+import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
@@ -496,7 +497,8 @@ class StaticModuleDefinitionScannerTest {
                     "platform.code_issue_log");
             assertThat(byAlias.get("platform.code_rule").actions()).extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("menu", "view", "query",
-                            "sort", "enable", "disable", "viewTree", "saveTree", "preview", "opsQuery", "opsManage");
+                            "sort", "enable", "disable", "viewTree", "saveTree", "preview", "opsQuery", "opsManage",
+                            "opsRecordQuery", "opsRecordManage");
             assertThat(byAlias.get("platform.code_sequence_state").actions()).extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("menu", "view", "query", "adjustBaseline");
             assertThat(byAlias.get("platform.code_sequence_state").actions())
@@ -618,6 +620,91 @@ class StaticModuleDefinitionScannerTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("action conflicts with target module")
                     .hasMessageContaining("platform.dictionary_category.item_query");
+        }
+    }
+
+    @Test
+    void shouldAllowActionScopeToReuseIdenticalTargetModuleAction() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ScopedActionTargetWeb.class);
+            context.registerBean(ScopedCreateActionWeb.class);
+            context.refresh();
+
+            StaticModuleDefinition definition = new StaticModuleDefinitionScanner(context).scan().getFirst();
+
+            assertThat(definition.moduleAlias()).isEqualTo("demo.scoped_action");
+            assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
+                    .containsExactly("create");
+        }
+    }
+
+    @Test
+    void shouldRejectActionScopeWhenSameActionCodeHasDifferentPolicy() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ScopedActionTargetWeb.class);
+            context.registerBean(ScopedCreateActionWithConflictingPolicyWeb.class);
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("action conflicts with target module")
+                    .hasMessageContaining("demo.scoped_action.create");
+        }
+    }
+
+    @Test
+    void shouldRejectActionScopeWhenTargetModuleDoesNotDeclareAction() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ScopedActionTargetWithoutCreateWeb.class);
+            context.registerBean(ScopedCreateActionWithoutTargetActionWeb.class);
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("@PlatformStaticActionScope action is not declared by target module")
+                    .hasMessageContaining("demo.scoped_action_without_create.create");
+        }
+    }
+
+    @Test
+    void shouldRejectControllerWithMultipleStaticActionEndpointOrigins() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ConflictingActionEndpointOriginsWeb.class);
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("static action endpoint origin annotations are mutually exclusive")
+                    .hasMessageContaining("@PlatformStaticActionDeclaration")
+                    .hasMessageContaining("@PlatformStaticActionScope");
+        }
+    }
+
+    @Test
+    void shouldRejectIdenticalActionDefinitionsFromMultipleContributions() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ContributedActionTargetWeb.class);
+            context.registerBean(FirstContributedActionWeb.class);
+            context.registerBean(SecondContributedActionWeb.class);
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("@PlatformStaticActionContribution action conflicts with target module")
+                    .hasMessageContaining("demo.contributed_action.child_run");
+        }
+    }
+
+    @Test
+    void shouldRejectConflictingCustomActionDefinitionsWithinStaticModuleController() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ConflictingCustomActionDefinitionsWeb.class);
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("@CustomActionEndpoint action conflicts within controller")
+                    .hasMessageContaining(".run <- execute");
         }
     }
 
@@ -1152,6 +1239,86 @@ class StaticModuleDefinitionScannerTest {
     static class ConflictingDictionaryCategoryWeb {
         @CustomActionEndpoint("item_query")
         public void itemQuery() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.scoped_action", title = "Scoped action")
+    static class ScopedActionTargetWeb {
+        @ActionEndpoint(PlatformAction.CREATE)
+        public void create() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticActionScope(module = "demo.scoped_action")
+    static class ScopedCreateActionWeb {
+        @ActionEndpoint(PlatformAction.CREATE)
+        public void create() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticActionScope(module = "demo.scoped_action")
+    static class ScopedCreateActionWithConflictingPolicyWeb {
+        @CustomActionEndpoint(value = "create", title = "Scoped create", actionAuth = false)
+        public void create() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.scoped_action_without_create", title = "Scoped action without create")
+    static class ScopedActionTargetWithoutCreateWeb {
+    }
+
+    @RestController
+    @PlatformStaticActionScope(module = "demo.scoped_action_without_create")
+    static class ScopedCreateActionWithoutTargetActionWeb {
+        @ActionEndpoint(PlatformAction.CREATE)
+        public void create() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticActionDeclaration(module = "demo.conflicting_action_origin")
+    @PlatformStaticActionScope(module = "demo.conflicting_action_origin")
+    static class ConflictingActionEndpointOriginsWeb {
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.contributed_action", title = "Contributed action")
+    static class ContributedActionTargetWeb {
+    }
+
+    @RestController
+    @PlatformStaticActionContribution(targetModule = "demo.contributed_action", resource = "child", resourceTitle = "Child")
+    static class FirstContributedActionWeb {
+        @CustomActionEndpoint("run")
+        public void run() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticActionContribution(targetModule = "demo.contributed_action", resource = "child", resourceTitle = "Child")
+    static class SecondContributedActionWeb {
+        @CustomActionEndpoint("run")
+        public void run() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.conflicting_custom_action", title = "Conflicting custom action")
+    static class ConflictingCustomActionDefinitionsWeb {
+        @CustomActionEndpoint(value = "run", title = "Run")
+        public void run() {
+        }
+
+        @CustomActionEndpoint(value = "run", title = "Execute")
+        public void execute() {
         }
     }
 

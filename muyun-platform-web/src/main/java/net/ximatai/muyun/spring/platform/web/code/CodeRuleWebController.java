@@ -94,7 +94,7 @@ public class CodeRuleWebController extends WebSupport<CodeRuleService> implement
     }
 
     @PostMapping("/ops/view/{id}")
-    @CustomActionEndpoint(value = "opsQuery", title = "编码运维查询",
+    @CustomActionEndpoint(value = "opsRecordQuery", title = "编码运维记录查询",
             level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "id")
     public CodeRuleOpsSnapshot viewOpsSnapshot(@PathVariable String id,
                                                @RequestBody(required = false) OpsSnapshotRequest request) {
@@ -143,7 +143,7 @@ public class CodeRuleWebController extends WebSupport<CodeRuleService> implement
     }
 
     @PostMapping("/ops/recycleEntry/{id}/adjust")
-    @CustomActionEndpoint(value = "opsManage", title = "编码运维管理",
+    @CustomActionEndpoint(value = "opsRecordManage", title = "编码运维记录管理",
             level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "id")
     public CodeRecycleEntry adjustRecycleEntry(@PathVariable String id,
                                                @RequestBody RecycleAdjustRequest request) {
@@ -155,14 +155,14 @@ public class CodeRuleWebController extends WebSupport<CodeRuleService> implement
     }
 
     @PostMapping("/ops/ledgerEntry/{id}/inspect")
-    @CustomActionEndpoint(value = "opsQuery", title = "编码运维查询",
+    @CustomActionEndpoint(value = "opsRecordQuery", title = "编码运维记录查询",
             level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "id")
     public CodeLedgerInspection inspectLedgerEntry(@PathVariable String id) {
         return webScope(() -> requireOpsActionService().inspectLedgerEntry(id));
     }
 
     @PostMapping("/ops/ledgerEntry/{id}/release")
-    @CustomActionEndpoint(value = "opsManage", title = "编码运维管理",
+    @CustomActionEndpoint(value = "opsRecordManage", title = "编码运维记录管理",
             level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "id")
     public CodeLedgerEntry releaseLedgerEntry(@PathVariable String id,
                                               @RequestBody(required = false) ReleaseLedgerRequest request) {
