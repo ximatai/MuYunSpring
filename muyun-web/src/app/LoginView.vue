@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import type { AuthClient } from '@muyun/web-core';
-import type { LoginResult } from '@muyun/web-contracts';
+import type { LoginResult, TenantBranding } from '@muyun/web-contracts';
 import { UiButton, UiInput } from '@muyun/vue-ui-antdv';
 import { normalizeInitialValue, resolveLoginTenantDefaults } from './loginTenant';
 
@@ -11,6 +11,8 @@ const props = defineProps<{
   authClient: AuthClient;
   loading?: boolean;
   error?: string;
+  /** Used only when the form is first created; URL-locked tenants always take precedence. */
+  initialUsername?: string;
 }>();
 
 const emit = defineEmits<{
@@ -20,7 +22,10 @@ const emit = defineEmits<{
 const loginTenantDefaults = resolveLoginTenantDefaults(import.meta.env.VITE_MUYUN_LOGIN_TENANT_ID);
 const tenantId = ref(loginTenantDefaults.tenantId);
 const tenantLocked = loginTenantDefaults.tenantLocked;
-const username = ref(normalizeInitialValue(import.meta.env.VITE_MUYUN_LOGIN_USERNAME));
+const username = ref(
+  normalizeInitialValue(props.initialUsername) ||
+    normalizeInitialValue(import.meta.env.VITE_MUYUN_LOGIN_USERNAME),
+);
 const password = ref(normalizeInitialValue(import.meta.env.VITE_MUYUN_LOGIN_PASSWORD));
 const submitting = ref(false);
 const formError = ref<string>();
@@ -28,6 +33,27 @@ const passwordChangeRequired = ref(false);
 const pendingToken = ref<string>();
 const newPassword = ref('');
 const confirmPassword = ref('');
+const tenantBranding = ref<TenantBranding>();
+const loginContextLoading = ref(false);
+const loginContextError = ref<string>();
+const canSubmit = computed(() => !tenantLocked || (!loginContextLoading.value && !loginContextError.value));
+const loginTitle = computed(() => tenantBranding.value?.title || '平台登录');
+const loginSubtitle = computed(() => tenantBranding.value?.subtitle);
+
+onMounted(async () => {
+  if (!tenantLocked || !tenantId.value) {
+    return;
+  }
+  loginContextLoading.value = true;
+  try {
+    const context = await props.authClient.loginContext(tenantId.value);
+    tenantBranding.value = context.branding;
+  } catch {
+    loginContextError.value = '无法打开该租户的登录入口';
+  } finally {
+    loginContextLoading.value = false;
+  }
+});
 
 async function submit() {
   formError.value = undefined;
@@ -91,17 +117,22 @@ async function submitPasswordChange() {
   <main class="login-page">
     <section class="login-panel">
       <header>
-        <p>MuYun Platform</p>
-        <h1>平台登录</h1>
+        <div class="login-brand">
+          <img v-if="tenantBranding?.lightLogo" class="login-logo" :src="tenantBranding.lightLogo" alt="" />
+          <div>
+            <p v-if="!tenantBranding?.lightLogo">MuYun Platform</p>
+            <h1>{{ loginTitle }}</h1>
+            <p v-if="loginSubtitle" class="login-subtitle">{{ loginSubtitle }}</p>
+          </div>
+        </div>
       </header>
 
-      <p v-if="formError || error" class="login-error">
-        {{ formError || error }}
+      <p v-if="formError || error || loginContextError" class="login-error">
+        {{ formError || error || loginContextError }}
       </p>
 
       <form v-if="!passwordChangeRequired" class="login-form" @submit.prevent="submit">
-        <p v-if="tenantLocked" class="login-context">租户：{{ tenantId }}</p>
-        <label v-else>
+        <label v-if="!tenantLocked">
           <span>租户 ID</span>
           <UiInput v-model:value="tenantId" autocomplete="organization" placeholder="留空进入系统工作区" />
         </label>
@@ -113,7 +144,13 @@ async function submitPasswordChange() {
           <span>密码</span>
           <UiInput v-model:value="password" type="password" autocomplete="current-password" required />
         </label>
-        <UiButton class="login-submit" html-type="submit" type="primary" :loading="submitting || loading">
+        <UiButton
+          class="login-submit"
+          html-type="submit"
+          type="primary"
+          :disabled="!canSubmit"
+          :loading="submitting || loading || loginContextLoading"
+        >
           {{ submitting || loading ? '登录中' : '登录' }}
         </UiButton>
       </form>
@@ -167,8 +204,28 @@ header p {
 header h1 {
   margin: 0;
   color: var(--muyun-support-text);
-  font-size: 22px;
+  font-size: 26px;
   line-height: 1.25;
+}
+
+.login-logo {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.login-brand {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.login-subtitle {
+  margin: 5px 0 0;
+  color: var(--muyun-support-text-muted);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .login-error {

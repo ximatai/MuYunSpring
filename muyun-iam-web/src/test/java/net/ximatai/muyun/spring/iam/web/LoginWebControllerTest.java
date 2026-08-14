@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.iam.user.CurrentUserProfile;
 import net.ximatai.muyun.spring.iam.user.CurrentUserProfileService;
 import net.ximatai.muyun.spring.iam.tenant.TenantBranding;
+import net.ximatai.muyun.spring.iam.tenant.Tenant;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -89,6 +90,27 @@ class LoginWebControllerTest {
                 .andExpect(jsonPath("$.title").value("木云工作台"))
                 .andExpect(jsonPath("$.subtitle").value("租户 A"));
 
+        verify(tenantService).branding("tenant-a");
+    }
+
+    @Test
+    void shouldExposeActiveLockedTenantBrandingBeforeAuthentication() throws Exception {
+        TenantService tenantService = mock(TenantService.class);
+        when(tenantService.requireActiveTenant("tenant-a")).thenReturn(mock(Tenant.class));
+        when(tenantService.branding("tenant-a"))
+                .thenReturn(new TenantBranding("data:image/png;base64,bGlnaHQ=", null,
+                        "logoWithTitle", "租户 A", "租户专属工作台"));
+        LoginWebController controller = new LoginWebController(mock(UserSessionService.class), tenantService);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(get("/iam.auth/login-context").param("tenantId", "tenant-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tenantId").value("tenant-a"))
+                .andExpect(jsonPath("$.branding.lightLogo").value("data:image/png;base64,bGlnaHQ="))
+                .andExpect(jsonPath("$.branding.title").value("租户 A"))
+                .andExpect(jsonPath("$.branding.subtitle").value("租户专属工作台"));
+
+        verify(tenantService).requireActiveTenant("tenant-a");
         verify(tenantService).branding("tenant-a");
     }
 

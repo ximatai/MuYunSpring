@@ -10,6 +10,7 @@ import type {
   MenuTreeNode,
   PageBootstrap,
   TenantBranding,
+  TenantLoginContext,
 } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
 
@@ -29,6 +30,7 @@ export interface PageBootstrapClient {
 
 export interface AuthClient {
   login(request: LoginRequest): Promise<LoginResult>;
+  loginContext(tenantId: string): Promise<TenantLoginContext>;
   changeOwnPassword(request: ChangeOwnPasswordRequest, token: string): Promise<void>;
   currentProfile(token: string): Promise<CurrentUserProfile>;
   updateCurrentProfile(request: UpdateCurrentUserProfileRequest, token: string): Promise<CurrentUserProfile>;
@@ -109,6 +111,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function createAuthClient(http: HttpClient): AuthClient {
   return {
     login: (request) => http.request<LoginResult>({ method: 'POST', path: '/iam.auth/login', body: request }),
+    loginContext: (tenantId) =>
+      http.request<TenantLoginContext>({ path: '/iam.auth/login-context', query: { tenantId } }),
     changeOwnPassword: (request, token) =>
       http.request<void>({
         method: 'POST',
