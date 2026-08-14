@@ -44,6 +44,7 @@ function moveSkinFocus(event: KeyboardEvent, currentIndex: number) {
   <UiModal
     :open="open"
     title="偏好设置"
+    :width="460"
     :confirm-text="saving ? '保存中…' : '完成'"
     :confirm-loading="saving"
     @confirm="emit('close')"
