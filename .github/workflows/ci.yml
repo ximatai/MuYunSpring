@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   changes:
     name: Detect Changes
@@ -97,7 +101,7 @@ jobs:
 
       - name: Run tests
         if: needs.changes.outputs.backend == 'true'
-        run: ./gradlew verifyAll --no-daemon --stacktrace
+        run: ./gradlew verifyAll --configuration-cache --no-daemon --stacktrace
 
       - name: Skip backend tests
         if: needs.changes.outputs.backend != 'true'
