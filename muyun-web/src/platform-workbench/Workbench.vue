@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import { UiDropdown, UiError, UiIcon, UiSidePanelHost, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
+import { UiButton, UiDropdown, UiError, UiIcon, UiSidePanelHost, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
 import type {
   MenuNavigationTarget,
   MenuRecord,
@@ -383,26 +383,28 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             />
           </Transition>
           <div class="topbar-title">
-            <h1>{{ activeTab?.title ?? '控制台' }}</h1>
+            <div class="topbar-title-heading">
+              <h1>{{ activeTab?.title ?? '控制台' }}</h1>
+              <UiButton
+                class="title-refresh-action"
+                aria-label="刷新当前页"
+                icon-name="reload"
+                type="text"
+                :title="`刷新${activeTab?.title ?? '当前页'}`"
+                :disabled="!activeTab"
+                @click="refreshActiveTab"
+              />
+            </div>
             <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>
           </div>
         </div>
 
         <div class="topbar-actions" aria-label="全局工具">
           <button
-            class="icon-button"
-            type="button"
-            aria-label="刷新当前页"
-            title="刷新当前页"
-            :disabled="!activeTab"
-            @click="refreshActiveTab"
-          >
-            <UiIcon name="reload" />
-          </button>
-          <button
-            class="icon-button"
+            class="icon-button skin-button"
             type="button"
             aria-label="皮肤切换"
+            title="切换皮肤"
             @click="emit('userCommand', 'themeSkin')"
           >
             <UiIcon name="skin" />
@@ -511,6 +513,61 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   min-width: 0;
 }
 
+.topbar-title-heading {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+}
+
+.title-refresh-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  margin-inline-start: 0;
+  color: var(--muyun-support-text-muted);
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    width 120ms ease,
+    margin-inline-start 120ms ease,
+    opacity 120ms ease;
+}
+
+.topbar-title-heading:hover .title-refresh-action,
+.title-refresh-action:focus-visible {
+  width: 12px;
+  margin-inline-start: 6px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+:deep(.title-refresh-action.ant-btn-text:not(:disabled):hover),
+.title-refresh-action:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+:deep(.title-refresh-action .anticon) {
+  display: block;
+  font-size: 12px;
+}
+
+:deep(.title-refresh-action .ant-btn-icon) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
 .topbar-identity {
   display: flex;
   align-items: center;
@@ -616,6 +673,88 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   color: var(--muyun-theme-base);
   box-shadow: 0 8px 18px rgb(15 23 42 / 8%);
   transform: translateY(-1px);
+}
+
+.skin-button {
+  position: relative;
+  width: 29px;
+  height: 29px;
+  isolation: isolate;
+  overflow: hidden;
+  border-color: transparent;
+  color: var(--muyun-theme-base);
+  background:
+    linear-gradient(var(--muyun-support-surface), var(--muyun-support-surface)) padding-box,
+    linear-gradient(120deg, #2b82e8, #7367f0 34%, #cf5ca7 66%, #e6ad42) border-box;
+  background-size:
+    100% 100%,
+    220% 100%;
+  background-position:
+    0 0,
+    0 0;
+}
+
+.skin-button :deep(.anticon) {
+  position: relative;
+  z-index: 1;
+}
+
+.skin-button::before {
+  position: absolute;
+  inset: -14px;
+  z-index: -1;
+  content: '';
+  background: conic-gradient(
+    from 210deg,
+    transparent 0deg,
+    rgb(43 130 232 / 0.12) 80deg,
+    rgb(115 103 240 / 0.14) 145deg,
+    rgb(207 92 167 / 0.1) 205deg,
+    transparent 275deg
+  );
+  opacity: 0;
+  transform: rotate(-20deg) scale(0.88);
+  transition:
+    opacity 180ms ease,
+    transform 320ms ease;
+}
+
+.skin-button:hover,
+.skin-button:focus-visible {
+  border-color: transparent;
+  background-position:
+    0 0,
+    100% 0;
+  box-shadow: inset 0 0 0 1px rgb(115 103 240 / 20%);
+  transform: none;
+}
+
+.skin-button:hover::before,
+.skin-button:focus-visible::before {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .skin-button:hover,
+  .skin-button:focus-visible {
+    animation: skin-spectrum-shift 2.8s linear infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skin-button,
+  .skin-button::before {
+    transition: none;
+  }
+}
+
+@keyframes skin-spectrum-shift {
+  to {
+    background-position:
+      0 0,
+      220% 0;
+  }
 }
 
 .user-button {
