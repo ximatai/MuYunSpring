@@ -8,6 +8,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -80,6 +81,35 @@ class ApplicationServiceContractTest {
         assertThat(service.sortedList(Criteria.of()))
                 .extracting(Application::getAlias)
                 .containsExactly("sales", "crm");
+    }
+
+    @Test
+    void shouldProtectPlatformManagedApplicationsAndExplainUnavailableActions() {
+        ApplicationService service = new ApplicationService(new ApplicationMemoryDao());
+        Application managed = application("platform");
+        managed.setSystemManaged(Boolean.TRUE);
+        PlatformManagedMutationContext.runAsPlatformManaged(() -> service.insert(managed));
+
+        Application update = new Application();
+        update.setAlias(managed.getAlias());
+        update.setVersion(managed.getVersion());
+        update.setTitle("Changed");
+
+        assertThatThrownBy(() -> service.update(update))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("platform-managed");
+        assertThatThrownBy(() -> service.delete(managed.getAlias()))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("platform-managed");
+        assertThat(service.availability(ApplicationService.MODULE_ALIAS, "update", managed.getAlias()))
+                .hasValueSatisfying(decision -> {
+                    assertThat(decision.available()).isFalse();
+                    assertThat(decision.reason()).isEqualTo("平台托管应用不可编辑");
+                });
+        assertThat(service.availability(ApplicationService.MODULE_ALIAS, "delete", managed.getAlias()))
+                .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管应用不可删除"));
+        assertThat(service.availability(ApplicationService.MODULE_ALIAS, "disable", managed.getAlias()))
+                .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管应用不可变更启用状态"));
     }
 
     @Test

@@ -299,8 +299,24 @@ const canToggleEnabled = computed(() => {
   ) {
     return false;
   }
-  return context.can(record.enabled === false ? 'enable' : 'disable') === true;
+  return selectedRecordActionAvailable(record.enabled === false ? 'enable' : 'disable');
 });
+const toggleEnabledDisabledReason = computed(() => {
+  const record = selectedRecord.value;
+  if (!record?.id || canToggleEnabled.value) return undefined;
+  const actionCode = record.enabled === false ? 'enable' : 'disable';
+  return context
+    .recordActionsSnapshot(String(record.id))
+    ?.actions.find((action) => action.actionCode === actionCode)?.reason;
+});
+
+function selectedRecordActionAvailable(actionCode: string) {
+  const recordId = selectedRecord.value?.id;
+  if (recordId == null) return false;
+  const availability = context.recordActionsSnapshot(String(recordId));
+  const recordAction = availability?.actions.find((action) => action.actionCode === actionCode);
+  return recordAction ? recordAction.available : context.can(actionCode) === true;
+}
 const flatManagementRecycleBin = useRecycleBinExplorerMode<QueryListRecord>({
   context,
   listReloadKey: flatManagementReloadKey,
@@ -1160,6 +1176,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           v-else-if="!flatManagementRecycleBin.active.value && selectedRecord"
           :enabled="selectedRecord.enabled !== false"
           :disabled="!canToggleEnabled"
+          :disabled-reason="toggleEnabledDisabledReason"
           :loading="togglingEnabled"
           :show-label="false"
           @change="toggleEnabled"
@@ -1334,6 +1351,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             v-if="!recycleBinDetailActive && editorMode === 'view' && selectedRecord"
             :enabled="selectedRecord.enabled !== false"
             :disabled="!canToggleEnabled"
+            :disabled-reason="toggleEnabledDisabledReason"
             :loading="togglingEnabled"
             :show-label="false"
             @change="toggleEnabled"
@@ -1470,6 +1488,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             v-if="editorMode === 'view' && selectedRecord"
             :enabled="selectedRecord.enabled !== false"
             :disabled="!canToggleEnabled"
+            :disabled-reason="toggleEnabledDisabledReason"
             :loading="togglingEnabled"
             :show-label="false"
             @change="toggleEnabled"
@@ -1580,6 +1599,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           "
           :enabled="selectedRecord.enabled !== false"
           :disabled="!canToggleEnabled"
+          :disabled-reason="toggleEnabledDisabledReason"
           :loading="togglingEnabled"
           :show-label="false"
           @change="toggleEnabled"

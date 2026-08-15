@@ -8,12 +8,15 @@ const props = withDefaults(
   defineProps<{
     enabled?: boolean;
     disabled?: boolean;
+    /** Explains why this otherwise visible status control is unavailable. */
+    disabledReason?: string;
     loading?: boolean;
     showLabel?: boolean;
   }>(),
   {
     enabled: true,
     disabled: false,
+    disabledReason: undefined,
     loading: false,
     showLabel: true,
   },
@@ -34,7 +37,7 @@ function handleChange(enabled: boolean) {
 </script>
 
 <template>
-  <div class="record-status-switch">
+  <div class="record-status-switch" :title="disabled ? disabledReason : undefined">
     <div v-if="showLabel" class="record-status-switch-label">
       <span>启用状态</span>
       <strong>{{ checked ? '启用' : '停用' }}</strong>
