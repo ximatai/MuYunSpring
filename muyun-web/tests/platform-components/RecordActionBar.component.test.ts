@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import type { ModuleContext } from '@muyun/web-core';
 import RecordActionBar from '@/platform-components/RecordActionBar.vue';
@@ -56,5 +56,31 @@ describe('RecordActionBar', () => {
 
     expect(document.body.textContent).toContain('无权操作当前记录');
     vi.useRealTimers();
+  });
+
+  it('keeps record actions disabled while their availability is being checked', async () => {
+    let resolveAvailability: ((value: { recordId: string; actions: [] }) => void) | undefined;
+    const wrapper = mount(RecordActionBar, {
+      attachTo: document.body,
+      props: {
+        context: {
+          action: (actionCode: string) => ({ actionCode, available: true }),
+          recordActions: (recordId: string) =>
+            new Promise((resolve) => {
+              resolveAvailability = resolve;
+            }),
+        } as unknown as ModuleContext<unknown>,
+        recordId: 'platform',
+        actions: [{ key: 'delete', actionCode: 'delete', title: '删除' }],
+      },
+    });
+
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('button').attributes('disabled')).toBeDefined();
+
+    resolveAvailability?.({ recordId: 'platform', actions: [] });
+    await flushPromises();
+
+    expect(wrapper.find('button').attributes('disabled')).toBeUndefined();
   });
 });
