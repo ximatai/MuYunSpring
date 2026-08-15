@@ -135,6 +135,12 @@ const emit = defineEmits<{
   flex: 0 0 auto;
   align-items: center;
   min-width: 0;
+  /*
+   * The switch capsule's visual centre sits below the text glyph centre even
+   * when flexbox centres both boxes. This scoped composition token keeps the
+   * shared static and DSL management heading on one visual baseline.
+   */
+  --muyun-record-status-switch-offset-y: -4px;
 }
 
 .management-panel-header-actions {

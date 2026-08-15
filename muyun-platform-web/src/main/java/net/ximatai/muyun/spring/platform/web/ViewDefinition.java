@@ -11,6 +11,8 @@ public record ViewDefinition(String viewCode,
                              List<ViewFieldDefinition> fields,
                              String sourceUiConfigId,
                              ScopedListWorkspaceDefinition scopedListWorkspace,
+                             ModulePageTemplate pageTemplate,
+                             FlatManagementTemplateDefinition flatManagementTemplate,
                              List<FormGroupDefinition> formGroups) {
     public ViewDefinition {
         if (viewCode == null || viewCode.isBlank()) {
@@ -27,6 +29,12 @@ public record ViewDefinition(String viewCode,
         if (scopedListWorkspace != null && viewKind != ModuleViewKind.LIST) {
             throw new IllegalArgumentException("scoped list workspace is only supported by list views: " + viewCode);
         }
+        if (pageTemplate != null && viewKind != ModuleViewKind.LIST) {
+            throw new IllegalArgumentException("page template is only supported by list views: " + viewCode);
+        }
+        if (flatManagementTemplate != null && pageTemplate != ModulePageTemplate.FLAT_MANAGEMENT) {
+            throw new IllegalArgumentException("flat management content requires the flat management template: " + viewCode);
+        }
         formGroups = formGroups == null ? List.of() : List.copyOf(formGroups);
         if (!formGroups.isEmpty() && viewKind != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("form groups are only supported by form views: " + viewCode);
@@ -35,13 +43,20 @@ public record ViewDefinition(String viewCode,
 
     public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                           List<ViewFieldDefinition> fields) {
-        this(viewCode, viewKind, clientType, title, fields, null, null, null);
+        this(viewCode, viewKind, clientType, title, fields, null, null, null, null, null);
     }
 
     public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                           List<ViewFieldDefinition> fields, String sourceUiConfigId,
                           ScopedListWorkspaceDefinition scopedListWorkspace) {
-        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, scopedListWorkspace, null);
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, scopedListWorkspace, null, null, null);
+    }
+
+    public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
+                          List<ViewFieldDefinition> fields, String sourceUiConfigId,
+                          ScopedListWorkspaceDefinition scopedListWorkspace,
+                          List<FormGroupDefinition> formGroups) {
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, scopedListWorkspace, null, null, formGroups);
     }
 
     public static Builder list() {
@@ -67,6 +82,8 @@ public record ViewDefinition(String viewCode,
         private String title;
         private String sourceUiConfigId;
         private ScopedListWorkspaceDefinition scopedListWorkspace;
+        private ModulePageTemplate pageTemplate;
+        private FlatManagementTemplateDefinition flatManagementTemplate;
         private final List<ViewFieldDefinition> fields = new ArrayList<>();
         private final List<FormGroupDefinition> formGroups = new ArrayList<>();
 
@@ -90,6 +107,23 @@ public record ViewDefinition(String viewCode,
                                            String scopeTitle, String scopeSearchPlaceholder) {
             return scopedListWorkspace(scopeModuleAlias, scopeField, scopeField, scopeTitle, scopeSearchPlaceholder,
                     false, ScopedListWorkspaceCreatePolicy.ALLOW_UNSCOPED);
+        }
+
+        /** Uses the standard left explorer and right detail-card management shell. */
+        public Builder flatManagementTemplate() {
+            return flatManagementTemplate(null);
+        }
+
+        /** Selects the flat-management template and fills its visible content slots. */
+        public Builder flatManagementTemplate(Consumer<FlatManagementTemplateDefinition.Builder> customizer) {
+            if (viewKind != ModuleViewKind.LIST) {
+                throw new IllegalStateException("page template is only supported by list views");
+            }
+            pageTemplate = ModulePageTemplate.FLAT_MANAGEMENT;
+            FlatManagementTemplateDefinition.Builder builder = FlatManagementTemplateDefinition.builder();
+            if (customizer != null) customizer.accept(builder);
+            flatManagementTemplate = builder.build();
+            return this;
         }
 
         public Builder scopedListWorkspace(String scopeModuleAlias, String scopeField, String queryCriteriaKey,
@@ -154,7 +188,7 @@ public record ViewDefinition(String viewCode,
 
         public ViewDefinition build() {
             return new ViewDefinition(viewCode, viewKind, clientType, title, fields, sourceUiConfigId,
-                    scopedListWorkspace, formGroups);
+                    scopedListWorkspace, pageTemplate, flatManagementTemplate, formGroups);
         }
     }
 }

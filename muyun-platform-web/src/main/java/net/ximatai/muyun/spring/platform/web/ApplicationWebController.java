@@ -25,6 +25,14 @@ public class ApplicationWebController extends WebSupport<ApplicationService> imp
         return ModuleUiDefinition.builder(ApplicationService.MODULE_ALIAS)
                 .listView(list -> list
                         .title("应用列表")
+                        .flatManagementTemplate(template -> template
+                                .explorerTitle("应用列表")
+                                .explorerSearchPlaceholder("搜索应用名称、alias 或 ID")
+                                .emptyDescription("暂无应用")
+                                .detailEmptyDescription("请选择应用，或新建应用")
+                                .createTitle("新建应用")
+                                .recordLabel("应用")
+                                .fallbackTitle("未命名应用"))
                         .field("alias", field -> field.label("应用 alias").width("180px"))
                         .field("title", field -> field.label("应用名称").width("240px"))
                         .field("enabled", field -> field.label("状态").uiType("enabledStatus")

@@ -57,6 +57,7 @@ function handleChange(enabled: boolean) {
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
+  transform: translateY(var(--muyun-record-status-switch-offset-y, 0));
 }
 
 .record-status-switch-label {

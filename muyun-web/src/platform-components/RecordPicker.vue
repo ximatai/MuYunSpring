@@ -167,7 +167,7 @@ function toTreeNode(node: WebTreeNode<RecordPickerRecord>): UiTreeNode {
 }
 
 function selectRecord(record: RecordPickerRecord) {
-  if (!record.id || firstConstraintMessage(record, pickerContext.value, props.constraints)) {
+  if (!record.id || isRecordDisabled(record)) {
     return;
   }
   emit('update:value', record.id);
@@ -183,7 +183,10 @@ function handleTreeSelect(node: UiTreeNode) {
 }
 
 function isRecordDisabled(record: RecordPickerRecord) {
-  return Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints));
+  return (
+    record.enabled === false ||
+    Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints))
+  );
 }
 
 function clearValue() {

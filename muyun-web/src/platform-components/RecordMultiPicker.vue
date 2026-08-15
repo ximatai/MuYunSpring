@@ -96,7 +96,10 @@ function recordTitle(record: RecordPickerRecord) {
 }
 
 function isDisabled(record: RecordPickerRecord) {
-  return Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints));
+  return (
+    record.enabled === false ||
+    Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints))
+  );
 }
 
 function toTreeNode(node: WebTreeNode<RecordPickerRecord>): UiTreeSelectNode {

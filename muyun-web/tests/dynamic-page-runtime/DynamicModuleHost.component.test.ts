@@ -144,6 +144,96 @@ describe('DynamicModuleHost', () => {
     expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).props('open')).toBe(false);
   });
 
+  it('renders the flat management template as an inline explorer and detail workspace', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/platform.application/context')) {
+        return Response.json({
+          moduleAlias: 'platform.application',
+          capabilities: ['RECYCLE_BIN'],
+          actions: [
+            { actionCode: 'create', authorized: true },
+            { actionCode: 'update', authorized: true },
+            { actionCode: 'delete', authorized: true },
+          ],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'platform.application',
+            views: [
+              {
+                viewCode: 'default_list',
+                viewKind: 'LIST',
+                pageTemplate: 'FLAT_MANAGEMENT',
+                flatManagementTemplate: {
+                  explorerTitle: '应用列表',
+                  explorerSearchPlaceholder: '搜索应用名称、alias 或 ID',
+                  emptyDescription: '暂无应用',
+                  detailEmptyDescription: '请选择应用，或新建应用',
+                  createTitle: '新建应用',
+                  recordLabel: '应用',
+                  fallbackTitle: '未命名应用',
+                },
+                fields: [],
+              },
+              { viewCode: 'default_form', viewKind: 'FORM', fields: [] },
+            ],
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({
+      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+    });
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'platform.application', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: {
+            template: '<section><slot name="actions" /><slot /><slot name="footer" /></section>',
+          },
+          RecordDetailPanel: {
+            template: '<section><slot name="status" /><slot name="actions" /><slot /></section>',
+          },
+          StaticManagementLayout: {
+            template:
+              '<section><slot name="explorer-actions" /><slot name="explorer" /><slot name="explorer-footer" /><slot name="detail-status" /><slot name="detail-actions" /><slot /></section>',
+          },
+        },
+      },
+    });
+    await flushPromises();
+
+    const explorer = wrapper.findComponent({ name: 'CrudRecordListExplorer' });
+    expect(explorer.exists()).toBe(true);
+    expect(explorer.props('emptyDescription')).toBe('暂无应用');
+    expect(explorer.props('fallbackTitle')).toBe('未命名应用');
+    expect(explorer.props('mode')).toBe('normal');
+    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).exists()).toBe(false);
+
+    explorer.vm.$emit('select', { id: 'application-1', title: '旧应用' });
+    await flushPromises();
+    wrapper.findComponent({ name: 'ModuleActionButton' }).vm.$emit('click');
+    await flushPromises();
+
+    const actionBar = wrapper.findComponent({ name: 'RecordActionBar' });
+    expect(actionBar.props('recordId')).toBeUndefined();
+    expect(actionBar.props('actions')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'save', actionCode: 'create' })]),
+    );
+  });
+
   it('uses the same record grant for the standard view row action and double-click', async () => {
     let viewRequests = 0;
     globalThis.fetch = async (input) => {

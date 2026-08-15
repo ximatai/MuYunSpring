@@ -57,6 +57,7 @@ it('record explorer panel uses a single title contract', () => {
   const panelSource = readSource('src/platform-components/RecordExplorerPanel.vue');
   const detailPanelSource = readSource('src/platform-components/RecordDetailPanel.vue');
   const headerSource = readSource('src/platform-components/ManagementPanelHeader.vue');
+  const statusSwitchSource = readSource('src/platform-components/RecordStatusSwitch.vue');
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
   const workspaceSource = readSource('src/platform-components/ManagementWorkspace.vue');
 
@@ -65,6 +66,15 @@ it('record explorer panel uses a single title contract', () => {
   assert.match(panelSource, /<ManagementPanelHeader/);
   assert.match(detailPanelSource, /<ManagementPanelHeader/);
   assert.match(headerSource, /--muyun-management-panel-header-height/);
+  assert.match(
+    headerSource,
+    /\.management-panel-header-status[\s\S]*--muyun-record-status-switch-offset-y: -4px/,
+  );
+  assert.match(
+    statusSwitchSource,
+    /transform: translateY\(var\(--muyun-record-status-switch-offset-y, 0\)\)/,
+  );
+  assert.match(layoutSource, /<RecordDetailPanel[\s\S]*<slot name="detail-status"/);
   assert.match(workspaceSource, /--muyun-management-panel-padding-block/);
 });
 
@@ -314,6 +324,9 @@ it('record mode drawer owns detail mode branch switching', () => {
   const recordPickerSource = readSource('src/platform-components/RecordPicker.vue');
   assert.match(recordPickerSource, /if \(props\.mode === 'list'\)[\s\S]*await loadListRecords\(\)/);
   assert.match(recordPickerSource, /props\.context\.crud\.query/);
+  assert.match(recordPickerSource, /record\.enabled === false \|\|\s*Boolean\(firstConstraintMessage/);
+  const recordMultiPickerSource = readSource('src/platform-components/RecordMultiPicker.vue');
+  assert.match(recordMultiPickerSource, /record\.enabled === false \|\|\s*Boolean\(firstConstraintMessage/);
   assert.notMatch(viewTemplate, /任职管理/);
 });
 
@@ -1791,7 +1804,38 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /<RecordMetaSection/);
   assert.match(hostSource, /<ModuleActionButton/);
   assert.match(hostSource, /<RecordPanelState/);
-  assert.match(hostSource, /v-if="!treeModule"/);
+  assert.match(hostSource, /v-if="!treeModule && !flatManagementTemplate"/);
+  assert.match(hostSource, /<StaticManagementLayout\s+v-else-if="flatManagementTemplate"/);
+  assert.match(
+    hostSource,
+    /<div class="dynamic-form dynamic-scope-editor-form">[\s\S]*?<RecordFormFields[\s\S]*?:fields="scopeFormFields"/,
+  );
+  assert.equal(matchCount(hostSource, /<div v-else class="dynamic-form">[\s\S]*?<RecordFormFields/g), 2);
+  assert.match(
+    hostSource,
+    /<div v-if="editingRecord" class="dynamic-form">[\s\S]*?<RecordFormFields[\s\S]*?@update:field="updateDraftField"/,
+  );
+  assert.match(hostSource, /<div v-else class="dynamic-form">[\s\S]*<RecordFormFields/);
+  assert.match(hostSource, /\.dynamic-form \{[\s\S]*column-gap: 12px;[\s\S]*row-gap: 16px;/);
+  assert.match(hostSource, /\.dynamic-form \{[\s\S]*--muyun-record-form-label-gap: 8px;/);
+  const recordFormFieldsSource = readSource('src/platform-components/RecordFormFields.vue');
+  assert.match(recordFormFieldsSource, /gap: var\(--muyun-record-form-label-gap, 6px\)/);
+  assert.match(hostSource, /useRecycleBinExplorerMode<QueryListRecord>/);
+  assert.match(hostSource, /title: `删除\$\{recordLabel\.value\}`/);
+  assert.match(
+    hostSource,
+    /function presentDynamicModuleActionSuccess\([\s\S]*handlePlatformActionSuccess\(result,[\s\S]*source,[\s\S]*fallbackMessage/,
+  );
+  assert.match(hostSource, /await presentDynamicModuleActionSuccess\(result, '保存成功'\)/);
+  assert.match(hostSource, /await presentDynamicModuleActionSuccess\(result, '删除成功'\)/);
+  assert.match(
+    hostSource,
+    /await presentDynamicModuleActionSuccess\(result, enabling \? '已启用' : '已停用'\)/,
+  );
+  assert.match(
+    hostSource,
+    /presentPlatformError\(cause, \{ source: 'dynamic-module-action', phase: 'action' \}\)/,
+  );
   assert.notMatch(hostSource, /formViewCode/);
   assert.notMatch(hostSource, /:subtitle=/);
   assert.notMatch(hostSource, /<button/);

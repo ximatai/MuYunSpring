@@ -1,8 +1,9 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
 import net.ximatai.muyun.database.core.builder.ColumnType;
+import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
 
-public enum FieldType {
+public enum FieldType implements CodeTitleEnum {
     STRING(ColumnType.VARCHAR),
     TEXT(ColumnType.TEXT),
     INTEGER(ColumnType.INT),
@@ -22,6 +23,16 @@ public enum FieldType {
 
     public ColumnType toColumnType() {
         return columnType;
+    }
+
+    @Override
+    public String getCode() {
+        return name();
+    }
+
+    @Override
+    public String getTitle() {
+        return name();
     }
 
     public FieldTemporalSemantics temporalSemantics() {

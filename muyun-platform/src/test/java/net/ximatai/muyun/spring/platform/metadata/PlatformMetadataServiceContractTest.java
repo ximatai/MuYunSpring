@@ -11,6 +11,7 @@ import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.capability.SortCapable;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
@@ -47,6 +48,7 @@ import net.ximatai.muyun.spring.platform.currency.ExchangeRate;
 import net.ximatai.muyun.spring.platform.currency.ExchangeRateService;
 import net.ximatai.muyun.spring.platform.currency.ExchangeRateType;
 import net.ximatai.muyun.spring.platform.currency.ExchangeRateTypeService;
+import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
 import net.ximatai.muyun.spring.platform.currency.MoneyDynamicRecordMutationCoordinator;
 import net.ximatai.muyun.spring.platform.currency.TenantCurrencySettingService;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategory;
@@ -569,7 +571,7 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
-    void shouldValidateFieldTypeUiAliasesByUiTypeAliasNotRecordId() {
+    void shouldUseUiControlAliasAsItsStableRecordId() {
         FieldUiControl uiType = fieldUiType("text_alias", "输入框", "string", ViewControlType.TEXT);
         uiType.setId("custom_ui_type_id");
         fieldUiTypeService.insert(uiType);
@@ -579,7 +581,16 @@ class PlatformMetadataServiceContractTest {
 
         fieldTypeService.insert(displayString);
 
+        assertThat(fieldUiTypeService.select("text_alias").getAlias()).isEqualTo("text_alias");
         assertThat(fieldTypeService.select(displayString.getId()).getDefaultUiControlAlias()).isEqualTo("text_alias");
+    }
+
+    @Test
+    void shouldRegisterFieldUiControlsAsReferenceTargets() {
+        StaticAbilityCatalog catalog = new StaticAbilityCatalog(java.util.List.of(fieldUiTypeService));
+
+        assertThat(catalog.findReference(ReferenceTargets.fromModuleAlias(FieldUiControlService.MODULE_ALIAS)))
+                .containsSame(fieldUiTypeService);
     }
 
     @Test

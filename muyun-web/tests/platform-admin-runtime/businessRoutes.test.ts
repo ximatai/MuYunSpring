@@ -10,7 +10,6 @@ import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 
 it('static business route registry exposes route prefixes for navigation resolution', () => {
   assert.deepEqual(platformAdminRoutePrefixes, [
-    '/config/field-specs',
     '/config/field-ui-controls',
     '/config/dictionaries',
     '/config/modules',
@@ -27,7 +26,6 @@ it('static business route registry exposes route prefixes for navigation resolut
     '/iam/positions',
   ]);
   assert.deepEqual(platformAdminModuleRoutes, {
-    'platform.field_spec': '/config/field-specs',
     'platform.field_ui_control': '/config/field-ui-controls',
     'platform.dictionary_category': '/config/dictionaries',
     'platform.module': '/config/modules',

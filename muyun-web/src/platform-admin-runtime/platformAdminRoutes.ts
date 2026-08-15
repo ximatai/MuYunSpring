@@ -5,7 +5,6 @@ import type {
   PageLayoutMode,
   RoutePageTarget,
 } from '@muyun/web-contracts';
-import FieldSpecManagementView from '../views/FieldSpecManagementView.vue';
 import FieldUiControlManagementView from '../views/FieldUiControlManagementView.vue';
 import DepartmentManagementView from '../views/DepartmentManagementView.vue';
 import DictionaryManagementView from '../views/DictionaryManagementView.vue';
@@ -32,12 +31,6 @@ export interface PlatformAdminRoute {
 }
 
 export const platformAdminRoutes: PlatformAdminRoute[] = [
-  {
-    route: '/config/field-specs',
-    moduleAlias: 'platform.field_spec',
-    component: FieldSpecManagementView,
-    layout: 'workspace',
-  },
   {
     route: '/config/field-ui-controls',
     moduleAlias: 'platform.field_ui_control',

@@ -206,6 +206,8 @@ public final class ModuleUiDescriptorCompiler {
                         .toList(),
                 view.sourceUiConfigId(),
                 ResolvedScopedListWorkspaceDescriptor.from(view.scopedListWorkspace()),
+                view.pageTemplate(),
+                ResolvedFlatManagementTemplateDescriptor.from(view.flatManagementTemplate()),
                 view.formGroups().stream().map(group -> new ResolvedFormGroupDescriptor(
                         group.groupCode(), group.title(), group.subtitle(),
                         group.fields().stream().map(ViewFieldDefinition::fieldRef).toList())).toList()
@@ -401,11 +403,19 @@ public final class ModuleUiDescriptorCompiler {
      * can render the resolved label without a second client request.
      */
     private static String referenceTitleField(Class<?> modelClass, String sourceField) {
-        return StaticReferenceResolver.rules(modelClass).stream()
+        String directTitle = StaticReferenceResolver.rules(modelClass).stream()
                 .filter(rule -> rule.plan().sourceField().equals(sourceField))
                 .flatMap(rule -> rule.plan().projections().stream())
                 .filter(projection -> "title".equals(projection.targetField()))
                 .map(ReferenceProjection::outputField)
+                .findFirst()
+                .orElse(null);
+        if (directTitle != null) {
+            return directTitle;
+        }
+        return StaticReferenceResolver.summaryPlans(modelClass).stream()
+                .filter(summary -> summary.sourceField().equals(sourceField) && summary.fields().contains("title"))
+                .map(ReferenceSummaryPlan::outputField)
                 .findFirst()
                 .orElse(null);
     }

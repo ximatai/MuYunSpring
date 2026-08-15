@@ -27,6 +27,19 @@ neutral between MuYunFileServer and database-inline assets.
 
 This layer may compose `vue-ui-antdv`, `web-core`, `dynamic-page-runtime`, and `web-contracts`, but should only accept business semantics that are stable across multiple business projects.
 
+## 管理标题栏视觉契约
+
+`ManagementPanelHeader` 的 `status` 插槽承载与标题并列的标准记录状态。它在自身作用域声明
+`--muyun-record-status-switch-offset-y`；`RecordStatusSwitch` 消费该变量并默认回退为 `0`。
+因此，启停开关在标准管理标题栏中遵循与标题文字一致的视觉基线，在其他位置使用时不携带该布局偏移。
+业务页面和 UI DSL 不应自行设置这个变量或以 margin、transform 修正开关位置。
+
+## 动态表单纵向节奏
+
+`RecordFormFields` 使用 `--muyun-record-form-label-gap` 控制标签与控件的局部间距，默认值为 `6px`。
+动态模块运行器以真实网格容器承载字段，并声明舒适编辑密度：标签间距 `8px`、字段行距 `16px`、列距 `12px`。
+字段语义和布局密度分别由 descriptor 与运行器负责，UI DSL 不声明像素值；静态页面可在评估后显式采用相同的容器契约。
+
 ## 受控模块页面增强
 
 标准模块页是 descriptor 的默认渲染器。业务应用需要个性化时，应在应用启动处通过

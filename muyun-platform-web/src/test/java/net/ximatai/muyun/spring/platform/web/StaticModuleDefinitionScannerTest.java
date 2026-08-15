@@ -137,8 +137,19 @@ class StaticModuleDefinitionScannerTest {
             assertThat(ModuleUiDescriptorCompiler.compile(definition).views())
                     .filteredOn(view -> view.viewCode().equals("default_list"))
                     .singleElement()
-                    .satisfies(view -> assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
-                            .containsExactly("alias", "title", "enabled"));
+                    .satisfies(view -> {
+                        assertThat(view.pageTemplate()).isEqualTo(ModulePageTemplate.FLAT_MANAGEMENT);
+                        assertThat(view.flatManagementTemplate()).satisfies(template -> {
+                            assertThat(template.explorerTitle()).isEqualTo("应用列表");
+                            assertThat(template.explorerSearchPlaceholder()).isEqualTo("搜索应用名称、alias 或 ID");
+                            assertThat(template.emptyDescription()).isEqualTo("暂无应用");
+                            assertThat(template.detailEmptyDescription()).isEqualTo("请选择应用，或新建应用");
+                            assertThat(template.createTitle()).isEqualTo("新建应用");
+                            assertThat(template.recordLabel()).isEqualTo("应用");
+                        });
+                        assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
+                                .containsExactly("alias", "title", "enabled");
+                    });
         }
     }
 
@@ -889,9 +900,44 @@ class StaticModuleDefinitionScannerTest {
             StaticModuleDefinition definition = new StaticModuleDefinitionScanner(context).scan().getFirst();
 
             assertThat(definition.moduleAlias()).isEqualTo("platform.field_spec");
+            assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
             assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactly("menu", "create", "view", "update", "delete", "query",
                             "sort", "enable", "disable");
+            assertThat(definition.uiDefinition()).isNotNull();
+            assertThat(definition.uiDefinition().views()).anySatisfy(view -> {
+                assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
+                assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
+                        .containsExactly("alias", "title", "fieldType", "defaultLength", "defaultPrecision",
+                                "defaultScale", "defaultQueryOperator", "queryOperators", "defaultUiControlAlias",
+                                "uiControlAliases", "enabled");
+                assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("alias"))
+                        .singleElement().satisfies(field -> assertThat(field.readOnly().formula().expression())
+                                .isEqualTo("PRESENT({id})"));
+            });
+            assertThat(ModuleUiDescriptorCompiler.compile(definition).views())
+                    .filteredOn(view -> view.viewCode().equals("default_list"))
+                    .singleElement()
+                    .satisfies(view -> {
+                        assertThat(view.pageTemplate()).isEqualTo(ModulePageTemplate.FLAT_MANAGEMENT);
+                        assertThat(view.flatManagementTemplate().explorerTitle()).isEqualTo("字段规格列表");
+                        assertThat(view.flatManagementTemplate().emptyDescription()).isEqualTo("暂无字段规格");
+                        assertThat(view.flatManagementTemplate().recordLabel()).isEqualTo("字段规格");
+                    });
+            assertThat(ModuleUiDescriptorCompiler.compile(definition).views())
+                    .filteredOn(view -> view.viewCode().equals("default_form"))
+                    .singleElement()
+                    .satisfies(view -> {
+                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("fieldType"))
+                                .singleElement().satisfies(field -> assertThat(field.option().binding().sourceType())
+                                        .isEqualTo("enum"));
+                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("queryOperators"))
+                                .singleElement().satisfies(field -> assertThat(field.option().selectionMode().name())
+                                        .isEqualTo("MULTIPLE"));
+                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("uiControlAliases"))
+                                .singleElement().satisfies(field -> assertThat(field.reference().cardinality().name())
+                                        .isEqualTo("MANY"));
+                    });
         }
     }
 

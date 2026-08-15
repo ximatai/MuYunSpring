@@ -415,7 +415,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 <style scoped>
 .record-form-field {
   display: grid;
-  gap: 6px;
+  gap: var(--muyun-record-form-label-gap, 6px);
   color: var(--muyun-text-muted);
   font-size: 13px;
 }

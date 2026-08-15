@@ -688,7 +688,19 @@ export interface ResolvedViewDescriptor {
   /** Dynamic-page provenance used to select the view configured by a menu entry. */
   sourceUiConfigId?: string;
   scopedListWorkspace?: ResolvedScopedListWorkspaceDescriptor;
+  pageTemplate?: 'FLAT_MANAGEMENT';
+  flatManagementTemplate?: ResolvedFlatManagementTemplateDescriptor;
   formGroups?: FormGroupDescriptor[];
+}
+
+export interface ResolvedFlatManagementTemplateDescriptor {
+  explorerTitle: string;
+  explorerSearchPlaceholder: string;
+  emptyDescription: string;
+  detailEmptyDescription: string;
+  createTitle: string;
+  recordLabel: string;
+  fallbackTitle: string;
 }
 
 export interface ResolvedUiActionConfirmationDescriptor {

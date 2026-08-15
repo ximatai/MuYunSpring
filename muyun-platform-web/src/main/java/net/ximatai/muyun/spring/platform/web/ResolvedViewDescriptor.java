@@ -9,6 +9,8 @@ public record ResolvedViewDescriptor(String viewCode,
                                      List<ResolvedViewFieldDescriptor> fields,
                                      String sourceUiConfigId,
                                      ResolvedScopedListWorkspaceDescriptor scopedListWorkspace,
+                                     ModulePageTemplate pageTemplate,
+                                     ResolvedFlatManagementTemplateDescriptor flatManagementTemplate,
                                      List<ResolvedFormGroupDescriptor> formGroups) {
     public ResolvedViewDescriptor {
         if (viewCode == null || viewCode.isBlank()) {
@@ -25,6 +27,12 @@ public record ResolvedViewDescriptor(String viewCode,
         if (scopedListWorkspace != null && viewKind != ModuleViewKind.LIST) {
             throw new IllegalArgumentException("scoped list workspace is only supported by list views: " + viewCode);
         }
+        if (pageTemplate != null && viewKind != ModuleViewKind.LIST) {
+            throw new IllegalArgumentException("page template is only supported by list views: " + viewCode);
+        }
+        if (flatManagementTemplate != null && pageTemplate != ModulePageTemplate.FLAT_MANAGEMENT) {
+            throw new IllegalArgumentException("flat management content requires the flat management template: " + viewCode);
+        }
         formGroups = formGroups == null ? List.of() : List.copyOf(formGroups);
         if (!formGroups.isEmpty() && viewKind != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("form groups are only supported by form views: " + viewCode);
@@ -33,12 +41,19 @@ public record ResolvedViewDescriptor(String viewCode,
 
     public ResolvedViewDescriptor(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                                   List<ResolvedViewFieldDescriptor> fields) {
-        this(viewCode, viewKind, clientType, title, fields, null, null, null);
+        this(viewCode, viewKind, clientType, title, fields, null, null, null, null, null);
     }
 
     public ResolvedViewDescriptor(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                                   List<ResolvedViewFieldDescriptor> fields, String sourceUiConfigId,
                                   ResolvedScopedListWorkspaceDescriptor scopedListWorkspace) {
-        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, scopedListWorkspace, null);
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, scopedListWorkspace, null, null, null);
+    }
+
+    public ResolvedViewDescriptor(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
+                                  List<ResolvedViewFieldDescriptor> fields, String sourceUiConfigId,
+                                  ResolvedScopedListWorkspaceDescriptor scopedListWorkspace,
+                                  List<ResolvedFormGroupDescriptor> formGroups) {
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, scopedListWorkspace, null, null, formGroups);
     }
 }
