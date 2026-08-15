@@ -120,6 +120,20 @@ public class ApplicationService extends StandardBusinessService<Application> imp
     }
 
     /**
+     * A deleted ordinary application has no dependent platform resources, so operators may remove it
+     * irreversibly from the recycle bin. The same reference check is repeated immediately before purge.
+     */
+    @Override
+    public boolean isRecycleBinPurgeEnabled() {
+        return true;
+    }
+
+    @Override
+    public void beforeRecycleBinPurge(String id) {
+        beforeDelete(id);
+    }
+
+    /**
      * Applications declared by the platform are catalog facts, not tenant-admin configurable records.
      * Their lifecycle is owned by static application registration.
      */

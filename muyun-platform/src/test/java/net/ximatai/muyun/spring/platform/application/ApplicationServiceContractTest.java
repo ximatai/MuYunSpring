@@ -84,6 +84,17 @@ class ApplicationServiceContractTest {
     }
 
     @Test
+    void shouldAllowPurgingAnUnreferencedDeletedApplication() {
+        ApplicationService service = new ApplicationService(new ApplicationMemoryDao());
+        String applicationAlias = service.insert(application("test1"));
+
+        assertThat(service.delete(applicationAlias)).isEqualTo(1);
+        assertThat(service.isRecycleBinPurgeEnabled()).isTrue();
+        assertThat(service.purge(applicationAlias)).isEqualTo(1);
+        assertThat(service.selectIgnoreSoftDelete(applicationAlias)).isNull();
+    }
+
+    @Test
     void shouldProtectPlatformManagedApplicationsAndExplainUnavailableActions() {
         ApplicationService service = new ApplicationService(new ApplicationMemoryDao());
         Application managed = application("platform");
@@ -299,7 +310,7 @@ class ApplicationServiceContractTest {
 
         @Override
         public int deleteByIdAndCondition(String id, Map<String, Object> conditions) {
-            return 1;
+            return rows.remove(id) == null ? 0 : 1;
         }
 
         @Override
