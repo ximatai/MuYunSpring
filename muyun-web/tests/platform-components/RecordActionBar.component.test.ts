@@ -65,7 +65,7 @@ describe('RecordActionBar', () => {
       props: {
         context: {
           action: (actionCode: string) => ({ actionCode, available: true }),
-          recordActions: (recordId: string) =>
+          recordActions: () =>
             new Promise((resolve) => {
               resolveAvailability = resolve;
             }),
