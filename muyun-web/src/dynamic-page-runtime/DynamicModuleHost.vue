@@ -27,6 +27,7 @@ import {
   type RecordFormFieldPickerConfig,
   type RecordActionItem,
   type RecordQueryListCellComponent,
+  type StandardCrudRowActionKey,
   type QueryListRecord,
   type RecordFormRecord,
 } from '@muyun/platform-components';
@@ -55,6 +56,7 @@ import {
   type ModulePageActionStateContext,
   type ModulePageBatchActionContribution,
   type ModulePageColumnContribution,
+  type ModulePageDetailDrawer,
   type ModulePageDetailSection,
   type ModulePageDetailSectionContext,
   type ModulePageDrawer,
@@ -197,6 +199,15 @@ const enhancementDetailActions = computed<ModulePageRecordActionContribution[]>(
 const enhancementDetailSections = computed<ModulePageDetailSection[]>(
   () => pageEnhancement.value?.detail?.sections ?? [],
 );
+const enhancementDetailDrawer = computed<ModulePageDetailDrawer | undefined>(
+  () => pageEnhancement.value?.detail?.drawer,
+);
+const standardCrudRowActionKeys = computed<StandardCrudRowActionKey[]>(() =>
+  enhancementDetailDrawer.value ? ['view'] : ['view', 'edit', 'delete'],
+);
+const standardCrudRowActionCodes = computed<Partial<Record<StandardCrudRowActionKey, string>>>(() => ({
+  view: pageEnhancement.value?.list?.viewActionCode ?? 'view',
+}));
 const pageBootstrapRequired = computed(() => Boolean(props.descriptor.menuId));
 const pageReady = computed(() => !pageBootstrapRequired.value || pageBootstrap.value !== undefined);
 const unsupportedPageModeText = computed(() => `动态${pageMode.value}入口暂未接入运行器`);
@@ -526,6 +537,11 @@ async function openRecord(record: QueryListRecord, mode: 'edit' | 'view') {
   detailOpen.value = true;
   detailLoading.value = true;
   detailLoadFailed.value = false;
+  if (mode === 'view' && enhancementDetailDrawer.value?.loadRecord === false) {
+    editingRecord.value = record;
+    detailLoading.value = false;
+    return;
+  }
   try {
     const detail = await context.crud.view(id);
     if (
@@ -686,7 +702,7 @@ function handleListAction(action: { key?: string }) {
 
 function handleRowAction(action: { key?: string }, record: QueryListRecord) {
   if (action.key === 'view') {
-    void openRecord(record, 'view');
+    void openViewRecord(record);
     return;
   }
   if (action.key === 'edit') {
@@ -701,6 +717,23 @@ function handleRowAction(action: { key?: string }, record: QueryListRecord) {
   if (contribution) {
     void executeEnhancementAction(contribution, { ...modulePageActionContext(record), record });
   }
+}
+
+async function openViewRecord(record: QueryListRecord) {
+  const viewActionCode = pageEnhancement.value?.list?.viewActionCode;
+  const recordId = record.id == null ? undefined : String(record.id);
+  if (viewActionCode && recordId) {
+    try {
+      const availability = await context.recordActions(recordId);
+      if (!availability.actions.some((action) => action.actionCode === viewActionCode && action.available)) {
+        return;
+      }
+    } catch (cause) {
+      presentPlatformError(cause, { source: 'module-page-view', phase: 'authorization' });
+      return;
+    }
+  }
+  await openRecord(record, 'view');
 }
 
 function handleDetailAction(action: { key?: string }) {
@@ -731,6 +764,17 @@ async function executeEnhancementAction<TContext>(
 
 function detailSectionContext(record: QueryListRecord): ModulePageDetailSectionContext {
   return { module: context, record, refreshList, reload: reloadModulePage };
+}
+
+function detailDrawerContext(record: QueryListRecord): ModulePageDrawerContext {
+  return {
+    module: context,
+    record,
+    scope: modulePageActionStateContext().scope,
+    refreshList,
+    close: closeDetail,
+    reload: reloadModulePage,
+  };
 }
 
 function modulePageActionContext(record?: QueryListRecord): ModulePageActionContext {
@@ -932,6 +976,8 @@ function recordTitle(record: QueryListRecord | undefined) {
         :reload-key="reloadKey"
         :actions="scopedListActions"
         :standard-crud-row-actions="true"
+        :standard-crud-row-action-keys="standardCrudRowActionKeys"
+        :standard-crud-row-action-codes="standardCrudRowActionCodes"
         :extra-actions="enhancementActions"
         :additional-columns="enhancementColumns"
         :cell-components="enhancementCellComponents"
@@ -947,7 +993,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         empty-description="暂无动态记录"
         @loaded="handleLoaded"
         @select="selectRecord"
-        @row-dblclick="(record) => openRecord(record, 'view')"
+        @row-dblclick="openViewRecord"
         @action="handleListAction"
         @row-action="handleRowAction"
         @batch-action="
@@ -1100,6 +1146,8 @@ function recordTitle(record: QueryListRecord | undefined) {
       :reload-key="reloadKey"
       :standard-crud-actions="true"
       :standard-crud-row-actions="true"
+      :standard-crud-row-action-keys="standardCrudRowActionKeys"
+      :standard-crud-row-action-codes="standardCrudRowActionCodes"
       :extra-actions="enhancementActions"
       :additional-columns="enhancementColumns"
       :cell-components="enhancementCellComponents"
@@ -1113,7 +1161,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       empty-description="暂无动态记录"
       @loaded="handleLoaded"
       @select="selectRecord"
-      @row-dblclick="(record) => openRecord(record, 'view')"
+      @row-dblclick="openViewRecord"
       @action="handleListAction"
       @row-action="handleRowAction"
       @batch-action="
@@ -1125,11 +1173,16 @@ function recordTitle(record: QueryListRecord | undefined) {
       v-if="!treeModule"
       :open="detailOpen"
       :title="detailTitle"
+      :width="enhancementDetailDrawer?.width"
       :mode="editorMode"
       :loading="detailLoading"
       :load-failed="detailLoadFailed"
       :edit-available="
-        Boolean(selectedRecord) && !detailLoading && !detailLoadFailed && editorMode === 'view'
+        !enhancementDetailDrawer &&
+        Boolean(selectedRecord) &&
+        !detailLoading &&
+        !detailLoadFailed &&
+        editorMode === 'view'
       "
       :save-available="!detailLoading && !detailLoadFailed && editorMode !== 'view'"
       :saving="saving"
@@ -1140,7 +1193,7 @@ function recordTitle(record: QueryListRecord | undefined) {
     >
       <template #status>
         <RecordStatusSwitch
-          v-if="editorMode === 'view' && selectedRecord"
+          v-if="!enhancementDetailDrawer && editorMode === 'view' && selectedRecord"
           :enabled="selectedRecord.enabled !== false"
           :disabled="!canToggleEnabled"
           :loading="togglingEnabled"
@@ -1159,18 +1212,25 @@ function recordTitle(record: QueryListRecord | undefined) {
       </template>
       <template #view>
         <template v-if="editingRecord">
-          <RecordDetailFields
-            :record="editingRecord as RecordFormRecord"
-            :fields="formFields"
-            :exclude-field-names="['enabled']"
+          <component
+            :is="enhancementDetailDrawer.component"
+            v-if="enhancementDetailDrawer"
+            :context="detailDrawerContext(editingRecord)"
           />
-          <RecordDetailExtensionSection
-            v-for="section in enhancementDetailSections"
-            :key="section.key"
-            :title="section.title"
-          >
-            <component :is="section.component" :context="detailSectionContext(editingRecord)" />
-          </RecordDetailExtensionSection>
+          <template v-else>
+            <RecordDetailFields
+              :record="editingRecord as RecordFormRecord"
+              :fields="formFields"
+              :exclude-field-names="['enabled']"
+            />
+            <RecordDetailExtensionSection
+              v-for="section in enhancementDetailSections"
+              :key="section.key"
+              :title="section.title"
+            >
+              <component :is="section.component" :context="detailSectionContext(editingRecord)" />
+            </RecordDetailExtensionSection>
+          </template>
         </template>
       </template>
       <template #form>

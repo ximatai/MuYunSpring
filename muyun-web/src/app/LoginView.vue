@@ -188,9 +188,9 @@ async function submitPasswordChange() {
 
 .login-panel {
   display: grid;
-  width: min(100%, 380px);
+  width: min(100%, 440px);
   gap: 18px;
-  padding: 28px;
+  padding: 32px;
   border: 1px solid var(--muyun-support-border);
   border-radius: 8px;
   background: var(--muyun-support-surface);

@@ -234,7 +234,9 @@ it('record mode drawer owns detail mode branch switching', () => {
     detailLayoutSource,
     /\.record-detail-layout--drawer \.record-detail-layout-header[\s\S]*border-bottom: 1px solid var\(--muyun-border\)/,
   );
-  assert.match(detailLayoutSource, /grid-template-rows: auto minmax\(0, 1fr\) auto/);
+  assert.match(detailLayoutSource, /scrollableContent && Boolean\(\$slots\.operation\)/);
+  assert.match(detailLayoutSource, /grid-template-rows: auto minmax\(0, 1fr\);/);
+  assert.match(detailLayoutSource, /grid-template-rows: auto minmax\(0, 1fr\) auto;/);
   assert.match(detailLayoutSource, /record-detail-layout-operation/);
   assert.match(detailLayoutSource, /<DrawerOperationBar>/);
   assert.match(operationBarSource, /defineOptions\(\{ name: 'DrawerOperationBar' \}\)/);
@@ -332,7 +334,7 @@ it('standard module runner waits for a complete detail before enabling mutations
   assert.match(hostSource, /canMutateDynamicModuleDetail/);
   assert.match(
     hostSource,
-    /:edit-available="[\s\S]*Boolean\(selectedRecord\) && !detailLoading && !detailLoadFailed && editorMode === 'view'/,
+    /:edit-available="[\s\S]*!enhancementDetailDrawer[\s\S]*Boolean\(selectedRecord\)[\s\S]*!detailLoading[\s\S]*!detailLoadFailed[\s\S]*editorMode === 'view'/,
   );
   assert.match(hostSource, /:save-available="!detailLoading && !detailLoadFailed && editorMode !== 'view'"/);
 });
@@ -915,6 +917,10 @@ it('employee management uses organization scope and platform query list panel', 
   assert.match(panelSource, /standardCrudActions\?: boolean/);
   assert.match(panelSource, /standardCrudRowActions\?: boolean/);
   assert.match(panelSource, /function standardCrudRowActionsOf/);
+  assert.match(
+    panelSource,
+    /key: 'view', actionCode: props\.standardCrudRowActionCodes\.view \?\? 'view', title: '查看'/,
+  );
   assert.match(panelSource, /rowActionsOf\?: \(record: QueryListRecord\) => RecordActionItem\[\]/);
   assert.match(panelSource, /extraRowActionsOf\?: \(record: QueryListRecord\) => RecordActionItem\[\]/);
   assert.match(panelSource, /rowActionStateOf\?:/);

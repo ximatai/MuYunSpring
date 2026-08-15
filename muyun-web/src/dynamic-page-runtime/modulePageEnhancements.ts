@@ -31,6 +31,12 @@ export interface ModuleListEnhancement {
   cellComponents?: ModulePageCellComponentContribution[];
   /** Width of the list's fixed operation column; defaults to the platform compact width. */
   actionColumnWidth?: string | number;
+  /**
+   * Uses a business action code to authorize the platform's standard “查看”
+   * entry points. The platform verifies the selected record before opening the
+   * drawer, so the row action and double-click share one authorization path.
+   */
+  viewActionCode?: string;
   rowActions?: ModulePageRecordActionContribution[];
   batchActions?: ModulePageBatchActionContribution[];
 }
@@ -39,6 +45,15 @@ export interface ModuleListEnhancement {
 export interface ModuleDetailEnhancement {
   actions?: ModulePageRecordActionContribution[];
   sections?: ModulePageDetailSection[];
+  /**
+   * Replaces the descriptor-generated detail body while retaining the platform
+   * view drawer, its list entry points, and its lifecycle.
+   *
+   * A custom drawer body is intentionally read-only from the platform's point
+   * of view: generic edit and enable/disable controls are withheld so that the
+   * business module owns every operation it exposes in the view.
+   */
+  drawer?: ModulePageDetailDrawer;
 }
 
 export interface ModulePageActionContribution extends RecordActionItem {
@@ -68,6 +83,19 @@ export interface ModulePageDetailSection {
   key: string;
   title: string;
   component: Component;
+}
+
+/** Business content rendered inside the platform-owned standard view drawer. */
+export interface ModulePageDetailDrawer {
+  /** The component receives only the documented ModulePageDrawerContext prop. */
+  component: Component;
+  /** Keeps the platform drawer shell while allowing dense business views more room. */
+  width?: number | string;
+  /**
+   * Defaults to true. Set false when the business detail body has its own
+   * governed read endpoint and only needs the selected list record as context.
+   */
+  loadRecord?: boolean;
 }
 
 export interface ModulePageColumnContribution extends RecordQueryListColumn {

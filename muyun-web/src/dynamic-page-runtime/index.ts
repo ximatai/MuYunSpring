@@ -23,6 +23,7 @@ export type {
   ModulePageBatchActionContext,
   ModulePageBatchActionContribution,
   ModulePageColumnContribution,
+  ModulePageDetailDrawer,
   ModulePageDetailSection,
   ModulePageDetailSectionContext,
   ModulePageDrawer,
