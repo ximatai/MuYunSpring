@@ -511,4 +511,55 @@ describe('DynamicModuleHost', () => {
     expect(explorer.props('reloadKey')).toBe(1);
     wrapper.unmount();
   });
+
+  it('rejects business detail drawer enhancements for tree modules instead of silently ignoring them', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/demo.tree/context')) {
+        return Response.json({
+          moduleAlias: 'demo.tree',
+          capabilities: ['TREE'],
+          abilities: ['tree'],
+          actions: [{ actionCode: 'demo.tree.view_summary', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'demo.tree',
+            views: [{ viewCode: 'default_list', viewKind: 'LIST', fields: [] }],
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({
+      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+    });
+    configureModulePageEnhancements([
+      {
+        id: 'tree-summary',
+        target: { moduleAlias: 'demo.tree', viewCode: 'default_list' },
+        list: { viewActionCode: 'demo.tree.view_summary' },
+        detail: { drawer: { component: { template: '<section>树节点摘要</section>' } } },
+      },
+    ]);
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.tree', pageMode: 'LIST' },
+        },
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: 'RecordPanelState' }).props('description')).toBe(
+      '模块页面增强 tree-summary 的业务详情抽屉和查看动作仅支持普通列表模块，不支持树模块',
+    );
+    expect(wrapper.findComponent({ name: 'TreeRecordExplorer' }).exists()).toBe(false);
+    expect(refreshModulePageList('demo.tree')).toBe(false);
+  });
 });

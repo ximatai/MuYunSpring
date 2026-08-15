@@ -289,7 +289,7 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
 onMounted(async () => {
   await loadPageBootstrap();
   await loadRuntimeForm();
-  if (isListPage.value) {
+  if (isListPage.value && !pageBootstrapError.value) {
     unregisterListRefresh = modulePageListRefreshRegistry.register(context.moduleAlias, refreshList);
   }
 });
@@ -323,6 +323,11 @@ async function loadRuntimeForm() {
   const runtimeContext = await context.runtime.ready;
   runtimeViews.value = runtimeContext.uiDescriptor?.views ?? [];
   treeModule.value = context.abilities.hasTree() === true;
+  const enhancement = pageEnhancement.value;
+  if (treeModule.value && (enhancement?.detail?.drawer || enhancement?.list?.viewActionCode)) {
+    pageBootstrapError.value = `模块页面增强 ${enhancement.id} 的业务详情抽屉和查看动作仅支持普通列表模块，不支持树模块`;
+    return;
+  }
   scopedListWorkspace.value = scopedListWorkspaceFor(runtimeViews.value);
   scopeTree.value = false;
   if (scopeContext.value) {

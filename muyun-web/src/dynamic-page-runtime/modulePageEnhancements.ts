@@ -35,6 +35,7 @@ export interface ModuleListEnhancement {
    * Uses a business action code to authorize the platform's standard “查看”
    * entry points. The platform verifies the selected record before opening the
    * drawer, so the row action and double-click share one authorization path.
+   * Only supported by ordinary list modules; tree modules reject this enhancement.
    */
   viewActionCode?: string;
   rowActions?: ModulePageRecordActionContribution[];
@@ -52,6 +53,7 @@ export interface ModuleDetailEnhancement {
    * A custom drawer body is intentionally read-only from the platform's point
    * of view: generic edit and enable/disable controls are withheld so that the
    * business module owns every operation it exposes in the view.
+   * Only supported by ordinary list modules; tree modules reject this enhancement.
    */
   drawer?: ModulePageDetailDrawer;
 }
