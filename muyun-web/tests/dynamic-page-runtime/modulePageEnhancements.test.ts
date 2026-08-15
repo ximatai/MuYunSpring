@@ -52,6 +52,23 @@ describe('module page enhancements', () => {
     ).toThrow('不能覆盖平台标准动作：update');
   });
 
+  it('accepts a business detail drawer that keeps the platform view lifecycle', () => {
+    const DetailDrawer = { template: '<section>业务详情</section>' };
+    const registry = createModulePageEnhancementRegistry([
+      {
+        id: 'customer-detail-drawer',
+        target: { moduleAlias: 'crm.customer' },
+        detail: { drawer: { component: DetailDrawer, width: 720, loadRecord: false } },
+      },
+    ]);
+
+    expect(registry.resolve('crm.customer')?.detail?.drawer).toEqual({
+      component: DetailDrawer,
+      width: 720,
+      loadRecord: false,
+    });
+  });
+
   it('registers a stable business workspace view and creates a deduplicated tab descriptor', () => {
     const conversationView = {
       type: 'crm.customer.conversation',

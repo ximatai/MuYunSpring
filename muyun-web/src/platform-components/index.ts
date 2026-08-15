@@ -99,6 +99,7 @@ export type {
   RecordQueryListCellComponent,
   RecordQueryListColumn,
   RecordQueryListMode,
+  StandardCrudRowActionKey,
 } from './RecordQueryListPanel.vue';
 export type {
   RecordFormFieldDescriptor,

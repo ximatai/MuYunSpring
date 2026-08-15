@@ -25,7 +25,13 @@ withDefaults(
 <template>
   <main
     class="record-detail-layout"
-    :class="[`record-detail-layout--${surface}`, { 'record-detail-layout--scrollable': scrollableContent }]"
+    :class="[
+      `record-detail-layout--${surface}`,
+      {
+        'record-detail-layout--scrollable': scrollableContent,
+        'record-detail-layout--scrollable-with-operation': scrollableContent && Boolean($slots.operation),
+      },
+    ]"
   >
     <slot name="header">
       <header class="record-detail-layout-header">
@@ -85,8 +91,12 @@ withDefaults(
 }
 
 .record-detail-layout--scrollable {
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
+}
+
+.record-detail-layout--scrollable-with-operation {
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .record-detail-layout-content {

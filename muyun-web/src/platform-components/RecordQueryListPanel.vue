@@ -57,6 +57,7 @@ defineOptions({ name: 'RecordQueryListPanel' });
 
 export type QueryListRecord = Record<string, unknown> & { id?: string; enabled?: boolean };
 export type RecordQueryListMode = 'normal' | 'recycleBin';
+export type StandardCrudRowActionKey = 'view' | 'edit' | 'delete';
 
 export interface RecordQueryListColumn {
   key: string;
@@ -107,6 +108,10 @@ const props = withDefaults(
     batchActions?: RecordActionItem[];
     standardCrudActions?: boolean;
     standardCrudRowActions?: boolean;
+    /** Limits built-in row operations without replacing the platform list interaction. */
+    standardCrudRowActionKeys?: StandardCrudRowActionKey[];
+    /** Optional authorization-code overrides for platform built-in row operations. */
+    standardCrudRowActionCodes?: Partial<Record<StandardCrudRowActionKey, string>>;
     rowActionsOf?: (record: QueryListRecord) => RecordActionItem[];
     extraRowActionsOf?: (record: QueryListRecord) => RecordActionItem[];
     rowActionStateOf?: (
@@ -144,6 +149,8 @@ const props = withDefaults(
     batchActions: () => [],
     standardCrudActions: false,
     standardCrudRowActions: false,
+    standardCrudRowActionKeys: () => ['view', 'edit', 'delete'],
+    standardCrudRowActionCodes: () => ({}),
     rowActionsOf: undefined,
     extraRowActionsOf: undefined,
     rowActionStateOf: undefined,
@@ -609,11 +616,23 @@ function rowActionWithState(record: QueryListRecord, action: RecordActionItem): 
 }
 
 function standardCrudRowActionsOf(): RecordActionItem[] {
-  return [
-    { key: 'view', title: '查看' },
-    { key: 'edit', actionCode: 'update', title: '修改', iconName: 'edit' },
-    { key: 'delete', actionCode: 'delete', title: '删除', iconName: 'delete', danger: true },
+  const actions: Array<RecordActionItem & { key: StandardCrudRowActionKey }> = [
+    { key: 'view', actionCode: props.standardCrudRowActionCodes.view ?? 'view', title: '查看' },
+    {
+      key: 'edit',
+      actionCode: props.standardCrudRowActionCodes.edit ?? 'update',
+      title: '修改',
+      iconName: 'edit',
+    },
+    {
+      key: 'delete',
+      actionCode: props.standardCrudRowActionCodes.delete ?? 'delete',
+      title: '删除',
+      iconName: 'delete',
+      danger: true,
+    },
   ];
+  return actions.filter((action) => props.standardCrudRowActionKeys.includes(action.key));
 }
 
 function rowActionDropdownItem(action: ResolvedRecordActionItem): UiDropdownItem {

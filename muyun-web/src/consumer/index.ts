@@ -40,6 +40,7 @@ export type {
   ModulePageBatchActionContext,
   ModulePageBatchActionContribution,
   ModulePageColumnContribution,
+  ModulePageDetailDrawer,
   ModulePageDetailSection,
   ModulePageDetailSectionContext,
   ModulePageDrawer,
@@ -64,6 +65,7 @@ export {
   UiSwitch,
   UiTextArea,
   UiTree,
+  UiTreeSelect,
 } from '../vue-ui-antdv/index';
 export { default as PlatformAdminOutlet } from './PlatformAdminOutlet.vue';
 export { default as AppWorkbenchShell } from './AppWorkbenchShell.vue';
