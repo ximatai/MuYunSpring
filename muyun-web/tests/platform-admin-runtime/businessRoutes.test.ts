@@ -10,7 +10,6 @@ import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 
 it('static business route registry exposes route prefixes for navigation resolution', () => {
   assert.deepEqual(platformAdminRoutePrefixes, [
-    '/config/applications',
     '/config/field-specs',
     '/config/field-ui-controls',
     '/config/dictionaries',
@@ -66,22 +65,6 @@ it('static business route registry resolves module alias by route', () => {
   const route = resolvePlatformAdminRoute(descriptor);
 
   assert.equal(route?.moduleAlias, 'iam.organization');
-  assert.equal(isPlatformAdminRoutePage(descriptor), true);
-});
-
-it('static business route registry resolves by module alias for module menus', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/config/applications', moduleAlias: 'platform.application' },
-    tabPolicy: { identity: 'by-menu' },
-  };
-
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route?.route, '/config/applications');
-  assert.equal(route?.moduleAlias, 'platform.application');
   assert.equal(isPlatformAdminRoutePage(descriptor), true);
 });
 

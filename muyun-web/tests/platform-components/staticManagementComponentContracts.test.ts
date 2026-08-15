@@ -372,7 +372,6 @@ it('static edit draft normalizers preserve standard record fields', () => {
   const systemUserSource = readSource('src/views/SystemUserManagementView.vue');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
-  const applicationStateSource = readSource('src/views/applicationManagementState.ts');
   const tenantStateSource = readSource('src/views/tenantManagementState.ts');
   const organizationStateSource = readSource('src/views/organizationManagementState.ts');
   const departmentStateSource = readSource('src/views/departmentManagementState.ts');
@@ -390,7 +389,6 @@ it('static edit draft normalizers preserve standard record fields', () => {
     /function normalizedEmployeeDraft[\s\S]*normalizeRecordDraft<Employee>\(draft,/,
   );
   assert.match(roleSource, /function normalizedRoleDraft[\s\S]*normalizeRecordDraft<Role>\(draft,/);
-  assert.match(applicationStateSource, /function normalizedDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(tenantStateSource, /function normalizedDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(organizationStateSource, /function normalizedDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(departmentStateSource, /function normalizeDepartmentDraft[\s\S]*return \{\s*\.\.\.record,/);
@@ -561,7 +559,6 @@ it('menu management keeps scheme actions inline and delegates search to panel', 
 
 it('static management explorers use unified item descriptors', () => {
   const explorerViews = [
-    'ApplicationManagementView.vue',
     'TenantManagementView.vue',
     'OrganizationManagementView.vue',
     'DepartmentManagementView.vue',
@@ -717,7 +714,6 @@ it('three-column management pages use the platform detail panel', () => {
   const indexSource = readSource('src/platform-components/index.ts');
   const panelSource = readSource('src/platform-components/RecordDetailPanel.vue');
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
-  const applicationViewSource = readSource('src/views/ApplicationManagementView.vue');
   const tenantViewSource = readSource('src/views/TenantManagementView.vue');
   const organizationViewSource = readSource('src/views/OrganizationManagementView.vue');
   const positionViewSource = readSource('src/views/PositionManagementView.vue');
@@ -740,7 +736,7 @@ it('three-column management pages use the platform detail panel', () => {
   assert.match(layoutSource, /<slot name="explorer-actions" \/>/);
   assert.match(layoutSource, /<slot name="detail-actions" \/>/);
   assert.notMatch(layoutSource, /RecordStatusTag|card-header|title-line/);
-  for (const source of [applicationViewSource, tenantViewSource]) {
+  for (const source of [tenantViewSource]) {
     assert.match(source, /<template #detail-status>/);
     assert.match(source, /<RecordStatusSwitch/);
     assert.notMatch(source, /EnabledSelect|启用状态|toggle-enabled|show-status/);
@@ -2099,7 +2095,6 @@ it('public management and drawer contracts use business roles instead of layout 
   const recordDetailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
   const recordModeDrawerSource = readSource('src/platform-components/RecordModeDrawer.vue');
   const managementPageSources = [
-    readSource('src/views/ApplicationManagementView.vue'),
     readSource('src/views/PasswordManagementView.vue'),
     readSource('src/views/TenantManagementView.vue'),
   ];
@@ -2152,14 +2147,8 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
   const tenantSource = readSource('src/views/TenantManagementView.vue');
-  const applicationSource = readSource('src/views/ApplicationManagementView.vue');
   const recycleBinModeSource = readSource('src/platform-components/useRecycleBinExplorerMode.ts');
   const indexSource = readSource('src/platform-components/index.ts');
-
-  assert.match(
-    applicationSource,
-    /<template #detail-status>[\s\S]*v-if="!recycleBinExplorer\.active\.value"/,
-  );
 
   assert.match(panelSource, /export type RecordQueryListMode = 'normal' \| 'recycleBin'/);
   assert.match(panelSource, /mode\?: RecordQueryListMode/);
@@ -2216,7 +2205,6 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(recycleBinModeSource, /canQueryRecycleBin\(toValue\(options\.context\)\)/);
   assert.match(recycleBinModeSource, /options\.resetSelection\?\.\(\)/);
   assert.match(tenantSource, /useRecycleBinExplorerMode/);
-  assert.match(applicationSource, /useRecycleBinExplorerMode/);
   assert.match(tenantSource, /recycleBinExplorer\.buttonVisible\.value/);
   assert.match(tenantSource, /<template #explorer-footer>[\s\S]*回收站/);
   assert.match(tenantSource, /RecycleBinModeButton/);
