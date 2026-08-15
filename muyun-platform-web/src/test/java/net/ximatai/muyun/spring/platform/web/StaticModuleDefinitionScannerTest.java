@@ -115,6 +115,34 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @Test
+    void shouldCompilePlatformApplicationAsDescriptorDrivenModuleEntry() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ApplicationWebController.class);
+            context.refresh();
+
+            StaticModuleDefinition definition = new StaticModuleDefinitionScanner(context).scan().stream()
+                    .filter(candidate -> ApplicationService.MODULE_ALIAS.equals(candidate.moduleAlias()))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+            assertThat(definition.uiDefinition().views()).extracting(ViewDefinition::viewCode)
+                    .containsExactly("default_list", "default_form");
+            assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_form"))
+                    .singleElement()
+                    .satisfies(view -> assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("alias"))
+                            .singleElement()
+                            .satisfies(field -> assertThat(field.readOnly().formula().expression())
+                                    .isEqualTo("PRESENT({id})")));
+            assertThat(ModuleUiDescriptorCompiler.compile(definition).views())
+                    .filteredOn(view -> view.viewCode().equals("default_list"))
+                    .singleElement()
+                    .satisfies(view -> assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
+                            .containsExactly("alias", "title", "enabled"));
+        }
+    }
+
+    @Test
     void shouldScanIamStaticModulesAndActionsFromControllerAnnotations() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(TenantWebController.class,

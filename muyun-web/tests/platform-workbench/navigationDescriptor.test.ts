@@ -263,7 +263,7 @@ it('resolvePageDescriptor resolves MODULE targets as dynamic module descriptors'
   assert.equal(roundTrip.tabPolicy.identity, 'by-menu');
 });
 
-it('resolvePageDescriptor resolves configured MODULE targets as business routes', () => {
+it('resolvePageDescriptor resolves unconfigured MODULE targets through the standard runner', () => {
   const descriptor = resolvePageDescriptor(
     {
       menuId: 'platform.menu.module.platform.application',
@@ -274,16 +274,14 @@ it('resolvePageDescriptor resolves configured MODULE targets as business routes'
     {
       title: '应用管理',
       businessModuleRoutes: {
-        'platform.application': '/config/applications',
         'iam.tenant': '/iam/tenants',
       },
     },
   );
 
-  assertPageType(descriptor, 'business-route');
-  assert.equal(descriptor.hostType, 'business-route-host');
+  assertPageType(descriptor, 'dynamic-module');
+  assert.equal(descriptor.hostType, 'dynamic-module-host');
   assert.equal(descriptor.title, '应用管理');
-  assert.equal(descriptor.target.route, '/config/applications');
   assert.equal(descriptor.target.moduleAlias, 'platform.application');
   assert.equal(tabKeyOf(descriptor), 'menu:platform.menu.module.platform.application');
 });

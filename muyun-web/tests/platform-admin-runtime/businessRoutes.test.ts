@@ -28,7 +28,6 @@ it('static business route registry exposes route prefixes for navigation resolut
     '/iam/positions',
   ]);
   assert.deepEqual(platformAdminModuleRoutes, {
-    'platform.application': '/config/applications',
     'platform.field_spec': '/config/field-specs',
     'platform.field_ui_control': '/config/field-ui-controls',
     'platform.dictionary_category': '/config/dictionaries',

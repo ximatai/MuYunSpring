@@ -38,6 +38,9 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
     moduleAlias: 'platform.application',
     component: ApplicationManagementView,
     layout: 'workspace',
+    // Compatibility route only. The module menu enters the descriptor-driven
+    // standard runner; retain this route until the migration's rollback window closes.
+    menuEntry: false,
   },
   {
     route: '/config/field-specs',

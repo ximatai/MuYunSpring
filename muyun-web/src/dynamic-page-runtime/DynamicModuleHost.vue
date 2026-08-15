@@ -25,6 +25,7 @@ import {
   providePageLayout,
   resolveRecordFormFields,
   type RecordFormFieldPickerConfig,
+  type RecordQueryListMode,
   type RecordActionItem,
   type RecordQueryListCellComponent,
   type StandardCrudRowActionKey,
@@ -89,6 +90,7 @@ const editorMode = ref<'create' | 'edit' | 'view'>('view');
 const detailOpen = ref(false);
 const formFields = ref(resolveRecordFormFields(undefined));
 const runtimeViews = ref<ResolvedViewDescriptor[]>([]);
+const listMode = ref<RecordQueryListMode>('normal');
 const reloadKey = ref(0);
 const treeReloadKey = ref(0);
 const selectedTreeRecord = ref<QueryListRecord>();
@@ -406,6 +408,23 @@ function handleLoaded(records: QueryListRecord[]) {
     // form-only/read-side fields disappear from the drawer. `openRecord` and
     // `toggleEnabled` refresh the authoritative detail through CRUD view.
   }
+}
+
+function handleListModeChange(mode: RecordQueryListMode) {
+  if (saving.value || listMode.value === mode) return;
+  listMode.value = mode;
+  detailLoadSequence += 1;
+  detailLoading.value = false;
+  detailLoadFailed.value = false;
+  detailOpen.value = false;
+  editorMode.value = 'view';
+  selectedRecord.value = undefined;
+  editingRecord.value = undefined;
+  selectedTreeRecord.value = undefined;
+}
+
+function handleRecycleBinRestore() {
+  reloadKey.value += 1;
 }
 
 function selectRecord(record: QueryListRecord) {
@@ -1162,9 +1181,12 @@ function recordTitle(record: QueryListRecord | undefined) {
       :ui-config-id="listUiConfigId"
       :query-template-id="listQueryTemplateId"
       :ready="pageReady"
+      :mode="listMode"
       quick-search-placeholder="搜索动态记录"
       empty-description="暂无动态记录"
       @loaded="handleLoaded"
+      @mode-change="handleListModeChange"
+      @restored="handleRecycleBinRestore"
       @select="selectRecord"
       @row-dblclick="openViewRecord"
       @action="handleListAction"

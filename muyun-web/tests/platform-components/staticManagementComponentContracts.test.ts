@@ -2149,6 +2149,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   const explorerItemSource = readSource('src/vue-ui-antdv/components/UiRecordExplorerItem.vue');
   const explorerPanelSource = readSource('src/platform-components/RecordExplorerPanel.vue');
   const staticLayoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
+  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
   const tenantSource = readSource('src/views/TenantManagementView.vue');
   const applicationSource = readSource('src/views/ApplicationManagementView.vue');
@@ -2190,6 +2191,10 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(panelSource, /key: 'restore', actionCode: 'recycleBinRestore'/);
   assert.match(panelSource, /item\.purgeable/);
   assert.match(panelSource, /key: 'purge', actionCode: 'recycleBinPurge'/);
+  assert.match(hostSource, /const listMode = ref<RecordQueryListMode>\('normal'\)/);
+  assert.match(hostSource, /:mode="listMode"/);
+  assert.match(hostSource, /@mode-change="handleListModeChange"/);
+  assert.match(hostSource, /@restored="handleRecycleBinRestore"/);
   assert.match(employeeSource, /<RecordQueryListPanel/);
   assert.match(employeeSource, /useRecycleBinExplorerMode/);
   assert.match(employeeSource, /:mode="employeeRecycleBinExplorer\.mode\.value"/);

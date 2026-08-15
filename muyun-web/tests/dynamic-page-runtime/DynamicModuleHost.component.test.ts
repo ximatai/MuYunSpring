@@ -91,6 +91,59 @@ describe('DynamicModuleHost', () => {
     ]);
   });
 
+  it('forwards recycle-bin mode through the standard module runner and clears the active detail', async () => {
+    let resolveDetail: ((record: { id: string; title: string }) => void) | undefined;
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/platform.application/context')) {
+        return Response.json({
+          moduleAlias: 'platform.application',
+          capabilities: ['RECYCLE_BIN'],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'platform.application',
+            views: [{ viewCode: 'default_list', viewKind: 'LIST', fields: [] }],
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.application/view/app-1')) {
+        return new Promise<Response>((resolve) => {
+          resolveDetail = (record) => resolve(Response.json(record));
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({
+      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+    });
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'platform.application', pageMode: 'LIST' },
+        },
+      },
+    });
+    await flushPromises();
+
+    const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(panel.props('mode')).toBe('normal');
+    panel.vm.$emit('rowAction', { key: 'edit' }, { id: 'app-1' });
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).props('open')).toBe(true);
+    await panel.vm.$emit('modeChange', 'recycleBin');
+    expect(panel.props('mode')).toBe('recycleBin');
+    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).props('open')).toBe(false);
+    resolveDetail?.({ id: 'app-1', title: '平台应用' });
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).props('open')).toBe(false);
+  });
+
   it('uses the same record grant for the standard view row action and double-click', async () => {
     let viewRequests = 0;
     globalThis.fetch = async (input) => {
