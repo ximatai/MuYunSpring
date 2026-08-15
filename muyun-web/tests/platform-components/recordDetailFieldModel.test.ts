@@ -70,6 +70,21 @@ it('record detail display prefers the server-projected reference title for a sca
   );
 });
 
+it('record detail display joins server-projected titles for a multi-record picker', () => {
+  const field = formField('uiControlAliases', {
+    controlType: 'recordMultiPicker',
+    referenceTitleField: 'uiControlTitles',
+  });
+
+  assert.equal(
+    resolveRecordDetailDisplayValue(field, {
+      uiControlAliases: ['input', 'textarea'],
+      uiControlTitles: ['单行输入', '多行输入'],
+    }),
+    '单行输入、多行输入',
+  );
+});
+
 function formField(fieldName: string, options: Partial<RecordFormFieldState> = {}): RecordFormFieldState {
   return {
     fieldName,

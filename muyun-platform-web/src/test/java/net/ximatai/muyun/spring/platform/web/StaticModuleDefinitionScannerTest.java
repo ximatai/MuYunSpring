@@ -115,6 +115,36 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @Test
+    void shouldCompilePlatformApplicationAsDescriptorDrivenModuleEntry() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ApplicationWebController.class);
+            context.refresh();
+
+            StaticModuleDefinition definition = new StaticModuleDefinitionScanner(context).scan().stream()
+                    .filter(candidate -> ApplicationService.MODULE_ALIAS.equals(candidate.moduleAlias()))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+            assertThat(definition.uiDefinition().page()).isInstanceOf(FlatManagementPageDefinition.class);
+            assertThat(((FlatManagementPageDefinition) definition.uiDefinition().page()).detail().editor())
+                    .satisfies(view -> assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("alias"))
+                            .singleElement()
+                            .satisfies(field -> assertThat(field.readOnly().formula().expression())
+                                    .isEqualTo("PRESENT({id})")));
+            assertThat(ModuleUiDescriptorCompiler.compile(definition).page()).satisfies(page -> {
+                assertThat(page.template()).isEqualTo(ModulePageTemplate.FLAT_MANAGEMENT);
+                assertThat(page.explorer().title()).isEqualTo("应用列表");
+                assertThat(page.explorer().searchPlaceholder()).isEqualTo("搜索应用名称、alias 或 ID");
+                assertThat(page.explorer().emptyDescription()).isEqualTo("暂无应用");
+                assertThat(page.detail().emptyDescription()).isEqualTo("请选择应用，或新建应用");
+                assertThat(page.detail().createTitle()).isEqualTo("新建应用");
+                assertThat(page.explorer().recordLabel()).isEqualTo("应用");
+            });
+        }
+    }
+
+    @Test
     void shouldScanIamStaticModulesAndActionsFromControllerAnnotations() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(TenantWebController.class,
@@ -136,7 +166,11 @@ class StaticModuleDefinitionScannerTest {
             });
             context.registerBean(PositionWebController.class,
                     () -> withService(new PositionWebController(),
-                            mock(net.ximatai.muyun.spring.iam.position.PositionService.class)));
+                            new net.ximatai.muyun.spring.iam.position.PositionService(
+                                    mock(net.ximatai.muyun.spring.iam.position.PositionDao.class),
+                                    mock(net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier.class),
+                                    mock(PositionCategoryService.class),
+                                    mock(net.ximatai.muyun.spring.iam.employee.EmployeePositionDao.class))));
             context.registerBean(PositionCategoryWebController.class,
                     () -> withService(new PositionCategoryWebController(), mock(PositionCategoryService.class)));
             context.registerBean(RoleWebController.class,
@@ -234,17 +268,14 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.readProjections()).extracting(StaticModuleReadProjectionDefinition::outputField)
                         .containsExactly("organizationTitle", "username", "accountBound");
                 assertThat(definition.uiDefinition()).isNotNull();
-                assertThat(definition.uiDefinition().views()).hasSize(2);
-                assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_list"))
-                        .singleElement()
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().list().fields())
                         .satisfies(view -> {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.LIST);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
                                     .containsExactly("employeeNo", "organizationTitle", "title", "username",
                                             "mobile", "email", "enabled", "avatarAssetId", "accountBound");
                         });
-                assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_form"))
-                        .singleElement()
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor())
                         .satisfies(view -> {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
@@ -273,11 +304,11 @@ class StaticModuleDefinitionScannerTest {
                             assertThat(action.title()).isEqualTo("查询岗位");
                         });
                 assertThat(definition.uiDefinition()).isNotNull();
-                assertThat(definition.uiDefinition().views())
-                        .filteredOn(view -> view.viewCode()
-                                .equals(ModuleUiViewCodes.childResourceDefaultForm("position")))
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).editorContributions())
                         .singleElement()
-                        .satisfies(view -> {
+                        .satisfies(contribution -> {
+                            assertThat(contribution.resource()).isEqualTo("position");
+                            ResolvedViewDescriptor view = contribution.editor();
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().relationCode())
                                     .containsExactly("position", "position", "position", "position", "position");
@@ -311,9 +342,7 @@ class StaticModuleDefinitionScannerTest {
                         .singleElement()
                         .satisfies(action -> assertCustomRecordAction(action, "rolePermissions", "角色授权"));
                 assertThat(definition.uiDefinition()).isNotNull();
-                assertThat(definition.uiDefinition().views()).hasSize(2);
-                assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_list"))
-                        .singleElement()
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().list().fields())
                         .satisfies(view -> {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.LIST);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
@@ -323,8 +352,7 @@ class StaticModuleDefinitionScannerTest {
                                     .singleElement()
                                     .satisfies(field -> assertThat(field.uiType()).isEqualTo("enabledStatus"));
                         });
-                assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_form"))
-                        .singleElement()
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor())
                         .satisfies(view -> {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
@@ -448,8 +476,7 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.readProjections()).extracting(StaticModuleReadProjectionDefinition::sortable)
                         .containsExactly(true, true, true, true, true, true, true);
                 assertThat(definition.uiDefinition()).isNotNull();
-                assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_list"))
-                        .singleElement()
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().list().fields())
                         .satisfies(view -> {
                             assertThat(view.fields()).extracting(field -> field.fieldRef().relationCode())
                                     .containsOnlyNulls();
@@ -581,13 +608,10 @@ class StaticModuleDefinitionScannerTest {
                     .extracting(EntityDefinition::alias)
                     .containsExactly("dictionary_category", "item");
             assertThat(byAlias.get("platform.dictionary_category").uiDefinition()).isNotNull();
-            assertThat(byAlias.get("platform.dictionary_category").uiDefinition().views())
-                    .extracting(ViewDefinition::viewCode)
-                    .containsExactly(ModuleUiViewCodes.DEFAULT_FORM,
-                            ModuleUiViewCodes.childResourceDefaultForm("item"));
-            assertThat(byAlias.get("platform.dictionary_category").uiDefinition().views())
-                    .filteredOn(view -> view.viewCode().equals("default_form"))
-                    .singleElement()
+            ResolvedModuleUiDescriptor dictionaryDescriptor =
+                    ModuleUiDescriptorCompiler.compile(byAlias.get("platform.dictionary_category"));
+            assertThat(dictionaryDescriptor.page()).isNull();
+            assertThat(dictionaryDescriptor.customPageEditor())
                     .satisfies(view -> {
                         assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                         assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
@@ -596,10 +620,12 @@ class StaticModuleDefinitionScannerTest {
                                 .singleElement()
                                 .satisfies(field -> assertThat(field.uiType()).isEqualTo("select"));
                     });
-            assertThat(byAlias.get("platform.dictionary_category").uiDefinition().views())
-                    .filteredOn(view -> view.viewCode().equals(ModuleUiViewCodes.childResourceDefaultForm("item")))
+            assertThat(ModuleUiDescriptorCompiler.compile(byAlias.get("platform.dictionary_category"))
+                    .editorContributions())
                     .singleElement()
-                    .satisfies(view -> {
+                    .satisfies(contribution -> {
+                        assertThat(contribution.resource()).isEqualTo("item");
+                        ResolvedViewDescriptor view = contribution.editor();
                         assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                         assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
                                 .containsExactly("categoryId", "code", "title", "parentId", "enabled");
@@ -861,9 +887,39 @@ class StaticModuleDefinitionScannerTest {
             StaticModuleDefinition definition = new StaticModuleDefinitionScanner(context).scan().getFirst();
 
             assertThat(definition.moduleAlias()).isEqualTo("platform.field_spec");
+            assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
             assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactly("menu", "create", "view", "update", "delete", "query",
                             "sort", "enable", "disable");
+            assertThat(definition.uiDefinition()).isNotNull();
+            assertThat(((FlatManagementPageDefinition) definition.uiDefinition().page()).detail().editor())
+                    .satisfies(view -> {
+                assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
+                        .containsExactly("alias", "title", "fieldType", "defaultLength", "defaultPrecision",
+                                "defaultScale", "defaultQueryOperator", "queryOperators", "defaultUiControlAlias",
+                                "uiControlAliases", "enabled");
+                assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("alias"))
+                        .singleElement().satisfies(field -> assertThat(field.readOnly().formula().expression())
+                                .isEqualTo("PRESENT({id})"));
+            });
+            assertThat(ModuleUiDescriptorCompiler.compile(definition).page()).satisfies(page -> {
+                assertThat(page.template()).isEqualTo(ModulePageTemplate.FLAT_MANAGEMENT);
+                assertThat(page.explorer().title()).isEqualTo("字段规格列表");
+                assertThat(page.explorer().emptyDescription()).isEqualTo("暂无字段规格");
+                assertThat(page.explorer().recordLabel()).isEqualTo("字段规格");
+            });
+            assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor())
+                    .satisfies(view -> {
+                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("fieldType"))
+                                .singleElement().satisfies(field -> assertThat(field.option().binding().sourceType())
+                                        .isEqualTo("enum"));
+                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("queryOperators"))
+                                .singleElement().satisfies(field -> assertThat(field.option().selectionMode().name())
+                                        .isEqualTo("MULTIPLE"));
+                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("uiControlAliases"))
+                                .singleElement().satisfies(field -> assertThat(field.reference().cardinality().name())
+                                        .isEqualTo("MANY"));
+                    });
         }
     }
 

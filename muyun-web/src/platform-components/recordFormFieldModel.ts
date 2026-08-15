@@ -114,11 +114,11 @@ export function resolveRecordFormFieldNames(
 
 export function resolveRecordFormFields(
   uiDescriptor: ResolvedModuleUiDescriptor | undefined,
-  viewCode = 'default_form',
+  resource?: string,
 ): Map<string, RecordFormFieldDescriptor> {
-  const formView = uiDescriptor?.views?.find(
-    (view) => view.viewKind === 'FORM' && view.viewCode === viewCode,
-  );
+  const formView = resource
+    ? uiDescriptor?.editorContributions?.find((contribution) => contribution.resource === resource)?.editor
+    : (uiDescriptor?.page?.detail.editor ?? uiDescriptor?.customPageEditor);
   const references = new Map(
     (uiDescriptor?.fileReferences ?? []).map((reference) => [fieldRefKey(reference.fieldRef), reference]),
   );
@@ -144,12 +144,12 @@ export function resolveRecordFormFields(
 
 export function resolveRecordFormGroups(
   uiDescriptor: ResolvedModuleUiDescriptor | undefined,
-  viewCode = 'default_form',
+  resource?: string,
 ): FormGroupDescriptor[] {
-  return (
-    uiDescriptor?.views?.find((view) => view.viewKind === 'FORM' && view.viewCode === viewCode)?.formGroups ??
-    []
-  );
+  const editor = resource
+    ? uiDescriptor?.editorContributions?.find((contribution) => contribution.resource === resource)?.editor
+    : (uiDescriptor?.page?.detail.editor ?? uiDescriptor?.customPageEditor);
+  return editor?.formGroups ?? [];
 }
 
 export function childResourceDefaultFormViewCode(resource: string): string {

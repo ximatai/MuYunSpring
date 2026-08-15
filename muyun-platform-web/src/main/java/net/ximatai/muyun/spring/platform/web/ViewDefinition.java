@@ -10,7 +10,6 @@ public record ViewDefinition(String viewCode,
                              String title,
                              List<ViewFieldDefinition> fields,
                              String sourceUiConfigId,
-                             ScopedListWorkspaceDefinition scopedListWorkspace,
                              List<FormGroupDefinition> formGroups) {
     public ViewDefinition {
         if (viewCode == null || viewCode.isBlank()) {
@@ -24,9 +23,6 @@ public record ViewDefinition(String viewCode,
         title = title == null || title.isBlank() ? null : title.trim();
         fields = fields == null ? List.of() : List.copyOf(fields);
         sourceUiConfigId = sourceUiConfigId == null || sourceUiConfigId.isBlank() ? null : sourceUiConfigId.trim();
-        if (scopedListWorkspace != null && viewKind != ModuleViewKind.LIST) {
-            throw new IllegalArgumentException("scoped list workspace is only supported by list views: " + viewCode);
-        }
         formGroups = formGroups == null ? List.of() : List.copyOf(formGroups);
         if (!formGroups.isEmpty() && viewKind != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("form groups are only supported by form views: " + viewCode);
@@ -35,13 +31,7 @@ public record ViewDefinition(String viewCode,
 
     public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                           List<ViewFieldDefinition> fields) {
-        this(viewCode, viewKind, clientType, title, fields, null, null, null);
-    }
-
-    public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
-                          List<ViewFieldDefinition> fields, String sourceUiConfigId,
-                          ScopedListWorkspaceDefinition scopedListWorkspace) {
-        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, scopedListWorkspace, null);
+        this(viewCode, viewKind, clientType, title, fields, null, null);
     }
 
     public static Builder list() {
@@ -66,7 +56,6 @@ public record ViewDefinition(String viewCode,
         private ModuleUiClientType clientType = ModuleUiClientType.WEB;
         private String title;
         private String sourceUiConfigId;
-        private ScopedListWorkspaceDefinition scopedListWorkspace;
         private final List<ViewFieldDefinition> fields = new ArrayList<>();
         private final List<FormGroupDefinition> formGroups = new ArrayList<>();
 
@@ -82,34 +71,6 @@ public record ViewDefinition(String viewCode,
 
         Builder sourceUiConfigId(String sourceUiConfigId) {
             this.sourceUiConfigId = sourceUiConfigId;
-            return this;
-        }
-
-        /** Uses {@code scopeField} as the standard external-query key. */
-        public Builder scopedListWorkspace(String scopeModuleAlias, String scopeField,
-                                           String scopeTitle, String scopeSearchPlaceholder) {
-            return scopedListWorkspace(scopeModuleAlias, scopeField, scopeField, scopeTitle, scopeSearchPlaceholder,
-                    false, ScopedListWorkspaceCreatePolicy.ALLOW_UNSCOPED);
-        }
-
-        public Builder scopedListWorkspace(String scopeModuleAlias, String scopeField, String queryCriteriaKey,
-                                           String scopeTitle, String scopeSearchPlaceholder,
-                                           boolean showScopeItemSubtitle,
-                                           ScopedListWorkspaceCreatePolicy createPolicy) {
-            scopedListWorkspace = new ScopedListWorkspaceDefinition(scopeModuleAlias, scopeField, queryCriteriaKey,
-                    scopeTitle, scopeSearchPlaceholder, showScopeItemSubtitle, createPolicy);
-            return this;
-        }
-
-        /** Enables standard CRUD management for a tree-shaped scope in this workspace. */
-        public Builder manageableScopedTree() {
-            if (scopedListWorkspace == null) {
-                throw new IllegalStateException("scopedListWorkspace must be configured before manageableScopedTree");
-            }
-            scopedListWorkspace = new ScopedListWorkspaceDefinition(scopedListWorkspace.scopeModuleAlias(),
-                    scopedListWorkspace.scopeField(), scopedListWorkspace.queryCriteriaKey(),
-                    scopedListWorkspace.scopeTitle(), scopedListWorkspace.scopeSearchPlaceholder(),
-                    scopedListWorkspace.showScopeItemSubtitle(), scopedListWorkspace.createPolicy(), true);
             return this;
         }
 
@@ -153,8 +114,7 @@ public record ViewDefinition(String viewCode,
         }
 
         public ViewDefinition build() {
-            return new ViewDefinition(viewCode, viewKind, clientType, title, fields, sourceUiConfigId,
-                    scopedListWorkspace, formGroups);
+            return new ViewDefinition(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups);
         }
     }
 }

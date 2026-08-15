@@ -88,7 +88,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     default Criteria queryCriteria(WebQueryRequest request) {
-        Criteria workspaceCriteria = scopedListWorkspaceCriteria(request);
+        Criteria workspaceCriteria = navigatorCriteria(request);
         if (service() instanceof QueryAbility<?> queryAbility) {
             Criteria criteria = queryAbility.queryCriteria(WebQueryRequests.from(request));
             return andCriteria(criteria, workspaceCriteria);
@@ -124,53 +124,51 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             if (projectionService != null && this instanceof StaticModuleUiContributor contributor
                     && isCurrentModuleUiDefinition(contributor)
                     && projectionService.hasModuleDefinition(contributor.moduleUiDefinition().moduleAlias())) {
-                return withScopedListWorkspaceCriteria(
+                return withNavigatorCriteria(
                         projectionService.querySchema(contributor.moduleUiDefinition().moduleAlias(), service()), uiConfigId);
             }
             if (service() instanceof QueryAbility<?> queryAbility) {
-                return withScopedListWorkspaceCriteria(queryAbility.querySchema(), uiConfigId);
+                return withNavigatorCriteria(queryAbility.querySchema(), uiConfigId);
             }
             throw new IllegalArgumentException("query schema is not supported by " + webScopeName());
         });
     }
 
-    private Criteria scopedListWorkspaceCriteria(WebQueryRequest request) {
-        ScopedListWorkspaceDefinition workspace = scopedListWorkspace(request == null ? null : request.uiConfigId());
-        if (workspace == null || request == null || request.externalQueryValues() == null
-                || !request.externalQueryValues().containsKey(workspace.queryCriteriaKey())) {
-            return Criteria.of();
+    private Criteria navigatorCriteria(WebQueryRequest request) {
+        if (request == null || request.externalQueryValues() == null) return Criteria.of();
+        Criteria criteria = Criteria.of();
+        for (PageNavigatorQueryBindingDefinition binding : navigatorQueryBindings(request.uiConfigId())) {
+            Object selectedValue = request.externalQueryValues().get(binding.queryCriteriaKey());
+            if (selectedValue != null) criteria.eq(binding.field(), selectedValue);
         }
-        Object scopeValue = request.externalQueryValues().get(workspace.queryCriteriaKey());
-        return scopeValue == null ? Criteria.of() : Criteria.of().eq(workspace.scopeField(), scopeValue);
+        return criteria;
     }
 
-    private QuerySchema withScopedListWorkspaceCriteria(QuerySchema schema, String uiConfigId) {
-        ScopedListWorkspaceDefinition workspace = scopedListWorkspace(uiConfigId);
-        if (workspace == null || schema.externalCriteria().stream()
-                .anyMatch(criteria -> workspace.queryCriteriaKey().equals(criteria.key()))) {
-            return schema;
-        }
+    private QuerySchema withNavigatorCriteria(QuerySchema schema, String uiConfigId) {
+        List<PageNavigatorQueryBindingDefinition> bindings = navigatorQueryBindings(uiConfigId);
+        if (bindings.isEmpty()) return schema;
         List<QuerySchema.ExternalCriteria> externalCriteria = new ArrayList<>(schema.externalCriteria());
-        externalCriteria.add(new QuerySchema.ExternalCriteria(workspace.queryCriteriaKey(), "OBJECT", "PAGE_CONTEXT"));
+        for (PageNavigatorQueryBindingDefinition binding : bindings) {
+            if (externalCriteria.stream().noneMatch(criteria -> binding.queryCriteriaKey().equals(criteria.key()))) {
+                externalCriteria.add(new QuerySchema.ExternalCriteria(binding.queryCriteriaKey(), "OBJECT", "PAGE_CONTEXT"));
+            }
+        }
         return new QuerySchema(schema.scopeName(), schema.entityAlias(), schema.quickSearch(), schema.fields(),
                 externalCriteria, schema.defaultSorts());
     }
 
-    private ScopedListWorkspaceDefinition scopedListWorkspace(String uiConfigId) {
+    private List<PageNavigatorQueryBindingDefinition> navigatorQueryBindings(String uiConfigId) {
         if (!(this instanceof StaticModuleUiContributor contributor) || !isCurrentModuleUiDefinition(contributor)) {
-            return null;
+            return List.of();
         }
-        List<ViewDefinition> listViews = contributor.moduleUiDefinition().views().stream()
-                .filter(view -> view.viewKind() == ModuleViewKind.LIST)
-                .toList();
-        if (uiConfigId != null && !uiConfigId.isBlank()) {
-            return listViews.stream()
-                    .filter(view -> uiConfigId.equals(view.sourceUiConfigId()))
-                    .map(ViewDefinition::scopedListWorkspace)
-                    .findFirst()
-                    .orElse(null);
-        }
-        return listViews.size() == 1 ? listViews.getFirst().scopedListWorkspace() : null;
+        ModulePageDefinition page = contributor.moduleUiDefinition().page();
+        PageNavigatorDefinition navigator = switch (page) {
+            case ListDetailCardPageDefinition card -> card.navigator();
+            case FlatManagementPageDefinition flat -> flat.navigator();
+            case null -> null;
+        };
+        if (navigator == null) return List.of();
+        return navigator.levels().stream().flatMap(level -> level.queryBindings().stream()).toList();
     }
 
     private Criteria andCriteria(Criteria first, Criteria second) {
@@ -184,12 +182,14 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
 
     @GetMapping("/form/schema")
     @ActionEndpoint(PlatformAction.VIEW)
-    default FormSchema formSchema(@RequestParam(required = false) String uiConfigId) {
+    default FormSchema formSchema(@RequestParam(required = false) String resource) {
         return webScope(() -> {
             if (this instanceof StaticModuleUiContributor contributor) {
                 if (isCurrentModuleUiDefinition(contributor)) {
+                    String selectedResource = resource == null || resource.isBlank()
+                            ? staticContributionResource() : resource;
                     FormSchema schema = ModuleUiFormSchemaAdapter.formSchema(contributor.moduleUiDefinition(),
-                            formSchemaModelClass());
+                            formSchemaModelClass(), selectedResource);
                     if (schema != null) {
                         return schema;
                     }
@@ -203,8 +203,11 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     private boolean isCurrentModuleUiDefinition(StaticModuleUiContributor contributor) {
-        return contributor.moduleUiDefinition() != null
-                && webScopeName().equals(contributor.moduleUiDefinition().moduleAlias());
+        if (contributor.moduleUiDefinition() == null) return false;
+        if (webScopeName().equals(contributor.moduleUiDefinition().moduleAlias())) return true;
+        PlatformStaticActionContribution contribution = org.springframework.core.annotation.AnnotationUtils
+                .findAnnotation(getClass(), PlatformStaticActionContribution.class);
+        return contribution != null && contribution.targetModule().equals(contributor.moduleUiDefinition().moduleAlias());
     }
 
     private Class<?> formSchemaModelClass() {
@@ -213,6 +216,12 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             return modelClass;
         }
         return ResolvableType.forClass(CrudWeb.class, getClass()).resolveGeneric(0);
+    }
+
+    private String staticContributionResource() {
+        PlatformStaticActionContribution contribution = org.springframework.core.annotation.AnnotationUtils
+                .findAnnotation(getClass(), PlatformStaticActionContribution.class);
+        return contribution == null ? null : contribution.resource();
     }
 
     @PostMapping("/query")
@@ -250,6 +259,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return projectionService.queryDefaultList(
                 moduleAlias,
                 WebQueryRequests.from(request),
+                navigatorCriteria(request),
                 PageRequest.of(page.pageNum(), page.pageSize()),
                 service(),
                 StaticStandardMutationSupport.actionPolicy(this, visibility.action()),

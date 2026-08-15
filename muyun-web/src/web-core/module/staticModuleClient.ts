@@ -37,7 +37,7 @@ export interface StaticModuleCrudClient<TRecord> {
 }
 
 export interface StaticModuleTreeClient<TRecord> extends StaticModuleCrudClient<TRecord> {
-  tree(): Promise<WebListResponse<WebTreeNode<TRecord>>>;
+  tree(request?: WebQueryRequest): Promise<WebListResponse<WebTreeNode<TRecord>>>;
   treeFlat(options?: { rootId?: string; includeSelf?: boolean }): Promise<WebListResponse<TRecord>>;
   subtree(id: string, options?: { includeSelf?: boolean }): Promise<WebListResponse<WebTreeNode<TRecord>>>;
   sort(id: string, request: TreeSortRequest): Promise<StaticCountMutationResult>;
@@ -134,10 +134,16 @@ export function createStaticResourceTreeClient<TRecord>(
   const crud = createStaticResourceCrudClient<TRecord>(http, modulePath);
   return {
     ...crud,
-    tree: () =>
-      http.request<WebListResponse<WebTreeNode<TRecord>>>({
-        path: `${modulePath}/tree`,
-      }),
+    tree: (request) =>
+      request
+        ? http.request<WebListResponse<WebTreeNode<TRecord>>>({
+            method: 'POST',
+            path: `${modulePath}/tree/query`,
+            body: request,
+          })
+        : http.request<WebListResponse<WebTreeNode<TRecord>>>({
+            path: `${modulePath}/tree`,
+          }),
     treeFlat: (options) => {
       const rootId = options?.rootId;
       const path = rootId ? `${modulePath}/tree/${encodeURIComponent(rootId)}` : `${modulePath}/tree`;

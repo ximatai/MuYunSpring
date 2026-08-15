@@ -108,6 +108,8 @@ class ActionEndpointAnnotationTest {
     void shouldDescribeRecycleBinLifecycleActionsAsIndependentPlatformActions() throws Exception {
         assertThat(endpoint(RecycleBinWeb.class, "recycleBin", WebQueryRequest.class).value())
                 .isEqualTo(PlatformAction.RECYCLE_BIN_QUERY);
+        assertThat(endpoint(RecycleBinWeb.class, "viewRecycleBinRecord", String.class).value())
+                .isEqualTo(PlatformAction.RECYCLE_BIN_QUERY);
         assertThat(endpoint(RecycleBinWeb.class, "restoreFromRecycleBin", String.class).value())
                 .isEqualTo(PlatformAction.RECYCLE_BIN_RESTORE);
         assertThat(endpoint(RecycleBinPurgeWeb.class, "purgeFromRecycleBin", String.class).value())

@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigField;
@@ -22,6 +23,7 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
         SoftDeleteAbility<FieldUiControl>,
         EnableAbility<FieldUiControl>,
         SortAbility<FieldUiControl>,
+        ReferenceAbility<FieldUiControl>,
         QueryAbility<FieldUiControl> {
     public static final String MODULE_ALIAS = "platform.field_ui_control";
 
@@ -50,9 +52,7 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
 
     @Override
     public void beforePrepareInsert(FieldUiControl fieldUiType) {
-        if (fieldUiType.getId() == null || fieldUiType.getId().isBlank()) {
-            fieldUiType.setId(PlatformNameRules.requireIdentifier(fieldUiType.getAlias(), "fieldUiControlAlias"));
-        }
+        fieldUiType.setId(PlatformNameRules.requireIdentifier(fieldUiType.getAlias(), "fieldUiControlAlias"));
     }
 
     @Override

@@ -124,12 +124,13 @@ class IamWebControllerTest {
 
     @Test
     void shouldExposeTenantBrandingInfrastructureFieldsWithoutEncodingTenantPageLayout() {
-        assertThat(new TenantWebController().moduleUiDefinition().views())
-                .flatExtracting(view -> view.fields())
+        assertThat(((net.ximatai.muyun.spring.platform.web.FlatManagementPageDefinition) new TenantWebController()
+                .moduleUiDefinition().page()).detail().editor().fields())
                 .extracting(field -> field.fieldRef().fieldName())
                 .contains("alias", "title", "workbenchBrandMode", "workbenchTitle", "workbenchSubtitle",
                         "lightLogoAssetId", "darkLogoAssetId");
-        assertThat(new TenantWebController().moduleUiDefinition().views().getFirst().formGroups())
+        assertThat(((net.ximatai.muyun.spring.platform.web.FlatManagementPageDefinition) new TenantWebController()
+                .moduleUiDefinition().page()).detail().editor().formGroups())
                 .isEmpty();
     }
 
@@ -1502,6 +1503,7 @@ class IamWebControllerTest {
         when(projectionService.queryDefaultList(
                 any(),
                 any(net.ximatai.muyun.spring.ability.query.QueryRequest.class),
+                any(Criteria.class),
                 any(PageRequest.class),
                 any(),
                 any(ActionExecutionPolicy.class),
@@ -1519,6 +1521,7 @@ class IamWebControllerTest {
         verify(projectionService).queryDefaultList(
                 any(),
                 any(net.ximatai.muyun.spring.ability.query.QueryRequest.class),
+                any(Criteria.class),
                 any(PageRequest.class),
                 any(),
                 policyCaptor.capture(),

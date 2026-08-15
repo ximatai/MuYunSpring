@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch, watchEffect } from 'vue';
+import { computed, ref, watch, watchEffect } from 'vue';
 import type { ModuleContext } from '@muyun/web-core';
 import { UiActionButton, UiTooltip } from '@muyun/vue-ui-antdv';
 import { resolveRecordActions, type RecordActionItem } from './recordActionBarModel';
@@ -25,13 +25,26 @@ const emit = defineEmits<{
   action: [action: RecordActionItem, event: MouseEvent];
 }>();
 
+const recordActionAvailabilityLoading = ref(false);
+let recordActionAvailabilitySequence = 0;
+
 watch(
   () => props.recordId,
-  (recordId) => {
-    if (recordId) {
-      props.context.recordActions(recordId).catch(() => {
-        // Action execution still performs backend checks; keep action loading errors non-blocking here.
-      });
+  async (recordId) => {
+    const sequence = ++recordActionAvailabilitySequence;
+    if (!recordId) {
+      recordActionAvailabilityLoading.value = false;
+      return;
+    }
+    recordActionAvailabilityLoading.value = true;
+    try {
+      await props.context.recordActions(recordId);
+    } catch {
+      // Action execution still performs backend checks; keep availability loading errors non-blocking here.
+    } finally {
+      if (sequence === recordActionAvailabilitySequence) {
+        recordActionAvailabilityLoading.value = false;
+      }
     }
   },
   { immediate: true },
@@ -47,9 +60,21 @@ watchEffect(() => {
   }
 });
 
-const resolvedActions = computed(() =>
-  resolveRecordActions(props.context, props.actions, props.loading, props.recordId),
-);
+const actionAvailabilityReason = '正在校验操作可用性';
+const resolvedActions = computed(() => {
+  const actions = recordActionAvailabilityLoading.value
+    ? props.actions.map((action) =>
+        action.actionCode
+          ? {
+              ...action,
+              disabled: true,
+              disabledReason: action.disabledReason ?? actionAvailabilityReason,
+            }
+          : action,
+      )
+    : props.actions;
+  return resolveRecordActions(props.context, actions, props.loading, props.recordId);
+});
 
 function handleClick(action: RecordActionItem, event: MouseEvent) {
   emit('action', action, event);

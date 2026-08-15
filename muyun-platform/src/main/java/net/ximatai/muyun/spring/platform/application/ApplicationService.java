@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.application;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.GlobalScopedAbility;
+import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.deletion.DeletionRecoveryAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
@@ -12,6 +13,9 @@ import net.ximatai.muyun.spring.common.exception.ErrorTarget;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.TenantApplicationCatalog;
+import net.ximatai.muyun.spring.common.platform.RecordActionAvailabilityContributor;
+import net.ximatai.muyun.spring.common.platform.RecordActionAvailabilityDecision;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
@@ -20,6 +24,8 @@ import org.springframework.stereotype.Service;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
@@ -32,8 +38,10 @@ public class ApplicationService extends StandardBusinessService<Application> imp
         GlobalScopedAbility<Application>,
         EnableAbility<Application>,
         SortAbility<Application>,
+        PlatformManagedProtectionAbility<Application>,
         QueryAbility<Application>,
-        TenantApplicationCatalog {
+        TenantApplicationCatalog,
+        RecordActionAvailabilityContributor {
 
     public static final String MODULE_ALIAS = "platform.application";
     public static final String PLATFORM_APPLICATION_ALIAS = "platform";
@@ -63,8 +71,16 @@ public class ApplicationService extends StandardBusinessService<Application> imp
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, Application.class, java.util.List.of("id", "title", "enabled", "sortOrder", "createdAt", "updatedAt"),
-                net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"));
+        return QueryDescriptor.builder(MODULE_ALIAS)
+                // alias is the application ID; both are intentionally searchable from the explorer.
+                .field(QueryDescriptors.field(Application.class, "id").withQuickSearch())
+                .field(QueryDescriptors.field(Application.class, "title"))
+                .field(QueryDescriptors.field(Application.class, "enabled"))
+                .field(QueryDescriptors.field(Application.class, "sortOrder"))
+                .field(QueryDescriptors.field(Application.class, "createdAt"))
+                .field(QueryDescriptors.field(Application.class, "updatedAt"))
+                .defaultSort(net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"))
+                .build();
     }
 
     @Override
@@ -103,6 +119,45 @@ public class ApplicationService extends StandardBusinessService<Application> imp
                 .ifPresent(contributor -> rejectReferenced(contributor, applicationAlias));
     }
 
+    /**
+     * A deleted ordinary application has no dependent platform resources, so operators may remove it
+     * irreversibly from the recycle bin. The same reference check is repeated immediately before purge.
+     */
+    @Override
+    public boolean isRecycleBinPurgeEnabled() {
+        return true;
+    }
+
+    @Override
+    public void beforeRecycleBinPurge(String id) {
+        beforeDelete(id);
+    }
+
+    /**
+     * Applications declared by the platform are catalog facts, not tenant-admin configurable records.
+     * Their lifecycle is owned by static application registration.
+     */
+    @Override
+    public Set<String> editablePlatformManagedFields() {
+        return Set.of();
+    }
+
+    @Override
+    public Optional<RecordActionAvailabilityDecision> availability(String moduleAlias,
+                                                                    String actionCode,
+                                                                    String recordId) {
+        if (!MODULE_ALIAS.equals(moduleAlias)
+                || !Set.of(PlatformAction.UPDATE.code(), PlatformAction.DELETE.code(),
+                PlatformAction.ENABLE.code(), PlatformAction.DISABLE.code()).contains(actionCode)) {
+            return Optional.empty();
+        }
+        Application application = select(recordId);
+        if (application == null || !Boolean.TRUE.equals(application.getSystemManaged())) {
+            return Optional.empty();
+        }
+        return Optional.of(RecordActionAvailabilityDecision.unavailable(managedActionReason(actionCode)));
+    }
+
     private void requireAlias(String alias) {
         PlatformNameRules.requireApplicationAlias(alias);
     }
@@ -115,5 +170,15 @@ public class ApplicationService extends StandardBusinessService<Application> imp
                 Map.of(
                         "applicationAlias", applicationAlias,
                         "referencedResource", contributor.resourceKey()));
+    }
+
+    private String managedActionReason(String actionCode) {
+        if (PlatformAction.DELETE.code().equals(actionCode)) {
+            return "平台托管应用不可删除";
+        }
+        if (PlatformAction.ENABLE.code().equals(actionCode) || PlatformAction.DISABLE.code().equals(actionCode)) {
+            return "平台托管应用不可变更启用状态";
+        }
+        return "平台托管应用不可编辑";
     }
 }

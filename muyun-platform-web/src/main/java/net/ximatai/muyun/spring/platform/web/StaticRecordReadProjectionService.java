@@ -132,6 +132,7 @@ public class StaticRecordReadProjectionService {
      */
     public Optional<WebPageResponse<Map<String, Object>>> queryDefaultList(String moduleAlias,
                                                                            QueryRequest request,
+                                                                           Criteria additionalCriteria,
                                                                            PageRequest pageRequest,
                                                                            CrudAbility<?> recordService,
                                                                            ActionExecutionPolicy actionPolicy,
@@ -144,7 +145,7 @@ public class StaticRecordReadProjectionService {
             throw new IllegalArgumentException("record visibility does not match query action: "
                     + visibility + " / " + actionPolicy.actionCode());
         }
-        Criteria criteria = queryCriteria(moduleAlias, recordService, request);
+        Criteria criteria = andCriteria(queryCriteria(moduleAlias, recordService, request), additionalCriteria);
         Sort[] sorts = querySorts(moduleAlias, recordService, request);
         if (recordService instanceof DataScopeAbility<?> dataScopeAbility) {
             DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(actionPolicy, criteria);
@@ -155,6 +156,24 @@ public class StaticRecordReadProjectionService {
         }
         return queryDefaultList(
                 moduleAlias, visibility.apply(recordService, criteria), pageRequest, recordService, sorts);
+    }
+
+    public Optional<WebPageResponse<Map<String, Object>>> queryDefaultList(String moduleAlias,
+                                                                           QueryRequest request,
+                                                                           PageRequest pageRequest,
+                                                                           CrudAbility<?> recordService,
+                                                                           ActionExecutionPolicy actionPolicy,
+                                                                           RecordReadVisibility visibility) {
+        return queryDefaultList(moduleAlias, request, Criteria.of(), pageRequest, recordService, actionPolicy, visibility);
+    }
+
+    private static Criteria andCriteria(Criteria first, Criteria second) {
+        if (first == null || first.isEmpty()) return second == null ? Criteria.of() : second;
+        if (second == null || second.isEmpty()) return first;
+        Criteria criteria = Criteria.of();
+        criteria.andGroup(first.getRoot());
+        criteria.andGroup(second.getRoot());
+        return criteria;
     }
 
     public Optional<WebPageResponse<Map<String, Object>>> queryDefaultList(String moduleAlias,

@@ -324,6 +324,7 @@ class MuYunSpringApplicationContextIT {
             if (enabled(service, PlatformAction.TREE, locallyDisabled)) {
                 add(expected, moduleAlias, PlatformAction.TREE, RequestMethod.GET, basePaths, "/tree");
                 add(expected, moduleAlias, PlatformAction.TREE, RequestMethod.GET, basePaths, "/tree/{id}");
+                add(expected, moduleAlias, PlatformAction.TREE, RequestMethod.POST, basePaths, "/tree/query");
             }
             if (enabled(service, PlatformAction.SORT, locallyDisabled)) {
                 add(expected, moduleAlias, PlatformAction.SORT, RequestMethod.POST, basePaths, "/sort/{id}");
@@ -335,6 +336,8 @@ class MuYunSpringApplicationContextIT {
             if (enabled(service, PlatformAction.RECYCLE_BIN_QUERY, locallyDisabled)) {
                 add(expected, moduleAlias, PlatformAction.RECYCLE_BIN_QUERY, RequestMethod.POST,
                         basePaths, "/recycle-bin/query");
+                add(expected, moduleAlias, PlatformAction.RECYCLE_BIN_QUERY, RequestMethod.GET,
+                        basePaths, "/recycle-bin/view/{id}");
             }
             if (enabled(service, PlatformAction.RECYCLE_BIN_RESTORE, locallyDisabled)) {
                 add(expected, moduleAlias, PlatformAction.RECYCLE_BIN_RESTORE, RequestMethod.POST,

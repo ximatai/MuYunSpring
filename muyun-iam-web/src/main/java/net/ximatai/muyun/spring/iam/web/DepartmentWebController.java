@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
@@ -13,6 +14,7 @@ import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
 import net.ximatai.muyun.spring.web.TreeScope;
 import net.ximatai.muyun.spring.web.ScopedTreeWebProjectionPolicy;
+import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.common.util.Preconditions;
 import net.ximatai.muyun.spring.iam.department.Department;
@@ -56,25 +58,27 @@ public class DepartmentWebController extends WebSupport<DepartmentService> imple
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(DepartmentService.MODULE_ALIAS)
-                .listView(list -> list
+                .page(PageTemplates.listDetailCard(page -> page
+                .list(list -> list.fields(fields -> fields
                         .title("部门列表")
                         .field("code", field -> field.label("部门编码").width("150px"))
                         .field("title", field -> field.label("部门名称").width("180px"))
                         .field("enabled", field -> field.label("状态").uiType("enabledStatus")
-                                .width("90px").align("center")))
-                .formView(form -> form
+                                .width("90px").align("center"))))
+                .detail(detail -> detail.editor(form -> form
                         .title("部门档案")
                         .field("organizationId", field -> field.label("所属机构").required().readOnly())
                         .field("parentId", field -> field.label("上级部门").uiType("recordPicker"))
                         .field("code", field -> field.label("部门编码").required())
                         .field("title", field -> field.label("部门名称").required())
-                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus")))
+                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
+                .traits(traits -> traits.standardCrud().enabledStatus().recycleBin().responsiveDetailSurface())))
                 .build();
     }
 
     @Override
     public TreeScope treeScope(HttpServletRequest request) {
-        return departmentTreeScope(request.getParameter("organizationId"));
+        return departmentTreeScope(TreeWebQuerySupport.externalQueryText(request, "organizationId"));
     }
 
     @Override
@@ -84,7 +88,7 @@ public class DepartmentWebController extends WebSupport<DepartmentService> imple
 
     @Override
     public TreeScope treeScopeForRecordLookup(HttpServletRequest request, String id) {
-        String organizationId = request.getParameter("organizationId");
+        String organizationId = TreeWebQuerySupport.externalQueryText(request, "organizationId");
         return organizationId == null || organizationId.isBlank()
                 ? TreeScope.none()
                 : departmentTreeScope(organizationId);

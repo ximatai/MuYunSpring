@@ -13,10 +13,12 @@ import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinActionOutcome;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinItem;
 import net.ximatai.muyun.spring.platform.deletion.RestoreReport;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -62,6 +64,32 @@ public interface RecycleBinWeb<T extends EntityContract, S extends RecycleBinAbi
             WebPageResponse<T> response = WebPageResponse.from(
                     service().pageRecycleBin(criteria, pageRequest, sorts));
             return decorateProjected(projectStaticFallback(response));
+        });
+    }
+
+    /**
+     * Returns a retained record as a read-only detail snapshot. The normal CRUD view endpoint intentionally
+     * excludes soft-deleted records, so this uses the recycle-bin read policy instead.
+     */
+    @GetMapping("/recycle-bin/view/{id}")
+    @ActionEndpoint(PlatformAction.RECYCLE_BIN_QUERY)
+    default T viewRecycleBinRecord(@PathVariable String id) {
+        return webScope(() -> {
+            Criteria criteria = Criteria.of().eq("id", id);
+            List<T> records;
+            if (service() instanceof DataScopeAbility<?>) {
+                DataScopeAbility<T> dataScopeAbility = DataScopeAbility.cast(service());
+                DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(
+                        StaticStandardMutationSupport.actionPolicy(this, PlatformAction.RECYCLE_BIN_QUERY), criteria);
+                records = dataScopeAbility.withDataScopeTenant(scope,
+                        () -> service().pageRecycleBin(scope.criteria(), PageRequest.of(1, 1)).getRecords());
+            } else {
+                records = service().pageRecycleBin(criteria, PageRequest.of(1, 1)).getRecords();
+            }
+            if (records.isEmpty()) {
+                throw new IllegalArgumentException("recycle-bin record not found: " + id);
+            }
+            return WebOutputSupport.record(service(), records.getFirst(), FieldOutputContext.VIEW);
         });
     }
 

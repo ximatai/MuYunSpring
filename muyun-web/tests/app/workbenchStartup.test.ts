@@ -374,7 +374,6 @@ it('loadWorkbenchStartupState accepts backend initialized platform admin menus',
     },
     {
       businessModuleRoutes: {
-        'platform.application': '/config/applications',
         'iam.tenant': '/iam/tenants',
       },
     },
@@ -392,10 +391,12 @@ it('loadWorkbenchStartupState accepts backend initialized platform admin menus',
     defaultQueryTemplateId: undefined,
     entryParamsJson: undefined,
   });
-  assert.equal(state.tabs?.[0]?.pageDescriptor?.pageType, 'business-route');
+  assert.equal(state.tabs?.[0]?.pageDescriptor?.pageType, 'dynamic-module');
   assert.deepEqual(state.tabs?.[0]?.pageDescriptor?.target, {
-    route: '/config/applications',
     moduleAlias: 'platform.application',
+    pageMode: 'LIST',
+    defaultUiConfigId: undefined,
+    defaultQueryTemplateId: undefined,
   });
 });
 

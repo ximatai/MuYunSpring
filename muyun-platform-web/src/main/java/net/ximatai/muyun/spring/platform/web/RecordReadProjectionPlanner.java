@@ -244,12 +244,28 @@ public final class RecordReadProjectionPlanner {
     }
 
     private static ResolvedViewDescriptor view(ResolvedModuleUiDescriptor descriptor, String viewCode) {
-        return descriptor.views().stream()
-                .filter(item -> item.viewKind() == ModuleViewKind.LIST)
-                .filter(item -> item.viewCode().equals(viewCode))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("record read projection view not found: "
-                        + descriptor.moduleAlias() + "." + viewCode));
+        if (descriptor.page() != null) {
+            if (descriptor.page().list() != null) {
+                ResolvedViewDescriptor pageList = descriptor.page().list().fields();
+                if (pageList.viewCode().equals(viewCode) || "default_list".equals(viewCode)) {
+                    return pageList;
+                }
+            }
+            if (descriptor.page().explorer() != null && "default_list".equals(viewCode)) {
+                ResolvedPageExplorerDescriptor explorer = descriptor.page().explorer();
+                java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+                names.add(explorer.titleField());
+                if (explorer.secondaryField() != null) names.add(explorer.secondaryField());
+                if (explorer.mutedWhenDisabled()) names.add("enabled");
+                return new ResolvedViewDescriptor("default_list", ModuleViewKind.LIST, ModuleUiClientType.WEB,
+                        explorer.title(), names.stream().map(name -> new ResolvedViewFieldDescriptor(
+                                ViewFieldRef.main(name), null, UiRule.constant(Boolean.TRUE),
+                                UiRule.constant(Boolean.FALSE), UiRule.constant(Boolean.TRUE), null,
+                                null, 1, null, null)).toList());
+            }
+        }
+        throw new IllegalArgumentException("record read projection page slot not found: "
+                + descriptor.moduleAlias() + "." + viewCode);
     }
 
     private static Set<String> readableFields(ResolvedModuleReadModel readModel) {

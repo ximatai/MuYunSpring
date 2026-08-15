@@ -21,6 +21,7 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
@@ -128,7 +129,8 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(UserAccountService.MODULE_ALIAS)
-                .listView(list -> list
+                .page(PageTemplates.listDetailCard(page -> page
+                .list(list -> list.fields(fields -> fields
                         .title("用户列表")
                         .field("username", field -> field.label("账号").width("180px"))
                         .field("enabled", field -> field.label("状态").uiType("enabledStatus")
@@ -136,13 +138,14 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                         .field("passwordStatus", field -> field.label("密码状态").width("120px"))
                         .field("employeeNo", field -> field.label("职员工号").width("150px"))
                         .field("employeeTitle", field -> field.label("职员姓名").width("150px"))
-                        .field("lastLoginAt", field -> field.label("最后登录时间").width("180px")))
-                .formView(form -> form
+                        .field("lastLoginAt", field -> field.label("最后登录时间").width("180px"))))
+                .detail(detail -> detail.editor(form -> form
                         .title("用户账号")
                         .field("username", field -> field.label("账号").required())
                         .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))
                         .field("passwordStatus", field -> field.label("密码状态").readOnly())
-                        .field("lastLoginAt", field -> field.label("最后登录时间").readOnly()))
+                        .field("lastLoginAt", field -> field.label("最后登录时间").readOnly())))
+                .traits(traits -> traits.standardCrud().enabledStatus().recycleBin().responsiveDetailSurface())))
                 .build();
     }
 

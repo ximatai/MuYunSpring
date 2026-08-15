@@ -1,10 +1,11 @@
 import { flushPromises, shallowMount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import RecordQueryListPanel, {
   type QueryListRecord,
   type RecordQueryListColumn,
 } from '@/platform-components/RecordQueryListPanel.vue';
 import type { ModuleContext } from '@muyun/web-core';
+import type { WebQueryRequest } from '@muyun/web-contracts';
 
 describe('RecordQueryListPanel', () => {
   it('uses one display line by default and preserves configured multiline limits with the full text tooltip', async () => {
@@ -63,11 +64,33 @@ describe('RecordQueryListPanel', () => {
     expect(wrapper.find('[aria-label="上一页"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="下一页"]').exists()).toBe(true);
   });
+
+  it('reloads the central list when an upstream navigator changes its criteria', async () => {
+    const requests: WebQueryRequest[] = [];
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1' }, requests),
+        title: '备注',
+        externalQueryValues: { tenantId: 'tenant-a' },
+      },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await wrapper.setProps({ externalQueryValues: { tenantId: 'tenant-b' } });
+    await flushPromises();
+
+    expect(requests).toHaveLength(2);
+    expect(requests.at(-1)?.externalQueryValues).toEqual({ tenantId: 'tenant-b' });
+  });
 });
 
-function createContext(record: QueryListRecord): ModuleContext<QueryListRecord> {
+function createContext(
+  record: QueryListRecord,
+  queryRequests?: WebQueryRequest[],
+): ModuleContext<QueryListRecord> {
   return {
     moduleAlias: 'demo.note',
+    runtime: { ready: Promise.resolve({}) },
     abilities: { has: () => false },
     can: () => false,
     crud: {
@@ -78,7 +101,10 @@ function createContext(record: QueryListRecord): ModuleContext<QueryListRecord> 
         externalCriteria: [],
         defaultSorts: [],
       }),
-      query: async () => ({ records: [record], total: 1, pageNum: 1, pageSize: 20 }),
+      query: async (request?: WebQueryRequest) => {
+        queryRequests?.push(request ?? {});
+        return { records: [record], total: 1, pageNum: 1, pageSize: 20 };
+      },
     },
   } as unknown as ModuleContext<QueryListRecord>;
 }

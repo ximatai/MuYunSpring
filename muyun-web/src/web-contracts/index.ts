@@ -114,6 +114,8 @@ export interface RecordInlineAction {
   iconName?: RecordInlineActionIconName;
   showLabel?: boolean;
   disabled?: boolean;
+  /** Explains why a visible inline action is unavailable. */
+  disabledReason?: string;
   danger?: boolean;
 }
 
@@ -687,8 +689,65 @@ export interface ResolvedViewDescriptor {
   fields: ResolvedViewFieldDescriptor[];
   /** Dynamic-page provenance used to select the view configured by a menu entry. */
   sourceUiConfigId?: string;
-  scopedListWorkspace?: ResolvedScopedListWorkspaceDescriptor;
   formGroups?: FormGroupDescriptor[];
+}
+
+export type ModulePageTemplate = 'FLAT_MANAGEMENT' | 'LIST_DETAIL_CARD';
+
+export interface ResolvedPageExplorerDescriptor {
+  title: string;
+  searchPlaceholder: string;
+  emptyDescription: string;
+  recordLabel: string;
+  fallbackTitle: string;
+  titleField: string;
+  secondaryField?: string;
+  mutedWhenDisabled: boolean;
+}
+
+export interface ResolvedPageNavigatorDescriptor {
+  levels: ResolvedPageNavigatorLevelDescriptor[];
+}
+
+export interface ResolvedPageNavigatorLevelDescriptor {
+  key: string;
+  kind: 'TREE' | 'MICRO_LIST';
+  sourceModuleAlias: string;
+  title: string;
+  searchPlaceholder: string;
+  queryBindings: ResolvedPageNavigatorQueryBindingDescriptor[];
+  childBindings: ResolvedPageNavigatorChildBindingDescriptor[];
+}
+
+export interface ResolvedPageNavigatorQueryBindingDescriptor {
+  field: string;
+  queryCriteriaKey: string;
+}
+
+export interface ResolvedPageNavigatorChildBindingDescriptor {
+  childLevelKey: string;
+  childQueryCriteriaKey: string;
+}
+
+export interface ResolvedPageListDescriptor {
+  searchPlaceholder: string;
+  fields: ResolvedViewDescriptor;
+}
+
+export interface ResolvedPageDetailDescriptor {
+  emptyDescription: string;
+  createTitle: string;
+  display?: ResolvedViewDescriptor;
+  editor: ResolvedViewDescriptor;
+}
+
+export interface ResolvedModulePageDescriptor {
+  template: ModulePageTemplate;
+  explorer?: ResolvedPageExplorerDescriptor;
+  navigator?: ResolvedPageNavigatorDescriptor;
+  list?: ResolvedPageListDescriptor;
+  detail: ResolvedPageDetailDescriptor;
+  traits: ('STANDARD_CRUD' | 'ENABLED_STATUS' | 'RECYCLE_BIN' | 'RESPONSIVE_DETAIL_SURFACE')[];
 }
 
 export interface ResolvedUiActionConfirmationDescriptor {
@@ -699,18 +758,6 @@ export interface ResolvedUiActionConfirmationDescriptor {
 export interface ResolvedUiActionDescriptor {
   actionCode: string;
   confirmation?: ResolvedUiActionConfirmationDescriptor;
-}
-
-export interface ResolvedScopedListWorkspaceDescriptor {
-  scopeModuleAlias: string;
-  scopeField: string;
-  queryCriteriaKey: string;
-  scopeTitle: string;
-  scopeSearchPlaceholder: string;
-  /** Scope list items only show a secondary label when the descriptor explicitly enables it. */
-  showScopeItemSubtitle: boolean;
-  createPolicy: 'REQUIRE_SCOPE' | 'ALLOW_UNSCOPED';
-  manageScopeTree?: boolean;
 }
 
 /** Source-neutral runtime fact for one persisted MuYunFileServer field. */
@@ -724,20 +771,22 @@ export interface ResolvedFileReferenceFieldDescriptor {
   readAvailable: boolean;
 }
 
-export interface ModuleUiDefinition {
-  moduleAlias: string;
-  views: ViewDefinition[];
-}
-
 export interface ResolvedModuleUiDescriptor {
   schemaVersion: string;
   moduleAlias: string;
   moduleKind?: 'STATIC' | 'DYNAMIC';
   title?: string;
-  views: ResolvedViewDescriptor[];
   actions?: ResolvedUiActionDescriptor[];
   recordLabelField?: string;
   fileReferences?: ResolvedFileReferenceFieldDescriptor[];
+  page?: ResolvedModulePageDescriptor;
+  customPageEditor?: ResolvedViewDescriptor;
+  editorContributions?: ResolvedPageDetailEditorContribution[];
+}
+
+export interface ResolvedPageDetailEditorContribution {
+  resource: string;
+  editor: ResolvedViewDescriptor;
 }
 
 export interface StandardEntity {

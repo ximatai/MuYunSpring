@@ -10,7 +10,7 @@ import {
   type CrudRecordListBase,
 } from './crudRecordListModel';
 import { presentPlatformError } from './platformErrorFeedback';
-import { useRecycleBinState } from './recycleBinState';
+import { recycleBinRestoreUnavailableReason, useRecycleBinState } from './recycleBinState';
 
 defineOptions({ name: 'CrudRecordListExplorer' });
 
@@ -21,6 +21,11 @@ const props = withDefaults(
     context: ModuleContext<CrudRecordListBase>;
     selectedId?: string;
     reloadKey?: number;
+    /**
+     * Descriptor-owned criteria from an upstream navigator selection.
+     * They are forwarded as standard query values rather than filtered in the browser.
+     */
+    externalQueryValues?: Record<string, unknown>;
     keyword?: string;
     emptyDescription?: string;
     loadingTip?: string;
@@ -37,6 +42,7 @@ const props = withDefaults(
   {
     selectedId: undefined,
     reloadKey: undefined,
+    externalQueryValues: undefined,
     keyword: '',
     emptyDescription: '暂无记录',
     loadingTip: '加载记录列表',
@@ -100,6 +106,12 @@ watch(
 );
 
 watch(
+  () => props.externalQueryValues,
+  () => loadRecords(),
+  { deep: true },
+);
+
+watch(
   () => props.mode,
   () => loadRecords(),
 );
@@ -116,7 +128,12 @@ async function loadRecords() {
       emit('loaded', records.value);
       return;
     }
-    const response = await props.context.abilities.crud().query({ page: { pageNum: 1, pageSize: 200 } });
+    const response = await props.context.abilities.crud().query({
+      page: { pageNum: 1, pageSize: 200 },
+      ...(props.externalQueryValues && Object.keys(props.externalQueryValues).length > 0
+        ? { externalQueryValues: props.externalQueryValues }
+        : {}),
+    });
     if (requestSeq !== recordsRequestSeq) return;
     records.value = response.records;
     emit('loaded', response.records);
@@ -171,6 +188,7 @@ function recordActions(record: CrudRecordListBase): UiRecordInlineAction[] {
             iconName: 'reload' as const,
             showLabel: true,
             disabled: !item.restorable || recycleBinState.acting.value,
+            disabledReason: recycleBinRestoreUnavailableReason(item),
           },
         ]
       : []),

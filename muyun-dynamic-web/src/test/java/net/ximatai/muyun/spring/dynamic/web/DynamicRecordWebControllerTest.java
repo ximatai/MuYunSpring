@@ -1217,6 +1217,11 @@ class DynamicRecordWebControllerTest {
         uiConfig.setUiSetId("set-list");
         uiConfig.setClientType(PlatformUiClientType.WEB);
         uiConfig.setPublished(true);
+        uiConfig.setLayoutJson("""
+                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"levels":[{
+                  "key":"tenant","kind":"MICRO_LIST","sourceModuleAlias":"iam.tenant",
+                  "queryBindings":[{"field":"tenantId","queryCriteriaKey":"tenantId"}]
+                }]}}""");
         PlatformUiConfigField codeField = new PlatformUiConfigField();
         codeField.setUiConfigId("ui-list");
         codeField.setModuleMetadataFieldId("module-field-code");

@@ -104,26 +104,33 @@ it('record form groups preserve fields nested by the UI descriptor and attach th
   const uiDescriptor = {
     schemaVersion: '1',
     moduleAlias: 'iam.tenant',
-    views: [
-      {
-        viewCode: 'default_form',
-        viewKind: 'FORM',
-        fields: [
-          {
-            fieldRef: { fieldName: 'workbenchTitle' },
-            label: '主标题',
-          },
-        ],
-        formGroups: [
-          {
-            groupCode: 'workbench_branding',
-            title: '主标题UI个性化配置',
-            subtitle: '控制工作台标题和 Logo。',
-            fields: [{ fieldName: 'workbenchTitle' }],
-          },
-        ],
+    page: {
+      template: 'LIST_DETAIL_CARD',
+      list: { searchPlaceholder: '', fields: { viewCode: 'page_list', viewKind: 'LIST', fields: [] } },
+      detail: {
+        emptyDescription: '',
+        createTitle: '',
+        editor: {
+          viewCode: 'page_detail_editor',
+          viewKind: 'FORM',
+          fields: [
+            {
+              fieldRef: { fieldName: 'workbenchTitle' },
+              label: '主标题',
+            },
+          ],
+          formGroups: [
+            {
+              groupCode: 'workbench_branding',
+              title: '主标题UI个性化配置',
+              subtitle: '控制工作台标题和 Logo。',
+              fields: [{ fieldName: 'workbenchTitle' }],
+            },
+          ],
+        },
       },
-    ],
+      traits: [],
+    },
   } satisfies ResolvedModuleUiDescriptor;
   const groups = resolveRecordFormGroups(uiDescriptor);
 
@@ -281,30 +288,37 @@ it('record form fields resolve form view descriptors by view code', () => {
   const uiDescriptor = {
     schemaVersion: '1',
     moduleAlias: 'platform.dictionary_category',
-    views: [
-      {
-        viewCode: 'default_list',
-        viewKind: 'LIST',
-        fields: [descriptorField('title', '列表标题')],
+    page: {
+      template: 'LIST_DETAIL_CARD',
+      list: {
+        searchPlaceholder: '',
+        fields: { viewCode: 'page_list', viewKind: 'LIST', fields: [descriptorField('title', '列表标题')] },
       },
-      {
-        viewCode: 'default_form',
-        viewKind: 'FORM',
-        fields: [descriptorField('alias', '类目 alias'), descriptorField('title', '类目名称')],
+      detail: {
+        emptyDescription: '',
+        createTitle: '',
+        editor: {
+          viewCode: 'page_detail_editor',
+          viewKind: 'FORM',
+          fields: [descriptorField('alias', '类目 alias'), descriptorField('title', '类目名称')],
+        },
       },
+      traits: [],
+    },
+    editorContributions: [
       {
-        viewCode: 'item_default_form',
-        viewKind: 'FORM',
-        fields: [descriptorField('code', '字典项编码'), descriptorField('parentId', '上级字典项')],
+        resource: 'item',
+        editor: {
+          viewCode: 'item_editor',
+          viewKind: 'FORM',
+          fields: [descriptorField('code', '字典项编码'), descriptorField('parentId', '上级字典项')],
+        },
       },
     ],
   } satisfies ResolvedModuleUiDescriptor;
 
   assert.deepEqual([...resolveRecordFormFields(uiDescriptor).keys()], ['alias', 'title']);
-  assert.deepEqual(
-    [...resolveRecordFormFields(uiDescriptor, childResourceDefaultFormViewCode('item')).keys()],
-    ['code', 'parentId'],
-  );
+  assert.deepEqual([...resolveRecordFormFields(uiDescriptor, 'item').keys()], ['code', 'parentId']);
   assert.deepEqual([...resolveRecordFormFields(uiDescriptor, 'missing_form').keys()], []);
   assert.deepEqual([...resolveRecordFormFields(undefined).keys()], []);
 });
@@ -324,13 +338,20 @@ it('record form fields attach declared file-reference constraints and infer the 
         readAvailable: true,
       },
     ],
-    views: [
-      {
-        viewCode: 'default_form',
-        viewKind: 'FORM',
-        fields: [descriptorField('fileId', '上传文件')],
+    page: {
+      template: 'LIST_DETAIL_CARD',
+      list: { searchPlaceholder: '', fields: { viewCode: 'page_list', viewKind: 'LIST', fields: [] } },
+      detail: {
+        emptyDescription: '',
+        createTitle: '',
+        editor: {
+          viewCode: 'page_detail_editor',
+          viewKind: 'FORM',
+          fields: [descriptorField('fileId', '上传文件')],
+        },
       },
-    ],
+      traits: [],
+    },
   } satisfies ResolvedModuleUiDescriptor;
 
   const fields = resolveRecordFormFields(uiDescriptor);

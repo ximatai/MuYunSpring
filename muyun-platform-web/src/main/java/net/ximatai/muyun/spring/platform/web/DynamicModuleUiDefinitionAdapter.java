@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshot;
 import net.ximatai.muyun.spring.platform.ui.PlatformResolvedPageConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformResolvedUiField;
@@ -7,6 +9,8 @@ import net.ximatai.muyun.spring.platform.ui.PlatformUiClientType;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorLayout;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -17,6 +21,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public final class DynamicModuleUiDefinitionAdapter {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private DynamicModuleUiDefinitionAdapter() {
     }
 
@@ -49,22 +54,18 @@ public final class DynamicModuleUiDefinitionAdapter {
                     }
                     views.add(view(config, uiSet, viewKind, fieldsByConfig.get(config.getId())));
                 });
-        return new ModuleUiDefinition(snapshot.moduleAlias(), views, List.of());
-    }
-
-    private static ScopedListWorkspaceDefinition scopedListWorkspace(PlatformUiConfig config,
-                                                                      ModuleViewKind viewKind) {
-        if (viewKind != ModuleViewKind.LIST || config.getScopeModuleAlias() == null
-                || config.getScopeModuleAlias().isBlank()) {
-            return null;
-        }
-        String createPolicy = config.getScopeCreatePolicy();
-        return new ScopedListWorkspaceDefinition(config.getScopeModuleAlias(), config.getScopeField(),
-                config.getScopeQueryCriteriaKey(), config.getScopeTitle(), config.getScopeSearchPlaceholder(),
-                Boolean.TRUE.equals(config.getScopeShowItemSubtitle()),
-                createPolicy == null || createPolicy.isBlank()
-                        ? ScopedListWorkspaceCreatePolicy.ALLOW_UNSCOPED
-                        : ScopedListWorkspaceCreatePolicy.valueOf(createPolicy));
+        ViewDefinition list = views.stream().filter(view -> view.viewKind() == ModuleViewKind.LIST).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("dynamic page requires a published list slot: "
+                        + snapshot.moduleAlias()));
+        ViewDefinition editor = views.stream().filter(view -> view.viewKind() == ModuleViewKind.FORM).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("dynamic page requires a published form editor slot: "
+                        + snapshot.moduleAlias()));
+        PlatformUiConfig listConfig = snapshot.uiConfigs().stream()
+                .filter(config -> Objects.equals(config.getId(), list.sourceUiConfigId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("dynamic list source config is missing: " + list.viewCode()));
+        ModulePageDefinition page = page(list, editor, listConfig);
+        return new ModuleUiDefinition(snapshot.moduleAlias(), List.of(), page, null, List.of());
     }
 
     private static ViewDefinition view(PlatformUiConfig config,
@@ -78,8 +79,71 @@ public final class DynamicModuleUiDefinitionAdapter {
                 viewTitle(config, uiSet),
                 fields(fields),
                 config.getId(),
-                scopedListWorkspace(config, viewKind)
+                null
         );
+    }
+
+    private static ModulePageDefinition page(ViewDefinition list, ViewDefinition editor, PlatformUiConfig listConfig) {
+        JsonNode root = pageRoot(listConfig);
+        String template = root.path("template").asText();
+        if ("FLAT_MANAGEMENT".equals(template)) {
+            JsonNode explorer = root.path("explorer");
+            JsonNode detail = root.path("detail");
+            return new FlatManagementPageDefinition(navigator(listConfig), new PageExplorerDefinition(
+                    explorer.path("title").asText(list.title()),
+                    explorer.path("searchPlaceholder").asText(null), explorer.path("emptyDescription").asText(null),
+                    explorer.path("recordLabel").asText(null), explorer.path("fallbackTitle").asText(null),
+                    explorer.path("titleField").asText("title"), explorer.path("secondaryField").asText(null),
+                    explorer.path("mutedWhenDisabled").asBoolean(false)),
+                    new PageDetailDefinition(detail.path("emptyDescription").asText(null),
+                            detail.path("createTitle").asText(editor.title()), null, editor),
+                    traits(root));
+        }
+        if (!"LIST_DETAIL_CARD".equals(template)) {
+            throw new IllegalArgumentException("dynamic page template must be FLAT_MANAGEMENT or LIST_DETAIL_CARD: "
+                    + listConfig.getId());
+        }
+        PageNavigatorDefinition navigator = navigator(listConfig);
+        return new ListDetailCardPageDefinition(navigator, new PageListDefinition(list.title(), list),
+                new PageDetailDefinition(null, editor.title(), null, editor),
+                traits(root));
+    }
+
+    private static PageNavigatorDefinition navigator(PlatformUiConfig config) {
+        PlatformPageNavigatorLayout navigator = PlatformPageLayoutNavigator.navigator(config);
+        if (navigator == null) return null;
+        return new PageNavigatorDefinition(navigator.levels().stream().map(level -> new PageNavigatorLevelDefinition(
+                level.key(), PageNavigatorKind.valueOf(level.kind()), level.sourceModuleAlias(), level.title(),
+                level.searchPlaceholder(), level.queryBindings().stream()
+                .map(binding -> new PageNavigatorQueryBindingDefinition(binding.field(), binding.queryCriteriaKey()))
+                .toList(), level.childBindings().stream()
+                .map(binding -> new PageNavigatorChildBindingDefinition(
+                        binding.childLevelKey(), binding.childQueryCriteriaKey()))
+                .toList())).toList());
+    }
+
+    private static JsonNode pageRoot(PlatformUiConfig config) {
+        if (config.getLayoutJson() == null || config.getLayoutJson().isBlank()) {
+            throw new IllegalArgumentException("dynamic list config must declare a page root layout: " + config.getId());
+        }
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(config.getLayoutJson());
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("dynamic page root layout must be an object: " + config.getId());
+            }
+            return root;
+        } catch (java.io.IOException exception) {
+            throw new IllegalArgumentException("dynamic page root layout cannot be decoded: " + config.getId(), exception);
+        }
+    }
+
+    private static PageTraitsDefinition traits(JsonNode root) {
+        java.util.LinkedHashSet<PageTrait> traits = new java.util.LinkedHashSet<>();
+        JsonNode values = root.path("traits");
+        if (values.isArray()) {
+            values.forEach(value -> traits.add(PageTrait.valueOf(value.asText())));
+        }
+        return new PageTraitsDefinition(traits);
     }
 
     private static List<ViewFieldDefinition> fields(List<PlatformResolvedUiField> fields) {

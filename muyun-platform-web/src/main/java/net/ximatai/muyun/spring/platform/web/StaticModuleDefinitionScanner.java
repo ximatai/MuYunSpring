@@ -520,16 +520,11 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         if (contributionUiDefinition == null) {
             return targetUiDefinition;
         }
-        LinkedHashMap<String, ViewDefinition> views = new LinkedHashMap<>();
-        if (targetUiDefinition != null) {
-            targetUiDefinition.views().forEach(view -> views.put(view.viewCode(), view));
-        }
-        for (ViewDefinition view : contributionUiDefinition.views()) {
-            if (views.containsKey(view.viewCode())) {
-                throw new IllegalStateException("@PlatformStaticActionContribution UI view conflicts with target module: "
-                        + targetModule + "." + view.viewCode() + " <- " + contributor.getName());
-            }
-            views.put(view.viewCode(), view);
+        if (targetUiDefinition != null
+                && targetUiDefinition.page() != null
+                && contributionUiDefinition.page() != null) {
+            throw new IllegalStateException("@PlatformStaticActionContribution page conflicts with target module: "
+                    + targetModule + " <- " + contributor.getName());
         }
         LinkedHashMap<String, UiActionDefinition> actions = new LinkedHashMap<>();
         if (targetUiDefinition != null) {
@@ -542,7 +537,26 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             }
             actions.put(action.actionCode(), action);
         }
-        return new ModuleUiDefinition(targetModule, List.copyOf(views.values()), List.copyOf(actions.values()));
+        List<PageDetailEditorContribution> editorContributions = new ArrayList<>();
+        if (targetUiDefinition != null) editorContributions.addAll(targetUiDefinition.editorContributions());
+        for (PageDetailEditorContribution contribution : contributionUiDefinition.editorContributions()) {
+            if (editorContributions.stream().anyMatch(existing -> existing.resource().equals(contribution.resource()))) {
+                throw new IllegalStateException("@PlatformStaticActionContribution detail editor conflicts with target module: "
+                        + targetModule + "." + contribution.resource() + " <- " + contributor.getName());
+            }
+            editorContributions.add(contribution);
+        }
+        ViewDefinition customPageEditor = targetUiDefinition == null ? null : targetUiDefinition.customPageEditor();
+        if (contributionUiDefinition.customPageEditor() != null) {
+            if (customPageEditor != null) {
+                throw new IllegalStateException("@PlatformStaticActionContribution custom page editor conflicts with target module: "
+                        + targetModule + " <- " + contributor.getName());
+            }
+            customPageEditor = contributionUiDefinition.customPageEditor();
+        }
+        return new ModuleUiDefinition(targetModule, List.copyOf(actions.values()),
+                targetUiDefinition != null && targetUiDefinition.page() != null
+                        ? targetUiDefinition.page() : contributionUiDefinition.page(), customPageEditor, editorContributions);
     }
 
     private void mergeDeclaredAction(String sourceAnnotation,

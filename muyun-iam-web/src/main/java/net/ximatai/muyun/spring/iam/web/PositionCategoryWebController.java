@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
 import net.ximatai.muyun.spring.web.TreeScope;
 import net.ximatai.muyun.spring.web.ScopedTreeWebProjectionPolicy;
+import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.iam.position.PositionCategory;
 import net.ximatai.muyun.spring.iam.position.PositionCategoryService;
@@ -30,7 +31,7 @@ public class PositionCategoryWebController extends WebSupport<PositionCategorySe
         MutationTenantScopeResolver<PositionCategory> {
     @Override
     public TreeScope treeScope(HttpServletRequest request) {
-        String tenantId = request.getParameter("tenantId");
+        String tenantId = TreeWebQuerySupport.externalQueryText(request, "tenantId");
         if (tenantId == null || tenantId.isBlank()) {
             return TreeScope.none();
         }

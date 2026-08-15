@@ -84,34 +84,35 @@ public class PlatformPageConfigPublishService {
                     "UI config publish requires at least one visible field: " + uiConfigId);
         }
         validateLayoutJson(uiSet.getModuleAlias(), uiConfig);
-        validateScopedListWorkspace(uiSet, uiConfig);
+        validatePageNavigator(uiSet, uiConfig);
         return uiConfig;
     }
 
-    private void validateScopedListWorkspace(PlatformUiSet uiSet, PlatformUiConfig uiConfig) {
-        if (uiConfig.getScopeModuleAlias() == null || uiConfig.getScopeModuleAlias().isBlank()
-                || recordService == null) {
-            return;
-        }
-        DynamicModuleDescriptor module = recordService.describe(uiSet.getModuleAlias());
-        DynamicEntityDescriptor entity = module.entities().stream()
-                .filter(candidate -> candidate.entityAlias().equals(module.mainEntityAlias()))
-                .findFirst()
-                .orElseThrow(() -> new PlatformException("Scoped list workspace main entity is unavailable: "
-                        + uiSet.getModuleAlias()));
-        DynamicFieldDescriptor field = entity.fields().stream()
-                .filter(candidate -> candidate.fieldName().equals(uiConfig.getScopeField()))
-                .findFirst()
-                .orElseThrow(() -> new PlatformException("Scoped list workspace field must be a reference: "
-                        + uiSet.getModuleAlias() + "." + uiConfig.getScopeField()));
-        DynamicReferenceDescriptor reference = field.reference();
-        if (reference == null || reference.cardinality() != ReferenceCardinality.ONE) {
-            throw new PlatformException("Scoped list workspace field must be a single reference: "
-                    + uiSet.getModuleAlias() + "." + uiConfig.getScopeField());
-        }
-        if (!uiConfig.getScopeModuleAlias().equals(reference.targetModuleAlias())) {
-            throw new PlatformException("Scoped list workspace reference target must match scope module: "
-                    + uiSet.getModuleAlias() + "." + uiConfig.getScopeField());
+    private void validatePageNavigator(PlatformUiSet uiSet, PlatformUiConfig uiConfig) {
+        try {
+            PlatformPageNavigatorLayout navigator = PlatformPageLayoutNavigator.navigator(uiConfig);
+            if (navigator == null || recordService == null) return;
+            DynamicModuleDescriptor module = recordService.describe(uiSet.getModuleAlias());
+            DynamicEntityDescriptor entity = module.entities().stream()
+                    .filter(candidate -> candidate.entityAlias().equals(module.mainEntityAlias()))
+                    .findFirst()
+                    .orElseThrow(() -> new PlatformException("Navigator main entity is unavailable: " + uiSet.getModuleAlias()));
+            for (PlatformPageNavigatorLevel level : navigator.levels()) {
+                for (PlatformPageNavigatorQueryBinding binding : level.queryBindings()) {
+                    DynamicFieldDescriptor field = entity.fields().stream()
+                            .filter(candidate -> candidate.fieldName().equals(binding.field()))
+                            .findFirst().orElseThrow(() -> new PlatformException("Navigator query field is unavailable: "
+                                    + uiSet.getModuleAlias() + "." + binding.field()));
+                    DynamicReferenceDescriptor reference = field.reference();
+                    if (reference == null || reference.cardinality() != ReferenceCardinality.ONE
+                            || !level.sourceModuleAlias().equals(reference.targetModuleAlias())) {
+                        throw new PlatformException("Navigator query field must be a single reference to "
+                                + level.sourceModuleAlias() + ": " + uiSet.getModuleAlias() + "." + binding.field());
+                    }
+                }
+            }
+        } catch (IllegalArgumentException exception) {
+            throw new PlatformException("UI config navigator layout is invalid: " + uiConfig.getId(), exception);
         }
     }
 
@@ -578,13 +579,6 @@ public class PlatformPageConfigPublishService {
         target.setUiSetId(source.getUiSetId());
         target.setClientType(source.getClientType());
         target.setLayoutJson(source.getLayoutJson());
-        target.setScopeModuleAlias(source.getScopeModuleAlias());
-        target.setScopeField(source.getScopeField());
-        target.setScopeQueryCriteriaKey(source.getScopeQueryCriteriaKey());
-        target.setScopeTitle(source.getScopeTitle());
-        target.setScopeSearchPlaceholder(source.getScopeSearchPlaceholder());
-        target.setScopeShowItemSubtitle(source.getScopeShowItemSubtitle());
-        target.setScopeCreatePolicy(source.getScopeCreatePolicy());
         target.setTitle(source.getTitle());
         target.setEnabled(source.getEnabled());
         target.setSortOrder(source.getSortOrder());

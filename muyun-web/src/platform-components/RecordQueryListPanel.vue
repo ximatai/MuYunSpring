@@ -51,7 +51,7 @@ import {
   type RecordActionItem,
   type ResolvedRecordActionItem,
 } from './recordActionBarModel';
-import { useRecycleBinState } from './recycleBinState';
+import { recycleBinRestoreUnavailableReason, useRecycleBinState } from './recycleBinState';
 
 defineOptions({ name: 'RecordQueryListPanel' });
 
@@ -205,7 +205,7 @@ const recycleBinState = useRecycleBinState({ context: () => props.context });
 const total = ref(0);
 const pageNum = ref(1);
 const pageSize = ref(props.pageSize);
-const runtimeViews = ref<ResolvedViewDescriptor[]>([]);
+const runtimeListView = ref<ResolvedViewDescriptor>();
 const descriptorLoadError = ref(false);
 const quickSearchKeyword = ref('');
 const appliedQuickSearch = ref('');
@@ -291,7 +291,7 @@ const tableColumns = computed<RecordQueryListColumn[]>(() => {
   const base =
     props.columns && props.columns.length > 0
       ? recycleBinColumns(props.columns)
-      : recycleBinColumns(columnsFromRuntimeListView(runtimeViews.value, props.uiConfigId));
+      : recycleBinColumns(columnsFromRuntimeListView(runtimeListView.value));
   return mergeColumns(base, props.additionalColumns);
 });
 const dataTableColumns = computed<UiDataTableColumn[]>(() =>
@@ -372,7 +372,7 @@ async function loadSchemaAndRecords() {
   loading.value = true;
   descriptorLoadError.value = false;
   try {
-    runtimeViews.value = await loadRuntimeViews();
+    runtimeListView.value = await loadRuntimeListView();
     const nextSchema = await props.context.crud.querySchema({
       uiConfigId: props.uiConfigId,
       queryTemplateId: props.queryTemplateId,
@@ -427,13 +427,13 @@ async function loadSchemaAndRecords() {
   }
 }
 
-async function loadRuntimeViews(): Promise<ResolvedViewDescriptor[]> {
+async function loadRuntimeListView(): Promise<ResolvedViewDescriptor | undefined> {
   if (props.columns && props.columns.length > 0) {
-    return [];
+    return undefined;
   }
   try {
     const runtimeContext = await props.context.runtime.ready;
-    return runtimeContext.uiDescriptor?.views ?? [];
+    return runtimeContext.uiDescriptor?.page?.list?.fields;
   } catch (cause) {
     descriptorLoadError.value = true;
     throw cause;
@@ -595,7 +595,15 @@ function rowActions(record: QueryListRecord): RecordActionItem[] {
     if (!item) return [];
     return [
       ...(props.context.can('recycleBinRestore') === true
-        ? [{ key: 'restore', actionCode: 'recycleBinRestore', title: '恢复', disabled: !item.restorable }]
+        ? [
+            {
+              key: 'restore',
+              actionCode: 'recycleBinRestore',
+              title: '恢复',
+              disabled: !item.restorable,
+              disabledReason: recycleBinRestoreUnavailableReason(item),
+            },
+          ]
         : []),
       ...(item.purgeable && props.context.can('recycleBinPurge') === true
         ? [{ key: 'purge', actionCode: 'recycleBinPurge', title: '彻底删除', danger: true }]
@@ -732,12 +740,10 @@ function cellComponentFor(key: string) {
 }
 
 function handleTableRowClick(row: QueryListRow) {
-  if (props.mode === 'recycleBin') return;
   emit('select', row.record);
 }
 
 function handleTableRowDblclick(row: QueryListRow, event: MouseEvent) {
-  if (props.mode === 'recycleBin') return;
   emit('rowDblclick', row.record, event);
 }
 
@@ -974,14 +980,7 @@ function statusCellValue(record: QueryListRecord, column: RecordQueryListColumn 
   return record[column?.key ?? ''] !== false;
 }
 
-function columnsFromRuntimeListView(
-  views: ResolvedViewDescriptor[] | undefined,
-  uiConfigId?: string,
-): RecordQueryListColumn[] {
-  const view =
-    views?.find((item) => item.viewKind === 'LIST' && item.sourceUiConfigId === uiConfigId) ??
-    views?.find((item) => item.viewKind === 'LIST' && item.viewCode === 'default_list') ??
-    views?.find((item) => item.viewKind === 'LIST');
+function columnsFromRuntimeListView(view: ResolvedViewDescriptor | undefined): RecordQueryListColumn[] {
   if (!view) {
     return [];
   }
@@ -1268,6 +1267,9 @@ defineExpose({ clearSelection, refresh });
                 type="text"
                 :disabled="action.disabled"
                 :icon-name="action.iconName"
+                :title="
+                  action.disabled ? (action.disabledReason ?? action.reason ?? action.title) : action.title
+                "
                 @click="handlePrimaryRowAction(record as QueryListRow, action, $event)"
               >
                 {{ action.title }}

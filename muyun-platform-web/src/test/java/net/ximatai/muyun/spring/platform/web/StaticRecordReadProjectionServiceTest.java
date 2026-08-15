@@ -365,11 +365,10 @@ class StaticRecordReadProjectionServiceTest {
                                 FieldDefinition.string("mobile", "手机号")
                         )
                 )))
-                       .uiDefinition(ModuleUiDefinition.builder("iam.employee")
-                        .listView(list -> list
+                       .uiDefinition(TestModulePages.listDetail("iam.employee", list -> list
                                 .field("employeeNo")
                                 .field("title"))
-                        .build())
+                        )
                        .build();
     }
 
@@ -382,8 +381,7 @@ class StaticRecordReadProjectionServiceTest {
     }
 
     private static StaticModuleDefinition userRelationDefinition(boolean includePasswordStatusColumn) {
-        ModuleUiDefinition.Builder uiBuilder = ModuleUiDefinition.builder("iam.user")
-                .listView(list -> {
+        ModuleUiDefinition uiDefinition = TestModulePages.listDetail("iam.user", list -> {
                     list.field("username");
                     if (includePasswordStatusColumn) {
                         list.field("passwordStatus");
@@ -417,7 +415,7 @@ class StaticRecordReadProjectionServiceTest {
                                 )
                         )
                 ))
-                       .uiDefinition(uiBuilder.build())
+                       .uiDefinition(uiDefinition)
                        .projectionJoins(List.of(new RelationProjectionJoinDefinition(
                         "bound_employee",
                         new EntityDefinition(
@@ -474,9 +472,7 @@ class StaticRecordReadProjectionServiceTest {
                         "User",
                         List.of(FieldDefinition.string("username", "账号").column("username"))
                 )))
-                       .uiDefinition(ModuleUiDefinition.builder("iam.user")
-                        .listView(list -> list.field("username"))
-                        .build())
+                       .uiDefinition(TestModulePages.listDetail("iam.user", list -> list.field("username")))
                        .references(List.of())
                        .readProjections(List.of(new StaticModuleReadProjectionDefinition(
                         ReferencePath.inverseOne(EmployeeAccount::getUserId)
