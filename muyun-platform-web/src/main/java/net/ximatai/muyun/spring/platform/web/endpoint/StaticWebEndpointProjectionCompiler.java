@@ -41,9 +41,11 @@ final class StaticWebEndpointProjectionCompiler {
             case "enable" -> new WebShape(RequestMethod.POST, "/enable/{id}");
             case "disable" -> new WebShape(RequestMethod.POST, "/disable/{id}");
             case "tree" -> new WebShape(RequestMethod.GET, "/tree");
+            case "treeQuery" -> new WebShape(RequestMethod.POST, "/tree/query");
             case "subtree" -> new WebShape(RequestMethod.GET, "/tree/{id}");
             case "sort" -> new WebShape(RequestMethod.POST, "/sort/{id}");
             case "query" -> new WebShape(RequestMethod.POST, "/recycle-bin/query");
+            case "view" -> new WebShape(RequestMethod.GET, "/recycle-bin/view/{id}");
             case "restore" -> new WebShape(RequestMethod.POST, "/recycle-bin/{sourceDeleteOperationId}/restore");
             case "purge" -> new WebShape(RequestMethod.POST, "/recycle-bin/{sourceDeleteOperationId}/purge");
             default -> throw new IllegalArgumentException("unsupported static standard operation: " + operation);

@@ -32,6 +32,8 @@ const props = withDefaults(
     context: ModuleContext<TreeRecordBase>;
     selectedId?: string;
     reloadKey?: number;
+    /** Descriptor-owned criteria from upstream navigator levels. */
+    externalQueryValues?: Record<string, unknown>;
     keyword?: string;
     searchMode?: TreeRecordSearchMode;
     searchTrigger?: 'inline' | 'external';
@@ -50,6 +52,7 @@ const props = withDefaults(
   {
     selectedId: undefined,
     reloadKey: undefined,
+    externalQueryValues: undefined,
     keyword: undefined,
     searchMode: 'always',
     searchTrigger: 'inline',
@@ -114,6 +117,12 @@ watch(
   () => loadTree(),
 );
 
+watch(
+  () => props.externalQueryValues,
+  () => loadTree(),
+  { deep: true },
+);
+
 watch(effectiveKeyword, () => {
   if (effectiveKeyword.value.trim()) {
     expandedKeys.value = filteredTree.value.flatMap(expandAllTreeRecords);
@@ -126,7 +135,11 @@ async function loadTree() {
   try {
     await props.context.runtime.ready;
     const treeCapability = props.context.abilities.tree();
-    const response = await treeCapability.tree();
+    const response = await treeCapability.tree(
+      props.externalQueryValues && Object.keys(props.externalQueryValues).length > 0
+        ? { externalQueryValues: props.externalQueryValues }
+        : undefined,
+    );
     if (requestSeq !== treeRequestSeq) {
       return;
     }

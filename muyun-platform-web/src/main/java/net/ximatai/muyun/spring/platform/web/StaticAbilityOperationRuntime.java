@@ -60,8 +60,10 @@ public final class StaticAbilityOperationRuntime {
             case SORT -> target.service() instanceof TreeAbility<?>
                     ? sortTree(scope, request, pathVariable(request, "id"), (TreeSortWebRequest) body)
                     : sort(scope, request, pathVariable(request, "id"), (SortWebRequest) body);
-            case TREE -> tree(scope, request, endpoint.definition().operationCode());
-            case RECYCLE_BIN_QUERY -> recycleBin(scope, (WebQueryRequest) body);
+            case TREE -> tree(scope, request, endpoint.definition().operationCode(), (WebQueryRequest) body);
+            case RECYCLE_BIN_QUERY -> "view".equals(endpoint.definition().operationCode())
+                    ? recycleBinView(scope, pathVariable(request, "id"))
+                    : recycleBin(scope, (WebQueryRequest) body);
             case RECYCLE_BIN_RESTORE -> restore(scope, pathVariable(request, "sourceDeleteOperationId"));
             case RECYCLE_BIN_PURGE -> purge(scope, pathVariable(request, "sourceDeleteOperationId"));
             default -> throw new IllegalStateException("unsupported compiled static operation: "
@@ -213,11 +215,17 @@ public final class StaticAbilityOperationRuntime {
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private Object tree(OperationScope scope, HttpServletRequest request, String operationCode) {
+    private Object tree(OperationScope scope,
+                        HttpServletRequest request,
+                        String operationCode,
+                        WebQueryRequest queryRequest) {
         TreeAbility ability = requireService(scope, TreeAbility.class);
+        if ("treeQuery".equals(operationCode)) {
+            TreeWebQuerySupport.bind(request, queryRequest);
+        }
         boolean flat = Boolean.parseBoolean(request.getParameter("flat"));
         return scope.webScope(() -> {
-            if ("tree".equals(operationCode)) {
+            if ("tree".equals(operationCode) || "treeQuery".equals(operationCode)) {
                 List<EntityContract> roots = treeChildren(scope, ability, request, TreeAbility.ROOT_ID);
                 if (flat) {
                     List<EntityContract> rows = new ArrayList<>();
@@ -339,6 +347,32 @@ public final class StaticAbilityOperationRuntime {
                 response = WebPageResponse.from(ability.pageRecycleBin(criteria, pageRequest, sorts));
             }
             return decorateRecycleBin(ability, projectStaticFallback(scope, response));
+        });
+    }
+
+    /**
+     * Reads one retained record through the same retained visibility and data-scope policy as the recycle-bin list.
+     * This deliberately does not reuse the normal CRUD view endpoint: a soft-deleted record is not visible there.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private EntityContract recycleBinView(OperationScope scope, String id) {
+        RecycleBinAbility ability = requireService(scope, RecycleBinAbility.class);
+        return (EntityContract) scope.webScope(() -> {
+            Criteria criteria = Criteria.of().eq("id", id);
+            List<?> records;
+            if (ability instanceof DataScopeAbility<?> scoped) {
+                DataScopeAbility dataScope = DataScopeAbility.cast(scoped);
+                DataScopeCriteriaResult dataScopeResult = dataScope.readScopeByPolicy(
+                        StaticStandardMutationSupport.actionPolicy(scope, PlatformAction.RECYCLE_BIN_QUERY), criteria);
+                records = (List<?>) dataScope.withDataScopeTenant(dataScopeResult,
+                        () -> ability.pageRecycleBin(dataScopeResult.criteria(), PageRequest.of(1, 1)).getRecords());
+            } else {
+                records = ability.pageRecycleBin(criteria, PageRequest.of(1, 1)).getRecords();
+            }
+            if (records.isEmpty()) {
+                throw new IllegalArgumentException("recycle-bin record not found: " + id);
+            }
+            return WebOutputSupport.record(ability, (EntityContract) records.getFirst(), FieldOutputContext.VIEW);
         });
     }
 

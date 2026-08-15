@@ -74,6 +74,7 @@ public final class StaticServiceAbilityCompiler {
         List<PlatformOperationDefinition> operations = new ArrayList<>();
         if (service instanceof TreeAbility<?>) {
             operations.add(operation("tree", "tree", PlatformAction.TREE));
+            operations.add(operation("tree", "treeQuery", PlatformAction.TREE));
             operations.add(operation("tree", "subtree", PlatformAction.TREE));
             operations.add(operation("tree", "sort", PlatformAction.SORT));
         } else if (service instanceof SortAbility<?>) {
@@ -90,6 +91,7 @@ public final class StaticServiceAbilityCompiler {
         }
         if (service instanceof RecycleBinAbility<?> recycleBinAbility) {
             operations.add(operation("recycleBin", "query", PlatformAction.RECYCLE_BIN_QUERY));
+            operations.add(operation("recycleBin", "view", PlatformAction.RECYCLE_BIN_QUERY));
             operations.add(operation("recycleBin", "restore", PlatformAction.RECYCLE_BIN_RESTORE));
             if (recycleBinAbility.isRecycleBinPurgeEnabled()) {
                 operations.add(operation("recycleBin", "purge", PlatformAction.RECYCLE_BIN_PURGE));

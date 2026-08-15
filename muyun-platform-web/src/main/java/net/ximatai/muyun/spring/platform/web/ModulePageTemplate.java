@@ -5,5 +5,6 @@ package net.ximatai.muyun.spring.platform.web;
  * modules only provide their views, fields and capabilities as slot content.
  */
 public enum ModulePageTemplate {
-    FLAT_MANAGEMENT
+    FLAT_MANAGEMENT,
+    LIST_DETAIL_CARD
 }

@@ -43,4 +43,19 @@ describe('UiRecordExplorerItem', () => {
 
     expect(wrapper.emitted('action')).toBeUndefined();
   });
+
+  it('exposes the reason for a disabled inline action', () => {
+    const wrapper = mount(UiRecordExplorerItem, {
+      props: {
+        title: '研发中心',
+        actions: [
+          { key: 'restore', title: '恢复', disabled: true, disabledReason: '无法恢复：生命周期已变化' },
+        ],
+      },
+    });
+
+    expect(wrapper.get('.ui-record-explorer-item-action').attributes('title')).toBe(
+      '无法恢复：生命周期已变化',
+    );
+  });
 });

@@ -50,7 +50,10 @@ public final class PlatformWebOperationDispatcher {
                     && endpoint.staticTarget().service() instanceof TreeAbility<?>
                     ? TreeSortWebRequest.class
                     : SortWebRequest.class;
-            case RECYCLE_BIN_QUERY -> WebQueryRequest.class;
+            case RECYCLE_BIN_QUERY -> "query".equals(endpoint.definition().operationCode())
+                    ? WebQueryRequest.class : null;
+            case TREE -> "treeQuery".equals(endpoint.definition().operationCode())
+                    ? WebQueryRequest.class : null;
             default -> null;
         };
         if (bodyType == null) return null;

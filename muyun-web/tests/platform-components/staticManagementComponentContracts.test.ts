@@ -349,35 +349,21 @@ it('standard module runner waits for a complete detail before enabling mutations
     hostSource,
     /:edit-available="[\s\S]*!enhancementDetailDrawer[\s\S]*Boolean\(selectedRecord\)[\s\S]*!detailLoading[\s\S]*!detailLoadFailed[\s\S]*editorMode === 'view'/,
   );
-  assert.match(hostSource, /:save-available="!detailLoading && !detailLoadFailed && editorMode !== 'view'"/);
+  assert.match(
+    hostSource,
+    /:save-available="[\s\S]*!recycleBinDetailActive[\s\S]*!detailLoading[\s\S]*!detailLoadFailed[\s\S]*editorMode !== 'view'[\s\S]*"/,
+  );
 });
 
-it('manageable scoped tree keeps action permission and editor behavior in the standard module runner', () => {
+it('page navigator renders levels through the standard module runner', () => {
   const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
 
-  assert.match(hostSource, /RecordInlineAction/);
-  assert.notMatch(hostSource, /@muyun\/vue-ui-antdv/);
-  assert.match(hostSource, /function scopeTreeActions\(\): RecordInlineAction\[\]/);
-  assert.match(hostSource, /scopeContext\.value\.can\('create'\) === true/);
-  assert.match(hostSource, /scopeContext\.value\.can\('update'\) === true/);
-  assert.match(hostSource, /scopeContext\.value\.can\('delete'\) === true/);
-  assert.match(hostSource, /:actions-of="scopeTreeActions"/);
-  assert.match(
-    hostSource,
-    /presentPlatformError\(cause, \{ source: 'scoped-tree-editor', phase: 'load' \}\)/,
-  );
-  assert.match(
-    hostSource,
-    /presentPlatformError\(cause, \{ source: 'scoped-tree-editor', phase: 'action' \}\)/,
-  );
-  assert.match(hostSource, /async function editScopeRecord[\s\S]*catch \(cause\)/);
-  assert.match(hostSource, /async function saveScopeRecord[\s\S]*catch \(cause\)/);
-  assert.match(hostSource, /async function deleteScopeRecord[\s\S]*catch \(cause\)/);
-  assert.match(
-    hostSource,
-    /v-if="\s*scopedListWorkspace\.manageScopeTree && scopeTree && scopeEditingRecord && scopeEditorOpen\s*"/,
-  );
-  assert.match(hostSource, /<RecordFormFields[\s\S]*:fields="scopeFormFields"/);
+  assert.match(hostSource, /navigatorLevels = ref<NavigatorLevelRuntime\[\]>/);
+  assert.match(hostSource, /selectedNavigatorRecords/);
+  assert.match(hostSource, /function selectNavigatorRecord/);
+  assert.match(hostSource, /function navigatorExplorerQueryValues/);
+  assert.match(hostSource, /v-for="level in navigatorLevels"/);
+  assert.match(hostSource, /:external-query-values="navigatorExplorerQueryValues\(level\.descriptor\.key\)"/);
 });
 
 it('static edit draft normalizers preserve standard record fields', () => {
@@ -465,11 +451,12 @@ it('management workspace consumes the page layout contract for constrained deskt
   const positionViewSource = readSource('src/views/PositionManagementView.vue');
   const indexSource = readSource('src/platform-components/index.ts');
 
-  assert.match(workspaceSource, /explorerCount\?: 1 \| 2 \| 3/);
+  assert.match(workspaceSource, /explorerCount\?: number/);
   assert.match(workspaceSource, /--muyun-management-explorer-width: 280px/);
+  assert.match(workspaceSource, /--muyun-management-list-min-width: 720px/);
   assert.match(workspaceSource, /--muyun-management-detail-min-width: 560px/);
-  assert.match(workspaceSource, /management-workspace--2-explorer/);
-  assert.match(workspaceSource, /management-workspace--3-explorer/);
+  assert.match(workspaceSource, /overflow-x: auto/);
+  assert.match(workspaceSource, /repeat\(var\(--muyun-management-explorer-count\)/);
   assert.match(workspaceSource, /align-items: start/);
   assert.match(workspaceSource, /usePageLayout/);
   assert.match(workspaceSource, /management-workspace--constrained/);
@@ -479,7 +466,7 @@ it('management workspace consumes the page layout contract for constrained deskt
   assert.match(explorerColumnSource, /:slotted\(\*\)/);
   assert.match(workspaceSource, /min-height: 100%/);
   assert.notMatch(workspaceSource, /100vh - 116px/);
-  assert.match(workspaceSource, /@media \(max-width: 980px\)/);
+  assert.notMatch(workspaceSource, /@media \(max-width: 980px\)/);
   assert.match(workspaceSource, /min-width: 0/);
   assert.match(indexSource, /export \{ default as ManagementWorkspace \}/);
   assert.match(indexSource, /export \{ default as ManagementExplorerColumn \}/);
@@ -678,10 +665,9 @@ it('dictionary management uses record form fields for category and item forms', 
   assert.match(dictionaryViewSource, /resolveRecordFormFields\(runtimeContext\.uiDescriptor\)/);
   assert.match(
     dictionaryViewSource,
-    /resolveRecordFormFields\(\s*runtimeContext\.uiDescriptor,\s*childResourceDefaultFormViewCode\(ITEM_RESOURCE\),?\s*\)/,
+    /resolveRecordFormFields\(\s*runtimeContext\.uiDescriptor,\s*ITEM_RESOURCE,?\s*\)/,
   );
   assert.match(dictionaryViewSource, /const ITEM_RESOURCE = 'item'/);
-  assert.match(dictionaryViewSource, /childResourceDefaultFormViewCode/);
   assert.match(dictionaryViewSource, /categoryFormFieldDefinitions/);
   assert.match(dictionaryViewSource, /itemFormFieldDefinitions/);
   assert.match(dictionaryViewSource, /:field-names="itemFormFieldNames"/);
@@ -961,9 +947,9 @@ it('employee management uses organization scope and platform query list panel', 
   assert.match(panelSource, /ready\?: boolean/);
   assert.match(panelSource, /waitingDescription\?: string/);
   assert.match(panelSource, /\(\) => props\.ready/);
-  assert.match(panelSource, /runtimeViews = ref<ResolvedViewDescriptor\[\]>\(\[\]\)/);
-  assert.match(panelSource, /runtimeViews\.value = await loadRuntimeViews\(\)/);
-  assert.match(panelSource, /async function loadRuntimeViews/);
+  assert.match(panelSource, /runtimeListView = ref<ResolvedViewDescriptor>/);
+  assert.match(panelSource, /runtimeListView\.value = await loadRuntimeListView\(\)/);
+  assert.match(panelSource, /async function loadRuntimeListView/);
   assert.match(panelSource, /if \(props\.columns && props\.columns\.length > 0\)/);
   assert.match(panelSource, /descriptorLoadError = ref\(false\)/);
   assert.match(panelSource, /descriptorLoadError\.value = true/);
@@ -1242,7 +1228,7 @@ it('employee management uses organization scope and platform query list panel', 
   assert.match(employeeViewSource, /:ready="Boolean\(selectedOrganization\?\.id\)"/);
   assert.match(employeeViewSource, /departmentScope/);
   assert.match(contractsSource, /export interface QuerySchema/);
-  assert.match(contractsSource, /export interface ModuleUiDefinition/);
+  assert.match(contractsSource, /export interface ResolvedModulePageDescriptor/);
   assert.match(contractsSource, /export interface ViewDefinition/);
   assert.match(contractsSource, /export interface ViewFieldDefinition/);
   assert.match(contractsSource, /export type ViewFieldValueType/);
@@ -1764,12 +1750,10 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /context\.crud\.enable\(id, \{ version \}\)/);
   assert.match(hostSource, /context\.crud\.disable\(id, \{ version \}\)/);
   assert.match(hostSource, /:exclude-field-names="\['enabled'\]"/);
-  assert.match(hostSource, /resolveRecordFormFields\(runtimeContext\.uiDescriptor, view\?\.viewCode\)/);
+  assert.match(hostSource, /resolveRecordFormFields\(runtimeContext\.uiDescriptor\)/);
   assert.match(hostSource, /isListPage/);
   assert.match(hostSource, /listUiConfigId/);
-  assert.match(hostSource, /function scopedListWorkspaceFor\([\s\S]*views: ResolvedViewDescriptor\[\]/);
-  assert.match(hostSource, /view\.sourceUiConfigId === listUiConfigId\.value/);
-  assert.match(hostSource, /configuredList\.scopedListWorkspace/);
+  assert.match(hostSource, /runtimePage\.value\?\.navigator\?\.levels/);
   assert.match(hostSource, /:ui-config-id="listUiConfigId"/);
   assert.match(hostSource, /createPageBootstrapClient\(context\.http\)\.byMenu\(menuId\)/);
   assert.match(hostSource, /bootstrap\.entry\.moduleAlias !== context\.moduleAlias/);
@@ -1780,37 +1764,48 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /:ready="pageReady"/);
   assert.match(hostSource, /动态\$\{pageMode\.value\}入口暂未接入运行器/);
   assert.match(hostSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
-  assert.match(hostSource, /<ManagementWorkspace v-if="scopedListWorkspace && scopeContext"/);
+  assert.match(hostSource, /:explorer-count="navigatorLevels\.length"/);
+  assert.match(hostSource, /:navigator-count="navigatorLevels\.length"/);
   assert.match(hostSource, /<ManagementWorkspace v-else-if="treeModule"/);
   assert.match(hostSource, /<CrudRecordListExplorer/);
-  assert.match(hostSource, /<TreeRecordExplorer[\s\S]*v-if="scopeTree"/);
-  assert.match(hostSource, /await scopeContext\.value\.runtime\.ready/);
-  assert.match(hostSource, /scopeTree\.value = scopeContext\.value\.abilities\.hasTree\(\) === true/);
+  assert.match(hostSource, /<TreeRecordExplorer[\s\S]*v-if="level\.tree"/);
+  assert.match(hostSource, /const primaryNavigatorContext = computed/);
+  assert.match(hostSource, /const navigatorCreateDefaults = computed/);
+  assert.equal(/scopedListWorkspace/.test(hostSource), false);
+  assert.equal(/selectedScopeRecord/.test(hostSource), false);
+  assert.match(
+    hostSource,
+    /tree: descriptor\.kind === 'TREE' && navigatorContext\.abilities\.hasTree\(\) === true/,
+  );
   assert.match(hostSource, /search-mode="none"/);
-  assert.match(hostSource, /:external-query-values="scopedExternalQueryValues"/);
-  assert.match(hostSource, /:required-external-criteria-keys="\[scopedListWorkspace\.queryCriteriaKey\]"/);
-  assert.match(hostSource, /selectedScopeRecord\.value\?\.id === record\.id/);
-  assert.match(hostSource, /disabled: !canCreateRecord\.value/);
+  assert.match(hostSource, /:external-query-values="navigatorListQueryValues"/);
+  assert.match(hostSource, /:required-external-criteria-keys="navigatorListCriteriaKeys"/);
+  assert.match(hostSource, /for \(const descendantKey of navigatorDescendantKeys\(levelKey\)\)/);
   assert.match(listPanelSource, /queryTemplateId: props\.queryTemplateId/);
   assert.match(listPanelSource, /if \(!queryReady\.value\) \{\s*return;/);
-  assert.match(listPanelSource, /item\.sourceUiConfigId === uiConfigId/);
+  assert.match(listPanelSource, /uiDescriptor\?\.page\?\.list\?\.fields/);
   assert.match(listPanelSource, /props\.requiredExternalCriteriaKeys\.length > 0/);
-  assert.match(hostSource, /\[workspace\.scopeField\]: selectedScopeRecord\.value\.id/);
+  assert.match(hostSource, /values\[binding\.queryCriteriaKey\] = id/);
   assert.match(hostSource, /<TreeRecordExplorer/);
   assert.match(hostSource, /context\.crud\.update\(id, record\)/);
-  assert.match(hostSource, /:file-transfer-context="scopeContext"/);
-  assert.match(hostSource, /scope\.crud\.update\(String\(record\.id\), record\)/);
   assert.match(hostSource, /<RecordDetailPanel/);
   assert.match(hostSource, /<RecordMetaSection/);
   assert.match(hostSource, /<ModuleActionButton/);
   assert.match(hostSource, /<RecordPanelState/);
-  assert.match(hostSource, /v-if="!treeModule && !flatManagementTemplate"/);
-  assert.match(hostSource, /<StaticManagementLayout\s+v-else-if="flatManagementTemplate"/);
   assert.match(
     hostSource,
-    /<div class="dynamic-form dynamic-scope-editor-form">[\s\S]*?<RecordFormFields[\s\S]*?:fields="scopeFormFields"/,
+    /v-if="!treeModule && !flatManagementPage && \(!listDetailCardPage \|\| narrowDetailSurface\)"/,
   );
-  assert.equal(matchCount(hostSource, /<div v-else class="dynamic-form">[\s\S]*?<RecordFormFields/g), 2);
+  assert.match(
+    hostSource,
+    /<ManagementWorkspace[\s\S]*v-else-if="listDetailCardPage && !narrowDetailSurface"/,
+  );
+  assert.match(
+    hostSource,
+    /function selectListDetailRecord\(record: QueryListRecord\)[\s\S]*openViewRecord\(record\)/,
+  );
+  assert.match(hostSource, /<StaticManagementLayout\s+v-if="flatManagementPage"/);
+  assert.equal(matchCount(hostSource, /<div v-else class="dynamic-form">[\s\S]*?<RecordFormFields/g), 3);
   assert.match(
     hostSource,
     /<div v-if="editingRecord" class="dynamic-form">[\s\S]*?<RecordFormFields[\s\S]*?@update:field="updateDraftField"/,
@@ -2221,9 +2216,10 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(recycleBinButtonSource, /visualState === 'selected' \? 'reload' : 'delete'/);
   assert.notMatch(panelSource, /record-query-list-actions">[\s\S]{0,320}recycleBinEnabled/);
   assert.match(panelSource, /emit\('modeChange', mode === 'normal' \? 'recycleBin' : 'normal'\)/);
-  assert.match(panelSource, /key: 'restore', actionCode: 'recycleBinRestore'/);
+  assert.match(panelSource, /key: 'restore',[\s\S]*actionCode: 'recycleBinRestore'/);
   assert.match(panelSource, /item\.purgeable/);
   assert.match(panelSource, /key: 'purge', actionCode: 'recycleBinPurge'/);
+  assert.match(panelSource, /function handleTableRowClick[\s\S]*emit\('select', row\.record\)/);
   assert.match(hostSource, /const listMode = ref<RecordQueryListMode>\('normal'\)/);
   assert.match(hostSource, /:mode="listMode"/);
   assert.match(hostSource, /@mode-change="handleListModeChange"/);
@@ -2242,9 +2238,14 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(explorerSource, /requestSeq !== recordsRequestSeq/);
   assert.match(explorerSource, /key: 'restore'/);
   assert.match(explorerSource, /showLabel: true/);
+  assert.match(explorerSource, /disabledReason: recycleBinRestoreUnavailableReason\(item\)/);
   assert.match(explorerSource, /recycleBinState\.restore\(item, false\)/);
+  assert.match(hostSource, /function openRecycleBinRecord/);
+  assert.match(hostSource, /\/recycle-bin\/view\/\$\{encodeURIComponent\(id\)\}/);
+  assert.match(hostSource, /const recycleBinDetailActive = computed/);
   assert.match(tenantSource, /<CrudRecordListExplorer/);
   assert.match(explorerItemSource, /action\.showLabel \? action\.title : actionFallbackLabel\(action\)/);
+  assert.match(explorerItemSource, /action\.disabledReason \?\? action\.title/);
   assert.match(recycleBinModeSource, /hasRecycleBinAbility\(toValue\(options\.context\)\)/);
   assert.match(recycleBinModeSource, /canQueryRecycleBin\(toValue\(options\.context\)\)/);
   assert.match(recycleBinModeSource, /options\.resetSelection\?\.\(\)/);

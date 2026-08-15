@@ -16,12 +16,14 @@ withDefaults(
     explorerSearchKeyword?: string;
     explorerSearchPlaceholder?: string;
     explorerSearchable?: boolean;
+    navigatorCount?: number;
   }>(),
   {
     mutedMessage: undefined,
     explorerSearchKeyword: '',
     explorerSearchPlaceholder: '搜索名称、编码或 ID',
     explorerSearchable: true,
+    navigatorCount: 0,
   },
 );
 const emit = defineEmits<{
@@ -31,7 +33,10 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <ManagementWorkspace class="static-management-page">
+  <ManagementWorkspace class="static-management-page" :explorer-count="navigatorCount + 1">
+    <ManagementExplorerColumn v-for="index in navigatorCount" :key="index">
+      <slot name="navigator" :index="index - 1" />
+    </ManagementExplorerColumn>
     <ManagementExplorerColumn>
       <RecordExplorerPanel
         class="static-management-sidebar"

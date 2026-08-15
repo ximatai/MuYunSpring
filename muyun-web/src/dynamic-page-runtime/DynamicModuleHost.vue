@@ -42,9 +42,8 @@ import type {
   DynamicModulePageDescriptor,
   MenuPageMode,
   PageBootstrap,
-  RecordInlineAction,
-  ResolvedScopedListWorkspaceDescriptor,
-  ResolvedViewDescriptor,
+  ResolvedModulePageDescriptor,
+  ResolvedPageNavigatorLevelDescriptor,
 } from '@muyun/web-contracts';
 import {
   createModuleContext,
@@ -95,7 +94,7 @@ const editingRecord = ref<QueryListRecord>();
 const editorMode = ref<'create' | 'edit' | 'view'>('view');
 const detailOpen = ref(false);
 const formFields = ref(resolveRecordFormFields(undefined));
-const runtimeViews = ref<ResolvedViewDescriptor[]>([]);
+const runtimePage = ref<ResolvedModulePageDescriptor>();
 const listMode = ref<RecordQueryListMode>('normal');
 const reloadKey = ref(0);
 const treeReloadKey = ref(0);
@@ -104,44 +103,42 @@ const treeSearchKeyword = ref('');
 const flatManagementSearchKeyword = ref('');
 const flatManagementReloadKey = ref(0);
 const treeModule = ref(false);
-const scopedListWorkspace = ref<ResolvedScopedListWorkspaceDescriptor>();
-const selectedScopeRecord = ref<QueryListRecord>();
+const navigatorLevels = ref<NavigatorLevelRuntime[]>([]);
+const selectedNavigatorRecords = ref<Record<string, QueryListRecord | undefined>>({});
 const scopeSearchKeyword = ref('');
 const scopeReloadKey = ref(0);
-const scopeTree = ref(false);
-const scopeFormFields = ref(resolveRecordFormFields(undefined));
-const scopeEditorOpen = ref(false);
-const scopeEditorMode = ref<'create' | 'edit'>('create');
-const scopeEditingRecord = ref<QueryListRecord>();
-const scopeSaving = ref(false);
 const saving = ref(false);
 const formSessionKey = ref(0);
-const scopeFormSessionKey = ref(0);
 const togglingEnabled = ref(false);
 const detailLoading = ref(false);
 const detailLoadFailed = ref(false);
+const narrowDetailSurface = ref(false);
 const enhancementDrawer = ref<{
   definition: ModulePageDrawer;
   context: ModulePageDrawerContext;
 }>();
 let detailLoadSequence = 0;
 let unregisterListRefresh: (() => void) | undefined;
+let narrowDetailSurfaceQuery: MediaQueryList | undefined;
+let updateNarrowDetailSurface: (() => void) | undefined;
+
+interface NavigatorLevelRuntime {
+  descriptor: ResolvedPageNavigatorLevelDescriptor;
+  context: ModuleContext<QueryListRecord>;
+  tree: boolean;
+}
 
 const title = computed(
   () => props.descriptor.title ?? context.runtime.snapshot()?.title ?? context.moduleAlias,
 );
 const detailTitle = computed(() => {
   if (editorMode.value === 'create') {
-    return flatManagementTemplate.value
+    return flatManagementPage.value
       ? (flatManagementContent.value?.createTitle ?? `新建${title.value}`)
       : `新建${title.value}`;
   }
   return recordTitle(editingRecord.value ?? selectedRecord.value) ?? '记录详情';
 });
-const scopeEditorTitle = computed(
-  () =>
-    `${scopeEditorMode.value === 'create' ? '新建' : '编辑'}${scopedListWorkspace.value?.scopeTitle ?? '目录'}`,
-);
 const pageBootstrap = ref<PageBootstrap>();
 const pageBootstrapError = ref<string>();
 const configuredPageMode = computed<MenuPageMode>(() => props.descriptor.target.pageMode ?? 'LIST');
@@ -159,17 +156,26 @@ const listQueryTemplateId = computed(
   () => pageBootstrap.value?.entry.defaultQueryTemplateId ?? props.descriptor.target.defaultQueryTemplateId,
 );
 const activeListView = computed(() => {
-  const listViews = runtimeViews.value.filter((view) => view.viewKind === 'LIST');
-  return listUiConfigId.value == null
-    ? listViews.length === 1
-      ? listViews[0]
-      : undefined
-    : listViews.find((view) => view.sourceUiConfigId === listUiConfigId.value);
+  return runtimePage.value?.list?.fields;
 });
-const flatManagementTemplate = computed(() => activeListView.value?.pageTemplate === 'FLAT_MANAGEMENT');
-const flatManagementContent = computed(() => activeListView.value?.flatManagementTemplate);
+const flatManagementPage = computed(() => runtimePage.value?.template === 'FLAT_MANAGEMENT');
+const flatManagementContent = computed(() => {
+  const explorer = runtimePage.value?.explorer;
+  const detail = runtimePage.value?.detail;
+  return explorer == null || detail == null
+    ? undefined
+    : {
+        explorerTitle: explorer.title,
+        explorerSearchPlaceholder: explorer.searchPlaceholder,
+        emptyDescription: explorer.emptyDescription,
+        detailEmptyDescription: detail.emptyDescription,
+        createTitle: detail.createTitle,
+        recordLabel: explorer.recordLabel,
+        fallbackTitle: explorer.fallbackTitle,
+      };
+});
 const recordLabel = computed(() =>
-  flatManagementTemplate.value ? (flatManagementContent.value?.recordLabel ?? '记录') : '记录',
+  flatManagementPage.value ? (flatManagementContent.value?.recordLabel ?? '记录') : '记录',
 );
 const pageEnhancement = computed(() =>
   resolveModulePageEnhancement(context.moduleAlias, activeListView.value?.viewCode),
@@ -184,9 +190,9 @@ const enhancementActions = computed<ModulePageActionContribution[]>(() =>
     return {
       ...action,
       ...state?.(stateContext),
-      ...(authorization === 'scope-record' && scopeContext.value
+      ...(authorization === 'scope-record' && primaryNavigatorContext.value
         ? {
-            authorizationContext: scopeContext.value,
+            authorizationContext: primaryNavigatorContext.value,
             authorizationRecordId: scopeRecordId == null ? undefined : String(scopeRecordId),
           }
         : {}),
@@ -221,6 +227,9 @@ const enhancementDetailSections = computed<ModulePageDetailSection[]>(
 const enhancementDetailDrawer = computed<ModulePageDetailDrawer | undefined>(
   () => pageEnhancement.value?.detail?.drawer,
 );
+const listDetailCardPage = computed(
+  () => runtimePage.value?.template === 'LIST_DETAIL_CARD' && !enhancementDetailDrawer.value,
+);
 const standardCrudRowActionKeys = computed<StandardCrudRowActionKey[]>(() =>
   enhancementDetailDrawer.value ? ['view'] : ['view', 'edit', 'delete'],
 );
@@ -235,38 +244,53 @@ const unsupportedPageModeText = computed(() => `动态${pageMode.value}入口暂
 // workbench tab's document flow.
 providePageLayout(
   computed(() =>
-    treeModule.value || scopedListWorkspace.value || flatManagementTemplate.value
+    treeModule.value ||
+    navigatorLevels.value.length > 0 ||
+    flatManagementPage.value ||
+    listDetailCardPage.value
       ? 'workspace'
       : props.descriptor.layout,
   ),
 );
-const scopeContext = computed<ModuleContext<QueryListRecord> | undefined>(() => {
-  const workspace = scopedListWorkspace.value;
-  return workspace
-    ? createModuleContext({ http: context.http, moduleAlias: workspace.scopeModuleAlias })
-    : undefined;
+/**
+ * Page enhancements may use the leading navigator as their business scope.
+ * The selection itself remains the shared multi-level navigator state; do not
+ * introduce a separate scope selection for actions or drawers.
+ */
+const primaryNavigatorContext = computed<ModuleContext<QueryListRecord> | undefined>(() => {
+  return navigatorLevels.value[0]?.context;
 });
-const scopeSelectionRequired = computed(() => scopedListWorkspace.value?.createPolicy === 'REQUIRE_SCOPE');
-const canCreateRecord = computed(
-  () => !scopeSelectionRequired.value || selectedScopeRecord.value?.id != null,
+const navigatorListQueryValues = computed<Record<string, unknown> | undefined>(() => {
+  const values: Record<string, unknown> = {};
+  for (const level of navigatorLevels.value) {
+    const id = selectedNavigatorRecords.value[level.descriptor.key]?.id;
+    if (id == null) continue;
+    for (const binding of level.descriptor.queryBindings) {
+      values[binding.queryCriteriaKey] = id;
+    }
+  }
+  return Object.keys(values).length > 0 ? values : undefined;
+});
+const navigatorListCriteriaKeys = computed(() =>
+  navigatorLevels.value.flatMap((level) =>
+    level.descriptor.queryBindings.map((binding) => binding.queryCriteriaKey),
+  ),
 );
-const scopedExternalQueryValues = computed<Record<string, unknown> | undefined>(() => {
-  const workspace = scopedListWorkspace.value;
-  const id = selectedScopeRecord.value?.id;
-  return workspace && id != null ? { [workspace.queryCriteriaKey]: id } : undefined;
+const navigatorCreateDefaults = computed<Record<string, unknown>>(() => {
+  const values: Record<string, unknown> = {};
+  for (const level of navigatorLevels.value) {
+    const id = selectedNavigatorRecords.value[level.descriptor.key]?.id;
+    if (id == null) continue;
+    for (const binding of level.descriptor.queryBindings) {
+      values[binding.field] = id;
+    }
+  }
+  return values;
 });
-const scopedListActions = computed<RecordActionItem[]>(() => [
-  {
-    key: 'create',
-    actionCode: 'create',
-    title: '新建',
-    primary: true,
-    disabled: !canCreateRecord.value,
-  },
-]);
 const canToggleEnabled = computed(() => {
   const record = selectedRecord.value;
   if (
+    recycleBinDetailActive.value ||
     !record?.id ||
     editorMode.value !== 'view' ||
     detailLoading.value ||
@@ -310,6 +334,9 @@ const flatManagementActions = computed<RecordActionItem[]>(() => {
     },
   ];
 });
+const recycleBinDetailActive = computed(
+  () => flatManagementRecycleBin.active.value || listMode.value === 'recycleBin',
+);
 const treeParentPickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() => {
   if (!treeModule.value || !formFields.value.has('parentId')) {
     return {} as Record<string, RecordFormFieldPickerConfig>;
@@ -343,6 +370,14 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
 });
 
 onMounted(async () => {
+  if (typeof window.matchMedia === 'function') {
+    narrowDetailSurfaceQuery = window.matchMedia('(max-width: 719px)');
+    updateNarrowDetailSurface = () => {
+      narrowDetailSurface.value = narrowDetailSurfaceQuery?.matches === true;
+    };
+    updateNarrowDetailSurface();
+    narrowDetailSurfaceQuery.addEventListener('change', updateNarrowDetailSurface);
+  }
   await loadPageBootstrap();
   await loadRuntimeForm();
   if (isListPage.value && !pageBootstrapError.value) {
@@ -351,6 +386,9 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (updateNarrowDetailSurface) {
+    narrowDetailSurfaceQuery?.removeEventListener('change', updateNarrowDetailSurface);
+  }
   unregisterListRefresh?.();
   unregisterListRefresh = undefined;
 });
@@ -377,80 +415,30 @@ async function loadRuntimeForm() {
     return;
   }
   const runtimeContext = await context.runtime.ready;
-  runtimeViews.value = runtimeContext.uiDescriptor?.views ?? [];
+  runtimePage.value = runtimeContext.uiDescriptor?.page;
   treeModule.value = context.abilities.hasTree() === true;
   const enhancement = pageEnhancement.value;
   if (treeModule.value && (enhancement?.detail?.drawer || enhancement?.list?.viewActionCode)) {
     pageBootstrapError.value = `模块页面增强 ${enhancement.id} 的业务详情抽屉和查看动作仅支持普通列表模块，不支持树模块`;
     return;
   }
-  scopedListWorkspace.value = scopedListWorkspaceFor(runtimeViews.value);
-  scopeTree.value = false;
-  if (scopeContext.value) {
-    const scopeRuntime = await scopeContext.value.runtime.ready;
-    scopeTree.value = scopeContext.value.abilities.hasTree() === true;
-    scopeFormFields.value = resolveRecordFormFields(scopeRuntime.uiDescriptor);
-  }
-  const view = defaultFormView(runtimeViews.value);
-  formFields.value = resolveRecordFormFields(runtimeContext.uiDescriptor, view?.viewCode);
-}
-
-const scopeParentPickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() => {
-  if (!scopeContext.value || !scopeTree.value || !scopeFormFields.value.has('parentId')) {
-    return {} as Record<string, RecordFormFieldPickerConfig>;
-  }
-  return {
-    parentId: {
-      context: scopeContext.value,
-      mode: 'tree',
-      placeholder: `根${scopedListWorkspace.value?.scopeTitle ?? '目录'}留空`,
-      allowClear: true,
-      constraints: parentRecordConstraints(
-        scopeEditingRecord.value?.id == null ? undefined : String(scopeEditingRecord.value.id),
-      ),
-    },
-  };
-});
-
-/** Scope editors may contain ordinary references as well as the tree's parent field. */
-const scopeReferencePickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() => {
-  const configs: Record<string, RecordFormFieldPickerConfig> = { ...scopeParentPickerConfigs.value };
-  if (!scopeContext.value) {
-    return configs;
-  }
-  for (const field of scopeFormFields.value.values()) {
-    const fieldName = field.fieldRef.fieldName;
-    const reference = field.reference;
-    if (!reference || fieldName === 'parentId') {
-      continue;
-    }
-    configs[fieldName] = {
-      context: createModuleContext({ http: context.http, moduleAlias: reference.targetModuleAlias }),
-      mode: 'tree',
-      allowClear: !field.required?.constant,
-    };
-  }
-  return configs;
-});
-
-function defaultFormView(views: ResolvedViewDescriptor[]) {
-  return views.find((view) => view.viewKind === 'FORM');
-}
-
-function scopedListWorkspaceFor(
-  views: ResolvedViewDescriptor[],
-): ResolvedScopedListWorkspaceDescriptor | undefined {
-  const listViews = views.filter((view) => view.viewKind === 'LIST');
-  const configuredList =
-    listUiConfigId.value == null
-      ? undefined
-      : listViews.find((view) => view.sourceUiConfigId === listUiConfigId.value);
-  if (configuredList) {
-    return configuredList.scopedListWorkspace;
-  }
-  return listUiConfigId.value == null && listViews.length === 1
-    ? listViews[0].scopedListWorkspace
-    : undefined;
+  const resolvedNavigatorLevels = runtimePage.value?.navigator?.levels ?? [];
+  selectedNavigatorRecords.value = {};
+  navigatorLevels.value = await Promise.all(
+    resolvedNavigatorLevels.map(async (descriptor) => {
+      const navigatorContext = createModuleContext<QueryListRecord>({
+        http: context.http,
+        moduleAlias: descriptor.sourceModuleAlias,
+      });
+      await navigatorContext.runtime.ready;
+      return {
+        descriptor,
+        context: navigatorContext,
+        tree: descriptor.kind === 'TREE' && navigatorContext.abilities.hasTree() === true,
+      };
+    }),
+  );
+  formFields.value = resolveRecordFormFields(runtimeContext.uiDescriptor);
 }
 
 function handleLoaded(records: QueryListRecord[]) {
@@ -493,7 +481,11 @@ function flatManagementItemOf(record: CrudRecordListBase): RecordExplorerItemDes
 }
 
 function openFlatManagementRecord(record: QueryListRecord) {
-  if (!flatManagementRecycleBin.active.value) void openViewRecord(record);
+  if (flatManagementRecycleBin.active.value) {
+    void openRecycleBinRecord(record);
+    return;
+  }
+  void openViewRecord(record);
 }
 
 function handleFlatManagementAction(action: RecordActionItem) {
@@ -535,114 +527,82 @@ function selectRecord(record: QueryListRecord) {
   selectedRecord.value = record;
 }
 
-function selectScopeRecord(record: { id?: string }) {
-  if (selectedScopeRecord.value?.id === record.id) {
-    selectedScopeRecord.value = undefined;
+/** A LIST_DETAIL_CARD selection is the detail navigation event, not merely row highlighting. */
+function selectListDetailRecord(record: QueryListRecord) {
+  selectRecord(record);
+  if (listMode.value === 'recycleBin') {
+    void openRecycleBinRecord(record);
     return;
   }
-  selectedScopeRecord.value = record as QueryListRecord;
+  void openViewRecord(record);
 }
 
-function scopeTreeActions(): RecordInlineAction[] {
-  if (!scopedListWorkspace.value?.manageScopeTree || !scopeTree.value || !scopeContext.value) return [];
-  const actions: RecordInlineAction[] = [];
-  if (scopeContext.value.can('create') === true)
-    actions.push({ key: 'create-child', title: '新增下级', iconName: 'plus' });
-  if (scopeContext.value.can('update') === true)
-    actions.push({ key: 'edit', title: '编辑', iconName: 'edit' });
-  if (scopeContext.value.can('delete') === true)
-    actions.push({ key: 'delete', title: '删除', iconName: 'delete', danger: true });
-  return actions;
+function selectStandaloneListRecord(record: QueryListRecord) {
+  selectRecord(record);
+  if (listMode.value === 'recycleBin') void openRecycleBinRecord(record);
 }
 
-function openScopeEditor(mode: 'create' | 'edit', record?: QueryListRecord) {
-  scopeFormSessionKey.value += 1;
-  scopeEditorMode.value = mode;
-  scopeEditingRecord.value =
-    mode === 'create'
-      ? record?.id == null
-        ? { enabled: true }
-        : { parentId: record.id, enabled: true }
-      : record;
-  scopeEditorOpen.value = true;
-}
-
-function closeScopeEditor() {
-  if (scopeSaving.value) return;
-  scopeEditorOpen.value = false;
-  scopeFormSessionKey.value += 1;
-}
-
-async function editScopeRecord(record: QueryListRecord) {
-  if (!scopeContext.value?.crud || record.id == null) return;
-  try {
-    const detail = await scopeContext.value.crud.view(String(record.id));
-    openScopeEditor('edit', detail as QueryListRecord);
-  } catch (cause) {
-    presentPlatformError(cause, { source: 'scoped-tree-editor', phase: 'load' });
+function openListRecord(record: QueryListRecord) {
+  if (listMode.value === 'recycleBin') {
+    void openRecycleBinRecord(record);
+    return;
   }
+  void openViewRecord(record);
 }
 
-async function saveScopeRecord() {
-  const scope = scopeContext.value;
-  const record = scopeEditingRecord.value;
-  if (!scope || !record || scopeSaving.value) return;
-  scopeSaving.value = true;
-  try {
-    const result =
-      scopeEditorMode.value === 'edit' && record.id != null
-        ? await scope.crud.update(String(record.id), record)
-        : await scope.crud.insert(record);
-    selectedScopeRecord.value = result.record as QueryListRecord;
-    scopeEditorOpen.value = false;
-    scopeFormSessionKey.value += 1;
-    scopeReloadKey.value += 1;
-    await presentDynamicModuleActionSuccess(result, '保存成功', 'scoped-tree-editor');
-  } catch (cause) {
-    presentPlatformError(cause, { source: 'scoped-tree-editor', phase: 'action' });
-  } finally {
-    scopeSaving.value = false;
+/**
+ * A selection takes effect at every navigator level: it immediately constrains
+ * the list and clears only selections that depend on it.
+ */
+function selectNavigatorRecord(levelKey: string, record: { id?: string }) {
+  if (!navigatorLevels.value.some((level) => level.descriptor.key === levelKey)) return;
+  const previous = selectedNavigatorRecords.value[levelKey];
+  const next = { ...selectedNavigatorRecords.value };
+  next[levelKey] = previous?.id === record.id ? undefined : (record as QueryListRecord);
+  for (const descendantKey of navigatorDescendantKeys(levelKey)) {
+    next[descendantKey] = undefined;
   }
+  selectedNavigatorRecords.value = next;
+  clearSelectionForScopeChange();
 }
 
-async function deleteScopeRecord(record: QueryListRecord) {
-  const scope = scopeContext.value;
-  const id = record.id == null ? undefined : String(record.id);
-  const version = typeof record.version === 'number' ? record.version : undefined;
-  if (!scope || !id || version === undefined) return;
-  try {
-    if (
-      !(await confirmAction({
-        title: `删除${scopedListWorkspace.value?.scopeTitle ?? '目录'}`,
-        content: `确认删除「${recordTitle(record) ?? id}」？`,
-        okText: '删除',
-        danger: true,
-      }))
-    )
-      return;
-    const result = await scope.crud.delete(id, { version });
-    if (selectedScopeRecord.value?.id === id) selectedScopeRecord.value = undefined;
-    scopeReloadKey.value += 1;
-    await presentDynamicModuleActionSuccess(result, '删除成功', 'scoped-tree-editor');
-  } catch (cause) {
-    presentPlatformError(cause, { source: 'scoped-tree-editor', phase: 'action' });
+function navigatorDescendantKeys(levelKey: string): Set<string> {
+  const descendants = new Set<string>();
+  const pending = [levelKey];
+  while (pending.length > 0) {
+    const parent = pending.pop();
+    const level = navigatorLevels.value.find((candidate) => candidate.descriptor.key === parent);
+    for (const binding of level?.descriptor.childBindings ?? []) {
+      if (!descendants.has(binding.childLevelKey)) {
+        descendants.add(binding.childLevelKey);
+        pending.push(binding.childLevelKey);
+      }
+    }
   }
+  return descendants;
 }
 
-function handleScopeTreeAction(action: RecordInlineAction, record: unknown) {
-  const scopeRecord = record as QueryListRecord;
-  selectScopeRecord(scopeRecord);
-  if (action.key === 'create-child') openScopeEditor('create', scopeRecord);
-  if (action.key === 'edit') void editScopeRecord(scopeRecord);
-  if (action.key === 'delete') void deleteScopeRecord(scopeRecord);
+function navigatorExplorerQueryValues(levelKey: string): Record<string, unknown> | undefined {
+  const values: Record<string, unknown> = {};
+  for (const level of navigatorLevels.value) {
+    const id = selectedNavigatorRecords.value[level.descriptor.key]?.id;
+    if (id == null) continue;
+    for (const binding of level.descriptor.childBindings) {
+      if (binding.childLevelKey === levelKey) values[binding.childQueryCriteriaKey] = id;
+    }
+  }
+  return Object.keys(values).length > 0 ? values : undefined;
 }
 
-function updateScopeDraftField(
-  fieldName: string,
-  value: import('@muyun/platform-components').RecordFormFieldValue,
-) {
-  if (!scopeEditingRecord.value) return;
-  scopeEditingRecord.value = { ...scopeEditingRecord.value, [fieldName]: value };
+/** A scope selection immediately constrains the list; its former detail may no longer be in range. */
+function clearSelectionForScopeChange() {
+  detailLoadSequence += 1;
+  detailLoading.value = false;
+  detailLoadFailed.value = false;
+  detailOpen.value = false;
+  editorMode.value = 'view';
+  selectedRecord.value = undefined;
+  editingRecord.value = undefined;
 }
 
 function selectTreeRecord(record: unknown) {
@@ -696,6 +656,50 @@ async function openRecord(record: QueryListRecord, mode: 'edit' | 'view') {
   }
 }
 
+/**
+ * A deleted record is intentionally unreadable through CRUD `/view/{id}`. Its card therefore loads through the
+ * retained-read endpoint, which shares the recycle-bin query permission and data scope with the list.
+ */
+async function openRecycleBinRecord(record: QueryListRecord) {
+  const id = record.id == null ? undefined : String(record.id);
+  if (!id) return;
+  const requestSequence = ++detailLoadSequence;
+  formSessionKey.value += 1;
+  selectedRecord.value = record;
+  editingRecord.value = undefined;
+  editorMode.value = 'view';
+  detailOpen.value = true;
+  detailLoading.value = true;
+  detailLoadFailed.value = false;
+  try {
+    const detail = await context.http.request<QueryListRecord>({
+      method: 'GET',
+      path: `/${context.moduleAlias}/recycle-bin/view/${encodeURIComponent(id)}`,
+    });
+    if (
+      !shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
+    ) {
+      return;
+    }
+    editingRecord.value = detail;
+    selectedRecord.value = detail;
+  } catch {
+    if (
+      !shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
+    ) {
+      return;
+    }
+    editingRecord.value = undefined;
+    detailLoadFailed.value = true;
+  } finally {
+    if (
+      shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
+    ) {
+      detailLoading.value = false;
+    }
+  }
+}
+
 function updateDraftField(
   fieldName: string,
   value: import('@muyun/platform-components').RecordFormFieldValue,
@@ -710,17 +714,11 @@ function updateDraftField(
 }
 
 function createRecord(parentId?: string) {
-  if (scopeSelectionRequired.value && selectedScopeRecord.value?.id == null) return;
   detailLoadSequence += 1;
   detailLoading.value = false;
   detailLoadFailed.value = false;
   formSessionKey.value += 1;
-  const workspace = scopedListWorkspace.value;
-  editingRecord.value = parentId
-    ? { parentId }
-    : workspace && selectedScopeRecord.value?.id != null
-      ? { [workspace.scopeField]: selectedScopeRecord.value.id }
-      : {};
+  editingRecord.value = parentId ? { parentId } : { ...navigatorCreateDefaults.value };
   editorMode.value = 'create';
   detailOpen.value = true;
 }
@@ -953,11 +951,14 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
 }
 
 function modulePageActionStateContext(): ModulePageActionStateContext {
-  const workspace = scopedListWorkspace.value;
-  return workspace
+  const primaryNavigator = navigatorLevels.value[0];
+  return primaryNavigator
     ? {
         module: context,
-        scope: { moduleAlias: workspace.scopeModuleAlias, record: selectedScopeRecord.value },
+        scope: {
+          moduleAlias: primaryNavigator.descriptor.sourceModuleAlias,
+          record: selectedNavigatorRecords.value[primaryNavigator.descriptor.key],
+        },
       }
     : { module: context };
 }
@@ -982,7 +983,7 @@ function refreshList() {
     treeReloadKey.value += 1;
     return;
   }
-  if (flatManagementTemplate.value) {
+  if (flatManagementPage.value) {
     flatManagementRecycleBin.refresh();
     return;
   }
@@ -1016,6 +1017,10 @@ function closeTreeCardEditor() {
 function retryLoadDetail() {
   const record = selectedRecord.value;
   if (!record || editorMode.value === 'create') return;
+  if (flatManagementRecycleBin.active.value || listMode.value === 'recycleBin') {
+    void openRecycleBinRecord(record);
+    return;
+  }
   void openRecord(record, editorMode.value);
 }
 
@@ -1037,130 +1042,11 @@ function recordTitle(record: QueryListRecord | undefined) {
     class="dynamic-module-workspace"
     :class="{
       'dynamic-module-workspace--tree': treeModule,
-      'dynamic-module-workspace--flat-management': flatManagementTemplate,
+      'dynamic-module-workspace--flat-management': flatManagementPage,
     }"
   >
-    <ManagementWorkspace v-if="scopedListWorkspace && scopeContext" class="dynamic-tree-workspace">
-      <ManagementExplorerColumn>
-        <RecordExplorerPanel
-          :title="scopedListWorkspace.scopeTitle"
-          :refresh-title="`刷新${scopedListWorkspace.scopeTitle}${scopeTree ? '树' : '列表'}`"
-          :search-keyword="scopeSearchKeyword"
-          :search-placeholder="scopedListWorkspace.scopeSearchPlaceholder"
-          @update:search-keyword="scopeSearchKeyword = $event"
-          @refresh="scopeReloadKey += 1"
-        >
-          <template v-if="scopedListWorkspace.manageScopeTree && scopeTree" #actions>
-            <ModuleActionButton
-              class="record-panel-create-button"
-              :context="scopeContext"
-              action-code="create"
-              icon-only
-              :title="`新增${scopedListWorkspace.scopeTitle}`"
-              @click="openScopeEditor('create')"
-            />
-          </template>
-          <TreeRecordExplorer
-            v-if="scopeTree"
-            :context="scopeContext"
-            :selected-id="selectedScopeRecord?.id == null ? undefined : String(selectedScopeRecord.id)"
-            :reload-key="scopeReloadKey"
-            :keyword="scopeSearchKeyword"
-            search-mode="none"
-            :empty-description="`暂无${scopedListWorkspace.scopeTitle}`"
-            :secondary-of="scopedListWorkspace.showScopeItemSubtitle ? undefined : () => undefined"
-            :actions-of="scopeTreeActions"
-            @select="selectScopeRecord"
-            @action="handleScopeTreeAction"
-          />
-          <CrudRecordListExplorer
-            v-else
-            :context="scopeContext"
-            :selected-id="selectedScopeRecord?.id == null ? undefined : String(selectedScopeRecord.id)"
-            :reload-key="scopeReloadKey"
-            :keyword="scopeSearchKeyword"
-            :empty-description="`暂无${scopedListWorkspace.scopeTitle}`"
-            :subtitle-of="scopedListWorkspace.showScopeItemSubtitle ? undefined : () => undefined"
-            @select="selectScopeRecord"
-          />
-          <template #editor>
-            <Transition name="dynamic-scope-editor-drawer">
-              <section
-                v-if="
-                  scopedListWorkspace.manageScopeTree && scopeTree && scopeEditingRecord && scopeEditorOpen
-                "
-                class="dynamic-scope-editor-panel"
-              >
-                <header class="dynamic-scope-editor-header">
-                  <h3>{{ scopeEditorTitle }}</h3>
-                  <div class="dynamic-scope-editor-actions">
-                    <RecordStatusSwitch
-                      :enabled="scopeEditingRecord.enabled !== false"
-                      :disabled="scopeSaving"
-                      :show-label="false"
-                      @change="updateScopeDraftField('enabled', $event)"
-                    />
-                    <RecordPanelButton :disabled="scopeSaving" @click="closeScopeEditor">
-                      取消
-                    </RecordPanelButton>
-                    <RecordPanelButton type="primary" :loading="scopeSaving" @click="saveScopeRecord">
-                      {{ scopeSaving ? '保存中' : '保存' }}
-                    </RecordPanelButton>
-                  </div>
-                </header>
-                <div class="dynamic-form dynamic-scope-editor-form">
-                  <RecordFormFields
-                    :record="scopeEditingRecord"
-                    :fields="scopeFormFields"
-                    :file-transfer-context="scopeContext"
-                    :form-session-key="scopeFormSessionKey"
-                    :picker-configs="scopeReferencePickerConfigs"
-                    :disabled="scopeSaving"
-                    :exclude-field-names="['enabled']"
-                    @update:field="updateScopeDraftField"
-                  />
-                </div>
-              </section>
-            </Transition>
-          </template>
-        </RecordExplorerPanel>
-      </ManagementExplorerColumn>
-      <RecordQueryListPanel
-        class="dynamic-list"
-        :context="context"
-        :title="title"
-        :selected-key="selectedRecord?.id"
-        :reload-key="reloadKey"
-        :actions="scopedListActions"
-        :standard-crud-row-actions="true"
-        :standard-crud-row-action-keys="standardCrudRowActionKeys"
-        :standard-crud-row-action-codes="standardCrudRowActionCodes"
-        :extra-actions="enhancementActions"
-        :additional-columns="enhancementColumns"
-        :cell-components="enhancementCellComponents"
-        :extra-row-actions-of="enhancementRowActionsFor"
-        :action-column-width="pageEnhancement?.list?.actionColumnWidth"
-        :batch-actions="enhancementBatchActions"
-        :ui-config-id="listUiConfigId"
-        :query-template-id="listQueryTemplateId"
-        :ready="pageReady"
-        :external-query-values="scopedExternalQueryValues"
-        :required-external-criteria-keys="[scopedListWorkspace.queryCriteriaKey]"
-        quick-search-placeholder="搜索动态记录"
-        empty-description="暂无动态记录"
-        @loaded="handleLoaded"
-        @select="selectRecord"
-        @row-dblclick="openViewRecord"
-        @action="handleListAction"
-        @row-action="handleRowAction"
-        @batch-action="
-          (action, records, _event, clearSelection) => handleBatchAction(action, records, clearSelection)
-        "
-      />
-    </ManagementWorkspace>
-
     <StaticManagementLayout
-      v-else-if="flatManagementTemplate"
+      v-if="flatManagementPage"
       class="dynamic-flat-management-workspace"
       :explorer-title="
         flatManagementRecycleBin.active.value ? '回收站' : (flatManagementContent?.explorerTitle ?? title)
@@ -1171,9 +1057,51 @@ function recordTitle(record: QueryListRecord | undefined) {
       :explorer-searchable="!flatManagementRecycleBin.active.value"
       :mode="editorMode"
       :detail-title="detailTitle"
+      :navigator-count="navigatorLevels.length"
       @update:explorer-search-keyword="flatManagementSearchKeyword = $event"
       @refresh="flatManagementRecycleBin.refresh"
     >
+      <template #navigator="{ index }">
+        <RecordExplorerPanel
+          v-if="navigatorLevels[index]"
+          :title="navigatorLevels[index].descriptor.title"
+          :refresh-title="`刷新${navigatorLevels[index].descriptor.title}${navigatorLevels[index].tree ? '树' : '列表'}`"
+          :search-keyword="scopeSearchKeyword"
+          :search-placeholder="navigatorLevels[index].descriptor.searchPlaceholder"
+          @update:search-keyword="scopeSearchKeyword = $event"
+          @refresh="scopeReloadKey += 1"
+        >
+          <TreeRecordExplorer
+            v-if="navigatorLevels[index].tree"
+            :context="navigatorLevels[index].context"
+            :selected-id="
+              selectedNavigatorRecords[navigatorLevels[index].descriptor.key]?.id == null
+                ? undefined
+                : String(selectedNavigatorRecords[navigatorLevels[index].descriptor.key]?.id)
+            "
+            :reload-key="scopeReloadKey"
+            :keyword="scopeSearchKeyword"
+            :external-query-values="navigatorExplorerQueryValues(navigatorLevels[index].descriptor.key)"
+            search-mode="none"
+            :empty-description="`暂无${navigatorLevels[index].descriptor.title}`"
+            @select="selectNavigatorRecord(navigatorLevels[index].descriptor.key, $event)"
+          />
+          <CrudRecordListExplorer
+            v-else
+            :context="navigatorLevels[index].context"
+            :selected-id="
+              selectedNavigatorRecords[navigatorLevels[index].descriptor.key]?.id == null
+                ? undefined
+                : String(selectedNavigatorRecords[navigatorLevels[index].descriptor.key]?.id)
+            "
+            :reload-key="scopeReloadKey"
+            :keyword="scopeSearchKeyword"
+            :external-query-values="navigatorExplorerQueryValues(navigatorLevels[index].descriptor.key)"
+            :empty-description="`暂无${navigatorLevels[index].descriptor.title}`"
+            @select="selectNavigatorRecord(navigatorLevels[index].descriptor.key, $event)"
+          />
+        </RecordExplorerPanel>
+      </template>
       <template v-if="!flatManagementRecycleBin.active.value" #explorer-actions>
         <ModuleActionButton
           class="record-panel-create-button"
@@ -1238,11 +1166,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         />
       </template>
       <RecordPanelState
-        v-if="flatManagementRecycleBin.active.value"
-        description="回收站记录仅支持恢复或彻底删除"
-      />
-      <RecordPanelState
-        v-else-if="!selectedRecord && editorMode === 'view'"
+        v-if="!selectedRecord && editorMode === 'view'"
         :description="flatManagementContent?.detailEmptyDescription ?? '请选择记录，或新建记录'"
       />
       <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
@@ -1278,6 +1202,181 @@ function recordTitle(record: QueryListRecord | undefined) {
         <RecordMetaSection v-if="editorMode !== 'create'" :record="editingRecord" show-sort-order />
       </template>
     </StaticManagementLayout>
+
+    <ManagementWorkspace
+      v-else-if="listDetailCardPage && !narrowDetailSurface"
+      class="dynamic-list-detail-workspace"
+      :explorer-count="navigatorLevels.length"
+      detail-surface
+    >
+      <ManagementExplorerColumn v-for="level in navigatorLevels" :key="level.descriptor.key">
+        <RecordExplorerPanel
+          :title="level.descriptor.title"
+          :refresh-title="`刷新${level.descriptor.title}${level.tree ? '树' : '列表'}`"
+          :search-keyword="scopeSearchKeyword"
+          :search-placeholder="level.descriptor.searchPlaceholder"
+          @update:search-keyword="scopeSearchKeyword = $event"
+          @refresh="scopeReloadKey += 1"
+        >
+          <TreeRecordExplorer
+            v-if="level.tree"
+            :context="level.context"
+            :selected-id="
+              selectedNavigatorRecords[level.descriptor.key]?.id == null
+                ? undefined
+                : String(selectedNavigatorRecords[level.descriptor.key]?.id)
+            "
+            :reload-key="scopeReloadKey"
+            :keyword="scopeSearchKeyword"
+            :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
+            search-mode="none"
+            :empty-description="`暂无${level.descriptor.title}`"
+            @select="selectNavigatorRecord(level.descriptor.key, $event)"
+          />
+          <CrudRecordListExplorer
+            v-else
+            :context="level.context"
+            :selected-id="
+              selectedNavigatorRecords[level.descriptor.key]?.id == null
+                ? undefined
+                : String(selectedNavigatorRecords[level.descriptor.key]?.id)
+            "
+            :reload-key="scopeReloadKey"
+            :keyword="scopeSearchKeyword"
+            :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
+            :empty-description="`暂无${level.descriptor.title}`"
+            @select="selectNavigatorRecord(level.descriptor.key, $event)"
+          />
+        </RecordExplorerPanel>
+      </ManagementExplorerColumn>
+      <RecordQueryListPanel
+        class="dynamic-list"
+        :context="context"
+        :title="title"
+        :selected-key="selectedRecord?.id"
+        :reload-key="reloadKey"
+        :standard-crud-actions="true"
+        :standard-crud-row-actions="true"
+        :standard-crud-row-action-keys="standardCrudRowActionKeys"
+        :standard-crud-row-action-codes="standardCrudRowActionCodes"
+        :extra-actions="enhancementActions"
+        :additional-columns="enhancementColumns"
+        :cell-components="enhancementCellComponents"
+        :extra-row-actions-of="enhancementRowActionsFor"
+        :action-column-width="pageEnhancement?.list?.actionColumnWidth"
+        :batch-actions="enhancementBatchActions"
+        :ui-config-id="listUiConfigId"
+        :query-template-id="listQueryTemplateId"
+        :ready="pageReady"
+        :external-query-values="navigatorListQueryValues"
+        :required-external-criteria-keys="navigatorListCriteriaKeys"
+        :mode="listMode"
+        quick-search-placeholder="搜索动态记录"
+        empty-description="暂无动态记录"
+        @loaded="handleLoaded"
+        @mode-change="handleListModeChange"
+        @restored="handleRecycleBinRestore"
+        @select="selectListDetailRecord"
+        @row-dblclick="openListRecord"
+        @action="handleListAction"
+        @row-action="handleRowAction"
+        @batch-action="
+          (action, records, _event, clearSelection) => handleBatchAction(action, records, clearSelection)
+        "
+      />
+
+      <RecordDetailPanel class="dynamic-list-detail-card" :title="detailTitle">
+        <template #actions>
+          <template v-if="editorMode !== 'view'">
+            <RecordPanelButton :disabled="saving" @click="closeDetail">取消</RecordPanelButton>
+            <RecordPanelButton
+              type="primary"
+              :loading="saving"
+              :disabled="detailLoading || detailLoadFailed"
+              @click="saveRecord"
+            >
+              {{ saving ? '保存中' : '保存' }}
+            </RecordPanelButton>
+          </template>
+          <template v-else-if="!recycleBinDetailActive">
+            <RecordActionBar
+              v-if="selectedRecord?.id != null && enhancementDetailActions.length > 0"
+              :context="context"
+              :record-id="String(selectedRecord.id)"
+              :actions="enhancementDetailActions"
+              @action="handleDetailAction"
+            />
+            <ModuleActionButton :context="context" action-code="create" @click="createRootRecord">
+              新建
+            </ModuleActionButton>
+            <ModuleActionButton
+              :context="context"
+              action-code="update"
+              :disabled="!selectedRecord"
+              @click="selectedRecord && editRecord(selectedRecord)"
+            >
+              编辑
+            </ModuleActionButton>
+            <ModuleActionButton
+              :context="context"
+              action-code="delete"
+              :loading="saving"
+              danger
+              :disabled="!selectedRecord"
+              @click="selectedRecord && deleteRecord(selectedRecord)"
+            >
+              删除
+            </ModuleActionButton>
+          </template>
+        </template>
+        <template #status>
+          <RecordStatusSwitch
+            v-if="!recycleBinDetailActive && editorMode === 'view' && selectedRecord"
+            :enabled="selectedRecord.enabled !== false"
+            :disabled="!canToggleEnabled"
+            :loading="togglingEnabled"
+            :show-label="false"
+            @change="toggleEnabled"
+          />
+        </template>
+
+        <RecordPanelState
+          v-if="!selectedRecord && editorMode === 'view'"
+          :description="runtimePage?.detail?.emptyDescription ?? '请选择记录，或新建记录'"
+        />
+        <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
+        <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择记录" />
+        <template v-else-if="editingRecord">
+          <template v-if="editorMode === 'view'">
+            <RecordDetailFields
+              :record="editingRecord as RecordFormRecord"
+              :fields="formFields"
+              :exclude-field-names="['enabled']"
+            />
+            <RecordDetailExtensionSection
+              v-for="section in enhancementDetailSections"
+              :key="section.key"
+              :title="section.title"
+            >
+              <component :is="section.component" :context="detailSectionContext(editingRecord)" />
+            </RecordDetailExtensionSection>
+          </template>
+          <div v-else class="dynamic-form">
+            <RecordFormFields
+              :record="editingRecord as RecordFormRecord"
+              :fields="formFields"
+              :form-session-key="formSessionKey"
+              :option-context="context"
+              :picker-configs="referencePickerConfigs"
+              :disabled="saving"
+              :exclude-field-names="['enabled']"
+              @update:field="updateDraftField"
+            />
+          </div>
+          <RecordMetaSection v-if="editorMode !== 'create'" :record="editingRecord" show-sort-order />
+        </template>
+      </RecordDetailPanel>
+    </ManagementWorkspace>
 
     <ManagementWorkspace v-else-if="treeModule" class="dynamic-tree-workspace">
       <ManagementExplorerColumn>
@@ -1440,8 +1539,8 @@ function recordTitle(record: QueryListRecord | undefined) {
       @loaded="handleLoaded"
       @mode-change="handleListModeChange"
       @restored="handleRecycleBinRestore"
-      @select="selectRecord"
-      @row-dblclick="openViewRecord"
+      @select="selectStandaloneListRecord"
+      @row-dblclick="openListRecord"
       @action="handleListAction"
       @row-action="handleRowAction"
       @batch-action="
@@ -1450,7 +1549,7 @@ function recordTitle(record: QueryListRecord | undefined) {
     />
 
     <RecordModeDrawer
-      v-if="!treeModule && !flatManagementTemplate"
+      v-if="!treeModule && !flatManagementPage && (!listDetailCardPage || narrowDetailSurface)"
       :open="detailOpen"
       :title="detailTitle"
       :width="enhancementDetailDrawer?.width"
@@ -1458,13 +1557,16 @@ function recordTitle(record: QueryListRecord | undefined) {
       :loading="detailLoading"
       :load-failed="detailLoadFailed"
       :edit-available="
+        !recycleBinDetailActive &&
         !enhancementDetailDrawer &&
         Boolean(selectedRecord) &&
         !detailLoading &&
         !detailLoadFailed &&
         editorMode === 'view'
       "
-      :save-available="!detailLoading && !detailLoadFailed && editorMode !== 'view'"
+      :save-available="
+        !recycleBinDetailActive && !detailLoading && !detailLoadFailed && editorMode !== 'view'
+      "
       :saving="saving"
       @close="closeDetail"
       @retry="retryLoadDetail"
@@ -1473,7 +1575,9 @@ function recordTitle(record: QueryListRecord | undefined) {
     >
       <template #status>
         <RecordStatusSwitch
-          v-if="!enhancementDetailDrawer && editorMode === 'view' && selectedRecord"
+          v-if="
+            !recycleBinDetailActive && !enhancementDetailDrawer && editorMode === 'view' && selectedRecord
+          "
           :enabled="selectedRecord.enabled !== false"
           :disabled="!canToggleEnabled"
           :loading="togglingEnabled"
@@ -1483,7 +1587,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       </template>
       <template #viewOperation>
         <RecordActionBar
-          v-if="selectedRecord?.id != null && enhancementDetailActions.length > 0"
+          v-if="!recycleBinDetailActive && selectedRecord?.id != null && enhancementDetailActions.length > 0"
           :context="context"
           :record-id="String(selectedRecord.id)"
           :actions="enhancementDetailActions"
@@ -1573,6 +1677,10 @@ function recordTitle(record: QueryListRecord | undefined) {
 .dynamic-tree-workspace {
   height: 100%;
   min-height: 0;
+}
+
+.dynamic-list-detail-card {
+  min-width: var(--muyun-management-detail-min-width);
 }
 
 .dynamic-tree-card {

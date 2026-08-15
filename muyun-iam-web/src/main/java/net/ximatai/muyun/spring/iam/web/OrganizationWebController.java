@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.web.TreeScope;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
 import net.ximatai.muyun.spring.web.ScopedTreeWebProjectionPolicy;
+import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
@@ -32,7 +33,7 @@ public class OrganizationWebController extends WebSupport<OrganizationService> i
         MutationTenantScopeResolver<Organization> {
     @Override
     public TreeScope treeScope(HttpServletRequest request) {
-        String tenantId = resolveTreeTenantId(request.getParameter("tenantId"));
+        String tenantId = resolveTreeTenantId(TreeWebQuerySupport.externalQueryText(request, "tenantId"));
         if (tenantId == null) {
             return TreeScope.none();
         }

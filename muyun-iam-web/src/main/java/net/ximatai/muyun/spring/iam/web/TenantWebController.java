@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.iam.tenant.Tenant;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
@@ -28,7 +29,9 @@ public class TenantWebController extends WebSupport<TenantService> implements
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(TenantService.MODULE_ALIAS)
                 .typedTextConfirmation("delete", "alias")
-                .formView(form -> form
+                .page(PageTemplates.flatManagement(page -> page
+                        .explorer(explorer -> explorer.title("租户列表").titleField("title").secondaryField("alias"))
+                        .detail(detail -> detail.editor(form -> form
                         .title("租户档案")
                         .field("alias", field -> field.label("租户 alias"))
                         .field("title", field -> field.label("租户名称"))
@@ -38,7 +41,8 @@ public class TenantWebController extends WebSupport<TenantService> implements
                         .field("workbenchTitle", field -> field.label("主标题"))
                         .field("workbenchSubtitle", field -> field.label("副标题"))
                         .field("lightLogoAssetId", field -> field.label("展示 Logo（默认）"))
-                        .field("darkLogoAssetId", field -> field.label("展示 Logo（暗色模式）")))
+                        .field("darkLogoAssetId", field -> field.label("展示 Logo（暗色模式）"))))
+                        .traits(traits -> traits.standardCrud().recycleBin().responsiveDetailSurface())))
                 .build();
     }
 }

@@ -24,7 +24,7 @@ describe('DynamicModuleHost', () => {
           uiDescriptor: {
             schemaVersion: '1',
             moduleAlias: 'crm.customer',
-            views: [{ viewCode: 'default_list', viewKind: 'LIST', fields: [] }],
+            page: page(),
           },
         });
       }
@@ -75,6 +75,9 @@ describe('DynamicModuleHost', () => {
           target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
         },
       },
+      global: {
+        stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } },
+      },
     });
 
     await flushPromises();
@@ -103,7 +106,7 @@ describe('DynamicModuleHost', () => {
           uiDescriptor: {
             schemaVersion: '1',
             moduleAlias: 'platform.application',
-            views: [{ viewCode: 'default_list', viewKind: 'LIST', fields: [] }],
+            page: page(),
           },
         });
       }
@@ -128,6 +131,9 @@ describe('DynamicModuleHost', () => {
           target: { moduleAlias: 'platform.application', pageMode: 'LIST' },
         },
       },
+      global: {
+        stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } },
+      },
     });
     await flushPromises();
 
@@ -135,13 +141,14 @@ describe('DynamicModuleHost', () => {
     expect(panel.props('mode')).toBe('normal');
     panel.vm.$emit('rowAction', { key: 'edit' }, { id: 'app-1' });
     await flushPromises();
-    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).props('open')).toBe(true);
+    expect(wrapper.findComponent({ name: 'RecordDetailPanel' }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).exists()).toBe(false);
     await panel.vm.$emit('modeChange', 'recycleBin');
     expect(panel.props('mode')).toBe('recycleBin');
-    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).props('open')).toBe(false);
+    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).exists()).toBe(false);
     resolveDetail?.({ id: 'app-1', title: '平台应用' });
     await flushPromises();
-    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).props('open')).toBe(false);
+    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).exists()).toBe(false);
   });
 
   it('renders the flat management template as an inline explorer and detail workspace', async () => {
@@ -159,24 +166,36 @@ describe('DynamicModuleHost', () => {
           uiDescriptor: {
             schemaVersion: '1',
             moduleAlias: 'platform.application',
-            views: [
-              {
-                viewCode: 'default_list',
-                viewKind: 'LIST',
-                pageTemplate: 'FLAT_MANAGEMENT',
-                flatManagementTemplate: {
-                  explorerTitle: '应用列表',
-                  explorerSearchPlaceholder: '搜索应用名称、alias 或 ID',
-                  emptyDescription: '暂无应用',
-                  detailEmptyDescription: '请选择应用，或新建应用',
-                  createTitle: '新建应用',
-                  recordLabel: '应用',
-                  fallbackTitle: '未命名应用',
-                },
-                fields: [],
+            page: {
+              template: 'FLAT_MANAGEMENT',
+              explorer: {
+                title: '应用列表',
+                searchPlaceholder: '搜索应用名称、alias 或 ID',
+                emptyDescription: '暂无应用',
+                recordLabel: '应用',
+                fallbackTitle: '未命名应用',
+                titleField: 'title',
+                mutedWhenDisabled: true,
               },
-              { viewCode: 'default_form', viewKind: 'FORM', fields: [] },
-            ],
+              detail: {
+                emptyDescription: '请选择应用，或新建应用',
+                createTitle: '新建应用',
+                editor: {
+                  viewCode: 'default_form',
+                  viewKind: 'FORM',
+                  fields: [
+                    {
+                      fieldRef: { fieldName: 'title' },
+                      label: '应用名称',
+                      visible: { kind: 'CONSTANT', value: true },
+                      required: { kind: 'CONSTANT', value: true },
+                      readOnly: { kind: 'CONSTANT', value: false },
+                    },
+                  ],
+                },
+              },
+              traits: ['STANDARD_CRUD'],
+            },
           },
         });
       }
@@ -227,6 +246,11 @@ describe('DynamicModuleHost', () => {
     wrapper.findComponent({ name: 'ModuleActionButton' }).vm.$emit('click');
     await flushPromises();
 
+    expect(wrapper.findComponent({ name: 'RecordFormFields' }).props('fields')).toEqual(expect.any(Map));
+    expect(wrapper.findComponent({ name: 'RecordFormFields' }).props('fields').get('title')).toEqual(
+      expect.objectContaining({ label: '应用名称' }),
+    );
+
     const actionBar = wrapper.findComponent({ name: 'RecordActionBar' });
     expect(actionBar.props('recordId')).toBeUndefined();
     expect(actionBar.props('actions')).toEqual(
@@ -246,7 +270,7 @@ describe('DynamicModuleHost', () => {
           uiDescriptor: {
             schemaVersion: '1',
             moduleAlias: 'crm.customer',
-            views: [{ viewCode: 'default_list', viewKind: 'LIST', fields: [] }],
+            page: page(),
           },
         });
       }
@@ -310,7 +334,7 @@ describe('DynamicModuleHost', () => {
           uiDescriptor: {
             schemaVersion: '1',
             moduleAlias: 'crm.customer',
-            views: [{ viewCode: 'default_list', viewKind: 'LIST', fields: [] }],
+            page: page(),
           },
         });
       }
@@ -374,22 +398,21 @@ describe('DynamicModuleHost', () => {
           uiDescriptor: {
             schemaVersion: '1',
             moduleAlias: 'mr.knowledge_file',
-            views: [
-              {
-                viewCode: 'default_list',
-                viewKind: 'LIST',
-                fields: [],
-                scopedListWorkspace: {
-                  scopeModuleAlias: 'mr.knowledge_directory',
-                  scopeField: 'directoryId',
-                  queryCriteriaKey: 'directoryId',
-                  scopeTitle: '知识库目录',
-                  scopeSearchPlaceholder: '搜索目录',
-                  showScopeItemSubtitle: false,
-                  createPolicy: 'REQUIRE_SCOPE',
-                },
+            page: page({
+              navigator: {
+                levels: [
+                  {
+                    key: 'directory',
+                    kind: 'TREE',
+                    sourceModuleAlias: 'mr.knowledge_directory',
+                    title: '知识库目录',
+                    searchPlaceholder: '搜索目录',
+                    queryBindings: [{ field: 'directoryId', queryCriteriaKey: 'directoryId' }],
+                    childBindings: [],
+                  },
+                ],
               },
-            ],
+            }),
           },
         });
       }
@@ -464,6 +487,7 @@ describe('DynamicModuleHost', () => {
       .vm.$emit('select', { id: 'directory-1', title: '设备资料' });
     await flushPromises();
 
+    expect(panel.props('externalQueryValues')).toEqual({ directoryId: 'directory-1' });
     expect(panel.props('extraActions')).toEqual([
       expect.objectContaining({ key: 'agent-chat', disabled: false }),
     ]);
@@ -475,6 +499,103 @@ describe('DynamicModuleHost', () => {
       record: { id: 'directory-1', title: '设备资料' },
     });
     expect(wrapper.find('.scope-drawer').text()).toBe('directory-1');
+  });
+
+  it('applies every selected navigator level to the list without waiting for a downstream selection', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) {
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'crm.customer',
+            page: page({
+              navigator: {
+                levels: [
+                  {
+                    key: 'tenant',
+                    kind: 'MICRO_LIST',
+                    sourceModuleAlias: 'iam.tenant',
+                    title: '租户',
+                    searchPlaceholder: '搜索租户',
+                    queryBindings: [{ field: 'tenantId', queryCriteriaKey: 'tenantId' }],
+                    childBindings: [{ childLevelKey: 'organization', childQueryCriteriaKey: 'tenantId' }],
+                  },
+                  {
+                    key: 'organization',
+                    kind: 'TREE',
+                    sourceModuleAlias: 'iam.organization',
+                    title: '组织',
+                    searchPlaceholder: '搜索组织',
+                    queryBindings: [{ field: 'organizationId', queryCriteriaKey: 'organizationId' }],
+                    childBindings: [],
+                  },
+                ],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/iam.tenant/context')) {
+        return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
+      }
+      if (request.url.endsWith('/platform.module/iam.organization/context')) {
+        return Response.json({ moduleAlias: 'iam.organization', capabilities: ['tree'], actions: [] });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({
+      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+    });
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+
+    const explorers = wrapper
+      .findAllComponents({ name: 'CrudRecordListExplorer' })
+      .filter((explorer) => explorer.props('context').moduleAlias === 'iam.tenant');
+    const treeExplorer = wrapper
+      .findAllComponents({ name: 'TreeRecordExplorer' })
+      .find((explorer) => explorer.props('context').moduleAlias === 'iam.organization');
+    const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(explorers).toHaveLength(1);
+    expect(treeExplorer).toBeDefined();
+
+    explorers[0].vm.$emit('select', { id: 'tenant-1', title: '甲租户' });
+    await flushPromises();
+    expect(panel.props('externalQueryValues')).toEqual({ tenantId: 'tenant-1' });
+    expect(treeExplorer?.props('externalQueryValues')).toEqual({ tenantId: 'tenant-1' });
+
+    treeExplorer?.vm.$emit('select', { id: 'organization-1', title: '总部' });
+    await flushPromises();
+    expect(panel.props('externalQueryValues')).toEqual({
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
+    });
+
+    explorers[0].vm.$emit('select', { id: 'tenant-2', title: '乙租户' });
+    await flushPromises();
+    expect(panel.props('externalQueryValues')).toEqual({ tenantId: 'tenant-2' });
   });
 
   it('blocks every list runner when its menu bootstrap fails', async () => {
@@ -667,7 +788,7 @@ describe('DynamicModuleHost', () => {
           uiDescriptor: {
             schemaVersion: '1',
             moduleAlias: 'demo.tree',
-            views: [{ viewCode: 'default_list', viewKind: 'LIST', fields: [] }],
+            page: page(),
           },
         });
       }
@@ -706,3 +827,20 @@ describe('DynamicModuleHost', () => {
     expect(refreshModulePageList('demo.tree')).toBe(false);
   });
 });
+
+function page(overrides: Record<string, unknown> = {}) {
+  return {
+    template: 'LIST_DETAIL_CARD',
+    list: {
+      searchPlaceholder: '搜索记录',
+      fields: { viewCode: 'default_list', viewKind: 'LIST', fields: [] },
+    },
+    detail: {
+      emptyDescription: '请选择记录',
+      createTitle: '新建记录',
+      editor: { viewCode: 'default_form', viewKind: 'FORM', fields: [] },
+    },
+    traits: ['STANDARD_CRUD'],
+    ...overrides,
+  };
+}

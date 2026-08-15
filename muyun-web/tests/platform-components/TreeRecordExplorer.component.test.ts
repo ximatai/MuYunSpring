@@ -33,7 +33,36 @@ it('ignores stale tree responses after the explorer reloads', async () => {
   wrapper.unmount();
 });
 
-function createTreeContext(requests: Array<ReturnType<typeof deferredTreeResponse>>) {
+it('passes upstream navigator criteria to the server-side tree query', async () => {
+  const requests: Array<ReturnType<typeof deferredTreeResponse>> = [];
+  const treeRequests: unknown[] = [];
+  const context = createTreeContext(requests, treeRequests);
+  const wrapper = mount(TreeRecordExplorer, {
+    props: {
+      context,
+      searchMode: 'none',
+      externalQueryValues: { tenantId: 'tenant-a' },
+    },
+    global: {
+      stubs: {
+        UiSpin: { template: '<div />' },
+        UiEmpty: { template: '<div />' },
+        UiTree: { template: '<div />' },
+      },
+    },
+  });
+
+  await flushPromises();
+  assert.deepEqual(treeRequests, [{ externalQueryValues: { tenantId: 'tenant-a' } }]);
+  requests[0].resolve(treeResponse('tenant-a'));
+  await flushPromises();
+  wrapper.unmount();
+});
+
+function createTreeContext(
+  requests: Array<ReturnType<typeof deferredTreeResponse>>,
+  treeRequests: unknown[] = [],
+) {
   const crud = {
     querySchema: async () => ({ fields: [] }),
     query: async () => ({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true }),
@@ -46,10 +75,11 @@ function createTreeContext(requests: Array<ReturnType<typeof deferredTreeRespons
   };
   const tree = {
     ...crud,
-    tree: () => {
-      const request = deferredTreeResponse();
-      requests.push(request);
-      return request.promise;
+    tree: (request?: unknown) => {
+      treeRequests.push(request);
+      const pending = deferredTreeResponse();
+      requests.push(pending);
+      return pending.promise;
     },
     treeFlat: async () => ({ records: [] }),
     subtree: async () => ({ records: [] }),

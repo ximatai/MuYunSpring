@@ -392,7 +392,7 @@ class PlatformUiConfigurationServiceContractTest {
     }
 
     @Test
-    void shouldPreserveScopedListWorkspaceConfigurationAcrossPublishTransitions() {
+    void shouldPreservePageNavigatorConfigurationAcrossPublishTransitions() {
         seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
         seedUiType("text", "string");
         String customerNameField = seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
@@ -401,68 +401,23 @@ class PlatformUiConfigurationServiceContractTest {
         uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
 
         PlatformUiConfig config = uiConfigService.select(uiConfigId);
-        config.setScopeModuleAlias("crm.project");
-        config.setScopeField("projectId");
-        config.setScopeQueryCriteriaKey("projectId");
-        config.setScopeTitle("项目");
+        config.setLayoutJson("""
+                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"levels":[{
+                  "key":"project","kind":"MICRO_LIST","sourceModuleAlias":"crm.project",
+                  "queryBindings":[{"field":"projectId","queryCriteriaKey":"projectId"}]
+                }]}}""");
         uiConfigService.update(config);
 
         publishService.publishUiConfig(uiConfigId);
 
-        assertThat(snapshotService.snapshot("crm.customer").uiConfigs()).singleElement().satisfies(published -> {
-            assertThat(published.getScopeModuleAlias()).isEqualTo("crm.project");
-            assertThat(published.getScopeField()).isEqualTo("projectId");
-            assertThat(published.getScopeQueryCriteriaKey()).isEqualTo("projectId");
-            assertThat(published.getScopeCreatePolicy()).isEqualTo("ALLOW_UNSCOPED");
-        });
+        assertThat(snapshotService.snapshot("crm.customer").uiConfigs()).singleElement()
+                .satisfies(published -> assertThat(published.getLayoutJson()).contains("navigator", "projectId"));
 
         publishService.unpublishUiConfig(uiConfigId);
 
         PlatformUiConfig unpublished = uiConfigService.select(uiConfigId);
         assertThat(unpublished.getPublished()).isFalse();
-        assertThat(unpublished.getScopeModuleAlias()).isEqualTo("crm.project");
-        assertThat(unpublished.getScopeField()).isEqualTo("projectId");
-    }
-
-    @Test
-    void shouldRejectScopedListWorkspaceWithoutMatchingReferenceBeforePublish() {
-        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
-        seedUiType("text", "string");
-        String customerNameField = seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
-        String uiSetId = uiSetService.insert(uiSet("crm.customer", "project_list", PlatformUiSetType.LIST, true));
-        String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
-        uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
-        PlatformUiConfig config = uiConfigService.select(uiConfigId);
-        config.setScopeModuleAlias("crm.project");
-        config.setScopeField("projectId");
-        uiConfigService.update(config);
-        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
-        org.mockito.Mockito.when(recordService.describe("crm.customer")).thenReturn(new DynamicModuleDescriptor(
-                "crm.customer", "Customer", "customer", List.of(),
-                List.of(new net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor(
-                        "customer", "Customer", Set.of(), List.of(), List.of(), List.of(), List.of(), List.of())),
-                List.of(), List.of(), List.of()));
-        PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
-                uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
-                recordService);
-
-        assertThatThrownBy(() -> verifyingPublishService.publishUiConfig(uiConfigId))
-                .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("field must be a reference");
-    }
-
-    @Test
-    void shouldRejectScopedListWorkspaceOutsideListUiConfig() {
-        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
-        seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
-        String uiSetId = uiSetService.insert(uiSet("crm.customer", "customer_form", PlatformUiSetType.FORM, true));
-        PlatformUiConfig config = uiConfig(uiSetId, PlatformUiClientType.WEB, false);
-        config.setScopeModuleAlias("crm.project");
-        config.setScopeField("projectId");
-
-        assertThatThrownBy(() -> uiConfigService.insert(config))
-                .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("only supported by LIST UI configs");
+        assertThat(unpublished.getLayoutJson()).contains("navigator", "projectId");
     }
 
     @Test

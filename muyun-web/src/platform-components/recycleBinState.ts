@@ -19,6 +19,21 @@ export interface RecycleBinStateOptions<TRecord> {
   reloadKey?: Ref<number>;
 }
 
+/** Turns lifecycle facts from the platform into concise operator-facing guidance. */
+export function recycleBinRestoreUnavailableReason(item: RecycleBinItem<unknown>): string | undefined {
+  if (item.restorable) return undefined;
+  switch (item.unavailableReason) {
+    case 'deletion history is unavailable':
+      return '无法恢复：删除历史不可用';
+    case 'resource lifecycle changed after deletion':
+      return '无法恢复：删除后资源生命周期已变化';
+    default:
+      return item.unavailableReason
+        ? `无法恢复：${item.unavailableReason}`
+        : '无法恢复：当前记录不满足恢复条件';
+  }
+}
+
 export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRecord>) {
   const items = ref<RecycleBinItem<TRecord>[]>([]);
   const loading = ref(false);

@@ -167,7 +167,7 @@ function runtimeCheckedTreeClient<TRecord>(context: ModuleContext<TRecord>): Sta
     delete: async (id, request) => (await tree()).delete(id, request),
     enable: async (id, request) => (await tree()).enable(id, request),
     disable: async (id, request) => (await tree()).disable(id, request),
-    tree: async () => (await tree()).tree(),
+    tree: async (request) => (await tree()).tree(request),
     treeFlat: async (options) => (await tree()).treeFlat(options),
     subtree: async (id, options) => (await tree()).subtree(id, options),
     sort: async (id, request) => (await tree()).sort(id, request),

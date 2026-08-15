@@ -96,6 +96,8 @@ import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationContext;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationMove;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationService;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorQueryBinding;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigField;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
@@ -221,50 +223,42 @@ public class DynamicRecordWebController implements
                 request, pageConfigSnapshotService, moduleMetadataFieldService, fieldUiControlService,
                 fieldUiControlBindingService, service()::queryCriteria);
         Criteria quickCriteria = quickSearchCriteria(DynamicWebRequest.moduleAlias(), request);
-        Criteria workspaceCriteria = scopedListWorkspaceCriteria(DynamicWebRequest.moduleAlias(), request);
-        return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria, quickCriteria, workspaceCriteria);
+        Criteria navigatorCriteria = navigatorCriteria(DynamicWebRequest.moduleAlias(), request);
+        return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria, quickCriteria, navigatorCriteria);
     }
 
     private List<String> querySchemaExternalCriteriaKeys(String moduleAlias, String uiConfigId,
                                                           String queryTemplateId) {
         java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>();
-        scopedListWorkspaceCriteriaKey(moduleAlias, uiConfigId).ifPresent(keys::add);
+        navigatorQueryBindings(moduleAlias, uiConfigId).stream()
+                .map(PlatformPageNavigatorQueryBinding::queryCriteriaKey)
+                .forEach(keys::add);
         if (queryItemService != null && hasText(queryTemplateId)) {
             keys.addAll(queryItemService.externalValueKeys(queryTemplateId));
         }
         return List.copyOf(keys);
     }
 
-    private Criteria scopedListWorkspaceCriteria(String moduleAlias, WebQueryRequest request) {
+    private Criteria navigatorCriteria(String moduleAlias, WebQueryRequest request) {
         if (request == null || !hasText(request.uiConfigId()) || request.externalQueryValues() == null) {
             return Criteria.of();
         }
-        PlatformPageConfigSnapshot snapshot = pageConfigSnapshotService.snapshot(moduleAlias);
-        PlatformUiConfig uiConfig = publishedUiConfig(snapshot, request.uiConfigId());
-        String criteriaKey = scopedListWorkspaceCriteriaKey(uiConfig);
-        if (criteriaKey == null || !request.externalQueryValues().containsKey(criteriaKey)) {
-            return Criteria.of();
+        Criteria criteria = Criteria.of();
+        for (PlatformPageNavigatorQueryBinding binding : navigatorQueryBindings(moduleAlias, request.uiConfigId())) {
+            Object selectedValue = request.externalQueryValues().get(binding.queryCriteriaKey());
+            if (selectedValue != null) {
+                criteria.eq(binding.field(), selectedValue);
+            }
         }
-        Object scopeValue = request.externalQueryValues().get(criteriaKey);
-        return scopeValue == null ? Criteria.of() : Criteria.of().eq(uiConfig.getScopeField(), scopeValue);
+        return criteria;
     }
 
-    private java.util.Optional<String> scopedListWorkspaceCriteriaKey(String moduleAlias, String uiConfigId) {
+    private List<PlatformPageNavigatorQueryBinding> navigatorQueryBindings(String moduleAlias, String uiConfigId) {
         if (!hasText(uiConfigId) || pageConfigSnapshotService == null) {
-            return java.util.Optional.empty();
+            return List.of();
         }
         PlatformUiConfig uiConfig = publishedUiConfig(pageConfigSnapshotService.snapshot(moduleAlias), uiConfigId);
-        return java.util.Optional.ofNullable(scopedListWorkspaceCriteriaKey(uiConfig));
-    }
-
-    private String scopedListWorkspaceCriteriaKey(PlatformUiConfig uiConfig) {
-        if (uiConfig.getScopeModuleAlias() == null || uiConfig.getScopeModuleAlias().isBlank()
-                || uiConfig.getScopeField() == null || uiConfig.getScopeField().isBlank()) {
-            return null;
-        }
-        return hasText(uiConfig.getScopeQueryCriteriaKey())
-                ? uiConfig.getScopeQueryCriteriaKey()
-                : uiConfig.getScopeField();
+        return PlatformPageLayoutNavigator.queryBindings(uiConfig);
     }
 
     private Criteria andCriteria(Criteria... criteriaList) {

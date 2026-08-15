@@ -16,18 +16,25 @@ public final class ModuleUiFormSchemaAdapter {
     }
 
     public static FormSchema formSchema(ModuleUiDefinition definition) {
-        return formSchema(definition, null);
+        return formSchema(definition, null, null);
     }
 
     public static FormSchema formSchema(ModuleUiDefinition definition, Class<?> modelClass) {
+        return formSchema(definition, modelClass, null);
+    }
+
+    /** Resolves either the module page's detail editor or the explicitly named child resource editor. */
+    public static FormSchema formSchema(ModuleUiDefinition definition, Class<?> modelClass, String resource) {
         if (definition == null) {
             return null;
         }
-        ViewDefinition formView = formView(definition.views());
+        ViewDefinition formView = formView(definition, resource);
         if (formView == null) {
             return null;
         }
-        validate(definition, formView, modelClass);
+        if (resource == null || resource.isBlank()) {
+            validate(definition, formView, modelClass);
+        }
         Map<String, FormValueType> valueTypes = fieldValueTypes(modelClass);
         FormDescriptor.Builder descriptor = FormDescriptor.builder(definition.moduleAlias())
                 .title(formView.title());
@@ -38,12 +45,21 @@ public final class ModuleUiFormSchemaAdapter {
         return FormSchema.from(descriptor.build(), modelClass);
     }
 
-    private static ViewDefinition formView(List<ViewDefinition> views) {
-        return views.stream()
-                .filter(view -> view.viewKind() == ModuleViewKind.FORM && "default_form".equals(view.viewCode()))
-                .findFirst()
-                .or(() -> views.stream().filter(view -> view.viewKind() == ModuleViewKind.FORM).findFirst())
-                .orElse(null);
+    private static ViewDefinition formView(ModuleUiDefinition definition, String resource) {
+        if (resource != null && !resource.isBlank()) {
+            return definition.editorContributions().stream()
+                    .filter(contribution -> resource.trim().equals(contribution.resource()))
+                    .map(PageDetailEditorContribution::editor)
+                    .findFirst()
+                    .orElse(null);
+        }
+        ModulePageDefinition page = definition.page();
+        if (page == null) return definition.customPageEditor();
+        return switch (page) {
+            case FlatManagementPageDefinition flat -> flat.detail().editor();
+            case ListDetailCardPageDefinition card -> card.detail().editor();
+            case null -> null;
+        };
     }
 
     private static FormField field(ViewFieldDefinition field, Map<String, FormValueType> valueTypes) {
@@ -106,8 +122,8 @@ public final class ModuleUiFormSchemaAdapter {
                 definition.moduleAlias(),
                 modelClass
         );
-        ModuleUiDescriptorCompiler.validate(new ModuleUiDefinition(definition.moduleAlias(), List.of(formView)),
-                List.of(entity));
+        ModuleUiDescriptorCompiler.validate(new ModuleUiDefinition(definition.moduleAlias(), List.of(), null,
+                formView, List.of()), List.of(entity));
     }
 
     private static String entityAlias(String moduleAlias) {

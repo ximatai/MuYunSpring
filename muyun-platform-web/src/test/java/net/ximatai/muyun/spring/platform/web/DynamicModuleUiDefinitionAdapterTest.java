@@ -88,9 +88,9 @@ class DynamicModuleUiDefinitionAdapterTest {
                 "客户",
                 java.util.Map.of(),
                 "name").recordLabelField()).isEqualTo("name");
-        assertThat(definition.views()).extracting(ViewDefinition::viewCode)
-                .containsExactly("customer_list", "customer_form");
-        ViewDefinition listView = definition.views().get(0);
+        assertThat(definition.page()).isInstanceOf(ListDetailCardPageDefinition.class);
+        ListDetailCardPageDefinition page = (ListDetailCardPageDefinition) definition.page();
+        ViewDefinition listView = page.list().list();
         assertThat(listView.viewKind()).isEqualTo(ModuleViewKind.LIST);
         assertThat(listView.title()).isEqualTo("客户列表");
         assertThat(listView.fields()).extracting(field -> field.fieldRef().fieldId())
@@ -104,7 +104,7 @@ class DynamicModuleUiDefinitionAdapterTest {
         assertThat(listView.fields().get(0).align()).isEqualTo("left");
         assertThat(listView.fields().get(0).fixed()).isTrue();
 
-        ViewDefinition formView = definition.views().get(1);
+        ViewDefinition formView = page.detail().editor();
         assertThat(formView.viewKind()).isEqualTo(ModuleViewKind.FORM);
         assertThat(formView.fields()).hasSize(1);
         assertThat(formView.fields().get(0).required().constant()).isTrue();
@@ -112,70 +112,55 @@ class DynamicModuleUiDefinitionAdapterTest {
     }
 
     @Test
-    void shouldMapPublishedDynamicListWorkspaceToTheSourceNeutralDescriptor() {
-        PlatformUiSet listSet = uiSet("set-list", "crm.task", "task_list", PlatformUiSetType.LIST);
-        PlatformUiConfig listConfig = uiConfig("ui-list-web", "set-list", "任务列表", true, 10);
-        listConfig.setScopeModuleAlias("crm.project");
-        listConfig.setScopeField("projectId");
-        listConfig.setScopeQueryCriteriaKey("projectId");
-        listConfig.setScopeTitle("项目");
-        listConfig.setScopeSearchPlaceholder("搜索项目");
-        listConfig.setScopeShowItemSubtitle(Boolean.FALSE);
-        listConfig.setScopeCreatePolicy("REQUIRE_SCOPE");
+    void shouldMapDynamicNavigatorLevelsFromThePageRoot() {
+        PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
+        PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);
+        PlatformUiConfig listConfig = uiConfig("ui-list-web", "set-list", "客户列表", true, 10);
+        listConfig.setLayoutJson("""
+                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"levels":[
+                  {"key":"tenant","kind":"MICRO_LIST","sourceModuleAlias":"iam.tenant","title":"租户",
+                   "queryBindings":[{"field":"tenantId","queryCriteriaKey":"tenantId"}],
+                   "childBindings":[{"childLevelKey":"organization","childQueryCriteriaKey":"tenantId"}]},
+                  {"key":"organization","kind":"TREE","sourceModuleAlias":"iam.organization","title":"组织",
+                   "queryBindings":[{"field":"organizationId","queryCriteriaKey":"organizationId"}]}
+                ]}}""");
+        PlatformUiConfig formConfig = uiConfig("ui-form-web", "set-form", "客户", true, 20);
 
         ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
-                new PlatformPageConfigSnapshot("crm.task", List.of(listSet), List.of(listConfig), List.of(),
-                        List.of(), List.of()),
-                PlatformResolvedPageConfig.empty());
+                new PlatformPageConfigSnapshot("crm.customer", List.of(listSet, formSet), List.of(listConfig, formConfig),
+                        List.of(), List.of(), List.of()), PlatformResolvedPageConfig.empty());
 
-        assertThat(definition.views()).singleElement().satisfies(view -> {
-            assertThat(view.sourceUiConfigId()).isEqualTo("ui-list-web");
-            ResolvedScopedListWorkspaceDescriptor workspace = ResolvedScopedListWorkspaceDescriptor.from(
-                    view.scopedListWorkspace());
-            assertThat(workspace.scopeModuleAlias()).isEqualTo("crm.project");
-            assertThat(workspace.scopeField()).isEqualTo("projectId");
-            assertThat(workspace.queryCriteriaKey()).isEqualTo("projectId");
-            assertThat(workspace.showScopeItemSubtitle()).isFalse();
-            assertThat(workspace.createPolicy()).isEqualTo(ScopedListWorkspaceCreatePolicy.REQUIRE_SCOPE);
-        });
+        PageNavigatorDefinition navigator = ((ListDetailCardPageDefinition) definition.page()).navigator();
+        assertThat(navigator.levels()).hasSize(2);
+        assertThat(navigator.levels().getFirst().childBindings()).containsExactly(
+                new PageNavigatorChildBindingDefinition("organization", "tenantId"));
+        assertThat(navigator.levels().get(1).queryBindings()).containsExactly(
+                new PageNavigatorQueryBindingDefinition("organizationId", "organizationId"));
+        assertThat(net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator.queryBindings(listConfig))
+                .containsExactly(
+                        new net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorQueryBinding("tenantId", "tenantId"),
+                        new net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorQueryBinding(
+                                "organizationId", "organizationId"));
     }
 
     @Test
     void shouldAdaptDynamicMaximumDisplayLinesToTheSourceNeutralDescriptor() {
         PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
+        PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);
         PlatformUiConfig listConfig = uiConfig("ui-list-web", "set-list", "客户列表", true, 10);
+        PlatformUiConfig formConfig = uiConfig("ui-form-web", "set-form", "客户", true, 20);
         PlatformResolvedUiField field = new PlatformResolvedUiField(
                 "ui-list-web", "field-name", null, "customer", "name", "name", "客户名称", "string",
                 "NORMAL", "text", true, false, null, null, null, 180, 1, "left", null, 3);
 
         ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
-                new PlatformPageConfigSnapshot("crm.customer", List.of(listSet), List.of(listConfig), List.of(),
+                new PlatformPageConfigSnapshot("crm.customer", List.of(listSet, formSet), List.of(listConfig, formConfig), List.of(),
                         List.of(), List.of()),
                 new PlatformResolvedPageConfig(List.of(field), List.of()));
 
-        assertThat(definition.views()).singleElement()
+        assertThat(((ListDetailCardPageDefinition) definition.page()).list().list())
                 .satisfies(view -> assertThat(view.fields()).singleElement()
                         .satisfies(resolved -> assertThat(resolved.maxDisplayLines()).isEqualTo(3)));
-    }
-
-    @Test
-    void shouldKeepScopedWorkspaceBoundToItsOwnDynamicListConfig() {
-        PlatformUiSet projectList = uiSet("set-project", "crm.task", "project_tasks", PlatformUiSetType.LIST);
-        PlatformUiSet allList = uiSet("set-all", "crm.task", "all_tasks", PlatformUiSetType.LIST);
-        PlatformUiConfig scopedConfig = uiConfig("ui-project", "set-project", "项目任务", true, 10);
-        scopedConfig.setScopeModuleAlias("crm.project");
-        scopedConfig.setScopeField("projectId");
-        PlatformUiConfig plainConfig = uiConfig("ui-all", "set-all", "全部任务", true, 20);
-
-        ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
-                new PlatformPageConfigSnapshot("crm.task", List.of(projectList, allList),
-                        List.of(scopedConfig, plainConfig), List.of(), List.of(), List.of()),
-                PlatformResolvedPageConfig.empty());
-
-        assertThat(definition.views()).filteredOn(view -> "ui-project".equals(view.sourceUiConfigId()))
-                .singleElement().satisfies(view -> assertThat(view.scopedListWorkspace()).isNotNull());
-        assertThat(definition.views()).filteredOn(view -> "ui-all".equals(view.sourceUiConfigId()))
-                .singleElement().satisfies(view -> assertThat(view.scopedListWorkspace()).isNull());
     }
 
     private PlatformUiSet uiSet(String id, String moduleAlias, String alias, PlatformUiSetType setType) {
@@ -198,6 +183,7 @@ class DynamicModuleUiDefinitionAdapterTest {
         config.setPublished(published);
         config.setEnabled(Boolean.TRUE);
         config.setSortOrder(sortOrder);
+        config.setLayoutJson("{\"template\":\"LIST_DETAIL_CARD\",\"traits\":[]}");
         return config;
     }
 

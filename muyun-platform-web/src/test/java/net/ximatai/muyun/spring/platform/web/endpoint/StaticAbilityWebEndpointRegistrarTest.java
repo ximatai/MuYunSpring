@@ -170,6 +170,7 @@ class StaticAbilityWebEndpointRegistrarTest {
     void shouldCompileTreeAndItsIntrinsicSortEndpointAsOneAbilitySurface() throws Exception {
         assertThat(mappings(mock(TreeAbility.class))).containsExactlyInAnyOrder(
                 "/demo.resource/tree",
+                "/demo.resource/tree/query",
                 "/demo.resource/tree/{id}",
                 "/demo.resource/sort/{id}"
         );
@@ -262,6 +263,15 @@ class StaticAbilityWebEndpointRegistrarTest {
                 "/demo.resource/recycle-bin/{sourceDeleteOperationId}/purge");
         assertThat(mappings(purgeEnabled)).contains(
                 "/demo.resource/recycle-bin/{sourceDeleteOperationId}/purge");
+    }
+
+    @Test
+    void shouldExposeRetainedRecordDetailAlongsideRecycleBinQuery() throws Exception {
+        RecycleBinAbility<?> service = mock(RecycleBinAbility.class);
+
+        assertThat(mappings(service)).contains(
+                "/demo.resource/recycle-bin/query",
+                "/demo.resource/recycle-bin/view/{id}");
     }
 
     @Test

@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
@@ -115,7 +116,8 @@ public class RoleWebController extends WebSupport<RoleService> implements
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(RoleService.MODULE_ALIAS)
-                .listView(list -> list
+                .page(PageTemplates.listDetailCard(page -> page
+                .list(list -> list.fields(fields -> fields
                         .title("角色列表")
                         .field("title", field -> field.label("角色名称").width("180px"))
                         .field("assignmentType", field -> field.label("授权层级").uiType("select").width("110px"))
@@ -123,8 +125,8 @@ public class RoleWebController extends WebSupport<RoleService> implements
                         .field("sharePolicy", field -> field.label("公开策略").uiType("select").width("120px"))
                         .field("systemManaged", field -> field.label("系统托管").width("100px").align("center"))
                         .field("enabled", field -> field.label("状态").uiType("enabledStatus")
-                                .width("90px").align("center")))
-                .formView(form -> form
+                                .width("90px").align("center"))))
+                .detail(detail -> detail.editor(form -> form
                         .title("角色档案")
                         .field("title", field -> field.label("角色名称").required())
                         .field("assignmentType", field -> field.label("授权层级").required().uiType("select"))
@@ -135,7 +137,8 @@ public class RoleWebController extends WebSupport<RoleService> implements
                         .field("sharePolicy", field -> field.label("公开策略").required().uiType("select"))
                         .field("description", field -> field.label("说明"))
                         .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))
-                        .field("sortOrder", field -> field.label("排序号")))
+                        .field("sortOrder", field -> field.label("排序号"))))
+                .traits(traits -> traits.standardCrud().enabledStatus().recycleBin().responsiveDetailSurface())))
                 .build();
     }
 
