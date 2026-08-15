@@ -45,7 +45,7 @@ class StaticQuerySchemaContractTest {
         assertField(application, "title", QueryValueType.STRING);
         assertField(application, "enabled", QueryValueType.BOOLEAN);
         assertField(application, "sortOrder", QueryValueType.INTEGER);
-        assertThat(application.quickSearch().fields()).containsExactly("title");
+        assertThat(application.quickSearch().fields()).containsExactly("id", "title");
 
         CurrencyService currencyService = new CurrencyService(new TestMemoryDao<Currency>());
         QuerySchema currency = currencyService.querySchema();

@@ -71,8 +71,16 @@ public class ApplicationService extends StandardBusinessService<Application> imp
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, Application.class, java.util.List.of("id", "title", "enabled", "sortOrder", "createdAt", "updatedAt"),
-                net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"));
+        return QueryDescriptor.builder(MODULE_ALIAS)
+                // alias is the application ID; both are intentionally searchable from the explorer.
+                .field(QueryDescriptors.field(Application.class, "id").withQuickSearch())
+                .field(QueryDescriptors.field(Application.class, "title"))
+                .field(QueryDescriptors.field(Application.class, "enabled"))
+                .field(QueryDescriptors.field(Application.class, "sortOrder"))
+                .field(QueryDescriptors.field(Application.class, "createdAt"))
+                .field(QueryDescriptors.field(Application.class, "updatedAt"))
+                .defaultSort(net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"))
+                .build();
     }
 
     @Override
