@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.web.query.WebQueryRequests;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
@@ -120,16 +121,25 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
     }
 
     private Criteria navigatorCriteria(WebQueryRequest request) {
-        if (request == null || request.externalQueryValues() == null) return Criteria.of();
+        // Avoid touching an optional static page declaration when this request carries no
+        // navigator value and there is no server-owned session context to apply. Besides
+        // keeping the fallback transport lazy, this preserves read-only static controllers
+        // that contribute a projection but do not opt into page-context governance.
+        if ((request == null || request.externalQueryValues() == null || request.externalQueryValues().isEmpty())
+                && CurrentUserContext.currentUser().isEmpty()) {
+            return Criteria.of();
+        }
         Criteria criteria = Criteria.of();
-        for (PageNavigatorQueryBindingDefinition binding : navigatorQueryBindings()) {
-            Object selectedValue = request.externalQueryValues().get(binding.queryCriteriaKey());
-            if (selectedValue != null) criteria.eq(binding.field(), selectedValue);
+        for (PageContextBindingDefinition binding : pageContextBindings(PageContextTarget.LIST_QUERY)) {
+            Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->
+                    request == null || request.externalQueryValues() == null ? null
+                            : request.externalQueryValues().get(binding.targetKey()));
+            if (selectedValue != null) criteria.eq(binding.targetKey(), selectedValue);
         }
         return criteria;
     }
 
-    private List<PageNavigatorQueryBindingDefinition> navigatorQueryBindings() {
+    private List<PageContextBindingDefinition> pageContextBindings(PageContextTarget target) {
         if (!(this instanceof StaticModuleUiContributor contributor)) return List.of();
         ModulePageDefinition page = contributor.moduleUiDefinition().page();
         PageNavigatorDefinition navigator = switch (page) {
@@ -139,7 +149,7 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
             case null -> null;
         };
         return navigator == null ? List.of()
-                : navigator.levels().stream().flatMap(level -> level.queryBindings().stream()).toList();
+                : navigator.contextBindings().stream().filter(binding -> binding.target() == target).toList();
     }
 
     private Criteria andCriteria(Criteria first, Criteria second) {

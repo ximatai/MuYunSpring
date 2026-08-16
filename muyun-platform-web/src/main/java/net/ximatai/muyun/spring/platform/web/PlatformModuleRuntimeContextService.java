@@ -85,8 +85,8 @@ public class PlatformModuleRuntimeContextService {
                         ? new AllowAllActionExecutionPolicyService()
                         : actionExecutionPolicyService.getIfAvailable(AllowAllActionExecutionPolicyService::new),
                 fileReferenceFieldPolicies == null ? List.of() : fileReferenceFieldPolicies.orderedStream().toList(),
-                pageNavigatorResolver == null ? new DeclaredPageNavigatorResolver()
-                        : pageNavigatorResolver.getIfAvailable(DeclaredPageNavigatorResolver::new));
+                new CompositePageNavigatorResolver(pageNavigatorResolver == null ? List.of()
+                        : pageNavigatorResolver.orderedStream().toList()));
     }
 
     PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -244,12 +244,16 @@ public class PlatformModuleRuntimeContextService {
         List<ResolvedPageNavigatorLevelDescriptor> visibleLevels = navigator.levels().stream()
                 .filter(level -> visibleLevelKeys.contains(level.key()))
                 .map(level -> new ResolvedPageNavigatorLevelDescriptor(level.key(), level.kind(),
-                        level.sourceModuleAlias(), level.title(), level.searchPlaceholder(), level.queryBindings(),
-                        level.childBindings().stream()
-                                .filter(binding -> visibleLevelKeys.contains(binding.childLevelKey()))
-                                .toList()))
+                        level.sourceModuleAlias(), level.title(), level.searchPlaceholder(), level.management(),
+                        level.singleResultPolicy(), level.sourceScope()))
                 .toList();
-        return visibleLevels.isEmpty() ? null : new ResolvedPageNavigatorDescriptor(visibleLevels);
+        List<ResolvedPageContextBindingDescriptor> visibleBindings = navigator.contextBindings().stream()
+                .filter(binding -> binding.source() != PageContextSource.NAVIGATOR
+                        || visibleLevelKeys.contains(binding.sourceKey()))
+                .filter(binding -> binding.target() != PageContextTarget.NAVIGATOR_QUERY
+                        || visibleLevelKeys.contains(binding.targetNavigatorLevelKey()))
+                .toList();
+        return visibleLevels.isEmpty() ? null : new ResolvedPageNavigatorDescriptor(visibleLevels, visibleBindings);
     }
 
     private ResolvedFileReferenceFieldDescriptor withFieldAccess(String moduleAlias,

@@ -423,9 +423,10 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);
         PlatformUiConfig listConfig = uiConfig("ui-list-web", "set-list", "客户列表");
         listConfig.setLayoutJson("""
-                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"levels":[{
-                  "key":"organization","kind":"TREE","sourceModuleAlias":"base.product",
-                  "queryBindings":[{"field":"organizationId","queryCriteriaKey":"organizationId"}]
+                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"contextBindings":[{
+                  "source":"NAVIGATOR","sourceKey":"organization","target":"LIST_QUERY","targetKey":"organizationId"
+                }],"levels":[{
+                  "key":"organization","kind":"TREE","sourceModuleAlias":"base.product"
                 }]}}""");
         PlatformUiConfig formConfig = uiConfig("ui-form-web", "set-form", "客户表单");
         PlatformPageConfigSnapshot snapshot = new PlatformPageConfigSnapshot(
@@ -479,9 +480,10 @@ class PlatformModuleRuntimeContextServiceTest {
         ResolvedViewDescriptor pageList = context.uiDescriptor().page().list().fields();
         assertThat(context.uiDescriptor().page().navigator().levels()).singleElement().satisfies(level -> {
             assertThat(level.sourceModuleAlias()).isEqualTo("base.product");
-            assertThat(level.queryBindings()).containsExactly(
-                    new ResolvedPageNavigatorQueryBindingDescriptor("organizationId", "organizationId"));
         });
+        assertThat(context.uiDescriptor().page().navigator().contextBindings()).containsExactly(
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "organization",
+                        PageContextTarget.LIST_QUERY, "organizationId", null));
         assertThat(pageList).satisfies(view -> {
                     assertThat(view.viewKind()).isEqualTo(ModuleViewKind.LIST);
                     assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())

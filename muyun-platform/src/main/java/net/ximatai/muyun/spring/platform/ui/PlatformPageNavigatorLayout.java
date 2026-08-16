@@ -5,9 +5,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** Parsed navigator section of a page layout JSON document. */
-public record PlatformPageNavigatorLayout(List<PlatformPageNavigatorLevel> levels) {
+public record PlatformPageNavigatorLayout(List<PlatformPageNavigatorLevel> levels,
+                                          List<PlatformPageContextBinding> contextBindings) {
     public PlatformPageNavigatorLayout {
         levels = levels == null ? List.of() : List.copyOf(levels);
+        contextBindings = contextBindings == null ? List.of() : List.copyOf(contextBindings);
         if (levels.isEmpty()) {
             throw new IllegalArgumentException("navigator requires at least one level");
         }
@@ -17,12 +19,17 @@ public record PlatformPageNavigatorLayout(List<PlatformPageNavigatorLevel> level
                 throw new IllegalArgumentException("navigator level keys must be unique");
             }
         }
-        for (int index = 0; index < levels.size(); index++) {
-            for (PlatformPageNavigatorChildBinding binding : levels.get(index).childBindings()) {
-                Integer childIndex = indexes.get(binding.childLevelKey());
-                if (childIndex == null || childIndex <= index) {
-                    throw new IllegalArgumentException("navigator child level must follow its parent: "
-                            + binding.childLevelKey());
+        for (PlatformPageContextBinding binding : contextBindings) {
+            if (!"NAVIGATOR".equals(binding.source())) continue;
+            Integer sourceIndex = indexes.get(binding.sourceKey());
+            if (sourceIndex == null) {
+                throw new IllegalArgumentException("page-context navigator source is unavailable: " + binding.sourceKey());
+            }
+            if ("NAVIGATOR_QUERY".equals(binding.target())) {
+                Integer targetIndex = indexes.get(binding.targetNavigatorLevelKey());
+                if (targetIndex == null || targetIndex <= sourceIndex) {
+                    throw new IllegalArgumentException("navigator-query target must follow its source: "
+                            + binding.targetNavigatorLevelKey());
                 }
             }
         }

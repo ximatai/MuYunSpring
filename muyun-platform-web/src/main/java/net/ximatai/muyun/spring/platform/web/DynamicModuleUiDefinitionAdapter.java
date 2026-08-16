@@ -11,6 +11,8 @@ import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorLayout;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorLevel;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageContextBinding;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -122,14 +124,21 @@ public final class DynamicModuleUiDefinitionAdapter {
     private static PageNavigatorDefinition navigator(PlatformUiConfig config) {
         PlatformPageNavigatorLayout navigator = PlatformPageLayoutNavigator.navigator(config);
         if (navigator == null) return null;
-        return new PageNavigatorDefinition(navigator.levels().stream().map(level -> new PageNavigatorLevelDefinition(
+        List<PageNavigatorLevelDefinition> levels = navigator.levels().stream().map(level -> new PageNavigatorLevelDefinition(
                 level.key(), PageNavigatorKind.valueOf(level.kind()), level.sourceModuleAlias(), level.title(),
-                level.searchPlaceholder(), level.queryBindings().stream()
-                .map(binding -> new PageNavigatorQueryBindingDefinition(binding.field(), binding.queryCriteriaKey()))
-                .toList(), level.childBindings().stream()
-                .map(binding -> new PageNavigatorChildBindingDefinition(
-                        binding.childLevelKey(), binding.childQueryCriteriaKey()))
-                .toList())).toList());
+                level.searchPlaceholder(), level.management() == null ? null
+                        : new PageNavigatorManagementDefinition(level.management().editorSurface()),
+                PageNavigatorSingleResultPolicy.valueOf(level.singleResultPolicy()),
+                PageNavigatorSourceScope.valueOf(level.sourceScope()))).toList();
+        List<PageContextBindingDefinition> bindings = navigator.contextBindings().stream()
+                .map(DynamicModuleUiDefinitionAdapter::contextBinding)
+                .toList();
+        return new PageNavigatorDefinition(levels, bindings);
+    }
+
+    private static PageContextBindingDefinition contextBinding(PlatformPageContextBinding binding) {
+        return new PageContextBindingDefinition(PageContextSource.valueOf(binding.source()), binding.sourceKey(),
+                PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey());
     }
 
     private static JsonNode pageRoot(PlatformUiConfig config) {

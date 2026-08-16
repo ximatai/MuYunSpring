@@ -707,6 +707,7 @@ export interface ResolvedPageExplorerDescriptor {
 
 export interface ResolvedPageNavigatorDescriptor {
   levels: ResolvedPageNavigatorLevelDescriptor[];
+  contextBindings: ResolvedPageContextBindingDescriptor[];
 }
 
 export interface ResolvedPageNavigatorLevelDescriptor {
@@ -715,18 +716,25 @@ export interface ResolvedPageNavigatorLevelDescriptor {
   sourceModuleAlias: string;
   title: string;
   searchPlaceholder: string;
-  queryBindings: ResolvedPageNavigatorQueryBindingDescriptor[];
-  childBindings: ResolvedPageNavigatorChildBindingDescriptor[];
+  /** Presentation policy applied after the source has authoritatively loaded. */
+  singleResultPolicy?: 'NONE' | 'AUTO_SELECT' | 'AUTO_SELECT_AND_HIDE';
+  /** Session-derived source scope, enforced by the source reference transport. */
+  sourceScope?: 'NONE' | 'CURRENT_TENANT';
+  /** When present, the navigator source exposes its own standard CRUD affordances in place. */
+  management?: ResolvedPageNavigatorManagementDescriptor;
 }
 
-export interface ResolvedPageNavigatorQueryBindingDescriptor {
-  field: string;
-  queryCriteriaKey: string;
+export interface ResolvedPageContextBindingDescriptor {
+  source: 'SESSION' | 'NAVIGATOR';
+  sourceKey: string;
+  target: 'LIST_QUERY' | 'NAVIGATOR_QUERY' | 'FORM_DEFAULT' | 'PICKER_QUERY' | 'MUTATION_CONSTRAINT';
+  targetKey: string;
+  targetNavigatorLevelKey?: string;
 }
 
-export interface ResolvedPageNavigatorChildBindingDescriptor {
-  childLevelKey: string;
-  childQueryCriteriaKey: string;
+export interface ResolvedPageNavigatorManagementDescriptor {
+  /** Optional named source-module form; the default editor is used when omitted. */
+  editorSurface?: string;
 }
 
 export interface ResolvedPageListDescriptor {

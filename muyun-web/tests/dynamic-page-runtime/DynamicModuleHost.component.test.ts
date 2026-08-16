@@ -411,6 +411,20 @@ describe('DynamicModuleHost', () => {
             moduleAlias: 'mr.knowledge_file',
             page: page({
               navigator: {
+                contextBindings: [
+                  {
+                    source: 'NAVIGATOR',
+                    sourceKey: 'directory',
+                    target: 'LIST_QUERY',
+                    targetKey: 'directoryId',
+                  },
+                  {
+                    source: 'NAVIGATOR',
+                    sourceKey: 'directory',
+                    target: 'FORM_DEFAULT',
+                    targetKey: 'directoryId',
+                  },
+                ],
                 levels: [
                   {
                     key: 'directory',
@@ -418,8 +432,6 @@ describe('DynamicModuleHost', () => {
                     sourceModuleAlias: 'mr.knowledge_directory',
                     title: '知识库目录',
                     searchPlaceholder: '搜索目录',
-                    queryBindings: [{ field: 'directoryId', queryCriteriaKey: 'directoryId' }],
-                    childBindings: [],
                   },
                 ],
               },
@@ -427,7 +439,7 @@ describe('DynamicModuleHost', () => {
           },
         });
       }
-      if (request.url.endsWith('/platform.module/mr.knowledge_directory/context')) {
+      if (request.url.endsWith('/platform.module/mr.knowledge_directory/reference-context')) {
         return Response.json({ moduleAlias: 'mr.knowledge_directory', capabilities: [], actions: [] });
       }
       throw new Error(`Unexpected request: ${request.url}`);
@@ -527,6 +539,29 @@ describe('DynamicModuleHost', () => {
             moduleAlias: 'crm.customer',
             page: page({
               navigator: {
+                contextBindings: [
+                  { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'LIST_QUERY', targetKey: 'tenantId' },
+                  { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'FORM_DEFAULT', targetKey: 'tenantId' },
+                  {
+                    source: 'NAVIGATOR',
+                    sourceKey: 'tenant',
+                    target: 'NAVIGATOR_QUERY',
+                    targetKey: 'tenantId',
+                    targetNavigatorLevelKey: 'organization',
+                  },
+                  {
+                    source: 'NAVIGATOR',
+                    sourceKey: 'organization',
+                    target: 'LIST_QUERY',
+                    targetKey: 'organizationId',
+                  },
+                  {
+                    source: 'NAVIGATOR',
+                    sourceKey: 'organization',
+                    target: 'FORM_DEFAULT',
+                    targetKey: 'organizationId',
+                  },
+                ],
                 levels: [
                   {
                     key: 'tenant',
@@ -534,8 +569,6 @@ describe('DynamicModuleHost', () => {
                     sourceModuleAlias: 'iam.tenant',
                     title: '租户',
                     searchPlaceholder: '搜索租户',
-                    queryBindings: [{ field: 'tenantId', queryCriteriaKey: 'tenantId' }],
-                    childBindings: [{ childLevelKey: 'organization', childQueryCriteriaKey: 'tenantId' }],
                   },
                   {
                     key: 'organization',
@@ -543,8 +576,6 @@ describe('DynamicModuleHost', () => {
                     sourceModuleAlias: 'iam.organization',
                     title: '组织',
                     searchPlaceholder: '搜索组织',
-                    queryBindings: [{ field: 'organizationId', queryCriteriaKey: 'organizationId' }],
-                    childBindings: [],
                   },
                 ],
               },
@@ -552,10 +583,10 @@ describe('DynamicModuleHost', () => {
           },
         });
       }
-      if (request.url.endsWith('/platform.module/iam.tenant/context')) {
+      if (request.url.endsWith('/platform.module/iam.tenant/reference-context')) {
         return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
       }
-      if (request.url.endsWith('/platform.module/iam.organization/context')) {
+      if (request.url.endsWith('/platform.module/iam.organization/reference-context')) {
         return Response.json({ moduleAlias: 'iam.organization', capabilities: ['tree'], actions: [] });
       }
       if (request.url.endsWith('/crm.customer/view/customer-1')) {
@@ -621,6 +652,76 @@ describe('DynamicModuleHost', () => {
     explorers[0].vm.$emit('select', { id: 'tenant-2', title: '乙租户' });
     await flushPromises();
     expect(panel.props('externalQueryValues')).toEqual({ tenantId: 'tenant-2' });
+  });
+
+  it('auto-selects and hides a single navigator while retaining its downstream binding', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/demo.position/context')) {
+        return Response.json({
+          moduleAlias: 'demo.position',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'demo.position',
+            page: page({
+              navigator: {
+                contextBindings: [
+                  { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'LIST_QUERY', targetKey: 'tenantId' },
+                  { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'FORM_DEFAULT', targetKey: 'tenantId' },
+                ],
+                levels: [
+                  {
+                    key: 'tenant',
+                    kind: 'MICRO_LIST',
+                    sourceModuleAlias: 'iam.tenant',
+                    title: '租户',
+                    searchPlaceholder: '搜索租户',
+                    singleResultPolicy: 'AUTO_SELECT_AND_HIDE',
+                  },
+                ],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/iam.tenant/reference-context')) {
+        return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({
+      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+    });
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.position', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+
+    const navigator = wrapper.findComponent({ name: 'CrudRecordListExplorer' });
+    const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    navigator.vm.$emit('loaded', [{ id: 'xcmg', title: '徐工集团' }]);
+    await flushPromises();
+
+    expect(list.props('externalQueryValues')).toEqual({ tenantId: 'xcmg' });
+    expect(wrapper.findComponent({ name: 'CrudRecordListExplorer' }).exists()).toBe(false);
   });
 
   it('blocks every list runner when its menu bootstrap fails', async () => {

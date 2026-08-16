@@ -8,7 +8,7 @@ import {
 import { pageDescriptorFromUrl } from '@/platform-workbench/menuNavigation.ts';
 import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 
-it('static business route registry exposes route prefixes for navigation resolution', () => {
+it('static business route registry exposes only pages still owned by static route hosts', () => {
   assert.deepEqual(platformAdminRoutePrefixes, [
     '/config/field-ui-controls',
     '/config/dictionaries',
@@ -23,7 +23,6 @@ it('static business route registry exposes route prefixes for navigation resolut
     '/iam/system-users',
     '/iam/roles',
     '/iam/role-authorization',
-    '/iam/positions',
   ]);
   assert.deepEqual(platformAdminModuleRoutes, {
     'platform.field_ui_control': '/config/field-ui-controls',
@@ -38,7 +37,6 @@ it('static business route registry exposes route prefixes for navigation resolut
     'iam.user': '/iam/users',
     'iam.system_user': '/iam/system-users',
     'iam.role': '/iam/roles',
-    'iam.position_category': '/iam/positions',
   });
 });
 
@@ -111,7 +109,7 @@ it('static business route registry resolves tenant management module route', () 
   assert.equal(route?.moduleAlias, 'iam.tenant');
 });
 
-it('static business route registry resolves position category as position management entry', () => {
+it('position management is intentionally delegated to the dynamic page host', () => {
   const descriptor: BusinessRoutePageDescriptor = {
     pageType: 'business-route',
     openMode: 'workbench-route',
@@ -122,9 +120,8 @@ it('static business route registry resolves position category as position manage
 
   const route = resolvePlatformAdminRoute(descriptor);
 
-  assert.equal(route?.route, '/iam/positions');
-  assert.equal(route?.moduleAlias, 'iam.position_category');
-  assert.equal(isPlatformAdminRoutePage(descriptor), true);
+  assert.equal(route, undefined);
+  assert.equal(isPlatformAdminRoutePage(descriptor), false);
 });
 
 it('static business route registry resolves department management module route', () => {

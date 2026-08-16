@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.ability.EntitySaveLifecycleListener;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.ability.form.FormAbility;
 import net.ximatai.muyun.spring.ability.option.StaticOptionFieldValueValidator;
+import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.option.OptionBinding;
@@ -199,6 +200,17 @@ class EmployeeServiceContractTest {
             assertThat(field.name()).isEqualTo("gender");
             assertThat(field.optionBinding()).isEqualTo(OptionBinding.dictionary("iam", "gender"));
             assertThat(field.optionTitleField()).isEqualTo("genderTitle");
+        });
+    }
+
+    @Test
+    void shouldExposeTenantAsAnEmployeeQueryField() {
+        EmployeeService service = new EmployeeService(mock(EmployeeDao.class), activeTenantVerifier(),
+                organizationService(), departmentService());
+
+        assertThat(service.querySchema().fields()).anySatisfy(field -> {
+            assertThat(field.name()).isEqualTo("tenantId");
+            assertThat(field.operators()).containsExactlyInAnyOrder(QueryOperator.EQ, QueryOperator.IN);
         });
     }
 

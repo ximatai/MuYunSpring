@@ -50,4 +50,13 @@ public class Menu extends StandardEnabledTreeEntity {
 
     @Column(name = "entry_params_json", type = ColumnType.TEXT, comment = "Entry params JSON")
     private String entryParamsJson;
+
+    /** Whether platform startup reconciliation owns the managed routing fields of this copy. */
+    @Column(name = "platform_managed", type = ColumnType.BOOLEAN, comment = "Platform managed menu copy")
+    private Boolean platformManaged;
+
+    /** Source fingerprint last applied by platform reconciliation; useful for audit and diagnostics. */
+    @Column(name = "platform_managed_revision", type = ColumnType.VARCHAR, length = 64,
+            comment = "Platform managed revision")
+    private String platformManagedRevision;
 }

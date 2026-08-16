@@ -378,7 +378,7 @@ it('page navigator renders levels through the standard module runner', () => {
   assert.match(hostSource, /selectedNavigatorRecords/);
   assert.match(hostSource, /function selectNavigatorRecord/);
   assert.match(hostSource, /function navigatorExplorerQueryValues/);
-  assert.match(hostSource, /v-for="level in navigatorLevels"/);
+  assert.match(hostSource, /v-for="level in visibleNavigatorLevels"/);
   assert.match(hostSource, /:external-query-values="navigatorExplorerQueryValues\(level\.descriptor\.key\)"/);
 });
 
@@ -539,19 +539,17 @@ it('user management fills the constrained work area and leaves scrolling to its 
   assert.match(routesSource, /route: '\/iam\/users'[\s\S]*layout: 'workspace'/);
 });
 
-it('record picker search supports clearing its keyword', () => {
+it('record picker delegates single-value interaction to the standard select adapters', () => {
   const pickerSource = readSource('src/platform-components/RecordPicker.vue');
+  const treeSelectSource = readSource('src/vue-ui-antdv/components/UiTreeSelect.vue');
 
-  assert.match(pickerSource, /v-model:value="keyword" allow-clear placeholder="搜索名称、编码或 ID"/);
-  assert.match(
-    pickerSource,
-    /\.record-picker-value:disabled \{[\s\S]*background: var\(--muyun-support-disabled\)/,
-  );
-  assert.match(
-    pickerSource,
-    /\.record-picker-value:disabled \{[\s\S]*color: var\(--muyun-support-disabled-text\)/,
-  );
-  assert.notMatch(pickerSource, /#cfd9e5|#f8fafc|#475569|#172033/);
+  assert.match(pickerSource, /<UiTreeSelect[\s\S]*:allow-clear="allowClear"[\s\S]*:show-search="true"/);
+  assert.match(pickerSource, /<UiSelect[\s\S]*:filter-option="false"/);
+  assert.match(pickerSource, /@search="keyword = \$event"/);
+  assert.match(pickerSource, /@update:value="updateValue"/);
+  assert.notMatch(pickerSource, /document\.addEventListener|record-picker-clear|record-picker-panel/);
+  assert.match(treeSelectSource, /:show-search="showSearch"/);
+  assert.match(treeSelectSource, /:filter-tree-node="filterTreeNode"/);
 });
 
 it('menu management keeps scheme actions inline and delegates search to panel', () => {
@@ -671,8 +669,8 @@ it('dictionary item parent selector uses tree-aware record picker', () => {
   assert.notMatch(dictionaryViewSource, /itemParentOptions/);
   assert.notMatch(dictionaryViewSource, /<RecordPicker[\s\S]*v-model:value="itemDraft\.parentId"/);
   assert.match(pickerSource, /reloadKey\?: number/);
-  assert.match(pickerSource, /\(\) => props\.reloadKey/);
-  assert.match(pickerSource, /\(\) => loadRecords\(\)/);
+  assert.match(pickerSource, /props\.context, props\.mode, props\.reloadKey/);
+  assert.match(pickerSource, /\(\) => void loadRecords\(\)/);
 });
 
 it('dictionary management uses record form fields for category and item forms', () => {
@@ -703,6 +701,12 @@ it('dictionary management uses record form fields for category and item forms', 
 it('position management uses child resource form descriptor for position form', () => {
   const positionViewSource = readSource('src/views/PositionManagementView.vue');
 
+  assert.match(positionViewSource, /const currentUserTenant = computed<Tenant \| undefined>/);
+  assert.match(
+    positionViewSource,
+    /watch\(currentUserTenant, initializeTenantUserScope, \{ immediate: true \}\)/,
+  );
+  assert.match(positionViewSource, /function initializeTenantUserScope\(tenant = currentUserTenant\.value\)/);
   assert.match(positionViewSource, /onMounted\(loadPositionFormDefinition\)/);
   assert.match(
     positionViewSource,
@@ -1781,13 +1785,13 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /:ready="pageReady"/);
   assert.match(hostSource, /动态\$\{pageMode\.value\}入口暂未接入运行器/);
   assert.match(hostSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
-  assert.match(hostSource, /:explorer-count="navigatorLevels\.length"/);
+  assert.match(hostSource, /:explorer-count="visibleNavigatorLevels\.length"/);
   assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);
   assert.match(hostSource, /listDetailWorkspaceMinWidth\(navigatorLevels\.value\.length\)/);
   assert.match(hostSource, /new ResizeObserver\(\(\) => updateDetailSurfaceForWorkspaceWidth\(\)\)/);
   assert.match(hostSource, /workspaceWidth < listDetailMinimumWidth\.value/);
   assert.equal(/max-width: 719px/.test(hostSource), false);
-  assert.match(hostSource, /:navigator-count="navigatorLevels\.length"/);
+  assert.match(hostSource, /:navigator-count="visibleNavigatorLevels\.length"/);
   assert.match(hostSource, /<ManagementWorkspace[\s\S]*v-else-if="treeManagementPage \|\| treeModule"/);
   assert.match(hostSource, /<CrudRecordListExplorer/);
   assert.match(hostSource, /<TreeRecordExplorer[\s\S]*v-if="level\.tree"/);
@@ -1807,7 +1811,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(listPanelSource, /if \(!queryReady\.value\) \{\s*return;/);
   assert.match(listPanelSource, /uiDescriptor\?\.page\?\.list\?\.fields/);
   assert.match(listPanelSource, /props\.requiredExternalCriteriaKeys\.length > 0/);
-  assert.match(hostSource, /values\[binding\.queryCriteriaKey\] = id/);
+  assert.match(hostSource, /resolvePageContextTargetValues\(pageContextBindings\.value, 'LIST_QUERY'/);
   assert.match(hostSource, /<TreeRecordExplorer/);
   assert.match(hostSource, /context\.crud\.update\(id, record\)/);
   assert.match(hostSource, /<RecordDetailPanel/);

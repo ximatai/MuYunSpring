@@ -304,6 +304,15 @@ describe('WorkbenchMenu', () => {
 
     expect(wrapper.get('.sidebar-submenu-panel').attributes('aria-label')).toBe('下级菜单');
     expect(wrapper.find('.sidebar-submenu-panel header').exists()).toBe(false);
+    expect(wrapper.find('.sidebar-submenu-outline--shadow').exists()).toBe(true);
+    expect(wrapper.find('.sidebar-submenu-outline--stroke path').attributes('d')).toBeTruthy();
+    expect(
+      wrapper
+        .findAll('.sidebar-menu-entry')
+        .find((entry) => entry.text() === '平台配置')
+        ?.find('.sidebar-menu-entry-indicator')
+        .exists(),
+    ).toBe(true);
   });
 
   it('shows only the next level when a third-level branch opens a flyout', async () => {
@@ -342,10 +351,13 @@ describe('WorkbenchMenu', () => {
 
     await wrapper.get('.root-menu-item').trigger('mouseenter');
     expect(wrapper.find('.mega-panel').exists()).toBe(true);
+    expect(wrapper.find('.mega-outline--shadow').exists()).toBe(true);
+    expect(wrapper.find('.mega-outline--stroke path').attributes('d')).toBeTruthy();
 
     await wrapper.setProps({ presentation: 'compact', compactOpen: false });
 
     expect(wrapper.find('.mega-panel').exists()).toBe(false);
+    expect(wrapper.find('.mega-outline--shadow').exists()).toBe(false);
   });
 
   it('opens Mega only for root branches and keeps navigable root leaves direct', async () => {
@@ -470,6 +482,36 @@ describe('WorkbenchMenu', () => {
     expect(wrapper.find('.mega-panel').exists()).toBe(true);
 
     window.dispatchEvent(pointerMoveEvent(150, 140));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.mega-panel').exists()).toBe(true);
+
+    window.dispatchEvent(pointerMoveEvent(150, 140));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.mega-panel').exists()).toBe(false);
+  });
+
+  it('extends Mega pointer aim while the pointer keeps moving towards the panel', async () => {
+    vi.useFakeTimers();
+    const wrapper = shallowMount(WorkbenchMenu, {
+      props: { menus: nestedMenus, presentation: 'expanded' },
+    });
+
+    await wrapper.get('.root-menu-item').trigger('mouseenter');
+    const megaPanel = wrapper.get('.mega-panel').element as HTMLElement;
+    megaPanel.getBoundingClientRect = () =>
+      ({ left: 180, right: 760, top: 80, bottom: 260, width: 580, height: 180 }) as DOMRect;
+
+    await wrapper.get('.workbench-menu').trigger('mouseleave', { clientX: 160, clientY: 100 });
+    vi.advanceTimersByTime(360);
+    window.dispatchEvent(pointerMoveEvent(170, 140));
+    vi.advanceTimersByTime(360);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.mega-panel').exists()).toBe(true);
+
+    vi.advanceTimersByTime(141);
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('.mega-panel').exists()).toBe(false);

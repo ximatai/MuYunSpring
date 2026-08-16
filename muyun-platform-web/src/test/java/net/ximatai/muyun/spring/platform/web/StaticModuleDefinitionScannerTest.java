@@ -198,14 +198,14 @@ class StaticModuleDefinitionScannerTest {
 
             assertThat(byAlias.keySet()).containsExactlyInAnyOrder(
                     "iam.tenant", "iam.organization", "iam.department", "iam.employee",
-                    "iam.position_category", "iam.role", "iam.user", "iam.system_user",
+                    "iam.position_category", "iam.position", "iam.role", "iam.user", "iam.system_user",
                     "iam.password_policy_rule");
             assertThat(byAlias.get("iam.tenant")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("租户管理");
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactly("menu", "create", "view", "update", "delete", "query",
-                                "sort", "enable", "disable", "recycleBinQuery", "recycleBinRestore");
+                                "sort", "enable", "disable", "recycleBinQuery", "recycleBinRestore", "reference");
             });
             assertThat(byAlias.get("iam.organization")).satisfies(definition -> {
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
@@ -288,42 +288,28 @@ class StaticModuleDefinitionScannerTest {
             });
             assertThat(byAlias.get("iam.position_category")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
-                assertThat(definition.title()).isEqualTo("岗位管理");
-                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.ROUTE);
-                assertThat(definition.entryRoute()).isEqualTo("/iam/positions");
+                assertThat(definition.title()).isEqualTo("岗位分类");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.entryRoute()).isEmpty();
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
-                                "tree", "sort", "enable", "disable",
-                                "position_create", "position_view", "position_update", "position_delete",
-                                "position_query", "position_sort", "position_enable", "position_disable");
-                assertThat(definition.actions())
-                        .filteredOn(action -> action.actionCode().equals("position_query"))
-                        .singleElement()
-                        .satisfies(action -> {
-                            assertThat(action.permissionActionCode()).isEqualTo("position_view");
-                            assertThat(action.title()).isEqualTo("查询岗位");
-                        });
+                                "tree", "sort", "enable", "disable", "reference");
+            });
+            assertThat(byAlias.get("iam.position")).satisfies(definition -> {
+                assertThat(definition.applicationAlias()).isEqualTo("iam");
+                assertThat(definition.title()).isEqualTo("岗位管理");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.entryRoute()).isEmpty();
+                assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
+                        .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
+                                "sort", "enable", "disable");
                 assertThat(definition.uiDefinition()).isNotNull();
-                assertThat(ModuleUiDescriptorCompiler.compile(definition).editorContributions())
-                        .singleElement()
-                        .satisfies(contribution -> {
-                            assertThat(contribution.resource()).isEqualTo("position");
-                            ResolvedViewDescriptor view = contribution.editor();
-                            assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
-                            assertThat(view.fields()).extracting(field -> field.fieldRef().relationCode())
-                                    .containsExactly("position", "position", "position", "position", "position");
-                            assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
-                                    .containsExactly("categoryId", "code", "title", "description", "enabled");
-                            assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("categoryId"))
-                                    .singleElement()
-                                    .satisfies(field -> {
-                                        assertThat(field.label()).isEqualTo("所属分类");
-                                        assertThat(field.required().constant()).isTrue();
-                                    });
-                            assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("enabled"))
-                                    .singleElement()
-                                    .satisfies(field -> assertThat(field.uiType()).isEqualTo("enabledStatus"));
-                        });
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().levels())
+                        .extracting(ResolvedPageNavigatorLevelDescriptor::key)
+                        .containsExactly("tenant", "category");
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor().fields())
+                        .extracting(field -> field.fieldRef().fieldName())
+                        .containsExactly("categoryId", "code", "title", "description", "enabled");
             });
             assertThat(byAlias.get("iam.role")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");

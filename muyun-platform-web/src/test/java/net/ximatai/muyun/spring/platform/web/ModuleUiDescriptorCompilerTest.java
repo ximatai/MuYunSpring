@@ -96,9 +96,9 @@ class ModuleUiDescriptorCompilerTest {
     void shouldCompileListDetailCardWithOptionalTreeNavigator() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("crm.customer")
                 .page(ModulePageDefinition.listDetailCard(page -> page
-                        .navigator(navigator -> navigator.level("organization", level -> level
-                                .tree("iam.organization", "所属组织", "搜索组织")
-                                .bindQuery("organizationId")))
+                        .navigator(navigator -> navigator
+                                .level("organization", level -> level.tree("iam.organization", "所属组织", "搜索组织"))
+                                .bindNavigatorToList("organization", "organizationId"))
                         .list(list -> list
                                 .searchPlaceholder("搜索客户")
                                 .fields(fields -> fields
@@ -123,9 +123,12 @@ class ModuleUiDescriptorCompilerTest {
                 assertThat(level.key()).isEqualTo("organization");
                 assertThat(level.kind()).isEqualTo(PageNavigatorKind.TREE);
                 assertThat(level.sourceModuleAlias()).isEqualTo("iam.organization");
-                assertThat(level.queryBindings()).containsExactly(
-                        new ResolvedPageNavigatorQueryBindingDescriptor("organizationId", "organizationId"));
             });
+            assertThat(navigator.contextBindings()).containsExactly(
+                    new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "organization",
+                            PageContextTarget.LIST_QUERY, "organizationId", null),
+                    new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "organization",
+                            PageContextTarget.FORM_DEFAULT, "organizationId", null));
         });
         assertThat(page.list().searchPlaceholder()).isEqualTo("搜索客户");
         assertThat(page.list().fields().fields()).extracting(field -> field.fieldRef().fieldName())
@@ -188,11 +191,11 @@ class ModuleUiDescriptorCompilerTest {
                         .navigator(navigator -> navigator
                                 .level("tenant", level -> level
                                         .microList("iam.tenant", "租户", "搜索租户")
-                                        .bindQuery("tenantId")
-                                        .bindChild("organization", "tenantId"))
-                                .level("organization", level -> level
-                                        .tree("iam.organization", "所属组织", "搜索组织")
-                                        .bindQuery("organizationId")))
+                                        .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
+                                .level("organization", level -> level.tree("iam.organization", "所属组织", "搜索组织"))
+                                .bindNavigatorToList("tenant", "tenantId")
+                                .bindNavigatorToNavigator("tenant", "organization", "tenantId")
+                                .bindNavigatorToList("organization", "organizationId"))
                         .list(list -> list.fields(fields -> fields.field("title")))
                         .detail(detail -> detail.editor(editor -> editor.field("title")))
                         .traits(traits -> { })))
@@ -205,12 +208,19 @@ class ModuleUiDescriptorCompilerTest {
                 null).page().navigator();
 
         assertThat(navigator.levels()).hasSize(2);
-        assertThat(navigator.levels().getFirst().queryBindings()).containsExactly(
-                new ResolvedPageNavigatorQueryBindingDescriptor("tenantId", "tenantId"));
-        assertThat(navigator.levels().getFirst().childBindings()).containsExactly(
-                new ResolvedPageNavigatorChildBindingDescriptor("organization", "tenantId"));
-        assertThat(navigator.levels().get(1).queryBindings()).containsExactly(
-                new ResolvedPageNavigatorQueryBindingDescriptor("organizationId", "organizationId"));
+        assertThat(navigator.levels().getFirst().singleResultPolicy())
+                .isEqualTo(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE);
+        assertThat(navigator.contextBindings()).containsExactly(
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "tenant",
+                        PageContextTarget.LIST_QUERY, "tenantId", null),
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "tenant",
+                        PageContextTarget.FORM_DEFAULT, "tenantId", null),
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "tenant",
+                        PageContextTarget.NAVIGATOR_QUERY, "tenantId", "organization"),
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "organization",
+                        PageContextTarget.LIST_QUERY, "organizationId", null),
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "organization",
+                        PageContextTarget.FORM_DEFAULT, "organizationId", null));
     }
 
     @Test
@@ -568,8 +578,11 @@ class ModuleUiDescriptorCompilerTest {
 
         assertThat(level.sourceModuleAlias()).isEqualTo("crm.customer");
         assertThat(level.key()).isEqualTo("scope");
-        assertThat(level.queryBindings()).containsExactly(
-                new ResolvedPageNavigatorQueryBindingDescriptor("customerId", "customerId"));
+        assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().contextBindings()).containsExactly(
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "scope",
+                        PageContextTarget.LIST_QUERY, "customerId", null),
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "scope",
+                        PageContextTarget.FORM_DEFAULT, "customerId", null));
     }
 
     @Test
@@ -585,6 +598,25 @@ class ModuleUiDescriptorCompilerTest {
 
         assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().levels().getFirst().kind())
                 .isEqualTo(PageNavigatorKind.TREE);
+    }
+
+    @Test
+    void shouldPublishManageableNavigatorWithItsNamedSourceEditor() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .navigator(navigator -> navigator.level("directory", level -> level
+                                .tree("sales.directory", "目录", "搜索目录")
+                                .manageable("quick_manage")))
+                        .list(list -> list.fields(fields -> fields.field("title")))
+                        .detail(detail -> detail.editor(editor -> editor.field("title")))
+                        .traits(traits -> traits.standardCrud())))
+                .build();
+
+        ResolvedPageNavigatorManagementDescriptor management = ModuleUiDescriptorCompiler.compile(definition)
+                .page().navigator().levels().getFirst().management();
+
+        assertThat(management).isNotNull();
+        assertThat(management.editorSurface()).isEqualTo("quick_manage");
     }
 
     @Test
@@ -626,8 +658,8 @@ class ModuleUiDescriptorCompilerTest {
                 .page(PageTemplates.listDetailCard(page -> page
                         .navigator(navigator -> navigator
                                 .level("organization", level -> level.tree("iam.organization", "组织", null))
-                                .level("tenant", level -> level.microList("iam.tenant", "租户", null)
-                                        .bindChild("organization", "tenantId")))
+                                .level("tenant", level -> level.microList("iam.tenant", "租户", null))
+                                .bindNavigatorToNavigator("tenant", "organization", "tenantId"))
                         .list(list -> list.fields(fields -> { }))
                         .detail(detail -> detail.editor(editor -> { }))
                         .traits(traits -> { })))
@@ -806,9 +838,9 @@ class ModuleUiDescriptorCompilerTest {
                                               java.util.function.Consumer<ViewDefinition.Builder> list) {
         return ModuleUiDefinition.builder(moduleAlias)
                 .page(PageTemplates.listDetailCard(page -> page
-                        .navigator(navigator -> navigator.level("scope", level -> level
-                                .tree(sourceModuleAlias, title, searchPlaceholder)
-                                .bindQuery(bindingField, queryCriteriaKey)))
+                        .navigator(navigator -> navigator
+                                .level("scope", level -> level.tree(sourceModuleAlias, title, searchPlaceholder))
+                                .bindNavigatorToList("scope", bindingField))
                         .list(slot -> slot.fields(list))
                         .detail(detail -> detail.editor(editor -> { }))
                         .traits(traits -> { })))

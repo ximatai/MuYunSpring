@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.iam.web;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.web.SystemScope;
+import net.ximatai.muyun.spring.web.CurrentTenantNavigatorReferenceWeb;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/iam.tenant")
 public class TenantWebController extends WebSupport<TenantService> implements
         CrudWeb<Tenant, TenantService>,
+        CurrentTenantNavigatorReferenceWeb<Tenant, TenantService>,
         SystemScope<TenantService>,
         StaticModuleUiContributor {
     @Override
@@ -45,4 +47,5 @@ public class TenantWebController extends WebSupport<TenantService> implements
                         .traits(traits -> traits.standardCrud().recycleBin())))
                 .build();
     }
+
 }

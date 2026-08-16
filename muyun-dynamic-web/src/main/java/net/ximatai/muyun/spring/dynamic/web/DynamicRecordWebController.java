@@ -14,6 +14,10 @@ import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.ActionWeb;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
+import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
+import net.ximatai.muyun.spring.platform.web.PageContextServerValueResolver;
+import net.ximatai.muyun.spring.platform.web.PageContextSource;
+import net.ximatai.muyun.spring.platform.web.PageContextTarget;
 import net.ximatai.muyun.spring.web.EnableWeb;
 import net.ximatai.muyun.spring.web.ReferenceWeb;
 import net.ximatai.muyun.spring.web.TreeSortWebRequest;
@@ -97,7 +101,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationMove;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationService;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator;
-import net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorQueryBinding;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageContextBinding;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigField;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
@@ -231,7 +235,8 @@ public class DynamicRecordWebController implements
                                                           String queryTemplateId) {
         java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>();
         navigatorQueryBindings(moduleAlias, uiConfigId).stream()
-                .map(PlatformPageNavigatorQueryBinding::queryCriteriaKey)
+                .filter(binding -> !"SESSION".equals(binding.source()))
+                .map(PlatformPageContextBinding::targetKey)
                 .forEach(keys::add);
         if (queryItemService != null && hasText(queryTemplateId)) {
             keys.addAll(queryItemService.externalValueKeys(queryTemplateId));
@@ -240,25 +245,33 @@ public class DynamicRecordWebController implements
     }
 
     private Criteria navigatorCriteria(String moduleAlias, WebQueryRequest request) {
-        if (request == null || !hasText(request.uiConfigId()) || request.externalQueryValues() == null) {
+        if (request == null || !hasText(request.uiConfigId())) {
             return Criteria.of();
         }
         Criteria criteria = Criteria.of();
-        for (PlatformPageNavigatorQueryBinding binding : navigatorQueryBindings(moduleAlias, request.uiConfigId())) {
-            Object selectedValue = request.externalQueryValues().get(binding.queryCriteriaKey());
+        for (PlatformPageContextBinding binding : navigatorQueryBindings(moduleAlias, request.uiConfigId())) {
+            Object selectedValue = PageContextServerValueResolver.resolve(toWebBinding(binding)).orElseGet(() ->
+                    request.externalQueryValues() == null ? null : request.externalQueryValues().get(binding.targetKey()));
             if (selectedValue != null) {
-                criteria.eq(binding.field(), selectedValue);
+                criteria.eq(binding.targetKey(), selectedValue);
             }
         }
         return criteria;
     }
 
-    private List<PlatformPageNavigatorQueryBinding> navigatorQueryBindings(String moduleAlias, String uiConfigId) {
+    private List<PlatformPageContextBinding> navigatorQueryBindings(String moduleAlias, String uiConfigId) {
         if (!hasText(uiConfigId) || pageConfigSnapshotService == null) {
             return List.of();
         }
         PlatformUiConfig uiConfig = publishedUiConfig(pageConfigSnapshotService.snapshot(moduleAlias), uiConfigId);
-        return PlatformPageLayoutNavigator.queryBindings(uiConfig);
+        return PlatformPageLayoutNavigator.contextBindings(uiConfig).stream()
+                .filter(binding -> "LIST_QUERY".equals(binding.target()))
+                .toList();
+    }
+
+    private PageContextBindingDefinition toWebBinding(PlatformPageContextBinding binding) {
+        return new PageContextBindingDefinition(PageContextSource.valueOf(binding.source()), binding.sourceKey(),
+                PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey());
     }
 
     private Criteria andCriteria(Criteria... criteriaList) {

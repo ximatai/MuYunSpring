@@ -15,6 +15,8 @@ import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.spring.web.EnableWeb;
 import net.ximatai.muyun.spring.web.QueryViewWeb;
 import net.ximatai.muyun.spring.web.ReferenceWeb;
+import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
+import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
 import net.ximatai.muyun.spring.web.ScopedWeb;
 import net.ximatai.muyun.spring.web.SortWeb;
 import net.ximatai.muyun.spring.web.TreeWeb;
@@ -640,7 +642,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         if (service == null) {
             addUnwiredLegacyAbilityActions(actions, beanClass);
         }
-        if (ReferenceWeb.class.isAssignableFrom(beanClass)) {
+        if (ReferenceWeb.class.isAssignableFrom(beanClass)
+                || NavigatorReferenceWeb.class.isAssignableFrom(beanClass)
+                || NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
             addPlatformUnlessDisabled(actions, PlatformAction.REFERENCE, disabledActions);
         }
     }
@@ -711,7 +715,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 addContributionPlatform(actions, contribution, PlatformAction.RECYCLE_BIN_PURGE);
             }
         }
-        if (ReferenceWeb.class.isAssignableFrom(beanClass)) {
+        if (ReferenceWeb.class.isAssignableFrom(beanClass)
+                || NavigatorReferenceWeb.class.isAssignableFrom(beanClass)
+                || NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
             addContributionPlatform(actions, contribution, PlatformAction.REFERENCE);
         }
     }
