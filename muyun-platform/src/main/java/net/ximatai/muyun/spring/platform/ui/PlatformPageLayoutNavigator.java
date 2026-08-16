@@ -40,7 +40,8 @@ public final class PlatformPageLayoutNavigator {
                 values.add(new PlatformPageNavigatorLevel(text(level, "key", config), text(level, "kind", config),
                         text(level, "sourceModuleAlias", config), optionalText(level, "title", config),
                         optionalText(level, "searchPlaceholder", config), queryBindings(level.get("queryBindings"), config),
-                        childBindings(level.get("childBindings"), config), management(level.get("management"), config)));
+                        childBindings(level.get("childBindings"), config), management(level.get("management"), config),
+                        optionalText(level, "singleResultPolicy", config)));
             }
             return new PlatformPageNavigatorLayout(values);
         } catch (IOException exception) {

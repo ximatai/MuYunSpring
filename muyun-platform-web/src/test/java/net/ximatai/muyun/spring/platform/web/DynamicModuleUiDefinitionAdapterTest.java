@@ -119,6 +119,7 @@ class DynamicModuleUiDefinitionAdapterTest {
         listConfig.setLayoutJson("""
                 {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"levels":[
                   {"key":"tenant","kind":"MICRO_LIST","sourceModuleAlias":"iam.tenant","title":"租户",
+                   "singleResultPolicy":"AUTO_SELECT_AND_HIDE",
                    "queryBindings":[{"field":"tenantId","queryCriteriaKey":"tenantId"}],
                    "childBindings":[{"childLevelKey":"organization","childQueryCriteriaKey":"tenantId"}]},
                   {"key":"organization","kind":"TREE","sourceModuleAlias":"iam.organization","title":"组织",
@@ -132,6 +133,8 @@ class DynamicModuleUiDefinitionAdapterTest {
 
         PageNavigatorDefinition navigator = ((ListDetailCardPageDefinition) definition.page()).navigator();
         assertThat(navigator.levels()).hasSize(2);
+        assertThat(navigator.levels().getFirst().singleResultPolicy())
+                .isEqualTo(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE);
         assertThat(navigator.levels().getFirst().childBindings()).containsExactly(
                 new PageNavigatorChildBindingDefinition("organization", "tenantId"));
         assertThat(navigator.levels().get(1).queryBindings()).containsExactly(

@@ -12,7 +12,8 @@ public record PlatformPageNavigatorLevel(String key,
                                          String searchPlaceholder,
                                          List<PlatformPageNavigatorQueryBinding> queryBindings,
                                          List<PlatformPageNavigatorChildBinding> childBindings,
-                                         PlatformPageNavigatorManagement management) {
+                                         PlatformPageNavigatorManagement management,
+                                         String singleResultPolicy) {
     public PlatformPageNavigatorLevel {
         key = PlatformNameRules.requireFieldName(key, "navigator level key");
         if (!"TREE".equals(kind) && !"MICRO_LIST".equals(kind)) {
@@ -23,5 +24,7 @@ public record PlatformPageNavigatorLevel(String key,
         searchPlaceholder = searchPlaceholder == null || searchPlaceholder.isBlank() ? null : searchPlaceholder.trim();
         queryBindings = queryBindings == null ? List.of() : List.copyOf(queryBindings);
         childBindings = childBindings == null ? List.of() : List.copyOf(childBindings);
+        singleResultPolicy = singleResultPolicy == null || singleResultPolicy.isBlank()
+                ? "NONE" : singleResultPolicy.trim();
     }
 }

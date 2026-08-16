@@ -247,7 +247,7 @@ public class PlatformModuleRuntimeContextService {
                         level.sourceModuleAlias(), level.title(), level.searchPlaceholder(), level.queryBindings(),
                         level.childBindings().stream()
                                 .filter(binding -> visibleLevelKeys.contains(binding.childLevelKey()))
-                                .toList(), level.management()))
+                                .toList(), level.management(), level.singleResultPolicy()))
                 .toList();
         return visibleLevels.isEmpty() ? null : new ResolvedPageNavigatorDescriptor(visibleLevels);
     }

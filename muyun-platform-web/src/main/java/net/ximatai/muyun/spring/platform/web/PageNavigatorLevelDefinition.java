@@ -13,7 +13,8 @@ public record PageNavigatorLevelDefinition(String key,
                                            String searchPlaceholder,
                                            List<PageNavigatorQueryBindingDefinition> queryBindings,
                                            List<PageNavigatorChildBindingDefinition> childBindings,
-                                           PageNavigatorManagementDefinition management) {
+                                           PageNavigatorManagementDefinition management,
+                                           PageNavigatorSingleResultPolicy singleResultPolicy) {
     public PageNavigatorLevelDefinition {
         key = PlatformNameRules.requireFieldName(key, "navigator level key");
         if (kind == null) throw new IllegalArgumentException("navigator level kind must not be null");
@@ -23,6 +24,7 @@ public record PageNavigatorLevelDefinition(String key,
                 ? "搜索" + title : searchPlaceholder.trim();
         queryBindings = queryBindings == null ? List.of() : List.copyOf(queryBindings);
         childBindings = childBindings == null ? List.of() : List.copyOf(childBindings);
+        singleResultPolicy = singleResultPolicy == null ? PageNavigatorSingleResultPolicy.NONE : singleResultPolicy;
     }
 
     public static final class Builder {
@@ -34,6 +36,7 @@ public record PageNavigatorLevelDefinition(String key,
         private final List<PageNavigatorQueryBindingDefinition> queryBindings = new ArrayList<>();
         private final List<PageNavigatorChildBindingDefinition> childBindings = new ArrayList<>();
         private PageNavigatorManagementDefinition management;
+        private PageNavigatorSingleResultPolicy singleResultPolicy = PageNavigatorSingleResultPolicy.NONE;
 
         Builder(String key) { this.key = key; }
 
@@ -74,6 +77,12 @@ public record PageNavigatorLevelDefinition(String key,
             return manageable(null);
         }
 
+        /** Selects the sole accessible source record and optionally collapses its panel. */
+        public Builder singleResultPolicy(PageNavigatorSingleResultPolicy value) {
+            singleResultPolicy = value == null ? PageNavigatorSingleResultPolicy.NONE : value;
+            return this;
+        }
+
         private Builder source(PageNavigatorKind kind, String sourceModuleAlias, String title,
                                String searchPlaceholder) {
             if (this.kind != null) throw new IllegalArgumentException("navigator level source is already declared: " + key);
@@ -86,7 +95,7 @@ public record PageNavigatorLevelDefinition(String key,
 
         PageNavigatorLevelDefinition build() {
             return new PageNavigatorLevelDefinition(key, kind, sourceModuleAlias, title, searchPlaceholder,
-                    queryBindings, childBindings, management);
+                    queryBindings, childBindings, management, singleResultPolicy);
         }
     }
 }

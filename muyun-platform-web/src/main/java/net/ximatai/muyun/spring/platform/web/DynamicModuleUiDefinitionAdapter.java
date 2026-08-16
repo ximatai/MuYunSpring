@@ -130,7 +130,8 @@ public final class DynamicModuleUiDefinitionAdapter {
                 .map(binding -> new PageNavigatorChildBindingDefinition(
                         binding.childLevelKey(), binding.childQueryCriteriaKey()))
                 .toList(), level.management() == null ? null
-                        : new PageNavigatorManagementDefinition(level.management().editorSurface()))).toList());
+                        : new PageNavigatorManagementDefinition(level.management().editorSurface()),
+                PageNavigatorSingleResultPolicy.valueOf(level.singleResultPolicy()))).toList());
     }
 
     private static JsonNode pageRoot(PlatformUiConfig config) {

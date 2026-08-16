@@ -188,6 +188,7 @@ class ModuleUiDescriptorCompilerTest {
                         .navigator(navigator -> navigator
                                 .level("tenant", level -> level
                                         .microList("iam.tenant", "租户", "搜索租户")
+                                        .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE)
                                         .bindQuery("tenantId")
                                         .bindChild("organization", "tenantId"))
                                 .level("organization", level -> level
@@ -205,6 +206,8 @@ class ModuleUiDescriptorCompilerTest {
                 null).page().navigator();
 
         assertThat(navigator.levels()).hasSize(2);
+        assertThat(navigator.levels().getFirst().singleResultPolicy())
+                .isEqualTo(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE);
         assertThat(navigator.levels().getFirst().queryBindings()).containsExactly(
                 new ResolvedPageNavigatorQueryBindingDescriptor("tenantId", "tenantId"));
         assertThat(navigator.levels().getFirst().childBindings()).containsExactly(

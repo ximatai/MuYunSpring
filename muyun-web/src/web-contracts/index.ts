@@ -717,6 +717,8 @@ export interface ResolvedPageNavigatorLevelDescriptor {
   searchPlaceholder: string;
   queryBindings: ResolvedPageNavigatorQueryBindingDescriptor[];
   childBindings: ResolvedPageNavigatorChildBindingDescriptor[];
+  /** Presentation policy applied after the source has authoritatively loaded. */
+  singleResultPolicy?: 'NONE' | 'AUTO_SELECT' | 'AUTO_SELECT_AND_HIDE';
   /** When present, the navigator source exposes its own standard CRUD affordances in place. */
   management?: ResolvedPageNavigatorManagementDescriptor;
 }
