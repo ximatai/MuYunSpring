@@ -717,6 +717,13 @@ export interface ResolvedPageNavigatorLevelDescriptor {
   searchPlaceholder: string;
   queryBindings: ResolvedPageNavigatorQueryBindingDescriptor[];
   childBindings: ResolvedPageNavigatorChildBindingDescriptor[];
+  /** When present, the navigator source exposes its own standard CRUD affordances in place. */
+  management?: ResolvedPageNavigatorManagementDescriptor;
+}
+
+export interface ResolvedPageNavigatorManagementDescriptor {
+  /** Optional named source-module form; the default editor is used when omitted. */
+  editorSurface?: string;
 }
 
 export interface ResolvedPageNavigatorQueryBindingDescriptor {

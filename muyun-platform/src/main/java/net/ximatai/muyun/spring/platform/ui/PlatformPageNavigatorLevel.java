@@ -11,7 +11,8 @@ public record PlatformPageNavigatorLevel(String key,
                                          String title,
                                          String searchPlaceholder,
                                          List<PlatformPageNavigatorQueryBinding> queryBindings,
-                                         List<PlatformPageNavigatorChildBinding> childBindings) {
+                                         List<PlatformPageNavigatorChildBinding> childBindings,
+                                         PlatformPageNavigatorManagement management) {
     public PlatformPageNavigatorLevel {
         key = PlatformNameRules.requireFieldName(key, "navigator level key");
         if (!"TREE".equals(kind) && !"MICRO_LIST".equals(kind)) {

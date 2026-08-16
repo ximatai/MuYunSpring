@@ -19,6 +19,8 @@ withDefaults(
     placeholder?: string;
     disabled?: boolean;
     allowClear?: boolean;
+    showSearch?: boolean;
+    filterTreeNode?: boolean;
     loading?: boolean;
   }>(),
   {
@@ -27,12 +29,15 @@ withDefaults(
     placeholder: undefined,
     disabled: false,
     allowClear: true,
+    showSearch: false,
+    filterTreeNode: true,
     loading: false,
   },
 );
 
 const emit = defineEmits<{
   'update:value': [value: OptionValue | OptionValueList | null];
+  search: [keyword: string];
 }>();
 
 function normalize(value: unknown) {
@@ -53,6 +58,8 @@ function normalize(value: unknown) {
     :tree-data="treeData"
     :multiple="mode === 'multiple'"
     :allow-clear="allowClear"
+    :show-search="showSearch"
+    :filter-tree-node="filterTreeNode"
     :placeholder="placeholder"
     :disabled="disabled"
     :loading="loading"
@@ -60,5 +67,6 @@ function normalize(value: unknown) {
     :class="$attrs.class"
     :style="$attrs.style"
     @update:value="normalize"
+    @search="emit('search', $event)"
   />
 </template>

@@ -539,19 +539,17 @@ it('user management fills the constrained work area and leaves scrolling to its 
   assert.match(routesSource, /route: '\/iam\/users'[\s\S]*layout: 'workspace'/);
 });
 
-it('record picker search supports clearing its keyword', () => {
+it('record picker delegates single-value interaction to the standard select adapters', () => {
   const pickerSource = readSource('src/platform-components/RecordPicker.vue');
+  const treeSelectSource = readSource('src/vue-ui-antdv/components/UiTreeSelect.vue');
 
-  assert.match(pickerSource, /v-model:value="keyword" allow-clear placeholder="搜索名称、编码或 ID"/);
-  assert.match(
-    pickerSource,
-    /\.record-picker-value:disabled \{[\s\S]*background: var\(--muyun-support-disabled\)/,
-  );
-  assert.match(
-    pickerSource,
-    /\.record-picker-value:disabled \{[\s\S]*color: var\(--muyun-support-disabled-text\)/,
-  );
-  assert.notMatch(pickerSource, /#cfd9e5|#f8fafc|#475569|#172033/);
+  assert.match(pickerSource, /<UiTreeSelect[\s\S]*:allow-clear="allowClear"[\s\S]*:show-search="true"/);
+  assert.match(pickerSource, /<UiSelect[\s\S]*:filter-option="false"/);
+  assert.match(pickerSource, /@search="keyword = \$event"/);
+  assert.match(pickerSource, /@update:value="updateValue"/);
+  assert.notMatch(pickerSource, /document\.addEventListener|record-picker-clear|record-picker-panel/);
+  assert.match(treeSelectSource, /:show-search="showSearch"/);
+  assert.match(treeSelectSource, /:filter-tree-node="filterTreeNode"/);
 });
 
 it('menu management keeps scheme actions inline and delegates search to panel', () => {
@@ -671,8 +669,8 @@ it('dictionary item parent selector uses tree-aware record picker', () => {
   assert.notMatch(dictionaryViewSource, /itemParentOptions/);
   assert.notMatch(dictionaryViewSource, /<RecordPicker[\s\S]*v-model:value="itemDraft\.parentId"/);
   assert.match(pickerSource, /reloadKey\?: number/);
-  assert.match(pickerSource, /\(\) => props\.reloadKey/);
-  assert.match(pickerSource, /\(\) => loadRecords\(\)/);
+  assert.match(pickerSource, /props\.context, props\.mode, props\.reloadKey/);
+  assert.match(pickerSource, /\(\) => void loadRecords\(\)/);
 });
 
 it('dictionary management uses record form fields for category and item forms', () => {

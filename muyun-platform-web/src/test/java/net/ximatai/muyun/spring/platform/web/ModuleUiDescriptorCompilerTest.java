@@ -588,6 +588,25 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldPublishManageableNavigatorWithItsNamedSourceEditor() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .navigator(navigator -> navigator.level("directory", level -> level
+                                .tree("sales.directory", "目录", "搜索目录")
+                                .manageable("quick_manage")))
+                        .list(list -> list.fields(fields -> fields.field("title")))
+                        .detail(detail -> detail.editor(editor -> editor.field("title")))
+                        .traits(traits -> traits.standardCrud())))
+                .build();
+
+        ResolvedPageNavigatorManagementDescriptor management = ModuleUiDescriptorCompiler.compile(definition)
+                .page().navigator().levels().getFirst().management();
+
+        assertThat(management).isNotNull();
+        assertThat(management.editorSurface()).isEqualTo("quick_manage");
+    }
+
+    @Test
     void shouldRejectEmptyNavigator() {
         assertThatThrownBy(() -> ModuleUiDefinition.builder("sales.order")
                 .page(PageTemplates.listDetailCard(page -> page

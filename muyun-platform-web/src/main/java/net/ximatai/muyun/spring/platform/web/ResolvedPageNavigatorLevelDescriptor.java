@@ -9,7 +9,8 @@ public record ResolvedPageNavigatorLevelDescriptor(String key,
                                                    String title,
                                                    String searchPlaceholder,
                                                    List<ResolvedPageNavigatorQueryBindingDescriptor> queryBindings,
-                                                   List<ResolvedPageNavigatorChildBindingDescriptor> childBindings) {
+                                                   List<ResolvedPageNavigatorChildBindingDescriptor> childBindings,
+                                                   ResolvedPageNavigatorManagementDescriptor management) {
     public ResolvedPageNavigatorLevelDescriptor {
         queryBindings = queryBindings == null ? List.of() : List.copyOf(queryBindings);
         childBindings = childBindings == null ? List.of() : List.copyOf(childBindings);
@@ -21,6 +22,6 @@ public record ResolvedPageNavigatorLevelDescriptor(String key,
                 .map(binding -> new ResolvedPageNavigatorQueryBindingDescriptor(binding.field(), binding.queryCriteriaKey()))
                 .toList(), definition.childBindings().stream().map(binding ->
                 new ResolvedPageNavigatorChildBindingDescriptor(binding.childLevelKey(), binding.childQueryCriteriaKey()))
-                .toList());
+                .toList(), ResolvedPageNavigatorManagementDescriptor.from(definition.management()));
     }
 }

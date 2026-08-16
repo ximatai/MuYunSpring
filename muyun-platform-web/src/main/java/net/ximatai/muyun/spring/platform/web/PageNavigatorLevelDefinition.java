@@ -12,7 +12,8 @@ public record PageNavigatorLevelDefinition(String key,
                                            String title,
                                            String searchPlaceholder,
                                            List<PageNavigatorQueryBindingDefinition> queryBindings,
-                                           List<PageNavigatorChildBindingDefinition> childBindings) {
+                                           List<PageNavigatorChildBindingDefinition> childBindings,
+                                           PageNavigatorManagementDefinition management) {
     public PageNavigatorLevelDefinition {
         key = PlatformNameRules.requireFieldName(key, "navigator level key");
         if (kind == null) throw new IllegalArgumentException("navigator level kind must not be null");
@@ -32,6 +33,7 @@ public record PageNavigatorLevelDefinition(String key,
         private String searchPlaceholder;
         private final List<PageNavigatorQueryBindingDefinition> queryBindings = new ArrayList<>();
         private final List<PageNavigatorChildBindingDefinition> childBindings = new ArrayList<>();
+        private PageNavigatorManagementDefinition management;
 
         Builder(String key) { this.key = key; }
 
@@ -57,6 +59,21 @@ public record PageNavigatorLevelDefinition(String key,
             return this;
         }
 
+        /**
+         * Enables standard create, edit and delete affordances for this source.
+         * The source module owns authorization; the optional surface chooses its
+         * form schema without duplicating fields in the containing page.
+         */
+        public Builder manageable(String editorSurface) {
+            management = new PageNavigatorManagementDefinition(editorSurface);
+            return this;
+        }
+
+        /** Enables in-place management with the source module's default editor. */
+        public Builder manageable() {
+            return manageable(null);
+        }
+
         private Builder source(PageNavigatorKind kind, String sourceModuleAlias, String title,
                                String searchPlaceholder) {
             if (this.kind != null) throw new IllegalArgumentException("navigator level source is already declared: " + key);
@@ -69,7 +86,7 @@ public record PageNavigatorLevelDefinition(String key,
 
         PageNavigatorLevelDefinition build() {
             return new PageNavigatorLevelDefinition(key, kind, sourceModuleAlias, title, searchPlaceholder,
-                    queryBindings, childBindings);
+                    queryBindings, childBindings, management);
         }
     }
 }

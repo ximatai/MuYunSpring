@@ -76,6 +76,7 @@ function defaultIconName(actionCode: string): UiIconName | undefined {
     :intent="danger ? 'danger' : 'normal'"
     :icon-name="iconName ?? defaultIconName(actionCode)"
     :title="buttonTitle"
+    :class="{ 'module-action-button--icon-only': iconOnly }"
     @click="handleClick"
   >
     <template v-if="!iconOnly">
@@ -83,3 +84,13 @@ function defaultIconName(actionCode: string): UiIconName | undefined {
     </template>
   </UiActionButton>
 </template>
+
+<style scoped>
+.module-action-button--icon-only {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+}
+</style>

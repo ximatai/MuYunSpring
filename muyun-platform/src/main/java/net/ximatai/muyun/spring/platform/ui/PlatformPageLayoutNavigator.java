@@ -40,7 +40,7 @@ public final class PlatformPageLayoutNavigator {
                 values.add(new PlatformPageNavigatorLevel(text(level, "key", config), text(level, "kind", config),
                         text(level, "sourceModuleAlias", config), optionalText(level, "title", config),
                         optionalText(level, "searchPlaceholder", config), queryBindings(level.get("queryBindings"), config),
-                        childBindings(level.get("childBindings"), config)));
+                        childBindings(level.get("childBindings"), config), management(level.get("management"), config)));
             }
             return new PlatformPageNavigatorLayout(values);
         } catch (IOException exception) {
@@ -75,6 +75,12 @@ public final class PlatformPageLayoutNavigator {
                     text(binding, "childQueryCriteriaKey", config)));
         }
         return values;
+    }
+
+    private static PlatformPageNavigatorManagement management(JsonNode node, PlatformUiConfig config) {
+        if (node == null || node.isNull()) return null;
+        if (!node.isObject()) throw new IllegalArgumentException("navigator management must be an object: " + config.getId());
+        return new PlatformPageNavigatorManagement(optionalText(node, "editorSurface", config));
     }
 
     private static String text(JsonNode node, String field, PlatformUiConfig config) {
