@@ -412,8 +412,18 @@ describe('DynamicModuleHost', () => {
             page: page({
               navigator: {
                 contextBindings: [
-                  { source: 'NAVIGATOR', sourceKey: 'directory', target: 'LIST_QUERY', targetKey: 'directoryId' },
-                  { source: 'NAVIGATOR', sourceKey: 'directory', target: 'FORM_DEFAULT', targetKey: 'directoryId' },
+                  {
+                    source: 'NAVIGATOR',
+                    sourceKey: 'directory',
+                    target: 'LIST_QUERY',
+                    targetKey: 'directoryId',
+                  },
+                  {
+                    source: 'NAVIGATOR',
+                    sourceKey: 'directory',
+                    target: 'FORM_DEFAULT',
+                    targetKey: 'directoryId',
+                  },
                 ],
                 levels: [
                   {
@@ -532,9 +542,25 @@ describe('DynamicModuleHost', () => {
                 contextBindings: [
                   { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'LIST_QUERY', targetKey: 'tenantId' },
                   { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'FORM_DEFAULT', targetKey: 'tenantId' },
-                  { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'NAVIGATOR_QUERY', targetKey: 'tenantId', targetNavigatorLevelKey: 'organization' },
-                  { source: 'NAVIGATOR', sourceKey: 'organization', target: 'LIST_QUERY', targetKey: 'organizationId' },
-                  { source: 'NAVIGATOR', sourceKey: 'organization', target: 'FORM_DEFAULT', targetKey: 'organizationId' },
+                  {
+                    source: 'NAVIGATOR',
+                    sourceKey: 'tenant',
+                    target: 'NAVIGATOR_QUERY',
+                    targetKey: 'tenantId',
+                    targetNavigatorLevelKey: 'organization',
+                  },
+                  {
+                    source: 'NAVIGATOR',
+                    sourceKey: 'organization',
+                    target: 'LIST_QUERY',
+                    targetKey: 'organizationId',
+                  },
+                  {
+                    source: 'NAVIGATOR',
+                    sourceKey: 'organization',
+                    target: 'FORM_DEFAULT',
+                    targetKey: 'organizationId',
+                  },
                 ],
                 levels: [
                   {
@@ -672,8 +698,11 @@ describe('DynamicModuleHost', () => {
     const wrapper = shallowMount(DynamicModuleHost, {
       props: {
         descriptor: {
-          pageType: 'dynamic-module', openMode: 'dynamic-runner', hostType: 'dynamic-module-host',
-          tabPolicy: { identity: 'by-menu' }, target: { moduleAlias: 'demo.position', pageMode: 'LIST' },
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.position', pageMode: 'LIST' },
         },
       },
       global: {

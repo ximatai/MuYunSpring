@@ -298,8 +298,11 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     @Transactional
     default T insert(@RequestBody T record) {
         return MutationTenantScopeExecutor.forCreate(this, record, () -> webScope(() -> {
-            PageContextMutationConstraints.applyForCreate(record,
-                    pageContextBindings(null, PageContextTarget.MUTATION_CONSTRAINT));
+            List<PageContextBindingDefinition> mutationConstraints =
+                    pageContextBindings(null, PageContextTarget.MUTATION_CONSTRAINT);
+            if (!mutationConstraints.isEmpty()) {
+                PageContextMutationConstraints.applyForCreate(record, mutationConstraints);
+            }
             String id = service().insert(record);
             T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
             StandardMutationResultSupport.created(this, id, recordLabel(saved));
@@ -315,8 +318,11 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         record.setId(id);
         return MutationTenantScopeExecutor.forUpdate(this, id, record, () -> webScope(() -> {
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.UPDATE, id);
-            PageContextMutationConstraints.applyForUpdate(record, service().select(id),
-                    pageContextBindings(null, PageContextTarget.MUTATION_CONSTRAINT));
+            List<PageContextBindingDefinition> mutationConstraints =
+                    pageContextBindings(null, PageContextTarget.MUTATION_CONSTRAINT);
+            if (!mutationConstraints.isEmpty()) {
+                PageContextMutationConstraints.applyForUpdate(record, service().select(id), mutationConstraints);
+            }
             service().update(record);
             T saved = WebOutputSupport.record(service(),
                     StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),

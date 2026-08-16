@@ -126,7 +126,11 @@ export const ModuleContextProvider = defineComponent({
   },
 });
 
-function moduleContextOf<TRecord>(http: HttpClient, moduleAlias: string, runtimeAccess: 'MENU' | 'REFERENCE' = 'MENU'): ModuleContext<TRecord> {
+function moduleContextOf<TRecord>(
+  http: HttpClient,
+  moduleAlias: string,
+  runtimeAccess: 'MENU' | 'REFERENCE' = 'MENU',
+): ModuleContext<TRecord> {
   const { crud, tree } = moduleClientsFor<TRecord>(http, moduleAlias, runtimeAccess);
   const enable: ModuleEnableClient = {
     enable: crud.enable,
@@ -147,7 +151,11 @@ function moduleContextOf<TRecord>(http: HttpClient, moduleAlias: string, runtime
   };
 }
 
-function moduleClientsFor<TRecord>(http: HttpClient, moduleAlias: string, runtimeAccess: 'MENU' | 'REFERENCE') {
+function moduleClientsFor<TRecord>(
+  http: HttpClient,
+  moduleAlias: string,
+  runtimeAccess: 'MENU' | 'REFERENCE',
+) {
   if (runtimeAccess === 'REFERENCE') {
     return {
       crud: createNavigatorReferenceCrudClient<TRecord>(http, { moduleAlias }),
@@ -160,7 +168,11 @@ function moduleClientsFor<TRecord>(http: HttpClient, moduleAlias: string, runtim
   };
 }
 
-function moduleTreeContextOf<TRecord>(http: HttpClient, moduleAlias: string, runtimeAccess: 'MENU' | 'REFERENCE' = 'MENU'): ModuleTreeContext<TRecord> {
+function moduleTreeContextOf<TRecord>(
+  http: HttpClient,
+  moduleAlias: string,
+  runtimeAccess: 'MENU' | 'REFERENCE' = 'MENU',
+): ModuleTreeContext<TRecord> {
   const context = moduleContextOf<TRecord>(http, moduleAlias, runtimeAccess);
   return {
     ...context,

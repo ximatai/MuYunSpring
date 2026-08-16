@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.web.query.WebQueryRequests;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
@@ -120,6 +121,14 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
     }
 
     private Criteria navigatorCriteria(WebQueryRequest request) {
+        // Avoid touching an optional static page declaration when this request carries no
+        // navigator value and there is no server-owned session context to apply. Besides
+        // keeping the fallback transport lazy, this preserves read-only static controllers
+        // that contribute a projection but do not opt into page-context governance.
+        if ((request == null || request.externalQueryValues() == null || request.externalQueryValues().isEmpty())
+                && CurrentUserContext.currentUser().isEmpty()) {
+            return Criteria.of();
+        }
         Criteria criteria = Criteria.of();
         for (PageContextBindingDefinition binding : pageContextBindings(PageContextTarget.LIST_QUERY)) {
             Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->

@@ -702,7 +702,10 @@ it('position management uses child resource form descriptor for position form', 
   const positionViewSource = readSource('src/views/PositionManagementView.vue');
 
   assert.match(positionViewSource, /const currentUserTenant = computed<Tenant \| undefined>/);
-  assert.match(positionViewSource, /watch\(currentUserTenant, initializeTenantUserScope, \{ immediate: true \}\)/);
+  assert.match(
+    positionViewSource,
+    /watch\(currentUserTenant, initializeTenantUserScope, \{ immediate: true \}\)/,
+  );
   assert.match(positionViewSource, /function initializeTenantUserScope\(tenant = currentUserTenant\.value\)/);
   assert.match(positionViewSource, /onMounted\(loadPositionFormDefinition\)/);
   assert.match(

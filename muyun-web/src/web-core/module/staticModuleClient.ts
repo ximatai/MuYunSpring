@@ -64,9 +64,12 @@ export function createNavigatorReferenceCrudClient<TRecord>(
   const modulePath = modulePathOf(options.moduleAlias);
   return {
     ...normal,
-    query: (request) => http.request<WebPageResponse<TRecord>>({
-      method: 'POST', path: `${modulePath}/navigator/reference/query`, body: request,
-    }),
+    query: (request) =>
+      http.request<WebPageResponse<TRecord>>({
+        method: 'POST',
+        path: `${modulePath}/navigator/reference/query`,
+        body: request,
+      }),
   };
 }
 
@@ -149,9 +152,12 @@ export function createNavigatorReferenceTreeClient<TRecord>(
   const modulePath = modulePathOf(options.moduleAlias);
   return {
     ...normal,
-    tree: (request) => http.request<WebListResponse<WebTreeNode<TRecord>>>({
-      method: 'POST', path: `${modulePath}/navigator/reference/tree/query`, body: request,
-    }),
+    tree: (request) =>
+      http.request<WebListResponse<WebTreeNode<TRecord>>>({
+        method: 'POST',
+        path: `${modulePath}/navigator/reference/tree/query`,
+        body: request,
+      }),
     treeFlat: () => Promise.reject(new Error('Navigator reference tree does not expose flat traversal')),
     subtree: () => Promise.reject(new Error('Navigator reference tree does not expose subtree traversal')),
     sort: () => Promise.reject(new Error('Navigator reference tree is read-only')),

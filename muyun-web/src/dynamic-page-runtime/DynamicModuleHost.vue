@@ -201,7 +201,9 @@ const navigatorManagementPickerConfigs = computed<Record<string, RecordFormField
 const navigatorManagementTitle = computed(() => {
   const level = navigatorManagementLevel.value;
   if (!level) return '管理范围';
-  return navigatorManagementDetail.mode.value === 'create' ? `新建${level.descriptor.title}` : `编辑${level.descriptor.title}`;
+  return navigatorManagementDetail.mode.value === 'create'
+    ? `新建${level.descriptor.title}`
+    : `编辑${level.descriptor.title}`;
 });
 
 const title = computed(
@@ -241,10 +243,11 @@ const treeManagementPage = computed(() => runtimePage.value?.template === 'TREE_
 const listDetailMinimumWidth = computed(() => listDetailWorkspaceMinWidth(navigatorLevels.value.length));
 const visibleNavigatorLevels = computed(() =>
   navigatorLevels.value.filter((level) => {
-    const autoHidden = level.descriptor.singleResultPolicy === 'AUTO_SELECT_AND_HIDE'
+    const autoHidden =
+      level.descriptor.singleResultPolicy === 'AUTO_SELECT_AND_HIDE' &&
       // `loaded` is the authoritative result cardinality. Selection may be committed in the
       // same reactive turn, so do not make visibility depend on a second snapshot of it.
-      && navigatorSingleResultKeys.value.includes(level.descriptor.key);
+      navigatorSingleResultKeys.value.includes(level.descriptor.key);
     return !autoHidden;
   }),
 );
@@ -366,10 +369,12 @@ const primaryNavigatorContext = computed<ModuleContext<QueryListRecord> | undefi
   return navigatorLevels.value[0]?.context;
 });
 const pageContextSourceValues = computed(() => ({
-  NAVIGATOR: Object.fromEntries(navigatorLevels.value.flatMap((level) => {
-    const id = selectedNavigatorRecords.value[level.descriptor.key]?.id;
-    return id == null ? [] : [[level.descriptor.key, id]];
-  })),
+  NAVIGATOR: Object.fromEntries(
+    navigatorLevels.value.flatMap((level) => {
+      const id = selectedNavigatorRecords.value[level.descriptor.key]?.id;
+      return id == null ? [] : [[level.descriptor.key, id]];
+    }),
+  ),
   SESSION: {
     userId: currentUser?.value?.userId,
     tenantId: currentUser?.value?.tenantId,
@@ -383,10 +388,18 @@ const navigatorListQueryValues = computed<Record<string, unknown> | undefined>((
   });
 });
 const navigatorListCriteriaKeys = computed(() =>
-  pageContextBindings.value.filter((binding) => binding.target === 'LIST_QUERY').map((binding) => binding.targetKey),
+  pageContextBindings.value
+    .filter((binding) => binding.target === 'LIST_QUERY')
+    .map((binding) => binding.targetKey),
 );
 const navigatorCreateDefaults = computed<Record<string, unknown>>(() => {
-  return resolvePageContextTargetValues(pageContextBindings.value, 'FORM_DEFAULT', pageContextSourceValues.value) ?? {};
+  return (
+    resolvePageContextTargetValues(
+      pageContextBindings.value,
+      'FORM_DEFAULT',
+      pageContextSourceValues.value,
+    ) ?? {}
+  );
 });
 const canToggleEnabled = computed(() => {
   const record = selectedRecord.value;
@@ -750,8 +763,12 @@ function handleNavigatorLoaded(level: NavigatorLevelRuntime, records: Array<{ id
       ? [...navigatorSingleResultKeys.value, key]
       : navigatorSingleResultKeys.value.filter((candidate) => candidate !== key);
   }
-  if (single && level.descriptor.singleResultPolicy !== undefined && level.descriptor.singleResultPolicy !== 'NONE'
-      && selectedNavigatorRecords.value[key]?.id == null) {
+  if (
+    single &&
+    level.descriptor.singleResultPolicy !== undefined &&
+    level.descriptor.singleResultPolicy !== 'NONE' &&
+    selectedNavigatorRecords.value[key]?.id == null
+  ) {
     selectNavigatorRecord(key, records[0]);
   }
 }
@@ -763,9 +780,13 @@ function navigatorDescendantKeys(levelKey: string): Set<string> {
     const parent = pending.pop();
     const level = navigatorLevels.value.find((candidate) => candidate.descriptor.key === parent);
     for (const binding of pageContextBindings.value) {
-      if (binding.source === 'NAVIGATOR' && binding.sourceKey === level?.descriptor.key
-          && binding.target === 'NAVIGATOR_QUERY' && binding.targetNavigatorLevelKey != null
-          && !descendants.has(binding.targetNavigatorLevelKey)) {
+      if (
+        binding.source === 'NAVIGATOR' &&
+        binding.sourceKey === level?.descriptor.key &&
+        binding.target === 'NAVIGATOR_QUERY' &&
+        binding.targetNavigatorLevelKey != null &&
+        !descendants.has(binding.targetNavigatorLevelKey)
+      ) {
         descendants.add(binding.targetNavigatorLevelKey);
         pending.push(binding.targetNavigatorLevelKey);
       }
@@ -775,8 +796,12 @@ function navigatorDescendantKeys(levelKey: string): Set<string> {
 }
 
 function navigatorExplorerQueryValues(levelKey: string): Record<string, unknown> | undefined {
-  return resolvePageContextTargetValues(pageContextBindings.value, 'NAVIGATOR_QUERY',
-    pageContextSourceValues.value, levelKey);
+  return resolvePageContextTargetValues(
+    pageContextBindings.value,
+    'NAVIGATOR_QUERY',
+    pageContextSourceValues.value,
+    levelKey,
+  );
 }
 
 function navigatorManagementAvailable(level: NavigatorLevelRuntime) {
@@ -857,7 +882,8 @@ async function saveNavigatorRecord() {
   navigatorManagementDetail.saving.value = true;
   try {
     const id = record.id == null ? undefined : String(record.id);
-    const result = !creating && id ? await level.context.crud.update(id, record) : await level.context.crud.insert(record);
+    const result =
+      !creating && id ? await level.context.crud.update(id, record) : await level.context.crud.insert(record);
     navigatorManagementDetail.applySaved(result.record);
     scopeReloadKey.value += 1;
     await presentDynamicModuleActionSuccess(result, '保存成功');
@@ -877,7 +903,15 @@ async function deleteNavigatorRecord(level: NavigatorLevelRuntime, record: Navig
   const version = typeof record.version === 'number' ? record.version : undefined;
   if (!id || version === undefined || level.context.can('delete') !== true) return;
   try {
-    if (!(await confirmAction({ title: `删除${level.descriptor.title}`, content: `确认删除该${level.descriptor.title}？`, okText: '删除', danger: true }))) return;
+    if (
+      !(await confirmAction({
+        title: `删除${level.descriptor.title}`,
+        content: `确认删除该${level.descriptor.title}？`,
+        okText: '删除',
+        danger: true,
+      }))
+    )
+      return;
     const result = await level.context.crud.delete(id, { version });
     if (selectedNavigatorRecords.value[level.descriptor.key]?.id === id) {
       selectNavigatorRecord(level.descriptor.key, { id });
@@ -1383,13 +1417,17 @@ function recordTitle(record: QueryListRecord | undefined) {
             "
             :reload-key="scopeReloadKey"
             :keyword="scopeSearchKeyword"
-            :external-query-values="navigatorExplorerQueryValues(visibleNavigatorLevels[index].descriptor.key)"
+            :external-query-values="
+              navigatorExplorerQueryValues(visibleNavigatorLevels[index].descriptor.key)
+            "
             search-mode="none"
             :empty-description="`暂无${visibleNavigatorLevels[index].descriptor.title}`"
             :actions-of="() => navigatorInlineActions(visibleNavigatorLevels[index])"
             @loaded="handleNavigatorLoaded(visibleNavigatorLevels[index], $event)"
             @select="selectNavigatorRecord(visibleNavigatorLevels[index].descriptor.key, $event)"
-            @action="(action, record) => handleNavigatorInlineAction(visibleNavigatorLevels[index], action, record)"
+            @action="
+              (action, record) => handleNavigatorInlineAction(visibleNavigatorLevels[index], action, record)
+            "
           />
           <CrudRecordListExplorer
             v-else
@@ -1401,12 +1439,16 @@ function recordTitle(record: QueryListRecord | undefined) {
             "
             :reload-key="scopeReloadKey"
             :keyword="scopeSearchKeyword"
-            :external-query-values="navigatorExplorerQueryValues(visibleNavigatorLevels[index].descriptor.key)"
+            :external-query-values="
+              navigatorExplorerQueryValues(visibleNavigatorLevels[index].descriptor.key)
+            "
             :empty-description="`暂无${visibleNavigatorLevels[index].descriptor.title}`"
             :actions-of="() => navigatorInlineActions(visibleNavigatorLevels[index])"
             @loaded="handleNavigatorLoaded(visibleNavigatorLevels[index], $event)"
             @select="selectNavigatorRecord(visibleNavigatorLevels[index].descriptor.key, $event)"
-            @action="(action, record) => handleNavigatorInlineAction(visibleNavigatorLevels[index], action, record)"
+            @action="
+              (action, record) => handleNavigatorInlineAction(visibleNavigatorLevels[index], action, record)
+            "
           />
           <template #editor>
             <Transition name="navigator-management-drawer">
@@ -1420,16 +1462,31 @@ function recordTitle(record: QueryListRecord | undefined) {
                 <header class="navigator-management-header">
                   <h3>{{ navigatorManagementTitle }}</h3>
                   <div class="navigator-management-actions">
-                    <RecordPanelButton :disabled="navigatorManagementDetail.saving.value" @click="navigatorManagementDetail.close()">
+                    <RecordPanelButton
+                      :disabled="navigatorManagementDetail.saving.value"
+                      @click="navigatorManagementDetail.close()"
+                    >
                       取消
                     </RecordPanelButton>
-                    <RecordPanelButton type="primary" :loading="navigatorManagementDetail.saving.value" @click="saveNavigatorRecord">
+                    <RecordPanelButton
+                      type="primary"
+                      :loading="navigatorManagementDetail.saving.value"
+                      @click="saveNavigatorRecord"
+                    >
                       保存
                     </RecordPanelButton>
                   </div>
                 </header>
-                <RecordPanelState v-if="navigatorManagementDetail.loading.value" loading loading-tip="加载记录详情" description="" />
-                <RecordPanelState v-else-if="navigatorManagementDetail.loadFailed.value" description="详情加载失败" />
+                <RecordPanelState
+                  v-if="navigatorManagementDetail.loading.value"
+                  loading
+                  loading-tip="加载记录详情"
+                  description=""
+                />
+                <RecordPanelState
+                  v-else-if="navigatorManagementDetail.loadFailed.value"
+                  description="详情加载失败"
+                />
                 <RecordFormFields
                   v-else-if="navigatorManagementDetail.draft.value"
                   :record="navigatorManagementDetail.draft.value as RecordFormRecord"
@@ -1618,22 +1675,40 @@ function recordTitle(record: QueryListRecord | undefined) {
           <template #editor>
             <Transition name="navigator-management-drawer">
               <section
-                v-if="navigatorManagementLevel?.descriptor.key === level.descriptor.key && navigatorManagementDetail.open.value"
+                v-if="
+                  navigatorManagementLevel?.descriptor.key === level.descriptor.key &&
+                  navigatorManagementDetail.open.value
+                "
                 class="navigator-management-panel"
               >
                 <header class="navigator-management-header">
                   <h3>{{ navigatorManagementTitle }}</h3>
                   <div class="navigator-management-actions">
-                    <RecordPanelButton :disabled="navigatorManagementDetail.saving.value" @click="navigatorManagementDetail.close()">
+                    <RecordPanelButton
+                      :disabled="navigatorManagementDetail.saving.value"
+                      @click="navigatorManagementDetail.close()"
+                    >
                       取消
                     </RecordPanelButton>
-                    <RecordPanelButton type="primary" :loading="navigatorManagementDetail.saving.value" @click="saveNavigatorRecord">
+                    <RecordPanelButton
+                      type="primary"
+                      :loading="navigatorManagementDetail.saving.value"
+                      @click="saveNavigatorRecord"
+                    >
                       保存
                     </RecordPanelButton>
                   </div>
                 </header>
-                <RecordPanelState v-if="navigatorManagementDetail.loading.value" loading loading-tip="加载记录详情" description="" />
-                <RecordPanelState v-else-if="navigatorManagementDetail.loadFailed.value" description="详情加载失败" />
+                <RecordPanelState
+                  v-if="navigatorManagementDetail.loading.value"
+                  loading
+                  loading-tip="加载记录详情"
+                  description=""
+                />
+                <RecordPanelState
+                  v-else-if="navigatorManagementDetail.loadFailed.value"
+                  description="详情加载失败"
+                />
                 <RecordFormFields
                   v-else-if="navigatorManagementDetail.draft.value"
                   :record="navigatorManagementDetail.draft.value as RecordFormRecord"
