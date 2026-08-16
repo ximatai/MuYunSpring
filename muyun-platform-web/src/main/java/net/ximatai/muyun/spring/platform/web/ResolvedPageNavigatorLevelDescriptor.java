@@ -8,23 +8,17 @@ public record ResolvedPageNavigatorLevelDescriptor(String key,
                                                    String sourceModuleAlias,
                                                    String title,
                                                    String searchPlaceholder,
-                                                   List<ResolvedPageNavigatorQueryBindingDescriptor> queryBindings,
-                                                   List<ResolvedPageNavigatorChildBindingDescriptor> childBindings,
                                                    ResolvedPageNavigatorManagementDescriptor management,
-                                                   PageNavigatorSingleResultPolicy singleResultPolicy) {
+                                                   PageNavigatorSingleResultPolicy singleResultPolicy,
+                                                   PageNavigatorSourceScope sourceScope) {
     public ResolvedPageNavigatorLevelDescriptor {
-        queryBindings = queryBindings == null ? List.of() : List.copyOf(queryBindings);
-        childBindings = childBindings == null ? List.of() : List.copyOf(childBindings);
         singleResultPolicy = singleResultPolicy == null ? PageNavigatorSingleResultPolicy.NONE : singleResultPolicy;
+        sourceScope = sourceScope == null ? PageNavigatorSourceScope.NONE : sourceScope;
     }
 
     static ResolvedPageNavigatorLevelDescriptor from(PageNavigatorLevelDefinition definition) {
         return new ResolvedPageNavigatorLevelDescriptor(definition.key(), definition.kind(), definition.sourceModuleAlias(),
-                definition.title(), definition.searchPlaceholder(), definition.queryBindings().stream()
-                .map(binding -> new ResolvedPageNavigatorQueryBindingDescriptor(binding.field(), binding.queryCriteriaKey()))
-                .toList(), definition.childBindings().stream().map(binding ->
-                new ResolvedPageNavigatorChildBindingDescriptor(binding.childLevelKey(), binding.childQueryCriteriaKey()))
-                .toList(), ResolvedPageNavigatorManagementDescriptor.from(definition.management()),
-                definition.singleResultPolicy());
+                definition.title(), definition.searchPlaceholder(), ResolvedPageNavigatorManagementDescriptor.from(definition.management()),
+                definition.singleResultPolicy(), definition.sourceScope());
     }
 }

@@ -2,8 +2,6 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 
-import java.util.ArrayList;
-import java.util.List;
 
 /** One selectable source within a page navigator. */
 public record PageNavigatorLevelDefinition(String key,
@@ -11,10 +9,9 @@ public record PageNavigatorLevelDefinition(String key,
                                            String sourceModuleAlias,
                                            String title,
                                            String searchPlaceholder,
-                                           List<PageNavigatorQueryBindingDefinition> queryBindings,
-                                           List<PageNavigatorChildBindingDefinition> childBindings,
                                            PageNavigatorManagementDefinition management,
-                                           PageNavigatorSingleResultPolicy singleResultPolicy) {
+                                           PageNavigatorSingleResultPolicy singleResultPolicy,
+                                           PageNavigatorSourceScope sourceScope) {
     public PageNavigatorLevelDefinition {
         key = PlatformNameRules.requireFieldName(key, "navigator level key");
         if (kind == null) throw new IllegalArgumentException("navigator level kind must not be null");
@@ -22,9 +19,8 @@ public record PageNavigatorLevelDefinition(String key,
         title = title == null || title.isBlank() ? "范围" : title.trim();
         searchPlaceholder = searchPlaceholder == null || searchPlaceholder.isBlank()
                 ? "搜索" + title : searchPlaceholder.trim();
-        queryBindings = queryBindings == null ? List.of() : List.copyOf(queryBindings);
-        childBindings = childBindings == null ? List.of() : List.copyOf(childBindings);
         singleResultPolicy = singleResultPolicy == null ? PageNavigatorSingleResultPolicy.NONE : singleResultPolicy;
+        sourceScope = sourceScope == null ? PageNavigatorSourceScope.NONE : sourceScope;
     }
 
     public static final class Builder {
@@ -33,10 +29,9 @@ public record PageNavigatorLevelDefinition(String key,
         private String sourceModuleAlias;
         private String title;
         private String searchPlaceholder;
-        private final List<PageNavigatorQueryBindingDefinition> queryBindings = new ArrayList<>();
-        private final List<PageNavigatorChildBindingDefinition> childBindings = new ArrayList<>();
         private PageNavigatorManagementDefinition management;
         private PageNavigatorSingleResultPolicy singleResultPolicy = PageNavigatorSingleResultPolicy.NONE;
+        private PageNavigatorSourceScope sourceScope = PageNavigatorSourceScope.NONE;
 
         Builder(String key) { this.key = key; }
 
@@ -46,20 +41,6 @@ public record PageNavigatorLevelDefinition(String key,
 
         public Builder microList(String sourceModuleAlias, String title, String searchPlaceholder) {
             return source(PageNavigatorKind.MICRO_LIST, sourceModuleAlias, title, searchPlaceholder);
-        }
-
-        public Builder bindQuery(String field) { return bindQuery(field, field); }
-
-        /** Binds the selected record ID to the page list's standard external query criterion. */
-        public Builder bindQuery(String field, String queryCriteriaKey) {
-            queryBindings.add(new PageNavigatorQueryBindingDefinition(field, queryCriteriaKey));
-            return this;
-        }
-
-        /** Sends the selected record ID to a later navigator level's standard external criterion. */
-        public Builder bindChild(String childLevelKey, String childQueryCriteriaKey) {
-            childBindings.add(new PageNavigatorChildBindingDefinition(childLevelKey, childQueryCriteriaKey));
-            return this;
         }
 
         /**
@@ -83,6 +64,12 @@ public record PageNavigatorLevelDefinition(String key,
             return this;
         }
 
+        /** Declares that the source is constrained by authenticated tenant context. */
+        public Builder sourceScope(PageNavigatorSourceScope value) {
+            sourceScope = value == null ? PageNavigatorSourceScope.NONE : value;
+            return this;
+        }
+
         private Builder source(PageNavigatorKind kind, String sourceModuleAlias, String title,
                                String searchPlaceholder) {
             if (this.kind != null) throw new IllegalArgumentException("navigator level source is already declared: " + key);
@@ -95,7 +82,7 @@ public record PageNavigatorLevelDefinition(String key,
 
         PageNavigatorLevelDefinition build() {
             return new PageNavigatorLevelDefinition(key, kind, sourceModuleAlias, title, searchPlaceholder,
-                    queryBindings, childBindings, management, singleResultPolicy);
+                    management, singleResultPolicy, sourceScope);
         }
     }
 }

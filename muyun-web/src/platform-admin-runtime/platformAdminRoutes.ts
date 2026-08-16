@@ -13,7 +13,6 @@ import MenuManagementView from '../views/MenuManagementView.vue';
 import ModuleManagementView from '../views/ModuleManagementView.vue';
 import OrganizationManagementView from '../views/OrganizationManagementView.vue';
 import PasswordManagementView from '../views/PasswordManagementView.vue';
-import PositionManagementView from '../views/PositionManagementView.vue';
 import RoleManagementView from '../views/RoleManagementView.vue';
 import RoleAuthorizationView from '../views/RoleAuthorizationView.vue';
 import SystemUserManagementView from '../views/SystemUserManagementView.vue';
@@ -109,12 +108,6 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
     component: RoleAuthorizationView,
     layout: 'workspace',
     menuEntry: false,
-  },
-  {
-    route: '/iam/positions',
-    moduleAlias: 'iam.position_category',
-    component: PositionManagementView,
-    layout: 'workspace',
   },
 ];
 

@@ -15,6 +15,7 @@ import net.ximatai.muyun.spring.iam.web.EmployeeWebController;
 import net.ximatai.muyun.spring.iam.web.OrganizationWebController;
 import net.ximatai.muyun.spring.iam.web.PasswordPolicyRuleWebController;
 import net.ximatai.muyun.spring.iam.web.PositionCategoryWebController;
+import net.ximatai.muyun.spring.iam.web.PositionWebController;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
@@ -299,7 +300,7 @@ class PlatformMenuInitialDataDeclarationProviderTest {
         assertMenu(ApplicationWebController.class, PlatformMenuGroups.MODELING, "应用管理", 10);
         assertMenu(OrganizationWebController.class, PlatformMenuGroups.IDENTITY, "", 20);
         assertMenu(DepartmentWebController.class, PlatformMenuGroups.IDENTITY, "部门管理", 30);
-        assertMenu(PositionCategoryWebController.class, PlatformMenuGroups.IDENTITY, "岗位管理", 40);
+        assertMenu(PositionWebController.class, PlatformMenuGroups.IDENTITY, "岗位管理", 40);
         assertMenu(EmployeeWebController.class, PlatformMenuGroups.IDENTITY, "职员管理", 50);
     }
 

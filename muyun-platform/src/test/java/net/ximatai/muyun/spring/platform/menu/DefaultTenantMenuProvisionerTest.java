@@ -61,7 +61,11 @@ class DefaultTenantMenuProvisionerTest {
                     .satisfies(menu -> assertThat(menu.getTitle()).isEqualTo("组织与权限"));
             assertThat(menuDao.list(Criteria.of().eq("schemeId", schemeId)))
                     .hasSize(2)
-                    .allSatisfy(menu -> assertThat(menu.getId()).hasSizeLessThanOrEqualTo(STANDARD_ID_MAX_LENGTH));
+                    .allSatisfy(menu -> {
+                        assertThat(menu.getId()).hasSizeLessThanOrEqualTo(STANDARD_ID_MAX_LENGTH);
+                        assertThat(menu.getPlatformManaged()).isTrue();
+                        assertThat(menu.getPlatformManagedRevision()).isNotBlank();
+                    });
         }
     }
 
@@ -111,6 +115,65 @@ class DefaultTenantMenuProvisionerTest {
                     .getFirst();
 
             assertThat(copiedUser.getParentId()).isEqualTo(copiedBusiness.getId());
+        }
+    }
+
+    @Test
+    void shouldReconcileCopiedMenuWhenSystemModuleAliasChanges() {
+        when(moduleService.resolveVisibleModule("iam.user")).thenReturn(module("iam.user"));
+        when(moduleService.resolveVisibleModule("iam.position")).thenReturn(module("iam.position"));
+        createSystemAdminMenuTree();
+        provisioner.afterTenantCreated("demo");
+
+        try (TenantContext.Scope ignored = TenantContext.system("test")) {
+            Menu systemMenu = menuService.list(Criteria.of()
+                            .eq("schemeId", MenuSchemeService.ADMIN_SCHEME_ID)
+                            .eq("moduleAlias", "iam.user"))
+                    .getFirst();
+            systemMenu.setModuleAlias("iam.position");
+            systemMenu.setRoute(null);
+            systemMenu.setPageMode(MenuPageMode.LIST);
+            menuService.update(systemMenu);
+        }
+
+        provisioner.reconcileTenantAdminMenus("demo");
+
+        String schemeId = DefaultTenantMenuProvisioner.tenantAdminSchemeId("demo");
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            assertThat(menuService.list(Criteria.of().eq("schemeId", schemeId)
+                            .eq("moduleAlias", "iam.position")))
+                    .singleElement()
+                    .satisfies(menu -> {
+                        assertThat(menu.getRoute()).isNull();
+                        assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
+                    });
+        }
+    }
+
+    @Test
+    void shouldLeaveTenantTakenOverMenuUntouchedDuringReconciliation() {
+        when(moduleService.resolveVisibleModule("iam.user")).thenReturn(module("iam.user"));
+        createSystemAdminMenuTree();
+        provisioner.afterTenantCreated("demo");
+
+        String schemeId = DefaultTenantMenuProvisioner.tenantAdminSchemeId("demo");
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            Menu copiedUser = menuService.list(Criteria.of().eq("schemeId", schemeId).eq("moduleAlias", "iam.user"))
+                    .getFirst();
+            copiedUser.setPlatformManaged(Boolean.FALSE);
+            copiedUser.setRoute("/tenant-owned-users");
+            menuService.update(copiedUser);
+        }
+
+        provisioner.reconcileTenantAdminMenus("demo");
+
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            assertThat(menuService.list(Criteria.of().eq("schemeId", schemeId).eq("moduleAlias", "iam.user")))
+                    .singleElement()
+                    .satisfies(menu -> {
+                        assertThat(menu.getPlatformManaged()).isFalse();
+                        assertThat(menu.getRoute()).isEqualTo("/tenant-owned-users");
+                    });
         }
     }
 

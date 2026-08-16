@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
   ManagementExplorerColumn,
   ManagementWorkspace,
@@ -46,6 +47,7 @@ import type {
   RecordInlineAction,
   ResolvedModulePageDescriptor,
   ResolvedPageNavigatorLevelDescriptor,
+  ResolvedPageContextBindingDescriptor,
 } from '@muyun/web-contracts';
 import {
   createModuleContext,
@@ -83,6 +85,7 @@ import {
 } from './detailSurfacePreference';
 import DynamicRecordDetailActions from './DynamicRecordDetailActions.vue';
 import { useRecordDetailController } from './recordDetailController';
+import { resolvePageContextTargetValues } from './pageContextRuntime';
 
 /**
  * Descriptor-driven CRUD runner shared by static and dynamic modules.
@@ -100,6 +103,7 @@ const props = defineProps<{
 const context = useModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
 });
+const currentUser = useCurrentUserContext();
 const modulePageNavigation = useModulePageNavigation();
 const detail = useRecordDetailController<QueryListRecord>();
 const {
@@ -124,6 +128,7 @@ const flatManagementSearchKeyword = ref('');
 const flatManagementReloadKey = ref(0);
 const treeModule = ref(false);
 const navigatorLevels = ref<NavigatorLevelRuntime[]>([]);
+const pageContextBindings = ref<ResolvedPageContextBindingDescriptor[]>([]);
 const selectedNavigatorRecords = ref<Record<string, QueryListRecord | undefined>>({});
 const navigatorSingleResultKeys = ref<string[]>([]);
 const navigatorManagementDetail = useRecordDetailController<QueryListRecord>();
@@ -237,8 +242,9 @@ const listDetailMinimumWidth = computed(() => listDetailWorkspaceMinWidth(naviga
 const visibleNavigatorLevels = computed(() =>
   navigatorLevels.value.filter((level) => {
     const autoHidden = level.descriptor.singleResultPolicy === 'AUTO_SELECT_AND_HIDE'
-      && navigatorSingleResultKeys.value.includes(level.descriptor.key)
-      && selectedNavigatorRecords.value[level.descriptor.key]?.id != null;
+      // `loaded` is the authoritative result cardinality. Selection may be committed in the
+      // same reactive turn, so do not make visibility depend on a second snapshot of it.
+      && navigatorSingleResultKeys.value.includes(level.descriptor.key);
     return !autoHidden;
   }),
 );
@@ -359,32 +365,28 @@ providePageLayout(
 const primaryNavigatorContext = computed<ModuleContext<QueryListRecord> | undefined>(() => {
   return navigatorLevels.value[0]?.context;
 });
-const navigatorListQueryValues = computed<Record<string, unknown> | undefined>(() => {
-  const values: Record<string, unknown> = {};
-  for (const level of navigatorLevels.value) {
+const pageContextSourceValues = computed(() => ({
+  NAVIGATOR: Object.fromEntries(navigatorLevels.value.flatMap((level) => {
     const id = selectedNavigatorRecords.value[level.descriptor.key]?.id;
-    if (id == null) continue;
-    for (const binding of level.descriptor.queryBindings) {
-      values[binding.queryCriteriaKey] = id;
-    }
-  }
-  return Object.keys(values).length > 0 ? values : undefined;
+    return id == null ? [] : [[level.descriptor.key, id]];
+  })),
+  SESSION: {
+    userId: currentUser?.value?.userId,
+    tenantId: currentUser?.value?.tenantId,
+    organizationId: currentUser?.value?.organizationId,
+  },
+}));
+const navigatorListQueryValues = computed<Record<string, unknown> | undefined>(() => {
+  // SESSION values are resolved by the server; never echo them in a list request.
+  return resolvePageContextTargetValues(pageContextBindings.value, 'LIST_QUERY', {
+    NAVIGATOR: pageContextSourceValues.value.NAVIGATOR,
+  });
 });
 const navigatorListCriteriaKeys = computed(() =>
-  navigatorLevels.value.flatMap((level) =>
-    level.descriptor.queryBindings.map((binding) => binding.queryCriteriaKey),
-  ),
+  pageContextBindings.value.filter((binding) => binding.target === 'LIST_QUERY').map((binding) => binding.targetKey),
 );
 const navigatorCreateDefaults = computed<Record<string, unknown>>(() => {
-  const values: Record<string, unknown> = {};
-  for (const level of navigatorLevels.value) {
-    const id = selectedNavigatorRecords.value[level.descriptor.key]?.id;
-    if (id == null) continue;
-    for (const binding of level.descriptor.queryBindings) {
-      values[binding.field] = id;
-    }
-  }
-  return values;
+  return resolvePageContextTargetValues(pageContextBindings.value, 'FORM_DEFAULT', pageContextSourceValues.value) ?? {};
 });
 const canToggleEnabled = computed(() => {
   const record = selectedRecord.value;
@@ -585,6 +587,7 @@ async function loadRuntimeForm() {
     return;
   }
   const resolvedNavigatorLevels = runtimePage.value?.navigator?.levels ?? [];
+  pageContextBindings.value = runtimePage.value?.navigator?.contextBindings ?? [];
   selectedNavigatorRecords.value = {};
   navigatorSingleResultKeys.value = [];
   navigatorLevels.value = await Promise.all(
@@ -592,6 +595,7 @@ async function loadRuntimeForm() {
       const navigatorContext = createModuleContext<QueryListRecord>({
         http: context.http,
         moduleAlias: descriptor.sourceModuleAlias,
+        runtimeAccess: 'REFERENCE',
       });
       await navigatorContext.runtime.ready;
       return {
@@ -737,9 +741,15 @@ function selectNavigatorRecord(levelKey: string, record: { id?: string }) {
 function handleNavigatorLoaded(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
   const key = level.descriptor.key;
   const single = records.length === 1 && records[0]?.id != null;
-  navigatorSingleResultKeys.value = single
-    ? [...new Set([...navigatorSingleResultKeys.value, key])]
-    : navigatorSingleResultKeys.value.filter((candidate) => candidate !== key);
+  const alreadyMarkedSingle = navigatorSingleResultKeys.value.includes(key);
+  // Explorer `loaded` events are also emitted after a parent layout update. Keep
+  // the collection identity when cardinality has not changed; otherwise a
+  // single-record child tree can be needlessly re-mounted and reloaded.
+  if (single !== alreadyMarkedSingle) {
+    navigatorSingleResultKeys.value = single
+      ? [...navigatorSingleResultKeys.value, key]
+      : navigatorSingleResultKeys.value.filter((candidate) => candidate !== key);
+  }
   if (single && level.descriptor.singleResultPolicy !== undefined && level.descriptor.singleResultPolicy !== 'NONE'
       && selectedNavigatorRecords.value[key]?.id == null) {
     selectNavigatorRecord(key, records[0]);
@@ -752,10 +762,12 @@ function navigatorDescendantKeys(levelKey: string): Set<string> {
   while (pending.length > 0) {
     const parent = pending.pop();
     const level = navigatorLevels.value.find((candidate) => candidate.descriptor.key === parent);
-    for (const binding of level?.descriptor.childBindings ?? []) {
-      if (!descendants.has(binding.childLevelKey)) {
-        descendants.add(binding.childLevelKey);
-        pending.push(binding.childLevelKey);
+    for (const binding of pageContextBindings.value) {
+      if (binding.source === 'NAVIGATOR' && binding.sourceKey === level?.descriptor.key
+          && binding.target === 'NAVIGATOR_QUERY' && binding.targetNavigatorLevelKey != null
+          && !descendants.has(binding.targetNavigatorLevelKey)) {
+        descendants.add(binding.targetNavigatorLevelKey);
+        pending.push(binding.targetNavigatorLevelKey);
       }
     }
   }
@@ -763,15 +775,8 @@ function navigatorDescendantKeys(levelKey: string): Set<string> {
 }
 
 function navigatorExplorerQueryValues(levelKey: string): Record<string, unknown> | undefined {
-  const values: Record<string, unknown> = {};
-  for (const level of navigatorLevels.value) {
-    const id = selectedNavigatorRecords.value[level.descriptor.key]?.id;
-    if (id == null) continue;
-    for (const binding of level.descriptor.childBindings) {
-      if (binding.childLevelKey === levelKey) values[binding.childQueryCriteriaKey] = id;
-    }
-  }
-  return Object.keys(values).length > 0 ? values : undefined;
+  return resolvePageContextTargetValues(pageContextBindings.value, 'NAVIGATOR_QUERY',
+    pageContextSourceValues.value, levelKey);
 }
 
 function navigatorManagementAvailable(level: NavigatorLevelRuntime) {
@@ -856,6 +861,10 @@ async function saveNavigatorRecord() {
     navigatorManagementDetail.applySaved(result.record);
     scopeReloadKey.value += 1;
     await presentDynamicModuleActionSuccess(result, '保存成功');
+    // This is an in-panel, single-record editing session. Once persistence succeeds,
+    // returning to the navigator keeps the workspace focused and avoids stale drafts.
+    navigatorManagementDetail.close();
+    navigatorManagementLevel.value = undefined;
   } catch (cause) {
     presentPlatformError(cause, { source: 'navigator-management', phase: 'action' });
   } finally {
@@ -1553,7 +1562,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       :detail-surface="!detailSurfaceUsesDrawer"
       :list-surface="detailSurfaceUsesDrawer"
     >
-      <ManagementExplorerColumn v-for="level in navigatorLevels" :key="level.descriptor.key">
+      <ManagementExplorerColumn v-for="level in visibleNavigatorLevels" :key="level.descriptor.key">
         <RecordExplorerPanel
           :title="level.descriptor.title"
           :refresh-title="`刷新${level.descriptor.title}${level.tree ? '树' : '列表'}`"
@@ -1585,6 +1594,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             search-mode="none"
             :empty-description="`暂无${level.descriptor.title}`"
             :actions-of="() => navigatorInlineActions(level)"
+            @loaded="handleNavigatorLoaded(level, $event)"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
           />
@@ -1601,6 +1611,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
             :empty-description="`暂无${level.descriptor.title}`"
             :actions-of="() => navigatorInlineActions(level)"
+            @loaded="handleNavigatorLoaded(level, $event)"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
           />

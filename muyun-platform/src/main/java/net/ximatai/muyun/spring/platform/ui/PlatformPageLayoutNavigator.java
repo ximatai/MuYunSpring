@@ -39,41 +39,28 @@ public final class PlatformPageLayoutNavigator {
             for (JsonNode level : levels) {
                 values.add(new PlatformPageNavigatorLevel(text(level, "key", config), text(level, "kind", config),
                         text(level, "sourceModuleAlias", config), optionalText(level, "title", config),
-                        optionalText(level, "searchPlaceholder", config), queryBindings(level.get("queryBindings"), config),
-                        childBindings(level.get("childBindings"), config), management(level.get("management"), config),
-                        optionalText(level, "singleResultPolicy", config)));
+                        optionalText(level, "searchPlaceholder", config), management(level.get("management"), config),
+                        optionalText(level, "singleResultPolicy", config), optionalText(level, "sourceScope", config)));
             }
-            return new PlatformPageNavigatorLayout(values);
+            return new PlatformPageNavigatorLayout(values, contextBindings(navigator.get("contextBindings"), config));
         } catch (IOException exception) {
             throw new IllegalArgumentException("page layout JSON cannot be decoded: " + config.getId(), exception);
         }
     }
 
-    public static List<PlatformPageNavigatorQueryBinding> queryBindings(PlatformUiConfig config) {
+    public static List<PlatformPageContextBinding> contextBindings(PlatformUiConfig config) {
         PlatformPageNavigatorLayout navigator = navigator(config);
-        return navigator == null ? List.of() : navigator.levels().stream()
-                .flatMap(level -> level.queryBindings().stream())
-                .toList();
+        return navigator == null ? List.of() : navigator.contextBindings();
     }
 
-    private static List<PlatformPageNavigatorQueryBinding> queryBindings(JsonNode bindings, PlatformUiConfig config) {
+    private static List<PlatformPageContextBinding> contextBindings(JsonNode bindings, PlatformUiConfig config) {
         if (bindings == null || bindings.isNull()) return List.of();
-        if (!bindings.isArray()) throw new IllegalArgumentException("navigator query bindings must be an array: " + config.getId());
-        List<PlatformPageNavigatorQueryBinding> values = new ArrayList<>();
+        if (!bindings.isArray()) throw new IllegalArgumentException("page context bindings must be an array: " + config.getId());
+        List<PlatformPageContextBinding> values = new ArrayList<>();
         for (JsonNode binding : bindings) {
-            values.add(new PlatformPageNavigatorQueryBinding(text(binding, "field", config),
-                    optionalText(binding, "queryCriteriaKey", config)));
-        }
-        return values;
-    }
-
-    private static List<PlatformPageNavigatorChildBinding> childBindings(JsonNode bindings, PlatformUiConfig config) {
-        if (bindings == null || bindings.isNull()) return List.of();
-        if (!bindings.isArray()) throw new IllegalArgumentException("navigator child bindings must be an array: " + config.getId());
-        List<PlatformPageNavigatorChildBinding> values = new ArrayList<>();
-        for (JsonNode binding : bindings) {
-            values.add(new PlatformPageNavigatorChildBinding(text(binding, "childLevelKey", config),
-                    text(binding, "childQueryCriteriaKey", config)));
+            values.add(new PlatformPageContextBinding(text(binding, "source", config), text(binding, "sourceKey", config),
+                    text(binding, "target", config), text(binding, "targetKey", config),
+                    optionalText(binding, "targetNavigatorLevelKey", config)));
         }
         return values;
     }

@@ -90,7 +90,7 @@ const emit = defineEmits<{
   margin: 0;
   min-width: 0;
   height: var(--muyun-management-panel-header-height, 30px);
-  padding: 0;
+  padding: 0 4px;
   color: var(--muyun-text);
   font-size: var(--muyun-management-panel-title-font-size, 16px);
   font-weight: 700;
@@ -116,10 +116,11 @@ const emit = defineEmits<{
 .management-panel-header-title-action {
   border: 0;
   background: transparent;
+  border-radius: 4px;
 }
 
 :deep(.management-panel-header-title-action.ant-btn-text:not(:disabled):hover) {
-  background: transparent;
+  background: var(--muyun-hover);
 }
 
 .management-panel-header-title-action :deep(.ui-button-trailing-icon) {
@@ -136,7 +137,7 @@ const emit = defineEmits<{
 
 .management-panel-header-title-action:hover :deep(.ui-button-trailing-icon),
 .management-panel-header-title-action:focus-visible :deep(.ui-button-trailing-icon) {
-  width: 12px;
+  width: 14px;
   margin-inline-start: 6px;
   opacity: 1;
 }

@@ -120,16 +120,17 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
     }
 
     private Criteria navigatorCriteria(WebQueryRequest request) {
-        if (request == null || request.externalQueryValues() == null) return Criteria.of();
         Criteria criteria = Criteria.of();
-        for (PageNavigatorQueryBindingDefinition binding : navigatorQueryBindings()) {
-            Object selectedValue = request.externalQueryValues().get(binding.queryCriteriaKey());
-            if (selectedValue != null) criteria.eq(binding.field(), selectedValue);
+        for (PageContextBindingDefinition binding : pageContextBindings(PageContextTarget.LIST_QUERY)) {
+            Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->
+                    request == null || request.externalQueryValues() == null ? null
+                            : request.externalQueryValues().get(binding.targetKey()));
+            if (selectedValue != null) criteria.eq(binding.targetKey(), selectedValue);
         }
         return criteria;
     }
 
-    private List<PageNavigatorQueryBindingDefinition> navigatorQueryBindings() {
+    private List<PageContextBindingDefinition> pageContextBindings(PageContextTarget target) {
         if (!(this instanceof StaticModuleUiContributor contributor)) return List.of();
         ModulePageDefinition page = contributor.moduleUiDefinition().page();
         PageNavigatorDefinition navigator = switch (page) {
@@ -139,7 +140,7 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
             case null -> null;
         };
         return navigator == null ? List.of()
-                : navigator.levels().stream().flatMap(level -> level.queryBindings().stream()).toList();
+                : navigator.contextBindings().stream().filter(binding -> binding.target() == target).toList();
     }
 
     private Criteria andCriteria(Criteria first, Criteria second) {

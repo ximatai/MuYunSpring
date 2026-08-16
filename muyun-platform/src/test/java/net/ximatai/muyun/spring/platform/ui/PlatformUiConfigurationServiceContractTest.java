@@ -402,9 +402,10 @@ class PlatformUiConfigurationServiceContractTest {
 
         PlatformUiConfig config = uiConfigService.select(uiConfigId);
         config.setLayoutJson("""
-                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"levels":[{
-                  "key":"project","kind":"MICRO_LIST","sourceModuleAlias":"crm.project",
-                  "queryBindings":[{"field":"projectId","queryCriteriaKey":"projectId"}]
+                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"contextBindings":[{
+                  "source":"NAVIGATOR","sourceKey":"project","target":"LIST_QUERY","targetKey":"projectId"
+                }],"levels":[{
+                  "key":"project","kind":"MICRO_LIST","sourceModuleAlias":"crm.project"
                 }]}}""");
         uiConfigService.update(config);
 

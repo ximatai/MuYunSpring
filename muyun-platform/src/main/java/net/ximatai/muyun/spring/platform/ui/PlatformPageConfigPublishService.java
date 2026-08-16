@@ -97,18 +97,22 @@ public class PlatformPageConfigPublishService {
                     .filter(candidate -> candidate.entityAlias().equals(module.mainEntityAlias()))
                     .findFirst()
                     .orElseThrow(() -> new PlatformException("Navigator main entity is unavailable: " + uiSet.getModuleAlias()));
-            for (PlatformPageNavigatorLevel level : navigator.levels()) {
-                for (PlatformPageNavigatorQueryBinding binding : level.queryBindings()) {
-                    DynamicFieldDescriptor field = entity.fields().stream()
-                            .filter(candidate -> candidate.fieldName().equals(binding.field()))
+            for (PlatformPageContextBinding binding : navigator.contextBindings()) {
+                if (!"NAVIGATOR".equals(binding.source()) || !"LIST_QUERY".equals(binding.target())) {
+                    continue;
+                }
+                PlatformPageNavigatorLevel level = navigator.levels().stream()
+                        .filter(candidate -> candidate.key().equals(binding.sourceKey()))
+                        .findFirst().orElseThrow();
+                DynamicFieldDescriptor field = entity.fields().stream()
+                            .filter(candidate -> candidate.fieldName().equals(binding.targetKey()))
                             .findFirst().orElseThrow(() -> new PlatformException("Navigator query field is unavailable: "
-                                    + uiSet.getModuleAlias() + "." + binding.field()));
-                    DynamicReferenceDescriptor reference = field.reference();
-                    if (reference == null || reference.cardinality() != ReferenceCardinality.ONE
-                            || !level.sourceModuleAlias().equals(reference.targetModuleAlias())) {
-                        throw new PlatformException("Navigator query field must be a single reference to "
-                                + level.sourceModuleAlias() + ": " + uiSet.getModuleAlias() + "." + binding.field());
-                    }
+                                    + uiSet.getModuleAlias() + "." + binding.targetKey()));
+                DynamicReferenceDescriptor reference = field.reference();
+                if (reference == null || reference.cardinality() != ReferenceCardinality.ONE
+                        || !level.sourceModuleAlias().equals(reference.targetModuleAlias())) {
+                    throw new PlatformException("Navigator query field must be a single reference to "
+                            + level.sourceModuleAlias() + ": " + uiSet.getModuleAlias() + "." + binding.targetKey());
                 }
             }
         } catch (IllegalArgumentException exception) {

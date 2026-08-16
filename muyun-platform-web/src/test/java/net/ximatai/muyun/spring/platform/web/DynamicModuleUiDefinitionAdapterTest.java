@@ -117,13 +117,17 @@ class DynamicModuleUiDefinitionAdapterTest {
         PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);
         PlatformUiConfig listConfig = uiConfig("ui-list-web", "set-list", "客户列表", true, 10);
         listConfig.setLayoutJson("""
-                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"levels":[
+                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"contextBindings":[
+                  {"source":"NAVIGATOR","sourceKey":"tenant","target":"LIST_QUERY","targetKey":"tenantId"},
+                  {"source":"NAVIGATOR","sourceKey":"tenant","target":"FORM_DEFAULT","targetKey":"tenantId"},
+                  {"source":"NAVIGATOR","sourceKey":"tenant","target":"NAVIGATOR_QUERY","targetNavigatorLevelKey":"organization","targetKey":"tenantId"},
+                  {"source":"NAVIGATOR","sourceKey":"organization","target":"LIST_QUERY","targetKey":"organizationId"}
+                ],"levels":[
                   {"key":"tenant","kind":"MICRO_LIST","sourceModuleAlias":"iam.tenant","title":"租户",
-                   "singleResultPolicy":"AUTO_SELECT_AND_HIDE",
-                   "queryBindings":[{"field":"tenantId","queryCriteriaKey":"tenantId"}],
-                   "childBindings":[{"childLevelKey":"organization","childQueryCriteriaKey":"tenantId"}]},
-                  {"key":"organization","kind":"TREE","sourceModuleAlias":"iam.organization","title":"组织",
-                   "queryBindings":[{"field":"organizationId","queryCriteriaKey":"organizationId"}]}
+                   "singleResultPolicy":"AUTO_SELECT_AND_HIDE","sourceScope":"CURRENT_TENANT"
+                   },
+                  {"key":"organization","kind":"TREE","sourceModuleAlias":"iam.organization","title":"组织"
+                   }
                 ]}}""");
         PlatformUiConfig formConfig = uiConfig("ui-form-web", "set-form", "客户", true, 20);
 
@@ -135,15 +139,27 @@ class DynamicModuleUiDefinitionAdapterTest {
         assertThat(navigator.levels()).hasSize(2);
         assertThat(navigator.levels().getFirst().singleResultPolicy())
                 .isEqualTo(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE);
-        assertThat(navigator.levels().getFirst().childBindings()).containsExactly(
-                new PageNavigatorChildBindingDefinition("organization", "tenantId"));
-        assertThat(navigator.levels().get(1).queryBindings()).containsExactly(
-                new PageNavigatorQueryBindingDefinition("organizationId", "organizationId"));
-        assertThat(net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator.queryBindings(listConfig))
+        assertThat(navigator.levels().getFirst().sourceScope())
+                .isEqualTo(PageNavigatorSourceScope.CURRENT_TENANT);
+        assertThat(navigator.contextBindings()).containsExactly(
+                new PageContextBindingDefinition(PageContextSource.NAVIGATOR, "tenant", PageContextTarget.LIST_QUERY,
+                        "tenantId", null),
+                new PageContextBindingDefinition(PageContextSource.NAVIGATOR, "tenant", PageContextTarget.FORM_DEFAULT,
+                        "tenantId", null),
+                new PageContextBindingDefinition(PageContextSource.NAVIGATOR, "tenant", PageContextTarget.NAVIGATOR_QUERY,
+                        "tenantId", "organization"),
+                new PageContextBindingDefinition(PageContextSource.NAVIGATOR, "organization", PageContextTarget.LIST_QUERY,
+                        "organizationId", null));
+        assertThat(net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator.contextBindings(listConfig))
                 .containsExactly(
-                        new net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorQueryBinding("tenantId", "tenantId"),
-                        new net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorQueryBinding(
-                                "organizationId", "organizationId"));
+                        new net.ximatai.muyun.spring.platform.ui.PlatformPageContextBinding(
+                                "NAVIGATOR", "tenant", "LIST_QUERY", "tenantId", null),
+                        new net.ximatai.muyun.spring.platform.ui.PlatformPageContextBinding(
+                                "NAVIGATOR", "tenant", "FORM_DEFAULT", "tenantId", null),
+                        new net.ximatai.muyun.spring.platform.ui.PlatformPageContextBinding(
+                                "NAVIGATOR", "tenant", "NAVIGATOR_QUERY", "tenantId", "organization"),
+                        new net.ximatai.muyun.spring.platform.ui.PlatformPageContextBinding(
+                                "NAVIGATOR", "organization", "LIST_QUERY", "organizationId", null));
     }
 
     @Test

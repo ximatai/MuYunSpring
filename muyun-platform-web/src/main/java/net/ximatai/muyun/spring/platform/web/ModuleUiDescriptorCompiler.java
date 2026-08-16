@@ -212,21 +212,22 @@ public final class ModuleUiDescriptorCompiler {
     private static void validateNavigator(PageNavigatorDefinition navigator,
                                           Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                           String moduleAlias) {
-        for (PageNavigatorLevelDefinition level : navigator.levels()) {
-            for (PageNavigatorQueryBindingDefinition binding : level.queryBindings()) {
-                ResolvedReferenceFieldDescriptor reference = referenceFields.get(binding.field());
-                if (reference == null) {
-                    throw new IllegalArgumentException("navigator query field must be a reference: "
-                            + moduleAlias + "." + binding.field());
-                }
-                if (reference.cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
-                    throw new IllegalArgumentException("navigator query field must be a single reference: "
-                            + moduleAlias + "." + binding.field());
-                }
-                if (!level.sourceModuleAlias().equals(reference.targetModuleAlias())) {
-                    throw new IllegalArgumentException("navigator query reference target must match level source: "
-                            + moduleAlias + "." + binding.field());
-                }
+        for (PageContextBindingDefinition binding : navigator.contextBindings()) {
+            if (binding.source() != PageContextSource.NAVIGATOR || binding.target() != PageContextTarget.LIST_QUERY) continue;
+            PageNavigatorLevelDefinition level = navigator.levels().stream()
+                    .filter(candidate -> candidate.key().equals(binding.sourceKey())).findFirst().orElseThrow();
+            ResolvedReferenceFieldDescriptor reference = referenceFields.get(binding.targetKey());
+            if (reference == null) {
+                throw new IllegalArgumentException("navigator query field must be a reference: "
+                        + moduleAlias + "." + binding.targetKey());
+            }
+            if (reference.cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
+                throw new IllegalArgumentException("navigator query field must be a single reference: "
+                        + moduleAlias + "." + binding.targetKey());
+            }
+            if (!level.sourceModuleAlias().equals(reference.targetModuleAlias())) {
+                throw new IllegalArgumentException("navigator query reference target must match level source: "
+                        + moduleAlias + "." + binding.targetKey());
             }
         }
     }

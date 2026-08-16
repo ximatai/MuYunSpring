@@ -76,7 +76,10 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     default Criteria queryCriteria(WebQueryRequest request) {
         Criteria workspaceCriteria = navigatorCriteria(request);
         if (service() instanceof QueryAbility<?> queryAbility) {
-            Criteria criteria = queryAbility.queryCriteria(WebQueryRequests.from(request));
+            // Navigator values are page-owned bindings, not fields in the source module's query schema.
+            // Remove only the declared bindings before compiling the module query; unknown external values
+            // remain visible to the compiler and are still rejected.
+            Criteria criteria = queryAbility.queryCriteria(WebQueryRequests.from(withoutNavigatorExternalValues(request)));
             return andCriteria(criteria, workspaceCriteria);
         }
         if (request != null && !request.conditions().isEmpty()) {
@@ -86,6 +89,20 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             throw new IllegalArgumentException("query criteria are not supported by " + webScopeName());
         }
         return workspaceCriteria;
+    }
+
+    private WebQueryRequest withoutNavigatorExternalValues(WebQueryRequest request) {
+        if (request == null || request.externalQueryValues().isEmpty()) return request;
+        java.util.Set<String> navigatorKeys = pageContextBindings(request.uiConfigId(), PageContextTarget.LIST_QUERY).stream()
+                .filter(binding -> binding.source() == PageContextSource.NAVIGATOR)
+                .map(PageContextBindingDefinition::targetKey)
+                .collect(java.util.stream.Collectors.toSet());
+        if (navigatorKeys.isEmpty()) return request;
+        Map<String, Object> remaining = new java.util.LinkedHashMap<>(request.externalQueryValues());
+        remaining.keySet().removeAll(navigatorKeys);
+        return new WebQueryRequest(request.page(), request.unpaged(), request.conditions(), request.criteria(),
+                request.queryForm(), request.sorts(), request.uiConfigId(), request.queryTemplateId(), remaining,
+                request.navigationSession(), request.quickSearch(), request.quickSearchFields(), request.navigationQueryKey());
     }
 
     default Sort[] querySorts(WebQueryRequest request) {
@@ -121,29 +138,32 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     private Criteria navigatorCriteria(WebQueryRequest request) {
-        if (request == null || request.externalQueryValues() == null) return Criteria.of();
         Criteria criteria = Criteria.of();
-        for (PageNavigatorQueryBindingDefinition binding : navigatorQueryBindings(request.uiConfigId())) {
-            Object selectedValue = request.externalQueryValues().get(binding.queryCriteriaKey());
-            if (selectedValue != null) criteria.eq(binding.field(), selectedValue);
+        String uiConfigId = request == null ? null : request.uiConfigId();
+        for (PageContextBindingDefinition binding : pageContextBindings(uiConfigId, PageContextTarget.LIST_QUERY)) {
+            Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->
+                    request == null || request.externalQueryValues() == null ? null
+                            : request.externalQueryValues().get(binding.targetKey()));
+            if (selectedValue != null) criteria.eq(binding.targetKey(), selectedValue);
         }
         return criteria;
     }
 
     private QuerySchema withNavigatorCriteria(QuerySchema schema, String uiConfigId) {
-        List<PageNavigatorQueryBindingDefinition> bindings = navigatorQueryBindings(uiConfigId);
+        List<PageContextBindingDefinition> bindings = pageContextBindings(uiConfigId, PageContextTarget.LIST_QUERY);
         if (bindings.isEmpty()) return schema;
         List<QuerySchema.ExternalCriteria> externalCriteria = new ArrayList<>(schema.externalCriteria());
-        for (PageNavigatorQueryBindingDefinition binding : bindings) {
-            if (externalCriteria.stream().noneMatch(criteria -> binding.queryCriteriaKey().equals(criteria.key()))) {
-                externalCriteria.add(new QuerySchema.ExternalCriteria(binding.queryCriteriaKey(), "OBJECT", "PAGE_CONTEXT"));
+        for (PageContextBindingDefinition binding : bindings) {
+            if (binding.source() == PageContextSource.SESSION) continue;
+            if (externalCriteria.stream().noneMatch(criteria -> binding.targetKey().equals(criteria.key()))) {
+                externalCriteria.add(new QuerySchema.ExternalCriteria(binding.targetKey(), "OBJECT", "PAGE_CONTEXT"));
             }
         }
         return new QuerySchema(schema.scopeName(), schema.entityAlias(), schema.quickSearch(), schema.fields(),
                 externalCriteria, schema.defaultSorts());
     }
 
-    private List<PageNavigatorQueryBindingDefinition> navigatorQueryBindings(String uiConfigId) {
+    private List<PageContextBindingDefinition> pageContextBindings(String uiConfigId, PageContextTarget target) {
         if (!(this instanceof StaticModuleUiContributor contributor) || !isCurrentModuleUiDefinition(contributor)) {
             return List.of();
         }
@@ -155,7 +175,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             case null -> null;
         };
         if (navigator == null) return List.of();
-        return navigator.levels().stream().flatMap(level -> level.queryBindings().stream()).toList();
+        return navigator.contextBindings().stream().filter(binding -> binding.target() == target).toList();
     }
 
     private Criteria andCriteria(Criteria first, Criteria second) {
@@ -278,6 +298,8 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     @Transactional
     default T insert(@RequestBody T record) {
         return MutationTenantScopeExecutor.forCreate(this, record, () -> webScope(() -> {
+            PageContextMutationConstraints.applyForCreate(record,
+                    pageContextBindings(null, PageContextTarget.MUTATION_CONSTRAINT));
             String id = service().insert(record);
             T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
             StandardMutationResultSupport.created(this, id, recordLabel(saved));
@@ -293,6 +315,8 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         record.setId(id);
         return MutationTenantScopeExecutor.forUpdate(this, id, record, () -> webScope(() -> {
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.UPDATE, id);
+            PageContextMutationConstraints.applyForUpdate(record, service().select(id),
+                    pageContextBindings(null, PageContextTarget.MUTATION_CONSTRAINT));
             service().update(record);
             T saved = WebOutputSupport.record(service(),
                     StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),
