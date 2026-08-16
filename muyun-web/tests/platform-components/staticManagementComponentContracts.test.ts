@@ -378,7 +378,7 @@ it('page navigator renders levels through the standard module runner', () => {
   assert.match(hostSource, /selectedNavigatorRecords/);
   assert.match(hostSource, /function selectNavigatorRecord/);
   assert.match(hostSource, /function navigatorExplorerQueryValues/);
-  assert.match(hostSource, /v-for="level in navigatorLevels"/);
+  assert.match(hostSource, /v-for="level in visibleNavigatorLevels"/);
   assert.match(hostSource, /:external-query-values="navigatorExplorerQueryValues\(level\.descriptor\.key\)"/);
 });
 
@@ -1785,13 +1785,13 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /:ready="pageReady"/);
   assert.match(hostSource, /动态\$\{pageMode\.value\}入口暂未接入运行器/);
   assert.match(hostSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
-  assert.match(hostSource, /:explorer-count="navigatorLevels\.length"/);
+  assert.match(hostSource, /:explorer-count="visibleNavigatorLevels\.length"/);
   assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);
   assert.match(hostSource, /listDetailWorkspaceMinWidth\(navigatorLevels\.value\.length\)/);
   assert.match(hostSource, /new ResizeObserver\(\(\) => updateDetailSurfaceForWorkspaceWidth\(\)\)/);
   assert.match(hostSource, /workspaceWidth < listDetailMinimumWidth\.value/);
   assert.equal(/max-width: 719px/.test(hostSource), false);
-  assert.match(hostSource, /:navigator-count="navigatorLevels\.length"/);
+  assert.match(hostSource, /:navigator-count="visibleNavigatorLevels\.length"/);
   assert.match(hostSource, /<ManagementWorkspace[\s\S]*v-else-if="treeManagementPage \|\| treeModule"/);
   assert.match(hostSource, /<CrudRecordListExplorer/);
   assert.match(hostSource, /<TreeRecordExplorer[\s\S]*v-if="level\.tree"/);
@@ -1811,7 +1811,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(listPanelSource, /if \(!queryReady\.value\) \{\s*return;/);
   assert.match(listPanelSource, /uiDescriptor\?\.page\?\.list\?\.fields/);
   assert.match(listPanelSource, /props\.requiredExternalCriteriaKeys\.length > 0/);
-  assert.match(hostSource, /values\[binding\.queryCriteriaKey\] = id/);
+  assert.match(hostSource, /resolvePageContextTargetValues\(pageContextBindings\.value, 'LIST_QUERY'/);
   assert.match(hostSource, /<TreeRecordExplorer/);
   assert.match(hostSource, /context\.crud\.update\(id, record\)/);
   assert.match(hostSource, /<RecordDetailPanel/);
