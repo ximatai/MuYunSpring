@@ -55,7 +55,12 @@ describe('resolvePageContextTargetValues', () => {
       externalPageContextCriteriaKeys(
         [
           ...bindings,
-          { source: 'NAVIGATOR', sourceKey: 'organization', target: 'LIST_QUERY', targetKey: 'organizationId' },
+          {
+            source: 'NAVIGATOR',
+            sourceKey: 'organization',
+            target: 'LIST_QUERY',
+            targetKey: 'organizationId',
+          },
         ],
         'LIST_QUERY',
       ),
