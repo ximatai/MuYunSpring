@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { resolvePageContextTargetValues } from '@/dynamic-page-runtime/pageContextRuntime';
+import {
+  externalPageContextCriteriaKeys,
+  resolvePageContextTargetValues,
+} from '@/dynamic-page-runtime/pageContextRuntime';
 
 describe('resolvePageContextTargetValues', () => {
   const bindings = [
@@ -44,5 +47,19 @@ describe('resolvePageContextTargetValues', () => {
         'other',
       ),
     ).toBeUndefined();
+  });
+
+  it('does not expose server-resolved session values as browser query criteria', () => {
+    expect(externalPageContextCriteriaKeys([...bindings], 'LIST_QUERY')).toEqual([]);
+    expect(
+      externalPageContextCriteriaKeys(
+        [
+          ...bindings,
+          { source: 'NAVIGATOR', sourceKey: 'organization', target: 'LIST_QUERY', targetKey: 'organizationId' },
+        ],
+        'LIST_QUERY',
+      ),
+    ).toEqual(['organizationId']);
+    expect(externalPageContextCriteriaKeys([...bindings], 'NAVIGATOR_QUERY')).toEqual(['tenantId']);
   });
 });

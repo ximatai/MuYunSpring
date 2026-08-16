@@ -12,14 +12,12 @@ public record PlatformPageContextBinding(String source,
                                          String targetKey,
                                          String targetNavigatorLevelKey) {
     public PlatformPageContextBinding {
-        if (!"SESSION".equals(source) && !"ROUTE".equals(source)
-                && !"NAVIGATOR".equals(source) && !"FORM_FIELD".equals(source)) {
+        if (!"SESSION".equals(source) && !"NAVIGATOR".equals(source)) {
             throw new IllegalArgumentException("page context binding source is invalid: " + source);
         }
         sourceKey = PlatformNameRules.requireFieldName(sourceKey, "page context binding source key");
         if (!"LIST_QUERY".equals(target) && !"NAVIGATOR_QUERY".equals(target)
-                && !"FORM_DEFAULT".equals(target) && !"PICKER_QUERY".equals(target)
-                && !"MUTATION_CONSTRAINT".equals(target)) {
+                && !"FORM_DEFAULT".equals(target) && !"PICKER_QUERY".equals(target)) {
             throw new IllegalArgumentException("page context binding target is invalid: " + target);
         }
         targetKey = PlatformNameRules.requireFieldName(targetKey, "page context binding target key");
@@ -31,9 +29,6 @@ public record PlatformPageContextBinding(String source,
         }
         if (!"NAVIGATOR_QUERY".equals(target) && targetNavigatorLevelKey != null) {
             throw new IllegalArgumentException("only navigator-query context bindings can target a navigator level");
-        }
-        if ("MUTATION_CONSTRAINT".equals(target) && !"SESSION".equals(source)) {
-            throw new IllegalArgumentException("mutation constraints require a server-authoritative SESSION source");
         }
     }
 }

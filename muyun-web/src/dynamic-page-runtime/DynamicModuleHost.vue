@@ -85,7 +85,7 @@ import {
 } from './detailSurfacePreference';
 import DynamicRecordDetailActions from './DynamicRecordDetailActions.vue';
 import { useRecordDetailController } from './recordDetailController';
-import { resolvePageContextTargetValues } from './pageContextRuntime';
+import { externalPageContextCriteriaKeys, resolvePageContextTargetValues } from './pageContextRuntime';
 
 /**
  * Descriptor-driven CRUD runner shared by static and dynamic modules.
@@ -388,9 +388,7 @@ const navigatorListQueryValues = computed<Record<string, unknown> | undefined>((
   });
 });
 const navigatorListCriteriaKeys = computed(() =>
-  pageContextBindings.value
-    .filter((binding) => binding.target === 'LIST_QUERY')
-    .map((binding) => binding.targetKey),
+  externalPageContextCriteriaKeys(pageContextBindings.value, 'LIST_QUERY'),
 );
 const navigatorCreateDefaults = computed<Record<string, unknown>>(() => {
   return (

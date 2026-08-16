@@ -422,6 +422,29 @@ class PlatformUiConfigurationServiceContractTest {
     }
 
     @Test
+    void shouldRejectUnsupportedPageContextBindingsBeforePublishingDynamicPageConfig() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
+        String uiSetId = uiSetService.insert(uiSet("crm.customer", "customer_list", PlatformUiSetType.LIST, true));
+        String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
+
+        for (String binding : List.of(
+                "{\"source\":\"ROUTE\",\"sourceKey\":\"tenantId\",\"target\":\"LIST_QUERY\",\"targetKey\":\"tenantId\"}",
+                "{\"source\":\"FORM_FIELD\",\"sourceKey\":\"tenantId\",\"target\":\"FORM_DEFAULT\",\"targetKey\":\"tenantId\"}",
+                "{\"source\":\"SESSION\",\"sourceKey\":\"tenantId\",\"target\":\"MUTATION_CONSTRAINT\",\"targetKey\":\"tenantId\"}")) {
+            PlatformUiConfig config = uiConfigService.select(uiConfigId);
+            config.setLayoutJson("{\"navigator\":{\"contextBindings\":[" + binding + "],\"levels\":[]}}");
+            uiConfigService.update(config);
+
+            assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("navigator layout is invalid");
+        }
+    }
+
+    @Test
     void shouldRejectSemanticallyInvalidLayoutJsonBeforePublish() {
         seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
         seedUiType("text", "string");

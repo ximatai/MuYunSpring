@@ -725,7 +725,7 @@ export interface ResolvedPageNavigatorLevelDescriptor {
 }
 
 export interface ResolvedPageContextBindingDescriptor {
-  source: 'SESSION' | 'ROUTE' | 'NAVIGATOR' | 'FORM_FIELD';
+  source: 'SESSION' | 'NAVIGATOR';
   sourceKey: string;
   target: 'LIST_QUERY' | 'NAVIGATOR_QUERY' | 'FORM_DEFAULT' | 'PICKER_QUERY' | 'MUTATION_CONSTRAINT';
   targetKey: string;
