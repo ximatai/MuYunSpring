@@ -5,6 +5,8 @@ export interface WorkspaceViewHost {
   presentation: WorkspaceViewPresentation;
   setTitle(title: string): void;
   dismiss(): void;
+  /** Closes the current independent workbench view. */
+  close(): void;
 }
 
 const workspaceViewHostKey: InjectionKey<WorkspaceViewHost> = Symbol('workspace-view-host');

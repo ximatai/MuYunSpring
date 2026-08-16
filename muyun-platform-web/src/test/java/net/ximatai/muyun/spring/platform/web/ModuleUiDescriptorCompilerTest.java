@@ -68,6 +68,31 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldCompileTreeManagementAsPageRootWithOnlyItsSupportedSlots() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("mr.tag")
+                .page(PageTemplates.treeManagement(page -> page
+                        .detail(detail -> detail
+                                .emptyDescription("请选择标签，或新建根标签")
+                                .editor(editor -> editor
+                                        .title("标签")
+                                        .field("title", field -> field.required())
+                                        .field("parentId")
+                                        .field("color")))
+                        .traits(traits -> traits.standardCrud())))
+                .build();
+
+        ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition).page();
+
+        assertThat(page.template()).isEqualTo(ModulePageTemplate.TREE_MANAGEMENT);
+        assertThat(page.explorer()).isNull();
+        assertThat(page.navigator()).isNull();
+        assertThat(page.list()).isNull();
+        assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
+                .containsExactly("title", "parentId", "color");
+        assertThat(page.traits()).containsExactly(PageTrait.STANDARD_CRUD);
+    }
+
+    @Test
     void shouldCompileListDetailCardWithOptionalTreeNavigator() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("crm.customer")
                 .page(ModulePageDefinition.listDetailCard(page -> page
@@ -110,6 +135,53 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldPublishDeclaredDetailWorkspaceViewWithoutLeakingClientImplementation() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("mr.device")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.title("设备").field("code")))
+                        .detail(detail -> detail
+                                .workspaceView("mr.device.detail")
+                                .editor(editor -> editor.title("设备").field("code")))
+                        .traits(traits -> traits.responsiveDetailSurface())))
+                .build();
+
+        ResolvedPageDetailWorkspaceViewDescriptor workspaceView = ModuleUiDescriptorCompiler.compile(definition)
+                .page().detail().workspaceView();
+
+        assertThat(workspaceView.type()).isEqualTo("mr.device.detail");
+    }
+
+    @Test
+    void shouldCompileEditorlessListDetailCardWithADisplay() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("iam.remote_support")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("title")))
+                        .detail(detail -> detail.display(display -> display.field("title")))
+                        .traits(traits -> traits.responsiveDetailSurface())))
+                .build();
+
+        ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition).page();
+
+        assertThat(page.detail().display().fields()).extracting(field -> field.fieldRef().fieldName())
+                .containsExactly("title");
+        assertThat(page.detail().editor()).isNull();
+        assertThatCode(() -> ModuleUiDescriptorCompiler.compile(staticDefinition(definition)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void shouldRejectEditorlessListDetailCardWithoutADisplay() {
+        assertThatThrownBy(() -> ModuleUiDefinition.builder("mr.remote_support")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("title")))
+                        .detail(detail -> { })
+                        .traits(traits -> traits.standardCrud())))
+                .build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("editorless list/detail card requires a detail display");
+    }
+
+    @Test
     void shouldCompileOrderedNavigatorLevelsWithIndependentListAndChildBindings() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("crm.customer")
                 .page(PageTemplates.listDetailCard(page -> page
@@ -149,6 +221,28 @@ class ModuleUiDescriptorCompilerTest {
         assertThat(descriptor.page()).isNull();
         assertThat(descriptor.actions()).isEmpty();
         assertThat(descriptor.editorContributions()).isEmpty();
+    }
+
+    @Test
+    void shouldCompileDefaultAndNamedEditorSurfacesWithoutClaimingAPageTemplate() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("crm.customer")
+                .editors(editors -> editors
+                        .defaultEditor(editor -> editor.title("客户").field("title", field -> field.required()))
+                        .editor("quick_rename", editor -> editor.title("重命名客户")
+                                .field("title", field -> field.required())))
+                .build();
+
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(definition);
+
+        assertThat(descriptor.page()).isNull();
+        assertThat(descriptor.defaultEditor()).satisfies(editor -> {
+            assertThat(editor.title()).isEqualTo("客户");
+            assertThat(editor.fields()).extracting(field -> field.fieldRef().fieldName()).containsExactly("title");
+        });
+        assertThat(descriptor.editorSurfaces()).singleElement().satisfies(surface -> {
+            assertThat(surface.key()).isEqualTo("quick_rename");
+            assertThat(surface.editor().title()).isEqualTo("重命名客户");
+        });
     }
 
     @Test

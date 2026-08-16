@@ -246,7 +246,7 @@ const panelActions = computed<RecordActionItem[]>(() => {
     base = props.actions;
   } else if (!props.standardCrudActions) {
     base = [];
-  } else {
+  } else if (props.context.can('create') === true) {
     base = [
       {
         key: 'create',
@@ -256,6 +256,8 @@ const panelActions = computed<RecordActionItem[]>(() => {
         disabled: !queryReady.value,
       },
     ];
+  } else {
+    base = [];
   }
   return mergeRecordActions(base, props.extraActions);
 });
@@ -281,7 +283,7 @@ const hasRowActions = computed(
     (props.mode === 'recycleBin' &&
       (props.context.can('recycleBinRestore') === true || props.context.can('recycleBinPurge') === true)) ||
     props.rowActionsOf !== undefined ||
-    props.standardCrudRowActions ||
+    (props.standardCrudRowActions && standardCrudRowActionsOf().length > 0) ||
     props.extraRowActionsOf !== undefined ||
     Boolean(slots.rowActions),
 );
@@ -640,7 +642,12 @@ function standardCrudRowActionsOf(): RecordActionItem[] {
       danger: true,
     },
   ];
-  return actions.filter((action) => props.standardCrudRowActionKeys.includes(action.key));
+  return actions.filter(
+    (action) =>
+      props.standardCrudRowActionKeys.includes(action.key) &&
+      action.actionCode != null &&
+      props.context.can(action.actionCode) === true,
+  );
 }
 
 function rowActionDropdownItem(action: ResolvedRecordActionItem): UiDropdownItem {

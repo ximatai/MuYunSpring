@@ -506,7 +506,7 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @Test
-    void shouldScanCodeRuleAndReadOnlyLifecycleModules() {
+    void shouldScanCodeRuleAndQueryViewLifecycleModules() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(CodeRuleWebController.class,
                     () -> withService(
@@ -611,7 +611,7 @@ class StaticModuleDefinitionScannerTest {
             ResolvedModuleUiDescriptor dictionaryDescriptor =
                     ModuleUiDescriptorCompiler.compile(byAlias.get("platform.dictionary_category"));
             assertThat(dictionaryDescriptor.page()).isNull();
-            assertThat(dictionaryDescriptor.customPageEditor())
+            assertThat(dictionaryDescriptor.defaultEditor())
                     .satisfies(view -> {
                         assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                         assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())

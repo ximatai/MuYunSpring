@@ -36,7 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 
 public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
-        extends ScopedWeb<S>, RecordLabelWeb<T>, StaticModuleServiceDeclaration {
+        extends QueryViewWeb<T, S>, RecordLabelWeb<T>, StaticModuleServiceDeclaration {
     @Override
     default CrudAbility<?> staticModuleService() {
         return service();
@@ -165,6 +165,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         PageNavigatorDefinition navigator = switch (page) {
             case ListDetailCardPageDefinition card -> card.navigator();
             case FlatManagementPageDefinition flat -> flat.navigator();
+            case TreeManagementPageDefinition ignored -> null;
             case null -> null;
         };
         if (navigator == null) return List.of();
@@ -182,14 +183,15 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
 
     @GetMapping("/form/schema")
     @ActionEndpoint(PlatformAction.VIEW)
-    default FormSchema formSchema(@RequestParam(required = false) String resource) {
+    default FormSchema formSchema(@RequestParam(required = false) String resource,
+                                  @RequestParam(required = false) String editorSurface) {
         return webScope(() -> {
             if (this instanceof StaticModuleUiContributor contributor) {
                 if (isCurrentModuleUiDefinition(contributor)) {
                     String selectedResource = resource == null || resource.isBlank()
                             ? staticContributionResource() : resource;
                     FormSchema schema = ModuleUiFormSchemaAdapter.formSchema(contributor.moduleUiDefinition(),
-                            formSchemaModelClass(), selectedResource);
+                            formSchemaModelClass(), selectedResource, editorSurface);
                     if (schema != null) {
                         return schema;
                     }

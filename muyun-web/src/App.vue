@@ -80,12 +80,13 @@ import {
   openMenuTab,
   reorderMenuTabs,
   removeLockedMenuTabs,
-  restoreLockedMenuTabs,
+  restoreLockedWorkbenchTabs,
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
 } from './app/workbenchStartup';
 import { restoreLockedTabPreference, saveLockedTabPreference } from './app/lockedTabPreference';
 import { provideWorkbenchNavigation } from './platform-workbench/workbenchNavigation';
+import { syncModulePageWorkspaceViewContributions } from './platform-workbench/modulePageWorkspaceViews';
 import { router } from './app/router';
 import { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from './app/workbenchRouteSync';
 import {
@@ -165,7 +166,11 @@ provideModuleContextConfig({ httpFactory: createBackendHttpClient });
 const employeeProfileContext = createModuleContext({ moduleAlias: 'iam.employee' });
 provideCurrentUserContext(currentUser);
 providePlatformTimeZoneContext(currentTimeZone);
-provideWorkbenchNavigation({ openPage: handleOpenPage, replacePage: handleReplacePage });
+provideWorkbenchNavigation({
+  openPage: handleOpenPage,
+  replacePage: handleReplacePage,
+  closePage: handleCloseTab,
+});
 
 const anonymousHttpClient = createBackendHttpClient({ withAuth: false });
 const authClient = createAuthClient(anonymousHttpClient);
@@ -207,12 +212,13 @@ async function loadWorkbench() {
   error.value = undefined;
   try {
     const startupState = await loadAppWorkbenchStartupState();
+    syncModulePageWorkspaceViewContributions();
     const state = restoreWorkbenchStartupStateFromUrl(
       startupState,
       currentBrowserPath(),
       platformAdminRouteResolveOptions,
     );
-    const restoredLockedTabs = restoreLockedMenuTabs(
+    const restoredLockedTabs = restoreLockedWorkbenchTabs(
       await restoreLockedTabs(),
       state.menus,
       platformAdminRouteResolveOptions,

@@ -25,6 +25,9 @@ provideWorkspaceViewHost({
     if (view && navigation)
       navigation.replacePage(ownerPageKey.value, dismissWorkspaceViewDescriptor(props.descriptor, view.view));
   },
+  close() {
+    navigation?.closePage(ownerPageKey.value);
+  },
 });
 </script>
 <template>
@@ -33,6 +36,7 @@ provideWorkspaceViewHost({
     v-if="resolvedView"
     v-bind="resolvedView.input"
     :title="descriptor.title ?? resolvedView.view.titleOf(resolvedView.input)"
+    @close-workspace="navigation?.closePage(ownerPageKey)"
   />
   <UiEmpty v-else description="无法恢复该工作视图" />
 </template>

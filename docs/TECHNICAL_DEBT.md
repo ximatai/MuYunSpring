@@ -37,6 +37,12 @@
 | --- | --- | --- | --- |
 | DD-004 | 平台错误响应的真实 UI 出口和特殊业务链路尚未接入 | 后端统一错误 envelope、traceId、基础错误码、前端 `AppError`、全局展示槽位判定、登录特殊链路和静态业务失败 `ActionMessage` 基础契约已落地；动态表单保存已将必填和只读字段收敛为带字段/子表 target 的 `422`，已发布快照缺少 UI 配置收敛为带模块 scope 的 `409 CONFIG_MISSING`。但当前前端尚未进入真实动态表单、查重、导入面板或工作流动作区开发，也没有实际 toast/modal/page-error UI adapter；其余动态 local edit、页面 bootstrap、查询、导入和运行态配置解析仍保留历史默认异常，避免在缺少真实 UI 出口前过早固化错误展示和定位契约 | 进入 shell 全局通知、查重确认、导入行级错误、工作流动作反馈或 online 子应用错误治理时，按 `docs/frontend/governance/ERROR_HANDLING_GOVERNANCE.md` 接入对应 UI 出口和特殊 handler；正式推进对应动态链路时，再按专题统一评估异常 code、HTTP 状态、字段/子表定位、`ActionMessage` 和前端局部展示契约 |
 
+## 页面交付关注
+
+| 编号 | 问题 | 风险 | 回收条件 |
+| --- | --- | --- | --- |
+| TD-042 | 表单型自定义动作尚无统一输入与提交协议 | 当前 editor surface 已可声明默认或具名编辑字段，并可由页面承载面选择；但 `CustomActionEndpoint` 的请求 DTO、记录上下文、提交 URL/方法和成功后的数据变化语义仍由各业务接口自行定义。若仅增加 `actionEditor(actionCode, ...)`，会形成能展示字段却无法可靠提交或刷新的一半能力 | 出现第二个需要“独立动作仅编辑少数字段”的标准页面场景时，定义动作输入 descriptor、actionEditor 与已发布动作的编译校验、前端提交/权限/记录上下文和统一数据变化回执，再开放 DSL |
+
 ## 前端工作台关注
 
 | 编号 | 问题 | 风险 | 回收条件 |

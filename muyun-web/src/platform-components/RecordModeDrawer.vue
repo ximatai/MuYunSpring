@@ -66,6 +66,9 @@ const props = withDefaults(
 
 defineSlots<{
   status(): unknown;
+  'title-prefix'(): unknown;
+  'title-actions'(): unknown;
+  'header-actions'(): unknown;
   loading(): unknown;
   error(): unknown;
   externalChangeNotice(): unknown;
@@ -102,8 +105,17 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
     :promotion="promotion"
     @close="emit('close')"
   >
+    <template v-if="$slots['title-prefix']" #title-prefix>
+      <slot name="title-prefix" />
+    </template>
     <template #status>
       <slot name="status" />
+    </template>
+    <template v-if="$slots['title-actions']" #title-actions>
+      <slot name="title-actions" />
+    </template>
+    <template v-if="$slots['header-actions']" #header-actions>
+      <slot name="header-actions" />
     </template>
     <template v-if="$slots.operation || $slots.viewOperation || editAvailable || saveAvailable" #operation>
       <slot v-if="$slots.operation" name="operation" />

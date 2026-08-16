@@ -5,7 +5,8 @@ import java.util.function.Consumer;
 /**
  * A page-root declaration. A template owns the page structure and exposes only its documented slots.
  */
-public sealed interface ModulePageDefinition permits FlatManagementPageDefinition, ListDetailCardPageDefinition {
+public sealed interface ModulePageDefinition permits FlatManagementPageDefinition, ListDetailCardPageDefinition,
+        TreeManagementPageDefinition {
     ModulePageTemplate template();
 
     static FlatManagementPageDefinition flatManagement(Consumer<FlatManagementPageDefinition.Builder> customizer) {
@@ -16,6 +17,12 @@ public sealed interface ModulePageDefinition permits FlatManagementPageDefinitio
 
     static ListDetailCardPageDefinition listDetailCard(Consumer<ListDetailCardPageDefinition.Builder> customizer) {
         ListDetailCardPageDefinition.Builder builder = ListDetailCardPageDefinition.builder();
+        if (customizer != null) customizer.accept(builder);
+        return builder.build();
+    }
+
+    static TreeManagementPageDefinition treeManagement(Consumer<TreeManagementPageDefinition.Builder> customizer) {
+        TreeManagementPageDefinition.Builder builder = TreeManagementPageDefinition.builder();
         if (customizer != null) customizer.accept(builder);
         return builder.build();
     }

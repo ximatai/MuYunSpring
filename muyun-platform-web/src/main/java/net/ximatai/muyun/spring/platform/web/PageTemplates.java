@@ -14,4 +14,8 @@ public final class PageTemplates {
     public static ListDetailCardPageDefinition listDetailCard(Consumer<ListDetailCardPageDefinition.Builder> customizer) {
         return ModulePageDefinition.listDetailCard(customizer);
     }
+
+    public static TreeManagementPageDefinition treeManagement(Consumer<TreeManagementPageDefinition.Builder> customizer) {
+        return ModulePageDefinition.treeManagement(customizer);
+    }
 }

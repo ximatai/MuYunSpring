@@ -318,19 +318,12 @@ export type MenuNavigationTarget = ModuleMenuTarget | RouteMenuTarget | External
 export type MenuNavigationType = MenuNavigationTarget['menuType'];
 
 export type PageType =
-  | 'platform-route'
-  | 'business-route'
-  | 'dynamic-module'
-  | 'remote-url'
-  | 'external-link';
+  'platform-route' | 'business-route' | 'dynamic-module' | 'remote-url' | 'external-link';
 
 export type OpenMode = 'workbench-route' | 'dynamic-runner' | 'iframe' | 'new-window';
 
 export type PageHostType =
-  | 'platform-route-host'
-  | 'business-route-host'
-  | 'dynamic-module-host'
-  | 'external-page-host';
+  'platform-route-host' | 'business-route-host' | 'dynamic-module-host' | 'external-page-host';
 
 export type TabIdentityStrategy = 'by-menu' | 'by-target' | 'by-params';
 
@@ -483,15 +476,7 @@ export interface WebQueryRequest {
 }
 
 export type QueryValueType =
-  | 'STRING'
-  | 'TEXT'
-  | 'BOOLEAN'
-  | 'INTEGER'
-  | 'LONG'
-  | 'DECIMAL'
-  | 'INSTANT'
-  | 'DATE'
-  | 'JSON';
+  'STRING' | 'TEXT' | 'BOOLEAN' | 'INTEGER' | 'LONG' | 'DECIMAL' | 'INSTANT' | 'DATE' | 'JSON';
 
 export type QueryOperator =
   | 'EQ'
@@ -692,7 +677,7 @@ export interface ResolvedViewDescriptor {
   formGroups?: FormGroupDescriptor[];
 }
 
-export type ModulePageTemplate = 'FLAT_MANAGEMENT' | 'LIST_DETAIL_CARD';
+export type ModulePageTemplate = 'FLAT_MANAGEMENT' | 'LIST_DETAIL_CARD' | 'TREE_MANAGEMENT';
 
 export interface ResolvedPageExplorerDescriptor {
   title: string;
@@ -738,7 +723,14 @@ export interface ResolvedPageDetailDescriptor {
   emptyDescription: string;
   createTitle: string;
   display?: ResolvedViewDescriptor;
-  editor: ResolvedViewDescriptor;
+  /** Omitted by an editorless page; standard mutation actions remain governed by the runtime action contract. */
+  editor?: ResolvedViewDescriptor;
+  /** Stable client registration key for an independently restorable detail workbench view. */
+  workspaceView?: ResolvedPageDetailWorkspaceViewDescriptor;
+}
+
+export interface ResolvedPageDetailWorkspaceViewDescriptor {
+  type: string;
 }
 
 export interface ResolvedModulePageDescriptor {
@@ -780,8 +772,14 @@ export interface ResolvedModuleUiDescriptor {
   recordLabelField?: string;
   fileReferences?: ResolvedFileReferenceFieldDescriptor[];
   page?: ResolvedModulePageDescriptor;
-  customPageEditor?: ResolvedViewDescriptor;
+  defaultEditor?: ResolvedViewDescriptor;
+  editorSurfaces?: ResolvedEditorSurfaceDescriptor[];
   editorContributions?: ResolvedPageDetailEditorContribution[];
+}
+
+export interface ResolvedEditorSurfaceDescriptor {
+  key: string;
+  editor: ResolvedViewDescriptor;
 }
 
 export interface ResolvedPageDetailEditorContribution {

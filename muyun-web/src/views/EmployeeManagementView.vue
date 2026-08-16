@@ -81,14 +81,7 @@ const props = defineProps<{
 }>();
 
 type EmployeeFormFieldName =
-  | 'organizationId'
-  | 'departmentId'
-  | 'employeeNo'
-  | 'title'
-  | 'gender'
-  | 'mobile'
-  | 'email'
-  | 'enabled';
+  'organizationId' | 'departmentId' | 'employeeNo' | 'title' | 'gender' | 'mobile' | 'email' | 'enabled';
 type EmployeeFormPickerFieldName = 'departmentId';
 
 const employeeRequiredFormFieldNames = [

@@ -8,8 +8,11 @@ public record ListDetailCardPageDefinition(PageNavigatorDefinition navigator, Pa
         implements ModulePageDefinition {
     public ListDetailCardPageDefinition {
         if (list == null) throw new IllegalArgumentException("list/detail card requires a list slot");
-        if (detail == null) throw new IllegalArgumentException("list/detail card requires a detail slot");
         traits = traits == null ? new PageTraitsDefinition(null) : traits;
+        if (detail == null) throw new IllegalArgumentException("list/detail card requires a detail slot");
+        if (detail.editor() == null && detail.display() == null) {
+            throw new IllegalArgumentException("editorless list/detail card requires a detail display");
+        }
     }
 
     @Override public ModulePageTemplate template() { return ModulePageTemplate.LIST_DETAIL_CARD; }

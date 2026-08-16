@@ -4,7 +4,7 @@ import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticWebScope;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
-import net.ximatai.muyun.spring.web.ReadOnlyWeb;
+import net.ximatai.muyun.spring.web.QueryViewWeb;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
@@ -40,7 +40,7 @@ import java.util.Map;
 @PlatformMenu(parent = PlatformMenuGroups.BUSINESS_SUPPORT, order = 20)
 @RequestMapping({"/platform.code_rule", "/platform/code/rule"})
 public class CodeRuleWebController extends WebSupport<CodeRuleService> implements
-        ReadOnlyWeb<CodeRule, CodeRuleService> {
+        QueryViewWeb<CodeRule, CodeRuleService> {
 
     private final CodePreviewService previewService;
     private final CodeOpsQueryService opsQueryService;

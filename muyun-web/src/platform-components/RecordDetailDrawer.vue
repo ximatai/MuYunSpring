@@ -28,6 +28,9 @@ withDefaults(
 
 defineSlots<{
   status(): unknown;
+  'title-prefix'(): unknown;
+  'title-actions'(): unknown;
+  'header-actions'(): unknown;
   default(): unknown;
   operation(): unknown;
 }>();
@@ -46,10 +49,14 @@ const emit = defineEmits<{
     @close="emit('close')"
   >
     <RecordDetailLayout surface="drawer" :title="title" :subtitle="subtitle" scrollable-content>
+      <template v-if="$slots['title-prefix']" #title-prefix>
+        <slot name="title-prefix" />
+      </template>
       <template #status>
         <slot name="status" />
       </template>
       <template #title-actions>
+        <slot name="title-actions" />
         <UiActionButton
           v-if="promotion"
           emphasis="quiet"
@@ -59,6 +66,7 @@ const emit = defineEmits<{
         />
       </template>
       <template #actions>
+        <slot name="header-actions" />
         <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="emit('close')" />
       </template>
       <slot />

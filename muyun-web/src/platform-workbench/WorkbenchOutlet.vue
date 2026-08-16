@@ -10,7 +10,6 @@ import type {
 } from '@muyun/web-contracts';
 import {
   DynamicModuleHost,
-  modulePageWorkspaceViews,
   provideModulePageNavigation,
   type ModulePageWorkspaceView,
 } from '@muyun/dynamic-page-runtime';
@@ -20,7 +19,8 @@ import ExternalPageHost from './hosts/ExternalPageHost.vue';
 import PlatformRouteHost from './hosts/PlatformRouteHost.vue';
 import { resolvePageHostComponentName } from './pageHostRegistry';
 import { useWorkbenchNavigation } from './workbenchNavigation';
-import { configureWorkspaceViewContributions, createWorkspaceViewDescriptor } from './workspaceViews';
+import { createWorkspaceViewDescriptor } from './workspaceViews';
+import { syncModulePageWorkspaceViewContributions } from './modulePageWorkspaceViews';
 
 defineOptions({ name: 'WorkbenchOutlet' });
 
@@ -28,15 +28,14 @@ const props = defineProps<{
   descriptor?: PageDescriptor;
 }>();
 const navigation = useWorkbenchNavigation();
-configureWorkspaceViewContributions(
-  'module-page-enhancements',
-  modulePageWorkspaceViews().map(workspaceViewDefinitionForModulePage),
-);
+syncModulePageWorkspaceViewContributions();
 provideModulePageNavigation(
   navigation && {
     openPage: navigation.openPage,
-    openWorkspaceTab(view, input) {
-      navigation.openPage(createWorkspaceViewDescriptor(workspaceViewDefinitionForModulePage(view), input));
+    openWorkspaceTab(view, input, title) {
+      navigation.openPage(
+        createWorkspaceViewDescriptor(workspaceViewDefinitionForModulePage(view), input, 'tab', title),
+      );
     },
   },
 );

@@ -189,6 +189,9 @@ public class StaticRecordReadProjectionService {
         if (compilation == null || compilation.uiDescriptor() == null || compilation.readModel() == null) {
             return Optional.empty();
         }
+        if (!RecordReadProjectionPlanner.supportsDefaultListProjection(compilation.uiDescriptor())) {
+            return Optional.empty();
+        }
         RecordReadProjection projection = withReferenceSourceFields(moduleAlias, recordService, RecordReadProjectionPlanner.defaultList(
                 compilation.uiDescriptor(),
                 compilation.readModel(),
@@ -342,7 +345,8 @@ public class StaticRecordReadProjectionService {
         }
         return staticModuleDefinitionCatalog.find(moduleAlias)
                 .map(ModuleUiDescriptorCompiler::compileModule)
-                .filter(compilation -> compilation.uiDescriptor() != null && compilation.readModel() != null)
+                .filter(compilation -> compilation.uiDescriptor() != null && compilation.readModel() != null
+                        && RecordReadProjectionPlanner.supportsDefaultListProjection(compilation.uiDescriptor()))
                 .map(compilation -> RecordReadProjectionPlanner.defaultList(
                         compilation.uiDescriptor(),
                         compilation.readModel(),

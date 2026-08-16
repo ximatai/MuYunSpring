@@ -15,6 +15,14 @@ export interface ModulePageEnhancement {
   target: ModulePageEnhancementTarget;
   list?: ModuleListEnhancement;
   detail?: ModuleDetailEnhancement;
+  /**
+   * The presentation selected when a user invokes the standard record-view intent.
+   *
+   * Both the platform "查看" action and a list double-click enter the same record
+   * view flow. Applications may replace only the drawer body, while the runtime
+   * retains that flow's action checks, shell and lifecycle.
+   */
+  recordView?: ModulePageRecordView;
   workspaceViews?: ModulePageWorkspaceView[];
 }
 
@@ -31,13 +39,6 @@ export interface ModuleListEnhancement {
   cellComponents?: ModulePageCellComponentContribution[];
   /** Width of the list's fixed operation column; defaults to the platform compact width. */
   actionColumnWidth?: string | number;
-  /**
-   * Uses a business action code to authorize the platform's standard “查看”
-   * entry points. The platform verifies the selected record before opening the
-   * drawer, so the row action and double-click share one authorization path.
-   * Only supported by ordinary list modules; tree modules reject this enhancement.
-   */
-  viewActionCode?: string;
   rowActions?: ModulePageRecordActionContribution[];
   batchActions?: ModulePageBatchActionContribution[];
 }
@@ -46,6 +47,10 @@ export interface ModuleListEnhancement {
 export interface ModuleDetailEnhancement {
   actions?: ModulePageRecordActionContribution[];
   sections?: ModulePageDetailSection[];
+}
+
+/** Application-owned presentation of the platform's standard record-view intent. */
+export interface ModulePageRecordView {
   /**
    * Replaces the descriptor-generated detail body while retaining the platform
    * view drawer, its list entry points, and its lifecycle.
@@ -53,9 +58,14 @@ export interface ModuleDetailEnhancement {
    * A custom drawer body is intentionally read-only from the platform's point
    * of view: generic edit and enable/disable controls are withheld so that the
    * business module owns every operation it exposes in the view.
-   * Only supported by ordinary list modules; tree modules reject this enhancement.
    */
-  drawer?: ModulePageDetailDrawer;
+  drawer: ModulePageDetailDrawer;
+  /**
+   * Optional record-level business grant required in addition to the standard
+   * view entry point. This protects business drawer data without turning its
+   * custom endpoints into a second "查看" UI action.
+   */
+  authorizationActionCode?: string;
 }
 
 export interface ModulePageActionContribution extends RecordActionItem {

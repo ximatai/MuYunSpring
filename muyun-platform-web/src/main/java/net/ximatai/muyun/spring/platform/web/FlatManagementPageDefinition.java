@@ -9,8 +9,14 @@ public record FlatManagementPageDefinition(PageNavigatorDefinition navigator, Pa
                                            PageTraitsDefinition traits) implements ModulePageDefinition {
     public FlatManagementPageDefinition {
         if (explorer == null) throw new IllegalArgumentException("flat management requires an explorer slot");
-        if (detail == null) throw new IllegalArgumentException("flat management requires a detail slot");
         traits = traits == null ? new PageTraitsDefinition(null) : traits;
+        if (traits.values().contains(PageTrait.RESPONSIVE_DETAIL_SURFACE)) {
+            throw new IllegalArgumentException("flat management keeps its detail card persistent");
+        }
+        if (detail == null) throw new IllegalArgumentException("flat management requires a detail slot");
+        if (detail.editor() == null && detail.display() == null) {
+            throw new IllegalArgumentException("editorless flat management requires a detail display");
+        }
     }
 
     @Override public ModulePageTemplate template() { return ModulePageTemplate.FLAT_MANAGEMENT; }

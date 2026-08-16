@@ -68,12 +68,10 @@ it('record explorer panel uses a single title contract', () => {
   assert.match(headerSource, /--muyun-management-panel-header-height/);
   assert.match(
     headerSource,
-    /\.management-panel-header-status[\s\S]*--muyun-record-status-switch-offset-y: -4px/,
+    /\.management-panel-header-title,[\s\S]*?\.management-panel-header-title-action \{[\s\S]*?display: inline-flex;[\s\S]*?align-items: center;/,
   );
-  assert.match(
-    statusSwitchSource,
-    /transform: translateY\(var\(--muyun-record-status-switch-offset-y, 0\)\)/,
-  );
+  assert.notMatch(headerSource, /record-status-switch-offset-y/);
+  assert.notMatch(statusSwitchSource, /translateY\(/);
   assert.match(layoutSource, /<RecordDetailPanel[\s\S]*<slot name="detail-status"/);
   assert.match(workspaceSource, /--muyun-management-panel-padding-block/);
 });
@@ -208,6 +206,14 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(drawerSource, /formModes: \(\) => \['edit', 'create'\]/);
   assert.match(drawerSource, /viewOperation\(\): unknown/);
   assert.match(drawerSource, /<slot v-if="viewModeActive" name="viewOperation" \/>/);
+  assert.match(
+    detailLayoutSource,
+    /\.record-detail-layout-header \{[\s\S]*?align-items: center;[\s\S]*?min-height: 32px;/,
+  );
+  assert.match(
+    detailLayoutSource,
+    /\.record-detail-layout-actions \{[\s\S]*?align-items: center;[\s\S]*?min-height: 32px;/,
+  );
   assert.match(drawerSource, /editAvailable\?: boolean/);
   assert.match(drawerSource, /saveAvailable\?: boolean/);
   assert.match(drawerSource, /edit: \[\]/);
@@ -330,29 +336,39 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.notMatch(viewTemplate, /任职管理/);
 });
 
-it('standard module runner waits for a complete detail before enabling mutations', () => {
+it('standard module runner waits for a complete detail and action availability before enabling mutations', () => {
   const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
+  const detailActionsSource = readSource('src/dynamic-page-runtime/DynamicRecordDetailActions.vue');
+  const detailControllerSource = readSource('src/dynamic-page-runtime/recordDetailController.ts');
 
-  assert.match(hostSource, /const detailLoading = ref\(false\)/);
-  assert.match(hostSource, /const detailLoadFailed = ref\(false\)/);
+  assert.match(hostSource, /import \{ useRecordDetailController \} from '.\/recordDetailController'/);
+  assert.match(hostSource, /const detail = useRecordDetailController<QueryListRecord>\(\)/);
+  assert.match(hostSource, /loading: detailLoading/);
+  assert.match(hostSource, /loadFailed: detailLoadFailed/);
   assert.match(hostSource, /const requestSequence = \+\+detailLoadSequence/);
-  assert.match(hostSource, /editingRecord\.value = undefined;[\s\S]*detailLoading\.value = true/);
+  assert.match(hostSource, /detail\.beginLoad\(record, mode\)/);
   assert.match(hostSource, /await context\.crud\.view\(id\)/);
   assert.match(hostSource, /shouldCommitDynamicModuleDetailRequest/);
-  assert.match(hostSource, /detailLoadFailed\.value = true/);
+  assert.match(hostSource, /detail\.failLoad\(\)/);
   assert.match(hostSource, /function retryLoadDetail\(\)/);
   assert.match(hostSource, /:loading="detailLoading"/);
   assert.match(hostSource, /:load-failed="detailLoadFailed"/);
   assert.match(hostSource, /@retry="retryLoadDetail"/);
   assert.match(hostSource, /canMutateDynamicModuleDetail/);
-  assert.match(
-    hostSource,
-    /:edit-available="[\s\S]*!enhancementDetailDrawer[\s\S]*Boolean\(selectedRecord\)[\s\S]*!detailLoading[\s\S]*!detailLoadFailed[\s\S]*editorMode === 'view'/,
-  );
-  assert.match(
-    hostSource,
-    /:save-available="[\s\S]*!recycleBinDetailActive[\s\S]*!detailLoading[\s\S]*!detailLoadFailed[\s\S]*editorMode !== 'view'[\s\S]*"/,
-  );
+  assert.match(hostSource, /<DynamicRecordDetailActions/);
+  assert.match(hostSource, /:detail-loading="detailLoading"/);
+  assert.match(hostSource, /:detail-load-failed="detailLoadFailed"/);
+  assert.match(detailActionsSource, /const formActive = computed/);
+  assert.match(detailActionsSource, /const saveAvailable = computed/);
+  assert.match(detailActionsSource, /props\.mode === 'create' \? 'create' : 'update'/);
+  assert.match(detailActionsSource, /<RecordPanelButton :disabled="saving" @click="emit\('cancel'\)">取消/);
+  assert.match(detailActionsSource, /v-if="formActive"/);
+  assert.match(detailActionsSource, /v-else-if="viewActionsActive"/);
+  assert.match(hostSource, /@cancel="cancelDetailEditing"/);
+  assert.match(hostSource, /function cancelDetailEditing\(\)/);
+  assert.match(hostSource, /function cancelDetailEditing\(\)[\s\S]*detail\.cancelEdit\(\)/);
+  assert.match(detailControllerSource, /function cancelEdit\(\)[\s\S]*if \(mode\.value === 'create'\)/);
+  assert.match(detailControllerSource, /function cancelEdit\(\)[\s\S]*mode\.value = 'view';/);
 });
 
 it('page navigator renders levels through the standard module runner', () => {
@@ -465,6 +481,8 @@ it('management workspace consumes the page layout contract for constrained deskt
   assert.match(explorerColumnSource, /align-self: stretch/);
   assert.match(explorerColumnSource, /:slotted\(\*\)/);
   assert.match(workspaceSource, /min-height: 100%/);
+  assert.match(workspaceSource, /width: 100%/);
+  assert.notMatch(workspaceSource, /width: max-content/);
   assert.notMatch(workspaceSource, /100vh - 116px/);
   assert.notMatch(workspaceSource, /@media \(max-width: 980px\)/);
   assert.match(workspaceSource, /min-width: 0/);
@@ -1740,10 +1758,9 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /<RecordQueryListPanel/);
   assert.match(hostSource, /<RecordModeDrawer/);
   assert.match(hostSource, /enhancementDetailActions/);
-  assert.match(hostSource, /<template #viewOperation>/);
+  assert.match(hostSource, /<template #operation>/);
+  assert.match(hostSource, /<DynamicRecordDetailActions/);
   assert.match(hostSource, /<RecordDetailFields/);
-  assert.match(hostSource, /:edit-available/);
-  assert.match(hostSource, /:save-available/);
   assert.match(hostSource, /<RecordFormFields/);
   assert.match(hostSource, /RecordStatusSwitch/);
   assert.match(hostSource, /<template #status>/);
@@ -1765,8 +1782,13 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /动态\$\{pageMode\.value\}入口暂未接入运行器/);
   assert.match(hostSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
   assert.match(hostSource, /:explorer-count="navigatorLevels\.length"/);
+  assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);
+  assert.match(hostSource, /listDetailWorkspaceMinWidth\(navigatorLevels\.value\.length\)/);
+  assert.match(hostSource, /new ResizeObserver\(\(\) => updateDetailSurfaceForWorkspaceWidth\(\)\)/);
+  assert.match(hostSource, /workspaceWidth < listDetailMinimumWidth\.value/);
+  assert.equal(/max-width: 719px/.test(hostSource), false);
   assert.match(hostSource, /:navigator-count="navigatorLevels\.length"/);
-  assert.match(hostSource, /<ManagementWorkspace v-else-if="treeModule"/);
+  assert.match(hostSource, /<ManagementWorkspace[\s\S]*v-else-if="treeManagementPage \|\| treeModule"/);
   assert.match(hostSource, /<CrudRecordListExplorer/);
   assert.match(hostSource, /<TreeRecordExplorer[\s\S]*v-if="level\.tree"/);
   assert.match(hostSource, /const primaryNavigatorContext = computed/);
@@ -1794,15 +1816,28 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /<RecordPanelState/);
   assert.match(
     hostSource,
-    /v-if="!treeModule && !flatManagementPage && \(!listDetailCardPage \|\| narrowDetailSurface\)"/,
+    /v-if="!treeModule && !flatManagementPage && \(!listDetailCardPage \|\| detailSurfaceUsesDrawer\)"/,
   );
   assert.match(
     hostSource,
-    /<ManagementWorkspace[\s\S]*v-else-if="listDetailCardPage && !narrowDetailSurface"/,
+    /<ManagementWorkspace[\s\S]*v-else-if="listDetailCardPage"[\s\S]*:list-surface="detailSurfaceUsesDrawer"/,
   );
   assert.match(
     hostSource,
-    /function selectListDetailRecord\(record: QueryListRecord\)[\s\S]*openViewRecord\(record\)/,
+    /saveDetailSurfacePreference\(userPreferences, context\.moduleAlias, preference\)/,
+  );
+  assert.match(hostSource, /title="改为抽屉展示"/);
+  assert.match(hostSource, /icon-name="pin-off"/);
+  assert.match(hostSource, /icon-name="pin"/);
+  assert.match(hostSource, /<RecordDetailPanel[\s\S]*<template #title-prefix>/);
+  assert.match(
+    hostSource,
+    /<RecordModeDrawer[\s\S]*<template v-if="listDetailCardPage && !narrowDetailSurface" #title-prefix>/,
+  );
+  assert.match(hostSource, /title="固定到右侧展示"/);
+  assert.match(
+    hostSource,
+    /function selectListDetailRecord\(record: QueryListRecord\)[\s\S]*openRecordView\(record\)/,
   );
   assert.match(hostSource, /<StaticManagementLayout\s+v-if="flatManagementPage"/);
   assert.equal(matchCount(hostSource, /<div v-else class="dynamic-form">[\s\S]*?<RecordFormFields/g), 3);

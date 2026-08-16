@@ -10,6 +10,7 @@ withDefaults(
     loading?: boolean;
     danger?: boolean;
     title?: string;
+    ariaLabel?: string;
     iconName?: UiIconName;
   }>(),
   {
@@ -18,6 +19,7 @@ withDefaults(
     loading: false,
     danger: false,
     title: undefined,
+    ariaLabel: undefined,
     iconName: undefined,
   },
 );
@@ -32,6 +34,7 @@ const emit = defineEmits<{ click: [event: MouseEvent] }>();
     :loading="loading"
     :danger="danger"
     :title="title"
+    :aria-label="ariaLabel"
     :icon-name="iconName"
     @click="emit('click', $event)"
   >

@@ -31,7 +31,7 @@
 | 用户     | `/iam.user`              | CRUD、启停、密码管理           |
 | 角色     | `/iam.role`              | CRUD、启停、排序               |
 
-当前身份权限专题没有 Controller 继承 `ReadOnlyWeb`。`ReadOnlyWeb` 的 `query`、`view` 映射用于其他专题的只读对象，不在本专题 URL 清单内。
+当前身份权限专题没有 Controller 继承 `QueryViewWeb`。`QueryViewWeb` 的 `query`、`view` 映射用于其他专题的查询/详情 HTTP 协议，不在本专题 URL 清单内。
 
 通用接口：
 

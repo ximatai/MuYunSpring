@@ -16,7 +16,13 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
-public interface ReadOnlyWeb<T extends EntityContract, S extends CrudAbility<T>> extends ScopedWeb<S> {
+/**
+ * Reusable HTTP projection that exposes only standard query and detail endpoints.
+ *
+ * <p>This describes the controller's transport surface, not whether the underlying business service is mutable.
+ * Business action availability remains owned by the service and action contract.</p>
+ */
+public interface QueryViewWeb<T extends EntityContract, S extends CrudAbility<T>> extends ScopedWeb<S> {
     default Criteria queryCriteria(WebQueryRequest request) {
         if (service() instanceof QueryAbility<?> queryAbility) {
             Criteria criteria = queryAbility.queryCriteria(WebQueryRequests.from(request));

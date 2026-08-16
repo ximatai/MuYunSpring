@@ -45,14 +45,7 @@ import { metadataOrchestrationWorkspaceView } from './metadataOrchestrationWorks
 defineOptions({ name: 'ModuleManagementView' });
 
 type ModuleFormFieldName =
-  | 'alias'
-  | 'title'
-  | 'parentId'
-  | 'moduleKind'
-  | 'entryType'
-  | 'entryRoute'
-  | 'entryExternalUrl'
-  | 'enabled';
+  'alias' | 'title' | 'parentId' | 'moduleKind' | 'entryType' | 'entryRoute' | 'entryExternalUrl' | 'enabled';
 
 const applicationContext = useModuleContext<Application>({ moduleAlias: 'platform.application' });
 const moduleContext = useModuleContext<PlatformModule>({ moduleAlias: 'platform.module' });

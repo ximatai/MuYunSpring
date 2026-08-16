@@ -6,6 +6,8 @@ export interface WorkbenchNavigation {
   openPage(descriptor: PageDescriptor): WorkbenchPageOpenResult;
   /** Replaces one existing host by its stable tab key without changing that tab's identity. */
   replacePage(pageKey: string, descriptor: PageDescriptor): void;
+  /** Closes one workbench page through the owning shell's tab-state policy. */
+  closePage(pageKey: string): void;
 }
 
 export interface WorkbenchPageOpenResult {

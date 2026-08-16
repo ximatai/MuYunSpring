@@ -31,6 +31,17 @@ import static org.mockito.Mockito.when;
 
 class RecordReadProjectionPlannerTest {
     @Test
+    void shouldNotTreatTreeManagementAsADefaultListProjection() {
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
+                ModuleUiDefinition.builder("mr.tag")
+                        .page(PageTemplates.treeManagement(page -> page
+                                .detail(detail -> detail.editor(editor -> editor.field("title")))))
+                        .build());
+
+        assertThat(RecordReadProjectionPlanner.supportsDefaultListProjection(descriptor)).isFalse();
+    }
+
+    @Test
     void shouldPlanDefaultListProjectionFromResolvedDescriptor() {
         ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(staticDefinition(
                 TestModulePages.listDetail("iam.employee", list -> list

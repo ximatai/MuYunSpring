@@ -24,6 +24,9 @@ const pageLayout = usePageLayout();
   >
     <template #header>
       <ManagementPanelHeader :title="title" :subtitle="subtitle">
+        <template v-if="$slots['title-prefix']" #title-prefix>
+          <slot name="title-prefix" />
+        </template>
         <template v-if="$slots.status" #status>
           <slot name="status" />
         </template>

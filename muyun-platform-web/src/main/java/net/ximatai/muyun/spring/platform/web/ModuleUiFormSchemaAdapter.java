@@ -16,19 +16,24 @@ public final class ModuleUiFormSchemaAdapter {
     }
 
     public static FormSchema formSchema(ModuleUiDefinition definition) {
-        return formSchema(definition, null, null);
+        return formSchema(definition, null, null, null);
     }
 
     public static FormSchema formSchema(ModuleUiDefinition definition, Class<?> modelClass) {
-        return formSchema(definition, modelClass, null);
+        return formSchema(definition, modelClass, null, null);
     }
 
-    /** Resolves either the module page's detail editor or the explicitly named child resource editor. */
+    /** Resolves a page detail editor, module editor surface, or explicitly named child resource editor. */
     public static FormSchema formSchema(ModuleUiDefinition definition, Class<?> modelClass, String resource) {
+        return formSchema(definition, modelClass, resource, null);
+    }
+
+    public static FormSchema formSchema(ModuleUiDefinition definition, Class<?> modelClass, String resource,
+                                        String editorSurface) {
         if (definition == null) {
             return null;
         }
-        ViewDefinition formView = formView(definition, resource);
+        ViewDefinition formView = formView(definition, resource, editorSurface);
         if (formView == null) {
             return null;
         }
@@ -45,7 +50,7 @@ public final class ModuleUiFormSchemaAdapter {
         return FormSchema.from(descriptor.build(), modelClass);
     }
 
-    private static ViewDefinition formView(ModuleUiDefinition definition, String resource) {
+    private static ViewDefinition formView(ModuleUiDefinition definition, String resource, String editorSurface) {
         if (resource != null && !resource.isBlank()) {
             return definition.editorContributions().stream()
                     .filter(contribution -> resource.trim().equals(contribution.resource()))
@@ -53,11 +58,19 @@ public final class ModuleUiFormSchemaAdapter {
                     .findFirst()
                     .orElse(null);
         }
+        if (editorSurface != null && !editorSurface.isBlank()) {
+            return definition.editorSurfaces().stream()
+                    .filter(surface -> editorSurface.trim().equals(surface.key()))
+                    .map(EditorSurfaceDefinition::editor)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("editor surface is not declared: " + editorSurface));
+        }
         ModulePageDefinition page = definition.page();
-        if (page == null) return definition.customPageEditor();
+        if (page == null) return definition.defaultEditor();
         return switch (page) {
             case FlatManagementPageDefinition flat -> flat.detail().editor();
             case ListDetailCardPageDefinition card -> card.detail().editor();
+            case TreeManagementPageDefinition tree -> tree.detail().editor();
             case null -> null;
         };
     }
@@ -123,7 +136,7 @@ public final class ModuleUiFormSchemaAdapter {
                 modelClass
         );
         ModuleUiDescriptorCompiler.validate(new ModuleUiDefinition(definition.moduleAlias(), List.of(), null,
-                formView, List.of()), List.of(entity));
+                formView, List.of(), List.of()), List.of(entity));
     }
 
     private static String entityAlias(String moduleAlias) {

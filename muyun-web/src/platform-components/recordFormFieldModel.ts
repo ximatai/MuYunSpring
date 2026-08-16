@@ -115,10 +115,15 @@ export function resolveRecordFormFieldNames(
 export function resolveRecordFormFields(
   uiDescriptor: ResolvedModuleUiDescriptor | undefined,
   resource?: string,
+  editorSurface?: string,
 ): Map<string, RecordFormFieldDescriptor> {
   const formView = resource
     ? uiDescriptor?.editorContributions?.find((contribution) => contribution.resource === resource)?.editor
-    : (uiDescriptor?.page?.detail.editor ?? uiDescriptor?.customPageEditor);
+    : editorSurface
+      ? uiDescriptor?.editorSurfaces?.find((surface) => surface.key === editorSurface)?.editor
+      : (uiDescriptor?.page?.detail.editor ??
+        uiDescriptor?.page?.detail.display ??
+        uiDescriptor?.defaultEditor);
   const references = new Map(
     (uiDescriptor?.fileReferences ?? []).map((reference) => [fieldRefKey(reference.fieldRef), reference]),
   );
@@ -145,10 +150,15 @@ export function resolveRecordFormFields(
 export function resolveRecordFormGroups(
   uiDescriptor: ResolvedModuleUiDescriptor | undefined,
   resource?: string,
+  editorSurface?: string,
 ): FormGroupDescriptor[] {
   const editor = resource
     ? uiDescriptor?.editorContributions?.find((contribution) => contribution.resource === resource)?.editor
-    : (uiDescriptor?.page?.detail.editor ?? uiDescriptor?.customPageEditor);
+    : editorSurface
+      ? uiDescriptor?.editorSurfaces?.find((surface) => surface.key === editorSurface)?.editor
+      : (uiDescriptor?.page?.detail.editor ??
+        uiDescriptor?.page?.detail.display ??
+        uiDescriptor?.defaultEditor);
   return editor?.formGroups ?? [];
 }
 

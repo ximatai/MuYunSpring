@@ -23,6 +23,11 @@ public record ResolvedModulePageDescriptor(ModulePageTemplate template,
                     throw new IllegalArgumentException("list/detail card requires list/detail/traits slots");
                 }
             }
+            case TREE_MANAGEMENT -> {
+                if (explorer != null || navigator != null || list != null || detail == null) {
+                    throw new IllegalArgumentException("tree/detail card requires detail/traits slots");
+                }
+            }
         }
     }
 

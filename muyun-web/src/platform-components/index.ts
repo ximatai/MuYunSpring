@@ -17,6 +17,7 @@ export { default as EnabledSelect } from './EnabledSelect.vue';
 export { default as ModuleActionButton } from './ModuleActionButton.vue';
 export { default as ManagementWorkspace } from './ManagementWorkspace.vue';
 export { default as ManagementExplorerColumn } from './ManagementExplorerColumn.vue';
+export { MANAGEMENT_WORKSPACE_LAYOUT, listDetailWorkspaceMinWidth } from './managementWorkspaceLayout';
 export { providePageLayout, usePageLayout } from './pageLayoutContext';
 export { default as RecordActionBar } from './RecordActionBar.vue';
 export { default as RecordDetailDrawer } from './RecordDetailDrawer.vue';

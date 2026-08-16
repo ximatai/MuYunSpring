@@ -36,6 +36,7 @@ withDefaults(
     <slot name="header">
       <header class="record-detail-layout-header">
         <div class="record-detail-layout-title-group">
+          <slot name="title-prefix" />
           <div class="record-detail-layout-title-copy">
             <h2>{{ title }}</h2>
             <p v-if="subtitle">{{ subtitle }}</p>
@@ -110,14 +111,16 @@ withDefaults(
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
+  min-height: 32px;
 }
 
 .record-detail-layout-title-group {
   display: inline-flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
+  min-height: 32px;
 }
 
 .record-detail-layout-title-copy {
@@ -149,6 +152,7 @@ withDefaults(
   justify-content: flex-end;
   gap: 10px;
   min-width: 0;
+  min-height: 32px;
   max-width: 100%;
 }
 

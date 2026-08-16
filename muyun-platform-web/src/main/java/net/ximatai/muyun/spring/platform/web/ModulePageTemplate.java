@@ -6,5 +6,6 @@ package net.ximatai.muyun.spring.platform.web;
  */
 public enum ModulePageTemplate {
     FLAT_MANAGEMENT,
-    LIST_DETAIL_CARD
+    LIST_DETAIL_CARD,
+    TREE_MANAGEMENT
 }

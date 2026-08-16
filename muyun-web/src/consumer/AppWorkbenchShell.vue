@@ -21,12 +21,13 @@ import {
   openMenuTab,
   reorderMenuTabs,
   removeLockedMenuTabs,
-  restoreLockedMenuTabs,
+  restoreLockedWorkbenchTabs,
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
 } from '../app/workbenchStartup';
 import { restoreLockedTabPreference, saveLockedTabPreference } from '../app/lockedTabPreference';
 import { workbenchRouteWriteFor } from '../app/workbenchRouteSync';
+import { syncModulePageWorkspaceViewContributions } from '../platform-workbench/modulePageWorkspaceViews';
 import type { AppWorkbenchNavigation } from './workbenchNavigation';
 
 defineOptions({ name: 'AppWorkbenchShell' });
@@ -63,10 +64,11 @@ let lockedTabPreferenceRevision = 0;
 let lockedTabPreferenceWrite = Promise.resolve();
 let isMounted = false;
 
-provideWorkbenchNavigation({ openPage, replacePage });
+provideWorkbenchNavigation({ openPage, replacePage, closePage: closeTab });
 
 onMounted(() => {
   isMounted = true;
+  syncModulePageWorkspaceViewContributions();
   void restoreLockedTabs();
   restoreFromLocation(props.location);
 });
@@ -210,7 +212,7 @@ function restoreFromLocation(location: string) {
 async function restoreLockedTabs() {
   const restoreRevision = lockedTabPreferenceRevision;
   try {
-    const restoredLockedTabs = restoreLockedMenuTabs(
+    const restoredLockedTabs = restoreLockedWorkbenchTabs(
       await restoreLockedTabPreference(userPreferences),
       props.startup.menus,
       props.resolveOptions,
