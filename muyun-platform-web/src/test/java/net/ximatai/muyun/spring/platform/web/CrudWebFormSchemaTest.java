@@ -97,6 +97,22 @@ class CrudWebFormSchemaTest {
     }
 
     @Test
+    void shouldSelectNamedEditorSurfaceForFormSchemaEndpoint() throws Exception {
+        MockMvc mvc = MockMvcBuilders
+                .standaloneSetup(new DemoRecordUiController(new DemoRecordService()))
+                .build();
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(get("/demo.record.ui/form/schema").param("editorSurface", "quick_rename"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.scopeName").value("demo.record.ui"))
+                    .andExpect(jsonPath("$.title").value("快速重命名"))
+                    .andExpect(jsonPath("$.fields.length()").value(1))
+                    .andExpect(jsonPath("$.fields[0].name").value("title"));
+        }
+    }
+
+    @Test
     void shouldSelectChildResourceEditorForFormSchemaEndpoint() throws Exception {
         MockMvc mvc = MockMvcBuilders
                 .standaloneSetup(new DemoRecordChildUiController(new DemoRecordService()))
@@ -124,6 +140,25 @@ class CrudWebFormSchemaTest {
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
             mvc.perform(post("/demo.record.ui/query")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.records[0].id").value("demo-1"))
+                    .andExpect(jsonPath("$.records[0].title").value("Demo One"))
+                    .andExpect(jsonPath("$.records[0].status").doesNotExist());
+        }
+    }
+
+    @Test
+    void shouldProjectStaticModuleQueryThroughQueryViewEndpointWithoutPublishingMutations() throws Exception {
+        DemoRecordQueryViewController controller = new DemoRecordQueryViewController(new DemoRecordService());
+        controller.setStaticRecordReadProjectionService(new StaticRecordReadProjectionService(
+                new StaticModuleDefinitionCatalog(List.of(demoStaticModuleDefinition()))
+        ));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/demo.record.query-view/query")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isOk())
@@ -173,6 +208,38 @@ class CrudWebFormSchemaTest {
                                     .field("status", field -> field.label("状态"))
                                     .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))
                                     .field("showTitleArea", field -> field.label("展示标题区"))))))
+                    .editors(editors -> editors.editor("quick_rename", form -> form
+                            .title("快速重命名")
+                            .field("title", field -> field.label("名称").required())))
+                    .build();
+        }
+    }
+
+    @RestController
+    @RequestMapping("/demo.record.query-view")
+    private static final class DemoRecordQueryViewController extends WebSupport<DemoRecordService>
+            implements StaticQueryViewWeb<DemoRecord, DemoRecordService>, StaticModuleUiContributor {
+        private StaticRecordReadProjectionService staticRecordReadProjectionService;
+
+        private DemoRecordQueryViewController(DemoRecordService service) {
+            this.service = service;
+        }
+
+        private void setStaticRecordReadProjectionService(StaticRecordReadProjectionService service) {
+            this.staticRecordReadProjectionService = service;
+        }
+
+        @Override
+        public StaticRecordReadProjectionService staticRecordReadProjectionService() {
+            return staticRecordReadProjectionService;
+        }
+
+        @Override
+        public ModuleUiDefinition moduleUiDefinition() {
+            return ModuleUiDefinition.builder("demo.record.ui")
+                    .page(PageTemplates.listDetailCard(page -> page
+                            .list(list -> list.fields(fields -> fields.field("title")))
+                            .detail(detail -> detail.display(display -> display.field("title")))))
                     .build();
         }
     }

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import {
   ManagementExplorerColumn,
   ManagementWorkspace,
+  listDetailWorkspaceMinWidth,
   CrudRecordListExplorer,
   ModuleActionButton,
   RecordDetailPanel,
@@ -48,6 +49,7 @@ import type {
 import {
   createModuleContext,
   createPageBootstrapClient,
+  userPreferences,
   useModuleContext,
   type ModuleContext,
 } from '@muyun/web-core';
@@ -68,9 +70,18 @@ import {
   type ModulePageDrawer,
   type ModulePageDrawerContext,
   type ModulePageRecordActionContribution,
+  type ModulePageWorkspaceView,
 } from './modulePageEnhancements';
 import { useModulePageNavigation } from './modulePageNavigation';
 import { modulePageListRefreshRegistry } from './modulePageListRefresh';
+import {
+  normalizeDetailSurfacePreference,
+  restoreDetailSurfacePreference,
+  saveDetailSurfacePreference,
+  type DetailSurfacePreference,
+} from './detailSurfacePreference';
+import DynamicRecordDetailActions from './DynamicRecordDetailActions.vue';
+import { useRecordDetailController } from './recordDetailController';
 
 /**
  * Descriptor-driven CRUD runner shared by static and dynamic modules.
@@ -89,10 +100,18 @@ const context = useModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
 });
 const modulePageNavigation = useModulePageNavigation();
-const selectedRecord = ref<QueryListRecord>();
-const editingRecord = ref<QueryListRecord>();
-const editorMode = ref<'create' | 'edit' | 'view'>('view');
-const detailOpen = ref(false);
+const detail = useRecordDetailController<QueryListRecord>();
+const {
+  record: selectedRecord,
+  draft: editingRecord,
+  mode: editorMode,
+  open: detailOpen,
+  saving,
+  formSessionKey,
+  togglingEnabled,
+  loading: detailLoading,
+  loadFailed: detailLoadFailed,
+} = detail;
 const formFields = ref(resolveRecordFormFields(undefined));
 const runtimePage = ref<ResolvedModulePageDescriptor>();
 const listMode = ref<RecordQueryListMode>('normal');
@@ -107,20 +126,23 @@ const navigatorLevels = ref<NavigatorLevelRuntime[]>([]);
 const selectedNavigatorRecords = ref<Record<string, QueryListRecord | undefined>>({});
 const scopeSearchKeyword = ref('');
 const scopeReloadKey = ref(0);
-const saving = ref(false);
-const formSessionKey = ref(0);
-const togglingEnabled = ref(false);
-const detailLoading = ref(false);
-const detailLoadFailed = ref(false);
 const narrowDetailSurface = ref(false);
+const detailSurfacePreference = ref<DetailSurfacePreference | undefined>(
+  normalizeDetailSurfacePreference(
+    userPreferences.get(`module-page.detail-surface.${context.moduleAlias}`, undefined),
+  ),
+);
+const workspaceElement = ref<HTMLElement>();
 const enhancementDrawer = ref<{
   definition: ModulePageDrawer;
   context: ModulePageDrawerContext;
 }>();
 let detailLoadSequence = 0;
 let unregisterListRefresh: (() => void) | undefined;
-let narrowDetailSurfaceQuery: MediaQueryList | undefined;
-let updateNarrowDetailSurface: (() => void) | undefined;
+let workspaceResizeObserver: ResizeObserver | undefined;
+let removeWorkspaceResizeFallback: (() => void) | undefined;
+let detailSurfacePreferenceRestoreRevision = 0;
+let detailSurfacePreferenceWrite = Promise.resolve();
 
 interface NavigatorLevelRuntime {
   descriptor: ResolvedPageNavigatorLevelDescriptor;
@@ -159,6 +181,13 @@ const activeListView = computed(() => {
   return runtimePage.value?.list?.fields;
 });
 const flatManagementPage = computed(() => runtimePage.value?.template === 'FLAT_MANAGEMENT');
+// A tree domain owns the explorer; TREE_MANAGEMENT owns the matching detail surface.
+// Keep the capability fallback for older static modules that have not yet declared a page root.
+const treeManagementPage = computed(() => runtimePage.value?.template === 'TREE_MANAGEMENT');
+const listDetailMinimumWidth = computed(() => listDetailWorkspaceMinWidth(navigatorLevels.value.length));
+const detailSurfaceUsesDrawer = computed(
+  () => narrowDetailSurface.value || detailSurfacePreference.value === 'drawer',
+);
 const flatManagementContent = computed(() => {
   const explorer = runtimePage.value?.explorer;
   const detail = runtimePage.value?.detail;
@@ -225,7 +254,23 @@ const enhancementDetailSections = computed<ModulePageDetailSection[]>(
   () => pageEnhancement.value?.detail?.sections ?? [],
 );
 const enhancementDetailDrawer = computed<ModulePageDetailDrawer | undefined>(
-  () => pageEnhancement.value?.detail?.drawer,
+  () => pageEnhancement.value?.recordView?.drawer,
+);
+const detailWorkspaceView = computed<ModulePageWorkspaceView | undefined>(() => {
+  const type = runtimePage.value?.detail.workspaceView?.type;
+  if (!type) return undefined;
+  return pageEnhancement.value?.workspaceViews?.find((view) => view.type === type);
+});
+const detailWorkspaceAvailable = computed(() =>
+  Boolean(
+    modulePageNavigation &&
+    detailWorkspaceView.value &&
+    selectedRecord.value?.id != null &&
+    editorMode.value === 'view' &&
+    !detailLoading.value &&
+    !detailLoadFailed.value &&
+    !recycleBinDetailActive.value,
+  ),
 );
 const listDetailCardPage = computed(
   () => runtimePage.value?.template === 'LIST_DETAIL_CARD' && !enhancementDetailDrawer.value,
@@ -233,9 +278,6 @@ const listDetailCardPage = computed(
 const standardCrudRowActionKeys = computed<StandardCrudRowActionKey[]>(() =>
   enhancementDetailDrawer.value ? ['view'] : ['view', 'edit', 'delete'],
 );
-const standardCrudRowActionCodes = computed<Partial<Record<StandardCrudRowActionKey, string>>>(() => ({
-  view: pageEnhancement.value?.list?.viewActionCode ?? 'view',
-}));
 const pageBootstrapRequired = computed(() => Boolean(props.descriptor.menuId));
 const pageReady = computed(() => !pageBootstrapRequired.value || pageBootstrap.value !== undefined);
 const unsupportedPageModeText = computed(() => `动态${pageMode.value}入口暂未接入运行器`);
@@ -386,28 +428,75 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
 });
 
 onMounted(async () => {
-  if (typeof window.matchMedia === 'function') {
-    narrowDetailSurfaceQuery = window.matchMedia('(max-width: 719px)');
-    updateNarrowDetailSurface = () => {
-      narrowDetailSurface.value = narrowDetailSurfaceQuery?.matches === true;
-    };
-    updateNarrowDetailSurface();
-    narrowDetailSurfaceQuery.addEventListener('change', updateNarrowDetailSurface);
-  }
+  void restoreDetailSurfaceMode();
   await loadPageBootstrap();
   await loadRuntimeForm();
+  // The workspace is gated by page readiness, so its element is only present
+  // after both descriptors have settled.
+  await nextTick();
+  observeWorkspaceWidth();
+  updateDetailSurfaceForWorkspaceWidth();
   if (isListPage.value && !pageBootstrapError.value) {
     unregisterListRefresh = modulePageListRefreshRegistry.register(context.moduleAlias, refreshList);
   }
 });
 
-onUnmounted(() => {
-  if (updateNarrowDetailSurface) {
-    narrowDetailSurfaceQuery?.removeEventListener('change', updateNarrowDetailSurface);
+async function restoreDetailSurfaceMode() {
+  const revision = ++detailSurfacePreferenceRestoreRevision;
+  try {
+    const restored = await restoreDetailSurfacePreference(userPreferences, context.moduleAlias);
+    if (revision === detailSurfacePreferenceRestoreRevision) {
+      detailSurfacePreference.value = restored;
+    }
+  } catch {
+    // The local preference already initialized the runner; presentation must not block on optional persistence.
   }
+}
+
+function useDrawerDetailSurface() {
+  setDetailSurfacePreference('drawer');
+}
+
+function usePinnedDetailSurface() {
+  setDetailSurfacePreference('pinned');
+}
+
+function setDetailSurfacePreference(preference: DetailSurfacePreference) {
+  detailSurfacePreference.value = preference;
+  detailSurfacePreferenceWrite = detailSurfacePreferenceWrite
+    .catch(() => undefined)
+    .then(() => saveDetailSurfacePreference(userPreferences, context.moduleAlias, preference));
+  void detailSurfacePreferenceWrite.catch(() => undefined);
+}
+
+onUnmounted(() => {
+  workspaceResizeObserver?.disconnect();
+  removeWorkspaceResizeFallback?.();
   unregisterListRefresh?.();
   unregisterListRefresh = undefined;
 });
+
+function observeWorkspaceWidth() {
+  if (typeof ResizeObserver !== 'undefined' && workspaceElement.value) {
+    workspaceResizeObserver = new ResizeObserver(() => updateDetailSurfaceForWorkspaceWidth());
+    workspaceResizeObserver.observe(workspaceElement.value);
+    updateDetailSurfaceForWorkspaceWidth();
+    return;
+  }
+  if (typeof window === 'undefined') return;
+  const onResize = () => updateDetailSurfaceForWorkspaceWidth();
+  window.addEventListener('resize', onResize);
+  removeWorkspaceResizeFallback = () => window.removeEventListener('resize', onResize);
+  onResize();
+}
+
+function updateDetailSurfaceForWorkspaceWidth() {
+  const workspaceWidth = workspaceElement.value?.getBoundingClientRect().width;
+  // A detached/hidden host has no meaningful layout width. Defer its decision
+  // until ResizeObserver (or the resize fallback) receives a real measurement.
+  if (workspaceWidth == null || workspaceWidth <= 0) return;
+  narrowDetailSurface.value = workspaceWidth < listDetailMinimumWidth.value;
+}
 
 async function loadPageBootstrap() {
   const menuId = props.descriptor.menuId;
@@ -434,8 +523,8 @@ async function loadRuntimeForm() {
   runtimePage.value = runtimeContext.uiDescriptor?.page;
   treeModule.value = context.abilities.hasTree() === true;
   const enhancement = pageEnhancement.value;
-  if (treeModule.value && (enhancement?.detail?.drawer || enhancement?.list?.viewActionCode)) {
-    pageBootstrapError.value = `模块页面增强 ${enhancement.id} 的业务详情抽屉和查看动作仅支持普通列表模块，不支持树模块`;
+  if (treeModule.value && enhancement?.recordView) {
+    pageBootstrapError.value = `模块页面增强 ${enhancement.id} 的业务查看呈现仅支持普通列表模块，不支持树模块`;
     return;
   }
   const resolvedNavigatorLevels = runtimePage.value?.navigator?.levels ?? [];
@@ -501,7 +590,7 @@ function openFlatManagementRecord(record: QueryListRecord) {
     void openRecycleBinRecord(record);
     return;
   }
-  void openViewRecord(record);
+  void openRecordView(record);
 }
 
 function handleFlatManagementAction(action: RecordActionItem) {
@@ -543,14 +632,19 @@ function selectRecord(record: QueryListRecord) {
   selectedRecord.value = record;
 }
 
-/** A LIST_DETAIL_CARD selection is the detail navigation event, not merely row highlighting. */
+/**
+ * A persistent detail card follows the selected row. When that same detail is
+ * promoted to a drawer, retain the standard list interaction: selection only
+ * highlights a row; double-click and the explicit view action open the drawer.
+ */
 function selectListDetailRecord(record: QueryListRecord) {
   selectRecord(record);
+  if (detailSurfaceUsesDrawer.value) return;
   if (listMode.value === 'recycleBin') {
     void openRecycleBinRecord(record);
     return;
   }
-  void openViewRecord(record);
+  void openRecordView(record);
 }
 
 function selectStandaloneListRecord(record: QueryListRecord) {
@@ -563,7 +657,7 @@ function openListRecord(record: QueryListRecord) {
     void openRecycleBinRecord(record);
     return;
   }
-  void openViewRecord(record);
+  void openRecordView(record);
 }
 
 /**
@@ -636,38 +730,30 @@ async function openRecord(record: QueryListRecord, mode: 'edit' | 'view') {
   const id = record.id == null ? undefined : String(record.id);
   if (!id) return;
   const requestSequence = ++detailLoadSequence;
-  formSessionKey.value += 1;
-  selectedRecord.value = record;
-  editingRecord.value = undefined;
-  editorMode.value = mode;
-  detailOpen.value = true;
-  detailLoading.value = true;
-  detailLoadFailed.value = false;
+  detail.beginLoad(record, mode);
   if (mode === 'view' && enhancementDetailDrawer.value?.loadRecord === false) {
-    editingRecord.value = record;
-    detailLoading.value = false;
+    detail.resolveLoad(record);
+    detail.finishLoad();
     return;
   }
   try {
-    const detail = await context.crud.view(id);
+    const loadedRecord = await context.crud.view(id);
     if (
       !shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
     )
       return;
-    editingRecord.value = detail;
-    selectedRecord.value = detail;
+    detail.resolveLoad(loadedRecord);
   } catch {
     if (
       !shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
     )
       return;
-    editingRecord.value = undefined;
-    detailLoadFailed.value = true;
+    detail.failLoad();
   } finally {
     if (
       shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
     ) {
-      detailLoading.value = false;
+      detail.finishLoad();
     }
   }
 }
@@ -680,15 +766,9 @@ async function openRecycleBinRecord(record: QueryListRecord) {
   const id = record.id == null ? undefined : String(record.id);
   if (!id) return;
   const requestSequence = ++detailLoadSequence;
-  formSessionKey.value += 1;
-  selectedRecord.value = record;
-  editingRecord.value = undefined;
-  editorMode.value = 'view';
-  detailOpen.value = true;
-  detailLoading.value = true;
-  detailLoadFailed.value = false;
+  detail.beginLoad(record, 'view');
   try {
-    const detail = await context.http.request<QueryListRecord>({
+    const loadedRecord = await context.http.request<QueryListRecord>({
       method: 'GET',
       path: `/${context.moduleAlias}/recycle-bin/view/${encodeURIComponent(id)}`,
     });
@@ -697,21 +777,19 @@ async function openRecycleBinRecord(record: QueryListRecord) {
     ) {
       return;
     }
-    editingRecord.value = detail;
-    selectedRecord.value = detail;
+    detail.resolveLoad(loadedRecord);
   } catch {
     if (
       !shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
     ) {
       return;
     }
-    editingRecord.value = undefined;
-    detailLoadFailed.value = true;
+    detail.failLoad();
   } finally {
     if (
       shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
     ) {
-      detailLoading.value = false;
+      detail.finishLoad();
     }
   }
 }
@@ -730,13 +808,9 @@ function updateDraftField(
 }
 
 function createRecord(parentId?: string) {
+  if (context.can('create') !== true) return;
   detailLoadSequence += 1;
-  detailLoading.value = false;
-  detailLoadFailed.value = false;
-  formSessionKey.value += 1;
-  editingRecord.value = parentId ? { parentId } : { ...navigatorCreateDefaults.value };
-  editorMode.value = 'create';
-  detailOpen.value = true;
+  detail.beginCreate(parentId ? { parentId } : { ...navigatorCreateDefaults.value });
 }
 
 function createRootRecord() {
@@ -749,12 +823,17 @@ function createChildRecord() {
 }
 
 async function editRecord(record: QueryListRecord) {
+  if (context.can('update') !== true) return;
+  if (selectedRecord.value?.id === record.id && detail.beginEdit()) return;
   await openRecord(record, 'edit');
 }
 
 async function saveRecord() {
   const record = editingRecord.value;
   if (!record) return;
+  if (editorMode.value === 'create' ? context.can('create') !== true : context.can('update') !== true) {
+    return;
+  }
   if (
     !canMutateDynamicModuleDetail({
       hasRecord: true,
@@ -776,8 +855,7 @@ async function saveRecord() {
     if (treeModule.value) {
       selectedTreeRecord.value = result.record;
     }
-    editingRecord.value = result.record;
-    editorMode.value = 'view';
+    detail.applySaved(result.record);
     refreshList();
     formSessionKey.value += 1;
     await presentDynamicModuleActionSuccess(result, '保存成功');
@@ -805,8 +883,7 @@ async function deleteRecord(record: QueryListRecord) {
     }
     const result = await context.crud.delete(id, { version });
     if (selectedRecord.value?.id === id) {
-      selectedRecord.value = undefined;
-      editingRecord.value = undefined;
+      detail.clearDeleted();
       selectedTreeRecord.value = undefined;
     }
     refreshList();
@@ -829,8 +906,7 @@ async function toggleEnabled() {
       ? await context.crud.enable(id, { version })
       : await context.crud.disable(id, { version });
     const refreshed = await context.crud.view(id);
-    selectedRecord.value = refreshed;
-    editingRecord.value = refreshed;
+    detail.resolveLoad(refreshed);
     refreshList();
     await presentDynamicModuleActionSuccess(result, enabling ? '已启用' : '已停用');
   } catch (cause) {
@@ -865,7 +941,7 @@ function handleListAction(action: { key?: string }) {
 
 function handleRowAction(action: { key?: string }, record: QueryListRecord) {
   if (action.key === 'view') {
-    void openViewRecord(record);
+    void openRecordView(record);
     return;
   }
   if (action.key === 'edit') {
@@ -882,8 +958,9 @@ function handleRowAction(action: { key?: string }, record: QueryListRecord) {
   }
 }
 
-async function openViewRecord(record: QueryListRecord) {
-  const viewActionCode = pageEnhancement.value?.list?.viewActionCode;
+/** The sole dispatch point for standard view actions, double-clicks and list-detail selection. */
+async function openRecordView(record: QueryListRecord) {
+  const viewActionCode = pageEnhancement.value?.recordView?.authorizationActionCode;
   const recordId = record.id == null ? undefined : String(record.id);
   if (viewActionCode && recordId) {
     try {
@@ -938,6 +1015,15 @@ function detailDrawerContext(record: QueryListRecord): ModulePageDrawerContext {
     close: closeDetail,
     reload: reloadModulePage,
   };
+}
+
+/** Opens the declared detail workspace independently of the current card/drawer surface. */
+function openDetailWorkspaceView() {
+  const view = detailWorkspaceView.value;
+  const record = selectedRecord.value;
+  const recordId = record?.id == null ? undefined : String(record.id);
+  if (!view || !recordId || !detailWorkspaceAvailable.value || !modulePageNavigation) return;
+  modulePageNavigation.openWorkspaceTab(view, { recordId }, recordTitle(record) ?? undefined);
 }
 
 function modulePageActionContext(record?: QueryListRecord): ModulePageActionContext {
@@ -1011,12 +1097,17 @@ defineExpose({ refreshList });
 function closeDetail() {
   if (saving.value) return;
   detailLoadSequence += 1;
-  detailLoading.value = false;
-  detailLoadFailed.value = false;
-  formSessionKey.value += 1;
-  detailOpen.value = false;
-  editorMode.value = 'view';
-  editingRecord.value = selectedRecord.value;
+  detail.close();
+}
+
+/**
+ * Cancelling an edit returns to the already-open record view. Only a create
+ * draft has no existing detail to return to, so it closes the detail surface.
+ */
+function cancelDetailEditing() {
+  if (saving.value) return;
+  detailLoadSequence += 1;
+  detail.cancelEdit();
 }
 
 function closeTreeCardEditor() {
@@ -1055,6 +1146,7 @@ function recordTitle(record: QueryListRecord | undefined) {
   </section>
   <section
     v-else-if="isListPage"
+    ref="workspaceElement"
     class="dynamic-module-workspace"
     :class="{
       'dynamic-module-workspace--tree': treeModule,
@@ -1155,6 +1247,14 @@ function recordTitle(record: QueryListRecord | undefined) {
         />
       </template>
       <template #detail-actions>
+        <RecordPanelButton
+          v-if="detailWorkspaceAvailable"
+          type="text"
+          icon-name="open-in-new"
+          title="在新标签页打开"
+          aria-label="在新标签页打开"
+          @click="openDetailWorkspaceView"
+        />
         <RecordActionBar
           :context="context"
           :record-id="
@@ -1221,10 +1321,11 @@ function recordTitle(record: QueryListRecord | undefined) {
     </StaticManagementLayout>
 
     <ManagementWorkspace
-      v-else-if="listDetailCardPage && !narrowDetailSurface"
+      v-else-if="listDetailCardPage"
       class="dynamic-list-detail-workspace"
       :explorer-count="navigatorLevels.length"
-      detail-surface
+      :detail-surface="!detailSurfaceUsesDrawer"
+      :list-surface="detailSurfaceUsesDrawer"
     >
       <ManagementExplorerColumn v-for="level in navigatorLevels" :key="level.descriptor.key">
         <RecordExplorerPanel
@@ -1275,7 +1376,6 @@ function recordTitle(record: QueryListRecord | undefined) {
         :standard-crud-actions="true"
         :standard-crud-row-actions="true"
         :standard-crud-row-action-keys="standardCrudRowActionKeys"
-        :standard-crud-row-action-codes="standardCrudRowActionCodes"
         :extra-actions="enhancementActions"
         :additional-columns="enhancementColumns"
         :cell-components="enhancementCellComponents"
@@ -1302,49 +1402,45 @@ function recordTitle(record: QueryListRecord | undefined) {
         "
       />
 
-      <RecordDetailPanel class="dynamic-list-detail-card" :title="detailTitle">
+      <RecordDetailPanel
+        v-if="!detailSurfaceUsesDrawer"
+        class="dynamic-list-detail-card"
+        :title="detailTitle"
+      >
+        <template #title-prefix>
+          <RecordPanelButton
+            class="detail-surface-mode-button"
+            type="text"
+            icon-name="pin-off"
+            title="改为抽屉展示"
+            aria-label="改为抽屉展示"
+            @click="useDrawerDetailSurface"
+          />
+        </template>
         <template #actions>
-          <template v-if="editorMode !== 'view'">
-            <RecordPanelButton :disabled="saving" @click="closeDetail">取消</RecordPanelButton>
-            <RecordPanelButton
-              type="primary"
-              :loading="saving"
-              :disabled="detailLoading || detailLoadFailed"
-              @click="saveRecord"
-            >
-              {{ saving ? '保存中' : '保存' }}
-            </RecordPanelButton>
-          </template>
-          <template v-else-if="!recycleBinDetailActive">
-            <RecordActionBar
-              v-if="selectedRecord?.id != null && enhancementDetailActions.length > 0"
-              :context="context"
-              :record-id="String(selectedRecord.id)"
-              :actions="enhancementDetailActions"
-              @action="handleDetailAction"
-            />
-            <ModuleActionButton :context="context" action-code="create" @click="createRootRecord">
-              新建
-            </ModuleActionButton>
-            <ModuleActionButton
-              :context="context"
-              action-code="update"
-              :disabled="!selectedRecord"
-              @click="selectedRecord && editRecord(selectedRecord)"
-            >
-              编辑
-            </ModuleActionButton>
-            <ModuleActionButton
-              :context="context"
-              action-code="delete"
-              :loading="saving"
-              danger
-              :disabled="!selectedRecord"
-              @click="selectedRecord && deleteRecord(selectedRecord)"
-            >
-              删除
-            </ModuleActionButton>
-          </template>
+          <RecordPanelButton
+            v-if="detailWorkspaceAvailable"
+            type="text"
+            icon-name="open-in-new"
+            title="在新标签页打开"
+            aria-label="在新标签页打开"
+            @click="openDetailWorkspaceView"
+          />
+          <DynamicRecordDetailActions
+            :context="context"
+            :record="selectedRecord"
+            :mode="editorMode"
+            :saving="saving"
+            :detail-loading="detailLoading"
+            :detail-load-failed="detailLoadFailed"
+            :recycle-bin-active="recycleBinDetailActive"
+            :actions="enhancementDetailActions"
+            @cancel="cancelDetailEditing"
+            @save="saveRecord"
+            @edit="selectedRecord && editRecord(selectedRecord)"
+            @delete="selectedRecord && deleteRecord(selectedRecord)"
+            @detail-action="handleDetailAction"
+          />
         </template>
         <template #status>
           <RecordStatusSwitch
@@ -1396,7 +1492,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       </RecordDetailPanel>
     </ManagementWorkspace>
 
-    <ManagementWorkspace v-else-if="treeModule" class="dynamic-tree-workspace">
+    <ManagementWorkspace v-else-if="treeManagementPage || treeModule" class="dynamic-tree-workspace">
       <ManagementExplorerColumn>
         <RecordExplorerPanel
           :title="`${title}树`"
@@ -1448,6 +1544,14 @@ function recordTitle(record: QueryListRecord | undefined) {
             </RecordPanelButton>
           </template>
           <template v-else>
+            <RecordPanelButton
+              v-if="detailWorkspaceAvailable"
+              type="text"
+              icon-name="open-in-new"
+              title="在新标签页打开"
+              aria-label="在新标签页打开"
+              @click="openDetailWorkspaceView"
+            />
             <RecordActionBar
               v-if="selectedRecord?.id != null && enhancementDetailActions.length > 0"
               :context="context"
@@ -1542,7 +1646,6 @@ function recordTitle(record: QueryListRecord | undefined) {
       :standard-crud-actions="true"
       :standard-crud-row-actions="true"
       :standard-crud-row-action-keys="standardCrudRowActionKeys"
-      :standard-crud-row-action-codes="standardCrudRowActionCodes"
       :extra-actions="enhancementActions"
       :additional-columns="enhancementColumns"
       :cell-components="enhancementCellComponents"
@@ -1568,30 +1671,35 @@ function recordTitle(record: QueryListRecord | undefined) {
     />
 
     <RecordModeDrawer
-      v-if="!treeModule && !flatManagementPage && (!listDetailCardPage || narrowDetailSurface)"
+      v-if="!treeModule && !flatManagementPage && (!listDetailCardPage || detailSurfaceUsesDrawer)"
       :open="detailOpen"
       :title="detailTitle"
       :width="enhancementDetailDrawer?.width"
       :mode="editorMode"
       :loading="detailLoading"
       :load-failed="detailLoadFailed"
-      :edit-available="
-        !recycleBinDetailActive &&
-        !enhancementDetailDrawer &&
-        Boolean(selectedRecord) &&
-        !detailLoading &&
-        !detailLoadFailed &&
-        editorMode === 'view'
-      "
-      :save-available="
-        !recycleBinDetailActive && !detailLoading && !detailLoadFailed && editorMode !== 'view'
-      "
-      :saving="saving"
       @close="closeDetail"
       @retry="retryLoadDetail"
-      @edit="selectedRecord && editRecord(selectedRecord)"
-      @save="saveRecord"
     >
+      <template v-if="detailWorkspaceAvailable" #header-actions>
+        <RecordPanelButton
+          type="text"
+          icon-name="open-in-new"
+          title="在新标签页打开"
+          aria-label="在新标签页打开"
+          @click="openDetailWorkspaceView"
+        />
+      </template>
+      <template v-if="listDetailCardPage && !narrowDetailSurface" #title-prefix>
+        <RecordPanelButton
+          class="detail-surface-mode-button"
+          type="text"
+          icon-name="pin"
+          title="固定到右侧展示"
+          aria-label="固定到右侧展示"
+          @click="usePinnedDetailSurface"
+        />
+      </template>
       <template #status>
         <RecordStatusSwitch
           v-if="
@@ -1605,13 +1713,22 @@ function recordTitle(record: QueryListRecord | undefined) {
           @change="toggleEnabled"
         />
       </template>
-      <template #viewOperation>
-        <RecordActionBar
-          v-if="!recycleBinDetailActive && selectedRecord?.id != null && enhancementDetailActions.length > 0"
+      <template #operation>
+        <DynamicRecordDetailActions
           :context="context"
-          :record-id="String(selectedRecord.id)"
+          :record="selectedRecord"
+          :mode="editorMode"
+          :saving="saving"
+          :detail-loading="detailLoading"
+          :detail-load-failed="detailLoadFailed"
+          :recycle-bin-active="recycleBinDetailActive"
           :actions="enhancementDetailActions"
-          @action="handleDetailAction"
+          :show-standard-view-actions="!enhancementDetailDrawer"
+          @cancel="cancelDetailEditing"
+          @save="saveRecord"
+          @edit="selectedRecord && editRecord(selectedRecord)"
+          @delete="selectedRecord && deleteRecord(selectedRecord)"
+          @detail-action="handleDetailAction"
         />
       </template>
       <template #view>
@@ -1701,6 +1818,18 @@ function recordTitle(record: QueryListRecord | undefined) {
 
 .dynamic-list-detail-card {
   min-width: var(--muyun-management-detail-min-width);
+}
+
+/* Title-level layout toggles are compact controls, not primary panel actions. */
+.detail-surface-mode-button {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.detail-surface-mode-button :deep(.ui-icon) {
+  font-size: 16px;
 }
 
 .dynamic-tree-card {

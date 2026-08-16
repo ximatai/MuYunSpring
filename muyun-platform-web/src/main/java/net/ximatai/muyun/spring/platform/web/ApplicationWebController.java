@@ -35,8 +35,7 @@ public class ApplicationWebController extends WebSupport<ApplicationService> imp
                                                 .enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
                                         .field("title", field -> field.label("应用名称").required())
                                         .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
-                        .traits(traits -> traits.standardCrud().enabledStatus().recycleBin()
-                                .responsiveDetailSurface())))
+                        .traits(traits -> traits.standardCrud().enabledStatus().recycleBin())))
                 .build();
     }
 }

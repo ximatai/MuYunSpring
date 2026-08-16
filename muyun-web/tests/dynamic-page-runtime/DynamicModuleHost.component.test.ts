@@ -11,6 +11,7 @@ describe('DynamicModuleHost', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     configureModulePageEnhancements([]);
+    window.localStorage.removeItem('muyun.preference.module-page.detail-surface.crm.customer');
   });
 
   it('merges frontend-owned list enhancements into the standard descriptor runner', async () => {
@@ -266,7 +267,10 @@ describe('DynamicModuleHost', () => {
         return Response.json({
           moduleAlias: 'crm.customer',
           capabilities: [],
-          actions: [{ actionCode: 'crm.customer.view_summary', authorized: true }],
+          actions: [
+            { actionCode: 'view', authorized: true },
+            { actionCode: 'crm.customer.view_summary', authorized: true },
+          ],
           uiDescriptor: {
             schemaVersion: '1',
             moduleAlias: 'crm.customer',
@@ -292,8 +296,10 @@ describe('DynamicModuleHost', () => {
       {
         id: 'customer-summary',
         target: { moduleAlias: 'crm.customer', viewCode: 'default_list' },
-        list: { viewActionCode: 'crm.customer.view_summary' },
-        detail: { drawer: { component: { template: '<section>客户摘要</section>' }, loadRecord: false } },
+        recordView: {
+          authorizationActionCode: 'crm.customer.view_summary',
+          drawer: { component: { template: '<section>客户摘要</section>' }, loadRecord: false },
+        },
       },
     ]);
 
@@ -312,7 +318,7 @@ describe('DynamicModuleHost', () => {
     await flushPromises();
 
     const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
-    expect(panel.props('standardCrudRowActionCodes')).toEqual({ view: 'crm.customer.view_summary' });
+    expect(panel.props('standardCrudRowActionCodes')).toEqual({});
     panel.vm.$emit('rowAction', { key: 'view' }, { id: 'customer-1' });
     await flushPromises();
     panel.vm.$emit('rowDblclick', { id: 'customer-1' });
@@ -330,7 +336,10 @@ describe('DynamicModuleHost', () => {
         return Response.json({
           moduleAlias: 'crm.customer',
           capabilities: [],
-          actions: [{ actionCode: 'crm.customer.view_summary', authorized: true }],
+          actions: [
+            { actionCode: 'view', authorized: true },
+            { actionCode: 'crm.customer.view_summary', authorized: true },
+          ],
           uiDescriptor: {
             schemaVersion: '1',
             moduleAlias: 'crm.customer',
@@ -356,8 +365,10 @@ describe('DynamicModuleHost', () => {
       {
         id: 'customer-summary',
         target: { moduleAlias: 'crm.customer', viewCode: 'default_list' },
-        list: { viewActionCode: 'crm.customer.view_summary' },
-        detail: { drawer: { component: { template: '<section>客户摘要</section>' }, loadRecord: false } },
+        recordView: {
+          authorizationActionCode: 'crm.customer.view_summary',
+          drawer: { component: { template: '<section>客户摘要</section>' }, loadRecord: false },
+        },
       },
     ]);
 
@@ -502,6 +513,8 @@ describe('DynamicModuleHost', () => {
   });
 
   it('applies every selected navigator level to the list without waiting for a downstream selection', async () => {
+    window.localStorage.setItem('muyun.preference.module-page.detail-surface.crm.customer', '"drawer"');
+    let detailRequests = 0;
     globalThis.fetch = async (input) => {
       const request = new Request(input);
       if (request.url.endsWith('/platform.module/crm.customer/context')) {
@@ -545,6 +558,10 @@ describe('DynamicModuleHost', () => {
       if (request.url.endsWith('/platform.module/iam.organization/context')) {
         return Response.json({ moduleAlias: 'iam.organization', capabilities: ['tree'], actions: [] });
       }
+      if (request.url.endsWith('/crm.customer/view/customer-1')) {
+        detailRequests += 1;
+        return Response.json({ id: 'customer-1', title: '客户一' });
+      }
       throw new Error(`Unexpected request: ${request.url}`);
     };
     configureModuleContext({
@@ -580,6 +597,14 @@ describe('DynamicModuleHost', () => {
     const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
     expect(explorers).toHaveLength(1);
     expect(treeExplorer).toBeDefined();
+
+    panel.vm.$emit('select', { id: 'customer-1', title: '客户一' });
+    await flushPromises();
+    expect(detailRequests).toBe(0);
+
+    panel.vm.$emit('rowDblclick', { id: 'customer-1', title: '客户一' });
+    await flushPromises();
+    expect(detailRequests).toBe(1);
 
     explorers[0].vm.$emit('select', { id: 'tenant-1', title: '甲租户' });
     await flushPromises();
@@ -801,8 +826,10 @@ describe('DynamicModuleHost', () => {
       {
         id: 'tree-summary',
         target: { moduleAlias: 'demo.tree', viewCode: 'default_list' },
-        list: { viewActionCode: 'demo.tree.view_summary' },
-        detail: { drawer: { component: { template: '<section>树节点摘要</section>' } } },
+        recordView: {
+          authorizationActionCode: 'demo.tree.view_summary',
+          drawer: { component: { template: '<section>树节点摘要</section>' } },
+        },
       },
     ]);
 
@@ -821,7 +848,7 @@ describe('DynamicModuleHost', () => {
     await flushPromises();
 
     expect(wrapper.findComponent({ name: 'RecordPanelState' }).props('description')).toBe(
-      '模块页面增强 tree-summary 的业务详情抽屉和查看动作仅支持普通列表模块，不支持树模块',
+      '模块页面增强 tree-summary 的业务查看呈现仅支持普通列表模块，不支持树模块',
     );
     expect(wrapper.findComponent({ name: 'TreeRecordExplorer' }).exists()).toBe(false);
     expect(refreshModulePageList('demo.tree')).toBe(false);

@@ -692,7 +692,7 @@ export interface ResolvedViewDescriptor {
   formGroups?: FormGroupDescriptor[];
 }
 
-export type ModulePageTemplate = 'FLAT_MANAGEMENT' | 'LIST_DETAIL_CARD';
+export type ModulePageTemplate = 'FLAT_MANAGEMENT' | 'LIST_DETAIL_CARD' | 'TREE_MANAGEMENT';
 
 export interface ResolvedPageExplorerDescriptor {
   title: string;
@@ -738,7 +738,14 @@ export interface ResolvedPageDetailDescriptor {
   emptyDescription: string;
   createTitle: string;
   display?: ResolvedViewDescriptor;
-  editor: ResolvedViewDescriptor;
+  /** Omitted by an editorless page; standard mutation actions remain governed by the runtime action contract. */
+  editor?: ResolvedViewDescriptor;
+  /** Stable client registration key for an independently restorable detail workbench view. */
+  workspaceView?: ResolvedPageDetailWorkspaceViewDescriptor;
+}
+
+export interface ResolvedPageDetailWorkspaceViewDescriptor {
+  type: string;
 }
 
 export interface ResolvedModulePageDescriptor {
@@ -780,8 +787,14 @@ export interface ResolvedModuleUiDescriptor {
   recordLabelField?: string;
   fileReferences?: ResolvedFileReferenceFieldDescriptor[];
   page?: ResolvedModulePageDescriptor;
-  customPageEditor?: ResolvedViewDescriptor;
+  defaultEditor?: ResolvedViewDescriptor;
+  editorSurfaces?: ResolvedEditorSurfaceDescriptor[];
   editorContributions?: ResolvedPageDetailEditorContribution[];
+}
+
+export interface ResolvedEditorSurfaceDescriptor {
+  key: string;
+  editor: ResolvedViewDescriptor;
 }
 
 export interface ResolvedPageDetailEditorContribution {

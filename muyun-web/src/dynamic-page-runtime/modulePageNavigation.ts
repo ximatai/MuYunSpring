@@ -8,6 +8,7 @@ export interface ModulePageNavigation {
   openWorkspaceTab<TInput extends ModulePageWorkspaceViewInput>(
     view: ModulePageWorkspaceView<TInput>,
     input: TInput,
+    title?: string,
   ): void;
 }
 

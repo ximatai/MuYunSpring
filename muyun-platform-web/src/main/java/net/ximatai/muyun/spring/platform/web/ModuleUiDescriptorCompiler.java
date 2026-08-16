@@ -149,8 +149,11 @@ public final class ModuleUiDescriptorCompiler {
                 defaultRecordLabelField,
                 List.of(),
                 compilePage(definition.page(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
-                definition.customPageEditor() == null ? null : compileView(definition.customPageEditor(), optionFields,
+                definition.defaultEditor() == null ? null : compileView(definition.defaultEditor(), optionFields,
                         referenceFields, referenceSummaryFields, fieldTypes),
+                definition.editorSurfaces().stream().map(surface ->
+                        new ResolvedEditorSurfaceDescriptor(surface.key(), compileView(surface.editor(), optionFields,
+                                referenceFields, referenceSummaryFields, fieldTypes))).toList(),
                 definition.editorContributions().stream().map(contribution ->
                         new ResolvedPageDetailEditorContribution(contribution.resource(), compileView(contribution.editor(),
                                 optionFields, referenceFields, referenceSummaryFields, fieldTypes))).toList()
@@ -186,6 +189,9 @@ public final class ModuleUiDescriptorCompiler {
                         detail(card.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
                         List.copyOf(card.traits().values()));
             }
+            case TreeManagementPageDefinition tree -> new ResolvedModulePageDescriptor(tree.template(), null, null,
+                    null, detail(tree.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
+                    List.copyOf(tree.traits().values()));
         };
     }
 
@@ -197,7 +203,10 @@ public final class ModuleUiDescriptorCompiler {
         return new ResolvedPageDetailDescriptor(detail.emptyDescription(), detail.createTitle(),
                 detail.display() == null ? null : compileView(detail.display(), optionFields, referenceFields,
                         referenceSummaryFields, fieldTypes),
-                compileView(detail.editor(), optionFields, referenceFields, referenceSummaryFields, fieldTypes));
+                detail.editor() == null ? null : compileView(detail.editor(), optionFields, referenceFields,
+                        referenceSummaryFields, fieldTypes),
+                detail.workspaceView() == null ? null
+                        : new ResolvedPageDetailWorkspaceViewDescriptor(detail.workspaceView().type()));
     }
 
     private static void validateNavigator(PageNavigatorDefinition navigator,
@@ -682,14 +691,15 @@ public final class ModuleUiDescriptorCompiler {
 
     private static List<ViewDefinition> declaredViews(ModuleUiDefinition definition) {
         java.util.ArrayList<ViewDefinition> values = new java.util.ArrayList<>();
-        if (definition.customPageEditor() != null) values.add(definition.customPageEditor());
+        if (definition.defaultEditor() != null) values.add(definition.defaultEditor());
+        definition.editorSurfaces().stream().map(EditorSurfaceDefinition::editor).forEach(values::add);
         if (definition.page() instanceof FlatManagementPageDefinition flat) {
             if (flat.detail().display() != null) values.add(flat.detail().display());
-            values.add(flat.detail().editor());
+            if (flat.detail().editor() != null) values.add(flat.detail().editor());
         } else if (definition.page() instanceof ListDetailCardPageDefinition card) {
             values.add(card.list().list());
             if (card.detail().display() != null) values.add(card.detail().display());
-            values.add(card.detail().editor());
+            if (card.detail().editor() != null) values.add(card.detail().editor());
         }
         definition.editorContributions().stream()
                 .map(PageDetailEditorContribution::editor)

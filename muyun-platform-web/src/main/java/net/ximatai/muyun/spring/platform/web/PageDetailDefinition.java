@@ -4,12 +4,16 @@ import java.util.function.Consumer;
 
 /** The detail slot owns its empty state and its editor field declaration. */
 public record PageDetailDefinition(String emptyDescription, String createTitle, ViewDefinition display,
-                                   ViewDefinition editor) {
+                                   ViewDefinition editor, PageDetailWorkspaceViewDefinition workspaceView) {
+    public PageDetailDefinition(String emptyDescription, String createTitle, ViewDefinition display,
+                                ViewDefinition editor) {
+        this(emptyDescription, createTitle, display, editor, null);
+    }
     public PageDetailDefinition {
         emptyDescription = emptyDescription == null || emptyDescription.isBlank() ? "请选择记录" : emptyDescription.trim();
         createTitle = createTitle == null || createTitle.isBlank() ? "新建记录" : createTitle.trim();
-        if (editor == null || editor.viewKind() != ModuleViewKind.FORM) {
-            throw new IllegalArgumentException("page detail requires a form editor");
+        if (editor != null && editor.viewKind() != ModuleViewKind.FORM) {
+            throw new IllegalArgumentException("page detail editor must be a form view");
         }
         if (display != null && display.viewKind() != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("page detail display must be a form view");
@@ -21,6 +25,7 @@ public record PageDetailDefinition(String emptyDescription, String createTitle, 
         private String createTitle;
         private ViewDefinition display;
         private ViewDefinition editor;
+        private PageDetailWorkspaceViewDefinition workspaceView;
 
         public Builder emptyDescription(String value) { emptyDescription = value; return this; }
         public Builder createTitle(String value) { createTitle = value; return this; }
@@ -36,6 +41,16 @@ public record PageDetailDefinition(String emptyDescription, String createTitle, 
             editor = builder.build();
             return this;
         }
-        PageDetailDefinition build() { return new PageDetailDefinition(emptyDescription, createTitle, display, editor); }
+        /**
+         * Enables the standard "open in a new tab" detail action after the
+         * frontend registers an implementation for this stable view type.
+         */
+        public Builder workspaceView(String type) {
+            workspaceView = new PageDetailWorkspaceViewDefinition(type);
+            return this;
+        }
+        PageDetailDefinition build() {
+            return new PageDetailDefinition(emptyDescription, createTitle, display, editor, workspaceView);
+        }
     }
 }

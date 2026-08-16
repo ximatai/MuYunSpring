@@ -315,10 +315,21 @@ it('record form fields resolve form view descriptors by view code', () => {
         },
       },
     ],
+    editorSurfaces: [
+      {
+        key: 'quick_rename',
+        editor: {
+          viewCode: 'quick_rename_editor',
+          viewKind: 'FORM',
+          fields: [descriptorField('title', '名称')],
+        },
+      },
+    ],
   } satisfies ResolvedModuleUiDescriptor;
 
   assert.deepEqual([...resolveRecordFormFields(uiDescriptor).keys()], ['alias', 'title']);
   assert.deepEqual([...resolveRecordFormFields(uiDescriptor, 'item').keys()], ['code', 'parentId']);
+  assert.deepEqual([...resolveRecordFormFields(uiDescriptor, undefined, 'quick_rename').keys()], ['title']);
   assert.deepEqual([...resolveRecordFormFields(uiDescriptor, 'missing_form').keys()], []);
   assert.deepEqual([...resolveRecordFormFields(undefined).keys()], []);
 });

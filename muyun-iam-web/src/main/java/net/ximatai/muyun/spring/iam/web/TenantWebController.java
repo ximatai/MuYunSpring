@@ -42,7 +42,7 @@ public class TenantWebController extends WebSupport<TenantService> implements
                         .field("workbenchSubtitle", field -> field.label("副标题"))
                         .field("lightLogoAssetId", field -> field.label("展示 Logo（默认）"))
                         .field("darkLogoAssetId", field -> field.label("展示 Logo（暗色模式）"))))
-                        .traits(traits -> traits.standardCrud().recycleBin().responsiveDetailSurface())))
+                        .traits(traits -> traits.standardCrud().recycleBin())))
                 .build();
     }
 }

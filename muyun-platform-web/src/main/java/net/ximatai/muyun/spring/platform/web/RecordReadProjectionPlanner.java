@@ -30,6 +30,12 @@ public final class RecordReadProjectionPlanner {
         return plan(descriptor, readModel, "default_list");
     }
 
+    /** Whether the page owns a pageable/default list projection. Tree management is read through TreeAbility. */
+    public static boolean supportsDefaultListProjection(ResolvedModuleUiDescriptor descriptor) {
+        return descriptor != null && descriptor.page() != null
+                && (descriptor.page().list() != null || descriptor.page().explorer() != null);
+    }
+
     public static RecordReadProjection defaultList(ResolvedModuleUiDescriptor descriptor,
                                                    ResolvedModuleReadModel readModel,
                                                    Object recordService) {

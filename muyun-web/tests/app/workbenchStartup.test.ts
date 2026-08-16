@@ -10,12 +10,16 @@ import {
   openMenuTab,
   removeLockedMenuTabs,
   reorderMenuTabs,
-  restoreLockedMenuTabs,
+  restoreLockedWorkbenchTabs,
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
 } from '@/app/workbenchStartup.ts';
 import { getMenuNavigationTarget } from '@/platform-workbench/menuNavigation.ts';
 import { presentWorkbenchRealtimeStatus } from '@/platform-workbench/realtimeStatus.ts';
+import {
+  configureWorkspaceViewContributions,
+  createWorkspaceViewDescriptor,
+} from '@/platform-workbench/workspaceViews.ts';
 
 it('workbench realtime status presents transport state without claiming platform health', () => {
   assert.deepEqual(presentWorkbenchRealtimeStatus('connected'), {
@@ -545,7 +549,7 @@ it('keeps persisted locked tabs on the left and preserves their own ordering', (
 });
 
 it('restores locked tabs only when their tab menu remains visible to the current account', () => {
-  const available = restoreLockedMenuTabs(
+  const available = restoreLockedWorkbenchTabs(
     [
       {
         key: 'menu:metadata',
@@ -565,6 +569,39 @@ it('restores locked tabs only when their tab menu remains visible to the current
     available.map((tab) => [tab.key, tab.title, tab.target?.menuId]),
     [['menu:metadata', 'Metadata', 'metadata']],
   );
+});
+
+it('restores a locked registered workspace view without trusting its stale title', () => {
+  const deviceView = {
+    type: 'mr.device.detail',
+    route: '/_workspace/mr.device.detail',
+    moduleAlias: 'mr.device',
+    component: { template: '<div />' },
+    presentations: ['tab'] as const,
+    titleOf: ({ recordId }: { recordId: string }) => `设备 ${recordId}`,
+    parse: (query: Record<string, unknown>) =>
+      typeof query.recordId === 'string' ? { recordId: query.recordId } : undefined,
+  };
+  configureWorkspaceViewContributions('locked-tab-test', [deviceView]);
+  try {
+    const descriptor = createWorkspaceViewDescriptor(deviceView, { recordId: 'device-1' }, 'tab', '过期标题');
+    const restored = restoreLockedWorkbenchTabs(
+      [{ key: 'stale-key', title: '旧标题', pageDescriptor: descriptor }],
+      menus,
+    );
+
+    assert.deepEqual(
+      restored.map((tab) => [tab.key, tab.title]),
+      [
+        [
+          'business-route:/_workspace/mr.device.detail:recordId=device-1&workspacePresentation=tab&workspaceView=mr.device.detail',
+          '设备 device-1',
+        ],
+      ],
+    );
+  } finally {
+    configureWorkspaceViewContributions('locked-tab-test', []);
+  }
 });
 
 it('activeTabUrlOf returns the active tab descriptor URL', () => {

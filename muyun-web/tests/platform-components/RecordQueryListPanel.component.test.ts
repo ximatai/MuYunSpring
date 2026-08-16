@@ -82,6 +82,21 @@ describe('RecordQueryListPanel', () => {
     expect(requests).toHaveLength(2);
     expect(requests.at(-1)?.externalQueryValues).toEqual({ tenantId: 'tenant-b' });
   });
+
+  it('does not render standard mutation actions that the module does not publish', async () => {
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1' }),
+        title: '只读记录',
+        standardCrudActions: true,
+        standardCrudRowActions: true,
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain('新建');
+  });
 });
 
 function createContext(

@@ -65,7 +65,7 @@ public final class DynamicModuleUiDefinitionAdapter {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("dynamic list source config is missing: " + list.viewCode()));
         ModulePageDefinition page = page(list, editor, listConfig);
-        return new ModuleUiDefinition(snapshot.moduleAlias(), List.of(), page, null, List.of());
+        return new ModuleUiDefinition(snapshot.moduleAlias(), List.of(), page, null, List.of(), List.of());
     }
 
     private static ViewDefinition view(PlatformUiConfig config,
@@ -96,17 +96,27 @@ public final class DynamicModuleUiDefinitionAdapter {
                     explorer.path("titleField").asText("title"), explorer.path("secondaryField").asText(null),
                     explorer.path("mutedWhenDisabled").asBoolean(false)),
                     new PageDetailDefinition(detail.path("emptyDescription").asText(null),
-                            detail.path("createTitle").asText(editor.title()), null, editor),
+                            detail.path("createTitle").asText(editor.title()), null, editor,
+                            workspaceView(detail)),
                     traits(root));
         }
+        if ("TREE_MANAGEMENT".equals(template)) {
+            return new TreeManagementPageDefinition(
+                    new PageDetailDefinition(null, editor.title(), null, editor, workspaceView(root.path("detail"))), traits(root));
+        }
         if (!"LIST_DETAIL_CARD".equals(template)) {
-            throw new IllegalArgumentException("dynamic page template must be FLAT_MANAGEMENT or LIST_DETAIL_CARD: "
+            throw new IllegalArgumentException("dynamic page template must be FLAT_MANAGEMENT, LIST_DETAIL_CARD or TREE_MANAGEMENT: "
                     + listConfig.getId());
         }
         PageNavigatorDefinition navigator = navigator(listConfig);
         return new ListDetailCardPageDefinition(navigator, new PageListDefinition(list.title(), list),
-                new PageDetailDefinition(null, editor.title(), null, editor),
+                new PageDetailDefinition(null, editor.title(), null, editor, workspaceView(root.path("detail"))),
                 traits(root));
+    }
+
+    private static PageDetailWorkspaceViewDefinition workspaceView(JsonNode detail) {
+        String type = detail.path("workspaceView").path("type").asText(null);
+        return type == null || type.isBlank() ? null : new PageDetailWorkspaceViewDefinition(type);
     }
 
     private static PageNavigatorDefinition navigator(PlatformUiConfig config) {

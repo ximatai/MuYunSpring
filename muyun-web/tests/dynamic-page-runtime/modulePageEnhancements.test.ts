@@ -52,17 +52,17 @@ describe('module page enhancements', () => {
     ).toThrow('不能覆盖平台标准动作：update');
   });
 
-  it('accepts a business detail drawer that keeps the platform view lifecycle', () => {
+  it('accepts a business record-view presentation that keeps the platform view lifecycle', () => {
     const DetailDrawer = { template: '<section>业务详情</section>' };
     const registry = createModulePageEnhancementRegistry([
       {
         id: 'customer-detail-drawer',
         target: { moduleAlias: 'crm.customer' },
-        detail: { drawer: { component: DetailDrawer, width: 720, loadRecord: false } },
+        recordView: { drawer: { component: DetailDrawer, width: 720, loadRecord: false } },
       },
     ]);
 
-    expect(registry.resolve('crm.customer')?.detail?.drawer).toEqual({
+    expect(registry.resolve('crm.customer')?.recordView?.drawer).toEqual({
       component: DetailDrawer,
       width: 720,
       loadRecord: false,

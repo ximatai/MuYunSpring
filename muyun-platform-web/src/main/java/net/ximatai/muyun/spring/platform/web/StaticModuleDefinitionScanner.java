@@ -13,7 +13,7 @@ import net.ximatai.muyun.spring.platform.module.StaticServiceAbilityCompiler;
 import net.ximatai.muyun.spring.platform.module.StaticModuleServiceDeclaration;
 import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.spring.web.EnableWeb;
-import net.ximatai.muyun.spring.web.ReadOnlyWeb;
+import net.ximatai.muyun.spring.web.QueryViewWeb;
 import net.ximatai.muyun.spring.web.ReferenceWeb;
 import net.ximatai.muyun.spring.web.ScopedWeb;
 import net.ximatai.muyun.spring.web.SortWeb;
@@ -546,17 +546,27 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             }
             editorContributions.add(contribution);
         }
-        ViewDefinition customPageEditor = targetUiDefinition == null ? null : targetUiDefinition.customPageEditor();
-        if (contributionUiDefinition.customPageEditor() != null) {
-            if (customPageEditor != null) {
-                throw new IllegalStateException("@PlatformStaticActionContribution custom page editor conflicts with target module: "
+        ViewDefinition defaultEditor = targetUiDefinition == null ? null : targetUiDefinition.defaultEditor();
+        if (contributionUiDefinition.defaultEditor() != null) {
+            if (defaultEditor != null) {
+                throw new IllegalStateException("@PlatformStaticActionContribution default editor conflicts with target module: "
                         + targetModule + " <- " + contributor.getName());
             }
-            customPageEditor = contributionUiDefinition.customPageEditor();
+            defaultEditor = contributionUiDefinition.defaultEditor();
+        }
+        List<EditorSurfaceDefinition> editorSurfaces = new ArrayList<>();
+        if (targetUiDefinition != null) editorSurfaces.addAll(targetUiDefinition.editorSurfaces());
+        for (EditorSurfaceDefinition surface : contributionUiDefinition.editorSurfaces()) {
+            if (editorSurfaces.stream().anyMatch(existing -> existing.key().equals(surface.key()))) {
+                throw new IllegalStateException("@PlatformStaticActionContribution editor surface conflicts with target module: "
+                        + targetModule + "." + surface.key() + " <- " + contributor.getName());
+            }
+            editorSurfaces.add(surface);
         }
         return new ModuleUiDefinition(targetModule, List.copyOf(actions.values()),
                 targetUiDefinition != null && targetUiDefinition.page() != null
-                        ? targetUiDefinition.page() : contributionUiDefinition.page(), customPageEditor, editorContributions);
+                        ? targetUiDefinition.page() : contributionUiDefinition.page(), defaultEditor,
+                editorSurfaces, editorContributions);
     }
 
     private void mergeDeclaredAction(String sourceAnnotation,
@@ -615,7 +625,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addPlatformUnlessDisabled(actions, PlatformAction.UPDATE, disabledActions);
             addPlatformUnlessDisabled(actions, PlatformAction.DELETE, disabledActions);
             addPlatformUnlessDisabled(actions, PlatformAction.QUERY, disabledActions);
-        } else if (ReadOnlyWeb.class.isAssignableFrom(beanClass)) {
+        } else if (QueryViewWeb.class.isAssignableFrom(beanClass)) {
             addPlatformUnlessDisabled(actions, PlatformAction.MENU, disabledActions);
             addPlatformUnlessDisabled(actions, PlatformAction.VIEW, disabledActions);
             addPlatformUnlessDisabled(actions, PlatformAction.QUERY, disabledActions);
@@ -676,7 +686,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addContributionUnlessDisabled(actions, contribution, PlatformAction.UPDATE, disabledActions);
             addContributionUnlessDisabled(actions, contribution, PlatformAction.DELETE, disabledActions);
             addContributionUnlessDisabled(actions, contribution, PlatformAction.QUERY, disabledActions);
-        } else if (ReadOnlyWeb.class.isAssignableFrom(beanClass)) {
+        } else if (QueryViewWeb.class.isAssignableFrom(beanClass)) {
             addContributionUnlessDisabled(actions, contribution, PlatformAction.VIEW, disabledActions);
             addContributionUnlessDisabled(actions, contribution, PlatformAction.QUERY, disabledActions);
         }

@@ -211,8 +211,12 @@ export function arrangeLockedMenuTabs(
   return [...pinned, ...tabs.filter((tab) => !lockedKeys.has(tab.key))];
 }
 
-/** Restores only currently visible tab menus, rebuilding their descriptors from the active menu scheme. */
-export function restoreLockedMenuTabs(
+/**
+ * Restores account-locked tabs from two authority-checked sources only:
+ * currently visible tab menus and registered, URL-restorable workspace views.
+ * Arbitrary stored routes are deliberately not revived.
+ */
+export function restoreLockedWorkbenchTabs(
   lockedTabs: MenuTab[],
   menus: MenuTreeNode[],
   options: PageDescriptorResolveOptions = {},
@@ -222,12 +226,29 @@ export function restoreLockedMenuTabs(
   const restoredKeys = new Set<string>();
   return lockedTabs.flatMap((tab) => {
     const menuId = tab.pageDescriptor?.menuId ?? tab.target?.menuId;
-    if (!menuId || restoredKeys.has(menuId)) return [];
-    const available = availableMenus.get(menuId);
-    if (!available) return [];
-    restoredKeys.add(menuId);
-    return [createMenuTab(available.menu, available.target, options)];
+    if (menuId) {
+      if (restoredKeys.has(menuId)) return [];
+      const available = availableMenus.get(menuId);
+      if (!available) return [];
+      restoredKeys.add(menuId);
+      return [createMenuTab(available.menu, available.target, options)];
+    }
+
+    const workspaceTab = restoreLockedWorkspaceTab(tab);
+    if (!workspaceTab || restoredKeys.has(workspaceTab.key)) return [];
+    restoredKeys.add(workspaceTab.key);
+    return [workspaceTab];
   });
+}
+
+function restoreLockedWorkspaceTab(tab: MenuTab): MenuTab | undefined {
+  const descriptor = tab.pageDescriptor;
+  if (descriptor?.pageType !== 'business-route') return undefined;
+  const workspaceView = resolveWorkspaceView(descriptor);
+  if (!workspaceView || workspaceView.presentation !== 'tab') return undefined;
+  // Recreate title, URL and identity from the registered definition instead
+  // of trusting a stale client-side snapshot.
+  return createDirectTab(createWorkspaceViewDescriptor(workspaceView.view, workspaceView.input, 'tab'));
 }
 
 export function updateLockedMenuTabs(lockedTabs: MenuTab[], tab: MenuTab): MenuTab[] {

@@ -25,6 +25,9 @@ const emit = defineEmits<{
 <template>
   <header class="management-panel-header">
     <div class="management-panel-header-title-group">
+      <div v-if="$slots['title-prefix']" class="management-panel-header-title-prefix">
+        <slot name="title-prefix" />
+      </div>
       <div class="management-panel-header-title-copy">
         <UiButton
           v-if="titleActionIcon"
@@ -74,8 +77,16 @@ const emit = defineEmits<{
   min-width: 0;
 }
 
+.management-panel-header-title-prefix {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
 .management-panel-header-title,
 .management-panel-header-title-action {
+  display: inline-flex;
+  align-items: center;
   margin: 0;
   min-width: 0;
   height: var(--muyun-management-panel-header-height, 30px);
@@ -135,12 +146,6 @@ const emit = defineEmits<{
   flex: 0 0 auto;
   align-items: center;
   min-width: 0;
-  /*
-   * The switch capsule's visual centre sits below the text glyph centre even
-   * when flexbox centres both boxes. This scoped composition token keeps the
-   * shared static and DSL management heading on one visual baseline.
-   */
-  --muyun-record-status-switch-offset-y: -4px;
 }
 
 .management-panel-header-actions {
