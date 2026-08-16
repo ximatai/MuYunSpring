@@ -43,11 +43,11 @@ export function getMenuNavigationTarget(menu: MenuRecord): MenuNavigationTarget 
     return undefined;
   }
 
-  if (!menu.openMode || !menu.moduleAlias) {
+  if (!menu.openMode || !menu.moduleAlias || !menu.entryType) {
     return undefined;
   }
 
-  if (menu.externalUrl) {
+  if (menu.entryType === 'link' && menu.externalUrl) {
     return {
       menuId: menu.id,
       menuType: 'link',
@@ -58,7 +58,7 @@ export function getMenuNavigationTarget(menu: MenuRecord): MenuNavigationTarget 
     };
   }
 
-  if (menu.route) {
+  if (menu.entryType === 'route' && menu.route) {
     return {
       menuId: menu.id,
       menuType: 'route',
@@ -67,6 +67,10 @@ export function getMenuNavigationTarget(menu: MenuRecord): MenuNavigationTarget 
       moduleAlias: menu.moduleAlias,
       entryParamsJson: menu.entryParamsJson,
     };
+  }
+
+  if (menu.entryType !== 'module' || menu.route || menu.externalUrl) {
+    return undefined;
   }
 
   return {
@@ -197,6 +201,7 @@ export function createMenuTab(
   return {
     key: tabKeyOf(pageDescriptor),
     title: menu.title,
+    fullPath: pageDescriptorToUrl(pageDescriptor),
     target,
     pageDescriptor,
     restoreState: pageDescriptor.restoreState,
@@ -221,6 +226,12 @@ export function findFirstNavigationMenu(nodes: MenuTreeNode[]): MenuRecord | und
 }
 
 export function tabKeyOf(descriptor: PageDescriptor): string {
+  const instanceKey = instanceKeyOf(descriptor);
+  const baseKey = tabBaseKeyOf(descriptor);
+  return instanceKey ? `${baseKey}:InstanceKey:${instanceKey}` : baseKey;
+}
+
+function tabBaseKeyOf(descriptor: PageDescriptor): string {
   if (descriptor.tabPolicy.identity === 'by-menu' && descriptor.menuId) {
     return `menu:${descriptor.menuId}`;
   }
@@ -233,6 +244,15 @@ export function tabKeyOf(descriptor: PageDescriptor): string {
   }
 
   return `${descriptor.pageType}:${stableTargetKeyOf(descriptor)}`;
+}
+
+function instanceKeyOf(descriptor: PageDescriptor): string | undefined {
+  const query =
+    descriptor.pageType === 'platform-route' || descriptor.pageType === 'business-route'
+      ? (descriptor.target.query ?? descriptor.params)
+      : descriptor.params;
+  const value = query?.InstanceKey;
+  return Array.isArray(value) ? stringValue(value[0]) : stringValue(value);
 }
 
 export function pageDescriptorToUrl(descriptor: PageDescriptor): string {
@@ -272,6 +292,7 @@ export function pageDescriptorToUrl(descriptor: PageDescriptor): string {
 
   if (descriptor.pageType === 'remote-url' || descriptor.pageType === 'external-link') {
     return appendQuery('/platform/external', {
+      ...descriptor.params,
       url: descriptor.target.url,
       mode: descriptor.openMode,
       [WORKBENCH_MENU_ID_QUERY_KEY]: descriptor.menuId,
@@ -338,6 +359,13 @@ export function pageDescriptorFromUrl(
     const tabPolicy = menuId
       ? { identity: 'by-menu' as const, closable: true }
       : { identity: 'by-target' as const, closable: true };
+    const params = withoutKeys(query, [
+      ...legacyWorkbenchQueryKeys,
+      WORKBENCH_MENU_ID_QUERY_KEY,
+      WORKBENCH_TITLE_QUERY_KEY,
+      'url',
+      'mode',
+    ]);
     if (openMode === 'iframe') {
       return {
         pageType: 'remote-url',
@@ -346,6 +374,7 @@ export function pageDescriptorFromUrl(
         title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY, 'title') ?? options.title,
         menuId,
         target: { url: remoteUrl },
+        params,
         tabPolicy,
       };
     }
@@ -357,6 +386,7 @@ export function pageDescriptorFromUrl(
       title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY, 'title') ?? options.title,
       menuId,
       target: { url: remoteUrl },
+      params,
       tabPolicy,
     };
   }

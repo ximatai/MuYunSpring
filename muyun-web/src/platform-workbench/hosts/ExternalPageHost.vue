@@ -15,13 +15,20 @@ const title = computed(() => props.descriptor.title ?? props.descriptor.target.u
   <iframe
     v-if="descriptor.openMode === 'iframe'"
     class="external-frame"
+    data-testid="external-page-frame"
     :src="descriptor.target.url"
     :title="title"
   />
   <section v-else class="page-host">
     <span class="host-badge">{{ descriptor.openMode }}</span>
     <h2>{{ title }}</h2>
-    <a class="external-link" :href="descriptor.target.url" target="_blank" rel="noopener noreferrer">
+    <a
+      class="external-link"
+      data-testid="external-page-window-link"
+      :href="descriptor.target.url"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
       打开页面
     </a>
   </section>

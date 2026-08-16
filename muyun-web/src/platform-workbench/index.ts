@@ -3,7 +3,8 @@ export { default as WorkbenchMenu } from './WorkbenchMenu.vue';
 export { default as WorkbenchOutlet } from './WorkbenchOutlet.vue';
 export { default as WorkspaceViewOutlet } from './WorkspaceViewOutlet.vue';
 export { provideWorkbenchNavigation, useWorkbenchNavigation } from './workbenchNavigation';
-export type { WorkbenchNavigation, WorkbenchPageOpenResult } from './workbenchNavigation';
+export type { OpenRouteOptions, WorkbenchNavigation, WorkbenchPageOpenResult } from './workbenchNavigation';
+export { routeUrlWithOpenOptions } from './workbenchNavigation';
 export {
   configureWorkspaceViewContributions,
   createWorkspaceViewDescriptor,

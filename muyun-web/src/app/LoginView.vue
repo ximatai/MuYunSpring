@@ -99,21 +99,32 @@ async function submitPasswordChange() {
         {{ formError || error }}
       </p>
 
-      <form v-if="!passwordChangeRequired" class="login-form" @submit.prevent="submit">
+      <form
+        v-if="!passwordChangeRequired"
+        class="login-form"
+        data-testid="login-form"
+        @submit.prevent="submit"
+      >
         <p v-if="tenantLocked" class="login-context">租户：{{ tenantId }}</p>
         <label v-else>
           <span>租户 ID</span>
           <UiInput v-model:value="tenantId" autocomplete="organization" placeholder="留空进入系统工作区" />
         </label>
-        <label>
+        <label data-testid="login-username">
           <span>用户名</span>
           <UiInput v-model:value="username" autocomplete="username" required />
         </label>
-        <label>
+        <label data-testid="login-password">
           <span>密码</span>
           <UiInput v-model:value="password" type="password" autocomplete="current-password" required />
         </label>
-        <UiButton class="login-submit" html-type="submit" type="primary" :loading="submitting || loading">
+        <UiButton
+          class="login-submit"
+          data-testid="login-submit"
+          html-type="submit"
+          type="primary"
+          :loading="submitting || loading"
+        >
           {{ submitting || loading ? '登录中' : '登录' }}
         </UiButton>
       </form>

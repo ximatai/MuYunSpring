@@ -85,11 +85,28 @@ export function openDirectTab(
 }
 
 export function menuTargetUrl(menu: MenuRecord, target: MenuNavigationTarget): string {
-  return pageDescriptorToUrl(resolvePageDescriptor(target, { title: menu.title }));
+  const query = new URLSearchParams({ _muyunMenuId: menu.id });
+  if (menu.title) query.set('_muyunTitle', menu.title);
+
+  if (target.menuType === 'module') {
+    const pageMode = (target.pageMode ?? 'LIST').toLowerCase();
+    if (target.defaultUiConfigId) query.set('uiConfigId', target.defaultUiConfigId);
+    if (target.defaultQueryTemplateId) query.set('queryTemplateId', target.defaultQueryTemplateId);
+    return `/platform/dynamic/${encodeURIComponent(target.moduleAlias)}/${pageMode}?${query.toString()}`;
+  }
+  if (target.menuType === 'route') {
+    return `${target.route}${target.route.includes('?') ? '&' : '?'}${query.toString()}`;
+  }
+  return target.openMode === 'tab'
+    ? `/platform/external/${encodeURIComponent(target.menuId)}?${query.toString()}`
+    : target.externalUrl;
 }
 
 export function activeTabUrlOf(state: WorkbenchStartupState): string | undefined {
   const activeTab = (state.tabs ?? []).find((tab) => tab.key === state.activeTabKey);
+  if (activeTab?.fullPath) {
+    return activeTab.fullPath;
+  }
   const descriptor =
     activeTab?.pageDescriptor ??
     (activeTab?.target ? resolvePageDescriptor(activeTab.target, { title: activeTab.title }) : undefined);
@@ -226,7 +243,12 @@ export function restoreLockedMenuTabs(
     const available = availableMenus.get(menuId);
     if (!available) return [];
     restoredKeys.add(menuId);
-    return [createMenuTab(available.menu, available.target, options)];
+    const restoredDescriptor = tab.fullPath ? tryPageDescriptorFromUrl(tab.fullPath, options) : undefined;
+    return [
+      restoredDescriptor
+        ? createRestoredMenuTab(available.menu, available.target, restoredDescriptor, options)
+        : createMenuTab(available.menu, available.target, options),
+    ];
   });
 }
 
@@ -272,11 +294,16 @@ function initialTabOf(menus: WorkbenchStartupState['menus'], options: PageDescri
 }
 
 function createDirectTab(descriptor: PageDescriptor): MenuTab {
+  const fullPath =
+    descriptor.pageType === 'platform-route' && isModuleOpenApiPage(descriptor) && descriptor.target.route
+      ? descriptor.target.route
+      : pageDescriptorToUrl(descriptor);
   return {
     key: tabKeyOf(descriptor),
     title: descriptor.title ?? directTabTitleOf(descriptor),
+    fullPath,
     pageDescriptor: descriptor,
-    restoreState: { url: pageDescriptorToUrl(descriptor) },
+    restoreState: { url: fullPath },
     closable: true,
   };
 }
@@ -330,6 +357,8 @@ function createRestoredMenuTab(
 
   return {
     ...tab,
+    key: tabKeyOf(pageDescriptor),
+    fullPath: pageDescriptorToUrl(pageDescriptor),
     pageDescriptor,
     restoreState: { url: pageDescriptorToUrl(pageDescriptor) },
   };

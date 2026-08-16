@@ -74,6 +74,7 @@ it('menu client normalizes backend enum values before workbench navigation', asy
             schemeId: 'default',
             title: '待办事项',
             enabled: true,
+            entryType: 'ROUTE',
             openMode: 'TAB',
             moduleAlias: 'demo.todo_item',
             route: '/app/todo',

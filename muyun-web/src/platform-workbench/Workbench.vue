@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import { UiDropdown, UiError, UiIcon, UiSidePanelHost, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
+import { UiDropdown, UiEmpty, UiError, UiIcon, UiSidePanelHost, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
 import type {
   MenuNavigationTarget,
   MenuRecord,
@@ -114,10 +114,6 @@ function pageDescriptorOf(tab: MenuTab | undefined): PageDescriptor | undefined 
   return (
     tab?.pageDescriptor ?? (tab?.target ? resolvePageDescriptor(tab.target, { title: tab.title }) : undefined)
   );
-}
-
-function shouldKeepTabMounted(tab: MenuTab) {
-  return tab.key === activeTabKey.value || pageDescriptorOf(tab)?.tabPolicy.cacheable !== false;
 }
 
 function toTabItem(tab: MenuTab): UiTabItem {
@@ -327,6 +323,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   <main
     ref="workbenchRoot"
     class="workbench"
+    data-testid="workbench-root"
     :class="{
       'workbench--menu-expanded': effectiveMenuPresentation === 'expanded',
       'workbench--compact-menu-open': effectiveMenuPresentation === 'compact' && compactMenuOpen,
@@ -425,6 +422,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
         <div class="tab-strip">
           <UiTabs
             v-if="tabs.length > 0"
+            data-testid="workbench-tabs"
             :tabs="tabs"
             :active-key="activeTabKey"
             @toggle-pin="emit('toggleTabLock', $event)"
@@ -440,21 +438,20 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
           <UiSpin v-if="loading" />
           <UiError v-else-if="error" :message="error" />
           <template v-else>
-            <template v-for="tab in openedTabs" :key="tab.key">
-              <UiSidePanelHost
-                v-if="shouldKeepTabMounted(tab)"
-                v-show="tab.key === activeTabKey"
-                :key="tabHostKey(tab)"
-                class="tab-panel-host"
+            <UiSidePanelHost v-if="activeTab" :key="tabHostKey(activeTab)" class="tab-panel-host">
+              <div
+                class="tab-page"
+                data-testid="workbench-page"
+                :class="{ 'tab-page--workspace': activePageDescriptor?.layout === 'workspace' }"
               >
-                <div
-                  class="tab-page"
-                  :class="{ 'tab-page--workspace': pageDescriptorOf(tab)?.layout === 'workspace' }"
-                >
-                  <slot :active-tab="tab" :target="tab.target" :page-descriptor="pageDescriptorOf(tab)" />
-                </div>
-              </UiSidePanelHost>
-            </template>
+                <slot
+                  :active-tab="activeTab"
+                  :target="activeTab.target"
+                  :page-descriptor="activePageDescriptor"
+                />
+              </div>
+            </UiSidePanelHost>
+            <UiEmpty v-else description="暂无页面" />
           </template>
         </section>
       </section>

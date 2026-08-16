@@ -53,6 +53,7 @@ it('getMenuNavigationTarget ignores disabled menus', () => {
     id: 'disabled-runtime',
     schemeId: 'default',
     title: 'Disabled Runtime',
+    entryType: 'module',
     openMode: 'tab',
     moduleAlias: 'platform.runtime',
     enabled: false,
@@ -199,6 +200,7 @@ it('resolvePageDescriptor carries route menu module alias for business module co
     id: 'organization',
     schemeId: 'default',
     title: '组织管理',
+    entryType: 'route',
     openMode: 'tab',
     route: '/iam/organizations',
     moduleAlias: 'iam.organization',
@@ -217,6 +219,7 @@ it('resolvePageDescriptor lets registered business routes under platform namespa
     id: 'passwords',
     schemeId: 'default',
     title: '密码管理',
+    entryType: 'route',
     openMode: 'tab',
     route: '/platform/security/passwords',
     moduleAlias: 'iam.password_policy_rule',
@@ -348,6 +351,7 @@ it('getMenuNavigationTarget carries link module alias for module-first menu entr
     id: 'external-bi',
     schemeId: 'default',
     title: 'External BI',
+    entryType: 'link' as const,
     openMode: 'window',
     externalUrl: 'https://bi.example.com/report',
     moduleAlias: 'ops.report',
@@ -408,6 +412,7 @@ it('menu target open mode helpers split tab and window behavior', () => {
     id: 'crm-online',
     schemeId: 'default',
     title: 'CRM Online',
+    entryType: 'link',
     openMode: 'tab',
     externalUrl: '/crm/customer/list',
     moduleAlias: 'crm.customer',
@@ -416,6 +421,7 @@ it('menu target open mode helpers split tab and window behavior', () => {
     id: 'external-bi',
     schemeId: 'default',
     title: 'External BI',
+    entryType: 'link',
     openMode: 'window',
     externalUrl: 'https://bi.example.com/report',
     moduleAlias: 'ops.report',
@@ -434,6 +440,7 @@ it('createMenuTab rejects window menu targets', () => {
     id: 'external-bi',
     schemeId: 'default',
     title: 'External BI',
+    entryType: 'link' as const,
     openMode: 'window' as const,
     externalUrl: 'https://bi.example.com/report',
     moduleAlias: 'ops.report',
@@ -560,4 +567,26 @@ it('tabKeyOf uses menu identity as by-params base when available', () => {
   };
 
   assert.equal(tabKeyOf(descriptor), 'menu:customer-list:status=active&tags=vip&tags=trial');
+});
+
+it('tabKeyOf separates independent instances while the default instance keeps its stable key', () => {
+  const defaultDescriptor: PageDescriptor = {
+    pageType: 'business-route',
+    openMode: 'workbench-route',
+    hostType: 'business-route-host',
+    menuId: 'customer-list',
+    target: { route: '/crm/customer/list' },
+    tabPolicy: { identity: 'by-menu' },
+  };
+  const independentDescriptor: PageDescriptor = {
+    ...defaultDescriptor,
+    target: { route: '/crm/customer/list', query: { InstanceKey: 'instance-a' } },
+  };
+
+  assert.equal(tabKeyOf(defaultDescriptor), 'menu:customer-list');
+  assert.equal(tabKeyOf(independentDescriptor), 'menu:customer-list:InstanceKey:instance-a');
+  assert.equal(
+    pageDescriptorToUrl(independentDescriptor),
+    '/crm/customer/list?InstanceKey=instance-a&_muyunMenuId=customer-list',
+  );
 });

@@ -63,6 +63,7 @@ const menus: MenuTreeNode[] = [
               schemeId: 'default',
               parentId: 'nested',
               title: 'Metadata',
+              entryType: 'route',
               openMode: 'tab',
               moduleAlias: 'platform.metadata',
               route: '/platform/metadata',
@@ -78,6 +79,7 @@ const menus: MenuTreeNode[] = [
       id: 'runtime',
       schemeId: 'default',
       title: 'Runtime',
+      entryType: 'module',
       openMode: 'tab',
       moduleAlias: 'platform.runtime',
       pageMode: 'LIST',
@@ -90,6 +92,7 @@ const menus: MenuTreeNode[] = [
       id: 'metadata-shortcut',
       schemeId: 'default',
       title: 'Metadata Shortcut',
+      entryType: 'route',
       openMode: 'tab',
       moduleAlias: 'platform.metadata',
       route: '/platform/metadata',
@@ -125,6 +128,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.config',
               title: '应用管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'platform.application',
               pageMode: 'LIST',
@@ -139,6 +143,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.config',
               title: '模块管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'platform.module',
               pageMode: 'LIST',
@@ -153,6 +158,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.config',
               title: '字典管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'platform.dictionary_category',
               pageMode: 'LIST',
@@ -179,6 +185,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.identity',
               title: '租户管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'iam.tenant',
               pageMode: 'LIST',
@@ -193,6 +200,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.identity',
               title: '职员管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'iam.employee',
               pageMode: 'LIST',
@@ -207,6 +215,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.identity',
               title: '角色管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'iam.role',
               pageMode: 'LIST',
@@ -639,6 +648,30 @@ it('restoreWorkbenchStartupStateFromUrl activates the matching menu tab', () => 
   assert.equal(restored.tabs?.[0]?.target?.menuId, 'metadata');
 });
 
+it('restoreWorkbenchStartupStateFromUrl keeps independent InstanceKey routes as separate tabs', () => {
+  const state = {
+    session: { currentUser },
+    menus,
+    tabs: [],
+  };
+  const first = restoreWorkbenchStartupStateFromUrl(
+    state,
+    '/platform/metadata?InstanceKey=instance-a&_muyunMenuId=metadata',
+  );
+  const second = restoreWorkbenchStartupStateFromUrl(
+    first,
+    '/platform/metadata?InstanceKey=instance-b&_muyunMenuId=metadata',
+  );
+
+  assert.equal(first.tabs?.[0]?.key, 'menu:metadata:InstanceKey:instance-a');
+  assert.equal(second.tabs?.length, 2);
+  assert.equal(second.activeTabKey, 'menu:metadata:InstanceKey:instance-b');
+  assert.equal(
+    activeTabUrlOf(second),
+    '/platform/metadata?InstanceKey=instance-b&_muyunMenuId=metadata&_muyunTitle=Metadata',
+  );
+});
+
 it('restoreWorkbenchStartupStateFromUrl matches business route menus with module context', () => {
   const state = {
     session: { currentUser },
@@ -648,6 +681,7 @@ it('restoreWorkbenchStartupStateFromUrl matches business route menus with module
           id: 'organization',
           schemeId: 'default',
           title: '组织管理',
+          entryType: 'route' as const,
           openMode: 'tab' as const,
           route: '/iam/organizations',
           moduleAlias: 'iam.organization',

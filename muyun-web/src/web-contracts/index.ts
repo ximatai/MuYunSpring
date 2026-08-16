@@ -248,10 +248,14 @@ export interface PageBootstrap {
   openApiPath: string;
 }
 
+export type MenuEntryType = 'module' | 'route' | 'link';
+
 export interface MenuRecord extends StandardEnabledTreeEntity {
   id: string;
   title: string;
   schemeId: string;
+  /** Read-only projection of the selected module entry; absent data is invalid for route registration. */
+  entryType?: MenuEntryType;
   openMode?: MenuOpenMode;
   moduleAlias?: string;
   route?: string;
@@ -430,6 +434,8 @@ export type PageDescriptor =
 export interface MenuTab {
   key: string;
   title: string;
+  /** The exact browser location that restores this page instance. */
+  fullPath?: string;
   target?: MenuNavigationTarget;
   pageDescriptor?: PageDescriptor;
   restoreState?: TabRestoreState;

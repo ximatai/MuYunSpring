@@ -407,6 +407,7 @@ onUnmounted(() => {
         <template #tab>
           <span
             class="ui-tabs-label"
+            data-testid="workbench-tab"
             :class="{
               'ui-tabs-label--dragging': dragPreview && draggingKey === tab.key,
               'ui-tabs-label--pinned': tab.pinned,

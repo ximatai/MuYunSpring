@@ -669,6 +669,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
               >
                 <button
                   class="root-menu-item-main navigable"
+                  :data-testid="`menu-${node.record.id}`"
                   type="button"
                   :aria-current="isSelectedRoot(node) ? 'page' : undefined"
                   @click="selectMenuNode(node)"
@@ -698,6 +699,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                   branch: node.hasChildren,
                 }"
                 :type="node.navigable || rootChildrenUseFlyout ? 'button' : undefined"
+                :data-testid="node.navigable ? `menu-${node.record.id}` : undefined"
                 :aria-expanded="
                   node.hasChildren && rootChildrenUseFlyout
                     ? activeRootNode?.record.id === node.record.id
