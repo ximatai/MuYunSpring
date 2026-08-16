@@ -101,6 +101,7 @@ function handleMainClick() {
     @click="handleMainClick"
   >
     <span>{{ node.record.title }}</span>
+    <i v-if="controlsChildren" class="sidebar-menu-entry-indicator" aria-hidden="true" />
   </button>
 </template>
 
@@ -108,7 +109,9 @@ function handleMainClick() {
 .sidebar-menu-entry {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   width: 100%;
+  gap: 8px;
   min-height: 29px;
   padding: 5px 8px;
   border: 0;
@@ -121,6 +124,7 @@ function handleMainClick() {
 }
 
 .sidebar-menu-entry span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -141,6 +145,7 @@ function handleMainClick() {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: stretch;
+  gap: 0;
   padding: 0;
   overflow: hidden;
 }
@@ -222,30 +227,8 @@ function handleMainClick() {
   box-shadow: inset var(--workbench-menu-selection-indicator-width, 4px) 0 0 var(--muyun-theme-base);
 }
 
-.sidebar-menu-entry.branch {
-  position: relative;
-  padding-right: 24px;
-}
-
-.sidebar-menu-entry.branch::after {
-  position: absolute;
-  right: 9px;
-  color: var(--muyun-support-icon);
-  content: '›';
-  font-size: 18px;
-  font-weight: 400;
-  line-height: 1;
-}
-
-.sidebar-menu-entry--split.branch {
-  padding-right: 0;
-}
-
-.sidebar-menu-entry--split.branch::after {
-  display: none;
-}
-
 .sidebar-menu-entry-indicator {
+  flex: 0 0 auto;
   width: 6px;
   height: 6px;
   border-right: 1.5px solid currentcolor;
