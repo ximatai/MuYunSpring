@@ -110,11 +110,8 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
                     return (WebPageResponse<T>) (WebPageResponse<?>) projected.get();
                 }
             }
-            WebPageResponse<T> response = WebPageResponse.from(WebOutputSupport.page(service(), service().pageQuery(
-                    queryCriteria(request),
-                    PageRequest.of((request == null ? WebPageRequest.DEFAULT : request.pageOrDefault()).pageNum(),
-                            (request == null ? WebPageRequest.DEFAULT : request.pageOrDefault()).pageSize()),
-                    querySorts(request)), FieldOutputContext.LIST));
+            WebPageResponse<T> response = WebPageResponse.from(WebOutputSupport.page(
+                    service(), queryRecords(request), FieldOutputContext.LIST));
             if (projectionService != null && this instanceof StaticModuleUiContributor contributor) {
                 return projectionService.projectDefaultList(contributor.moduleUiDefinition().moduleAlias(), response, service());
             }

@@ -1829,6 +1829,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /title="改为抽屉展示"/);
   assert.match(hostSource, /icon-name="pin-off"/);
   assert.match(hostSource, /icon-name="pin"/);
+  assert.equal(matchCount(hostSource, /title="在新标签页打开"/g), 4);
   assert.match(hostSource, /<RecordDetailPanel[\s\S]*<template #title-prefix>/);
   assert.match(
     hostSource,

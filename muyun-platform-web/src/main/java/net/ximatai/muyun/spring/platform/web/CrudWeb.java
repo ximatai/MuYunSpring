@@ -4,7 +4,6 @@ import net.ximatai.muyun.spring.web.*;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
@@ -40,19 +39,6 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     @Override
     default CrudAbility<?> staticModuleService() {
         return service();
-    }
-
-    default PageResult<T> queryRecords(WebQueryRequest request) {
-        WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
-        PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
-        if (service() instanceof DataScopeAbility<?>) {
-            DataScopeAbility<?> dataScopeAbility = DataScopeAbility.cast(service());
-            @SuppressWarnings("unchecked")
-            PageResult<T> result = (PageResult<T>) dataScopeAbility.pageQueryForAction(
-                    PlatformAction.QUERY, queryCriteria(request), pageRequest, querySorts(request));
-            return result;
-        }
-        return service().pageQuery(queryCriteria(request), pageRequest, querySorts(request));
     }
 
     default StaticRecordReadProjectionService staticRecordReadProjectionService() {

@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.web.query.WebQueryRequests;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
@@ -23,6 +24,25 @@ import org.springframework.web.bind.annotation.RequestBody;
  * Business action availability remains owned by the service and action contract.</p>
  */
 public interface QueryViewWeb<T extends EntityContract, S extends CrudAbility<T>> extends ScopedWeb<S> {
+    /**
+     * Runs the standard paged read through the action-aware data-scope boundary
+     * when the service provides one. Query-only and CRUD transports must not
+     * diverge on record visibility merely because they expose different
+     * mutation surfaces.
+     */
+    default PageResult<T> queryRecords(WebQueryRequest request) {
+        WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
+        PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
+        if (service() instanceof DataScopeAbility<?>) {
+            DataScopeAbility<?> dataScopeAbility = DataScopeAbility.cast(service());
+            @SuppressWarnings("unchecked")
+            PageResult<T> result = (PageResult<T>) dataScopeAbility.pageQueryForAction(
+                    PlatformAction.QUERY, queryCriteria(request), pageRequest, querySorts(request));
+            return result;
+        }
+        return service().pageQuery(queryCriteria(request), pageRequest, querySorts(request));
+    }
+
     default Criteria queryCriteria(WebQueryRequest request) {
         if (service() instanceof QueryAbility<?> queryAbility) {
             Criteria criteria = queryAbility.queryCriteria(WebQueryRequests.from(request));
@@ -52,11 +72,7 @@ public interface QueryViewWeb<T extends EntityContract, S extends CrudAbility<T>
     @ActionEndpoint(PlatformAction.QUERY)
     default WebPageResponse<T> query(@RequestBody(required = false) WebQueryRequest request) {
         return webScope(() -> {
-            WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
-            PageResult<T> result = service().pageQuery(
-                    queryCriteria(request),
-                    PageRequest.of(page.pageNum(), page.pageSize()),
-                    querySorts(request));
+            PageResult<T> result = queryRecords(request);
             return WebPageResponse.from(WebOutputSupport.page(service(), result, FieldOutputContext.LIST));
         });
     }

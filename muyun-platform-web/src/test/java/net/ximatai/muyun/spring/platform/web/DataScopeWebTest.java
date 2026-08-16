@@ -69,6 +69,19 @@ class DataScopeWebTest {
     }
 
     @Test
+    void staticQueryViewWebShouldDelegateProjectionFallbackToDataScopeAbility() {
+        DataScopedCrudService service = new DataScopedCrudService();
+        DataScopedStaticQueryViewController controller = new DataScopedStaticQueryViewController(service);
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            WebPageResponse<DataScopedRecord> page = controller.query(null);
+
+            assertThat(page.records()).extracting(DataScopedRecord::getTitle).containsExactly("Query");
+            assertThat(service.queryAction).isEqualTo(PlatformAction.QUERY);
+        }
+    }
+
+    @Test
     void crudWebShouldRejectUnpagedQueryUnlessControllerOptsIn() {
         DataScopedCrudController controller = new DataScopedCrudController(new DataScopedCrudService());
 
@@ -494,6 +507,22 @@ class DataScopeWebTest {
             implements CrudWeb<DataScopedRecord, DataScopedCrudService> {
         private DataScopedCrudController(DataScopedCrudService service) {
             this.service = service;
+        }
+    }
+
+    /** No projection service is supplied: this exercises StaticQueryViewWeb's query fallback. */
+    private static final class DataScopedStaticQueryViewController extends WebSupport<DataScopedCrudService>
+            implements StaticQueryViewWeb<DataScopedRecord, DataScopedCrudService>, StaticModuleUiContributor {
+        private DataScopedStaticQueryViewController(DataScopedCrudService service) {
+            this.service = service;
+        }
+
+        @Override
+        public ModuleUiDefinition moduleUiDefinition() {
+            return ModuleUiDefinition.builder("demo.dataScopedCrud")
+                    .page(PageTemplates.treeManagement(page -> page
+                            .detail(detail -> detail.display(display -> display.field("title")))))
+                    .build();
         }
     }
 

@@ -1247,6 +1247,14 @@ function recordTitle(record: QueryListRecord | undefined) {
         />
       </template>
       <template #detail-actions>
+        <RecordPanelButton
+          v-if="detailWorkspaceAvailable"
+          type="text"
+          icon-name="open-in-new"
+          title="在新标签页打开"
+          aria-label="在新标签页打开"
+          @click="openDetailWorkspaceView"
+        />
         <RecordActionBar
           :context="context"
           :record-id="
@@ -1536,6 +1544,14 @@ function recordTitle(record: QueryListRecord | undefined) {
             </RecordPanelButton>
           </template>
           <template v-else>
+            <RecordPanelButton
+              v-if="detailWorkspaceAvailable"
+              type="text"
+              icon-name="open-in-new"
+              title="在新标签页打开"
+              aria-label="在新标签页打开"
+              @click="openDetailWorkspaceView"
+            />
             <RecordActionBar
               v-if="selectedRecord?.id != null && enhancementDetailActions.length > 0"
               :context="context"
