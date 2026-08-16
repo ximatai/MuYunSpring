@@ -47,6 +47,13 @@ const selectedTenant = ref<Tenant>();
 const tenantSearchKeyword = ref('');
 const tenantReloadKey = ref(0);
 const canBrowseTenants = computed(() => currentUser?.value?.system === true);
+const currentUserTenant = computed<Tenant | undefined>(() => {
+  const tenantId = currentUser?.value?.tenantId;
+  if (currentUser?.value?.system === true || !tenantId) {
+    return undefined;
+  }
+  return { id: tenantId, title: tenantId } as Tenant;
+});
 const selectedTenantId = computed(() => selectedTenant.value?.id);
 const categoryScopeOptions = {
   scopeFieldName: 'tenantId',
@@ -185,11 +192,10 @@ const positionActions = computed<RecordActionItem[]>(() => {
 
 onMounted(loadPositionFormDefinition);
 onMounted(() => {
-  if (!canBrowseTenants.value && currentUser?.value?.tenantId) {
-    selectedTenant.value = { id: currentUser.value.tenantId, title: currentUser.value.tenantId } as Tenant;
-  }
   void loadPositions();
 });
+
+watch(currentUserTenant, initializeTenantUserScope, { immediate: true });
 
 watch(positionReloadKey, () => {
   void loadPositions();
@@ -217,6 +223,13 @@ function handleCategoryAction(action: RecordActionItem) {
 function selectTenant(tenant: Tenant) {
   if (tenant.id !== selectedTenant.value?.id) {
     handleCategoriesLoaded([]);
+  }
+  selectedTenant.value = tenant;
+}
+
+function initializeTenantUserScope(tenant = currentUserTenant.value) {
+  if (!tenant || canBrowseTenants.value || selectedTenant.value) {
+    return;
   }
   selectedTenant.value = tenant;
 }
