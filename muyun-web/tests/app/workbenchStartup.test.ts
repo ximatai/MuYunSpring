@@ -677,7 +677,7 @@ it('restoreWorkbenchStartupStateFromUrl activates the matching menu tab', () => 
   assert.equal(restored.tabs?.[0]?.target?.menuId, 'metadata');
 });
 
-it('restoreWorkbenchStartupStateFromUrl matches business route menus with module context', () => {
+it('restoreWorkbenchStartupStateFromUrl matches dynamic module menus with module context', () => {
   const state = {
     session: { currentUser },
     menus: [
@@ -685,7 +685,7 @@ it('restoreWorkbenchStartupStateFromUrl matches business route menus with module
         record: {
           id: 'organization',
           schemeId: 'default',
-          title: '组织管理',
+          title: '机构管理',
           openMode: 'tab' as const,
           route: '/iam/organizations',
           moduleAlias: 'iam.organization',
@@ -698,19 +698,14 @@ it('restoreWorkbenchStartupStateFromUrl matches business route menus with module
 
   const restored = restoreWorkbenchStartupStateFromUrl(
     state,
-    '/iam/organizations?_muyunMenuId=organization',
-    { businessRoutePrefixes: ['/iam'] },
+    '/platform/dynamic/iam.organization/LIST?_muyunMenuId=organization',
   );
 
   assert.equal(restored.activeTabKey, 'menu:organization');
-  assert.equal(restored.tabs?.[0]?.title, '组织管理');
-  assert.equal(restored.tabs?.[0]?.target?.menuId, 'organization');
-  assert.equal(restored.tabs?.[0]?.pageDescriptor?.pageType, 'business-route');
+  assert.equal(restored.tabs?.[0]?.title, 'iam.organization');
+  assert.equal(restored.tabs?.[0]?.pageDescriptor?.pageType, 'dynamic-module');
   assert.equal(restored.tabs?.[0]?.pageDescriptor?.target.moduleAlias, 'iam.organization');
-  assert.equal(
-    activeTabUrlOf(restored),
-    '/iam/organizations?_muyunMenuId=organization&_muyunTitle=%E7%BB%84%E7%BB%87%E7%AE%A1%E7%90%86',
-  );
+  assert.equal(activeTabUrlOf(restored), '/platform/dynamic/iam.organization/list?_muyunMenuId=organization');
 });
 
 it('restoreWorkbenchStartupStateFromUrl preserves query when URL matches a menu tab', () => {

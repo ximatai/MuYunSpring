@@ -53,6 +53,7 @@ import { provideCurrentUserContext } from './platform-admin-runtime/currentUserC
 import { loadAppWorkbenchStartupState, usesMockStartup } from './app/appWorkbenchStartup';
 import { createBackendHttpClient } from './platform-admin-runtime/backendHttp';
 import {
+  platformAdminDynamicModuleRoutes,
   platformAdminModuleRoutes,
   platformAdminRouteLayouts,
   platformAdminRoutePrefixes,
@@ -152,6 +153,7 @@ const realtimeStatus = ref<WorkbenchRealtimeStatus>('unavailable');
 const platformAdminRouteResolveOptions = {
   businessRoutePrefixes: platformAdminRoutePrefixes,
   businessModuleRoutes: platformAdminModuleRoutes,
+  dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
   businessRouteLayouts: platformAdminRouteLayouts,
 };
 let realtimeConnection: ReturnType<typeof connectAppRealtime> | undefined;

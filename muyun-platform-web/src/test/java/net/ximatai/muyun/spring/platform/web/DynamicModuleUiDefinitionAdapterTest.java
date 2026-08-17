@@ -163,6 +163,34 @@ class DynamicModuleUiDefinitionAdapterTest {
     }
 
     @Test
+    void shouldMapDynamicTreeNavigatorFromThePageRoot() {
+        PlatformUiSet listSet = uiSet("set-list", "crm.directory", "directory_list", PlatformUiSetType.LIST);
+        PlatformUiSet formSet = uiSet("set-form", "crm.directory", "directory_form", PlatformUiSetType.FORM);
+        PlatformUiConfig listConfig = uiConfig("ui-list-web", "set-list", "目录", true, 10);
+        listConfig.setLayoutJson("""
+                {"template":"TREE_MANAGEMENT","traits":[],"navigator":{"contextBindings":[
+                  {"source":"NAVIGATOR","sourceKey":"tenant","target":"LIST_QUERY","targetKey":"tenantId"}
+                ],"levels":[
+                  {"key":"tenant","kind":"MICRO_LIST","sourceModuleAlias":"iam.tenant","title":"租户"}
+                ]}}""");
+        PlatformUiConfig formConfig = uiConfig("ui-form-web", "set-form", "目录", true, 20);
+
+        ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
+                new PlatformPageConfigSnapshot("crm.directory", List.of(listSet, formSet), List.of(listConfig, formConfig),
+                        List.of(), List.of(), List.of()), PlatformResolvedPageConfig.empty());
+
+        TreeManagementPageDefinition page = (TreeManagementPageDefinition) definition.page();
+        assertThat(page.navigator()).isNotNull();
+        assertThat(page.navigator().levels()).singleElement().satisfies(level -> {
+            assertThat(level.key()).isEqualTo("tenant");
+            assertThat(level.kind()).isEqualTo(PageNavigatorKind.MICRO_LIST);
+        });
+        assertThat(page.navigator().contextBindings()).containsExactly(
+                new PageContextBindingDefinition(PageContextSource.NAVIGATOR, "tenant", PageContextTarget.LIST_QUERY,
+                        "tenantId", null));
+    }
+
+    @Test
     void shouldAdaptDynamicMaximumDisplayLinesToTheSourceNeutralDescriptor() {
         PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
         PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);

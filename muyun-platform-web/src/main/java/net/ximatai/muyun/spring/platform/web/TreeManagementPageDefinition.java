@@ -2,8 +2,9 @@ package net.ximatai.muyun.spring.platform.web;
 
 import java.util.function.Consumer;
 
-/** Template-root definition for a tree explorer and one record detail surface. */
-public record TreeManagementPageDefinition(PageDetailDefinition detail, PageTraitsDefinition traits)
+/** Template-root definition for an optional scope navigator, tree explorer and one record detail surface. */
+public record TreeManagementPageDefinition(PageNavigatorDefinition navigator, PageDetailDefinition detail,
+                                           PageTraitsDefinition traits)
         implements ModulePageDefinition {
     public TreeManagementPageDefinition {
         traits = traits == null ? new PageTraitsDefinition(null) : traits;
@@ -20,8 +21,16 @@ public record TreeManagementPageDefinition(PageDetailDefinition detail, PageTrai
     public static Builder builder() { return new Builder(); }
 
     public static final class Builder {
+        private PageNavigatorDefinition navigator;
         private PageDetailDefinition detail;
         private PageTraitsDefinition traits;
+
+        public Builder navigator(Consumer<PageNavigatorDefinition.Builder> customizer) {
+            PageNavigatorDefinition.Builder builder = new PageNavigatorDefinition.Builder();
+            if (customizer != null) customizer.accept(builder);
+            navigator = builder.build();
+            return this;
+        }
 
         public Builder detail(Consumer<PageDetailDefinition.Builder> customizer) {
             PageDetailDefinition.Builder builder = new PageDetailDefinition.Builder();
@@ -37,6 +46,8 @@ public record TreeManagementPageDefinition(PageDetailDefinition detail, PageTrai
             return this;
         }
 
-        public TreeManagementPageDefinition build() { return new TreeManagementPageDefinition(detail, traits); }
+        public TreeManagementPageDefinition build() {
+            return new TreeManagementPageDefinition(navigator, detail, traits);
+        }
     }
 }

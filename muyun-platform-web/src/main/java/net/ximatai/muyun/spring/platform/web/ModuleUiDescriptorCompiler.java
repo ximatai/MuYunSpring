@@ -189,9 +189,15 @@ public final class ModuleUiDescriptorCompiler {
                         detail(card.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
                         List.copyOf(card.traits().values()));
             }
-            case TreeManagementPageDefinition tree -> new ResolvedModulePageDescriptor(tree.template(), null, null,
-                    null, detail(tree.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
-                    List.copyOf(tree.traits().values()));
+            case TreeManagementPageDefinition tree -> {
+                if (tree.navigator() != null) {
+                    validateNavigator(tree.navigator(), referenceFields, "page navigator");
+                }
+                yield new ResolvedModulePageDescriptor(tree.template(), null,
+                        ResolvedPageNavigatorDescriptor.from(tree.navigator()), null,
+                        detail(tree.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
+                        List.copyOf(tree.traits().values()));
+            }
         };
     }
 
@@ -217,6 +223,9 @@ public final class ModuleUiDescriptorCompiler {
             PageNavigatorLevelDefinition level = navigator.levels().stream()
                     .filter(candidate -> candidate.key().equals(binding.sourceKey())).findFirst().orElseThrow();
             ResolvedReferenceFieldDescriptor reference = referenceFields.get(binding.targetKey());
+            if (isTenantScopeNavigator(level, binding)) {
+                continue;
+            }
             if (reference == null) {
                 throw new IllegalArgumentException("navigator query field must be a reference: "
                         + moduleAlias + "." + binding.targetKey());
@@ -230,6 +239,17 @@ public final class ModuleUiDescriptorCompiler {
                         + moduleAlias + "." + binding.targetKey());
             }
         }
+    }
+
+    /**
+     * {@code tenantId} is a standard scope field rather than a model-declared reference. A tenant
+     * navigator is therefore the one platform-owned navigator binding that does not require an
+     * {@code @ReferenceTo} declaration on every tenant-scoped entity.
+     */
+    private static boolean isTenantScopeNavigator(PageNavigatorLevelDefinition level,
+                                                  PageContextBindingDefinition binding) {
+        return StandardEntitySchema.TENANT_ID_FIELD.equals(binding.targetKey())
+                && "iam.tenant".equals(level.sourceModuleAlias());
     }
 
     private static ResolvedUiActionDescriptor compileAction(UiActionDefinition action) {

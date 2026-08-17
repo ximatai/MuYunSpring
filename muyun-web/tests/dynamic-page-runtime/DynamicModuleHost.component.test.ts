@@ -83,6 +83,9 @@ describe('DynamicModuleHost', () => {
 
     await flushPromises();
 
+    expect(wrapper.find('.dynamic-module-workspace').classes()).toContain(
+      'dynamic-module-workspace--management',
+    );
     const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
     expect(panel.props('extraActions')).toEqual([
       expect.objectContaining({ key: 'conversation', actionCode: 'crm.customer.conversation' }),
@@ -689,6 +692,9 @@ describe('DynamicModuleHost', () => {
       if (request.url.endsWith('/platform.module/iam.tenant/reference-context')) {
         return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
       }
+      if (request.url.endsWith('/iam.organization/view/organization-1')) {
+        return Response.json({ id: 'organization-1', title: '总部' });
+      }
       throw new Error(`Unexpected request: ${request.url}`);
     };
     configureModuleContext({
@@ -900,6 +906,95 @@ describe('DynamicModuleHost', () => {
 
     expect(explorer.props('reloadKey')).toBe(1);
     wrapper.unmount();
+  });
+
+  it('applies a tree-management navigator selection to the primary tree query', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/iam.organization/context')) {
+        return Response.json({
+          moduleAlias: 'iam.organization',
+          capabilities: ['TREE'],
+          abilities: ['tree'],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'iam.organization',
+            page: page({
+              template: 'TREE_MANAGEMENT',
+              navigator: {
+                contextBindings: [
+                  { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'LIST_QUERY', targetKey: 'tenantId' },
+                  { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'FORM_DEFAULT', targetKey: 'tenantId' },
+                ],
+                levels: [
+                  {
+                    key: 'tenant',
+                    kind: 'MICRO_LIST',
+                    sourceModuleAlias: 'iam.tenant',
+                    title: '租户',
+                    searchPlaceholder: '搜索租户',
+                  },
+                ],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/iam.tenant/reference-context')) {
+        return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
+      }
+      if (request.url.endsWith('/iam.organization/view/organization-1')) {
+        return Response.json({ id: 'organization-1', title: '总部' });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({
+      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+    });
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'iam.organization', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+        },
+      },
+    });
+
+    await flushPromises();
+    expect(wrapper.find('.dynamic-module-workspace').classes()).toContain(
+      'dynamic-module-workspace--management',
+    );
+    const tenantExplorer = wrapper.findComponent({ name: 'PageNavigatorExplorer' });
+    const organizationTree = wrapper
+      .findAllComponents({ name: 'TreeRecordExplorer' })
+      .find((explorer) => explorer.props('context').moduleAlias === 'iam.organization');
+    expect(tenantExplorer).toBeDefined();
+    expect(organizationTree).toBeDefined();
+
+    tenantExplorer.vm.$emit('select', { id: 'tenant-1', title: '甲租户' });
+    await flushPromises();
+    expect(organizationTree?.props('externalQueryValues')).toEqual({ tenantId: 'tenant-1' });
+
+    organizationTree?.vm.$emit('select', { id: 'organization-1', title: '总部' });
+    await flushPromises();
+    expect(organizationTree?.props('selectedId')).toBe('organization-1');
+
+    tenantExplorer.vm.$emit('select', { id: 'tenant-2', title: '乙租户' });
+    await flushPromises();
+    expect(organizationTree?.props('selectedId')).toBeUndefined();
+    expect(organizationTree?.props('externalQueryValues')).toEqual({ tenantId: 'tenant-2' });
   });
 
   it('rejects business detail drawer enhancements for tree modules instead of silently ignoring them', async () => {

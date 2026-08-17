@@ -11,6 +11,7 @@ import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
+import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.ActionWeb;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
@@ -22,11 +23,13 @@ import net.ximatai.muyun.spring.web.EnableWeb;
 import net.ximatai.muyun.spring.web.ReferenceWeb;
 import net.ximatai.muyun.spring.web.TreeSortWebRequest;
 import net.ximatai.muyun.spring.web.TreeWeb;
+import net.ximatai.muyun.spring.web.WebListResponse;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebQueryCondition;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
+import net.ximatai.muyun.spring.web.WebTreeNode;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
 import net.ximatai.muyun.spring.platform.web.PlatformDynamicModuleScopeService;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryDescriptor;
@@ -392,6 +395,49 @@ public class DynamicRecordWebController implements
             PageResult<DynamicRecord> output = WebOutputSupport.page(service(), page, FieldOutputContext.LIST);
             return WebPageResponse.from(output, navigationContext(request, output));
         });
+    }
+
+    /**
+     * Read-only page-navigator projection.  It deliberately does not reuse the normal query
+     * endpoint: the caller is authorized and data-scoped as {@link PlatformAction#REFERENCE}.
+     */
+    @PostMapping("/navigator/reference/query")
+    @ActionEndpoint(PlatformAction.REFERENCE)
+    public WebPageResponse<DynamicRecord> navigatorReferenceQuery(@RequestBody(required = false) WebQueryRequest request) {
+        return webScope(() -> {
+            WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
+            PageResult<DynamicRecord> result = recordService.pageForAction(
+                    DynamicWebRequest.moduleAlias(),
+                    mainEntityAlias(DynamicWebRequest.moduleAlias()),
+                    PlatformAction.REFERENCE.code(),
+                    queryCriteria(request),
+                    PageRequest.of(page.pageNum(), page.pageSize()),
+                    querySorts(request));
+            return WebPageResponse.from(WebOutputSupport.page(service(), result, FieldOutputContext.LIST));
+        });
+    }
+
+    /** Tree variant of the navigator reference surface, governed by the same REFERENCE action. */
+    @PostMapping("/navigator/reference/tree/query")
+    @ActionEndpoint(PlatformAction.REFERENCE)
+    public WebListResponse<WebTreeNode<DynamicRecord>> navigatorReferenceTreeQuery(
+            @RequestBody(required = false) WebQueryRequest request) {
+        return webScope(() -> new WebListResponse<>(navigatorReferenceChildren(request, TreeAbility.ROOT_ID).stream()
+                .map(record -> navigatorReferenceTreeNode(request, record))
+                .toList()));
+    }
+
+    private List<DynamicRecord> navigatorReferenceChildren(WebQueryRequest request, String parentId) {
+        String moduleAlias = DynamicWebRequest.moduleAlias();
+        return recordService.childrenForAction(moduleAlias, mainEntityAlias(moduleAlias), PlatformAction.REFERENCE.code(),
+                queryCriteria(request), parentId);
+    }
+
+    private WebTreeNode<DynamicRecord> navigatorReferenceTreeNode(WebQueryRequest request, DynamicRecord record) {
+        return new WebTreeNode<>(WebOutputSupport.record(service(), record, FieldOutputContext.VIEW),
+                navigatorReferenceChildren(request, record.getId()).stream()
+                        .map(child -> navigatorReferenceTreeNode(request, child))
+                        .toList());
     }
 
     @PostMapping("/query/summary")

@@ -171,7 +171,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         PageNavigatorDefinition navigator = switch (page) {
             case ListDetailCardPageDefinition card -> card.navigator();
             case FlatManagementPageDefinition flat -> flat.navigator();
-            case TreeManagementPageDefinition ignored -> null;
+            case TreeManagementPageDefinition tree -> tree.navigator();
             case null -> null;
         };
         if (navigator == null) return List.of();

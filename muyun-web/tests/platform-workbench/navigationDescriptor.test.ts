@@ -48,6 +48,29 @@ it('resolvePageDescriptor resolves ROUTE targets as platform routes by default',
   assert.equal(roundTrip.tabPolicy.identity, 'by-menu');
 });
 
+it('delegates a readable module route to the dynamic module host when the route is declared as standard runtime content', () => {
+  const options = { dynamicModuleRoutes: { '/iam/organizations': 'iam.organization' } };
+  const descriptor = resolvePageDescriptor(
+    {
+      menuId: 'organization',
+      menuType: 'route',
+      openMode: 'tab',
+      route: '/iam/organizations',
+      moduleAlias: 'iam.organization',
+    },
+    options,
+  );
+
+  assertPageType(descriptor, 'dynamic-module');
+  assert.equal(descriptor.target.moduleAlias, 'iam.organization');
+  assert.equal(descriptor.target.pageMode, 'LIST');
+
+  const restored = pageDescriptorFromUrl('/iam/organizations?_muyunMenuId=organization', options);
+  assertPageType(restored, 'dynamic-module');
+  assert.equal(restored.target.moduleAlias, 'iam.organization');
+  assert.equal(restored.menuId, 'organization');
+});
+
 it('getMenuNavigationTarget ignores disabled menus', () => {
   const target = getMenuNavigationTarget({
     id: 'disabled-runtime',

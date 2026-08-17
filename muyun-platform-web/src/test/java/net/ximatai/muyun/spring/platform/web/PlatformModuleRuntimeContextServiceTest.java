@@ -34,6 +34,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
@@ -72,6 +73,7 @@ class PlatformModuleRuntimeContextServiceTest {
         when(actionService.listByModuleAliases(List.of("iam.organization"))).thenReturn(List.of());
         StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.organization", "组织管理")
                 .parentModuleAlias(null)
+                .navigatorSourceCapabilities(Set.of(NavigatorSourceCapability.REFERENCE_TREE))
                 .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.VIEW)))
                 .uiDefinition(ModuleUiDefinition.builder("iam.organization")
                         .page(PageTemplates.listDetailCard(page -> page
@@ -88,11 +90,15 @@ class PlatformModuleRuntimeContextServiceTest {
         };
         PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
                 moduleService, actionService, new StaticModuleDefinitionCatalog(List.of(definition)), null,
-                null, null, allowAllPolicy(), List.of(), resolver);
+                null, null, allowAllPolicy(), List.of(), resolver,
+                moduleAlias -> Set.of(NavigatorSourceCapability.REFERENCE_TREE));
 
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
                 CurrentUser.tenantUser("user-1", "tenant-admin", "tenant-1", "organization-1"))) {
             PlatformModuleRuntimeContext runtimeContext = service.context("iam.organization");
+
+            assertThat(runtimeContext.navigatorSourceCapabilities())
+                    .containsExactly(NavigatorSourceCapability.REFERENCE_TREE);
 
             assertThat(runtimeContext.uiDescriptor().page()).satisfies(page -> {
                 assertThat(page.navigator()).isNull();
@@ -112,6 +118,40 @@ class PlatformModuleRuntimeContextServiceTest {
             assertThat(context.candidate().navigator().levels()).singleElement()
                     .satisfies(level -> assertThat(level.key()).isEqualTo("organization"));
         });
+    }
+
+    @Test
+    void shouldResolveStaticPageNavigatorBackedByPublishedDynamicReferenceModule() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
+        when(moduleService.resolveVisibleModule("sales.contract"))
+                .thenReturn(module("sales.contract", "合同", ModuleKind.STATIC));
+        when(actionService.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+        when(dynamicRecordService.describe("crm.customer")).thenReturn(new DynamicModuleDescriptor(
+                "crm.customer", "客户", "customer", List.of(),
+                List.of(dynamicEntity("customer", "CRUD", "REFERENCE")), List.of(), List.of(), List.of()));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.contract", "合同")
+                .parentModuleAlias(null)
+                .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.VIEW)))
+                .uiDefinition(ModuleUiDefinition.builder("sales.contract")
+                        .page(PageTemplates.listDetailCard(page -> page
+                                .navigator(navigator -> navigator.level("customer", level -> level
+                                        .microList("crm.customer", "客户", "搜索客户")))
+                                .list(list -> list.fields(fields -> fields.field("title")))
+                                .detail(detail -> detail.editor(fields -> fields.field("title")))))
+                        .build())
+                .build();
+        StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(definition));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, catalog, null, null, null, allowAllPolicy(), List.of(),
+                new DeclaredPageNavigatorResolver(),
+                new PlatformPageNavigatorSourceCapabilityResolver(catalog, dynamicRecordService));
+
+        PlatformModuleRuntimeContext context = service.context("sales.contract");
+
+        assertThat(context.uiDescriptor().page().navigator().levels()).singleElement()
+                .satisfies(level -> assertThat(level.sourceModuleAlias()).isEqualTo("crm.customer"));
     }
 
     @Test

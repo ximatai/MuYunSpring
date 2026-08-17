@@ -991,6 +991,31 @@ public class DynamicRecordService {
                 pageRequest, sorts));
     }
 
+    /**
+     * Reads one tree level through a declared action policy.
+     *
+     * <p>This is intentionally separate from {@link #children(String, String, String)}: a page
+     * navigator consumes a module's reference surface, not its ordinary tree surface.</p>
+     */
+    public List<DynamicRecord> childrenForAction(String moduleAlias,
+                                                  String entityAlias,
+                                                  String actionCode,
+                                                  Criteria criteria,
+                                                  String parentId) {
+        requireCapability(moduleAlias, entityAlias, EntityCapability.TREE);
+        DynamicActionDescriptor action = findAction(moduleAlias, entityDescriptor(moduleAlias, entityAlias), actionCode);
+        ActionExecutionPolicy policy = actionPolicy(action);
+        actionExecutionPolicyService.authorize(ActionExecutionContext.ofPolicy(
+                moduleAlias,
+                policy,
+                Set.of(),
+                CurrentUserContext.currentUser()
+        ));
+        DataScopeCriteriaResult scope = readScope(moduleAlias, policy, criteria);
+        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias)
+                .children(scope.criteria(), parentId));
+    }
+
     public long count(String moduleAlias, String entityAlias, Criteria criteria) {
         DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.QUERY, criteria);
         return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).count(scope.criteria()));

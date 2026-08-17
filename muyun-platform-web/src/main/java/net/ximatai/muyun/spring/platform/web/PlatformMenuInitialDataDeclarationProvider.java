@@ -14,6 +14,8 @@ import org.springframework.core.annotation.AnnotationUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class PlatformMenuInitialDataDeclarationProvider implements InitialDataDeclarationProvider {
     private final MenuService menuService;
@@ -40,8 +42,23 @@ public class PlatformMenuInitialDataDeclarationProvider implements InitialDataDe
         return contributedMenus(MenuSchemeService.ADMIN_SCHEME_ID);
     }
 
+    /** Stable identities of all code-declared system menu entries visible to this application. */
+    Set<String> declaredMenuIds() {
+        return menuContributions().stream()
+                .map(contribution -> menuId(contribution.module(), contribution.menu()))
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
     private List<InitialDataDeclaration<?>> contributedMenus(String schemeId) {
         List<InitialDataDeclaration<?>> declarations = new ArrayList<>();
+        for (MenuContribution contribution : menuContributions()) {
+            declarations.add(moduleMenu(schemeId, contribution.module(), contribution.menu()));
+        }
+        return declarations;
+    }
+
+    private List<MenuContribution> menuContributions() {
+        List<MenuContribution> contributions = new ArrayList<>();
         for (String beanName : applicationContext.getBeanNamesForAnnotation(PlatformMenu.class)) {
             Object bean = applicationContext.getBean(beanName);
             Class<?> beanClass = AopUtils.getTargetClass(bean);
@@ -53,13 +70,13 @@ public class PlatformMenuInitialDataDeclarationProvider implements InitialDataDe
             if (module == null) {
                 throw new IllegalStateException("@PlatformMenu requires @PlatformStaticModule: " + beanClass.getName());
             }
-            declarations.add(moduleMenu(schemeId, module, menu));
+            contributions.add(new MenuContribution(module, menu));
         }
-        return declarations;
+        return contributions;
     }
 
     private InitialDataDeclaration<Menu> moduleMenu(String schemeId, PlatformStaticModule module, PlatformMenu menu) {
-        String menuId = menu.id().isBlank() ? moduleMenuId(module.alias()) : menu.id();
+        String menuId = menuId(module, menu);
         Menu desired = new Menu();
         desired.setId(menuId);
         desired.setSchemeId(schemeId);
@@ -70,6 +87,7 @@ public class PlatformMenuInitialDataDeclarationProvider implements InitialDataDe
         desired.setParentId(menu.parent());
         desired.setTitle(menu.title().isBlank() ? module.title() : menu.title().trim());
         desired.setModuleAlias(module.alias());
+        desired.setSystemManaged(Boolean.TRUE);
         desired.setRoute(route.isBlank() ? null : route);
         desired.setExternalUrl(externalUrl.isBlank() ? null : externalUrl);
         desired.setPageMode(route.isBlank() && externalUrl.isBlank() ? MenuPageMode.LIST : null);
@@ -87,5 +105,12 @@ public class PlatformMenuInitialDataDeclarationProvider implements InitialDataDe
 
     private String moduleMenuId(String moduleAlias) {
         return "platform.menu.module." + moduleAlias;
+    }
+
+    private String menuId(PlatformStaticModule module, PlatformMenu menu) {
+        return menu.id().isBlank() ? moduleMenuId(module.alias()) : menu.id();
+    }
+
+    private record MenuContribution(PlatformStaticModule module, PlatformMenu menu) {
     }
 }

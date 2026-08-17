@@ -11,7 +11,6 @@ import DictionaryManagementView from '../views/DictionaryManagementView.vue';
 import EmployeeManagementView from '../views/EmployeeManagementView.vue';
 import MenuManagementView from '../views/MenuManagementView.vue';
 import ModuleManagementView from '../views/ModuleManagementView.vue';
-import OrganizationManagementView from '../views/OrganizationManagementView.vue';
 import PasswordManagementView from '../views/PasswordManagementView.vue';
 import RoleManagementView from '../views/RoleManagementView.vue';
 import RoleAuthorizationView from '../views/RoleAuthorizationView.vue';
@@ -67,12 +66,6 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
     layout: 'workspace',
   },
   {
-    route: '/iam/organizations',
-    moduleAlias: 'iam.organization',
-    component: OrganizationManagementView,
-    layout: 'workspace',
-  },
-  {
     route: '/iam/departments',
     moduleAlias: 'iam.department',
     component: DepartmentManagementView,
@@ -114,6 +107,13 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
 export const platformAdminRoutePrefixes = Array.from(
   new Set(platformAdminRoutes.map((route) => route.route)),
 );
+/**
+ * Retains readable legacy menu URLs while delegating their content to the standard module runner.
+ * These are deliberately separate from `platformAdminRoutes`: no business-owned Vue page exists.
+ */
+export const platformAdminDynamicModuleRoutes: Record<string, string> = {
+  '/iam/organizations': 'iam.organization',
+};
 export const platformAdminModuleRoutes = Object.fromEntries(
   platformAdminRoutes
     .filter((route) => route.menuEntry !== false)
