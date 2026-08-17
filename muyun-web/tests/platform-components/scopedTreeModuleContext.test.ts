@@ -126,9 +126,18 @@ it('picker query context scopes tree requests and stays empty before its navigat
   });
 
   assert.deepEqual(await scopedContext.abilities.tree().tree(), { records: [] });
+  assert.deepEqual(await scopedContext.crud.query(), {
+    records: [],
+    total: 0,
+    pageNum: 1,
+    pageSize: 20,
+    pages: 0,
+    totalKnown: true,
+  });
+  assert.deepEqual(context.queries, []);
   queryValues.value = { organizationId: 'org-1' };
   await scopedContext.abilities.tree().tree();
-  await scopedContext.abilities.tree().query();
+  await scopedContext.crud.query();
 
   assert.deepEqual(context.requests, [{ path: '/iam.department/tree', query: { organizationId: 'org-1' } }]);
   assert.deepEqual(context.queries, [

@@ -426,6 +426,14 @@ const pickerQueryValuesByField = computed<Record<string, Record<string, RouteQue
   }
   return values;
 });
+const pickerQueryFieldNames = computed(
+  () =>
+    new Set(
+      pageContextBindings.value
+        .filter((binding) => binding.target === 'PICKER_QUERY' && binding.targetPickerFieldKey)
+        .map((binding) => binding.targetPickerFieldKey!),
+    ),
+);
 const canToggleEnabled = computed(() => {
   const record = selectedRecord.value;
   if (
@@ -496,12 +504,12 @@ const treeParentPickerConfigs = computed<Record<string, RecordFormFieldPickerCon
   if (!treeModule.value || !formFields.value.has('parentId')) {
     return {} as Record<string, RecordFormFieldPickerConfig>;
   }
-  const queryValues = pickerQueryValuesByField.value.parentId;
+  const hasPickerQueryScope = pickerQueryFieldNames.value.has('parentId');
   return {
     parentId: {
-      context: queryValues
+      context: hasPickerQueryScope
         ? createQueryScopedTreeModuleContext(context, {
-            queryValues,
+            queryValues: () => pickerQueryValuesByField.value.parentId,
             treePath: `/${context.moduleAlias}/tree`,
           })
         : context,
@@ -529,11 +537,11 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
       http: context.http,
       moduleAlias: reference.targetModuleAlias,
     });
-    const queryValues = pickerQueryValuesByField.value[pickerFieldName];
+    const hasPickerQueryScope = pickerQueryFieldNames.value.has(pickerFieldName);
     configs[pickerFieldName] = {
-      context: queryValues
+      context: hasPickerQueryScope
         ? createQueryScopedTreeModuleContext(pickerContext, {
-            queryValues,
+            queryValues: () => pickerQueryValuesByField.value[pickerFieldName],
             treePath: `/${reference.targetModuleAlias}/tree`,
           })
         : pickerContext,

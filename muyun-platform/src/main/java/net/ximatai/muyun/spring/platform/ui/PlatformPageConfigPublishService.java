@@ -123,11 +123,12 @@ public class PlatformPageConfigPublishService {
         try {
             // Decode the navigator even when the optional dynamic runtime is absent: unsupported
             // source/target combinations are configuration facts, not runtime-only validation.
-            if (PlatformPageLayoutNavigator.navigator(uiConfig) == null || recordService == null) return;
+            PlatformPageLayoutNavigator.navigator(uiConfig);
+            if (recordService == null) return;
             PlatformPublishedPageComposition composition = publishedCompositionIncluding(uiSet, uiConfig);
             validatePageNavigator(uiSet, uiConfig, composition);
-            if (uiSet.getSetType() == PlatformUiSetType.FORM && composition.listConfig() != null
-                    && !composition.listConfig().getId().equals(uiConfig.getId())) {
+            if ((uiSet.getSetType() == PlatformUiSetType.LIST || uiSet.getSetType() == PlatformUiSetType.FORM)
+                    && composition.listConfig() != null && !composition.listConfig().getId().equals(uiConfig.getId())) {
                 PlatformUiSet listSet = publishedUiSets(uiSet.getModuleAlias()).stream()
                         .filter(candidate -> candidate.getId().equals(composition.listConfig().getUiSetId()))
                         .findFirst()

@@ -55,6 +55,9 @@ function withScopedTreeClient<TRecord>(
 ): ModuleContext<TRecord> {
   return {
     ...context,
+    // RecordPicker falls back to crud.query for non-tree references. Keep that path scoped too:
+    // otherwise a page-level picker query would protect only tree-shaped targets.
+    crud: treeClient,
     abilities: {
       ...context.abilities,
       tree: () => treeClient,
