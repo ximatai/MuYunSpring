@@ -2,6 +2,7 @@ export * from './errors';
 export * from './http';
 export * from './query';
 export * from './actionResult';
+export * from './businessNotifications';
 export * from './dataChanges';
 export * from './realtime';
 export * from './clients';

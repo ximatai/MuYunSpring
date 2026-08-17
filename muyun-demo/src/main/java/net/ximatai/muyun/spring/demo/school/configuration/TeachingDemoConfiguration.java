@@ -10,7 +10,10 @@ import org.springframework.context.annotation.Import;
 @AutoConfiguration
 @Import(EducationApplication.class)
 @Profile("school-demo")
-@ComponentScan(basePackages = "net.ximatai.muyun.spring.demo.school")
+@ComponentScan(basePackages = {
+        "net.ximatai.muyun.spring.demo.school",
+        "net.ximatai.muyun.spring.demo.notification"
+})
 @EnableMuYunRepositories(basePackages = "net.ximatai.muyun.spring.demo.school")
 public class TeachingDemoConfiguration {
 }

@@ -2,6 +2,12 @@ package net.ximatai.muyun.spring.iam.web.realtime;
 
 import net.ximatai.muyun.spring.platform.web.PlatformRecordActionAvailabilityService;
 import net.ximatai.muyun.spring.platform.web.realtime.BusinessRealtimeRecipientPolicyFactory;
+import net.ximatai.muyun.spring.platform.notification.BusinessNotificationDelivery;
+import net.ximatai.muyun.spring.platform.notification.BusinessNotificationRecipientResolver;
+import net.ximatai.muyun.spring.platform.notification.BusinessNotificationService;
+import net.ximatai.muyun.spring.platform.notification.TransactionalBusinessNotificationService;
+import net.ximatai.muyun.spring.platform.web.notification.BusinessNotificationNotifier;
+import net.ximatai.muyun.spring.platform.web.notification.StompBusinessNotificationNotifier;
 import net.ximatai.muyun.spring.web.realtime.*;
 import net.ximatai.muyun.spring.web.MuYunSpringCorsProperties;
 import net.ximatai.muyun.spring.iam.user.UserSecurityEventPublisher;
@@ -99,6 +105,27 @@ public class MuYunSpringRealtimeConfiguration implements WebSocketMessageBrokerC
     @ConditionalOnMissingBean(BusinessRealtimeNotifier.class)
     public BusinessRealtimeNotifier businessRealtimeNotifier(RealtimeMessagePublisher messagePublisher) {
         return new StompBusinessRealtimeNotifier(messagePublisher);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(BusinessNotificationNotifier.class)
+    public BusinessNotificationNotifier businessNotificationNotifier(RealtimeMessagePublisher messagePublisher) {
+        return new StompBusinessNotificationNotifier(messagePublisher);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(BusinessNotificationDelivery.class)
+    public BusinessNotificationDelivery businessNotificationDelivery(
+            BusinessNotificationRecipientResolver recipientResolver,
+            BusinessNotificationNotifier notifier) {
+        return new OnlineBusinessNotificationDelivery(
+                connectionRegistry, userSessionService, recipientResolver, notifier);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(BusinessNotificationService.class)
+    public BusinessNotificationService businessNotificationService(BusinessNotificationDelivery delivery) {
+        return new TransactionalBusinessNotificationService(delivery);
     }
 
     @Bean

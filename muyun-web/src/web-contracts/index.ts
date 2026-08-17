@@ -89,6 +89,43 @@ export interface WebUserNotification {
   targetSessionId?: string;
 }
 
+/** Ephemeral business reminder. It is not a persisted inbox or an acknowledgement record. */
+export interface WebBusinessNotification {
+  id: string;
+  code: string;
+  title: string;
+  subtitle?: string;
+  content: string;
+  dismissible: boolean;
+  actions: WebBusinessNotificationAction[];
+}
+
+export type WebBusinessNotificationAction =
+  | WebBusinessNotificationNavigateAction
+  | WebBusinessNotificationCommandAction;
+
+export interface WebBusinessNotificationNavigateAction {
+  kind: 'navigate';
+  key: string;
+  label: string;
+  moduleAlias: string;
+  recordId?: string;
+  pageMode?: 'LIST' | 'FORM' | 'DETAIL';
+  query?: Record<string, string>;
+  dismissOnSuccess: boolean;
+}
+
+export interface WebBusinessNotificationCommandAction {
+  kind: 'command';
+  key: string;
+  label: string;
+  command: string;
+  arguments?: Record<string, unknown>;
+  danger?: boolean;
+  confirmation?: string;
+  dismissOnSuccess: boolean;
+}
+
 export interface WebBusinessRealtimeEvent {
   type: string;
   moduleAlias: string;

@@ -1,5 +1,6 @@
 export {};
 export { default as ApplicationScopeSwitcher } from './ApplicationScopeSwitcher.vue';
+export { default as BusinessNotificationPanel } from './BusinessNotificationPanel.vue';
 export { confirmAction } from '@muyun/vue-ui-antdv';
 export { default as CrudRecordListExplorer } from './CrudRecordListExplorer.vue';
 export { default as DrawerOperationBar } from './DrawerOperationBar.vue';

@@ -393,6 +393,19 @@ simpMessagingTemplate.convertAndSendToUser(userId, "/queue/platform/data-changes
 | 业务私有事件 | `BusinessRealtimeNotifier` / `BusinessRealtimeFanOutPublisher` | `/user/queue/platform/business-events` | 只发送给经 recipient policy 判定的用户；普通业务状态变化优先发送低敏脏标记，详情通过业务查询接口读取 |
 | 会话 presence | `UserSessionPresenceLookup` + `UserSessionLifecycleEvent` | 用户管理仍复用 `/user/queue/platform/business-events` | presence 只表达 WebSocket 连接观测，不替代 session 有效性；管理页通过会话查询接口读取完整状态 |
 
+### 5.3.1 实时业务提醒
+
+业务提醒是当前在线用户的短生命周期提示，不是持久化消息中心或待办模型。业务代码通过
+`BusinessNotificationService` 发布 `BusinessNotification`，平台在事务提交后按接收范围解析当前在线用户，并逐人发送：
+
+```text
+/user/queue/platform/business-notifications
+```
+
+提醒包含标题、副标题、纯文本内容、`dismissible` 和声明式动作。接收范围可按全局、租户、机构、部门、岗位和用户指定，所有维度按并集处理并按 `userId` 去重；`systemWide` 表示跨租户范围。接收范围不进入前端 payload。
+
+动作只能是平台页面导航，或发送到已注册业务 `BusinessNotificationCommandHandler` 的命令；前端不得执行消息携带的脚本、任意回调或裸 URL。命令处理器必须按当前操作者重新校验权限和业务状态。`dismissible=false` 仅表示在线工作台不提供关闭入口；刷新、离线和断线重连后不保证可恢复，也不形成处理留痕。
+
 各门面收到空接收人、空事件或无法确认当前用户时必须跳过发送。业务代码不得绕过门面直接调用 `RealtimeMessagePublisher`，除非正在实现新的平台 realtime adapter。
 
 ### 5.4 会话有效性与 Presence
