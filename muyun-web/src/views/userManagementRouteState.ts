@@ -19,8 +19,11 @@ export function userManagementRouteStateOf(
   if (legacyKey) return { error: `用户页面不再支持 ${legacyKey} 参数` };
 
   if (!userId) {
-    if (!action && !instanceKey) return {};
-    if (action !== 'add') return { error: '用户列表地址不能携带用户操作或 InstanceKey 参数' };
+    if (!action) {
+      if (!instanceKey || validInstanceKey(instanceKey)) return {};
+      return { error: '用户列表页面携带了无效的 InstanceKey 参数' };
+    }
+    if (action !== 'add') return { error: '用户列表地址不能携带该用户操作参数' };
     return validInstanceKey(instanceKey)
       ? { action: 'add' }
       : { error: '新建用户页面缺少有效的 InstanceKey 参数' };
