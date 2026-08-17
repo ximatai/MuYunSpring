@@ -72,6 +72,8 @@ import {
   closeMenuTabs,
   arrangeLockedMenuTabs,
   menuTargetUrl,
+  findTabByRoute,
+  openMenuTab,
   openDirectTab,
   reorderMenuTabs,
   removeLockedMenuTabs,
@@ -595,11 +597,28 @@ function handleSelectMenu(menu: MenuRecord, target: MenuNavigationTarget) {
     return;
   }
 
-  handleOpenRoute(menuTargetUrl(menu, target));
+  const current = startup.value;
+  if (!current) return;
+  const result = openMenuTab(current.tabs ?? [], menu, target, platformAdminRouteResolveOptions);
+  const next = { ...current, tabs: result.tabs, activeTabKey: result.activeTabKey };
+  startup.value = next;
+  activeTabKey.value = result.activeTabKey;
+  const fullPath = activeTabUrlOf(next);
+  if (!fullPath) return;
+  pendingWorkbenchNavigation = fullPath;
+  void router.push(fullPath).finally(() => {
+    if (pendingWorkbenchNavigation === fullPath) pendingWorkbenchNavigation = undefined;
+  });
 }
 
 function handleOpenRoute(path: string, options: OpenRouteOptions = {}) {
-  return navigateWorkbenchRoute(routeUrlWithOpenOptions(path, options));
+  return navigateWorkbenchRoute(
+    routeUrlWithOpenOptions(path, options),
+    undefined,
+    'push',
+    startup.value,
+    options.tabTitle,
+  );
 }
 
 function handleReplaceRoute(path: string, options: OpenRouteOptions = {}) {
@@ -613,7 +632,13 @@ function handleReplaceRoute(path: string, options: OpenRouteOptions = {}) {
   if (!currentInstanceKey) return navigateWorkbenchRoute(url, undefined, 'replace');
   const parsed = new URL(url, window.location.origin);
   parsed.searchParams.set('InstanceKey', currentInstanceKey);
-  return navigateWorkbenchRoute(`${parsed.pathname}${parsed.search}${parsed.hash}`, undefined, 'replace');
+  return navigateWorkbenchRoute(
+    `${parsed.pathname}${parsed.search}${parsed.hash}`,
+    undefined,
+    'replace',
+    startup.value,
+    options.tabTitle,
+  );
 }
 
 function handleCloseCurrentTab(fallbackPath: string) {
@@ -634,6 +659,13 @@ function handleCloseCurrentTab(fallbackPath: string) {
     tabs: result.tabs,
     activeTabKey: result.activeTabKey,
   };
+  const fallbackTab = findTabByRoute(result.tabs, fallbackPath);
+  if (fallbackTab) {
+    return navigateWorkbenchRoute(fallbackTab.fullPath, undefined, 'replace', {
+      ...closedState,
+      activeTabKey: fallbackTab.key,
+    });
+  }
   return navigateWorkbenchRoute(routeUrlWithOpenOptions(fallbackPath), undefined, 'replace', closedState);
 }
 
@@ -646,6 +678,7 @@ function navigateWorkbenchRoute(
   directDescriptor?: import('@muyun/web-contracts').PageDescriptor,
   mode: 'push' | 'replace' = 'push',
   state: WorkbenchStartupState | undefined = startup.value,
+  tabTitle?: string,
 ) {
   if (!state) {
     return { created: false };
@@ -653,8 +686,16 @@ function navigateWorkbenchRoute(
 
   const previousTabKeys = new Set((state.tabs ?? []).map((tab) => tab.key));
   let next = directDescriptor
-    ? startupWithDirectRoute(state, directDescriptor, url)
+    ? startupWithDirectRoute(state, directDescriptor)
     : restoreWorkbenchStartupStateFromUrl(state, url, platformAdminRouteResolveOptions);
+  if (tabTitle && next.activeTabKey) {
+    next = {
+      ...next,
+      tabs: (next.tabs ?? []).map((tab) =>
+        tab.key === next.activeTabKey ? { ...tab, title: tabTitle } : tab,
+      ),
+    };
+  }
   const currentTabKey = state.activeTabKey;
   const currentTab = state.tabs?.find((tab) => tab.key === currentTabKey);
   const replacement = next.tabs?.find((tab) => tab.key === next.activeTabKey);
@@ -671,9 +712,10 @@ function navigateWorkbenchRoute(
   }
   startup.value = next;
   activeTabKey.value = next.activeTabKey;
-  pendingWorkbenchNavigation = url;
-  void router[mode](url).finally(() => {
-    if (pendingWorkbenchNavigation === url) {
+  const fullPath = activeTabUrlOf(next) ?? url;
+  pendingWorkbenchNavigation = fullPath;
+  void router[mode](fullPath).finally(() => {
+    if (pendingWorkbenchNavigation === fullPath) {
       pendingWorkbenchNavigation = undefined;
     }
   });
@@ -683,15 +725,9 @@ function navigateWorkbenchRoute(
 function startupWithDirectRoute(
   state: WorkbenchStartupState,
   descriptor: import('@muyun/web-contracts').PageDescriptor,
-  fullPath: string,
 ): WorkbenchStartupState {
   const result = openDirectTab(state.tabs ?? [], descriptor);
-  const tabs = result.tabs.map((tab) =>
-    tab.key === result.activeTabKey
-      ? { ...tab, fullPath, restoreState: { ...tab.restoreState, url: fullPath } }
-      : tab,
-  );
-  return { ...state, tabs, activeTabKey: result.activeTabKey };
+  return { ...state, tabs: result.tabs, activeTabKey: result.activeTabKey };
 }
 
 function handleReplacePage(pageKey: string, descriptor: import('@muyun/web-contracts').PageDescriptor) {
@@ -719,15 +755,14 @@ function handleReplacePage(pageKey: string, descriptor: import('@muyun/web-contr
 }
 
 /** 页面数据加载完成后，只更新当前页签标题，不向 URL 写入展示信息。 */
-function handleSetTabName(name: string) {
+function handleSetTabName(instanceKey: string, name: string) {
   const current = startup.value;
-  const currentActiveTabKey = activeTabKey.value ?? current?.activeTabKey;
   const normalized = name.trim();
-  if (!current || !currentActiveTabKey || !normalized) return;
+  if (!current || !instanceKey || !normalized) return;
   startup.value = {
     ...current,
     tabs: (current.tabs ?? []).map((tab) =>
-      tab.key === currentActiveTabKey ? { ...tab, title: normalized } : tab,
+      tab.instanceKey === instanceKey ? { ...tab, title: normalized } : tab,
     ),
   };
 }
@@ -899,6 +934,7 @@ function restoreWorkbenchFromRoute(url: string) {
   const restored = restoreWorkbenchStartupStateFromUrl(current, url, platformAdminRouteResolveOptions);
   startup.value = restored;
   activeTabKey.value = restored.activeTabKey;
+  if (activeTabUrlOf(restored) !== url) syncBrowserUrl(restored, 'replace');
 }
 
 function requiresLogin(cause: unknown) {

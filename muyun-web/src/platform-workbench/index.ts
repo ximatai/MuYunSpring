@@ -30,9 +30,11 @@ export {
   isWindowMenuTarget,
   pageDescriptorFromUrl,
   pageDescriptorToUrl,
+  pageInstanceKeyOf,
   resolvePageDescriptor,
   tabKeyOf,
   tryPageDescriptorFromUrl,
+  withPageInstanceKey,
 } from './menuNavigation';
 export type { PageDescriptorResolveOptions, PageDescriptorUrlParseOptions } from './menuNavigation';
 export {

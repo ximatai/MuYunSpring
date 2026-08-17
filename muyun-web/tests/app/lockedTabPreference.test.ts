@@ -13,8 +13,10 @@ function preferenceStore(): UserPreferenceStore {
 
 const lockedTabs = [
   {
+    instanceKey: 'ROUTE:platform.application',
     key: 'ROUTE:platform.application',
     title: '应用管理',
+    fullPath: '/platform/application?InstanceKey=ROUTE%3Aplatform.application',
     pageDescriptor: {
       pageType: 'platform-route' as const,
       openMode: 'workbench-route' as const,

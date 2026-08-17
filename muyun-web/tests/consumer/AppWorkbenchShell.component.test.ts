@@ -11,8 +11,10 @@ import { configureUserPreferenceBackend } from '@/web-core/userPreferences';
 
 const tabs = [
   {
+    instanceKey: 'menu:A',
     key: 'menu:A',
     title: 'A',
+    fullPath: '/a?InstanceKey=menu%3AA',
     target: { menuId: 'A', menuType: 'route' as const, openMode: 'tab' as const, route: '/a' },
     pageDescriptor: {
       pageType: 'business-route' as const,
@@ -24,8 +26,10 @@ const tabs = [
     closable: true,
   },
   {
+    instanceKey: 'menu:B',
     key: 'menu:B',
     title: 'B',
+    fullPath: '/b?InstanceKey=menu%3AB',
     target: { menuId: 'B', menuType: 'route' as const, openMode: 'tab' as const, route: '/b' },
     pageDescriptor: {
       pageType: 'business-route' as const,
@@ -164,7 +168,7 @@ it('uses the consumer router to apply an active tab change', async () => {
   await workbench.vm.$emit('changeTab', 'menu:B');
   await flushPromises();
 
-  expect(router.currentRoute.value.fullPath).toBe('/b');
+  expect(router.currentRoute.value.fullPath).toBe('/b?InstanceKey=menu%3AB');
 });
 
 it('creates independent tabs when the same user page opens twice', async () => {
@@ -209,7 +213,7 @@ it('replaces the current tab address and closes it into the fallback address', a
   await syncStartup(wrapper);
   state = wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState;
   expect(state.tabs?.some((tab) => tab.fullPath?.includes('/iam/users/user-1'))).toBe(false);
-  expect(state.activeTabKey).toContain('/a');
+  expect(state.activeTabKey).toBe('menu:A');
   expect(wrapper.emitted('navigate')?.at(-1)?.[0]).toMatchObject({ mode: 'replace' });
   wrapper.unmount();
 });

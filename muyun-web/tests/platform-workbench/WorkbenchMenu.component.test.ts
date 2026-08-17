@@ -932,7 +932,14 @@ describe('Workbench compact menu', () => {
         startup: {
           session: { currentUser: { userId: 'user-1', tenantId: 'tenant-a', system: false } },
           menus: [],
-          tabs: [{ key: 'application', title: '应用管理' }],
+          tabs: [
+            {
+              instanceKey: 'application',
+              key: 'application',
+              title: '应用管理',
+              fullPath: '/platform/application?InstanceKey=application',
+            },
+          ],
           activeTabKey: 'application',
         },
       },

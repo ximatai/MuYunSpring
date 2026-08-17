@@ -237,7 +237,6 @@ async function loadUserDetail(recordId: string) {
     userDraft.value = copyUser(user);
     selectedTenant.value = tenant ?? ({ id: fullRecord.tenantId, title: fullRecord.tenantId } as Tenant);
     void loadUserSessions(recordId);
-    updateTabTitle(user);
   } catch (cause) {
     if (canCommitUserRequest(recordId, requestSeq)) {
       userDetailLoadFailed.value = true;
@@ -316,7 +315,7 @@ function openUserAction(action: Extract<UserRouteAction, 'edit'>) {
   const user = selectedUser.value;
   if (!user?.id) return;
   navigation?.openRoute(`/iam/users/${encodeURIComponent(user.id)}`, {
-    newInstance: true,
+    tabTitle: `编辑用户：${userTitle(user)}`,
     query: { userAction: action },
   });
 }
@@ -507,13 +506,6 @@ async function revokeAllUserSessions() {
       }),
     onExecuted: (_, record) => void loadUserSessions(record.id),
   });
-}
-
-/** 用户加载完成后只更新页签标题，URL 不携带展示标题。 */
-function updateTabTitle(user: UserAccount) {
-  navigation?.setTabName(
-    props.action === 'view' ? userTitle(user) : `${userActionTitle(props.action)}：${userTitle(user)}`,
-  );
 }
 
 /** 重试当前地址所要求的用户读取。 */

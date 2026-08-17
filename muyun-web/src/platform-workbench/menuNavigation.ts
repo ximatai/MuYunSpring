@@ -34,7 +34,8 @@ export interface PageDescriptorUrlParseOptions {
 // has not reserved a domain route prefix for their generated fallback route.
 const defaultBusinessRoutePrefixes: string[] = ['/_workspace'];
 const WORKBENCH_MENU_ID_QUERY_KEY = '_muyunMenuId';
-const WORKBENCH_TITLE_QUERY_KEY = '_muyunTitle';
+/** Accepted only to keep old shared URLs harmless; it never becomes page state. */
+const LEGACY_WORKBENCH_TITLE_QUERY_KEY = '_muyunTitle';
 const WORKBENCH_ENTRY_PARAMS_QUERY_KEY = '_muyunEntryParams';
 const legacyWorkbenchQueryKeys = ['entryParamsJson', 'menuId', 'title'];
 
@@ -197,8 +198,12 @@ export function createMenuTab(
     throw new Error(`WINDOW menu target cannot be opened as a workbench tab: ${target.menuId}`);
   }
 
-  const pageDescriptor = resolvePageDescriptor(target, { ...options, title: options.title ?? menu.title });
+  const pageDescriptor = withPageInstanceKey(
+    resolvePageDescriptor(target, { ...options, title: options.title ?? menu.title }),
+  );
+  const instanceKey = pageInstanceKeyOf(pageDescriptor)!;
   return {
+    instanceKey,
     key: tabKeyOf(pageDescriptor),
     title: menu.title,
     fullPath: pageDescriptorToUrl(pageDescriptor),
@@ -207,6 +212,19 @@ export function createMenuTab(
     restoreState: pageDescriptor.restoreState,
     closable: true,
   };
+}
+
+/** Adds a page-instance key once and preserves it on address replacement or restoration. */
+export function withPageInstanceKey(
+  descriptor: PageDescriptor,
+  instanceKey = crypto.randomUUID(),
+): PageDescriptor {
+  if (pageInstanceKeyOf(descriptor)) return descriptor;
+  if (descriptor.pageType === 'platform-route' || descriptor.pageType === 'business-route') {
+    const query = { ...(descriptor.target.query ?? descriptor.params), InstanceKey: instanceKey };
+    return { ...descriptor, target: { ...descriptor.target, query }, params: query };
+  }
+  return { ...descriptor, params: { ...descriptor.params, InstanceKey: instanceKey } };
 }
 
 export function findFirstNavigationMenu(nodes: MenuTreeNode[]): MenuRecord | undefined {
@@ -226,8 +244,9 @@ export function findFirstNavigationMenu(nodes: MenuTreeNode[]): MenuRecord | und
 }
 
 export function tabKeyOf(descriptor: PageDescriptor): string {
-  const instanceKey = instanceKeyOf(descriptor);
   const baseKey = tabBaseKeyOf(descriptor);
+  if (descriptor.tabPolicy.identity === 'by-menu' && descriptor.menuId) return baseKey;
+  const instanceKey = pageInstanceKeyOf(descriptor);
   return instanceKey ? `${baseKey}:InstanceKey:${instanceKey}` : baseKey;
 }
 
@@ -240,13 +259,16 @@ function tabBaseKeyOf(descriptor: PageDescriptor): string {
     const baseKey = descriptor.menuId
       ? `menu:${descriptor.menuId}`
       : `${descriptor.pageType}:${stableTargetKeyOf(descriptor)}`;
-    return `${baseKey}:${stableQueryString(descriptor.params)}`;
+    const identityParams = Object.fromEntries(
+      Object.entries(descriptor.params).filter(([key]) => key !== 'InstanceKey'),
+    );
+    return `${baseKey}:${stableQueryString(identityParams)}`;
   }
 
   return `${descriptor.pageType}:${stableTargetKeyOf(descriptor)}`;
 }
 
-function instanceKeyOf(descriptor: PageDescriptor): string | undefined {
+export function pageInstanceKeyOf(descriptor: PageDescriptor): string | undefined {
   const query =
     descriptor.pageType === 'platform-route' || descriptor.pageType === 'business-route'
       ? (descriptor.target.query ?? descriptor.params)
@@ -262,7 +284,6 @@ export function pageDescriptorToUrl(descriptor: PageDescriptor): string {
         ...(descriptor.target.query ?? descriptor.params),
         [WORKBENCH_ENTRY_PARAMS_QUERY_KEY]: descriptor.entryParamsJson,
         [WORKBENCH_MENU_ID_QUERY_KEY]: descriptor.menuId,
-        [WORKBENCH_TITLE_QUERY_KEY]: descriptor.title,
       });
     }
 
@@ -273,7 +294,6 @@ export function pageDescriptorToUrl(descriptor: PageDescriptor): string {
       routeName: descriptor.target.routeName,
       pageKey: descriptor.target.pageKey,
       [WORKBENCH_MENU_ID_QUERY_KEY]: descriptor.menuId,
-      [WORKBENCH_TITLE_QUERY_KEY]: descriptor.title,
     };
     return appendQuery('/platform/workspace', query);
   }
@@ -286,7 +306,6 @@ export function pageDescriptorToUrl(descriptor: PageDescriptor): string {
       uiConfigId: descriptor.target.defaultUiConfigId,
       queryTemplateId: descriptor.target.defaultQueryTemplateId,
       [WORKBENCH_MENU_ID_QUERY_KEY]: descriptor.menuId,
-      [WORKBENCH_TITLE_QUERY_KEY]: descriptor.title,
     });
   }
 
@@ -296,7 +315,6 @@ export function pageDescriptorToUrl(descriptor: PageDescriptor): string {
       url: descriptor.target.url,
       mode: descriptor.openMode,
       [WORKBENCH_MENU_ID_QUERY_KEY]: descriptor.menuId,
-      [WORKBENCH_TITLE_QUERY_KEY]: descriptor.title,
     });
   }
 
@@ -324,7 +342,7 @@ export function pageDescriptorFromUrl(
       ...legacyWorkbenchQueryKeys,
       WORKBENCH_ENTRY_PARAMS_QUERY_KEY,
       WORKBENCH_MENU_ID_QUERY_KEY,
-      WORKBENCH_TITLE_QUERY_KEY,
+      LEGACY_WORKBENCH_TITLE_QUERY_KEY,
       'queryTemplateId',
       'uiConfigId',
     ]);
@@ -333,7 +351,7 @@ export function pageDescriptorFromUrl(
       pageType: 'dynamic-module',
       openMode: 'dynamic-runner',
       hostType: 'dynamic-module-host',
-      title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY, 'title') ?? options.title,
+      title: options.title,
       menuId,
       target: {
         moduleAlias: decodeURIComponent(moduleAlias ?? ''),
@@ -362,7 +380,7 @@ export function pageDescriptorFromUrl(
     const params = withoutKeys(query, [
       ...legacyWorkbenchQueryKeys,
       WORKBENCH_MENU_ID_QUERY_KEY,
-      WORKBENCH_TITLE_QUERY_KEY,
+      LEGACY_WORKBENCH_TITLE_QUERY_KEY,
       'url',
       'mode',
     ]);
@@ -371,7 +389,7 @@ export function pageDescriptorFromUrl(
         pageType: 'remote-url',
         openMode,
         hostType: 'external-page-host',
-        title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY, 'title') ?? options.title,
+        title: options.title,
         menuId,
         target: { url: remoteUrl },
         params,
@@ -383,7 +401,7 @@ export function pageDescriptorFromUrl(
       pageType: 'external-link',
       openMode,
       hostType: 'external-page-host',
-      title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY, 'title') ?? options.title,
+      title: options.title,
       menuId,
       target: { url: remoteUrl },
       params,
@@ -402,7 +420,7 @@ export function pageDescriptorFromUrl(
       query: withoutKeys(query, [
         ...legacyWorkbenchQueryKeys,
         WORKBENCH_MENU_ID_QUERY_KEY,
-        WORKBENCH_TITLE_QUERY_KEY,
+        LEGACY_WORKBENCH_TITLE_QUERY_KEY,
         'pageType',
         'routeName',
         'pageKey',
@@ -412,7 +430,7 @@ export function pageDescriptorFromUrl(
     const menuId = workbenchQueryValue(query, WORKBENCH_MENU_ID_QUERY_KEY, 'menuId');
     const descriptorBase = {
       openMode: 'workbench-route' as const,
-      title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY, 'title') ?? options.title,
+      title: options.title,
       menuId,
       target: routeTarget,
       params: routeTarget.query,
@@ -442,11 +460,11 @@ export function pageDescriptorFromUrl(
   const routeQuery = withoutKeys(query, [
     WORKBENCH_ENTRY_PARAMS_QUERY_KEY,
     WORKBENCH_MENU_ID_QUERY_KEY,
-    WORKBENCH_TITLE_QUERY_KEY,
+    LEGACY_WORKBENCH_TITLE_QUERY_KEY,
   ]);
   const descriptorBase = {
     openMode: 'workbench-route' as const,
-    title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY) ?? options.title,
+    title: options.title,
     menuId,
     target: {
       route: path,

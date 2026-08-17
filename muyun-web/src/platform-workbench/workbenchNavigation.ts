@@ -2,8 +2,10 @@ import { inject, provide, type InjectionKey } from 'vue';
 import type { PageDescriptor, RouteQueryValue } from '@muyun/web-contracts';
 
 export interface OpenRouteOptions {
-  /** Creates an independent cached page instance and writes InstanceKey to the URL. */
+  /** Forces a new page instance when the supplied URL already contains an InstanceKey. */
   newInstance?: boolean;
+  /** Visible tab title established when the page instance is created; it is never written to the URL. */
+  tabTitle?: string;
   /** Business query values to merge into the target URL. */
   query?: Record<string, RouteQueryValue>;
 }
@@ -19,8 +21,8 @@ export interface WorkbenchNavigation {
   openPage(descriptor: PageDescriptor): WorkbenchPageOpenResult;
   /** Replaces one existing host by its stable tab key without changing that tab's identity. */
   replacePage(pageKey: string, descriptor: PageDescriptor): void;
-  /** Updates the visible title of the current tab without changing its address. */
-  setTabName(name: string): void;
+  /** Updates the visible title of one explicit page instance without changing its address. */
+  setTabName(instanceKey: string, name: string): void;
 }
 
 export interface WorkbenchPageOpenResult {
@@ -28,8 +30,7 @@ export interface WorkbenchPageOpenResult {
 }
 
 /**
- * Adds supplied address values and decides which page marker belongs in the address.
- * Only requests for a new page create a random marker. Callers cannot provide one.
+ * Adds supplied address values and makes every workbench navigation address identify one page instance.
  */
 export function routeUrlWithOpenOptions(path: string, options: OpenRouteOptions = {}): string {
   const url = new URL(path, 'http://muyun.local');
@@ -44,10 +45,8 @@ export function routeUrlWithOpenOptions(path: string, options: OpenRouteOptions 
     }
   }
 
-  if (options.newInstance) {
+  if (options.newInstance || !url.searchParams.get('InstanceKey')) {
     url.searchParams.set('InstanceKey', crypto.randomUUID());
-  } else {
-    url.searchParams.delete('InstanceKey');
   }
   return `${url.pathname}${url.search}${url.hash}`;
 }

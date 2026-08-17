@@ -21,16 +21,13 @@ const state = {
 
 it('writes user tab navigation as a browser history entry', () => {
   assert.deepEqual(workbenchRouteWriteFor(state, '/platform/metadata', 'push'), {
-    url: '/crm/customers?_muyunTitle=%E5%AE%A2%E6%88%B7%E7%AE%A1%E7%90%86',
+    url: tab.fullPath,
     mode: 'push',
   });
 });
 
 it('does not create a duplicate history entry for the active tab URL', () => {
-  assert.equal(
-    workbenchRouteWriteFor(state, '/crm/customers?_muyunTitle=%E5%AE%A2%E6%88%B7%E7%AE%A1%E7%90%86', 'push'),
-    undefined,
-  );
+  assert.equal(workbenchRouteWriteFor(state, tab.fullPath, 'push'), undefined);
 });
 
 it('restores workbench state for browser navigation but not self-written or special routes', () => {

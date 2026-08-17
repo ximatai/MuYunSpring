@@ -1416,6 +1416,8 @@ it('user management keeps account basics separate from employment binding and ro
   assert.notMatch(userViewSource, /calc\(100vh|calc\(100dvh/);
   assert.match(userListSource, /moduleAlias: 'iam\.tenant'/);
   assert.match(userDetailSource, /moduleAlias: 'iam\.user'/);
+  assert.notMatch(userDetailSource, /setTabName\(/);
+  assert.match(userListSource, /tabTitle: action === 'view'/);
   assert.match(userListSource, /<CrudRecordListExplorer/);
   assert.match(userListSource, /<RecordQueryListPanel/);
   assert.match(userListSource, /:expanded-row-keys="expandedUserKeys"/);

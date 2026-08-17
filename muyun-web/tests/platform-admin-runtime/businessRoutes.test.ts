@@ -22,6 +22,7 @@ it('static business route registry exposes route prefixes for navigation resolut
     '/iam/departments',
     '/iam/employees',
     '/iam/users',
+    '/iam/users/:userId',
     '/iam/system-users',
     '/iam/roles',
     '/iam/role-authorization',

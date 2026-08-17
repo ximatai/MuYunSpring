@@ -37,14 +37,11 @@ it('resolvePageDescriptor resolves ROUTE targets as platform routes by default',
   assert.equal(descriptor.title, 'Metadata');
   assert.equal(descriptor.target.route, '/platform/metadata');
   assert.equal(tabKeyOf(descriptor), 'menu:metadata');
-  assert.equal(
-    pageDescriptorToUrl(descriptor),
-    '/platform/metadata?_muyunMenuId=metadata&_muyunTitle=Metadata',
-  );
+  assert.equal(pageDescriptorToUrl(descriptor), '/platform/metadata?_muyunMenuId=metadata');
   const roundTrip = pageDescriptorFromUrl(pageDescriptorToUrl(descriptor));
   assert.equal(roundTrip.pageType, 'platform-route');
   assert.equal(roundTrip.menuId, 'metadata');
-  assert.equal(roundTrip.title, 'Metadata');
+  assert.equal(roundTrip.title, undefined);
   assert.equal(roundTrip.tabPolicy.identity, 'by-menu');
 });
 
@@ -499,7 +496,7 @@ it('pageDescriptorFromUrl keeps workbench metadata separate from business route 
 
   assertPageType(descriptor, 'business-route');
   assert.equal(descriptor.menuId, 'customer-list');
-  assert.equal(descriptor.title, 'Customers');
+  assert.equal(descriptor.title, undefined);
   assert.equal(descriptor.entryParamsJson, '{"source":"workbench"}');
   assert.deepEqual(descriptor.target.query, {
     entryParamsJson: 'business-value',
@@ -584,7 +581,7 @@ it('tabKeyOf separates independent instances while the default instance keeps it
   };
 
   assert.equal(tabKeyOf(defaultDescriptor), 'menu:customer-list');
-  assert.equal(tabKeyOf(independentDescriptor), 'menu:customer-list:InstanceKey:instance-a');
+  assert.equal(tabKeyOf(independentDescriptor), 'menu:customer-list');
   assert.equal(
     pageDescriptorToUrl(independentDescriptor),
     '/crm/customer/list?InstanceKey=instance-a&_muyunMenuId=customer-list',

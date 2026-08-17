@@ -13,10 +13,10 @@ it('generates a fresh UUID only for a new page instance', () => {
   assert.equal(url.searchParams.get('userAction'), 'add');
 });
 
-it('removes a previous page marker by default and creates one only when requested', () => {
+it('keeps an existing page marker and creates one when the address has none', () => {
   assert.equal(
     routeUrlWithOpenOptions('/iam/users?InstanceKey=old&userAction=view'),
-    '/iam/users?userAction=view',
+    '/iam/users?InstanceKey=old&userAction=view',
   );
 
   assert.ok(

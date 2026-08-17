@@ -432,10 +432,13 @@ export type PageDescriptor =
   | ExternalLinkPageDescriptor;
 
 export interface MenuTab {
+  /** The immutable page-instance identifier used by the router cache. */
+  instanceKey: string;
+  /** Tab-bar identity. Menu tabs may use a stable menu key while their page instance remains separate. */
   key: string;
   title: string;
   /** The exact browser location that restores this page instance. */
-  fullPath?: string;
+  fullPath: string;
   target?: MenuNavigationTarget;
   pageDescriptor?: PageDescriptor;
   restoreState?: TabRestoreState;

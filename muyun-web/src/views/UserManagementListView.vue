@@ -122,7 +122,7 @@ function selectTenant(record: Tenant) {
 function handleUserListAction(action: RecordActionItem) {
   if (action.key !== 'create') return;
   navigation?.openRoute('/iam/users', {
-    newInstance: true,
+    tabTitle: '新建用户',
     query: { userAction: 'add' },
   });
 }
@@ -146,7 +146,7 @@ function openUserPage(action: Extract<UserRouteAction, 'view' | 'edit'>, record:
   const userId = String(record.id ?? '');
   if (!userId) return;
   navigation?.openRoute(`/iam/users/${encodeURIComponent(userId)}`, {
-    newInstance: true,
+    tabTitle: action === 'view' ? `浏览用户：${userTitle(record)}` : `编辑用户：${userTitle(record)}`,
     query: action === 'edit' ? { userAction: 'edit' } : undefined,
   });
 }

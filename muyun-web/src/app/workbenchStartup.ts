@@ -13,9 +13,11 @@ import {
   getMenuNavigationTarget,
   isTabMenuTarget,
   pageDescriptorToUrl,
+  pageInstanceKeyOf,
   resolvePageDescriptor,
   tabKeyOf,
   tryPageDescriptorFromUrl,
+  withPageInstanceKey,
   type PageDescriptorResolveOptions,
 } from '@muyun/platform-workbench';
 import {
@@ -67,11 +69,13 @@ export function openMenuTab(
   target: MenuNavigationTarget,
   options: PageDescriptorResolveOptions = {},
 ): { tabs: MenuTab[]; activeTabKey: string } {
-  const tab = createMenuTab(menu, target, options);
-  if (tabs.some((item) => item.key === tab.key)) {
-    return { tabs, activeTabKey: tab.key };
+  const existing = tabs.find(
+    (item) => item.pageDescriptor?.menuId === menu.id || item.target?.menuId === menu.id,
+  );
+  if (existing) {
+    return { tabs, activeTabKey: existing.key };
   }
-
+  const tab = createMenuTab(menu, target, options);
   return { tabs: [...tabs, tab], activeTabKey: tab.key };
 }
 
@@ -86,7 +90,6 @@ export function openDirectTab(
 
 export function menuTargetUrl(menu: MenuRecord, target: MenuNavigationTarget): string {
   const query = new URLSearchParams({ _muyunMenuId: menu.id });
-  if (menu.title) query.set('_muyunTitle', menu.title);
 
   if (target.menuType === 'module') {
     const pageMode = (target.pageMode ?? 'LIST').toLowerCase();
@@ -118,6 +121,12 @@ export function activeTabUrlOf(state: WorkbenchStartupState): string | undefined
     return descriptor.target.route;
   }
   return descriptor ? pageDescriptorToUrl(descriptor) : undefined;
+}
+
+/** Finds an already-open page for a fallback address without treating InstanceKey as business route data. */
+export function findTabByRoute(tabs: MenuTab[], path: string): MenuTab | undefined {
+  const identity = routeIdentity(path);
+  return tabs.find((tab) => routeIdentity(tab.fullPath) === identity);
 }
 
 export function restoreWorkbenchStartupStateFromUrl(
@@ -294,15 +303,15 @@ function initialTabOf(menus: WorkbenchStartupState['menus'], options: PageDescri
 }
 
 function createDirectTab(descriptor: PageDescriptor): MenuTab {
-  const fullPath =
-    descriptor.pageType === 'platform-route' && isModuleOpenApiPage(descriptor) && descriptor.target.route
-      ? descriptor.target.route
-      : pageDescriptorToUrl(descriptor);
+  const pageDescriptor = withPageInstanceKey(descriptor);
+  const fullPath = pageDescriptorToUrl(pageDescriptor);
+  const instanceKey = pageInstanceKeyOf(pageDescriptor)!;
   return {
-    key: tabKeyOf(descriptor),
-    title: descriptor.title ?? directTabTitleOf(descriptor),
+    instanceKey,
+    key: tabKeyOf(pageDescriptor),
+    title: pageDescriptor.title ?? directTabTitleOf(pageDescriptor),
     fullPath,
-    pageDescriptor: descriptor,
+    pageDescriptor,
     restoreState: { url: fullPath },
     closable: true,
   };
@@ -357,10 +366,8 @@ function createRestoredMenuTab(
 
   return {
     ...tab,
-    key: tabKeyOf(pageDescriptor),
-    fullPath: pageDescriptorToUrl(pageDescriptor),
-    pageDescriptor,
-    restoreState: { url: pageDescriptorToUrl(pageDescriptor) },
+    ...createDirectTab(pageDescriptor),
+    target,
   };
 }
 
@@ -467,4 +474,10 @@ function findMenuById(nodes: WorkbenchStartupState['menus'], menuId: string): Me
   }
 
   return undefined;
+}
+
+function routeIdentity(path: string): string {
+  const url = new URL(path, 'http://muyun.local');
+  url.searchParams.delete('InstanceKey');
+  return `${url.pathname}?${url.searchParams.toString()}${url.hash}`;
 }
