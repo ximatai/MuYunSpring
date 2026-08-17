@@ -1,6 +1,7 @@
 import { Client, type IMessage, type StompSubscription } from '@stomp/stompjs';
 import type {
   WebBusinessRealtimeEvent,
+  WebBusinessNotification,
   WebCommittedChangeSet,
   WebRealtimeEnvelope,
   WebUserNotification,
@@ -94,12 +95,14 @@ export interface StompErrorFrame {
 export const realtimeMessageTypes = {
   dataChange: 'platform.data-change',
   securityNotification: 'platform.security-notification',
+  businessNotification: 'platform.business-notification',
   businessEvent: 'platform.business-event',
 } as const;
 
 export const realtimeDestinations = {
   userDataChanges: '/user/queue/platform/data-changes',
   userNotifications: '/user/queue/platform/notifications',
+  userBusinessNotifications: '/user/queue/platform/business-notifications',
   userBusinessEvents: '/user/queue/platform/business-events',
   userImMessages: '/user/queue/platform/im/messages',
   platformPing: '/app/platform/ping',
@@ -115,6 +118,11 @@ export const dataChangeChannel: RealtimeChannel<WebCommittedChangeSet> = {
 export const userNotificationChannel: RealtimeChannel<WebUserNotification> = {
   destination: realtimeDestinations.userNotifications,
   type: realtimeMessageTypes.securityNotification,
+};
+
+export const userBusinessNotificationChannel: RealtimeChannel<WebBusinessNotification> = {
+  destination: realtimeDestinations.userBusinessNotifications,
+  type: realtimeMessageTypes.businessNotification,
 };
 
 export const userBusinessEventChannel: RealtimeChannel<WebBusinessRealtimeEvent> = {
@@ -322,6 +330,13 @@ export function connectRealtimeUserNotifications(
   handler: RealtimeHandler<WebUserNotification>,
 ): RealtimeSubscription {
   return realtime.subscribe(userNotificationChannel, handler);
+}
+
+export function connectRealtimeBusinessNotifications(
+  realtime: RealtimeClient,
+  handler: RealtimeHandler<WebBusinessNotification>,
+): RealtimeSubscription {
+  return realtime.subscribe(userBusinessNotificationChannel, handler);
 }
 
 export function connectRealtimeBusinessEvents(

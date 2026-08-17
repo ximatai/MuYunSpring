@@ -20,11 +20,13 @@ import {
   resolveGlobalErrorPresentation,
   actionResultData,
   connectRealtimeBusinessEvents,
+  connectRealtimeBusinessNotifications,
   connectRealtimeDataChanges,
   connectRealtimeUserNotifications,
   createDataChangeDispatcher,
   webDataChanges,
   createRealtimeClient,
+  invokeBusinessNotificationCommand,
   contextDataChangeChannel,
   imConversationMessageChannel,
   imMessageSendCommand,
@@ -40,6 +42,7 @@ import {
   tenantPublicDataChangeChannel,
   tenantPublicNotificationChannel,
   userBusinessEventChannel,
+  userBusinessNotificationChannel,
   userImMessageChannel,
   userNotificationChannel,
   withWebActionResultChanges,
@@ -63,6 +66,43 @@ async function expectRejected(
 
   expect.fail('Expected promise to reject');
 }
+
+it('business notification command uses the platform dispatcher instead of a business supplied URL', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return Response.json({ data: { accepted: true } });
+  };
+
+  try {
+    await invokeBusinessNotificationCommand(createHttpClient({ baseUrl: 'http://api.local' }), 'notice-1', {
+      kind: 'command',
+      key: 'approve',
+      label: '同意',
+      command: 'workflow.approval.approve',
+      arguments: { taskId: 'task-1' },
+      dismissOnSuccess: true,
+    });
+    assert.equal(
+      requests[0].url,
+      'http://api.local/platform/notifications/commands/workflow.approval.approve',
+    );
+    assert.deepEqual(await requests[0].json(), {
+      notificationId: 'notice-1',
+      actionKey: 'approve',
+      arguments: { taskId: 'task-1' },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('business notifications have an isolated typed realtime channel', () => {
+  assert.equal(userBusinessNotificationChannel.destination, '/user/queue/platform/business-notifications');
+  assert.equal(userBusinessNotificationChannel.type, 'platform.business-notification');
+  assert.equal(typeof connectRealtimeBusinessNotifications, 'function');
+});
 
 it('menu client normalizes backend enum values before workbench navigation', async () => {
   const originalFetch = globalThis.fetch;

@@ -2,6 +2,7 @@ import {
   createDataChangeDispatcher,
   createRealtimeClient,
   connectRealtimeBusinessEvents,
+  connectRealtimeBusinessNotifications,
   connectRealtimeDataChanges,
   connectRealtimeUserNotifications,
   moduleDataChangeChannel,
@@ -12,6 +13,7 @@ import {
 } from '@muyun/web-core';
 import type {
   WebBusinessRealtimeEvent,
+  WebBusinessNotification,
   WebCommittedChangeSet,
   WebUserNotification,
 } from '@muyun/web-contracts';
@@ -31,6 +33,7 @@ export interface AppRealtimeOptions {
   token?: string;
   onUnauthorized?: () => void;
   onUserNotification?: (notification: WebUserNotification) => void;
+  onBusinessNotification?: (notification: WebBusinessNotification) => void;
   onStateChange?: (state: RealtimeConnectionState) => void;
 }
 
@@ -69,6 +72,9 @@ export function connectAppRealtime(options: AppRealtimeOptions = {}) {
   const userNotificationSubscription = connectRealtimeUserNotifications(realtime, (notification) => {
     options.onUserNotification?.(notification);
   });
+  const businessNotificationSubscription = connectRealtimeBusinessNotifications(realtime, (notification) => {
+    options.onBusinessNotification?.(notification);
+  });
   const businessEventSubscription = connectRealtimeBusinessEvents(realtime, (event) => {
     for (const handler of businessEventHandlers) {
       void handler(event);
@@ -87,6 +93,7 @@ export function connectAppRealtime(options: AppRealtimeOptions = {}) {
       disconnected = true;
       dataChangeSubscription.unsubscribe();
       userNotificationSubscription.unsubscribe();
+      businessNotificationSubscription.unsubscribe();
       businessEventSubscription.unsubscribe();
       activityReporter.stop();
       unbindPageRealtimeSubscriptions();

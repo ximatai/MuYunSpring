@@ -8,6 +8,7 @@ import {
 } from '@muyun/platform-workbench';
 import {
   UiThemeProvider,
+  confirmAction,
   defaultUiThemeSkinId,
   uiThemeSkinById,
   uiThemeSkins,
@@ -17,12 +18,14 @@ import {
   presentPlatformError,
   presentPlatformSuccess,
   providePlatformTimeZoneContext,
+  BusinessNotificationPanel,
 } from '@muyun/platform-components';
 import {
   configureModuleContext,
   createModuleContext,
   createAuthClient,
   createLoginContextClient,
+  invokeBusinessNotificationCommand,
   provideModuleContextConfig,
   userPreferences,
   type AppError,
@@ -36,6 +39,8 @@ import type {
   MenuNavigationTarget,
   MenuRecord,
   WebUserNotification,
+  WebBusinessNotification,
+  WebBusinessNotificationAction,
   WorkbenchStartupState,
 } from '@muyun/web-contracts';
 import {
@@ -147,6 +152,7 @@ const currentPassword = ref('');
 const newPassword = ref('');
 const confirmPassword = ref('');
 const securityNotification = ref<WebUserNotification>();
+const businessNotifications = ref<WebBusinessNotification[]>([]);
 const securityLogoutCountdown = ref(0);
 const openApiCatalogOpen = ref(isOpenApiCatalogPath(window.location.pathname));
 const realtimeStatus = ref<WorkbenchRealtimeStatus>('unavailable');
@@ -476,6 +482,7 @@ async function handleLogout() {
     // Local logout should still be possible if the token is already expired or the backend is unavailable.
   } finally {
     clearAuthToken();
+    businessNotifications.value = [];
     startup.value = undefined;
     activeTabKey.value = undefined;
     error.value = undefined;
@@ -498,6 +505,7 @@ function reconnectRealtime() {
       token,
       onUnauthorized: () => handleRealtimeUnauthorized(token),
       onUserNotification: handleSecurityNotification,
+      onBusinessNotification: receiveBusinessNotification,
       onStateChange: (state) => {
         realtimeStatus.value = workbenchRealtimeStatusOf(state);
       },
@@ -546,6 +554,50 @@ function handleSecurityNotification(notification: WebUserNotification) {
   scheduleLocalLogout(notification);
 }
 
+function receiveBusinessNotification(notification: WebBusinessNotification) {
+  const current = businessNotifications.value.filter((item) => item.id !== notification.id);
+  businessNotifications.value = [...current, notification];
+}
+
+function dismissBusinessNotification(notificationId: string) {
+  businessNotifications.value = businessNotifications.value.filter((item) => item.id !== notificationId);
+}
+
+async function executeBusinessNotificationAction(
+  notification: WebBusinessNotification,
+  action: WebBusinessNotificationAction,
+) {
+  try {
+    if (action.kind === 'navigate') {
+      handleOpenPage({
+        pageType: 'dynamic-module',
+        openMode: 'dynamic-runner',
+        hostType: 'dynamic-module-host',
+        target: {
+          moduleAlias: action.moduleAlias,
+          pageMode: action.pageMode ?? 'LIST',
+        },
+        params: { ...(action.query ?? {}), ...(action.recordId ? { recordId: action.recordId } : {}) },
+        tabPolicy: { identity: action.recordId ? 'by-params' : 'by-target', closable: true, cacheable: true },
+      });
+    } else {
+      if (action.confirmation) {
+        const confirmed = await confirmAction({
+          title: action.label,
+          content: action.confirmation,
+          danger: action.danger,
+        });
+        if (!confirmed) return;
+      }
+      await invokeBusinessNotificationCommand(createBackendHttpClient(), notification.id, action);
+      presentPlatformSuccess('操作完成', { source: 'business-notification', phase: 'action' });
+    }
+    if (action.dismissOnSuccess) dismissBusinessNotification(notification.id);
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'business-notification', phase: 'action' });
+  }
+}
+
 function scheduleLocalLogout(notification: WebUserNotification) {
   if (securityNotification.value || (loginRequired.value && !startup.value)) {
     return;
@@ -585,6 +637,7 @@ function forceLocalLogout() {
   }
   clearSecurityLogoutTimer();
   clearAuthToken();
+  businessNotifications.value = [];
   startup.value = undefined;
   activeTabKey.value = undefined;
   error.value = undefined;
@@ -897,6 +950,11 @@ function requiresLogin(cause: unknown) {
       :error="themeSkinError"
       @close="closeThemeSkinPreferences"
       @select="selectThemeSkin"
+    />
+    <BusinessNotificationPanel
+      :notifications="businessNotifications"
+      :execute-action="executeBusinessNotificationAction"
+      @dismiss="dismissBusinessNotification"
     />
     <div v-if="securityNotification" class="security-notification-mask" role="presentation">
       <section class="security-notification-dialog" role="alertdialog" aria-modal="true">
