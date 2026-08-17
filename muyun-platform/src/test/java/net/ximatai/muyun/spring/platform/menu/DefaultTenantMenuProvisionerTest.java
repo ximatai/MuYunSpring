@@ -228,6 +228,32 @@ class DefaultTenantMenuProvisionerTest {
         }
     }
 
+    @Test
+    void shouldPropagateDisabledSystemBaselineToManagedTenantCopy() {
+        when(moduleService.resolveVisibleModule("iam.user")).thenReturn(module("iam.user"));
+        createSystemAdminMenuTree();
+        provisioner.afterTenantCreated("demo");
+
+        try (TenantContext.Scope ignored = TenantContext.system("test")) {
+            Menu systemUser = menuService.list(Criteria.of()
+                            .eq("schemeId", MenuSchemeService.ADMIN_SCHEME_ID)
+                            .eq("moduleAlias", "iam.user"))
+                    .getFirst();
+            systemUser.setEnabled(Boolean.FALSE);
+            menuService.update(systemUser);
+        }
+
+        provisioner.reconcileTenantAdminMenus("demo");
+
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            assertThat(menuService.list(Criteria.of().eq("schemeId",
+                            DefaultTenantMenuProvisioner.tenantAdminSchemeId("demo"))
+                            .eq("moduleAlias", "iam.user")))
+                    .singleElement()
+                    .satisfies(menu -> assertThat(menu.getEnabled()).isFalse());
+        }
+    }
+
     private void createSystemAdminMenuTree() {
         try (TenantContext.Scope ignored = TenantContext.system("test")) {
             MenuScheme scheme = new MenuScheme();

@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.ability.initialdata.InitialDataAbility;
 import net.ximatai.muyun.spring.iam.web.DepartmentWebController;
 import net.ximatai.muyun.spring.iam.web.EmployeeWebController;
@@ -101,6 +102,7 @@ class PlatformMenuInitialDataDeclarationProviderTest {
             assertThat(platformModuleMenu.getId())
                     .isEqualTo("platform.menu.module.platform.module");
             assertThat(platformModuleMenu).satisfies(menu -> {
+                assertThat(menu.getSystemManaged()).isTrue();
                 assertThat(menu.getOpenMode()).isEqualTo(MenuOpenMode.TAB);
                 assertThat(menu.getModuleAlias()).isEqualTo("platform.module");
                 assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
@@ -111,6 +113,28 @@ class PlatformMenuInitialDataDeclarationProviderTest {
                     .extracting(Menu::getModuleAlias)
                     .containsExactly("iam.role");
             assertThat(moduleMenu("platform.hidden")).isNull();
+        }
+    }
+
+    @Test
+    void shouldDisableSystemManagedMenuWhoseCodeContributionWasRemoved() {
+        try (GenericApplicationContext context = context(PlatformModuleWeb.class)) {
+            registerStaticModules(context);
+            initializePlatformMenus(context);
+            Menu stale = new Menu();
+            stale.setId("platform.menu.module.retired");
+            stale.setSchemeId(MenuSchemeService.ADMIN_SCHEME_ID);
+            stale.setParentId(PlatformMenuGroups.MODELING);
+            stale.setTitle("已撤销模块");
+            stale.setEnabled(Boolean.TRUE);
+            stale.setSystemManaged(Boolean.TRUE);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.insert(stale));
+
+            new PlatformMenuContributionReconciliationTask(
+                    menuService, new PlatformMenuInitialDataDeclarationProvider(menuService, context)).run();
+
+            assertThat(menuService.select(stale.getId()).getEnabled()).isFalse();
+            assertThat(moduleMenu("platform.module").getEnabled()).isTrue();
         }
     }
 

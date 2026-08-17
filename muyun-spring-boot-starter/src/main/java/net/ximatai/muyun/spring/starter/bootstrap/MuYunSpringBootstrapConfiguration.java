@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformBootstrapTask;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuInitialDataDeclarationProvider;
+import net.ximatai.muyun.spring.platform.web.PlatformMenuContributionReconciliationTask;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -65,6 +66,15 @@ public class MuYunSpringBootstrapConfiguration {
             MenuService menuService,
             ApplicationContext applicationContext) {
         return new PlatformMenuInitialDataDeclarationProvider(menuService, applicationContext);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(PlatformMenuContributionReconciliationTask.class)
+    /** Disables code-owned system menus that are no longer declared before tenant copies are reconciled. */
+    PlatformMenuContributionReconciliationTask platformMenuContributionReconciliationTask(
+            MenuService menuService,
+            PlatformMenuInitialDataDeclarationProvider menuDeclarations) {
+        return new PlatformMenuContributionReconciliationTask(menuService, menuDeclarations);
     }
 
     @Bean
