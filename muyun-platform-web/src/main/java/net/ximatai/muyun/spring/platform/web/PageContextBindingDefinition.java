@@ -10,7 +10,13 @@ public record PageContextBindingDefinition(PageContextSource source,
                                            String sourceKey,
                                            PageContextTarget target,
                                            String targetKey,
-                                           String targetNavigatorLevelKey) {
+                                           String targetNavigatorLevelKey,
+                                           String targetPickerFieldKey) {
+    public PageContextBindingDefinition(PageContextSource source, String sourceKey, PageContextTarget target,
+                                        String targetKey, String targetNavigatorLevelKey) {
+        this(source, sourceKey, target, targetKey, targetNavigatorLevelKey, null);
+    }
+
     public PageContextBindingDefinition {
         if (source == null) throw new IllegalArgumentException("page context source must not be null");
         sourceKey = PlatformNameRules.requireFieldName(sourceKey, "page context source key");
@@ -23,6 +29,14 @@ public record PageContextBindingDefinition(PageContextSource source,
         }
         if (target != PageContextTarget.NAVIGATOR_QUERY && targetNavigatorLevelKey != null) {
             throw new IllegalArgumentException("only navigator-query context binding may target a navigator level");
+        }
+        targetPickerFieldKey = targetPickerFieldKey == null || targetPickerFieldKey.isBlank()
+                ? null : PlatformNameRules.requireFieldName(targetPickerFieldKey, "page context target picker field key");
+        if (target == PageContextTarget.PICKER_QUERY && targetPickerFieldKey == null) {
+            throw new IllegalArgumentException("picker-query context binding requires a target picker field");
+        }
+        if (target != PageContextTarget.PICKER_QUERY && targetPickerFieldKey != null) {
+            throw new IllegalArgumentException("only picker-query context binding may target a picker field");
         }
         if (target == PageContextTarget.MUTATION_CONSTRAINT && source != PageContextSource.SESSION) {
             throw new IllegalArgumentException("mutation constraints require a server-authoritative SESSION source");
@@ -38,6 +52,12 @@ public record PageContextBindingDefinition(PageContextSource source,
                                                                       String targetKey) {
         return new PageContextBindingDefinition(PageContextSource.NAVIGATOR, sourceLevelKey,
                 PageContextTarget.NAVIGATOR_QUERY, targetKey, targetLevelKey);
+    }
+
+    public static PageContextBindingDefinition navigatorToPickerQuery(String sourceLevelKey, String pickerField,
+                                                                       String queryField) {
+        return new PageContextBindingDefinition(PageContextSource.NAVIGATOR, sourceLevelKey,
+                PageContextTarget.PICKER_QUERY, queryField, null, pickerField);
     }
 
     public static PageContextBindingDefinition session(String sourceKey, PageContextTarget target, String targetKey) {

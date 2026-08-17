@@ -27,8 +27,7 @@ import java.util.Optional;
 @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
         alias = PositionService.MODULE_ALIAS, title = "岗位管理")
 @StaticModuleOpenApi
-@PlatformMenu(id = "platform.menu.module.iam.position_category", parent = PlatformMenuGroups.IDENTITY,
-        title = "岗位管理", order = 40)
+@PlatformMenu(parent = PlatformMenuGroups.IDENTITY, title = "岗位管理", order = 40)
 @RequestMapping("/iam.position")
 public class PositionWebController extends WebSupport<PositionService> implements
         CrudWeb<Position, PositionService>,

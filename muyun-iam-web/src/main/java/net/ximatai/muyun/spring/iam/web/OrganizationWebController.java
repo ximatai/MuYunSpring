@@ -14,6 +14,8 @@ import net.ximatai.muyun.spring.web.ScopedTreeWebProjectionPolicy;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
 import net.ximatai.muyun.spring.web.WebSupport;
+import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
+import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
@@ -34,6 +36,8 @@ import java.util.Optional;
 @RequestMapping("/iam.organization")
 public class OrganizationWebController extends WebSupport<OrganizationService> implements
         CrudWeb<Organization, OrganizationService>,
+        NavigatorReferenceWeb<Organization, OrganizationService>,
+        NavigatorReferenceTreeWeb<Organization, OrganizationService>,
         ScopedTreeWebProjectionPolicy<Organization, OrganizationService>,
         MutationTenantScopeResolver<Organization>,
         StaticModuleUiContributor {

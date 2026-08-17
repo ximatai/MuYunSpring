@@ -141,7 +141,11 @@ export {
   resolveRecordFormFieldState,
   resolveRecordFormFields,
 } from './recordFormFieldModel';
-export { createScopedTreeClient, createScopedTreeModuleContext } from './scopedTreeModuleContext';
+export {
+  createQueryScopedTreeModuleContext,
+  createScopedTreeClient,
+  createScopedTreeModuleContext,
+} from './scopedTreeModuleContext';
 export {
   createEmptyStaticTreeClient,
   createStaticTreeResourceModuleContext,

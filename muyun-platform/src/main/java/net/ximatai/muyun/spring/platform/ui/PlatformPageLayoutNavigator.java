@@ -60,7 +60,8 @@ public final class PlatformPageLayoutNavigator {
         for (JsonNode binding : bindings) {
             values.add(new PlatformPageContextBinding(text(binding, "source", config), text(binding, "sourceKey", config),
                     text(binding, "target", config), text(binding, "targetKey", config),
-                    optionalText(binding, "targetNavigatorLevelKey", config)));
+                    optionalText(binding, "targetNavigatorLevelKey", config),
+                    optionalText(binding, "targetPickerFieldKey", config)));
         }
         return values;
     }

@@ -151,6 +151,64 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldCompileNavigatorPickerQueryForADeclaredRecordPicker() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("iam.department")
+                .page(PageTemplates.treeManagement(page -> page
+                        .navigator(navigator -> navigator
+                                .level("organization", level -> level.tree("iam.organization", "机构", "搜索机构"))
+                                .bindNavigatorToList("organization", "organizationId")
+                                .bindNavigatorToPickerQuery("organization", "parentId", "organizationId"))
+                        .detail(detail -> detail.editor(editor -> editor.field("organizationId").field("parentId")))
+                        .traits(traits -> traits.standardCrud())))
+                .build();
+
+        ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition, null, null, Map.of(),
+                Map.of("organizationId", new ResolvedReferenceFieldDescriptor("iam.organization", ReferenceCardinality.ONE)),
+                null).page();
+
+        assertThat(page.navigator().contextBindings()).contains(
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "organization",
+                        PageContextTarget.PICKER_QUERY, "organizationId", null, "parentId"));
+    }
+
+    @Test
+    void shouldRejectNavigatorPickerQueryThatIsNotConsumedByThePageEditor() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("iam.department")
+                .page(PageTemplates.treeManagement(page -> page
+                        .navigator(navigator -> navigator
+                                .level("organization", level -> level.tree("iam.organization", "机构", "搜索机构"))
+                                .bindNavigatorToPickerQuery("organization", "parentId", "organizationId"))
+                        .detail(detail -> detail.editor(editor -> editor.field("organizationId")))
+                        .traits(traits -> traits.standardCrud())))
+                .build();
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, null, null, Map.of(),
+                Map.of("organizationId", new ResolvedReferenceFieldDescriptor("iam.organization", ReferenceCardinality.ONE)),
+                null)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("picker-query target must be declared by the page editor")
+                .hasMessageContaining("page navigator.parentId");
+    }
+
+    @Test
+    void shouldRejectParentIdPickerQueryOutsideATreeManagementPage() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("crm.directory")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .navigator(navigator -> navigator
+                                .level("organization", level -> level.tree("iam.organization", "机构", "搜索机构"))
+                                .bindNavigatorToPickerQuery("organization", "parentId", "organizationId"))
+                        .list(list -> list.fields(fields -> fields.field("title")))
+                        .detail(detail -> detail.editor(editor -> editor.field("parentId")))
+                        .traits(traits -> traits.standardCrud())))
+                .build();
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, null, null, Map.of(),
+                Map.of("organizationId", new ResolvedReferenceFieldDescriptor("iam.organization", ReferenceCardinality.ONE)),
+                null)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("picker-query target must be a single record reference")
+                .hasMessageContaining("page navigator.parentId");
+    }
+
+    @Test
     void shouldPublishDeclaredDetailWorkspaceViewWithoutLeakingClientImplementation() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("mr.device")
                 .page(PageTemplates.listDetailCard(page -> page

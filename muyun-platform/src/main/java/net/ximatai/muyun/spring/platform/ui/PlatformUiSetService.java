@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.ui;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
@@ -14,6 +16,7 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
+import java.util.List;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -25,6 +28,7 @@ public class PlatformUiSetService extends AbstractAbilityService<PlatformUiSet> 
         SortAbility<PlatformUiSet>,
         QueryAbility<PlatformUiSet> {
     public static final String MODULE_ALIAS = "platform.ui_set";
+    private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
     private final PlatformModuleService moduleService;
 
@@ -61,6 +65,15 @@ public class PlatformUiSetService extends AbstractAbilityService<PlatformUiSet> 
                     "UI set requires existing config: " + id);
         }
         return uiSet;
+    }
+
+    /** Returns one module's enabled UI sets in the same order used by page composition. */
+    public List<PlatformUiSet> listByModuleAlias(String moduleAlias) {
+        if (moduleAlias == null || moduleAlias.isBlank()) {
+            return List.of();
+        }
+        return list(enabledCriteria(Criteria.of().eq("moduleAlias", moduleAlias.trim())), ALL,
+                Sort.asc("sortOrder"));
     }
 
     private void normalizeAndValidate(PlatformUiSet uiSet) {

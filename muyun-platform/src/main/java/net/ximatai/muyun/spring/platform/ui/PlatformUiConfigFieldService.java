@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -103,6 +104,15 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
         for (PlatformUiConfigField field : listByUiConfigIds(List.of(uiConfig.getId()))) {
             normalizeAndValidate(field);
         }
+    }
+
+    /** Resolves fields that are visible in a published form editor. */
+    public Set<String> visibleFieldNamesByUiConfigIds(List<String> uiConfigIds) {
+        return listByUiConfigIds(uiConfigIds).stream()
+                .filter(field -> !Boolean.FALSE.equals(field.getVisible()))
+                .map(field -> moduleFieldService.resolve(field.getModuleMetadataFieldId()).fieldName())
+                .filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     private void normalizeAndValidate(PlatformUiConfigField field) {

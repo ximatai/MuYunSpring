@@ -274,7 +274,8 @@ public class DynamicRecordWebController implements
 
     private PageContextBindingDefinition toWebBinding(PlatformPageContextBinding binding) {
         return new PageContextBindingDefinition(PageContextSource.valueOf(binding.source()), binding.sourceKey(),
-                PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey());
+                PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey(),
+                binding.targetPickerFieldKey());
     }
 
     private Criteria andCriteria(Criteria... criteriaList) {

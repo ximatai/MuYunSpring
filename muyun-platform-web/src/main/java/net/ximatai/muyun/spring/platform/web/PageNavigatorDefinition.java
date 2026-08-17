@@ -65,6 +65,12 @@ public record PageNavigatorDefinition(List<PageNavigatorLevelDefinition> levels,
             return this;
         }
 
+        /** Makes a navigator selection available to one form record-picker's query context. */
+        public Builder bindNavigatorToPickerQuery(String sourceLevelKey, String pickerField, String queryField) {
+            contextBindings.add(PageContextBindingDefinition.navigatorToPickerQuery(sourceLevelKey, pickerField, queryField));
+            return this;
+        }
+
         /**
          * Binds a value from the authenticated current-user context. The server remains the
          * authority for list filtering and mutation constraints; the form-default entry is only

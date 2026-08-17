@@ -112,6 +112,30 @@ class DynamicModuleUiDefinitionAdapterTest {
     }
 
     @Test
+    void shouldUseTheSameSelectedFormAsThePublishedPageComposition() {
+        PlatformUiSet listSet = uiSet("set-list", "crm.directory", "directory_list", PlatformUiSetType.LIST);
+        PlatformUiSet primaryFormSet = uiSet("set-form-primary", "crm.directory", "directory_form", PlatformUiSetType.FORM);
+        PlatformUiSet alternateFormSet = uiSet("set-form-alternate", "crm.directory", "directory_form_alternate", PlatformUiSetType.FORM);
+        PlatformUiConfig listConfig = uiConfig("ui-list-web", "set-list", "目录", true, 20);
+        PlatformUiConfig primaryFormConfig = uiConfig("ui-form-primary", "set-form-primary", "目录", true, 10);
+        PlatformUiConfig alternateFormConfig = uiConfig("ui-form-alternate", "set-form-alternate", "目录", true, 30);
+        PlatformResolvedPageConfig resolved = new PlatformResolvedPageConfig(List.of(
+                resolvedField("ui-form-primary", "field-title", null, "title", "名称", "input", true,
+                        false, true, null, null, null),
+                resolvedField("ui-form-alternate", "field-parent", null, "parentId", "上级", "recordPicker", true,
+                        false, false, null, null, null)), List.of());
+
+        ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
+                new PlatformPageConfigSnapshot("crm.directory", List.of(listSet, primaryFormSet, alternateFormSet),
+                        List.of(listConfig, primaryFormConfig, alternateFormConfig), List.of(), List.of(), List.of()),
+                resolved);
+
+        assertThat(((ListDetailCardPageDefinition) definition.page()).detail().editor().fields())
+                .extracting(field -> field.fieldRef().fieldName())
+                .containsExactly("title");
+    }
+
+    @Test
     void shouldMapDynamicNavigatorLevelsFromThePageRoot() {
         PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
         PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);
@@ -188,6 +212,31 @@ class DynamicModuleUiDefinitionAdapterTest {
         assertThat(page.navigator().contextBindings()).containsExactly(
                 new PageContextBindingDefinition(PageContextSource.NAVIGATOR, "tenant", PageContextTarget.LIST_QUERY,
                         "tenantId", null));
+    }
+
+    @Test
+    void shouldRejectDynamicPickerQueryWithoutAPublishedEditorConsumer() {
+        PlatformUiSet listSet = uiSet("set-list", "crm.directory", "directory_list", PlatformUiSetType.LIST);
+        PlatformUiSet formSet = uiSet("set-form", "crm.directory", "directory_form", PlatformUiSetType.FORM);
+        PlatformUiConfig listConfig = uiConfig("ui-list-web", "set-list", "目录", true, 10);
+        listConfig.setLayoutJson("""
+                {"template":"TREE_MANAGEMENT","traits":[],"navigator":{"contextBindings":[
+                  {"source":"NAVIGATOR","sourceKey":"organization","target":"PICKER_QUERY",
+                   "targetKey":"organizationId","targetPickerFieldKey":"parentId"}
+                ],"levels":[
+                  {"key":"organization","kind":"TREE","sourceModuleAlias":"iam.organization","title":"机构"}
+                ]}}""");
+        PlatformUiConfig formConfig = uiConfig("ui-form-web", "set-form", "目录", true, 20);
+
+        ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
+                new PlatformPageConfigSnapshot("crm.directory", List.of(listSet, formSet),
+                        List.of(listConfig, formConfig), List.of(), List.of(), List.of()),
+                PlatformResolvedPageConfig.empty());
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("picker-query target must be declared by the page editor")
+                .hasMessageContaining("page navigator.parentId");
     }
 
     @Test

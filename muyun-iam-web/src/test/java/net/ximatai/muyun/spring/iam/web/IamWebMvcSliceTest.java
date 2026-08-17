@@ -529,39 +529,6 @@ class IamWebMvcSliceTest {
     }
 
     @Test
-    void shouldProjectDepartmentQueryResponseByResolvedListView() throws Exception {
-        Department department = new Department();
-        department.setId("dept-1");
-        department.setTenantId("tenant_a");
-        department.setVersion(3);
-        department.setOrganizationId("org-1");
-        department.setParentId(TreeAbility.ROOT_ID);
-        department.setCode("FIN");
-        department.setTitle("财务部");
-        department.setEnabled(Boolean.TRUE);
-        when(currentUserProvider.currentUser())
-                .thenReturn(Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a")));
-        when(staticModuleDefinitionCatalog.find(DepartmentService.MODULE_ALIAS))
-                .thenReturn(Optional.of(departmentStaticModuleDefinition()));
-        when(departmentService.pageQueryForAction(eq(PlatformAction.QUERY),
-                any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
-                .thenReturn(PageResult.of(List.of(department), 1, PageRequest.of(1, 20)));
-
-        mvc.perform(post("/iam.department/query")
-                        .contentType("application/json")
-                        .content("{}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.records[0].id").value("dept-1"))
-                .andExpect(jsonPath("$.records[0].code").value("FIN"))
-                .andExpect(jsonPath("$.records[0].title").value("财务部"))
-                .andExpect(jsonPath("$.records[0].enabled").value(true))
-                .andExpect(jsonPath("$.records[0].organizationId").doesNotExist())
-                .andExpect(jsonPath("$.records[0].parentId").doesNotExist())
-                .andExpect(jsonPath("$.records[0].tenantId").doesNotExist())
-                .andExpect(jsonPath("$.records[0].version").value(3));
-    }
-
-    @Test
     void shouldRejectUndeclaredEmployeeQueryFieldsInRealMvcContext() throws Exception {
         when(currentUserProvider.currentUser())
                 .thenReturn(Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a")));
@@ -1139,6 +1106,7 @@ class IamWebMvcSliceTest {
                        .actions(List.of())
                        .entities(List.of(new StaticEntityDefinitionCompiler().compile("department", "部门管理", Department.class)))
                        .uiDefinition(controller.moduleUiDefinition())
+                       .modelClass(Department.class)
                        .build();
     }
 

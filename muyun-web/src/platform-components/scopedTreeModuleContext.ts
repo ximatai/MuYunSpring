@@ -1,4 +1,10 @@
-import type { WebListResponse, WebPageResponse, WebQueryRequest, WebTreeNode } from '@muyun/web-contracts';
+import type {
+  RouteQueryValue,
+  WebListResponse,
+  WebPageResponse,
+  WebQueryRequest,
+  WebTreeNode,
+} from '@muyun/web-contracts';
 import type { ModuleContext, StaticCountMutationResult, StaticModuleTreeClient } from '@muyun/web-core';
 
 export interface ScopedTreeModuleContextOptions {
@@ -9,13 +15,49 @@ export interface ScopedTreeModuleContextOptions {
   treeQueryParam?: string;
 }
 
-export function createScopedTreeModuleContext<TRecord>(
+/**
+ * Gives a tree client declared page-context criteria. An empty context is deliberately fail-closed:
+ * a dependent picker must not expose records from an unselected business scope.
+ */
+export interface QueryScopedTreeModuleContextOptions {
+  queryValues:
+    | Record<string, RouteQueryValue>
+    | undefined
+    | (() => Record<string, RouteQueryValue> | undefined);
+  treePath: string;
+  sortPath?: string;
+}
+
+interface TreeScopeClientOptions {
+  queryValues: () => Record<string, RouteQueryValue> | undefined;
+  treePath: string;
+  sortPath?: string;
+}
+
+export function createQueryScopedTreeModuleContext<TRecord>(
   context: ModuleContext<TRecord>,
-  options: ScopedTreeModuleContextOptions,
+  options: QueryScopedTreeModuleContextOptions,
 ): ModuleContext<TRecord> {
-  const treeClient = createScopedTreeClient(context, options);
+  return withScopedTreeClient(
+    context,
+    createTreeScopeClient(context, {
+      queryValues: () =>
+        typeof options.queryValues === 'function' ? options.queryValues() : options.queryValues,
+      treePath: options.treePath,
+      sortPath: options.sortPath,
+    }),
+  );
+}
+
+function withScopedTreeClient<TRecord>(
+  context: ModuleContext<TRecord>,
+  treeClient: StaticModuleTreeClient<TRecord>,
+): ModuleContext<TRecord> {
   return {
     ...context,
+    // RecordPicker falls back to crud.query for non-tree references. Keep that path scoped too:
+    // otherwise a page-level picker query would protect only tree-shaped targets.
+    crud: treeClient,
     abilities: {
       ...context.abilities,
       tree: () => treeClient,
@@ -24,54 +66,84 @@ export function createScopedTreeModuleContext<TRecord>(
   };
 }
 
+export function createScopedTreeModuleContext<TRecord>(
+  context: ModuleContext<TRecord>,
+  options: ScopedTreeModuleContextOptions,
+): ModuleContext<TRecord> {
+  return withScopedTreeClient(context, createScopedTreeClient(context, options));
+}
+
 export function createScopedTreeClient<TRecord>(
   context: ModuleContext<TRecord>,
   options: ScopedTreeModuleContextOptions,
 ): StaticModuleTreeClient<TRecord> {
+  return createTreeScopeClient(context, {
+    queryValues: () => scopeQueryParams(options),
+    treePath: options.treePath,
+    sortPath: options.sortPath,
+  });
+}
+
+function createTreeScopeClient<TRecord>(
+  context: ModuleContext<TRecord>,
+  options: TreeScopeClientOptions,
+): StaticModuleTreeClient<TRecord> {
+  const hasScope = () => Object.keys(options.queryValues() ?? {}).length > 0;
   return {
     ...context.crud,
     query: (request) => {
-      if (!scopeValueOf(options)) {
+      const queryValues = options.queryValues();
+      if (!hasScope()) {
         return emptyPageResponse<TRecord>(request);
       }
-      return context.crud.query(scopedQuery(request, options));
+      return context.crud.query({
+        ...request,
+        conditions: [
+          ...(request?.conditions ?? []),
+          ...Object.entries(queryValues ?? {}).map(([fieldName, value]) => ({
+            fieldName,
+            operator: 'EQ' as const,
+            values: [String(value)],
+          })),
+        ],
+      });
     },
     tree: () => {
-      if (!scopeValueOf(options)) {
+      if (!hasScope()) {
         return emptyTreeResponse<TRecord>();
       }
       return context.http.request<WebListResponse<WebTreeNode<TRecord>>>({
         path: options.treePath,
-        query: scopeQueryParams(options),
+        query: options.queryValues(),
       });
     },
     treeFlat: (treeOptions) => {
-      if (!scopeValueOf(options)) {
+      if (!hasScope()) {
         return emptyListResponse<TRecord>();
       }
       return context.http.request<WebListResponse<TRecord>>({
         path: treePathOf(options.treePath, treeOptions?.rootId),
         query: {
-          ...scopeQueryParams(options),
+          ...options.queryValues(),
           flat: true,
           includeSelf: treeOptions?.includeSelf,
         },
       });
     },
     subtree: (id, subtreeOptions) => {
-      if (!scopeValueOf(options)) {
+      if (!hasScope()) {
         return emptyTreeResponse<TRecord>();
       }
       return context.http.request<WebListResponse<WebTreeNode<TRecord>>>({
         path: treePathOf(options.treePath, id),
         query: {
-          ...scopeQueryParams(options),
+          ...options.queryValues(),
           ...subtreeOptions,
         },
       });
     },
     sort: (id, request) => {
-      if (!scopeValueOf(options)) {
+      if (!hasScope()) {
         return Promise.resolve(0);
       }
       return context.http.request<StaticCountMutationResult>({
@@ -80,29 +152,16 @@ export function createScopedTreeClient<TRecord>(
           /\/$/,
           '',
         )}/${encodeURIComponent(id)}`,
-        query: scopeQueryParams(options),
+        query: options.queryValues(),
         body: request,
       });
     },
   };
 }
 
-function scopedQuery(request: WebQueryRequest | undefined, options: ScopedTreeModuleContextOptions) {
-  const scopeValue = scopeValueOf(options);
-  if (!scopeValue) {
-    return request;
-  }
-  return {
-    ...request,
-    conditions: [
-      ...(request?.conditions ?? []),
-      { fieldName: options.scopeFieldName, operator: 'EQ', values: [scopeValue] },
-    ],
-  };
-}
-
 function scopeQueryParams(options: ScopedTreeModuleContextOptions) {
-  return { [options.treeQueryParam ?? options.scopeFieldName]: scopeValueOf(options) };
+  const scopeValue = scopeValueOf(options);
+  return scopeValue ? { [options.treeQueryParam ?? options.scopeFieldName]: scopeValue } : undefined;
 }
 
 function scopeValueOf(options: ScopedTreeModuleContextOptions) {

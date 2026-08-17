@@ -329,6 +329,17 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     }
 
     @Test
+    void shouldDeclareTheCanonicalPositionMenuIdentity() {
+        try (GenericApplicationContext context = context(PositionWebController.class)) {
+            PlatformMenuInitialDataDeclarationProvider provider =
+                    new PlatformMenuInitialDataDeclarationProvider(menuService, context);
+
+            assertThat(provider.declaredMenuIds()).contains("platform.menu.module.iam.position")
+                    .doesNotContain("platform.menu.module.iam.position_category");
+        }
+    }
+
+    @Test
     void shouldRejectPlatformMenuWithoutStaticModule() {
         try (GenericApplicationContext context = context(InvalidMenuWeb.class)) {
             assertThatThrownBy(() -> initializePlatformMenus(context))

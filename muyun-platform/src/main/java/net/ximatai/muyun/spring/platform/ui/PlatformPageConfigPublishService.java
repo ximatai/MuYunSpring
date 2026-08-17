@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
@@ -19,6 +20,10 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class PlatformPageConfigPublishService {
@@ -116,16 +121,41 @@ public class PlatformPageConfigPublishService {
 
     private void validatePageNavigator(PlatformUiSet uiSet, PlatformUiConfig uiConfig) {
         try {
-            PlatformPageNavigatorLayout navigator = PlatformPageLayoutNavigator.navigator(uiConfig);
-            if (navigator == null || recordService == null) return;
-            validateNavigatorSourceCapabilities(uiSet, uiConfig, navigator);
+            // Decode the navigator even when the optional dynamic runtime is absent: unsupported
+            // source/target combinations are configuration facts, not runtime-only validation.
+            PlatformPageLayoutNavigator.navigator(uiConfig);
+            if (recordService == null) return;
+            PlatformPublishedPageComposition composition = publishedCompositionIncluding(uiSet, uiConfig);
+            validatePageNavigator(uiSet, uiConfig, composition);
+            if ((uiSet.getSetType() == PlatformUiSetType.LIST || uiSet.getSetType() == PlatformUiSetType.FORM)
+                    && composition.listConfig() != null && !composition.listConfig().getId().equals(uiConfig.getId())) {
+                PlatformUiSet listSet = publishedUiSets(uiSet.getModuleAlias()).stream()
+                        .filter(candidate -> candidate.getId().equals(composition.listConfig().getUiSetId()))
+                        .findFirst()
+                        .orElseThrow(() -> new PlatformException("Published list UI set is unavailable: "
+                                + composition.listConfig().getUiSetId()));
+                validatePageNavigator(listSet, composition.listConfig(), composition);
+            }
+        } catch (IllegalArgumentException exception) {
+            throw new PlatformException("UI config navigator layout is invalid: " + uiConfig.getId(), exception);
+        }
+    }
+
+    private void validatePageNavigator(PlatformUiSet uiSet,
+                                       PlatformUiConfig uiConfig,
+                                       PlatformPublishedPageComposition composition) {
+        PlatformPageNavigatorLayout navigator = PlatformPageLayoutNavigator.navigator(uiConfig);
+        if (navigator == null) return;
+        validateNavigatorSourceCapabilities(uiSet, uiConfig, navigator);
             DynamicModuleDescriptor module = recordService.describe(uiSet.getModuleAlias());
             DynamicEntityDescriptor entity = module.entities().stream()
                     .filter(candidate -> candidate.entityAlias().equals(module.mainEntityAlias()))
                     .findFirst()
                     .orElseThrow(() -> new PlatformException("Navigator main entity is unavailable: " + uiSet.getModuleAlias()));
+            Set<String> editorFieldNames = publishedFormEditorFieldNames(composition);
             for (PlatformPageContextBinding binding : navigator.contextBindings()) {
-                if (!"NAVIGATOR".equals(binding.source()) || !"LIST_QUERY".equals(binding.target())) {
+                if (!"NAVIGATOR".equals(binding.source()) || (!"LIST_QUERY".equals(binding.target())
+                        && !"PICKER_QUERY".equals(binding.target()))) {
                     continue;
                 }
                 PlatformPageNavigatorLevel level = navigator.levels().stream()
@@ -136,15 +166,57 @@ public class PlatformPageConfigPublishService {
                             .findFirst().orElseThrow(() -> new PlatformException("Navigator query field is unavailable: "
                                     + uiSet.getModuleAlias() + "." + binding.targetKey()));
                 DynamicReferenceDescriptor reference = field.reference();
+                if ("PICKER_QUERY".equals(binding.target())) {
+                    if (!editorFieldNames.contains(binding.targetPickerFieldKey())) {
+                        throw new PlatformException("Picker query target must be declared by a published form editor: "
+                                + uiSet.getModuleAlias() + "." + binding.targetPickerFieldKey());
+                    }
+                    DynamicFieldDescriptor pickerField = entity.fields().stream()
+                            .filter(candidate -> candidate.fieldName().equals(binding.targetPickerFieldKey()))
+                            .findFirst().orElseThrow(() -> new PlatformException("Picker query target is unavailable: "
+                                    + uiSet.getModuleAlias() + "." + binding.targetPickerFieldKey()));
+                    if (!isTreeParentPicker(module, binding)
+                            && (pickerField.reference() == null
+                            || pickerField.reference().cardinality() != ReferenceCardinality.ONE)) {
+                        throw new PlatformException("Picker query target must be a single record reference: "
+                                + uiSet.getModuleAlias() + "." + binding.targetPickerFieldKey());
+                    }
+                }
                 if (reference == null || reference.cardinality() != ReferenceCardinality.ONE
                         || !level.sourceModuleAlias().equals(reference.targetModuleAlias())) {
                     throw new PlatformException("Navigator query field must be a single reference to "
                             + level.sourceModuleAlias() + ": " + uiSet.getModuleAlias() + "." + binding.targetKey());
                 }
             }
-        } catch (IllegalArgumentException exception) {
-            throw new PlatformException("UI config navigator layout is invalid: " + uiConfig.getId(), exception);
-        }
+    }
+
+    private PlatformPublishedPageComposition publishedCompositionIncluding(PlatformUiSet uiSet,
+                                                                            PlatformUiConfig candidate) {
+        List<PlatformUiSet> uiSets = publishedUiSets(uiSet.getModuleAlias());
+        List<String> uiSetIds = uiSets.stream().map(PlatformUiSet::getId).toList();
+        Map<String, PlatformUiConfig> configsById = uiConfigService.listPublishedByUiSetIds(uiSetIds).stream()
+                .collect(Collectors.toMap(PlatformUiConfig::getId, Function.identity()));
+        PlatformUiConfig publishCandidate = copyForPublish(candidate, Boolean.TRUE);
+        configsById.put(publishCandidate.getId(), publishCandidate);
+        return PlatformPublishedPageComposition.resolve(uiSets, List.copyOf(configsById.values()),
+                PlatformUiClientType.WEB);
+    }
+
+    private List<PlatformUiSet> publishedUiSets(String moduleAlias) {
+        return uiSetService.listByModuleAlias(moduleAlias);
+    }
+
+    private Set<String> publishedFormEditorFieldNames(PlatformPublishedPageComposition composition) {
+        PlatformUiConfig formConfig = composition.formConfig();
+        return formConfig == null ? Set.of()
+                : uiConfigFieldService.visibleFieldNamesByUiConfigIds(List.of(formConfig.getId()));
+    }
+
+    private boolean isTreeParentPicker(DynamicModuleDescriptor module, PlatformPageContextBinding binding) {
+        return PlatformAbilityFields.TREE_PARENT_FIELD.equals(binding.targetPickerFieldKey())
+                && module.entities().stream()
+                .filter(entity -> entity.entityAlias().equals(module.mainEntityAlias()))
+                .anyMatch(entity -> entity.capabilities().contains("TREE"));
     }
 
     private void validateNavigatorSourceCapabilities(PlatformUiSet uiSet,

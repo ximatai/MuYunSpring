@@ -730,6 +730,8 @@ export interface ResolvedPageContextBindingDescriptor {
   target: 'LIST_QUERY' | 'NAVIGATOR_QUERY' | 'FORM_DEFAULT' | 'PICKER_QUERY' | 'MUTATION_CONSTRAINT';
   targetKey: string;
   targetNavigatorLevelKey?: string;
+  /** Field name of the record picker which receives this query context. */
+  targetPickerFieldKey?: string;
 }
 
 export interface ResolvedPageNavigatorManagementDescriptor {

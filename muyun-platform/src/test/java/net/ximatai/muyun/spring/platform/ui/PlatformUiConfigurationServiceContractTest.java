@@ -7,10 +7,14 @@ import net.ximatai.muyun.database.core.orm.CriteriaOperator;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.AssociationViewDisplayMode;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode;
@@ -419,6 +423,110 @@ class PlatformUiConfigurationServiceContractTest {
         PlatformUiConfig unpublished = uiConfigService.select(uiConfigId);
         assertThat(unpublished.getPublished()).isFalse();
         assertThat(unpublished.getLayoutJson()).contains("navigator", "projectId");
+    }
+
+    @Test
+    void shouldRejectPickerQueryWhosePublishedFormFieldIsHidden() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String titleField = seedModuleField("crm.directory", "directory", "title", "title", "string");
+        String parentField = addModuleField("crm.directory", "parentId", "parent_id", "string");
+        String formSetId = uiSetService.insert(uiSet("crm.directory", "directory_form", PlatformUiSetType.FORM, true));
+        String formConfigId = uiConfigService.insert(uiConfig(formSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(formConfigId, titleField, "text"));
+        PlatformUiConfigField hiddenParent = uiField(formConfigId, parentField, "text");
+        hiddenParent.setVisible(Boolean.FALSE);
+        uiConfigFieldService.insert(hiddenParent);
+        publishService.publishUiConfig(formConfigId);
+
+        String listSetId = uiSetService.insert(uiSet("crm.directory", "directory_list", PlatformUiSetType.LIST, true));
+        String listConfigId = uiConfigService.insert(uiConfig(listSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(listConfigId, titleField, "text"));
+        PlatformUiConfig listConfig = uiConfigService.select(listConfigId);
+        listConfig.setLayoutJson("""
+                {"template":"TREE_MANAGEMENT","navigator":{"contextBindings":[
+                  {"source":"NAVIGATOR","sourceKey":"organization","target":"PICKER_QUERY",
+                   "targetKey":"organizationId","targetPickerFieldKey":"parentId"}
+                ],"levels":[
+                  {"key":"organization","kind":"TREE","sourceModuleAlias":"iam.organization"}
+                ]}}""");
+        uiConfigService.update(listConfig);
+
+        DynamicFieldDescriptor organizationId = org.mockito.Mockito.mock(DynamicFieldDescriptor.class);
+        org.mockito.Mockito.when(organizationId.fieldName()).thenReturn("organizationId");
+        org.mockito.Mockito.when(organizationId.reference()).thenReturn(new DynamicReferenceDescriptor(
+                "directory", "organizationId", "iam.organization", "organization", ReferenceCardinality.ONE, List.of()));
+        DynamicFieldDescriptor parentId = org.mockito.Mockito.mock(DynamicFieldDescriptor.class);
+        org.mockito.Mockito.when(parentId.fieldName()).thenReturn("parentId");
+        DynamicEntityDescriptor entity = new DynamicEntityDescriptor("directory", "目录", Set.of(),
+                List.of(organizationId, parentId), List.of(), List.of(), List.of(), List.of());
+        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
+        org.mockito.Mockito.when(recordService.describe("crm.directory")).thenReturn(new DynamicModuleDescriptor(
+                "crm.directory", "目录", "directory", List.of(), List.of(entity), List.of(), List.of(), List.of()));
+        PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
+                uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
+                recordService);
+
+        assertThatThrownBy(() -> verifyingPublishService.publishUiConfig(listConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("Picker query target must be declared by a published form editor")
+                .hasMessageContaining("crm.directory.parentId");
+    }
+
+    @Test
+    void shouldRejectHigherPriorityFormThatWouldInvalidatePublishedPickerQuery() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String titleField = seedModuleField("crm.directory", "directory", "title", "title", "string");
+        String parentField = addModuleField("crm.directory", "parentId", "parent_id", "string");
+        String primaryFormSetId = uiSetService.insert(uiSet("crm.directory", "directory_form", PlatformUiSetType.FORM, true));
+        PlatformUiConfig primaryForm = uiConfig(primaryFormSetId, PlatformUiClientType.WEB, false);
+        primaryForm.setSortOrder(100);
+        String primaryFormConfigId = uiConfigService.insert(primaryForm);
+        uiConfigFieldService.insert(uiField(primaryFormConfigId, titleField, "text"));
+        uiConfigFieldService.insert(uiField(primaryFormConfigId, parentField, "text"));
+        publishService.publishUiConfig(primaryFormConfigId);
+
+        String listSetId = uiSetService.insert(uiSet("crm.directory", "directory_list", PlatformUiSetType.LIST, true));
+        String listConfigId = uiConfigService.insert(uiConfig(listSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(listConfigId, titleField, "text"));
+        PlatformUiConfig listConfig = uiConfigService.select(listConfigId);
+        listConfig.setLayoutJson("""
+                {"template":"TREE_MANAGEMENT","navigator":{"contextBindings":[
+                  {"source":"NAVIGATOR","sourceKey":"organization","target":"PICKER_QUERY",
+                   "targetKey":"organizationId","targetPickerFieldKey":"parentId"}
+                ],"levels":[
+                  {"key":"organization","kind":"TREE","sourceModuleAlias":"iam.organization"}
+                ]}}""");
+        uiConfigService.update(listConfig);
+
+        DynamicFieldDescriptor organizationId = org.mockito.Mockito.mock(DynamicFieldDescriptor.class);
+        org.mockito.Mockito.when(organizationId.fieldName()).thenReturn("organizationId");
+        org.mockito.Mockito.when(organizationId.reference()).thenReturn(new DynamicReferenceDescriptor(
+                "directory", "organizationId", "iam.organization", "organization", ReferenceCardinality.ONE, List.of()));
+        DynamicFieldDescriptor parentId = org.mockito.Mockito.mock(DynamicFieldDescriptor.class);
+        org.mockito.Mockito.when(parentId.fieldName()).thenReturn("parentId");
+        DynamicEntityDescriptor entity = new DynamicEntityDescriptor("directory", "目录", Set.of("TREE"),
+                List.of(organizationId, parentId), List.of(), List.of(), List.of(), List.of());
+        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
+        org.mockito.Mockito.when(recordService.describe("crm.directory")).thenReturn(new DynamicModuleDescriptor(
+                "crm.directory", "目录", "directory", List.of(), List.of(entity), List.of(), List.of(), List.of()));
+        PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
+                uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
+                recordService);
+        verifyingPublishService.publishUiConfig(listConfigId);
+
+        String replacementFormSetId = uiSetService.insert(uiSet("crm.directory", "directory_form_replacement",
+                PlatformUiSetType.FORM, false));
+        PlatformUiConfig replacementForm = uiConfig(replacementFormSetId, PlatformUiClientType.WEB, false);
+        replacementForm.setSortOrder(0);
+        String replacementFormConfigId = uiConfigService.insert(replacementForm);
+        uiConfigFieldService.insert(uiField(replacementFormConfigId, titleField, "text"));
+
+        assertThatThrownBy(() -> verifyingPublishService.publishUiConfig(replacementFormConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("Picker query target must be declared by a published form editor")
+                .hasMessageContaining("crm.directory.parentId");
     }
 
     @Test
