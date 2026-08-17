@@ -1749,6 +1749,7 @@ it('business views use page realtime lifecycle wrappers only', () => {
 
 it('dynamic module host uses shared descriptor driven list and form runners', () => {
   const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
+  const navigatorExplorerSource = readSource('src/dynamic-page-runtime/PageNavigatorExplorer.vue');
   const listPanelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
 
   assert.match(hostSource, /useModuleContext<QueryListRecord>/);
@@ -1787,16 +1788,14 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /:navigator-count="visibleNavigatorLevels\.length"/);
   assert.match(hostSource, /<ManagementWorkspace[\s\S]*v-else-if="treeManagementPage \|\| treeModule"/);
   assert.match(hostSource, /<CrudRecordListExplorer/);
-  assert.match(hostSource, /<TreeRecordExplorer[\s\S]*v-if="level\.tree"/);
+  assert.match(hostSource, /<PageNavigatorExplorer/);
   assert.match(hostSource, /const primaryNavigatorContext = computed/);
   assert.match(hostSource, /const navigatorCreateDefaults = computed/);
   assert.equal(/scopedListWorkspace/.test(hostSource), false);
   assert.equal(/selectedScopeRecord/.test(hostSource), false);
-  assert.match(
-    hostSource,
-    /tree: descriptor\.kind === 'TREE' && navigatorContext\.abilities\.hasTree\(\) === true/,
-  );
-  assert.match(hostSource, /search-mode="none"/);
+  assert.match(hostSource, /sourceCapabilities\?\.includes\('REFERENCE_TREE'\)/);
+  assert.match(navigatorExplorerSource, /<TreeRecordExplorer[\s\S]*v-if="level\.tree"/);
+  assert.match(navigatorExplorerSource, /search-mode="none"/);
   assert.match(hostSource, /:external-query-values="navigatorListQueryValues"/);
   assert.match(hostSource, /:required-external-criteria-keys="navigatorListCriteriaKeys"/);
   assert.match(hostSource, /for \(const descendantKey of navigatorDescendantKeys\(levelKey\)\)/);

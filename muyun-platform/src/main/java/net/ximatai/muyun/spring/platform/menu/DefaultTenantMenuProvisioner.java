@@ -145,8 +145,13 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
         }
         // Deterministic legacy copies are adopted once. An operator may subsequently set this
         // flag to false to take the menu over without startup reconciliation overwriting it.
+        String revision = sourceRevision(source);
+        if (sameManagedCopy(existing, targetParentId, source, revision)) {
+            return;
+        }
         existing.setPlatformManaged(Boolean.TRUE);
         existing.setParentId(targetParentId);
+        existing.setTitle(source.getTitle());
         existing.setOpenMode(source.getOpenMode());
         existing.setModuleAlias(source.getModuleAlias());
         existing.setRoute(source.getRoute());
@@ -155,16 +160,36 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
         existing.setDefaultUiConfigId(source.getDefaultUiConfigId());
         existing.setDefaultQueryTemplateId(source.getDefaultQueryTemplateId());
         existing.setEntryParamsJson(source.getEntryParamsJson());
-        existing.setPlatformManagedRevision(sourceRevision(source));
+        existing.setEnabled(source.getEnabled());
+        existing.setSortOrder(source.getSortOrder());
+        existing.setPlatformManagedRevision(revision);
         menuService.update(existing);
     }
 
+    private static boolean sameManagedCopy(Menu existing, String targetParentId, Menu source, String revision) {
+        return Boolean.TRUE.equals(existing.getPlatformManaged())
+                && Objects.equals(existing.getParentId(), targetParentId)
+                && Objects.equals(existing.getTitle(), source.getTitle())
+                && Objects.equals(existing.getOpenMode(), source.getOpenMode())
+                && Objects.equals(existing.getModuleAlias(), source.getModuleAlias())
+                && Objects.equals(existing.getRoute(), source.getRoute())
+                && Objects.equals(existing.getExternalUrl(), source.getExternalUrl())
+                && Objects.equals(existing.getPageMode(), source.getPageMode())
+                && Objects.equals(existing.getDefaultUiConfigId(), source.getDefaultUiConfigId())
+                && Objects.equals(existing.getDefaultQueryTemplateId(), source.getDefaultQueryTemplateId())
+                && Objects.equals(existing.getEntryParamsJson(), source.getEntryParamsJson())
+                && Objects.equals(existing.getEnabled(), source.getEnabled())
+                && Objects.equals(existing.getSortOrder(), source.getSortOrder())
+                && Objects.equals(existing.getPlatformManagedRevision(), revision);
+    }
+
     private static String sourceRevision(Menu source) {
-        return shortHash(String.join("|", String.valueOf(source.getParentId()), String.valueOf(source.getOpenMode()),
-                String.valueOf(source.getModuleAlias()), String.valueOf(source.getRoute()),
+        return shortHash(String.join("|", String.valueOf(source.getParentId()), String.valueOf(source.getTitle()),
+                String.valueOf(source.getOpenMode()), String.valueOf(source.getModuleAlias()), String.valueOf(source.getRoute()),
                 String.valueOf(source.getExternalUrl()), String.valueOf(source.getPageMode()),
                 String.valueOf(source.getDefaultUiConfigId()), String.valueOf(source.getDefaultQueryTemplateId()),
-                String.valueOf(source.getEntryParamsJson())));
+                String.valueOf(source.getEntryParamsJson()), String.valueOf(source.getEnabled()),
+                String.valueOf(source.getSortOrder())));
     }
 
     private static String tenantMenuId(String tenantId, String sourceMenuId) {

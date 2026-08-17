@@ -948,6 +948,7 @@ function clearSelectionForScopeChange() {
   editorMode.value = 'view';
   selectedRecord.value = undefined;
   editingRecord.value = undefined;
+  selectedTreeRecord.value = undefined;
 }
 
 function selectTreeRecord(record: unknown) {

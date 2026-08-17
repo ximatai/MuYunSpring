@@ -7,7 +7,10 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/** Validates that static page DSL navigator levels target explicitly exposed reference projections. */
+/**
+ * Validates static navigator sources eagerly. Sources not declared by the static catalog may be
+ * published dynamic modules, so their capability is validated by the unified runtime resolver.
+ */
 final class StaticPageNavigatorSourceValidator {
     private StaticPageNavigatorSourceValidator() {
     }
@@ -23,7 +26,7 @@ final class StaticPageNavigatorSourceValidator {
                         ? NavigatorSourceCapability.REFERENCE_TREE
                         : NavigatorSourceCapability.REFERENCE_QUERY;
                 StaticModuleDefinition source = modules.get(level.sourceModuleAlias());
-                if (source == null || !source.navigatorSourceCapabilities().contains(required)) {
+                if (source != null && !source.navigatorSourceCapabilities().contains(required)) {
                     throw new IllegalStateException("navigator source capability is unavailable: page="
                             + definition.moduleAlias() + ", level=" + level.key() + ", source="
                             + level.sourceModuleAlias() + ", required=" + required);

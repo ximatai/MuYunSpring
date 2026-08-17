@@ -151,6 +151,57 @@ class DefaultTenantMenuProvisionerTest {
     }
 
     @Test
+    void shouldIdempotentlyUpgradeManagedTenantCopyFromLegacyRouteToModuleEntry() {
+        when(moduleService.resolveVisibleModule("iam.user")).thenReturn(module("iam.user"));
+        when(moduleService.resolveVisibleModule("iam.organization")).thenReturn(module("iam.organization"));
+        createSystemAdminMenuTree();
+        try (TenantContext.Scope ignored = TenantContext.system("test")) {
+            Menu organization = new Menu();
+            organization.setId("platform.menu.module.iam.organization");
+            organization.setSchemeId(MenuSchemeService.ADMIN_SCHEME_ID);
+            organization.setParentId("platform.menu.group.identity");
+            organization.setTitle("机构管理");
+            organization.setOpenMode(MenuOpenMode.TAB);
+            organization.setModuleAlias("iam.organization");
+            organization.setRoute("/iam/organizations");
+            organization.setEnabled(Boolean.TRUE);
+            organization.setSortOrder(2);
+            menuService.insert(organization);
+        }
+        provisioner.afterTenantCreated("demo");
+
+        try (TenantContext.Scope ignored = TenantContext.system("test")) {
+            Menu systemOrganization = menuService.list(Criteria.of()
+                            .eq("schemeId", MenuSchemeService.ADMIN_SCHEME_ID)
+                            .eq("moduleAlias", "iam.organization"))
+                    .getFirst();
+            systemOrganization.setRoute(null);
+            systemOrganization.setPageMode(MenuPageMode.LIST);
+            systemOrganization.setTitle("组织管理");
+            systemOrganization.setSortOrder(9);
+            menuService.update(systemOrganization);
+        }
+
+        provisioner.reconcileTenantAdminMenus("demo");
+
+        String schemeId = DefaultTenantMenuProvisioner.tenantAdminSchemeId("demo");
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            Menu copiedOrganization = menuService.list(Criteria.of().eq("schemeId", schemeId)
+                            .eq("moduleAlias", "iam.organization"))
+                    .getFirst();
+            assertThat(copiedOrganization.getRoute()).isNull();
+            assertThat(copiedOrganization.getPageMode()).isEqualTo(MenuPageMode.LIST);
+            assertThat(copiedOrganization.getTitle()).isEqualTo("组织管理");
+            assertThat(copiedOrganization.getSortOrder()).isEqualTo(9);
+            assertThat(copiedOrganization.getPlatformManaged()).isTrue();
+
+            menuDao.resetUpdateCount();
+            provisioner.reconcileTenantAdminMenus("demo");
+            assertThat(menuDao.updateCount()).isZero();
+        }
+    }
+
+    @Test
     void shouldLeaveTenantTakenOverMenuUntouchedDuringReconciliation() {
         when(moduleService.resolveVisibleModule("iam.user")).thenReturn(module("iam.user"));
         createSystemAdminMenuTree();
@@ -223,5 +274,20 @@ class DefaultTenantMenuProvisionerTest {
     }
 
     private static class MenuMemoryDao extends TestMemoryDao<Menu> implements MenuDao {
+        private int updateCount;
+
+        @Override
+        public int updateById(Menu entity) {
+            updateCount += 1;
+            return super.updateById(entity);
+        }
+
+        int updateCount() {
+            return updateCount;
+        }
+
+        void resetUpdateCount() {
+            updateCount = 0;
+        }
     }
 }

@@ -121,6 +121,40 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
+    void shouldResolveStaticPageNavigatorBackedByPublishedDynamicReferenceModule() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
+        when(moduleService.resolveVisibleModule("sales.contract"))
+                .thenReturn(module("sales.contract", "合同", ModuleKind.STATIC));
+        when(actionService.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+        when(dynamicRecordService.describe("crm.customer")).thenReturn(new DynamicModuleDescriptor(
+                "crm.customer", "客户", "customer", List.of(),
+                List.of(dynamicEntity("customer", "CRUD", "REFERENCE")), List.of(), List.of(), List.of()));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.contract", "合同")
+                .parentModuleAlias(null)
+                .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.VIEW)))
+                .uiDefinition(ModuleUiDefinition.builder("sales.contract")
+                        .page(PageTemplates.listDetailCard(page -> page
+                                .navigator(navigator -> navigator.level("customer", level -> level
+                                        .microList("crm.customer", "客户", "搜索客户")))
+                                .list(list -> list.fields(fields -> fields.field("title")))
+                                .detail(detail -> detail.editor(fields -> fields.field("title")))))
+                        .build())
+                .build();
+        StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(definition));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, catalog, null, null, null, allowAllPolicy(), List.of(),
+                new DeclaredPageNavigatorResolver(),
+                new PlatformPageNavigatorSourceCapabilityResolver(catalog, dynamicRecordService));
+
+        PlatformModuleRuntimeContext context = service.context("sales.contract");
+
+        assertThat(context.uiDescriptor().page().navigator().levels()).singleElement()
+                .satisfies(level -> assertThat(level.sourceModuleAlias()).isEqualTo("crm.customer"));
+    }
+
+    @Test
     void shouldNotResolveNavigatorWhenModuleDoesNotDeclareAPage() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);

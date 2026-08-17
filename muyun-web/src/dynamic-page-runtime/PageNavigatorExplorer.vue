@@ -17,7 +17,7 @@ type NavigatorLevelRuntime = {
   tree: boolean;
 };
 
-const props = defineProps<{
+defineProps<{
   level: NavigatorLevelRuntime;
   selectedId?: string;
   reloadKey: number;

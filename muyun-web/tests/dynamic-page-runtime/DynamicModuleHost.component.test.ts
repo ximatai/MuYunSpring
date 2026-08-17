@@ -692,6 +692,9 @@ describe('DynamicModuleHost', () => {
       if (request.url.endsWith('/platform.module/iam.tenant/reference-context')) {
         return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
       }
+      if (request.url.endsWith('/iam.organization/view/organization-1')) {
+        return Response.json({ id: 'organization-1', title: '总部' });
+      }
       throw new Error(`Unexpected request: ${request.url}`);
     };
     configureModuleContext({
@@ -941,6 +944,9 @@ describe('DynamicModuleHost', () => {
       if (request.url.endsWith('/platform.module/iam.tenant/reference-context')) {
         return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
       }
+      if (request.url.endsWith('/iam.organization/view/organization-1')) {
+        return Response.json({ id: 'organization-1', title: '总部' });
+      }
       throw new Error(`Unexpected request: ${request.url}`);
     };
     configureModuleContext({
@@ -980,6 +986,15 @@ describe('DynamicModuleHost', () => {
     tenantExplorer.vm.$emit('select', { id: 'tenant-1', title: '甲租户' });
     await flushPromises();
     expect(organizationTree?.props('externalQueryValues')).toEqual({ tenantId: 'tenant-1' });
+
+    organizationTree?.vm.$emit('select', { id: 'organization-1', title: '总部' });
+    await flushPromises();
+    expect(organizationTree?.props('selectedId')).toBe('organization-1');
+
+    tenantExplorer.vm.$emit('select', { id: 'tenant-2', title: '乙租户' });
+    await flushPromises();
+    expect(organizationTree?.props('selectedId')).toBeUndefined();
+    expect(organizationTree?.props('externalQueryValues')).toEqual({ tenantId: 'tenant-2' });
   });
 
   it('rejects business detail drawer enhancements for tree modules instead of silently ignoring them', async () => {
