@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.web.MuYunSpringCorsProperties;
 import net.ximatai.muyun.spring.iam.user.UserSecurityEventPublisher;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
@@ -114,6 +115,7 @@ public class MuYunSpringRealtimeConfiguration implements WebSocketMessageBrokerC
     }
 
     @Bean
+    @ConditionalOnBean(BusinessNotificationRecipientResolver.class)
     @ConditionalOnMissingBean(BusinessNotificationDelivery.class)
     public BusinessNotificationDelivery businessNotificationDelivery(
             BusinessNotificationRecipientResolver recipientResolver,
@@ -123,6 +125,7 @@ public class MuYunSpringRealtimeConfiguration implements WebSocketMessageBrokerC
     }
 
     @Bean
+    @ConditionalOnBean(BusinessNotificationRecipientResolver.class)
     @ConditionalOnMissingBean(BusinessNotificationService.class)
     public BusinessNotificationService businessNotificationService(BusinessNotificationDelivery delivery) {
         return new TransactionalBusinessNotificationService(delivery);
