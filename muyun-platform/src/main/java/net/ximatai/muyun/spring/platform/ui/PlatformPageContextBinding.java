@@ -10,7 +10,12 @@ public record PlatformPageContextBinding(String source,
                                          String sourceKey,
                                          String target,
                                          String targetKey,
-                                         String targetNavigatorLevelKey) {
+                                         String targetNavigatorLevelKey,
+                                         String targetPickerFieldKey) {
+    public PlatformPageContextBinding(String source, String sourceKey, String target, String targetKey,
+                                      String targetNavigatorLevelKey) {
+        this(source, sourceKey, target, targetKey, targetNavigatorLevelKey, null);
+    }
     public PlatformPageContextBinding {
         if (!"SESSION".equals(source) && !"NAVIGATOR".equals(source)) {
             throw new IllegalArgumentException("page context binding source is invalid: " + source);
@@ -29,6 +34,15 @@ public record PlatformPageContextBinding(String source,
         }
         if (!"NAVIGATOR_QUERY".equals(target) && targetNavigatorLevelKey != null) {
             throw new IllegalArgumentException("only navigator-query context bindings can target a navigator level");
+        }
+        targetPickerFieldKey = targetPickerFieldKey == null || targetPickerFieldKey.isBlank()
+                ? null : PlatformNameRules.requireFieldName(targetPickerFieldKey,
+                "page context binding target picker field key");
+        if ("PICKER_QUERY".equals(target) && targetPickerFieldKey == null) {
+            throw new IllegalArgumentException("picker-query context binding requires a target picker field");
+        }
+        if (!"PICKER_QUERY".equals(target) && targetPickerFieldKey != null) {
+            throw new IllegalArgumentException("only picker-query context bindings can target a picker field");
         }
     }
 }

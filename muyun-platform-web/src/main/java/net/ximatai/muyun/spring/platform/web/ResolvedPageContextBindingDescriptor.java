@@ -5,9 +5,14 @@ public record ResolvedPageContextBindingDescriptor(PageContextSource source,
                                                    String sourceKey,
                                                    PageContextTarget target,
                                                    String targetKey,
-                                                   String targetNavigatorLevelKey) {
+                                                   String targetNavigatorLevelKey,
+                                                   String targetPickerFieldKey) {
+    public ResolvedPageContextBindingDescriptor(PageContextSource source, String sourceKey, PageContextTarget target,
+                                                String targetKey, String targetNavigatorLevelKey) {
+        this(source, sourceKey, target, targetKey, targetNavigatorLevelKey, null);
+    }
     static ResolvedPageContextBindingDescriptor from(PageContextBindingDefinition definition) {
         return new ResolvedPageContextBindingDescriptor(definition.source(), definition.sourceKey(), definition.target(),
-                definition.targetKey(), definition.targetNavigatorLevelKey());
+                definition.targetKey(), definition.targetNavigatorLevelKey(), definition.targetPickerFieldKey());
     }
 }

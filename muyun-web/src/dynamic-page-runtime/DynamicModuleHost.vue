@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
+  createQueryScopedTreeModuleContext,
   ManagementExplorerColumn,
   ManagementWorkspace,
   listDetailWorkspaceMinWidth,
@@ -31,6 +32,7 @@ import {
   resolveRecordFormFields,
   useRecycleBinExplorerMode,
   type RecordFormFieldPickerConfig,
+  type RecordPickerRecord,
   type CrudRecordListBase,
   type RecordExplorerItemDescriptor,
   type RecordQueryListMode,
@@ -48,6 +50,7 @@ import type {
   ResolvedModulePageDescriptor,
   ResolvedPageNavigatorLevelDescriptor,
   ResolvedPageContextBindingDescriptor,
+  RouteQueryValue,
 } from '@muyun/web-contracts';
 import {
   createModuleContext,
@@ -392,6 +395,13 @@ const navigatorListQueryValues = computed<Record<string, unknown> | undefined>((
 const navigatorListCriteriaKeys = computed(() =>
   externalPageContextCriteriaKeys(pageContextBindings.value, 'LIST_QUERY'),
 );
+/**
+ * Tree endpoints may require a navigator-provided scope. Do not issue an
+ * unscoped request while asynchronous navigator selection is still settling.
+ */
+const navigatorListScopeReady = computed(() =>
+  navigatorListCriteriaKeys.value.every((key) => navigatorListQueryValues.value?.[key] != null),
+);
 const navigatorCreateDefaults = computed<Record<string, unknown>>(() => {
   return (
     resolvePageContextTargetValues(
@@ -400,6 +410,21 @@ const navigatorCreateDefaults = computed<Record<string, unknown>>(() => {
       pageContextSourceValues.value,
     ) ?? {}
   );
+});
+const pickerQueryValuesByField = computed<Record<string, Record<string, RouteQueryValue>>>(() => {
+  const values: Record<string, Record<string, RouteQueryValue>> = {};
+  const sourceValues = pageContextSourceValues.value as Record<string, Record<string, unknown>>;
+  for (const binding of pageContextBindings.value) {
+    if (binding.target !== 'PICKER_QUERY' || !binding.targetPickerFieldKey) continue;
+    const value = sourceValues[binding.source]?.[binding.sourceKey];
+    if (
+      value == null ||
+      (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')
+    )
+      continue;
+    (values[binding.targetPickerFieldKey] ??= {})[binding.targetKey] = value;
+  }
+  return values;
 });
 const canToggleEnabled = computed(() => {
   const record = selectedRecord.value;
@@ -471,9 +496,15 @@ const treeParentPickerConfigs = computed<Record<string, RecordFormFieldPickerCon
   if (!treeModule.value || !formFields.value.has('parentId')) {
     return {} as Record<string, RecordFormFieldPickerConfig>;
   }
+  const queryValues = pickerQueryValuesByField.value.parentId;
   return {
     parentId: {
-      context,
+      context: queryValues
+        ? createQueryScopedTreeModuleContext(context, {
+            queryValues,
+            treePath: `/${context.moduleAlias}/tree`,
+          })
+        : context,
       mode: 'tree',
       placeholder: '根标签留空',
       allowClear: true,
@@ -490,8 +521,22 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
     if (!reference) {
       continue;
     }
-    configs[field.fieldRef.fieldName] = {
-      context: createModuleContext({ http: context.http, moduleAlias: reference.targetModuleAlias }),
+    const pickerFieldName = field.fieldRef.fieldName;
+    if (configs[pickerFieldName]) {
+      continue;
+    }
+    const pickerContext = createModuleContext<RecordPickerRecord>({
+      http: context.http,
+      moduleAlias: reference.targetModuleAlias,
+    });
+    const queryValues = pickerQueryValuesByField.value[pickerFieldName];
+    configs[pickerFieldName] = {
+      context: queryValues
+        ? createQueryScopedTreeModuleContext(pickerContext, {
+            queryValues,
+            treePath: `/${reference.targetModuleAlias}/tree`,
+          })
+        : pickerContext,
       mode: 'tree',
       allowClear: !field.required?.constant,
     };
@@ -1922,6 +1967,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         >
           <template #actions>
             <ModuleActionButton
+              v-if="navigatorListScopeReady"
               class="record-panel-create-button"
               :context="context"
               action-code="create"
@@ -1931,6 +1977,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             />
           </template>
           <TreeRecordExplorer
+            v-if="navigatorListScopeReady"
             :context="context"
             :selected-id="selectedTreeRecord?.id == null ? undefined : String(selectedTreeRecord.id)"
             :reload-key="treeReloadKey"
@@ -1942,6 +1989,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             @select="selectTreeRecord"
             @loaded="handleTreeLoaded"
           />
+          <RecordPanelState v-else description="请先选择导航范围" />
         </RecordExplorerPanel>
       </ManagementExplorerColumn>
 

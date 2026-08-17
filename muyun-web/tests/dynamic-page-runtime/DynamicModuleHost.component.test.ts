@@ -977,14 +977,19 @@ describe('DynamicModuleHost', () => {
       'dynamic-module-workspace--management',
     );
     const tenantExplorer = wrapper.findComponent({ name: 'PageNavigatorExplorer' });
-    const organizationTree = wrapper
-      .findAllComponents({ name: 'TreeRecordExplorer' })
-      .find((explorer) => explorer.props('context').moduleAlias === 'iam.organization');
     expect(tenantExplorer).toBeDefined();
-    expect(organizationTree).toBeDefined();
+    expect(
+      wrapper
+        .findAllComponents({ name: 'TreeRecordExplorer' })
+        .find((explorer) => explorer.props('context').moduleAlias === 'iam.organization'),
+    ).toBeUndefined();
 
     tenantExplorer.vm.$emit('select', { id: 'tenant-1', title: '甲租户' });
     await flushPromises();
+    const organizationTree = wrapper
+      .findAllComponents({ name: 'TreeRecordExplorer' })
+      .find((explorer) => explorer.props('context').moduleAlias === 'iam.organization');
+    expect(organizationTree).toBeDefined();
     expect(organizationTree?.props('externalQueryValues')).toEqual({ tenantId: 'tenant-1' });
 
     organizationTree?.vm.$emit('select', { id: 'organization-1', title: '总部' });

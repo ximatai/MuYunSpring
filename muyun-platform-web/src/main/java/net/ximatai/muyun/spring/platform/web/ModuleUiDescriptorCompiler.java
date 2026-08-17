@@ -1,9 +1,8 @@
 package net.ximatai.muyun.spring.platform.web;
 
-import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
-
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
+import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
 import net.ximatai.muyun.spring.common.model.title.RecordLabelResolver;
 import net.ximatai.muyun.spring.common.option.OptionFieldDefinition;
 import net.ximatai.muyun.spring.common.option.OptionFieldResolver;
@@ -169,7 +168,7 @@ public final class ModuleUiDescriptorCompiler {
         return switch (page) {
             case FlatManagementPageDefinition flat -> {
                 if (flat.navigator() != null) {
-                    validateNavigator(flat.navigator(), referenceFields, "page navigator");
+                    validateNavigator(flat.navigator(), referenceFields, "page navigator", editorFieldNames(flat.detail()), false);
                 }
                 yield new ResolvedModulePageDescriptor(
                     flat.template(), ResolvedPageExplorerDescriptor.from(flat.explorer()),
@@ -179,7 +178,7 @@ public final class ModuleUiDescriptorCompiler {
             }
             case ListDetailCardPageDefinition card -> {
                 if (card.navigator() != null) {
-                    validateNavigator(card.navigator(), referenceFields, "page navigator");
+                    validateNavigator(card.navigator(), referenceFields, "page navigator", editorFieldNames(card.detail()), false);
                 }
                 yield new ResolvedModulePageDescriptor(card.template(), null,
                         ResolvedPageNavigatorDescriptor.from(card.navigator()),
@@ -191,7 +190,7 @@ public final class ModuleUiDescriptorCompiler {
             }
             case TreeManagementPageDefinition tree -> {
                 if (tree.navigator() != null) {
-                    validateNavigator(tree.navigator(), referenceFields, "page navigator");
+                    validateNavigator(tree.navigator(), referenceFields, "page navigator", editorFieldNames(tree.detail()), true);
                 }
                 yield new ResolvedModulePageDescriptor(tree.template(), null,
                         ResolvedPageNavigatorDescriptor.from(tree.navigator()), null,
@@ -217,12 +216,30 @@ public final class ModuleUiDescriptorCompiler {
 
     private static void validateNavigator(PageNavigatorDefinition navigator,
                                           Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
-                                          String moduleAlias) {
+                                          String moduleAlias,
+                                          Set<String> editorFieldNames,
+                                          boolean treeParentPickerAllowed) {
         for (PageContextBindingDefinition binding : navigator.contextBindings()) {
-            if (binding.source() != PageContextSource.NAVIGATOR || binding.target() != PageContextTarget.LIST_QUERY) continue;
+            if (binding.source() != PageContextSource.NAVIGATOR
+                    || (binding.target() != PageContextTarget.LIST_QUERY
+                    && binding.target() != PageContextTarget.PICKER_QUERY)) continue;
             PageNavigatorLevelDefinition level = navigator.levels().stream()
                     .filter(candidate -> candidate.key().equals(binding.sourceKey())).findFirst().orElseThrow();
             ResolvedReferenceFieldDescriptor reference = referenceFields.get(binding.targetKey());
+            if (binding.target() == PageContextTarget.PICKER_QUERY) {
+                if (!editorFieldNames.contains(binding.targetPickerFieldKey())) {
+                    throw new IllegalArgumentException("picker-query target must be declared by the page editor: "
+                            + moduleAlias + "." + binding.targetPickerFieldKey());
+                }
+                ResolvedReferenceFieldDescriptor picker = referenceFields.get(binding.targetPickerFieldKey());
+                if (!(treeParentPickerAllowed
+                        && PlatformAbilityFields.TREE_PARENT_FIELD.equals(binding.targetPickerFieldKey()))
+                        && (picker == null || picker.cardinality()
+                        != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE)) {
+                    throw new IllegalArgumentException("picker-query target must be a single record reference: "
+                            + moduleAlias + "." + binding.targetPickerFieldKey());
+                }
+            }
             if (isTenantScopeNavigator(level, binding)) {
                 continue;
             }
@@ -239,6 +256,15 @@ public final class ModuleUiDescriptorCompiler {
                         + moduleAlias + "." + binding.targetKey());
             }
         }
+    }
+
+    private static Set<String> editorFieldNames(PageDetailDefinition detail) {
+        if (detail == null || detail.editor() == null) {
+            return Set.of();
+        }
+        return detail.editor().fields().stream()
+                .map(field -> field.fieldRef().fieldName())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     /**

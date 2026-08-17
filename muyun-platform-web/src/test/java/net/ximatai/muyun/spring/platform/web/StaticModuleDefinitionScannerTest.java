@@ -216,9 +216,12 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.title()).isEqualTo("机构管理");
                 assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
                 assertThat(definition.entryRoute()).isBlank();
+                assertThat(definition.navigatorSourceCapabilities()).containsExactlyInAnyOrder(
+                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY,
+                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE);
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactly("menu", "create", "view", "update", "delete", "query",
-                                "tree", "sort", "enable", "disable");
+                                "tree", "sort", "enable", "disable", "reference");
             });
             assertThat(byAlias.get("iam.position_category").navigatorSourceCapabilities()).containsExactlyInAnyOrder(
                     net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY,
@@ -226,8 +229,8 @@ class StaticModuleDefinitionScannerTest {
             assertThat(byAlias.get("iam.department")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("部门管理");
-                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.ROUTE);
-                assertThat(definition.entryRoute()).isEqualTo("/iam/departments");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.entryRoute()).isBlank();
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                                 "tree", "sort", "enable", "disable");

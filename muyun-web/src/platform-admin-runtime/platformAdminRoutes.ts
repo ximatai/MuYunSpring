@@ -6,7 +6,6 @@ import type {
   RoutePageTarget,
 } from '@muyun/web-contracts';
 import FieldUiControlManagementView from '../views/FieldUiControlManagementView.vue';
-import DepartmentManagementView from '../views/DepartmentManagementView.vue';
 import DictionaryManagementView from '../views/DictionaryManagementView.vue';
 import EmployeeManagementView from '../views/EmployeeManagementView.vue';
 import MenuManagementView from '../views/MenuManagementView.vue';
@@ -66,12 +65,6 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
     layout: 'workspace',
   },
   {
-    route: '/iam/departments',
-    moduleAlias: 'iam.department',
-    component: DepartmentManagementView,
-    layout: 'workspace',
-  },
-  {
     route: '/iam/employees',
     moduleAlias: 'iam.employee',
     component: EmployeeManagementView,
@@ -113,6 +106,7 @@ export const platformAdminRoutePrefixes = Array.from(
  */
 export const platformAdminDynamicModuleRoutes: Record<string, string> = {
   '/iam/organizations': 'iam.organization',
+  '/iam/departments': 'iam.department',
 };
 export const platformAdminModuleRoutes = Object.fromEntries(
   platformAdminRoutes

@@ -16,7 +16,6 @@ it('static business route registry exposes only pages still owned by static rout
     '/config/menus',
     '/platform/security/passwords',
     '/iam/tenants',
-    '/iam/departments',
     '/iam/employees',
     '/iam/users',
     '/iam/system-users',
@@ -30,7 +29,6 @@ it('static business route registry exposes only pages still owned by static rout
     'platform.menu_scheme': '/config/menus',
     'iam.password_policy_rule': '/platform/security/passwords',
     'iam.tenant': '/iam/tenants',
-    'iam.department': '/iam/departments',
     'iam.employee': '/iam/employees',
     'iam.user': '/iam/users',
     'iam.system_user': '/iam/system-users',
@@ -120,7 +118,7 @@ it('position management is intentionally delegated to the dynamic page host', ()
   assert.equal(isPlatformAdminRoutePage(descriptor), false);
 });
 
-it('static business route registry resolves department management module route', () => {
+it('department management is delegated to the dynamic page host', () => {
   const descriptor: BusinessRoutePageDescriptor = {
     pageType: 'business-route',
     openMode: 'workbench-route',
@@ -129,11 +127,8 @@ it('static business route registry resolves department management module route',
     tabPolicy: { identity: 'by-menu' },
   };
 
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route?.route, '/iam/departments');
-  assert.equal(route?.moduleAlias, 'iam.department');
-  assert.equal(isPlatformAdminRoutePage(descriptor), true);
+  assert.equal(resolvePlatformAdminRoute(descriptor), undefined);
+  assert.equal(isPlatformAdminRoutePage(descriptor), false);
 });
 
 it('static business route registry resolves employee management module route', () => {

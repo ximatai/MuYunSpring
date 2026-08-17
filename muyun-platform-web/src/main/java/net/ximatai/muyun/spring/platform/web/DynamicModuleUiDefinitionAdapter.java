@@ -13,9 +13,8 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorLayout;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorLevel;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageContextBinding;
+import net.ximatai.muyun.spring.platform.ui.PlatformPublishedPageComposition;
 
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -41,31 +40,33 @@ public final class DynamicModuleUiDefinitionAdapter {
                 .collect(Collectors.groupingBy(PlatformResolvedUiField::uiConfigId,
                         java.util.LinkedHashMap::new,
                         Collectors.toList()));
-        List<ViewDefinition> views = new ArrayList<>();
+        // Keep configuration-time field compatibility diagnostics independent from whether this
+        // snapshot also happens to contain the complementary list/form slot.
         snapshot.uiConfigs().stream()
                 .filter(config -> Boolean.TRUE.equals(config.getPublished()))
                 .filter(config -> !Boolean.FALSE.equals(config.getEnabled()))
                 .filter(config -> config.getClientType() == PlatformUiClientType.WEB)
-                .sorted(Comparator.comparing(PlatformUiConfig::getSortOrder,
-                        Comparator.nullsLast(Comparator.naturalOrder())))
                 .forEach(config -> {
                     PlatformUiSet uiSet = uiSets.get(config.getUiSetId());
                     ModuleViewKind viewKind = viewKind(uiSet);
-                    if (viewKind == null) {
-                        return;
+                    if (viewKind != null) {
+                        view(config, uiSet, viewKind, fieldsByConfig.get(config.getId()));
                     }
-                    views.add(view(config, uiSet, viewKind, fieldsByConfig.get(config.getId())));
                 });
-        ViewDefinition list = views.stream().filter(view -> view.viewKind() == ModuleViewKind.LIST).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("dynamic page requires a published list slot: "
-                        + snapshot.moduleAlias()));
-        ViewDefinition editor = views.stream().filter(view -> view.viewKind() == ModuleViewKind.FORM).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("dynamic page requires a published form editor slot: "
-                        + snapshot.moduleAlias()));
-        PlatformUiConfig listConfig = snapshot.uiConfigs().stream()
-                .filter(config -> Objects.equals(config.getId(), list.sourceUiConfigId()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("dynamic list source config is missing: " + list.viewCode()));
+        PlatformPublishedPageComposition composition = PlatformPublishedPageComposition.resolve(snapshot,
+                PlatformUiClientType.WEB);
+        PlatformUiConfig listConfig = composition.listConfig();
+        if (listConfig == null) {
+            throw new IllegalArgumentException("dynamic page requires a published list slot: " + snapshot.moduleAlias());
+        }
+        PlatformUiConfig formConfig = composition.formConfig();
+        if (formConfig == null) {
+            throw new IllegalArgumentException("dynamic page requires a published form editor slot: " + snapshot.moduleAlias());
+        }
+        ViewDefinition list = view(listConfig, uiSets.get(listConfig.getUiSetId()), ModuleViewKind.LIST,
+                fieldsByConfig.get(listConfig.getId()));
+        ViewDefinition editor = view(formConfig, uiSets.get(formConfig.getUiSetId()), ModuleViewKind.FORM,
+                fieldsByConfig.get(formConfig.getId()));
         ModulePageDefinition page = page(list, editor, listConfig);
         return new ModuleUiDefinition(snapshot.moduleAlias(), List.of(), page, null, List.of(), List.of());
     }
@@ -138,7 +139,8 @@ public final class DynamicModuleUiDefinitionAdapter {
 
     private static PageContextBindingDefinition contextBinding(PlatformPageContextBinding binding) {
         return new PageContextBindingDefinition(PageContextSource.valueOf(binding.source()), binding.sourceKey(),
-                PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey());
+                PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey(),
+                binding.targetPickerFieldKey());
     }
 
     private static JsonNode pageRoot(PlatformUiConfig config) {
