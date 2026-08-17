@@ -388,7 +388,6 @@ it('static edit draft normalizers preserve standard record fields', () => {
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
   const tenantStateSource = readSource('src/views/tenantManagementState.ts');
-  const organizationStateSource = readSource('src/views/organizationManagementState.ts');
   const departmentStateSource = readSource('src/views/departmentManagementState.ts');
   const menuStateSource = readSource('src/views/menuManagementState.ts');
   const positionStateSource = readSource('src/views/positionManagementState.ts');
@@ -405,7 +404,6 @@ it('static edit draft normalizers preserve standard record fields', () => {
   );
   assert.match(roleSource, /function normalizedRoleDraft[\s\S]*normalizeRecordDraft<Role>\(draft,/);
   assert.match(tenantStateSource, /function normalizedDraft[\s\S]*return \{\s*\.\.\.record,/);
-  assert.match(organizationStateSource, /function normalizedDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(departmentStateSource, /function normalizeDepartmentDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(menuStateSource, /function normalizeSchemeDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(
@@ -576,7 +574,6 @@ it('menu management keeps scheme actions inline and delegates search to panel', 
 it('static management explorers use unified item descriptors', () => {
   const explorerViews = [
     'TenantManagementView.vue',
-    'OrganizationManagementView.vue',
     'DepartmentManagementView.vue',
     'PositionManagementView.vue',
     'DictionaryManagementView.vue',
@@ -736,7 +733,6 @@ it('three-column management pages use the platform detail panel', () => {
   const panelSource = readSource('src/platform-components/RecordDetailPanel.vue');
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
   const tenantViewSource = readSource('src/views/TenantManagementView.vue');
-  const organizationViewSource = readSource('src/views/OrganizationManagementView.vue');
   const positionViewSource = readSource('src/views/PositionManagementView.vue');
   const dictionaryViewSource = readSource('src/views/DictionaryManagementView.vue');
   const departmentViewSource = readSource('src/views/DepartmentManagementView.vue');
@@ -762,9 +758,6 @@ it('three-column management pages use the platform detail panel', () => {
     assert.match(source, /<RecordStatusSwitch/);
     assert.notMatch(source, /EnabledSelect|启用状态|toggle-enabled|show-status/);
   }
-  assert.match(organizationViewSource, /<RecordDetailPanel :title="cardTitle">/);
-  assert.match(organizationViewSource, /<template #status>/);
-  assert.match(organizationViewSource, /<RecordStatusSwitch/);
   assert.equal(matchCount(positionViewSource, /<RecordDetailPanel/g), 1);
   assert.equal(matchCount(dictionaryViewSource, /<RecordDetailPanel/g), 1);
   assert.equal(matchCount(departmentViewSource, /<RecordDetailPanel/g), 1);
@@ -1928,7 +1921,6 @@ it('platform error feedback respects global error presentation slots', () => {
   const actionResultReactionsSource = readSource('src/platform-components/platformActionResultReactions.ts');
   const uiFeedbackSource = readSource('src/vue-ui-antdv/feedback.ts');
   const staticCrudStateSource = readSource('src/platform-components/staticCrudManagementState.ts');
-  const organizationStateSource = readSource('src/views/organizationManagementState.ts');
   const positionStateSource = readSource('src/views/positionManagementState.ts');
   const dictionaryStateSource = readSource('src/views/dictionaryManagementState.ts');
 
@@ -1990,7 +1982,6 @@ it('platform error feedback respects global error presentation slots', () => {
   assert.match(uiStylesSource, /font-size: 13px/);
   assert.match(uiStylesSource, /@keyframes muyun-feedback-countdown/);
   assert.match(staticCrudStateSource, /handlePlatformActionSuccess/);
-  assert.match(organizationStateSource, /handlePlatformActionSuccess/);
   assert.match(positionStateSource, /handlePlatformActionSuccess/);
   assert.match(dictionaryStateSource, /handlePlatformActionSuccess/);
 });
@@ -2177,7 +2168,6 @@ it('public management and drawer contracts use business roles instead of layout 
     readSource('src/views/PasswordManagementView.vue'),
     readSource('src/views/TenantManagementView.vue'),
   ];
-  const organizationManagementSource = readSource('src/views/OrganizationManagementView.vue');
   const standardDrawerSources = [
     readSource('src/views/UserManagementView.vue'),
     readSource('src/views/RoleManagementView.vue'),
@@ -2204,10 +2194,6 @@ it('public management and drawer contracts use business roles instead of layout 
       /sidebar-search|sidebar-title|card-title|sidebar-actions|card-actions|card-status/,
     );
   }
-  assert.match(organizationManagementSource, /<ManagementWorkspace/);
-  assert.match(organizationManagementSource, /moduleAlias: 'iam\.tenant'/);
-  assert.match(organizationManagementSource, /treePath: '\/iam\.organization\/tree'/);
-  assert.match(organizationManagementSource, /tenantId: selectedTenantId\.value/);
 
   assert.notMatch(recordDetailDrawerSource, /<slot name="actions" \/>/);
   assert.notMatch(recordModeDrawerSource, /<slot name="actions" \/>/);

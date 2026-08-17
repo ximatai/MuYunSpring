@@ -422,6 +422,34 @@ class PlatformUiConfigurationServiceContractTest {
     }
 
     @Test
+    void shouldRejectPublishedNavigatorLevelsWhoseSourceDoesNotExposeReferenceProjection() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
+        String uiSetId = uiSetService.insert(uiSet("crm.customer", "customer_list", PlatformUiSetType.LIST, true));
+        String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
+        PlatformUiConfig config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {"navigator":{"levels":[{
+                  "key":"customer","kind":"MICRO_LIST","sourceModuleAlias":"crm.customer"
+                }]}}""");
+        uiConfigService.update(config);
+        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
+        PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
+                uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
+                recordService, moduleAlias -> java.util.Set.of());
+
+        assertThatThrownBy(() -> verifyingPublishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("page=crm.customer")
+                .hasMessageContaining("uiConfig=" + uiConfigId)
+                .hasMessageContaining("level=customer")
+                .hasMessageContaining("source=crm.customer")
+                .hasMessageContaining("required=REFERENCE_QUERY");
+    }
+
+    @Test
     void shouldRejectUnsupportedPageContextBindingsBeforePublishingDynamicPageConfig() {
         seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
         seedUiType("text", "string");

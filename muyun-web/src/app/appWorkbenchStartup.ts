@@ -3,6 +3,7 @@ import type { WorkbenchStartupState } from '@muyun/web-contracts';
 import { createBackendHttpClient } from '../platform-admin-runtime/backendHttp';
 import {
   platformAdminModuleRoutes,
+  platformAdminDynamicModuleRoutes,
   platformAdminRouteLayouts,
   platformAdminRoutePrefixes,
 } from '../platform-admin-runtime/platformAdminRoutes';
@@ -28,6 +29,7 @@ export async function loadAppWorkbenchStartupState(): Promise<WorkbenchStartupSt
     },
     {
       businessModuleRoutes: platformAdminModuleRoutes,
+      dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
       businessRouteLayouts: platformAdminRouteLayouts,
       businessRoutePrefixes: platformAdminRoutePrefixes,
     },

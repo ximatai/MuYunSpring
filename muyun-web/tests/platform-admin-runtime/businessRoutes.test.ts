@@ -16,7 +16,6 @@ it('static business route registry exposes only pages still owned by static rout
     '/config/menus',
     '/platform/security/passwords',
     '/iam/tenants',
-    '/iam/organizations',
     '/iam/departments',
     '/iam/employees',
     '/iam/users',
@@ -31,7 +30,6 @@ it('static business route registry exposes only pages still owned by static rout
     'platform.menu_scheme': '/config/menus',
     'iam.password_policy_rule': '/platform/security/passwords',
     'iam.tenant': '/iam/tenants',
-    'iam.organization': '/iam/organizations',
     'iam.department': '/iam/departments',
     'iam.employee': '/iam/employees',
     'iam.user': '/iam/users',
@@ -49,7 +47,7 @@ it('role authorization is a direct workbench page and does not replace the role 
   assert.equal(platformAdminModuleRoutes['iam.role'], '/iam/roles');
 });
 
-it('static business route registry resolves module alias by route', () => {
+it('organization management is delegated to the dynamic page host', () => {
   const descriptor: BusinessRoutePageDescriptor = {
     pageType: 'business-route',
     openMode: 'workbench-route',
@@ -58,10 +56,8 @@ it('static business route registry resolves module alias by route', () => {
     tabPolicy: { identity: 'by-target' },
   };
 
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route?.moduleAlias, 'iam.organization');
-  assert.equal(isPlatformAdminRoutePage(descriptor), true);
+  assert.equal(resolvePlatformAdminRoute(descriptor), undefined);
+  assert.equal(isPlatformAdminRoutePage(descriptor), false);
 });
 
 it('static business route registry resolves password management module route', () => {

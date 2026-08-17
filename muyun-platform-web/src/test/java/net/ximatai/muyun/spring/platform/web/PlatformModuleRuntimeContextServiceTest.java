@@ -34,6 +34,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
@@ -72,6 +73,7 @@ class PlatformModuleRuntimeContextServiceTest {
         when(actionService.listByModuleAliases(List.of("iam.organization"))).thenReturn(List.of());
         StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.organization", "组织管理")
                 .parentModuleAlias(null)
+                .navigatorSourceCapabilities(Set.of(NavigatorSourceCapability.REFERENCE_TREE))
                 .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.VIEW)))
                 .uiDefinition(ModuleUiDefinition.builder("iam.organization")
                         .page(PageTemplates.listDetailCard(page -> page
@@ -88,11 +90,15 @@ class PlatformModuleRuntimeContextServiceTest {
         };
         PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
                 moduleService, actionService, new StaticModuleDefinitionCatalog(List.of(definition)), null,
-                null, null, allowAllPolicy(), List.of(), resolver);
+                null, null, allowAllPolicy(), List.of(), resolver,
+                moduleAlias -> Set.of(NavigatorSourceCapability.REFERENCE_TREE));
 
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
                 CurrentUser.tenantUser("user-1", "tenant-admin", "tenant-1", "organization-1"))) {
             PlatformModuleRuntimeContext runtimeContext = service.context("iam.organization");
+
+            assertThat(runtimeContext.navigatorSourceCapabilities())
+                    .containsExactly(NavigatorSourceCapability.REFERENCE_TREE);
 
             assertThat(runtimeContext.uiDescriptor().page()).satisfies(page -> {
                 assertThat(page.navigator()).isNull();

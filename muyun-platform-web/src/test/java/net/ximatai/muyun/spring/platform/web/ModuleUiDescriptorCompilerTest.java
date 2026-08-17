@@ -68,9 +68,12 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
-    void shouldCompileTreeManagementAsPageRootWithOnlyItsSupportedSlots() {
+    void shouldCompileTreeManagementAsPageRootWithOptionalNavigator() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("mr.tag")
                 .page(PageTemplates.treeManagement(page -> page
+                        .navigator(navigator -> navigator
+                                .level("tenant", level -> level.microList("iam.tenant", "租户", "搜索租户"))
+                                .bindNavigatorToList("tenant", "tenantId"))
                         .detail(detail -> detail
                                 .emptyDescription("请选择标签，或新建根标签")
                                 .editor(editor -> editor
@@ -85,7 +88,17 @@ class ModuleUiDescriptorCompilerTest {
 
         assertThat(page.template()).isEqualTo(ModulePageTemplate.TREE_MANAGEMENT);
         assertThat(page.explorer()).isNull();
-        assertThat(page.navigator()).isNull();
+        assertThat(page.navigator()).satisfies(navigator -> {
+            assertThat(navigator.levels()).singleElement().satisfies(level -> {
+                assertThat(level.key()).isEqualTo("tenant");
+                assertThat(level.kind()).isEqualTo(PageNavigatorKind.MICRO_LIST);
+            });
+            assertThat(navigator.contextBindings()).containsExactly(
+                    new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "tenant",
+                            PageContextTarget.LIST_QUERY, "tenantId", null),
+                    new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "tenant",
+                            PageContextTarget.FORM_DEFAULT, "tenantId", null));
+        });
         assertThat(page.list()).isNull();
         assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
                 .containsExactly("title", "parentId", "color");

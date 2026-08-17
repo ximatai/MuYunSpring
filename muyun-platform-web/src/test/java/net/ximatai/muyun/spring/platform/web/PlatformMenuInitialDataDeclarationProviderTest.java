@@ -161,7 +161,7 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     }
 
     @Test
-    void shouldRegisterOrganizationMenuAsRouteModuleEntry() {
+    void shouldRegisterOrganizationMenuAsStandardModuleEntry() {
         try (GenericApplicationContext context = context(OrganizationWebController.class)) {
             registerStaticModules(context);
             initializePlatformMenus(context);
@@ -169,8 +169,8 @@ class PlatformMenuInitialDataDeclarationProviderTest {
             assertThat(moduleMenu("iam.organization")).satisfies(menu -> {
                 assertThat(menu.getOpenMode()).isEqualTo(MenuOpenMode.TAB);
                 assertThat(menu.getModuleAlias()).isEqualTo("iam.organization");
-                assertThat(menu.getRoute()).isEqualTo("/iam/organizations");
-                assertThat(menu.getPageMode()).isNull();
+                assertThat(menu.getRoute()).isNull();
+                assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
             });
         }
     }

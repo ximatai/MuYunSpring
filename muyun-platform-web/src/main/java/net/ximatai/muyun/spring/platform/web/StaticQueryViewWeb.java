@@ -145,7 +145,7 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
         PageNavigatorDefinition navigator = switch (page) {
             case ListDetailCardPageDefinition card -> card.navigator();
             case FlatManagementPageDefinition flat -> flat.navigator();
-            case TreeManagementPageDefinition ignored -> null;
+            case TreeManagementPageDefinition tree -> tree.navigator();
             case null -> null;
         };
         return navigator == null ? List.of()

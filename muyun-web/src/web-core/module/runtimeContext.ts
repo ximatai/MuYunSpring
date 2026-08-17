@@ -53,6 +53,8 @@ export interface ModuleRuntimeContext {
   capabilities: string[];
   abilities?: string[];
   actions: ModuleRuntimeAction[];
+  /** Read-only projections this module deliberately exposes for page navigation. */
+  navigatorSourceCapabilities?: Array<'REFERENCE_QUERY' | 'REFERENCE_TREE'>;
   uiDescriptor?: ResolvedModuleUiDescriptor;
 }
 

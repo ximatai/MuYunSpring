@@ -40,6 +40,8 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshot;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshotService;
 import net.ximatai.muyun.spring.platform.ui.PlatformResolvedPageConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiClientType;
+import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
+import net.ximatai.muyun.spring.platform.ui.PageNavigatorSourceCapabilityResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -48,7 +50,6 @@ import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.Optional;
 import java.util.Set;
 
@@ -66,6 +67,7 @@ public class PlatformModuleRuntimeContextService {
     private final PlatformPageBootstrapService pageBootstrapService;
     private final List<FileReferenceFieldPolicy> fileReferenceFieldPolicies;
     private final PageNavigatorResolver pageNavigatorResolver;
+    private final PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver;
 
     @Autowired
     public PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -76,7 +78,8 @@ public class PlatformModuleRuntimeContextService {
                                                ObjectProvider<PlatformPageBootstrapService> pageBootstrapService,
                                                ObjectProvider<ActionExecutionPolicyService> actionExecutionPolicyService,
                                                ObjectProvider<FileReferenceFieldPolicy> fileReferenceFieldPolicies,
-                                               ObjectProvider<PageNavigatorResolver> pageNavigatorResolver) {
+                                               ObjectProvider<PageNavigatorResolver> pageNavigatorResolver,
+                                               ObjectProvider<PageNavigatorSourceCapabilityResolver> navigatorSourceCapabilityResolver) {
         this(moduleService, actionService, staticModuleCatalog,
                 dynamicRecordService == null ? null : dynamicRecordService.getIfAvailable(),
                 pageConfigSnapshotService == null ? null : pageConfigSnapshotService.getIfAvailable(),
@@ -86,7 +89,8 @@ public class PlatformModuleRuntimeContextService {
                         : actionExecutionPolicyService.getIfAvailable(AllowAllActionExecutionPolicyService::new),
                 fileReferenceFieldPolicies == null ? List.of() : fileReferenceFieldPolicies.orderedStream().toList(),
                 new CompositePageNavigatorResolver(pageNavigatorResolver == null ? List.of()
-                        : pageNavigatorResolver.orderedStream().toList()));
+                        : pageNavigatorResolver.orderedStream().toList()),
+                navigatorSourceCapabilityResolver == null ? null : navigatorSourceCapabilityResolver.getIfAvailable());
     }
 
     PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -110,7 +114,7 @@ public class PlatformModuleRuntimeContextService {
                                         List<FileReferenceFieldPolicy> fileReferenceFieldPolicies) {
         this(moduleService, actionService, staticModuleCatalog, dynamicRecordService, pageConfigSnapshotService,
                 pageBootstrapService, actionExecutionPolicyService, fileReferenceFieldPolicies,
-                new DeclaredPageNavigatorResolver());
+                new DeclaredPageNavigatorResolver(), null);
     }
 
     PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -122,6 +126,20 @@ public class PlatformModuleRuntimeContextService {
                                         ActionExecutionPolicyService actionExecutionPolicyService,
                                         List<FileReferenceFieldPolicy> fileReferenceFieldPolicies,
                                         PageNavigatorResolver pageNavigatorResolver) {
+        this(moduleService, actionService, staticModuleCatalog, dynamicRecordService, pageConfigSnapshotService,
+                pageBootstrapService, actionExecutionPolicyService, fileReferenceFieldPolicies, pageNavigatorResolver, null);
+    }
+
+    PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
+                                        PlatformModuleActionService actionService,
+                                        StaticModuleDefinitionCatalog staticModuleCatalog,
+                                        DynamicRecordService dynamicRecordService,
+                                        PlatformPageConfigSnapshotService pageConfigSnapshotService,
+                                        PlatformPageBootstrapService pageBootstrapService,
+                                        ActionExecutionPolicyService actionExecutionPolicyService,
+                                        List<FileReferenceFieldPolicy> fileReferenceFieldPolicies,
+                                        PageNavigatorResolver pageNavigatorResolver,
+                                        PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver) {
         this.moduleService = moduleService;
         this.actionService = actionService;
         this.staticModuleCatalog = staticModuleCatalog;
@@ -135,6 +153,7 @@ public class PlatformModuleRuntimeContextService {
         this.pageNavigatorResolver = pageNavigatorResolver == null
                 ? new DeclaredPageNavigatorResolver()
                 : pageNavigatorResolver;
+        this.navigatorSourceCapabilityResolver = navigatorSourceCapabilityResolver;
     }
 
     public PlatformModuleRuntimeContext context(String moduleAlias) {
@@ -153,6 +172,9 @@ public class PlatformModuleRuntimeContextService {
         String title = title(module, staticDefinition, dynamicDescriptor, validModuleAlias);
         ResolvedModuleUiDescriptor uiDescriptor = uiDescriptor(validModuleAlias, moduleKind, title, staticDefinition,
                 dynamicDescriptor);
+        Set<NavigatorSourceCapability> navigatorSourceCapabilities = navigatorSourceCapabilityResolver == null
+                ? Set.of()
+                : navigatorSourceCapabilityResolver.capabilities(validModuleAlias);
         return new PlatformModuleRuntimeContext(
                 validModuleAlias,
                 title,
@@ -164,6 +186,7 @@ public class PlatformModuleRuntimeContextService {
                 capabilities,
                 abilityCodes(capabilities),
                 actions,
+                navigatorSourceCapabilities,
                 uiDescriptor
         );
     }
@@ -233,7 +256,24 @@ public class PlatformModuleRuntimeContextService {
         Set<String> visibleLevelKeys = pageNavigatorResolver.visibleLevelKeys(
                 new PageNavigatorResolutionContext(moduleAlias, moduleKind,
                         CurrentUserContext.currentUser().orElse(null), candidate));
-        return candidate.withNavigator(filterNavigator(candidate.navigator(), visibleLevelKeys));
+        ResolvedPageNavigatorDescriptor navigator = filterNavigator(candidate.navigator(), visibleLevelKeys);
+        validateNavigatorSourceCapabilities(moduleAlias, navigator);
+        return candidate.withNavigator(navigator);
+    }
+
+    private void validateNavigatorSourceCapabilities(String pageModuleAlias,
+                                                     ResolvedPageNavigatorDescriptor navigator) {
+        if (navigator == null || navigatorSourceCapabilityResolver == null) return;
+        for (ResolvedPageNavigatorLevelDescriptor level : navigator.levels()) {
+            NavigatorSourceCapability required = level.kind() == PageNavigatorKind.TREE
+                    ? NavigatorSourceCapability.REFERENCE_TREE
+                    : NavigatorSourceCapability.REFERENCE_QUERY;
+            if (!navigatorSourceCapabilityResolver.supports(level.sourceModuleAlias(), required)) {
+                throw new PlatformException(PlatformErrorCodes.CONFIG_MISSING, 409,
+                        "Navigator source capability is unavailable: page=" + pageModuleAlias + ", level="
+                                + level.key() + ", source=" + level.sourceModuleAlias() + ", required=" + required);
+            }
+        }
     }
 
     private ResolvedPageNavigatorDescriptor filterNavigator(ResolvedPageNavigatorDescriptor navigator,

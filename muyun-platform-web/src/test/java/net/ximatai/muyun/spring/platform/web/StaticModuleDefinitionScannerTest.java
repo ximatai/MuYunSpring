@@ -206,18 +206,23 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactly("menu", "create", "view", "update", "delete", "query",
                                 "sort", "enable", "disable", "recycleBinQuery", "recycleBinRestore", "reference");
+                assertThat(definition.navigatorSourceCapabilities())
+                        .containsExactly(net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY);
             });
             assertThat(byAlias.get("iam.organization")).satisfies(definition -> {
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .doesNotContain("recycleBinQuery", "recycleBinRestore");
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("机构管理");
-                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.ROUTE);
-                assertThat(definition.entryRoute()).isEqualTo("/iam/organizations");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.entryRoute()).isBlank();
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactly("menu", "create", "view", "update", "delete", "query",
                                 "tree", "sort", "enable", "disable");
             });
+            assertThat(byAlias.get("iam.position_category").navigatorSourceCapabilities()).containsExactlyInAnyOrder(
+                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY,
+                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE);
             assertThat(byAlias.get("iam.department")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("部门管理");

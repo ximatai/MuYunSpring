@@ -103,7 +103,7 @@ public final class DynamicModuleUiDefinitionAdapter {
                     traits(root));
         }
         if ("TREE_MANAGEMENT".equals(template)) {
-            return new TreeManagementPageDefinition(
+            return new TreeManagementPageDefinition(navigator(listConfig),
                     new PageDetailDefinition(null, editor.title(), null, editor, workspaceView(root.path("detail"))), traits(root));
         }
         if (!"LIST_DETAIL_CARD".equals(template)) {

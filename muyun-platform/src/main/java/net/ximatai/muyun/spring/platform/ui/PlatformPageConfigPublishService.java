@@ -15,6 +15,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -31,13 +32,15 @@ public class PlatformPageConfigPublishService {
     private final PlatformQueryTemplateService queryTemplateService;
     private final PlatformQueryItemService queryItemService;
     private final DynamicRecordService recordService;
+    private final PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver;
 
     public PlatformPageConfigPublishService(PlatformUiSetService uiSetService,
                                             PlatformUiConfigService uiConfigService,
                                             PlatformUiConfigFieldService uiConfigFieldService,
                                             PlatformQueryTemplateService queryTemplateService,
                                             PlatformQueryItemService queryItemService) {
-        this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, null);
+        this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, null,
+                (PageNavigatorSourceCapabilityResolver) null);
     }
 
     @Autowired
@@ -46,13 +49,36 @@ public class PlatformPageConfigPublishService {
                                             PlatformUiConfigFieldService uiConfigFieldService,
                                             PlatformQueryTemplateService queryTemplateService,
                                             PlatformQueryItemService queryItemService,
+                                            DynamicRecordService recordService,
+                                            ObjectProvider<PageNavigatorSourceCapabilityResolver> navigatorSourceCapabilityResolver) {
+        this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, recordService,
+                navigatorSourceCapabilityResolver == null ? null : navigatorSourceCapabilityResolver.getIfAvailable());
+    }
+
+    public PlatformPageConfigPublishService(PlatformUiSetService uiSetService,
+                                            PlatformUiConfigService uiConfigService,
+                                            PlatformUiConfigFieldService uiConfigFieldService,
+                                            PlatformQueryTemplateService queryTemplateService,
+                                            PlatformQueryItemService queryItemService,
                                             DynamicRecordService recordService) {
+        this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, recordService,
+                (PageNavigatorSourceCapabilityResolver) null);
+    }
+
+    public PlatformPageConfigPublishService(PlatformUiSetService uiSetService,
+                                            PlatformUiConfigService uiConfigService,
+                                            PlatformUiConfigFieldService uiConfigFieldService,
+                                            PlatformQueryTemplateService queryTemplateService,
+                                            PlatformQueryItemService queryItemService,
+                                            DynamicRecordService recordService,
+                                            PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver) {
         this.uiSetService = uiSetService;
         this.uiConfigService = uiConfigService;
         this.uiConfigFieldService = uiConfigFieldService;
         this.queryTemplateService = queryTemplateService;
         this.queryItemService = queryItemService;
         this.recordService = recordService;
+        this.navigatorSourceCapabilityResolver = navigatorSourceCapabilityResolver;
     }
 
     public void publishUiConfig(String uiConfigId) {
@@ -92,6 +118,7 @@ public class PlatformPageConfigPublishService {
         try {
             PlatformPageNavigatorLayout navigator = PlatformPageLayoutNavigator.navigator(uiConfig);
             if (navigator == null || recordService == null) return;
+            validateNavigatorSourceCapabilities(uiSet, uiConfig, navigator);
             DynamicModuleDescriptor module = recordService.describe(uiSet.getModuleAlias());
             DynamicEntityDescriptor entity = module.entities().stream()
                     .filter(candidate -> candidate.entityAlias().equals(module.mainEntityAlias()))
@@ -117,6 +144,24 @@ public class PlatformPageConfigPublishService {
             }
         } catch (IllegalArgumentException exception) {
             throw new PlatformException("UI config navigator layout is invalid: " + uiConfig.getId(), exception);
+        }
+    }
+
+    private void validateNavigatorSourceCapabilities(PlatformUiSet uiSet,
+                                                     PlatformUiConfig uiConfig,
+                                                     PlatformPageNavigatorLayout navigator) {
+        // Platform core can be used without the Web delivery module. In that case no runnable
+        // page host exists, so source-projection validation belongs to the optional delivery adapter.
+        if (navigatorSourceCapabilityResolver == null) return;
+        for (PlatformPageNavigatorLevel level : navigator.levels()) {
+            NavigatorSourceCapability required = "TREE".equals(level.kind())
+                    ? NavigatorSourceCapability.REFERENCE_TREE
+                    : NavigatorSourceCapability.REFERENCE_QUERY;
+            if (!navigatorSourceCapabilityResolver.supports(level.sourceModuleAlias(), required)) {
+                throw new PlatformException("Navigator source capability is unavailable: page="
+                        + uiSet.getModuleAlias() + ", uiConfig=" + uiConfig.getId() + ", level=" + level.key()
+                        + ", source=" + level.sourceModuleAlias() + ", required=" + required);
+            }
         }
     }
 

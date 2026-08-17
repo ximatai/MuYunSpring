@@ -84,6 +84,8 @@ import {
   type DetailSurfacePreference,
 } from './detailSurfacePreference';
 import DynamicRecordDetailActions from './DynamicRecordDetailActions.vue';
+import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
+import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { useRecordDetailController } from './recordDetailController';
 import { externalPageContextCriteriaKeys, resolvePageContextTargetValues } from './pageContextRuntime';
 
@@ -341,21 +343,21 @@ const detailWorkspaceAvailable = computed(() =>
 const listDetailCardPage = computed(
   () => runtimePage.value?.template === 'LIST_DETAIL_CARD' && !enhancementDetailDrawer.value,
 );
+const constrainedManagementPage = computed(
+  () => flatManagementPage.value || listDetailCardPage.value || treeManagementPage.value || treeModule.value,
+);
 const standardCrudRowActionKeys = computed<StandardCrudRowActionKey[]>(() =>
   enhancementDetailDrawer.value ? ['view'] : ['view', 'edit', 'delete'],
 );
 const pageBootstrapRequired = computed(() => Boolean(props.descriptor.menuId));
 const pageReady = computed(() => !pageBootstrapRequired.value || pageBootstrap.value !== undefined);
 const unsupportedPageModeText = computed(() => `动态${pageMode.value}入口暂未接入运行器`);
-// Tree modules are discovered from runtime metadata. Once discovered, their
-// explorer/detail panes own the constrained work area instead of extending the
-// workbench tab's document flow.
+// Management templates own the workbench's available height. Their explorer
+// and detail panes scroll internally instead of leaving a content-sized panel
+// in the tab's document flow.
 providePageLayout(
   computed(() =>
-    treeModule.value ||
-    navigatorLevels.value.length > 0 ||
-    flatManagementPage.value ||
-    listDetailCardPage.value
+    constrainedManagementPage.value || navigatorLevels.value.length > 0
       ? 'workspace'
       : props.descriptor.layout,
   ),
@@ -500,7 +502,11 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
 onMounted(async () => {
   void restoreDetailSurfaceMode();
   await loadPageBootstrap();
-  await loadRuntimeForm();
+  try {
+    await loadRuntimeForm();
+  } catch (cause) {
+    pageBootstrapError.value = cause instanceof Error ? cause.message : '页面运行时加载失败';
+  }
   // The workspace is gated by page readiness, so its element is only present
   // after both descriptors have settled.
   await nextTick();
@@ -609,10 +615,22 @@ async function loadRuntimeForm() {
         runtimeAccess: 'REFERENCE',
       });
       await navigatorContext.runtime.ready;
+      const requiredCapability = descriptor.kind === 'TREE' ? 'REFERENCE_TREE' : 'REFERENCE_QUERY';
+      const sourceCapabilities = navigatorContext.runtime.snapshot()?.navigatorSourceCapabilities;
+      // The server validates this before it publishes the page.  Retain the fact at the client
+      // boundary as well so a mixed-version deployment surfaces a diagnostic instead of quietly
+      // rendering an empty navigator.  Undefined keeps older server payloads wire-compatible.
+      if (sourceCapabilities !== undefined && !sourceCapabilities.includes(requiredCapability)) {
+        throw new Error(
+          `导航源能力不可用：层级 ${descriptor.key} 引用模块 ${descriptor.sourceModuleAlias}，缺少 ${requiredCapability}`,
+        );
+      }
       return {
         descriptor,
         context: navigatorContext,
-        tree: descriptor.kind === 'TREE' && navigatorContext.abilities.hasTree() === true,
+        tree:
+          descriptor.kind === 'TREE' &&
+          (sourceCapabilities?.includes('REFERENCE_TREE') ?? navigatorContext.abilities.hasTree() === true),
       };
     }),
   );
@@ -1027,7 +1045,7 @@ function updateDraftField(
 function createRecord(parentId?: string) {
   if (context.can('create') !== true) return;
   detailLoadSequence += 1;
-  detail.beginCreate(parentId ? { parentId } : { ...navigatorCreateDefaults.value });
+  detail.beginCreate({ ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) });
 }
 
 function createRootRecord() {
@@ -1366,8 +1384,7 @@ function recordTitle(record: QueryListRecord | undefined) {
     ref="workspaceElement"
     class="dynamic-module-workspace"
     :class="{
-      'dynamic-module-workspace--tree': treeModule,
-      'dynamic-module-workspace--flat-management': flatManagementPage,
+      'dynamic-module-workspace--management': constrainedManagementPage,
     }"
   >
     <StaticManagementLayout
@@ -1847,7 +1864,52 @@ function recordTitle(record: QueryListRecord | undefined) {
       </RecordDetailPanel>
     </ManagementWorkspace>
 
-    <ManagementWorkspace v-else-if="treeManagementPage || treeModule" class="dynamic-tree-workspace">
+    <ManagementWorkspace
+      v-else-if="treeManagementPage || treeModule"
+      class="dynamic-tree-workspace"
+      :explorer-count="visibleNavigatorLevels.length + 1"
+    >
+      <ManagementExplorerColumn v-for="level in visibleNavigatorLevels" :key="level.descriptor.key">
+        <PageNavigatorExplorer
+          :level="level"
+          :selected-id="
+            selectedNavigatorRecords[level.descriptor.key]?.id == null
+              ? undefined
+              : String(selectedNavigatorRecords[level.descriptor.key]?.id)
+          "
+          :reload-key="scopeReloadKey"
+          :keyword="scopeSearchKeyword"
+          :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
+          :actions-of="() => navigatorInlineActions(level)"
+          @update:keyword="scopeSearchKeyword = $event"
+          @refresh="scopeReloadKey += 1"
+          @create="createNavigatorRecord(level)"
+          @loaded="handleNavigatorLoaded(level, $event)"
+          @select="selectNavigatorRecord(level.descriptor.key, $event)"
+          @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
+        >
+          <template #editor>
+            <NavigatorManagementEditor
+              :open="
+                navigatorManagementLevel?.descriptor.key === level.descriptor.key &&
+                navigatorManagementDetail.open.value
+              "
+              :title="navigatorManagementTitle"
+              :saving="navigatorManagementDetail.saving.value"
+              :loading="navigatorManagementDetail.loading.value"
+              :load-failed="navigatorManagementDetail.loadFailed.value"
+              :draft="navigatorManagementDetail.draft.value as RecordFormRecord"
+              :fields="navigatorManagementFormFields"
+              :form-session-key="navigatorManagementDetail.formSessionKey.value"
+              :context="level.context"
+              :picker-configs="navigatorManagementPickerConfigs"
+              @close="navigatorManagementDetail.close()"
+              @save="saveNavigatorRecord"
+              @update-field="updateNavigatorManagementDraft"
+            />
+          </template>
+        </PageNavigatorExplorer>
+      </ManagementExplorerColumn>
       <ManagementExplorerColumn>
         <RecordExplorerPanel
           :title="`${title}树`"
@@ -1872,6 +1934,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :selected-id="selectedTreeRecord?.id == null ? undefined : String(selectedTreeRecord.id)"
             :reload-key="treeReloadKey"
             :keyword="treeSearchKeyword"
+            :external-query-values="navigatorListQueryValues"
             search-mode="none"
             search-trigger="external"
             empty-description="暂无记录"
@@ -2146,18 +2209,8 @@ function recordTitle(record: QueryListRecord | undefined) {
   min-height: calc(100vh - 116px);
 }
 
-/*
- * Tree metadata is loaded at runtime, so this boundary cannot be declared by
- * the menu descriptor. Keep the workbench tab fixed and let the explorer and
- * detail panels manage their own vertical scroll areas.
- */
-.dynamic-module-workspace--tree {
-  height: 100%;
-  min-height: 0;
-}
-
-/* Tree and flat-management templates both own a fixed workbench area. */
-.dynamic-module-workspace--flat-management {
+/* All desktop management templates share one fixed workbench boundary. */
+.dynamic-module-workspace--management {
   height: 100%;
   min-height: 0;
 }
@@ -2355,12 +2408,7 @@ function recordTitle(record: QueryListRecord | undefined) {
 }
 
 @media (max-width: 720px) {
-  .dynamic-module-workspace--tree {
-    height: auto;
-    min-height: calc(100vh - 116px);
-  }
-
-  .dynamic-module-workspace--flat-management {
+  .dynamic-module-workspace--management {
     height: auto;
     min-height: calc(100vh - 116px);
   }

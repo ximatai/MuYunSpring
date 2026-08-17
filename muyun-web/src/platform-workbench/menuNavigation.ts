@@ -17,6 +17,8 @@ export interface PageDescriptorResolveOptions {
   businessRoutePrefixes?: string[];
   /** Optional legacy mapping for framework-owned static business pages. */
   businessModuleRoutes?: Record<string, string>;
+  /** Stable readable routes whose content is rendered by the standard dynamic module host. */
+  dynamicModuleRoutes?: Record<string, string>;
   /** Page layout contracts keyed by a static business route. */
   businessRouteLayouts?: Record<string, PageLayoutMode>;
   businessRouteNames?: string[];
@@ -28,6 +30,7 @@ export interface PageDescriptorUrlParseOptions {
   platformRoutePrefixes?: string[];
   businessRoutePrefixes?: string[];
   businessRouteLayouts?: Record<string, PageLayoutMode>;
+  dynamicModuleRoutes?: Record<string, string>;
 }
 
 // Workspace views are URL-restorable business pages even when an application
@@ -127,6 +130,24 @@ export function resolvePageDescriptor(
   }
 
   if (target.menuType === 'route') {
+    const dynamicModuleAlias = options.dynamicModuleRoutes?.[target.route];
+    if (dynamicModuleAlias) {
+      return {
+        pageType: 'dynamic-module',
+        openMode: 'dynamic-runner',
+        hostType: 'dynamic-module-host',
+        title: options.title,
+        menuId: target.menuId,
+        target: { moduleAlias: dynamicModuleAlias, pageMode: 'LIST' },
+        params: target.query,
+        entryParamsJson: target.entryParamsJson,
+        tabPolicy: {
+          identity: target.menuId ? ('by-menu' as const) : ('by-target' as const),
+          closable: true,
+          cacheable: true,
+        },
+      };
+    }
     const routeTarget = routeTargetOf(target.route, target.query, target.moduleAlias);
     const pageType = isBusinessRouteTarget(routeTarget, options) ? 'business-route' : 'platform-route';
     const descriptorBase = {
@@ -289,6 +310,28 @@ export function pageDescriptorFromUrl(
   const parsedUrl = parseUrl(url);
   const path = parsedUrl.pathname;
   const query = queryRecordOf(parsedUrl.searchParams);
+
+  const dynamicModuleAlias = options.dynamicModuleRoutes?.[path];
+  if (dynamicModuleAlias) {
+    const menuId = workbenchQueryValue(query, WORKBENCH_MENU_ID_QUERY_KEY, 'menuId');
+    return {
+      pageType: 'dynamic-module',
+      openMode: 'dynamic-runner',
+      hostType: 'dynamic-module-host',
+      title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY, 'title') ?? options.title,
+      menuId,
+      target: { moduleAlias: dynamicModuleAlias, pageMode: 'LIST' },
+      params: withoutKeys(query, [
+        ...legacyWorkbenchQueryKeys,
+        WORKBENCH_MENU_ID_QUERY_KEY,
+        WORKBENCH_TITLE_QUERY_KEY,
+      ]),
+      entryParamsJson: workbenchQueryValue(query, WORKBENCH_ENTRY_PARAMS_QUERY_KEY, 'entryParamsJson'),
+      tabPolicy: menuId
+        ? { identity: 'by-menu', closable: true, cacheable: true }
+        : { identity: 'by-target', closable: true, cacheable: true },
+    };
+  }
 
   if (path === '/platform/dynamic') {
     throw new Error(`Invalid dynamic module URL: ${url}`);
