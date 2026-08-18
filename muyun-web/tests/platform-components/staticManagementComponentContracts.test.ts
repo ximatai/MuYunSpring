@@ -1703,7 +1703,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /<RecordQueryListPanel/);
   assert.match(hostSource, /<RecordModeDrawer/);
   assert.match(hostSource, /enhancementDetailActions/);
-  assert.match(hostSource, /<template #operation>/);
+  assert.match(hostSource, /<template(?: v-if="[^"]+")? #operation>/);
   assert.match(hostSource, /<DynamicRecordDetailActions/);
   assert.match(hostSource, /<RecordDetailFields/);
   assert.match(hostSource, /<RecordFormFields/);
