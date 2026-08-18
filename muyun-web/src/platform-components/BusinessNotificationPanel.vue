@@ -69,30 +69,33 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
         <p class="business-notification-content">{{ notification.content }}</p>
         <div v-if="notification.actions.length" class="business-notification-actions">
           <div v-if="actionsFor(notification, 'leading').length" class="business-notification-action-region">
-          <UiActionButton
-            v-for="action in actionsFor(notification, 'leading')"
-            :key="action.key"
-            density="compact"
-            :emphasis="action === notification.actions[0] ? 'primary' : 'secondary'"
-            :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
-            :loading="executing === `${notification.id}:${action.key}`"
-            @click="run(notification, action)"
-          >
-            {{ action.label }}
-          </UiActionButton>
+            <UiActionButton
+              v-for="action in actionsFor(notification, 'leading')"
+              :key="action.key"
+              density="compact"
+              :emphasis="action === notification.actions[0] ? 'primary' : 'secondary'"
+              :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
+              :loading="executing === `${notification.id}:${action.key}`"
+              @click="run(notification, action)"
+            >
+              {{ action.label }}
+            </UiActionButton>
           </div>
-          <div v-if="actionsFor(notification, 'trailing').length" class="business-notification-action-region business-notification-action-region--trailing">
-          <UiActionButton
-            v-for="action in actionsFor(notification, 'trailing')"
-            :key="action.key"
-            density="compact"
-            emphasis="secondary"
-            :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
-            :loading="executing === `${notification.id}:${action.key}`"
-            @click="run(notification, action)"
+          <div
+            v-if="actionsFor(notification, 'trailing').length"
+            class="business-notification-action-region business-notification-action-region--trailing"
           >
-            {{ action.label }}
-          </UiActionButton>
+            <UiActionButton
+              v-for="action in actionsFor(notification, 'trailing')"
+              :key="action.key"
+              density="compact"
+              emphasis="secondary"
+              :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
+              :loading="executing === `${notification.id}:${action.key}`"
+              @click="run(notification, action)"
+            >
+              {{ action.label }}
+            </UiActionButton>
           </div>
         </div>
       </div>
@@ -187,8 +190,14 @@ h2 {
   padding-top: 12px;
   border-top: 1px solid var(--muyun-border);
 }
-.business-notification-action-region { display: flex; flex-wrap: wrap; gap: 8px; }
-.business-notification-action-region--trailing { margin-left: auto; }
+.business-notification-action-region {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.business-notification-action-region--trailing {
+  margin-left: auto;
+}
 .business-notification-close {
   position: absolute;
   top: 10px;
