@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 class BusinessNotificationContractTest {
     @Test
@@ -19,14 +20,28 @@ class BusinessNotificationContractTest {
                 List.of(
                         new BusinessNotificationNavigateAction("view", "查看", "workflow.task", "task-1", "DETAIL",
                                 Map.of(), false),
-                        new BusinessNotificationCommandAction("approve", "同意", "workflow.approval.approve",
-                                Map.of("taskId", "task-1"), false, null, true)));
+                        new BusinessNotificationRecordAction("approve", "同意", "workflow.approval", "task-1",
+                                "approve", Map.of(), false, null, true),
+                        new BusinessNotificationRecordAction("reject", "拒绝", "mr.remote_support", "support-1",
+                                "rejectKnowledge", Map.of(), true, "确认拒绝？", true)));
 
         assertThat(notification.dismissible()).isFalse();
         assertThat(notification.recipients().tenantIds()).containsExactly("tenant-a");
         assertThat(notification.recipients().userIds()).containsExactly("user-a");
-        assertThat(notification.actions()).hasSize(2);
-        assertThat(notification.actions().get(1)).isInstanceOf(BusinessNotificationCommandAction.class);
+        assertThat(notification.actions()).hasSize(3);
+        assertThat(notification.actions().get(1)).isInstanceOf(BusinessNotificationRecordAction.class);
+        assertThat(notification.actions().get(2)).isInstanceOf(BusinessNotificationRecordAction.class);
+        assertThat((BusinessNotificationRecordAction) notification.actions().get(2))
+                .extracting(BusinessNotificationRecordAction::actionCode)
+                .isEqualTo("rejectKnowledge");
+    }
+
+    @Test
+    void shouldRequireAnActionCodeRatherThanAnEndpointPath() {
+        assertThatIllegalArgumentException().isThrownBy(() -> new BusinessNotificationRecordAction(
+                "reject", "拒绝", "mr.remote_support", "support-1", "knowledge/reject",
+                Map.of(), true, "确认拒绝？", true))
+                .withMessage("invalid business notification action code: knowledge/reject");
     }
 
     @Test

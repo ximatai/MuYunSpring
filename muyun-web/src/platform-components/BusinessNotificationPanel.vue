@@ -28,6 +28,10 @@ const visible = computed(() =>
 );
 const hiddenCount = computed(() => Math.max(orderedNotifications.value.length - 3, 0));
 
+function actionsFor(notification: WebBusinessNotification, placement: 'leading' | 'trailing') {
+  return notification.actions.filter((action) => (action.placement ?? 'leading') === placement);
+}
+
 async function run(notification: WebBusinessNotification, action: WebBusinessNotificationAction) {
   const key = `${notification.id}:${action.key}`;
   if (executing.value) return;
@@ -64,17 +68,35 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
         <p v-if="notification.subtitle" class="business-notification-subtitle">{{ notification.subtitle }}</p>
         <p class="business-notification-content">{{ notification.content }}</p>
         <div v-if="notification.actions.length" class="business-notification-actions">
-          <UiActionButton
-            v-for="action in notification.actions"
-            :key="action.key"
-            density="compact"
-            :emphasis="action === notification.actions[0] ? 'primary' : 'secondary'"
-            :intent="action.kind === 'command' && action.danger ? 'danger' : 'normal'"
-            :loading="executing === `${notification.id}:${action.key}`"
-            @click="run(notification, action)"
+          <div v-if="actionsFor(notification, 'leading').length" class="business-notification-action-region">
+            <UiActionButton
+              v-for="action in actionsFor(notification, 'leading')"
+              :key="action.key"
+              density="compact"
+              :emphasis="action === notification.actions[0] ? 'primary' : 'secondary'"
+              :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
+              :loading="executing === `${notification.id}:${action.key}`"
+              @click="run(notification, action)"
+            >
+              {{ action.label }}
+            </UiActionButton>
+          </div>
+          <div
+            v-if="actionsFor(notification, 'trailing').length"
+            class="business-notification-action-region business-notification-action-region--trailing"
           >
-            {{ action.label }}
-          </UiActionButton>
+            <UiActionButton
+              v-for="action in actionsFor(notification, 'trailing')"
+              :key="action.key"
+              density="compact"
+              emphasis="secondary"
+              :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
+              :loading="executing === `${notification.id}:${action.key}`"
+              @click="run(notification, action)"
+            >
+              {{ action.label }}
+            </UiActionButton>
+          </div>
         </div>
       </div>
     </article>
@@ -162,11 +184,19 @@ h2 {
 }
 .business-notification-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--muyun-border);
+}
+.business-notification-action-region {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.business-notification-action-region--trailing {
+  margin-left: auto;
 }
 .business-notification-close {
   position: absolute;

@@ -2,6 +2,7 @@ import type { Component } from 'vue';
 import type { PageLayoutMode, RouteQueryValue } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import type { RecordActionItem, RecordQueryListColumn, QueryListRecord } from '@muyun/platform-components';
+import type { DrawerTitleAction } from '@muyun/platform-components';
 
 /**
  * Frontend-owned, constrained composition for a descriptor-driven module page.
@@ -131,6 +132,9 @@ export interface ModulePageDrawer {
   component: Component;
 }
 
+/** A business-owned action rendered by the platform in a semantic drawer region. */
+export type ModulePageDrawerAction = DrawerTitleAction;
+
 export type ModulePageWorkspaceViewInput = Record<string, RouteQueryValue>;
 
 /** A business-owned view with stable, serializable identity. */
@@ -156,6 +160,8 @@ export interface ModulePageDrawerContext {
   refreshList(): void;
   close(): void;
   reload(): void;
+  /** Replaces contextual actions beside the drawer title; actions are cleared with the drawer. */
+  setTitleActions(actions: ModulePageDrawerAction[]): void;
 }
 
 export interface ModulePageActionContext {

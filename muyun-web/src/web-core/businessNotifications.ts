@@ -1,18 +1,14 @@
-import type { WebActionResultEnvelope, WebBusinessNotificationCommandAction } from '@muyun/web-contracts';
+import type { WebActionResultEnvelope, WebBusinessNotificationRecordAction } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
 
-export function invokeBusinessNotificationCommand(
+/** Calls the standard record action declared by a notification. */
+export function invokeBusinessNotificationRecordAction(
   http: HttpClient,
-  notificationId: string,
-  action: WebBusinessNotificationCommandAction,
+  action: WebBusinessNotificationRecordAction,
 ) {
   return http.request<unknown | WebActionResultEnvelope<unknown>>({
     method: 'POST',
-    path: `/platform/notifications/commands/${encodeURIComponent(action.command)}`,
-    body: {
-      notificationId,
-      actionKey: action.key,
-      arguments: action.arguments ?? {},
-    },
+    path: `/${encodeURIComponent(action.moduleAlias)}/${encodeURIComponent(action.actionCode)}/${encodeURIComponent(action.recordId)}`,
+    body: { payload: action.arguments ?? {} },
   });
 }

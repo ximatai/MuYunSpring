@@ -10,6 +10,7 @@ public record BusinessNotificationNavigateAction(
         String recordId,
         String pageMode,
         Map<String, String> query,
+        String placement,
         boolean dismissOnSuccess
 ) implements BusinessNotificationAction {
     public BusinessNotificationNavigateAction {
@@ -19,5 +20,11 @@ public record BusinessNotificationNavigateAction(
         recordId = recordId == null || recordId.isBlank() ? null : recordId.trim();
         pageMode = pageMode == null || pageMode.isBlank() ? "LIST" : pageMode.trim();
         query = query == null ? Map.of() : Map.copyOf(query);
+        placement = BusinessNotificationAction.placement(placement);
+    }
+
+    public BusinessNotificationNavigateAction(String key, String label, String moduleAlias, String recordId,
+                                              String pageMode, Map<String, String> query, boolean dismissOnSuccess) {
+        this(key, label, moduleAlias, recordId, pageMode, query, "leading", dismissOnSuccess);
     }
 }

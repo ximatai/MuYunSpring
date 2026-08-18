@@ -4,6 +4,8 @@ export { default as BusinessNotificationPanel } from './BusinessNotificationPane
 export { confirmAction } from '@muyun/vue-ui-antdv';
 export { default as CrudRecordListExplorer } from './CrudRecordListExplorer.vue';
 export { default as DrawerOperationBar } from './DrawerOperationBar.vue';
+export { default as DrawerTitleActions } from './DrawerTitleActions.vue';
+export type { DrawerTitleAction } from './drawerTitleActions';
 export { default as DateTimeText } from './DateTimeText.vue';
 export { default as FileSizeText } from './FileSizeText.vue';
 export { default as FileTransferUploader } from './FileTransferUploader.vue';
