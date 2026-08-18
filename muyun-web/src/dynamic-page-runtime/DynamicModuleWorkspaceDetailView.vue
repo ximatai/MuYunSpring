@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, toRaw, watch } from 'vue';
 import { createModuleContext, useModuleContext } from '@muyun/web-core';
 import {
   confirmAction,
@@ -18,6 +18,7 @@ import {
   type RecordFormFieldPickerConfig,
   type RecordFormFieldValue,
 } from '@muyun/platform-components';
+import { UiActionButton } from '@muyun/vue-ui-antdv';
 import { refreshModulePageList } from './modulePageListRefresh';
 import {
   resolveModulePageEnhancement,
@@ -39,7 +40,7 @@ const modulePageNavigation = useModulePageNavigation();
 const detail = useRecordDetailController<QueryListRecord>();
 const { record, draft, mode, formSessionKey, loading, loadFailed, saving, togglingEnabled } = detail;
 const fields = ref(resolveRecordFormFields(undefined));
-const enhancementDrawer = ref<{ definition: ModulePageDrawer; context: ModulePageDrawerContext }>();
+const enhancementDrawer = ref<{ definition: ModulePageDrawer; context: ModulePageDrawerContext; titleActions: import('./modulePageEnhancements').ModulePageDrawerAction[] }>();
 let loadRevision = 0;
 
 const title = computed(() => {
@@ -200,6 +201,7 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
     refreshList: () => refreshModulePageList(context.moduleAlias),
     reload: loadRecord,
     openDrawer: (definition: ModulePageDrawer) => {
+      const runtime = { definition, titleActions: [] as import('./modulePageEnhancements').ModulePageDrawerAction[], context: undefined as unknown as ModulePageDrawerContext };
       const drawerContext: ModulePageDrawerContext = {
         module: context,
         record,
@@ -208,8 +210,13 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
         close: () => {
           enhancementDrawer.value = undefined;
         },
+        setTitleActions: (actions) => {
+          const activeDrawer = enhancementDrawer.value;
+          if (activeDrawer && toRaw(activeDrawer.context) === drawerContext) activeDrawer.titleActions = actions;
+        },
       };
-      enhancementDrawer.value = { definition, context: drawerContext };
+      runtime.context = drawerContext;
+      enhancementDrawer.value = runtime;
     },
     openWorkspaceTab: (view, input) => {
       if (!modulePageNavigation) throw new Error('模块页面工作视图需要 Workbench 导航承载');
@@ -324,6 +331,12 @@ async function toggleEnabled() {
     mode="view"
     @close="enhancementDrawer = undefined"
   >
+    <template v-if="enhancementDrawer.titleActions.length" #title-actions>
+      <UiActionButton v-for="action in enhancementDrawer.titleActions" :key="action.key"
+        :emphasis="action.emphasis ?? 'secondary'" :intent="action.intent ?? 'normal'"
+        :title="action.title" :disabled="action.disabled" :loading="action.loading"
+        @click="void action.run()">{{ action.label }}</UiActionButton>
+    </template>
     <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
   </RecordModeDrawer>
 </template>

@@ -404,7 +404,7 @@ simpMessagingTemplate.convertAndSendToUser(userId, "/queue/platform/data-changes
 
 提醒包含标题、副标题、纯文本内容、`dismissible` 和声明式动作。接收范围可按全局、租户、机构、部门、岗位和用户指定，所有维度按并集处理并按 `userId` 去重；`systemWide` 表示跨租户范围。接收范围不进入前端 payload。
 
-动作只能是平台页面导航，或发送到已注册业务 `BusinessNotificationCommandHandler` 的命令；前端不得执行消息携带的脚本、任意回调或裸 URL。命令处理器必须按当前操作者重新校验权限和业务状态。`dismissible=false` 仅表示在线工作台不提供关闭入口；刷新、离线和断线重连后不保证可恢复，也不形成处理留痕。
+动作只能是平台页面导航，或受约束的业务记录动作；前端不得执行消息携带的脚本、任意回调或裸 URL。记录动作必须落到所属业务模块的 Controller，并按当前操作者重新校验权限和业务状态。`dismissible=false` 仅表示在线工作台不提供关闭入口；刷新、离线和断线重连后不保证可恢复，也不形成处理留痕。
 
 各门面收到空接收人、空事件或无法确认当前用户时必须跳过发送。业务代码不得绕过门面直接调用 `RealtimeMessagePublisher`，除非正在实现新的平台 realtime adapter。
 

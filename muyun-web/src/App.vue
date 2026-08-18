@@ -25,7 +25,7 @@ import {
   createModuleContext,
   createAuthClient,
   createLoginContextClient,
-  invokeBusinessNotificationCommand,
+  invokeBusinessNotificationRecordAction,
   provideModuleContextConfig,
   userPreferences,
   type AppError,
@@ -589,7 +589,7 @@ async function executeBusinessNotificationAction(
         });
         if (!confirmed) return;
       }
-      await invokeBusinessNotificationCommand(createBackendHttpClient(), notification.id, action);
+      await invokeBusinessNotificationRecordAction(createBackendHttpClient(), action);
       presentPlatformSuccess('操作完成', { source: 'business-notification', phase: 'action' });
     }
     if (action.dismissOnSuccess) dismissBusinessNotification(notification.id);

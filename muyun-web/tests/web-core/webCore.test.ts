@@ -26,7 +26,7 @@ import {
   createDataChangeDispatcher,
   webDataChanges,
   createRealtimeClient,
-  invokeBusinessNotificationCommand,
+  invokeBusinessNotificationRecordAction,
   contextDataChangeChannel,
   imConversationMessageChannel,
   imMessageSendCommand,
@@ -67,7 +67,7 @@ async function expectRejected(
   expect.fail('Expected promise to reject');
 }
 
-it('business notification command uses the platform dispatcher instead of a business supplied URL', async () => {
+it('business notification record action uses the owning module record endpoint', async () => {
   const requests: Request[] = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -76,23 +76,12 @@ it('business notification command uses the platform dispatcher instead of a busi
   };
 
   try {
-    await invokeBusinessNotificationCommand(createHttpClient({ baseUrl: 'http://api.local' }), 'notice-1', {
-      kind: 'command',
-      key: 'approve',
-      label: '同意',
-      command: 'workflow.approval.approve',
-      arguments: { taskId: 'task-1' },
-      dismissOnSuccess: true,
+    await invokeBusinessNotificationRecordAction(createHttpClient({ baseUrl: 'http://api.local' }), {
+      kind: 'record', key: 'reject', label: '拒绝', moduleAlias: 'mr.remote_support', recordId: 'support-1',
+      endpoint: 'knowledge/reject', arguments: { reason: '不采纳' }, danger: true, dismissOnSuccess: true,
     });
-    assert.equal(
-      requests[0].url,
-      'http://api.local/platform/notifications/commands/workflow.approval.approve',
-    );
-    assert.deepEqual(await requests[0].json(), {
-      notificationId: 'notice-1',
-      actionKey: 'approve',
-      arguments: { taskId: 'task-1' },
-    });
+    assert.equal(requests[0].url, 'http://api.local/mr.remote_support/support-1/knowledge/reject');
+    assert.deepEqual(await requests[0].json(), { reason: '不采纳' });
   } finally {
     globalThis.fetch = originalFetch;
   }

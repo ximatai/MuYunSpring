@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, toRaw } from 'vue';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
   createQueryScopedTreeModuleContext,
@@ -42,6 +42,7 @@ import {
   type QueryListRecord,
   type RecordFormRecord,
 } from '@muyun/platform-components';
+import { UiActionButton } from '@muyun/vue-ui-antdv';
 import type {
   DynamicModulePageDescriptor,
   MenuPageMode,
@@ -150,6 +151,7 @@ const workspaceElement = ref<HTMLElement>();
 const enhancementDrawer = ref<{
   definition: ModulePageDrawer;
   context: ModulePageDrawerContext;
+  titleActions: import('./modulePageEnhancements').ModulePageDrawerAction[];
 }>();
 let detailLoadSequence = 0;
 let unregisterListRefresh: (() => void) | undefined;
@@ -1303,6 +1305,7 @@ function detailDrawerContext(record: QueryListRecord): ModulePageDrawerContext {
     refreshList,
     close: closeDetail,
     reload: reloadModulePage,
+    setTitleActions: () => undefined,
   };
 }
 
@@ -1322,6 +1325,7 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
     refreshList,
     reload: reloadModulePage,
     openDrawer: (definition: ModulePageDrawer) => {
+      const runtime = { definition, titleActions: [] as import('./modulePageEnhancements').ModulePageDrawerAction[], context: undefined as unknown as ModulePageDrawerContext };
       const drawerContext: ModulePageDrawerContext = {
         module: context,
         record,
@@ -1329,8 +1333,13 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
         refreshList,
         close: closeEnhancementDrawer,
         reload: reloadModulePage,
+        setTitleActions: (actions) => {
+          const activeDrawer = enhancementDrawer.value;
+          if (activeDrawer && toRaw(activeDrawer.context) === drawerContext) activeDrawer.titleActions = actions;
+        },
       };
-      enhancementDrawer.value = { definition, context: drawerContext };
+      runtime.context = drawerContext;
+      enhancementDrawer.value = runtime;
     },
     openWorkspaceTab: (view, input) => {
       if (!modulePageNavigation) {
@@ -2188,7 +2197,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           @change="toggleEnabled"
         />
       </template>
-      <template #operation>
+      <template v-if="!enhancementDetailDrawer || enhancementDetailActions.length > 0" #operation>
         <DynamicRecordDetailActions
           :context="context"
           :record="selectedRecord"
@@ -2251,6 +2260,12 @@ function recordTitle(record: QueryListRecord | undefined) {
       :width="enhancementDrawer.definition.width"
       @close="closeEnhancementDrawer"
     >
+      <template v-if="enhancementDrawer.titleActions.length" #title-actions>
+        <UiActionButton v-for="action in enhancementDrawer.titleActions" :key="action.key"
+          :emphasis="action.emphasis ?? 'secondary'" :intent="action.intent ?? 'normal'"
+          :title="action.title" :disabled="action.disabled" :loading="action.loading"
+          @click="void action.run()">{{ action.label }}</UiActionButton>
+      </template>
       <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
     </RecordDetailDrawer>
   </section>

@@ -102,7 +102,7 @@ export interface WebBusinessNotification {
 
 export type WebBusinessNotificationAction =
   | WebBusinessNotificationNavigateAction
-  | WebBusinessNotificationCommandAction;
+  | WebBusinessNotificationRecordAction;
 
 export interface WebBusinessNotificationNavigateAction {
   kind: 'navigate';
@@ -112,17 +112,22 @@ export interface WebBusinessNotificationNavigateAction {
   recordId?: string;
   pageMode?: 'LIST' | 'FORM' | 'DETAIL';
   query?: Record<string, string>;
+  placement?: 'leading' | 'trailing';
   dismissOnSuccess: boolean;
 }
 
-export interface WebBusinessNotificationCommandAction {
-  kind: 'command';
+/** A record-scoped POST action implemented by the owning business module. */
+export interface WebBusinessNotificationRecordAction {
+  kind: 'record';
   key: string;
   label: string;
-  command: string;
+  moduleAlias: string;
+  recordId: string;
+  endpoint: string;
   arguments?: Record<string, unknown>;
   danger?: boolean;
   confirmation?: string;
+  placement?: 'leading' | 'trailing';
   dismissOnSuccess: boolean;
 }
 

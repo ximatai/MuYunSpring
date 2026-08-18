@@ -131,6 +131,18 @@ export interface ModulePageDrawer {
   component: Component;
 }
 
+/** A business-owned action rendered by the platform in a semantic drawer region. */
+export interface ModulePageDrawerAction {
+  key: string;
+  label: string;
+  title?: string;
+  emphasis?: 'primary' | 'secondary' | 'quiet';
+  intent?: 'normal' | 'danger';
+  disabled?: boolean;
+  loading?: boolean;
+  run(): void | Promise<void>;
+}
+
 export type ModulePageWorkspaceViewInput = Record<string, RouteQueryValue>;
 
 /** A business-owned view with stable, serializable identity. */
@@ -156,6 +168,8 @@ export interface ModulePageDrawerContext {
   refreshList(): void;
   close(): void;
   reload(): void;
+  /** Replaces contextual actions beside the drawer title; actions are cleared with the drawer. */
+  setTitleActions(actions: ModulePageDrawerAction[]): void;
 }
 
 export interface ModulePageActionContext {

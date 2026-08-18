@@ -76,17 +76,17 @@ public class PurchaseApprovalService {
                 List.of(
                         new BusinessNotificationNavigateAction(
                                 "view", "查看", "purchase.order", orderId, "DETAIL", Map.of(), false),
-                        new BusinessNotificationCommandAction(
-                                "approve", "同意", "purchase.approval.approve",
-                                Map.of("orderId", orderId), false, null, true),
-                        new BusinessNotificationCommandAction(
-                                "reject", "拒绝", "purchase.approval.reject",
-                                Map.of("orderId", orderId), true, "确认拒绝该采购申请？", true))));
+                        new BusinessNotificationRecordAction(
+                                "approve", "同意", "purchase.order", orderId,
+                                "approval/approve", Map.of(), false, null, true),
+                        new BusinessNotificationRecordAction(
+                                "reject", "拒绝", "purchase.order", orderId,
+                                "approval/reject", Map.of(), true, "确认拒绝该采购申请？", true))));
     }
 }
 ```
 
-`id` 是本次实时提醒的稳定标识。首期只用于前端队列和命令调用关联；它不是已读、处理或补发记录的主键。
+`id` 是本次实时提醒的稳定标识。首期只用于前端队列关联；它不是已读、处理或补发记录的主键。
 
 ## 接收范围
 
@@ -120,51 +120,23 @@ new BusinessNotificationNavigateAction(
 
 前端将其解析为工作台页面。`dismissOnSuccess=false` 表示仅查看不会移除提醒；对于不可关闭提醒，这通常是正确默认值。
 
-### 业务命令
+### 业务记录动作
 
-使用 `BusinessNotificationCommandAction` 声明一个稳定 command：
+使用 `BusinessNotificationRecordAction` 声明记录所属模块和受约束端点：
 
 ```java
-new BusinessNotificationCommandAction(
-        "approve", "同意", "purchase.approval.approve",
-        Map.of("orderId", orderId), false, null, true)
+new BusinessNotificationRecordAction(
+        "approve", "同意", "purchase.order", orderId,
+        "approval/approve", Map.of(), false, null, true)
 ```
 
-前端调用统一入口：
+前端只会派发到该业务模块的记录接口：
 
 ```text
-POST /platform/notifications/commands/{command}
+POST /purchase.order/{orderId}/approval/approve
 ```
 
-这是已登录用户发起的普通业务命令入口，不是前端发布消息的入口，也不证明调用者收到过对应提醒。
-
-业务模块实现同名 `BusinessNotificationCommandHandler`：
-
-```java
-@Component
-public class PurchaseApprovalNotificationHandler implements BusinessNotificationCommandHandler {
-    private final PurchaseApprovalService approvalService;
-
-    public PurchaseApprovalNotificationHandler(PurchaseApprovalService approvalService) {
-        this.approvalService = approvalService;
-    }
-
-    @Override
-    public String command() {
-        return "purchase.approval.approve";
-    }
-
-    @Override
-    public Object handle(BusinessNotificationCommandInvocation invocation) {
-        String orderId = String.valueOf(invocation.arguments().get("orderId"));
-        return approvalService.approveFromCurrentOperator(orderId);
-    }
-}
-```
-
-同一 command 只能注册一个 handler，重复注册会在启动期失败。
-
-命令 payload 可以被客户端修改，因此 handler 必须把 `arguments` 视为不可信输入，并重新验证：
+端点由业务模块的 Controller 和领域服务实现；平台不提供业务命令分发器，也不接受消息携带的任意 URL。请求仍须把当前操作者和输入视为不可信，并重新验证：
 
 1. 当前操作者是否具备业务动作权限；
 2. 目标记录是否属于可访问的数据范围；
@@ -177,7 +149,7 @@ public class PurchaseApprovalNotificationHandler implements BusinessNotification
 
 `dismissible=false` 只影响在线 Workbench：卡片不提供关闭按钮。它不表示平台已经建立待办、处理确认或可靠送达能力。
 
-不可关闭提醒应至少包含一个真正完成业务处理的命令动作，并将该动作设置为 `dismissOnSuccess=true`。纯“查看”动作不应被视为完成处理。
+不可关闭提醒应至少包含一个真正完成业务处理的记录动作，并将该动作设置为 `dismissOnSuccess=true`。纯“查看”动作不应被视为完成处理。
 
 ## 限制与演进
 

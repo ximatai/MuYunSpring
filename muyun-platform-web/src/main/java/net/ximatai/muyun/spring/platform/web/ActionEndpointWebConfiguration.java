@@ -1,8 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.web.*;
-import net.ximatai.muyun.spring.platform.notification.BusinessNotificationCommandHandler;
-import net.ximatai.muyun.spring.platform.web.notification.BusinessNotificationCommandDispatcher;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
@@ -28,16 +26,9 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
-import java.util.List;
 
 @Configuration
 public class ActionEndpointWebConfiguration {
-    @Bean
-    public BusinessNotificationCommandDispatcher businessNotificationCommandDispatcher(
-            List<BusinessNotificationCommandHandler> handlers) {
-        return new BusinessNotificationCommandDispatcher(handlers);
-    }
-
     @Bean
     @ConditionalOnMissingBean
     public RegisteredWebEndpointCatalog registeredWebEndpointCatalog() {

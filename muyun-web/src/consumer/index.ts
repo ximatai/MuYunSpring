@@ -83,6 +83,8 @@ export { defaultUiThemeSkinId, UiThemeProvider, uiThemeSkinById, uiThemeSkins } 
 export type { UiThemeSkin, UiThemeSkinId } from '../vue-ui-antdv/index';
 export { default as DateTimeText } from '../platform-components/DateTimeText.vue';
 export { default as FileSizeText } from '../platform-components/FileSizeText.vue';
+export { default as DrawerOperationBar } from '../platform-components/DrawerOperationBar.vue';
+export { default as RecordDetailDrawer } from '../platform-components/RecordDetailDrawer.vue';
 export { default as DynamicModuleWorkspaceDetailView } from '../dynamic-page-runtime/DynamicModuleWorkspaceDetailView.vue';
 export { default as FileTransferUploader } from '../platform-components/FileTransferUploader.vue';
 export { default as SingleImageFileReferenceField } from '../platform-components/SingleImageFileReferenceField.vue';
