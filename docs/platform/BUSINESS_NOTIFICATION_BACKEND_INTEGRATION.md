@@ -1,6 +1,6 @@
 # 实时业务提醒后端接入
 
-本文面向业务后端开发者，说明如何通过平台向当前在线用户发送实时业务提醒，以及如何承接提醒按钮触发的业务命令。
+本文面向业务后端开发者，说明如何通过平台向当前在线用户发送实时业务提醒，以及如何承接提醒按钮触发的业务记录动作。
 
 实时业务提醒是短生命周期提示，不是消息中心、站内信或工作流待办。平台不持久化消息、不补发离线消息，也不记录用户是否已处理。
 
@@ -40,7 +40,7 @@ notificationService.publish(new BusinessNotification(
         List.of()));
 ```
 
-发布者没有用户身份不影响接收人解析：平台会在投递时以每个在线接收者自己的用户和租户上下文解析 IAM 范围。提醒命令被点击后，业务 handler 也只以点击者的当前身份执行；它不能信任或继承后台任务的身份。
+发布者没有用户身份不影响接收人解析：平台会在投递时以每个在线接收者自己的用户和租户上下文解析 IAM 范围。提醒动作被点击后，业务入口也只以点击者的当前身份执行；它不能信任或继承后台任务的身份。
 
 ## 发布提醒
 
@@ -78,10 +78,10 @@ public class PurchaseApprovalService {
                                 "view", "查看", "purchase.order", orderId, "DETAIL", Map.of(), false),
                         new BusinessNotificationRecordAction(
                                 "approve", "同意", "purchase.order", orderId,
-                                "approval/approve", Map.of(), false, null, true),
+                                "approve", Map.of(), false, null, true),
                         new BusinessNotificationRecordAction(
                                 "reject", "拒绝", "purchase.order", orderId,
-                                "approval/reject", Map.of(), true, "确认拒绝该采购申请？", true))));
+                                "reject", Map.of(), true, "确认拒绝该采购申请？", true))));
     }
 }
 ```
@@ -122,21 +122,21 @@ new BusinessNotificationNavigateAction(
 
 ### 业务记录动作
 
-使用 `BusinessNotificationRecordAction` 声明记录所属模块和受约束端点：
+使用 `BusinessNotificationRecordAction` 声明记录所属模块、动作目录中的 `actionCode` 和记录 ID：
 
 ```java
 new BusinessNotificationRecordAction(
         "approve", "同意", "purchase.order", orderId,
-        "approval/approve", Map.of(), false, null, true)
+        "approve", Map.of(), false, null, true)
 ```
 
-前端只会派发到该业务模块的记录接口：
+前端复用标准记录动作入口，并将 `arguments` 置于请求的 `payload`：
 
 ```text
-POST /purchase.order/{orderId}/approval/approve
+POST /purchase.order/approve/{orderId}
 ```
 
-端点由业务模块的 Controller 和领域服务实现；平台不提供业务命令分发器，也不接受消息携带的任意 URL。请求仍须把当前操作者和输入视为不可信，并重新验证：
+动作由业务模块的动作目录、Controller 和领域服务实现；平台不提供业务命令分发器，也不接受消息携带的任意 URL 或自定义 endpoint。请求仍须把当前操作者和输入视为不可信，并重新验证：
 
 1. 当前操作者是否具备业务动作权限；
 2. 目标记录是否属于可访问的数据范围；

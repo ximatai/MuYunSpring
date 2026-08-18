@@ -67,7 +67,7 @@ async function expectRejected(
   expect.fail('Expected promise to reject');
 }
 
-it('business notification record action uses the owning module record endpoint', async () => {
+it('business notification record action uses the standard module action and record path', async () => {
   const requests: Request[] = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -77,11 +77,18 @@ it('business notification record action uses the owning module record endpoint',
 
   try {
     await invokeBusinessNotificationRecordAction(createHttpClient({ baseUrl: 'http://api.local' }), {
-      kind: 'record', key: 'reject', label: '拒绝', moduleAlias: 'mr.remote_support', recordId: 'support-1',
-      endpoint: 'knowledge/reject', arguments: { reason: '不采纳' }, danger: true, dismissOnSuccess: true,
+      kind: 'record',
+      key: 'reject',
+      label: '拒绝',
+      moduleAlias: 'mr.remote_support',
+      recordId: 'support-1',
+      actionCode: 'rejectKnowledge',
+      arguments: { reason: '不采纳' },
+      danger: true,
+      dismissOnSuccess: true,
     });
-    assert.equal(requests[0].url, 'http://api.local/mr.remote_support/support-1/knowledge/reject');
-    assert.deepEqual(await requests[0].json(), { reason: '不采纳' });
+    assert.equal(requests[0].url, 'http://api.local/mr.remote_support/rejectKnowledge/support-1');
+    assert.deepEqual(await requests[0].json(), { payload: { reason: '不采纳' } });
   } finally {
     globalThis.fetch = originalFetch;
   }

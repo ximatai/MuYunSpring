@@ -2,6 +2,7 @@ import type { Component } from 'vue';
 import type { PageLayoutMode, RouteQueryValue } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import type { RecordActionItem, RecordQueryListColumn, QueryListRecord } from '@muyun/platform-components';
+import type { DrawerTitleAction } from '@muyun/platform-components';
 
 /**
  * Frontend-owned, constrained composition for a descriptor-driven module page.
@@ -132,16 +133,7 @@ export interface ModulePageDrawer {
 }
 
 /** A business-owned action rendered by the platform in a semantic drawer region. */
-export interface ModulePageDrawerAction {
-  key: string;
-  label: string;
-  title?: string;
-  emphasis?: 'primary' | 'secondary' | 'quiet';
-  intent?: 'normal' | 'danger';
-  disabled?: boolean;
-  loading?: boolean;
-  run(): void | Promise<void>;
-}
+export type ModulePageDrawerAction = DrawerTitleAction;
 
 export type ModulePageWorkspaceViewInput = Record<string, RouteQueryValue>;
 

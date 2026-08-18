@@ -116,14 +116,14 @@ export interface WebBusinessNotificationNavigateAction {
   dismissOnSuccess: boolean;
 }
 
-/** A record-scoped POST action implemented by the owning business module. */
+/** A standard record action implemented by the owning business module. */
 export interface WebBusinessNotificationRecordAction {
   kind: 'record';
   key: string;
   label: string;
   moduleAlias: string;
   recordId: string;
-  endpoint: string;
+  actionCode: string;
   arguments?: Record<string, unknown>;
   danger?: boolean;
   confirmation?: string;

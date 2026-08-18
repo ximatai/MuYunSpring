@@ -88,15 +88,9 @@ public class DemoNotificationWebController {
         return Map.of("notificationId", notificationId, "message", "演示提醒已发送到当前在线用户");
     }
 
-    @PostMapping("/{id}/approve")
-    public Map<String, String> approve(@PathVariable String id) {
+    @PostMapping("/{actionCode:approve|reject}/{id}")
+    public Map<String, String> executeRecordAction(@PathVariable String actionCode, @PathVariable String id) {
         CurrentUserContext.currentUser().orElseThrow(() -> new AuthenticationFailedException("authentication is required"));
-        return Map.of("status", "approved", "notificationId", id);
-    }
-
-    @PostMapping("/{id}/reject")
-    public Map<String, String> reject(@PathVariable String id) {
-        CurrentUserContext.currentUser().orElseThrow(() -> new AuthenticationFailedException("authentication is required"));
-        return Map.of("status", "rejected", "notificationId", id);
+        return Map.of("status", actionCode.equals("approve") ? "approved" : "rejected", "notificationId", id);
     }
 }

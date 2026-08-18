@@ -17,6 +17,7 @@ import {
   RecordMetaSection,
   RecordModeDrawer,
   RecordDetailDrawer,
+  DrawerTitleActions,
   RecordPanelButton,
   RecordPanelState,
   RecordQueryListPanel,
@@ -42,7 +43,6 @@ import {
   type QueryListRecord,
   type RecordFormRecord,
 } from '@muyun/platform-components';
-import { UiActionButton } from '@muyun/vue-ui-antdv';
 import type {
   DynamicModulePageDescriptor,
   MenuPageMode,
@@ -1325,7 +1325,11 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
     refreshList,
     reload: reloadModulePage,
     openDrawer: (definition: ModulePageDrawer) => {
-      const runtime = { definition, titleActions: [] as import('./modulePageEnhancements').ModulePageDrawerAction[], context: undefined as unknown as ModulePageDrawerContext };
+      const runtime = {
+        definition,
+        titleActions: [] as import('./modulePageEnhancements').ModulePageDrawerAction[],
+        context: undefined as unknown as ModulePageDrawerContext,
+      };
       const drawerContext: ModulePageDrawerContext = {
         module: context,
         record,
@@ -1335,7 +1339,8 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
         reload: reloadModulePage,
         setTitleActions: (actions) => {
           const activeDrawer = enhancementDrawer.value;
-          if (activeDrawer && toRaw(activeDrawer.context) === drawerContext) activeDrawer.titleActions = actions;
+          if (activeDrawer && toRaw(activeDrawer.context) === drawerContext)
+            activeDrawer.titleActions = actions;
         },
       };
       runtime.context = drawerContext;
@@ -2261,10 +2266,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       @close="closeEnhancementDrawer"
     >
       <template v-if="enhancementDrawer.titleActions.length" #title-actions>
-        <UiActionButton v-for="action in enhancementDrawer.titleActions" :key="action.key"
-          :emphasis="action.emphasis ?? 'secondary'" :intent="action.intent ?? 'normal'"
-          :title="action.title" :disabled="action.disabled" :loading="action.loading"
-          @click="void action.run()">{{ action.label }}</UiActionButton>
+        <DrawerTitleActions :actions="enhancementDrawer.titleActions" />
       </template>
       <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
     </RecordDetailDrawer>
