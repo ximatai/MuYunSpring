@@ -29,6 +29,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 public final class ModuleUiDescriptorCompiler {
     private static final FormulaEngine FORMULA_ENGINE = new FormulaEngine();
@@ -54,7 +55,19 @@ public final class ModuleUiDescriptorCompiler {
         return result == null ? null : result.uiDescriptor();
     }
 
+    /** Compiles static references with target-module facts supplied by the module catalog. */
+    public static ResolvedModuleUiDescriptor compile(StaticModuleDefinition definition,
+                                                     Function<String, ReferencePickerMode> referencePickerModeResolver) {
+        ModuleUiCompilationResult result = compileModule(definition, referencePickerModeResolver);
+        return result == null ? null : result.uiDescriptor();
+    }
+
     public static ModuleUiCompilationResult compileModule(StaticModuleDefinition definition) {
+        return compileModule(definition, ignored -> ReferencePickerMode.AUTO);
+    }
+
+    public static ModuleUiCompilationResult compileModule(StaticModuleDefinition definition,
+                                                          Function<String, ReferencePickerMode> referencePickerModeResolver) {
         if (definition == null) {
             return null;
         }
@@ -62,7 +75,8 @@ public final class ModuleUiDescriptorCompiler {
                 ? ModuleUiDefinition.builder(definition.moduleAlias()).build()
                 : definition.uiDefinition();
         validateFields(uiDefinition, definition.entities(), definition.moduleAlias(), readOutputFields(definition));
-        Map<String, ResolvedReferenceFieldDescriptor> referenceFields = staticReferenceFields(definition.modelClass());
+        Map<String, ResolvedReferenceFieldDescriptor> referenceFields = staticReferenceFields(definition.modelClass(),
+                referencePickerModeResolver == null ? ignored -> ReferencePickerMode.AUTO : referencePickerModeResolver);
         Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields =
                 staticReferenceSummaryFields(definition.modelClass());
         ResolvedModuleUiDescriptor descriptor = compileResolved(uiDefinition, ModuleKind.STATIC, definition.title(),
@@ -688,7 +702,8 @@ public final class ModuleUiDescriptorCompiler {
         }
     }
 
-    private static Map<String, ResolvedReferenceFieldDescriptor> staticReferenceFields(Class<?> modelClass) {
+    private static Map<String, ResolvedReferenceFieldDescriptor> staticReferenceFields(Class<?> modelClass,
+                                                                                         Function<String, ReferencePickerMode> pickerModeResolver) {
         if (modelClass == null) {
             return Map.of();
         }
@@ -696,7 +711,8 @@ public final class ModuleUiDescriptorCompiler {
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(
                         rule -> rule.plan().sourceField(),
                         rule -> new ResolvedReferenceFieldDescriptor(rule.target().qualifiedName(), rule.cardinality(),
-                                referenceTitleField(modelClass, rule.plan().sourceField())),
+                                referenceTitleField(modelClass, rule.plan().sourceField()),
+                                pickerModeResolver.apply(rule.target().qualifiedName())),
                         (left, right) -> left
                 ));
     }

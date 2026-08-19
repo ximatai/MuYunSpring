@@ -252,7 +252,7 @@ public class PlatformModuleRuntimeContextService {
             return dynamicUiDescriptor(moduleAlias, title, dynamicDescriptor);
         }
         ResolvedModuleUiDescriptor descriptor = staticDefinition
-                .map(ModuleUiDescriptorCompiler::compile)
+                .map(definition -> ModuleUiDescriptorCompiler.compile(definition, this::referencePickerMode))
                 .orElse(null);
         return descriptor == null ? null : descriptor.withPage(resolvePage(moduleAlias, moduleKind, descriptor.page()))
                 .withFileReferences(descriptor.fileReferences().stream()
@@ -457,9 +457,30 @@ public class PlatformModuleRuntimeContextService {
                         .collect(java.util.stream.Collectors.toUnmodifiableMap(
                                 field -> field.fieldName(),
                                 field -> new ResolvedReferenceFieldDescriptor(
-                                        field.reference().targetModuleAlias(), field.reference().cardinality()),
+                                        field.reference().targetModuleAlias(), field.reference().cardinality(), null,
+                                        referencePickerMode(field.reference().targetModuleAlias())),
                                 (left, right) -> left)))
                 .orElseGet(java.util.Map::of);
+    }
+
+    /** Resolves target capabilities during descriptor compilation; browser code never probes them. */
+    private ReferencePickerMode referencePickerMode(String targetModuleAlias) {
+        if (targetModuleAlias == null || targetModuleAlias.isBlank()) return ReferencePickerMode.AUTO;
+        Optional<StaticModuleDefinition> staticTarget = staticModuleCatalog.find(targetModuleAlias);
+        if (staticTarget.isPresent()) {
+            return staticTarget.get().capabilities().contains(EntityCapability.TREE)
+                    ? ReferencePickerMode.TREE : ReferencePickerMode.LIST;
+        }
+        if (dynamicRecordService == null) return ReferencePickerMode.AUTO;
+        try {
+            DynamicModuleDescriptor target = dynamicRecordService.describe(targetModuleAlias);
+            boolean tree = target.entities().stream()
+                    .filter(entity -> target.mainEntityAlias().equals(entity.entityAlias()))
+                    .anyMatch(entity -> entity.capabilities().contains(EntityCapability.TREE.name()));
+            return tree ? ReferencePickerMode.TREE : ReferencePickerMode.LIST;
+        } catch (RuntimeException ignored) {
+            return ReferencePickerMode.AUTO;
+        }
     }
 
     private String dynamicRecordLabelField(DynamicModuleDescriptor descriptor) {

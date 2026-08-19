@@ -30,6 +30,7 @@ import {
   handlePlatformActionSuccess,
   parentRecordConstraints,
   presentPlatformError,
+  recordPickerModeOf,
   resolveRecordDetailFields,
   providePageLayout,
   resolveRecordFormFields,
@@ -49,6 +50,7 @@ import {
 } from '@muyun/platform-components';
 import type {
   DynamicModulePageDescriptor,
+  ModulePageDescriptor,
   MenuPageMode,
   PageBootstrap,
   PageBootstrapActionBlock,
@@ -117,7 +119,7 @@ import { FormComputeCoordinator } from './formComputeCoordinator';
 defineOptions({ name: 'DynamicModuleHost' });
 
 const props = defineProps<{
-  descriptor: DynamicModulePageDescriptor;
+  descriptor: ModulePageDescriptor | DynamicModulePageDescriptor;
 }>();
 
 const context = useModuleContext<QueryListRecord>({
@@ -211,7 +213,7 @@ const navigatorManagementPickerConfigs = computed<Record<string, RecordFormField
     if (!reference) continue;
     configs[field.fieldRef.fieldName] = {
       context: createModuleContext({ http: context.http, moduleAlias: reference.targetModuleAlias }),
-      mode: 'tree',
+      mode: recordPickerModeOf(reference.pickerMode),
       allowClear: !field.required?.constant,
     };
   }
@@ -373,7 +375,25 @@ const flatManagementContent = computed(() => {
       };
 });
 const recordLabel = computed(() =>
-  flatManagementPage.value ? (flatManagementContent.value?.recordLabel ?? '记录') : '记录',
+  flatManagementPage.value
+    ? (flatManagementContent.value?.recordLabel ?? '记录')
+    : (runtimePage.value?.explorer?.recordLabel ?? '记录'),
+);
+const modulePageTitle = computed(
+  () => runtimePage.value?.explorer?.title ?? props.descriptor.title ?? recordLabel.value,
+);
+const listSearchPlaceholder = computed(
+  () => runtimePage.value?.list?.searchPlaceholder ?? `搜索${recordLabel.value}`,
+);
+const listEmptyDescription = computed(
+  () => runtimePage.value?.explorer?.emptyDescription ?? `暂无${recordLabel.value}`,
+);
+const detailEmptyDescription = computed(
+  () =>
+    runtimePage.value?.detail?.emptyDescription ?? `请选择${recordLabel.value}，或新建${recordLabel.value}`,
+);
+const treeRootTitle = computed(
+  () => formFields.value.get('parentId')?.treeRootTitle ?? `根${recordLabel.value}`,
 );
 const pageEnhancement = computed(() =>
   resolveModulePageEnhancement(context.moduleAlias, activeListView.value?.viewCode),
@@ -489,7 +509,7 @@ const standardCrudRowActionKeys = computed<StandardCrudRowActionKey[]>(() =>
 );
 const pageBootstrapRequired = computed(() => Boolean(props.descriptor.menuId));
 const pageReady = computed(() => !pageBootstrapRequired.value || pageBootstrap.value !== undefined);
-const unsupportedPageModeText = computed(() => `动态${pageMode.value}入口暂未接入运行器`);
+const unsupportedPageModeText = computed(() => `${pageMode.value}入口暂未接入模块页面运行器`);
 // Management templates own the workbench's available height. Their explorer
 // and detail panes scroll internally instead of leaving a content-sized panel
 // in the tab's document flow.
@@ -653,7 +673,7 @@ const treeParentPickerConfigs = computed<Record<string, RecordFormFieldPickerCon
           })
         : context,
       mode: 'tree',
-      placeholder: '根标签留空',
+      placeholder: `${treeRootTitle.value}留空`,
       allowClear: true,
       constraints: parentRecordConstraints(
         editingRecord.value?.id == null ? undefined : String(editingRecord.value.id),
@@ -684,7 +704,7 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
             treePath: `/${reference.targetModuleAlias}/tree`,
           })
         : pickerContext,
-      mode: 'tree',
+      mode: recordPickerModeOf(reference.pickerMode),
       allowClear: !field.required?.constant,
     };
   }
@@ -2257,7 +2277,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       </template>
       <RecordPanelState
         v-if="!selectedRecord && editorMode === 'view'"
-        :description="flatManagementContent?.detailEmptyDescription ?? '请选择记录，或新建记录'"
+        :description="flatManagementContent?.detailEmptyDescription ?? detailEmptyDescription"
       />
       <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
       <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择记录" />
@@ -2436,8 +2456,8 @@ function recordTitle(record: QueryListRecord | undefined) {
         :external-query-values="navigatorListQueryValues"
         :required-external-criteria-keys="navigatorListCriteriaKeys"
         :mode="listMode"
-        quick-search-placeholder="搜索动态记录"
-        empty-description="暂无动态记录"
+        :quick-search-placeholder="listSearchPlaceholder"
+        :empty-description="listEmptyDescription"
         @loaded="handleLoaded"
         @mode-change="handleListModeChange"
         @page-size-change="setListPageSize"
@@ -2516,7 +2536,7 @@ function recordTitle(record: QueryListRecord | undefined) {
 
         <RecordPanelState
           v-if="!selectedRecord && editorMode === 'view'"
-          :description="runtimePage?.detail?.emptyDescription ?? '请选择记录，或新建记录'"
+          :description="detailEmptyDescription"
         />
         <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
         <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择记录" />
@@ -2636,10 +2656,10 @@ function recordTitle(record: QueryListRecord | undefined) {
       </ManagementExplorerColumn>
       <ManagementExplorerColumn>
         <RecordExplorerPanel
-          :title="`${title}树`"
-          :refresh-title="`刷新${title}树`"
+          :title="`${modulePageTitle}树`"
+          :refresh-title="`刷新${modulePageTitle}树`"
           :search-keyword="treeSearchKeyword"
-          search-placeholder="搜索树节点"
+          :search-placeholder="listSearchPlaceholder"
           @update:search-keyword="treeSearchKeyword = $event"
           @refresh="treeReloadKey += 1"
         >
@@ -2650,7 +2670,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               :context="context"
               action-code="create"
               icon-only
-              title="新建根节点"
+              :title="`新建${treeRootTitle}`"
               @click="createRootRecord"
             />
           </template>
@@ -2663,7 +2683,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :external-query-values="navigatorListQueryValues"
             search-mode="none"
             search-trigger="external"
-            empty-description="暂无记录"
+            :empty-description="listEmptyDescription"
             @select="selectTreeRecord"
             @deselect="clearTreeRecordSelection"
             @loaded="handleTreeLoaded"
@@ -2762,10 +2782,10 @@ function recordTitle(record: QueryListRecord | undefined) {
 
         <RecordPanelState
           v-if="!selectedRecord && editorMode === 'view'"
-          description="请选择标签，或新建根标签"
+          :description="detailEmptyDescription"
         />
         <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
-        <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择标签" />
+        <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择记录" />
         <template v-else-if="editingRecord">
           <template v-if="editorMode === 'view'">
             <RecordDetailFields
@@ -2845,8 +2865,8 @@ function recordTitle(record: QueryListRecord | undefined) {
       :page-size="listPageSize"
       :ready="pageReady && navigatorListScopeReady"
       :mode="listMode"
-      quick-search-placeholder="搜索动态记录"
-      empty-description="暂无动态记录"
+      :quick-search-placeholder="listSearchPlaceholder"
+      :empty-description="listEmptyDescription"
       @loaded="handleLoaded"
       @mode-change="handleListModeChange"
       @page-size-change="setListPageSize"

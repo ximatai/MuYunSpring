@@ -114,7 +114,7 @@ export function resolvePageDescriptor(
     return {
       pageType: 'dynamic-module',
       openMode: 'dynamic-runner',
-      hostType: 'dynamic-module-host',
+      hostType: 'module-page-host',
       title: options.title,
       menuId: target.menuId,
       target: {
@@ -135,7 +135,7 @@ export function resolvePageDescriptor(
       return {
         pageType: 'dynamic-module',
         openMode: 'dynamic-runner',
-        hostType: 'dynamic-module-host',
+        hostType: 'module-page-host',
         title: options.title,
         menuId: target.menuId,
         target: { moduleAlias: dynamicModuleAlias, pageMode: 'LIST' },
@@ -317,7 +317,7 @@ export function pageDescriptorFromUrl(
     return {
       pageType: 'dynamic-module',
       openMode: 'dynamic-runner',
-      hostType: 'dynamic-module-host',
+      hostType: 'module-page-host',
       title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY, 'title') ?? options.title,
       menuId,
       target: { moduleAlias: dynamicModuleAlias, pageMode: 'LIST' },
@@ -354,7 +354,7 @@ export function pageDescriptorFromUrl(
     return {
       pageType: 'dynamic-module',
       openMode: 'dynamic-runner',
-      hostType: 'dynamic-module-host',
+      hostType: 'module-page-host',
       title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY, 'title') ?? options.title,
       menuId,
       target: {

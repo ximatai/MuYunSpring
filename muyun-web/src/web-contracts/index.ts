@@ -484,6 +484,9 @@ export type OpenMode = 'workbench-route' | 'dynamic-runner' | 'iframe' | 'new-wi
 export type PageHostType =
   | 'platform-route-host'
   | 'business-route-host'
+  /** Source-neutral standard CRUD page host. */
+  | 'module-page-host'
+  /** Persisted compatibility identifier for the standard module page host. */
   | 'dynamic-module-host'
   | 'external-page-host';
 
@@ -557,6 +560,14 @@ export interface DynamicModulePageTarget {
   defaultQueryTemplateId?: string;
 }
 
+export type ModulePageDescriptor = PageDescriptorBase<
+  'dynamic-module',
+  'dynamic-runner',
+  'module-page-host',
+  DynamicModulePageTarget
+>;
+
+/** Compatibility descriptor accepted when restoring existing workbench state. */
 export type DynamicModulePageDescriptor = PageDescriptorBase<
   'dynamic-module',
   'dynamic-runner',
@@ -586,6 +597,7 @@ export type ExternalLinkPageDescriptor = PageDescriptorBase<
 export type PageDescriptor =
   | PlatformRoutePageDescriptor
   | BusinessRoutePageDescriptor
+  | ModulePageDescriptor
   | DynamicModulePageDescriptor
   | RemoteUrlPageDescriptor
   | ExternalLinkPageDescriptor;
@@ -840,9 +852,13 @@ export interface ResolvedReferenceSummaryFieldDescriptor {
 export interface ResolvedReferenceFieldDescriptor {
   targetModuleAlias: string;
   cardinality: 'ONE' | 'MANY';
+  /** Server-resolved standard picker transport. AUTO exists only for descriptors issued before an explicit mode. */
+  pickerMode?: ReferencePickerMode;
   /** Read-side title projection for this scalar reference, when supplied by the server. */
   titleField?: string;
 }
+
+export type ReferencePickerMode = 'LIST' | 'TREE' | 'AUTO';
 
 export interface OptionBindingDescriptor {
   sourceType: string;

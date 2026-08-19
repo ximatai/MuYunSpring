@@ -3,7 +3,7 @@ import type { PageHostType } from '@muyun/web-contracts';
 export type PageHostComponentName =
   | 'PlatformRouteHost'
   | 'BusinessRouteHost'
-  | 'DynamicModuleHost'
+  | 'ModulePageHost'
   | 'ExternalPageHost';
 
 export function resolvePageHostComponentName(hostType: PageHostType): PageHostComponentName {
@@ -12,8 +12,9 @@ export function resolvePageHostComponentName(hostType: PageHostType): PageHostCo
       return 'PlatformRouteHost';
     case 'business-route-host':
       return 'BusinessRouteHost';
+    case 'module-page-host':
     case 'dynamic-module-host':
-      return 'DynamicModuleHost';
+      return 'ModulePageHost';
     case 'external-page-host':
       return 'ExternalPageHost';
     default:

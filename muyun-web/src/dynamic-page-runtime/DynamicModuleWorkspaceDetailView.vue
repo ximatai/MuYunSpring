@@ -5,6 +5,7 @@ import {
   confirmAction,
   handlePlatformActionSuccess,
   presentPlatformError,
+  recordPickerModeOf,
   RecordDetailExtensionSection,
   DrawerTitleActions,
   RecordDetailFields,
@@ -67,7 +68,7 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
     if (!field.reference) continue;
     configs[field.fieldRef.fieldName] = {
       context: createModuleContext({ http: context.http, moduleAlias: field.reference.targetModuleAlias }),
-      mode: 'tree',
+      mode: recordPickerModeOf(field.reference.pickerMode),
       allowClear: !field.required?.constant,
     };
   }

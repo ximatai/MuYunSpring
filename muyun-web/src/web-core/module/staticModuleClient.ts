@@ -25,7 +25,8 @@ export interface QuerySchemaRequestOptions {
   queryTemplateId?: string;
 }
 
-export interface StaticModuleCrudClient<TRecord> {
+/** Source-neutral client for a platform module's standard CRUD contract. */
+export interface ModuleCrudClient<TRecord> {
   querySchema(options?: QuerySchemaRequestOptions): Promise<QuerySchema>;
   query(request?: WebQueryRequest): Promise<WebPageResponse<TRecord>>;
   view(id: string): Promise<TRecord>;
@@ -36,7 +37,8 @@ export interface StaticModuleCrudClient<TRecord> {
   disable(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
 }
 
-export interface StaticModuleTreeClient<TRecord> extends StaticModuleCrudClient<TRecord> {
+/** Source-neutral tree extension for a platform module. */
+export interface ModuleTreeClient<TRecord> extends ModuleCrudClient<TRecord> {
   tree(request?: WebQueryRequest): Promise<WebListResponse<WebTreeNode<TRecord>>>;
   treeFlat(options?: { rootId?: string; includeSelf?: boolean }): Promise<WebListResponse<TRecord>>;
   subtree(id: string, options?: { includeSelf?: boolean }): Promise<WebListResponse<WebTreeNode<TRecord>>>;
@@ -48,10 +50,10 @@ export interface ModuleEnableClient {
   disable(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
 }
 
-export function createStaticModuleCrudClient<TRecord>(
+export function createModuleCrudClient<TRecord>(
   http: HttpClient,
   options: { moduleAlias: string },
-): StaticModuleCrudClient<TRecord> {
+): ModuleCrudClient<TRecord> {
   return createStaticResourceCrudClient(http, modulePathOf(options.moduleAlias));
 }
 
@@ -59,8 +61,8 @@ export function createStaticModuleCrudClient<TRecord>(
 export function createNavigatorReferenceCrudClient<TRecord>(
   http: HttpClient,
   options: { moduleAlias: string },
-): StaticModuleCrudClient<TRecord> {
-  const normal = createStaticModuleCrudClient<TRecord>(http, options);
+): ModuleCrudClient<TRecord> {
+  const normal = createModuleCrudClient<TRecord>(http, options);
   const modulePath = modulePathOf(options.moduleAlias);
   return {
     ...normal,
@@ -76,7 +78,7 @@ export function createNavigatorReferenceCrudClient<TRecord>(
 export function createStaticResourceCrudClient<TRecord>(
   http: HttpClient,
   resourcePath: string,
-): StaticModuleCrudClient<TRecord> {
+): ModuleCrudClient<TRecord> {
   const modulePath = modulePathOf(resourcePath);
   return {
     querySchema: (options) =>
@@ -137,17 +139,17 @@ export function createStaticResourceCrudClient<TRecord>(
   };
 }
 
-export function createStaticModuleTreeClient<TRecord>(
+export function createModuleTreeClient<TRecord>(
   http: HttpClient,
   options: { moduleAlias: string },
-): StaticModuleTreeClient<TRecord> {
+): ModuleTreeClient<TRecord> {
   return createStaticResourceTreeClient(http, modulePathOf(options.moduleAlias));
 }
 
 export function createNavigatorReferenceTreeClient<TRecord>(
   http: HttpClient,
   options: { moduleAlias: string },
-): StaticModuleTreeClient<TRecord> {
+): ModuleTreeClient<TRecord> {
   const normal = createNavigatorReferenceCrudClient<TRecord>(http, options);
   const modulePath = modulePathOf(options.moduleAlias);
   return {
@@ -167,7 +169,7 @@ export function createNavigatorReferenceTreeClient<TRecord>(
 export function createStaticResourceTreeClient<TRecord>(
   http: HttpClient,
   resourcePath: string,
-): StaticModuleTreeClient<TRecord> {
+): ModuleTreeClient<TRecord> {
   const modulePath = modulePathOf(resourcePath);
   const crud = createStaticResourceCrudClient<TRecord>(http, modulePath);
   return {
@@ -208,6 +210,15 @@ export function createStaticResourceTreeClient<TRecord>(
       ),
   };
 }
+
+/** @deprecated Static modules use the same module client contract. */
+export type StaticModuleCrudClient<TRecord> = ModuleCrudClient<TRecord>;
+/** @deprecated Static modules use the same module tree client contract. */
+export type StaticModuleTreeClient<TRecord> = ModuleTreeClient<TRecord>;
+/** @deprecated Use createModuleCrudClient. */
+export const createStaticModuleCrudClient = createModuleCrudClient;
+/** @deprecated Use createModuleTreeClient. */
+export const createStaticModuleTreeClient = createModuleTreeClient;
 
 function modulePathOf(moduleAlias: string) {
   const normalized = moduleAlias.trim();

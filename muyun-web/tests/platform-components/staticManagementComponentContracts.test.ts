@@ -1672,7 +1672,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /v-else-if="isListPage"/);
   assert.match(hostSource, /:query-template-id="listQueryTemplateId"/);
   assert.match(hostSource, /:ready="pageReady && navigatorListScopeReady"/);
-  assert.match(hostSource, /动态\$\{pageMode\.value\}入口暂未接入运行器/);
+  assert.match(hostSource, /\$\{pageMode\.value\}入口暂未接入模块页面运行器/);
   assert.match(hostSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
   assert.match(hostSource, /:explorer-count="visibleNavigatorLevels\.length"/);
   assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);

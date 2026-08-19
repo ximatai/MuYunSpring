@@ -95,7 +95,7 @@ export type {
   PickerConstraintContext,
   RecordPickerRecord,
 } from './recordPickerConstraints';
-export { resolveRecordPickerMode } from './recordPickerModel';
+export { recordPickerModeOf, resolveRecordPickerMode } from './recordPickerModel';
 export type { RecordPickerMode } from './recordPickerModel';
 export type { RecordActionItem, ResolvedRecordActionItem } from './recordActionBarModel';
 export type { RecordDetailDisplayResolver, RecordDetailDisplayValue } from './recordDetailFieldModel';

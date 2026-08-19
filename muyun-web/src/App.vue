@@ -572,7 +572,7 @@ async function executeBusinessNotificationAction(
       handleOpenPage({
         pageType: 'dynamic-module',
         openMode: 'dynamic-runner',
-        hostType: 'dynamic-module-host',
+        hostType: 'module-page-host',
         target: {
           moduleAlias: action.moduleAlias,
           pageMode: action.pageMode ?? 'LIST',

@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.option.DictionaryField;
 import net.ximatai.muyun.spring.common.option.OptionLoad;
@@ -794,6 +795,35 @@ class ModuleUiDescriptorCompilerTest {
                     assertThat(reference.targetModuleAlias()).isEqualTo("crm.tag");
                     assertThat(reference.cardinality()).isEqualTo(ReferenceCardinality.MANY);
                 });
+    }
+
+    @Test
+    void shouldCompileReferencePickerModeFromResolvedTargetFacts() {
+        ModuleUiDefinition uiDefinition = editorPage("sales.order", form -> form
+                .field("customerId", field -> field.label("客户"))
+                .field("tagIds", field -> field.label("标签")));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.order", "订单")
+                .entities(List.of(new EntityDefinition("order", "sales_order", "Order",
+                        List.of(FieldDefinition.string("customerId", "客户"),
+                                FieldDefinition.string("tagIds", "标签")))))
+                .uiDefinition(uiDefinition)
+                .modelClass(ReferenceOrder.class)
+                .build();
+
+        List<ResolvedViewFieldDescriptor> fields = ModuleUiDescriptorCompiler.compile(definition,
+                        alias -> "crm.tag".equals(alias) ? ReferencePickerMode.TREE : ReferencePickerMode.LIST)
+                .page().detail().editor().fields();
+
+        assertThat(fields).extracting(field -> field.reference().pickerMode())
+                .containsExactly(ReferencePickerMode.LIST, ReferencePickerMode.TREE);
+    }
+
+    @Test
+    void shouldSerializeReferencePickerModeAsClientContract() throws Exception {
+        String json = new ObjectMapper().writeValueAsString(new ResolvedReferenceFieldDescriptor(
+                "crm.category", ReferenceCardinality.ONE, "categoryTitle", ReferencePickerMode.TREE));
+
+        assertThat(new ObjectMapper().readTree(json).path("pickerMode").asText()).isEqualTo("TREE");
     }
 
     @Test

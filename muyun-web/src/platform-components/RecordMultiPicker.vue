@@ -5,6 +5,7 @@ import { normalizeError, type ModuleContext } from '@muyun/web-core';
 import type { WebTreeNode } from '@muyun/web-contracts';
 import type { PickerConstraint, RecordPickerRecord } from './recordPickerConstraints';
 import { firstConstraintMessage } from './recordPickerConstraints';
+import { resolveRecordPickerMode, type RecordPickerMode } from './recordPickerModel';
 import { defaultTreeRecordTitle, flattenTreeRecords } from './treeRecordModel';
 
 defineOptions({ name: 'RecordMultiPicker' });
@@ -21,7 +22,7 @@ const props = withDefaults(
     context: ModuleContext<RecordPickerRecord>;
     value?: string[];
     reloadKey?: number;
-    mode?: 'list' | 'tree';
+    mode?: RecordPickerMode;
     placeholder?: string;
     disabled?: boolean;
     allowClear?: boolean;
@@ -33,7 +34,7 @@ const props = withDefaults(
   {
     value: () => [],
     reloadKey: undefined,
-    mode: 'tree',
+    mode: 'auto',
     placeholder: '请选择',
     disabled: false,
     allowClear: true,
@@ -48,7 +49,7 @@ const emit = defineEmits<{ 'update:value': [value: string[]] }>();
 const loading = ref(false);
 const tree = ref<WebTreeNode<RecordPickerRecord>[]>([]);
 const records = ref<RecordPickerRecord[]>([]);
-const actualMode = ref<'list' | 'tree'>('list');
+const actualMode = ref<Exclude<RecordPickerMode, 'auto'>>('list');
 const error = ref<string>();
 const pickerContext = computed(() => ({ records: records.value }));
 
@@ -73,17 +74,16 @@ async function loadRecords() {
   try {
     await props.context.runtime.ready;
     const treeAbility = props.mode === 'list' ? undefined : props.context.abilities.tryTree();
-    if (treeAbility) {
+    actualMode.value = resolveRecordPickerMode(props.mode, Boolean(treeAbility));
+    if (actualMode.value === 'tree' && treeAbility) {
       const response = await treeAbility.tree();
       tree.value = response.records;
       records.value = flattenTreeRecords(response.records);
-      actualMode.value = 'tree';
       return;
     }
     const response = await props.context.crud.query({ page: { pageNum: 1, pageSize: 100 } });
     tree.value = [];
     records.value = response.records;
-    actualMode.value = 'list';
   } catch (cause) {
     error.value = normalizeError(cause).message;
   } finally {

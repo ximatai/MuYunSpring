@@ -1123,7 +1123,7 @@ describe('DynamicModuleHost', () => {
 
     await flushPromises();
 
-    expect(wrapper.text()).toContain('动态FORM入口暂未接入运行器');
+    expect(wrapper.text()).toContain('FORM入口暂未接入模块页面运行器');
     expect(wrapper.find('record-query-list-panel-stub').exists()).toBe(false);
     expect(requests.some((url) => url.endsWith('/crm.customer/query'))).toBe(false);
   });

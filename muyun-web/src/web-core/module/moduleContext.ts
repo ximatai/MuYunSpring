@@ -9,19 +9,19 @@ import {
   type ModuleRuntimeContextState,
 } from './runtimeContext';
 import {
-  createStaticModuleCrudClient,
+  createModuleCrudClient,
   createNavigatorReferenceCrudClient,
   createNavigatorReferenceTreeClient,
-  createStaticModuleTreeClient,
+  createModuleTreeClient,
   type ModuleEnableClient,
-  type StaticModuleCrudClient,
-  type StaticModuleTreeClient,
+  type ModuleCrudClient,
+  type ModuleTreeClient,
 } from './staticModuleClient';
 
 export interface ModuleContext<TRecord> {
   moduleAlias: string;
   http: HttpClient;
-  crud: StaticModuleCrudClient<TRecord>;
+  crud: ModuleCrudClient<TRecord>;
   runtime: ModuleRuntimeContextState;
   abilities: ModuleAbilities<TRecord>;
   action(actionCode: string, recordId?: string): ModuleActionState | undefined;
@@ -34,7 +34,7 @@ export interface ModuleContext<TRecord> {
 }
 
 export interface ModuleTreeContext<TRecord> extends ModuleContext<TRecord> {
-  tree: StaticModuleTreeClient<TRecord>;
+  tree: ModuleTreeClient<TRecord>;
 }
 
 export interface ModuleContextConfig {
@@ -167,8 +167,8 @@ function moduleClientsFor<TRecord>(
     };
   }
   return {
-    crud: createStaticModuleCrudClient<TRecord>(http, { moduleAlias }),
-    tree: createStaticModuleTreeClient<TRecord>(http, { moduleAlias }),
+    crud: createModuleCrudClient<TRecord>(http, { moduleAlias }),
+    tree: createModuleTreeClient<TRecord>(http, { moduleAlias }),
   };
 }
 
@@ -184,7 +184,7 @@ function moduleTreeContextOf<TRecord>(
   };
 }
 
-function runtimeCheckedTreeClient<TRecord>(context: ModuleContext<TRecord>): StaticModuleTreeClient<TRecord> {
+function runtimeCheckedTreeClient<TRecord>(context: ModuleContext<TRecord>): ModuleTreeClient<TRecord> {
   const tree = async () => {
     await context.runtime.ready;
     return context.abilities.tree();

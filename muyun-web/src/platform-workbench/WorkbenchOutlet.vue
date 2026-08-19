@@ -3,13 +3,14 @@ import { computed } from 'vue';
 import type {
   BusinessRoutePageDescriptor,
   DynamicModulePageDescriptor,
+  ModulePageDescriptor,
   ExternalLinkPageDescriptor,
   PageDescriptor,
   PlatformRoutePageDescriptor,
   RemoteUrlPageDescriptor,
 } from '@muyun/web-contracts';
 import {
-  DynamicModuleHost,
+  ModulePageHost,
   provideModulePageNavigation,
   type ModulePageWorkspaceView,
 } from '@muyun/dynamic-page-runtime';
@@ -62,8 +63,8 @@ const businessRouteDescriptor = computed(() =>
     : undefined,
 );
 const dynamicDescriptor = computed(() =>
-  pageHostComponentName.value === 'DynamicModuleHost'
-    ? (props.descriptor as DynamicModulePageDescriptor)
+  pageHostComponentName.value === 'ModulePageHost'
+    ? (props.descriptor as ModulePageDescriptor | DynamicModulePageDescriptor)
     : undefined,
 );
 const externalDescriptor = computed(() =>
@@ -76,7 +77,7 @@ const externalDescriptor = computed(() =>
 <template>
   <PlatformRouteHost v-if="routeDescriptor" :descriptor="routeDescriptor" />
   <BusinessRouteHost v-else-if="businessRouteDescriptor" :descriptor="businessRouteDescriptor" />
-  <DynamicModuleHost v-else-if="dynamicDescriptor" :descriptor="dynamicDescriptor" />
+  <ModulePageHost v-else-if="dynamicDescriptor" :descriptor="dynamicDescriptor" />
   <ExternalPageHost v-else-if="externalDescriptor" :descriptor="externalDescriptor" />
   <UiEmpty v-else description="暂无页面" />
 </template>
