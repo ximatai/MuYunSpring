@@ -21,6 +21,11 @@ public class ApplicationWebController extends StaticModuleWebControllerAdapter<A
         SystemScope<ApplicationService>,
         NavigatorReferenceWeb<Application, ApplicationService>,
         StaticModuleUiContributor {
+    private static final ModuleUiField ID = ModuleUiField.of("id");
+    private static final ModuleUiField ALIAS = ModuleUiField.of("alias");
+    private static final ModuleUiField TITLE = ModuleUiField.of("title");
+    private static final ModuleUiField ENABLED = ModuleUiField.of("enabled");
+
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(ApplicationService.MODULE_ALIAS)
@@ -28,14 +33,14 @@ public class ApplicationWebController extends StaticModuleWebControllerAdapter<A
                         .explorer(explorer -> explorer.title("应用列表")
                                 .searchPlaceholder("搜索应用名称、alias 或 ID")
                                 .emptyDescription("暂无应用").recordLabel("应用")
-                                .fallbackTitle("未命名应用").titleField("title").secondaryField("alias")
+                                .fallbackTitle("未命名应用").titleField(TITLE.name()).secondaryField(ALIAS.name())
                                 .mutedWhenDisabled())
                         .detail(detail -> detail.emptyDescription("请选择应用，或新建应用").createTitle("新建应用")
                                 .editor(form -> form.title("应用")
-                                        .field("alias", field -> field.label("应用 alias").required()
-                                                .enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
-                                        .field("title", field -> field.label("应用名称").required())
-                                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
+                                        .field(ALIAS, field -> field.label("应用 alias").required()
+                                                .enabledWhen(UiFormula.booleanExpression("!(PRESENT({" + ID.name() + "}))")))
+                                        .field(TITLE, field -> field.label("应用名称").required())
+                                        .field(ENABLED, field -> field.label("启用状态").uiType("enabledStatus"))))
                         .traits(traits -> traits.standardCrud().enabledStatus().recycleBin())))
                 .build();
     }

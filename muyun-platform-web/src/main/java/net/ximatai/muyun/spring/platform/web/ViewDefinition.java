@@ -47,19 +47,27 @@ public record ViewDefinition(String viewCode,
     }
 
     public static Builder list() {
-        return new Builder("default_list", ModuleViewKind.LIST);
+        return new Builder(ModuleUiViewCodes.DEFAULT_LIST, ModuleViewKind.LIST);
     }
 
     public static Builder list(String viewCode) {
         return new Builder(viewCode, ModuleViewKind.LIST);
     }
 
+    public static Builder list(ModuleUiViewCode viewCode) {
+        return list(viewCode == null ? null : viewCode.value());
+    }
+
     public static Builder form() {
-        return new Builder("default_form", ModuleViewKind.FORM);
+        return new Builder(ModuleUiViewCodes.DEFAULT_FORM, ModuleViewKind.FORM);
     }
 
     public static Builder form(String viewCode) {
         return new Builder(viewCode, ModuleViewKind.FORM);
+    }
+
+    public static Builder form(ModuleUiViewCode viewCode) {
+        return form(viewCode == null ? null : viewCode.value());
     }
 
     public static final class Builder {
@@ -92,6 +100,11 @@ public record ViewDefinition(String viewCode,
             });
         }
 
+        public Builder field(ModuleUiField field) {
+            return field(field, ignored -> {
+            });
+        }
+
         public Builder field(String fieldName, Consumer<ViewFieldDefinition.Builder> customizer) {
             ViewFieldDefinition.Builder builder = ViewFieldDefinition.field(fieldName);
             if (customizer != null) {
@@ -99,6 +112,10 @@ public record ViewDefinition(String viewCode,
             }
             fields.add(builder.build());
             return this;
+        }
+
+        public Builder field(ModuleUiField field, Consumer<ViewFieldDefinition.Builder> customizer) {
+            return field(field == null ? null : field.name(), customizer);
         }
 
         public Builder field(String relationCode, String fieldName, Consumer<ViewFieldDefinition.Builder> customizer) {

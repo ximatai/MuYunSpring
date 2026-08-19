@@ -27,7 +27,7 @@ public final class RecordReadProjectionPlanner {
 
     public static RecordReadProjection defaultList(ResolvedModuleUiDescriptor descriptor,
                                                    ResolvedModuleReadModel readModel) {
-        return plan(descriptor, readModel, "default_list");
+        return plan(descriptor, readModel, ModuleUiViewCodes.DEFAULT_LIST);
     }
 
     /** Whether the page owns a pageable/default list projection. Tree management is read through TreeAbility. */
@@ -39,14 +39,14 @@ public final class RecordReadProjectionPlanner {
     public static RecordReadProjection defaultList(ResolvedModuleUiDescriptor descriptor,
                                                    ResolvedModuleReadModel readModel,
                                                    Object recordService) {
-        return plan(descriptor, readModel, "default_list", recordService, null);
+        return plan(descriptor, readModel, ModuleUiViewCodes.DEFAULT_LIST, recordService, null);
     }
 
     public static RecordReadProjection defaultList(ResolvedModuleUiDescriptor descriptor,
                                                    ResolvedModuleReadModel readModel,
                                                    Object recordService,
                                                    ActionExecutionContext actionContext) {
-        return plan(descriptor, readModel, "default_list", recordService, actionContext);
+        return plan(descriptor, readModel, ModuleUiViewCodes.DEFAULT_LIST, recordService, actionContext);
     }
 
     public static RecordReadProjection explicit(String moduleAlias,
@@ -253,17 +253,18 @@ public final class RecordReadProjectionPlanner {
         if (descriptor.page() != null) {
             if (descriptor.page().list() != null) {
                 ResolvedViewDescriptor pageList = descriptor.page().list().fields();
-                if (pageList.viewCode().equals(viewCode) || "default_list".equals(viewCode)) {
+                if (pageList.viewCode().equals(viewCode) || ModuleUiViewCodes.DEFAULT_LIST.equals(viewCode)) {
                     return pageList;
                 }
             }
-            if (descriptor.page().explorer() != null && "default_list".equals(viewCode)) {
+            if (descriptor.page().explorer() != null && ModuleUiViewCodes.DEFAULT_LIST.equals(viewCode)) {
                 ResolvedPageExplorerDescriptor explorer = descriptor.page().explorer();
                 java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
                 names.add(explorer.titleField());
                 if (explorer.secondaryField() != null) names.add(explorer.secondaryField());
                 if (explorer.mutedWhenDisabled()) names.add("enabled");
-                return new ResolvedViewDescriptor("default_list", ModuleViewKind.LIST, ModuleUiClientType.WEB,
+                return new ResolvedViewDescriptor(ModuleUiViewCodes.DEFAULT_LIST, ModuleViewKind.LIST,
+                        ModuleUiClientType.WEB,
                         explorer.title(), names.stream().map(name -> new ResolvedViewFieldDescriptor(
                                 ViewFieldRef.main(name), null, UiRule.constant(Boolean.TRUE),
                                 UiRule.constant(Boolean.FALSE), UiRule.constant(Boolean.TRUE), null,

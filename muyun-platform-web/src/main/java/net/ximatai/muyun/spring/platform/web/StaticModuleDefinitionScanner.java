@@ -74,7 +74,21 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         addActionContributions(definitions);
         addActionDeclarations(definitions);
         addActionScopes(definitions);
+        validateUiCompilation(definitions.values());
         return List.copyOf(definitions.values());
+    }
+
+    /**
+     * A static module has all model and UI declaration facts at scan time. Compile it here so a
+     * mistyped field or invalid binding prevents the module from entering the executable catalog,
+     * rather than surfacing only when a page bootstrap is requested.
+     */
+    private void validateUiCompilation(Iterable<StaticModuleDefinition> definitions) {
+        for (StaticModuleDefinition definition : definitions) {
+            if (definition.uiDefinition() != null) {
+                ModuleUiDescriptorCompiler.compileModule(definition);
+            }
+        }
     }
 
     private void validateActionEndpointOrigins() {

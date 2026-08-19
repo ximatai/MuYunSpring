@@ -1321,6 +1321,20 @@ class StaticModuleDefinitionScannerTest {
         }
     }
 
+    @Test
+    void shouldRejectUnknownStaticUiFieldWhileScanningInsteadOfAtFirstPageRequest() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(InvalidStaticUiWeb.class,
+                    () -> new InvalidStaticUiWeb(new InvalidStaticUiService()));
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("static module UI field is not declared by model facts")
+                    .hasMessageContaining("sales.invalid_static_ui.default_list.missingField");
+        }
+    }
+
     @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class, alias = "iam.bad", title = "Bad")
     @RequestMapping("/iam.good")
@@ -1544,6 +1558,33 @@ class StaticModuleDefinitionScannerTest {
     static class MultiSegmentModuleWeb extends net.ximatai.muyun.spring.web.WebSupport<MultiSegmentModuleService> {
         MultiSegmentModuleWeb(MultiSegmentModuleService service) {
             this.service = service;
+        }
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.SalesApplication.class,
+            alias = "sales.invalid_static_ui", title = "Invalid static UI")
+    @RequestMapping("/sales.invalid_static_ui")
+    static class InvalidStaticUiWeb extends net.ximatai.muyun.spring.web.WebSupport<InvalidStaticUiService>
+            implements StaticModuleUiContributor {
+        InvalidStaticUiWeb(InvalidStaticUiService service) {
+            this.service = service;
+        }
+
+        @Override
+        public ModuleUiDefinition moduleUiDefinition() {
+            return ModuleUiDefinition.builder("sales.invalid_static_ui")
+                    .page(PageTemplates.listDetailCard(page -> page
+                            .list(list -> list.fields(fields -> fields.field(ModuleUiField.of("missingField"))))
+                            .detail(detail -> detail.editor(form -> form.field(ModuleUiField.of("quantity"))))))
+                    .build();
+        }
+    }
+
+    private static class InvalidStaticUiService extends AbstractAbilityService<StaticMeasureOrderLine> {
+        @SuppressWarnings("unchecked")
+        InvalidStaticUiService() {
+            super("sales.invalid_static_ui", StaticMeasureOrderLine.class, mock(BaseDao.class));
         }
     }
 
