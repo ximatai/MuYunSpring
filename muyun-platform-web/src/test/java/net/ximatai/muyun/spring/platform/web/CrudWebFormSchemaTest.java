@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.form.FormAbility;
 import net.ximatai.muyun.spring.ability.form.FormDescriptor;
 import net.ximatai.muyun.spring.ability.form.FormField;
+import net.ximatai.muyun.spring.ability.form.FormSchema;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.mockito.Mockito.mock;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -170,6 +172,25 @@ class CrudWebFormSchemaTest {
     }
 
     @Test
+    void shouldUseTheSameStrictPlanForQuerySchemaAndFormWithoutLegacyDefinitionFallback() {
+        DemoRecordUiController controller = new DemoRecordUiController(new DemoRecordService());
+        StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(demoStaticModuleDefinition()));
+        controller.setStandardModuleWebRuntime(new StandardModuleWebRuntime(
+                new ModuleExecutionPlanCatalog(catalog), new StaticRecordReadProjectionService(catalog)));
+        controller.requireExecutionPlan();
+        controller.rejectDefinitionLookup();
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThat(controller.queryCriteria(null)).isNotNull();
+            assertThat(controller.querySchema(null).scopeName()).isEqualTo("demo.record.ui");
+            assertThat(controller.formSchema(null, null).fields()).extracting(FormSchema.Field::name).contains("title");
+            assertThat(CrudWebRuntimeSupport.pageContextBindings(controller, null,
+                    PageContextTarget.MUTATION_CONSTRAINT)).isEqualTo(
+                    controller.standardModuleWebRuntime().mutationConstraints("demo.record.ui"));
+        }
+    }
+
+    @Test
     void shouldRejectMigratedCrudEndpointWhenItsExecutionRuntimeIsMissing() {
         StrictDemoRecordController controller = new StrictDemoRecordController(new DemoRecordService());
 
@@ -227,6 +248,7 @@ class CrudWebFormSchemaTest {
         private StaticRecordReadProjectionService staticRecordReadProjectionService;
         private StandardModuleWebRuntime standardModuleWebRuntime;
         private boolean rejectDefinitionLookup;
+        private boolean requireExecutionPlan;
 
         private DemoRecordUiController(DemoRecordService service) {
             this.service = service;
@@ -247,6 +269,15 @@ class CrudWebFormSchemaTest {
 
         private void rejectDefinitionLookup() {
             rejectDefinitionLookup = true;
+        }
+
+        private void requireExecutionPlan() {
+            requireExecutionPlan = true;
+        }
+
+        @Override
+        public boolean requiresModuleExecutionPlan() {
+            return requireExecutionPlan;
         }
 
         @Override
