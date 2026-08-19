@@ -113,4 +113,30 @@ describe('resolvePageContextTargetValues', () => {
     ).toEqual(['organizationId']);
     expect(externalPageContextCriteriaKeys([...bindings], 'NAVIGATOR_QUERY')).toEqual(['tenantId']);
   });
+
+  it('keeps required navigator-query criteria isolated to their target level', () => {
+    const multiLevelBindings = [
+      {
+        source: 'NAVIGATOR',
+        sourceKey: 'tenant',
+        target: 'NAVIGATOR_QUERY',
+        targetKey: 'tenantId',
+        targetNavigatorLevelKey: 'organization',
+      },
+      {
+        source: 'NAVIGATOR',
+        sourceKey: 'organization',
+        target: 'NAVIGATOR_QUERY',
+        targetKey: 'organizationId',
+        targetNavigatorLevelKey: 'department',
+      },
+    ] as const;
+
+    expect(externalPageContextCriteriaKeys(multiLevelBindings, 'NAVIGATOR_QUERY', 'organization')).toEqual([
+      'tenantId',
+    ]);
+    expect(externalPageContextCriteriaKeys(multiLevelBindings, 'NAVIGATOR_QUERY', 'department')).toEqual([
+      'organizationId',
+    ]);
+  });
 });

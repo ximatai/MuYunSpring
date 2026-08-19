@@ -731,7 +731,7 @@ describe('DynamicModuleHost', () => {
     expect(wrapper.find('.scope-drawer').text()).toBe('directory-1');
   });
 
-  it('applies every selected navigator level to the list without waiting for a downstream selection', async () => {
+  it('keeps a list dormant until every declared navigator scope is selected', async () => {
     window.localStorage.setItem('muyun.preference.module-page.detail-surface.crm.customer', '"drawer"');
     let detailRequests = 0;
     globalThis.fetch = async (input) => {
@@ -835,6 +835,7 @@ describe('DynamicModuleHost', () => {
     const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
     expect(explorers).toHaveLength(1);
     expect(treeExplorer).toBeDefined();
+    expect(panel.props('ready')).toBe(false);
 
     panel.vm.$emit('select', { id: 'customer-1', title: '客户一' });
     await flushPromises();
@@ -847,6 +848,7 @@ describe('DynamicModuleHost', () => {
     explorers[0].vm.$emit('select', { id: 'tenant-1', title: '甲租户' });
     await flushPromises();
     expect(panel.props('externalQueryValues')).toEqual({ tenantId: 'tenant-1' });
+    expect(panel.props('ready')).toBe(false);
     expect(treeExplorer?.props('externalQueryValues')).toEqual({ tenantId: 'tenant-1' });
 
     treeExplorer?.vm.$emit('select', { id: 'organization-1', title: '总部' });
@@ -855,10 +857,12 @@ describe('DynamicModuleHost', () => {
       tenantId: 'tenant-1',
       organizationId: 'organization-1',
     });
+    expect(panel.props('ready')).toBe(true);
 
     explorers[0].vm.$emit('select', { id: 'tenant-2', title: '乙租户' });
     await flushPromises();
     expect(panel.props('externalQueryValues')).toEqual({ tenantId: 'tenant-2' });
+    expect(panel.props('ready')).toBe(false);
   });
 
   it('auto-selects and hides a single navigator while retaining its downstream binding', async () => {
@@ -1016,6 +1020,17 @@ describe('DynamicModuleHost', () => {
       .filter((button) => button.props('context').moduleAlias === 'iam.tenant');
     expect(navigatorActions).toHaveLength(1);
     expect(navigatorActions[0].props('actionCode')).toBe('create');
+
+    navigator.vm.$emit('deselect');
+    await flushPromises();
+    expect(list.props('externalQueryValues')).toBeUndefined();
+
+    navigator.vm.$emit('loaded', [
+      { id: 'tenant-a', title: '甲租户' },
+      { id: 'tenant-b', title: '乙租户' },
+    ]);
+    await flushPromises();
+    expect(list.props('externalQueryValues')).toBeUndefined();
   });
 
   it('blocks every list runner when its menu bootstrap fails', async () => {
@@ -1288,6 +1303,115 @@ describe('DynamicModuleHost', () => {
     await flushPromises();
     expect(organizationTree?.props('selectedId')).toBeUndefined();
     expect(organizationTree?.props('externalQueryValues')).toEqual({ tenantId: 'tenant-2' });
+  });
+
+  it('does not open a manageable downstream navigator until its declared incoming scope is selected', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/demo.tree/context')) {
+        return Response.json({
+          moduleAlias: 'demo.tree',
+          capabilities: ['TREE'],
+          abilities: ['tree'],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'demo.tree',
+            page: page({
+              template: 'TREE_MANAGEMENT',
+              navigator: {
+                contextBindings: [
+                  {
+                    source: 'NAVIGATOR',
+                    sourceKey: 'tenant',
+                    target: 'NAVIGATOR_QUERY',
+                    targetKey: 'tenantId',
+                    targetNavigatorLevelKey: 'category',
+                  },
+                ],
+                levels: [
+                  { key: 'tenant', kind: 'MICRO_LIST', sourceModuleAlias: 'iam.tenant', title: '租户' },
+                  {
+                    key: 'category',
+                    kind: 'TREE',
+                    sourceModuleAlias: 'iam.position_category',
+                    title: '岗位分类',
+                    management: { editorSurface: 'default_form', actions: ['CREATE', 'UPDATE', 'DELETE'] },
+                  },
+                ],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/iam.tenant/reference-context')) {
+        return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
+      }
+      if (request.url.endsWith('/platform.module/iam.position_category/reference-context')) {
+        return Response.json({
+          moduleAlias: 'iam.position_category',
+          capabilities: ['TREE'],
+          abilities: ['tree'],
+          navigatorSourceCapabilities: ['REFERENCE_TREE'],
+          actions: [
+            { actionCode: 'create', authorized: true },
+            { actionCode: 'update', authorized: true },
+            { actionCode: 'delete', authorized: true },
+          ],
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.tree', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          PageNavigatorExplorer: {
+            name: 'PageNavigatorExplorer',
+            props: ['level', 'createDisabled', 'createDisabledReason'],
+            emits: ['create', 'select'],
+            template: '<section><slot name="editor" /></section>',
+          },
+        },
+      },
+    });
+    await flushPromises();
+
+    const explorers = wrapper.findAllComponents({ name: 'PageNavigatorExplorer' });
+    const tenant = explorers.find((explorer) => explorer.props('level').descriptor.key === 'tenant');
+    const category = explorers.find((explorer) => explorer.props('level').descriptor.key === 'category');
+    expect(category?.props('createDisabled')).toBe(true);
+    expect(category?.props('createDisabledReason')).toBe('请先完成上游范围选择');
+
+    category?.vm.$emit('create');
+    await flushPromises();
+    const categoryEditor = () =>
+      wrapper
+        .findAllComponents({ name: 'NavigatorManagementEditor' })
+        .find((editor) => editor.props('context').moduleAlias === 'iam.position_category');
+    expect(categoryEditor()?.props('open')).toBe(false);
+
+    tenant?.vm.$emit('select', { id: 'tenant-1', title: '甲租户' });
+    await flushPromises();
+    expect(category?.props('createDisabled')).toBe(false);
+    category?.vm.$emit('create');
+    await flushPromises();
+    expect(categoryEditor()?.props('open')).toBe(true);
+
+    tenant?.vm.$emit('select', { id: 'tenant-2', title: '乙租户' });
+    await flushPromises();
+    expect(categoryEditor()?.props('open')).toBe(false);
   });
 
   it('rejects business detail drawer enhancements for tree modules instead of silently ignoring them', async () => {

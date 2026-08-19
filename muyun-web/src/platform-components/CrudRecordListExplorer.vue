@@ -170,14 +170,6 @@ function matchesKeyword(record: CrudRecordListBase, normalized: string) {
   );
 }
 
-function handleSelect(record: CrudRecordListBase) {
-  if (record.id != null && String(record.id) === props.selectedId) {
-    emit('deselect');
-    return;
-  }
-  emit('select', record);
-}
-
 function recordActions(record: CrudRecordListBase): UiRecordInlineAction[] {
   if (props.mode !== 'recycleBin') {
     return props.actionsOf?.(record) ?? [];
@@ -266,7 +258,8 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       :actions-of="(record) => recordActions(record as CrudRecordListBase)"
       :tag-of="(record) => tagOf?.(record as CrudRecordListBase)"
       :muted-of="(record) => mutedOf?.(record as CrudRecordListBase) ?? record.enabled === false"
-      @select="handleSelect($event as CrudRecordListBase)"
+      @select="emit('select', $event as CrudRecordListBase)"
+      @deselect="emit('deselect')"
       @action="(action, record) => handleAction(action, record as CrudRecordListBase)"
     />
   </div>

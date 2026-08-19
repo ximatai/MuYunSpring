@@ -389,7 +389,6 @@ it('static edit draft normalizers preserve standard record fields', () => {
   const roleSource = readSource('src/views/RoleManagementView.vue');
   const tenantStateSource = readSource('src/views/tenantManagementState.ts');
   const menuStateSource = readSource('src/views/menuManagementState.ts');
-  const positionStateSource = readSource('src/views/positionManagementState.ts');
   const dictionaryStateSource = readSource('src/views/dictionaryManagementState.ts');
 
   assert.match(userSource, /function normalizedUserDraft[\s\S]*normalizeRecordDraft<UserAccount>\(draft,/);
@@ -408,8 +407,6 @@ it('static edit draft normalizers preserve standard record fields', () => {
     menuStateSource,
     /function normalizeMenuDraft[\s\S]*const normalized: MenuRecord = \{\s*\.\.\.record,/,
   );
-  assert.match(positionStateSource, /function normalizePositionDraft[\s\S]*return \{\s*\.\.\.record,/);
-  assert.match(positionStateSource, /function normalizeCategoryDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(
     dictionaryStateSource,
     /function normalizeDictionaryCategoryDraft[\s\S]*return \{\s*\.\.\.record,/,
@@ -460,7 +457,6 @@ it('management workspace consumes the page layout contract for constrained deskt
   const explorerColumnSource = readSource('src/platform-components/ManagementExplorerColumn.vue');
   const staticLayoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
   const detailPanelSource = readSource('src/platform-components/RecordDetailPanel.vue');
-  const positionViewSource = readSource('src/views/PositionManagementView.vue');
   const indexSource = readSource('src/platform-components/index.ts');
 
   assert.match(workspaceSource, /explorerCount\?: number/);
@@ -490,7 +486,6 @@ it('management workspace consumes the page layout contract for constrained deskt
   assert.match(detailPanelSource, /const pageLayout = usePageLayout\(\)/);
   assert.match(detailPanelSource, /:scrollable-content="pageLayout === 'workspace'"/);
   assert.notMatch(detailPanelSource, /scrollableContent\?: boolean/);
-  assert.match(positionViewSource, /<ManagementWorkspace[\s\S]*:explorer-count="canBrowseTenants \? 3 : 2"/);
   const employeeViewSource = [
     readSource('src/views/EmployeeManagementView.vue'),
     readSource('src/views/EmployeeDetailContent.vue'),
@@ -501,8 +496,6 @@ it('management workspace consumes the page layout contract for constrained deskt
   );
   assert.match(employeeViewSource, /<ManagementExplorerColumn>[\s\S]*employee-scope-panel/);
   assert.notMatch(employeeViewSource, /grid-template-columns: minmax\(260px, 320px\)/);
-  assert.notMatch(positionViewSource, /management-workspace-explorer/);
-  assert.notMatch(positionViewSource, /position-workspace-system/);
 });
 
 it('system user management fills the constrained work area and leaves scrolling to its list panel', () => {
@@ -572,7 +565,6 @@ it('menu management keeps scheme actions inline and delegates search to panel', 
 it('static management explorers use unified item descriptors', () => {
   const explorerViews = [
     'TenantManagementView.vue',
-    'PositionManagementView.vue',
     'DictionaryManagementView.vue',
     'MenuManagementView.vue',
     'EmployeeManagementView.vue',
@@ -588,26 +580,18 @@ it('static management explorers use unified item descriptors', () => {
 
   const dictionarySource = readSource('src/views/DictionaryManagementView.vue');
   const menuSource = readSource('src/views/MenuManagementView.vue');
-  const positionSource = readSource('src/views/PositionManagementView.vue');
 
   assert.notMatch(dictionarySource, /:tag-of=|:actions-of=|:muted-of=/);
   assert.notMatch(menuSource, /:tag-of=|:actions-of=/);
-  assert.notMatch(positionSource, /:actions-of=/);
 });
 
 it('tree explorer editor is explicit edit mode instead of selected record presence', () => {
-  const positionViewSource = readSource('src/views/PositionManagementView.vue');
   const dictionaryViewSource = readSource('src/views/DictionaryManagementView.vue');
 
-  assert.match(
-    positionViewSource,
-    /categoryEditorVisible = computed\(\(\) => categoryMode\.value !== 'view'\)/,
-  );
   assert.match(
     dictionaryViewSource,
     /categoryEditorVisible = computed\(\(\) => categoryMode\.value !== 'view'\)/,
   );
-  assert.notMatch(positionViewSource, /categoryEditorVisible[\s\S]*Boolean\(selectedCategory/);
   assert.notMatch(dictionaryViewSource, /categoryEditorVisible[\s\S]*Boolean\(selectedCategory/);
 });
 
@@ -690,45 +674,11 @@ it('dictionary management uses record form fields for category and item forms', 
   assert.notMatch(dictionaryViewSource, /<UiInput[\s\S]*v-model:value="itemDraft\.code"/);
 });
 
-it('position management uses child resource form descriptor for position form', () => {
-  const positionViewSource = readSource('src/views/PositionManagementView.vue');
-
-  assert.match(positionViewSource, /const currentUserTenant = computed<Tenant \| undefined>/);
-  assert.match(
-    positionViewSource,
-    /watch\(currentUserTenant, initializeTenantUserScope, \{ immediate: true \}\)/,
-  );
-  assert.match(positionViewSource, /function initializeTenantUserScope\(tenant = currentUserTenant\.value\)/);
-  assert.match(positionViewSource, /onMounted\(loadPositionFormDefinition\)/);
-  assert.match(
-    positionViewSource,
-    /resolveRecordFormFields\(\s*runtimeContext\.uiDescriptor,\s*childResourceDefaultFormViewCode\(POSITION_RESOURCE\),?\s*\)/,
-  );
-  assert.match(positionViewSource, /const POSITION_RESOURCE = 'position'/);
-  assert.match(positionViewSource, /childResourceDefaultFormViewCode/);
-  assert.match(
-    positionViewSource,
-    /positionFormFieldDefinitions = ref\(resolveRecordFormFields\(undefined\)\)/,
-  );
-  assert.match(positionViewSource, /<RecordFormFields/);
-  assert.match(positionViewSource, /:field-names="positionFormFieldNames"/);
-  assert.match(positionViewSource, /:fields="positionFormFieldDefinitions"/);
-  assert.match(positionViewSource, /:fallback="positionFormFieldFallback"/);
-  assert.match(positionViewSource, /@update:field="updatePositionDraftField"/);
-  assert.match(positionViewSource, /categoryId: \{[\s\S]*controlType: 'select'/);
-  assert.match(positionViewSource, /options: categoryOptions\.value/);
-  assert.notMatch(positionViewSource, /<UiSelect[\s\S]*v-model:value="positionDraft\.categoryId"/);
-  assert.notMatch(positionViewSource, /<UiInput[\s\S]*v-model:value="positionDraft\.code"/);
-  assert.notMatch(positionViewSource, /<UiInput[\s\S]*v-model:value="positionDraft\.title"/);
-  assert.notMatch(positionViewSource, /<UiInput[\s\S]*v-model:value="positionDraft\.description"/);
-});
-
 it('three-column management pages use the platform detail panel', () => {
   const indexSource = readSource('src/platform-components/index.ts');
   const panelSource = readSource('src/platform-components/RecordDetailPanel.vue');
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
   const tenantViewSource = readSource('src/views/TenantManagementView.vue');
-  const positionViewSource = readSource('src/views/PositionManagementView.vue');
   const dictionaryViewSource = readSource('src/views/DictionaryManagementView.vue');
   const menuViewSource = readSource('src/views/MenuManagementView.vue');
   const dictionaryDetailSource = dictionaryViewSource.slice(
@@ -754,29 +704,20 @@ it('three-column management pages use the platform detail panel', () => {
     assert.match(source, /<RecordStatusSwitch/);
     assert.notMatch(source, /EnabledSelect|启用状态|toggle-enabled|show-status/);
   }
-  assert.equal(matchCount(positionViewSource, /<RecordDetailPanel/g), 1);
   assert.equal(matchCount(dictionaryViewSource, /<RecordDetailPanel/g), 1);
   assert.equal(matchCount(menuViewSource, /<RecordDetailPanel/g), 1);
-  assert.match(positionViewSource, /v-if="positionMode !== 'view'"[\s\S]*:enabled="positionDraft\.enabled"/);
   assert.match(dictionaryViewSource, /v-if="itemMode !== 'view'"[\s\S]*:enabled="itemDraft\.enabled"/);
-  assert.notMatch(positionViewSource, /v-if="positionMode === 'create'"/);
   assert.notMatch(dictionaryViewSource, /v-if="itemMode === 'create'"/);
   assert.match(menuViewSource, /<template #editor>[\s\S]*scheme-editor-panel/);
   assert.match(menuViewSource, /<RecordDetailPanel class="menu-detail-column"[\s\S]*:title="menuCardTitle"/);
   assert.notMatch(menuViewSource, /<RecordDetailPanel[\s\S]*:title="schemeCardTitle"/);
   assert.match(
-    positionViewSource,
-    /:enabled="categoryDraft\.enabled"[\s\S]*@change="categoryDraft\.enabled = \$event"/,
-  );
-  assert.match(
     dictionaryViewSource,
     /:enabled="categoryDraft\.enabled"[\s\S]*@change="categoryDraft\.enabled = \$event"/,
   );
-  assert.notMatch(positionViewSource, /detail-column|detail-title-group|detail-header-actions/);
   assert.notMatch(dictionaryViewSource, /detail-column|detail-title-group|detail-header-actions/);
   assert.notMatch(dictionaryDetailSource, /EnabledSelect|启用状态/);
   assert.notMatch(layoutSource, /actionMessage|message success|message\.success/);
-  assert.notMatch(positionViewSource, /message success|message\.success/);
   assert.notMatch(dictionaryViewSource, /message success|message\.success/);
 });
 
@@ -1730,7 +1671,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /v-else-if="!pageReady"/);
   assert.match(hostSource, /v-else-if="isListPage"/);
   assert.match(hostSource, /:query-template-id="listQueryTemplateId"/);
-  assert.match(hostSource, /:ready="pageReady"/);
+  assert.match(hostSource, /:ready="pageReady && navigatorListScopeReady"/);
   assert.match(hostSource, /动态\$\{pageMode\.value\}入口暂未接入运行器/);
   assert.match(hostSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
   assert.match(hostSource, /:explorer-count="visibleNavigatorLevels\.length"/);
@@ -1876,7 +1817,6 @@ it('platform error feedback respects global error presentation slots', () => {
   const actionResultReactionsSource = readSource('src/platform-components/platformActionResultReactions.ts');
   const uiFeedbackSource = readSource('src/vue-ui-antdv/feedback.ts');
   const staticCrudStateSource = readSource('src/platform-components/staticCrudManagementState.ts');
-  const positionStateSource = readSource('src/views/positionManagementState.ts');
   const dictionaryStateSource = readSource('src/views/dictionaryManagementState.ts');
 
   assert.match(feedbackSource, /resolveGlobalErrorPresentation/);
@@ -1937,7 +1877,6 @@ it('platform error feedback respects global error presentation slots', () => {
   assert.match(uiStylesSource, /font-size: 13px/);
   assert.match(uiStylesSource, /@keyframes muyun-feedback-countdown/);
   assert.match(staticCrudStateSource, /handlePlatformActionSuccess/);
-  assert.match(positionStateSource, /handlePlatformActionSuccess/);
   assert.match(dictionaryStateSource, /handlePlatformActionSuccess/);
 });
 

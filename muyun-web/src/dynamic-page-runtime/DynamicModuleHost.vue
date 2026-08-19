@@ -154,8 +154,11 @@ const navigatorLevels = ref<NavigatorLevelRuntime[]>([]);
 const pageContextBindings = ref<ResolvedPageContextBindingDescriptor[]>([]);
 const selectedNavigatorRecords = ref<Record<string, QueryListRecord | undefined>>({});
 const navigatorSingleResultKeys = ref<string[]>([]);
+const navigatorDismissedSelectionKeys = ref<string[]>([]);
 const navigatorManagementDetail = useRecordDetailController<QueryListRecord>();
 const navigatorManagementLevel = ref<NavigatorLevelRuntime>();
+const navigatorManagementTogglingEnabled = ref(false);
+let navigatorManagementSession = 0;
 const scopeSearchKeyword = ref('');
 const scopeReloadKey = ref(0);
 const narrowDetailSurface = ref(false);
@@ -821,6 +824,7 @@ async function loadRuntimeForm() {
   pageContextBindings.value = runtimePage.value?.navigator?.contextBindings ?? [];
   selectedNavigatorRecords.value = {};
   navigatorSingleResultKeys.value = [];
+  navigatorDismissedSelectionKeys.value = [];
   navigatorLevels.value = await Promise.all(
     resolvedNavigatorLevels.map(async (descriptor) => {
       const navigatorContext = createModuleContext<QueryListRecord>({
@@ -988,17 +992,29 @@ function selectNavigatorRecord(levelKey: string, record: { id?: string }) {
   if (!navigatorLevels.value.some((level) => level.descriptor.key === levelKey)) return;
   const previous = selectedNavigatorRecords.value[levelKey];
   const next = { ...selectedNavigatorRecords.value };
-  next[levelKey] = previous?.id === record.id ? undefined : (record as QueryListRecord);
-  for (const descendantKey of navigatorDescendantKeys(levelKey)) {
+  const clearing = previous?.id === record.id;
+  next[levelKey] = clearing ? undefined : (record as QueryListRecord);
+  const descendantKeys = navigatorDescendantKeys(levelKey);
+  for (const descendantKey of descendantKeys) {
     next[descendantKey] = undefined;
   }
   selectedNavigatorRecords.value = next;
+  navigatorDismissedSelectionKeys.value = clearing
+    ? [...new Set([...navigatorDismissedSelectionKeys.value, levelKey])]
+    : navigatorDismissedSelectionKeys.value.filter((key) => key !== levelKey && !descendantKeys.has(key));
   clearSelectionForScopeChange();
 }
 
 function clearNavigatorRecord(levelKey: string) {
   const selected = selectedNavigatorRecords.value[levelKey];
-  if (selected) selectNavigatorRecord(levelKey, selected);
+  if (!selected) return;
+  navigatorDismissedSelectionKeys.value = [...new Set([...navigatorDismissedSelectionKeys.value, levelKey])];
+  const next = { ...selectedNavigatorRecords.value, [levelKey]: undefined };
+  for (const descendantKey of navigatorDescendantKeys(levelKey)) {
+    next[descendantKey] = undefined;
+  }
+  selectedNavigatorRecords.value = next;
+  clearSelectionForScopeChange();
 }
 
 function handleNavigatorLoaded(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
@@ -1020,7 +1036,11 @@ function handleNavigatorLoaded(level: NavigatorLevelRuntime, records: Array<{ id
     level.descriptor.singleResultPolicy !== 'NONE';
   const selectsFirstRecord =
     records[0]?.id != null && level.descriptor.initialSelectionPolicy === 'FIRST_RECORD';
-  if ((selectsSingleResult || selectsFirstRecord) && selectedNavigatorRecords.value[key]?.id == null) {
+  if (
+    (selectsSingleResult || selectsFirstRecord) &&
+    selectedNavigatorRecords.value[key]?.id == null &&
+    !navigatorDismissedSelectionKeys.value.includes(key)
+  ) {
     selectNavigatorRecord(key, records[0]);
   }
 }
@@ -1063,6 +1083,26 @@ function navigatorExplorerQueryValues(levelKey: string): Record<string, unknown>
     pageContextSourceValues.value,
     levelKey,
   );
+}
+
+/**
+ * A manageable navigator is itself a scoped source. Its incoming navigator
+ * query bindings must be settled before creation, just like the page list's
+ * declared scope. This is intentionally descriptor-driven: no business page
+ * needs to name its parent navigator or duplicate the readiness rule.
+ */
+function navigatorManagementCriteriaKeys(levelKey: string): string[] {
+  return externalPageContextCriteriaKeys(pageContextBindings.value, 'NAVIGATOR_QUERY', levelKey);
+}
+
+function navigatorManagementScopeReady(level: NavigatorLevelRuntime): boolean {
+  const criteriaKeys = navigatorManagementCriteriaKeys(level.descriptor.key);
+  const values = navigatorExplorerQueryValues(level.descriptor.key);
+  return criteriaKeys.every((key) => values?.[key] != null);
+}
+
+function navigatorManagementScopeDisabledReason(level: NavigatorLevelRuntime): string | undefined {
+  return navigatorManagementScopeReady(level) ? undefined : '请先完成上游范围选择';
 }
 
 function navigatorManagementAvailable(level: NavigatorLevelRuntime) {
@@ -1144,9 +1184,12 @@ function createNavigatorRecord(level: NavigatorLevelRuntime, parentId?: string) 
   if (
     !navigatorManagementAvailable(level) ||
     !navigatorManagementAllows(level, 'CREATE') ||
+    !navigatorManagementScopeReady(level) ||
     level.context.can('create') !== true
   )
     return;
+  navigatorManagementSession += 1;
+  navigatorManagementTogglingEnabled.value = false;
   navigatorManagementLevel.value = level;
   // Incoming navigator bindings constrain this source and must also establish
   // its ownership fields when creating a new source record (for example,
@@ -1166,6 +1209,89 @@ function createNavigatorRecord(level: NavigatorLevelRuntime, parentId?: string) 
         level.descriptor.management?.editorSurface,
       ),
     );
+  }
+}
+
+const navigatorManagementEnabledVisible = computed(() => {
+  const level = navigatorManagementLevel.value;
+  const record = navigatorManagementDetail.draft.value;
+  return Boolean(
+    level &&
+    record?.id != null &&
+    navigatorManagementDetail.mode.value === 'edit' &&
+    level.context.abilities.hasEnable() === true,
+  );
+});
+
+function navigatorManagementEnabledActionAvailable(actionCode: 'enable' | 'disable'): boolean {
+  const level = navigatorManagementLevel.value;
+  const recordId = navigatorManagementDetail.draft.value?.id;
+  if (!level || recordId == null) return false;
+  const recordAction = level.context
+    .recordActionsSnapshot(String(recordId))
+    ?.actions.find((action) => action.actionCode === actionCode);
+  return recordAction?.available === true;
+}
+
+const navigatorManagementEnabledDisabled = computed(() => {
+  const record = navigatorManagementDetail.draft.value;
+  if (
+    !navigatorManagementEnabledVisible.value ||
+    !record?.id ||
+    typeof record.version !== 'number' ||
+    navigatorManagementDetail.loading.value ||
+    navigatorManagementDetail.loadFailed.value ||
+    navigatorManagementDetail.saving.value ||
+    navigatorManagementTogglingEnabled.value
+  ) {
+    return true;
+  }
+  return !navigatorManagementEnabledActionAvailable(record.enabled === false ? 'enable' : 'disable');
+});
+
+const navigatorManagementEnabledDisabledReason = computed(() => {
+  const record = navigatorManagementDetail.draft.value;
+  if (!record?.id || !navigatorManagementEnabledDisabled.value) return undefined;
+  const actionCode = record.enabled === false ? 'enable' : 'disable';
+  return navigatorManagementLevel.value?.context
+    .recordActionsSnapshot(String(record.id))
+    ?.actions.find((action) => action.actionCode === actionCode)?.reason;
+});
+
+async function toggleNavigatorManagementEnabled(enabled: boolean) {
+  const level = navigatorManagementLevel.value;
+  const record = navigatorManagementDetail.draft.value;
+  const id = record?.id == null ? undefined : String(record.id);
+  const version = typeof record?.version === 'number' ? record.version : undefined;
+  if (!level || !record || !id || version === undefined || navigatorManagementEnabledDisabled.value) return;
+
+  const session = navigatorManagementSession;
+  const pendingDraft = { ...record };
+  navigatorManagementTogglingEnabled.value = true;
+  try {
+    const result = enabled
+      ? await level.context.crud.enable(id, { version })
+      : await level.context.crud.disable(id, { version });
+    level.context.invalidateRecordActions?.([id]);
+    const refreshed = await level.context.crud.view(id);
+    await level.context.recordActions(id).catch(() => undefined);
+    if (session !== navigatorManagementSession || navigatorManagementLevel.value !== level) return;
+    // Enabling is an independent, versioned mutation. Keep unsaved editor
+    // fields intact while accepting the authoritative enabled/version values.
+    navigatorManagementDetail.record.value = refreshed;
+    navigatorManagementDetail.draft.value = {
+      ...refreshed,
+      ...pendingDraft,
+      enabled: refreshed.enabled,
+      version: refreshed.version,
+    };
+    navigatorManagementDetail.formSessionKey.value += 1;
+    scopeReloadKey.value += 1;
+    await presentDynamicModuleActionSuccess(result, enabled ? '已启用' : '已停用');
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'navigator-management', phase: 'action' });
+  } finally {
+    if (session === navigatorManagementSession) navigatorManagementTogglingEnabled.value = false;
   }
 }
 
@@ -1195,15 +1321,24 @@ async function editNavigatorRecord(level: NavigatorLevelRuntime, record: Navigat
     level.context.can('update') !== true
   )
     return;
+  const session = ++navigatorManagementSession;
+  navigatorManagementTogglingEnabled.value = false;
   navigatorManagementLevel.value = level;
   navigatorManagementDetail.beginLoad(record as QueryListRecord, 'edit');
   try {
     const loaded = await level.context.crud.view(id);
-    navigatorManagementDetail.resolveLoad(loaded);
+    await level.context.recordActions(id).catch(() => undefined);
+    if (session === navigatorManagementSession && navigatorManagementLevel.value === level) {
+      navigatorManagementDetail.resolveLoad(loaded);
+    }
   } catch {
-    navigatorManagementDetail.failLoad();
+    if (session === navigatorManagementSession && navigatorManagementLevel.value === level) {
+      navigatorManagementDetail.failLoad();
+    }
   } finally {
-    navigatorManagementDetail.finishLoad();
+    if (session === navigatorManagementSession && navigatorManagementLevel.value === level) {
+      navigatorManagementDetail.finishLoad();
+    }
   }
 }
 
@@ -1238,8 +1373,7 @@ async function saveNavigatorRecord() {
     await presentDynamicModuleActionSuccess(result, '保存成功');
     // This is an in-panel, single-record editing session. Once persistence succeeds,
     // returning to the navigator keeps the workspace focused and avoids stale drafts.
-    navigatorManagementDetail.close();
-    navigatorManagementLevel.value = undefined;
+    closeNavigatorManagementEditor();
   } catch (cause) {
     presentPlatformError(cause, { source: 'navigator-management', phase: 'action' });
   } finally {
@@ -1281,6 +1415,7 @@ async function deleteNavigatorRecord(level: NavigatorLevelRuntime, record: Navig
 
 /** A scope selection immediately constrains the list; its former detail may no longer be in range. */
 function clearSelectionForScopeChange() {
+  closeNavigatorManagementEditor();
   detailLoadSequence += 1;
   detailLoading.value = false;
   detailLoadFailed.value = false;
@@ -1289,6 +1424,13 @@ function clearSelectionForScopeChange() {
   selectedRecord.value = undefined;
   editingRecord.value = undefined;
   selectedTreeRecord.value = undefined;
+}
+
+function closeNavigatorManagementEditor() {
+  navigatorManagementSession += 1;
+  navigatorManagementTogglingEnabled.value = false;
+  navigatorManagementDetail.close();
+  navigatorManagementLevel.value = undefined;
 }
 
 function selectTreeRecord(record: unknown) {
@@ -1949,7 +2091,11 @@ function recordTitle(record: QueryListRecord | undefined) {
               :context="visibleNavigatorLevels[index].context"
               action-code="create"
               icon-only
-              :title="`新建${visibleNavigatorLevels[index].descriptor.title}`"
+              :disabled="!navigatorManagementScopeReady(visibleNavigatorLevels[index])"
+              :title="
+                navigatorManagementScopeDisabledReason(visibleNavigatorLevels[index]) ??
+                `新建${visibleNavigatorLevels[index].descriptor.title}`
+              "
               @click="createNavigatorRecord(visibleNavigatorLevels[index])"
             />
           </template>
@@ -1999,54 +2145,30 @@ function recordTitle(record: QueryListRecord | undefined) {
             "
           />
           <template #editor>
-            <Transition name="navigator-management-drawer">
-              <section
-                v-if="
-                  navigatorManagementLevel?.descriptor.key === visibleNavigatorLevels[index].descriptor.key &&
-                  navigatorManagementDetail.open.value
-                "
-                class="navigator-management-panel"
-              >
-                <header class="navigator-management-header">
-                  <h3>{{ navigatorManagementTitle }}</h3>
-                  <div class="navigator-management-actions">
-                    <RecordPanelButton
-                      :disabled="navigatorManagementDetail.saving.value"
-                      @click="navigatorManagementDetail.close()"
-                    >
-                      取消
-                    </RecordPanelButton>
-                    <RecordPanelButton
-                      type="primary"
-                      :loading="navigatorManagementDetail.saving.value"
-                      @click="saveNavigatorRecord"
-                    >
-                      保存
-                    </RecordPanelButton>
-                  </div>
-                </header>
-                <RecordPanelState
-                  v-if="navigatorManagementDetail.loading.value"
-                  loading
-                  loading-tip="加载记录详情"
-                  description=""
-                />
-                <RecordPanelState
-                  v-else-if="navigatorManagementDetail.loadFailed.value"
-                  description="详情加载失败"
-                />
-                <RecordFormFields
-                  v-else-if="navigatorManagementDetail.draft.value"
-                  :record="navigatorManagementDetail.draft.value as RecordFormRecord"
-                  :fields="navigatorManagementFormFields"
-                  :form-session-key="navigatorManagementDetail.formSessionKey.value"
-                  :option-context="visibleNavigatorLevels[index].context"
-                  :picker-configs="navigatorManagementPickerConfigs"
-                  :exclude-field-names="['enabled']"
-                  @update:field="updateNavigatorManagementDraft"
-                />
-              </section>
-            </Transition>
+            <NavigatorManagementEditor
+              :open="
+                navigatorManagementLevel?.descriptor.key === visibleNavigatorLevels[index].descriptor.key &&
+                navigatorManagementDetail.open.value
+              "
+              :title="navigatorManagementTitle"
+              :saving="navigatorManagementDetail.saving.value"
+              :loading="navigatorManagementDetail.loading.value"
+              :load-failed="navigatorManagementDetail.loadFailed.value"
+              :draft="navigatorManagementDetail.draft.value as RecordFormRecord"
+              :fields="navigatorManagementFormFields"
+              :form-session-key="navigatorManagementDetail.formSessionKey.value"
+              :context="visibleNavigatorLevels[index].context"
+              :picker-configs="navigatorManagementPickerConfigs"
+              :show-enabled="navigatorManagementEnabledVisible"
+              :enabled="navigatorManagementDetail.draft.value?.enabled !== false"
+              :enabled-disabled="navigatorManagementEnabledDisabled"
+              :enabled-disabled-reason="navigatorManagementEnabledDisabledReason"
+              :enabled-loading="navigatorManagementTogglingEnabled"
+              @close="closeNavigatorManagementEditor"
+              @save="saveNavigatorRecord"
+              @toggle-enabled="toggleNavigatorManagementEnabled"
+              @update-field="updateNavigatorManagementDraft"
+            />
           </template>
         </RecordExplorerPanel>
       </template>
@@ -2222,7 +2344,8 @@ function recordTitle(record: QueryListRecord | undefined) {
               :context="level.context"
               action-code="create"
               icon-only
-              :title="`新建${level.descriptor.title}`"
+              :disabled="!navigatorManagementScopeReady(level)"
+              :title="navigatorManagementScopeDisabledReason(level) ?? `新建${level.descriptor.title}`"
               @click="createNavigatorRecord(level)"
             />
           </template>
@@ -2264,54 +2387,30 @@ function recordTitle(record: QueryListRecord | undefined) {
             @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
           />
           <template #editor>
-            <Transition name="navigator-management-drawer">
-              <section
-                v-if="
-                  navigatorManagementLevel?.descriptor.key === level.descriptor.key &&
-                  navigatorManagementDetail.open.value
-                "
-                class="navigator-management-panel"
-              >
-                <header class="navigator-management-header">
-                  <h3>{{ navigatorManagementTitle }}</h3>
-                  <div class="navigator-management-actions">
-                    <RecordPanelButton
-                      :disabled="navigatorManagementDetail.saving.value"
-                      @click="navigatorManagementDetail.close()"
-                    >
-                      取消
-                    </RecordPanelButton>
-                    <RecordPanelButton
-                      type="primary"
-                      :loading="navigatorManagementDetail.saving.value"
-                      @click="saveNavigatorRecord"
-                    >
-                      保存
-                    </RecordPanelButton>
-                  </div>
-                </header>
-                <RecordPanelState
-                  v-if="navigatorManagementDetail.loading.value"
-                  loading
-                  loading-tip="加载记录详情"
-                  description=""
-                />
-                <RecordPanelState
-                  v-else-if="navigatorManagementDetail.loadFailed.value"
-                  description="详情加载失败"
-                />
-                <RecordFormFields
-                  v-else-if="navigatorManagementDetail.draft.value"
-                  :record="navigatorManagementDetail.draft.value as RecordFormRecord"
-                  :fields="navigatorManagementFormFields"
-                  :form-session-key="navigatorManagementDetail.formSessionKey.value"
-                  :option-context="level.context"
-                  :picker-configs="navigatorManagementPickerConfigs"
-                  :exclude-field-names="['enabled']"
-                  @update:field="updateNavigatorManagementDraft"
-                />
-              </section>
-            </Transition>
+            <NavigatorManagementEditor
+              :open="
+                navigatorManagementLevel?.descriptor.key === level.descriptor.key &&
+                navigatorManagementDetail.open.value
+              "
+              :title="navigatorManagementTitle"
+              :saving="navigatorManagementDetail.saving.value"
+              :loading="navigatorManagementDetail.loading.value"
+              :load-failed="navigatorManagementDetail.loadFailed.value"
+              :draft="navigatorManagementDetail.draft.value as RecordFormRecord"
+              :fields="navigatorManagementFormFields"
+              :form-session-key="navigatorManagementDetail.formSessionKey.value"
+              :context="level.context"
+              :picker-configs="navigatorManagementPickerConfigs"
+              :show-enabled="navigatorManagementEnabledVisible"
+              :enabled="navigatorManagementDetail.draft.value?.enabled !== false"
+              :enabled-disabled="navigatorManagementEnabledDisabled"
+              :enabled-disabled-reason="navigatorManagementEnabledDisabledReason"
+              :enabled-loading="navigatorManagementTogglingEnabled"
+              @close="closeNavigatorManagementEditor"
+              @save="saveNavigatorRecord"
+              @toggle-enabled="toggleNavigatorManagementEnabled"
+              @update-field="updateNavigatorManagementDraft"
+            />
           </template>
         </RecordExplorerPanel>
       </ManagementExplorerColumn>
@@ -2333,7 +2432,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         :ui-config-id="listUiConfigId"
         :query-template-id="listQueryTemplateId"
         :page-size="listPageSize"
-        :ready="pageReady"
+        :ready="pageReady && navigatorListScopeReady"
         :external-query-values="navigatorListQueryValues"
         :required-external-criteria-keys="navigatorListCriteriaKeys"
         :mode="listMode"
@@ -2496,6 +2595,8 @@ function recordTitle(record: QueryListRecord | undefined) {
           :reload-key="scopeReloadKey"
           :keyword="scopeSearchKeyword"
           :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
+          :create-disabled="!navigatorManagementScopeReady(level)"
+          :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
           :actions-of="(record) => navigatorInlineActions(level, record)"
           @update:keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
@@ -2520,8 +2621,14 @@ function recordTitle(record: QueryListRecord | undefined) {
               :form-session-key="navigatorManagementDetail.formSessionKey.value"
               :context="level.context"
               :picker-configs="navigatorManagementPickerConfigs"
-              @close="navigatorManagementDetail.close()"
+              :show-enabled="navigatorManagementEnabledVisible"
+              :enabled="navigatorManagementDetail.draft.value?.enabled !== false"
+              :enabled-disabled="navigatorManagementEnabledDisabled"
+              :enabled-disabled-reason="navigatorManagementEnabledDisabledReason"
+              :enabled-loading="navigatorManagementTogglingEnabled"
+              @close="closeNavigatorManagementEditor"
               @save="saveNavigatorRecord"
+              @toggle-enabled="toggleNavigatorManagementEnabled"
               @update-field="updateNavigatorManagementDraft"
             />
           </template>
@@ -2736,7 +2843,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       :ui-config-id="listUiConfigId"
       :query-template-id="listQueryTemplateId"
       :page-size="listPageSize"
-      :ready="pageReady"
+      :ready="pageReady && navigatorListScopeReady"
       :mode="listMode"
       quick-search-placeholder="搜索动态记录"
       empty-description="暂无动态记录"
@@ -3027,67 +3134,6 @@ function recordTitle(record: QueryListRecord | undefined) {
 
 .dynamic-card-assistant {
   min-width: 0;
-}
-
-.navigator-management-panel {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 3;
-  display: grid;
-  align-content: start;
-  gap: 12px;
-  max-height: min(420px, 62%);
-  min-height: 0;
-  padding: 12px;
-  border: 1px solid var(--muyun-border);
-  border-radius: 8px 8px 0 0;
-  background: var(--muyun-surface);
-  box-shadow:
-    0 -1px 0 rgb(15 23 42 / 4%),
-    0 -12px 28px rgb(15 23 42 / 12%);
-  overflow: auto;
-}
-
-.navigator-management-header,
-.navigator-management-actions {
-  display: flex;
-  align-items: center;
-}
-
-.navigator-management-header {
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.navigator-management-header h3 {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--muyun-text);
-  font-size: 14px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.navigator-management-actions {
-  flex: 0 0 auto;
-  gap: 8px;
-}
-
-.navigator-management-drawer-enter-active,
-.navigator-management-drawer-leave-active {
-  transition:
-    transform 0.18s ease,
-    opacity 0.18s ease;
-}
-
-.navigator-management-drawer-enter-from,
-.navigator-management-drawer-leave-to {
-  opacity: 0;
-  transform: translateY(100%);
 }
 
 .dynamic-module-unsupported {

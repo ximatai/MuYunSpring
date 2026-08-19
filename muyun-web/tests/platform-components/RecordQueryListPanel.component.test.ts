@@ -83,6 +83,51 @@ describe('RecordQueryListPanel', () => {
     expect(requests.at(-1)?.externalQueryValues).toEqual({ tenantId: 'tenant-b' });
   });
 
+  it('loads the signed list projection when a required navigator scope becomes ready', async () => {
+    const requests: WebQueryRequest[] = [];
+    const context = createContext({ id: 'position-1', code: '001', title: 'Java' }, requests);
+    Object.assign(context.runtime, {
+      ready: Promise.resolve({
+        uiDescriptor: {
+          page: {
+            list: {
+              fields: {
+                fields: [
+                  { fieldRef: { fieldName: 'code' }, label: '岗位编码', visible: { constant: true } },
+                  { fieldRef: { fieldName: 'title' }, label: '岗位名称', visible: { constant: true } },
+                ],
+              },
+            },
+          },
+        },
+      }),
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '岗位管理',
+        ready: false,
+        externalQueryValues: { categoryId: 'category-1' },
+      },
+      global: {
+        stubs: { UiDataTable: { name: 'UiDataTable', props: ['columns'], template: '<div />' } },
+      },
+    });
+
+    await flushPromises();
+    expect(requests).toHaveLength(0);
+
+    await wrapper.setProps({ ready: true });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+
+    expect(wrapper.findComponent({ name: 'UiDataTable' }).props('columns')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'code', title: '岗位编码' }),
+        expect.objectContaining({ key: 'title', title: '岗位名称' }),
+      ]),
+    );
+  });
+
   it('does not render standard mutation actions that the module does not publish', async () => {
     const wrapper = shallowMount(RecordQueryListPanel, {
       props: {

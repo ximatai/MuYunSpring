@@ -25,20 +25,13 @@ interface PasswordPolicyPreviewRuleResult {
   diagnostic?: string;
 }
 
-/** Mirrors the service's fail-safe rule when no enabled global policy remains. */
-const DEFAULT_MIN_LENGTH_RULE: Readonly<PasswordPolicyRuleSnapshot> = Object.freeze({
-  id: 'default:min-length',
-  title: '密码长度',
-  pattern: '^.{6,}$',
-  message: '密码长度不能少于 6 位',
-  enabled: true,
-  scopeType: 'global',
-  sortOrder: 10,
-});
-
 const props = defineProps<{ context: ModulePageCardAssistantContext }>();
 const scope = ref<PreviewScope>('CURRENT');
 const password = ref('');
+const authoritativeAllRules = ref<readonly PasswordPolicyRuleSnapshot[]>();
+const allRulesLoadFailed = ref(false);
+const allRulesLoading = ref(false);
+let allRulesRequestVersion = 0;
 
 const currentRule = computed(() => asRule(props.context.record));
 const hasCurrentRule = computed(
@@ -65,14 +58,43 @@ function updateScope(next: string) {
   if (next === 'CURRENT' || next === 'ALL') scope.value = next;
 }
 
+// The all-rules snapshot deliberately belongs to the IAM preview, rather than
+// the general card-assistant context: a generic explorer may be paged, scoped
+// or showing recycle-bin data and therefore cannot authoritatively define this
+// security policy. No request is made while a user types a trial password.
+watch(
+  [scope, () => props.context.formSessionKey],
+  ([nextScope]) => {
+    if (nextScope === 'ALL') void loadAuthoritativeAllRules();
+  },
+  { immediate: true },
+);
+
+async function loadAuthoritativeAllRules() {
+  const requestVersion = ++allRulesRequestVersion;
+  allRulesLoading.value = true;
+  allRulesLoadFailed.value = false;
+  authoritativeAllRules.value = undefined;
+  try {
+    const rules = await props.context.module.http.request<PasswordPolicyRuleSnapshot[]>({
+      path: '/iam.password_policy_rule/active-global-rules',
+    });
+    if (requestVersion !== allRulesRequestVersion) return;
+    authoritativeAllRules.value = Object.freeze(rules.map((rule) => Object.freeze({ ...rule })));
+  } catch {
+    if (requestVersion !== allRulesRequestVersion) return;
+    allRulesLoadFailed.value = true;
+  } finally {
+    if (requestVersion === allRulesRequestVersion) allRulesLoading.value = false;
+  }
+}
+
 const previewRules = computed(() => {
   const current = hasCurrentRule.value ? currentRule.value : undefined;
   if (scope.value === 'CURRENT') return current ? [current] : [];
 
-  const rules = props.context.loadedRecords
-    .map(asRule)
-    .filter((rule): rule is PasswordPolicyRuleSnapshot => rule !== undefined)
-    .filter(participatesInAllRules);
+  if (!authoritativeAllRules.value) return [];
+  const rules = authoritativeAllRules.value.filter(participatesInAllRules);
   const currentId = normalizedId(current?.id);
   if (currentId) {
     const index = rules.findIndex((rule) => normalizedId(rule.id) === currentId);
@@ -81,7 +103,7 @@ const previewRules = computed(() => {
   if (current && participatesInAllRules(current)) {
     rules.push(current);
   }
-  return rules.length > 0 ? rules.sort(compareRules) : [DEFAULT_MIN_LENGTH_RULE];
+  return rules.length > 0 ? rules.sort(compareRules) : [];
 });
 
 const results = computed<PasswordPolicyPreviewRuleResult[]>(() => {
@@ -91,6 +113,8 @@ const results = computed<PasswordPolicyPreviewRuleResult[]>(() => {
 
 const summary = computed(() => {
   if (!hasCurrentRule.value && scope.value === 'CURRENT') return '请选择或新建一条规则';
+  if (scope.value === 'ALL' && allRulesLoading.value) return '正在加载权威规则集';
+  if (scope.value === 'ALL' && allRulesLoadFailed.value) return '无法加载权威规则集';
   if (!password.value) return '输入测试密码后即时反馈';
   if (results.value.length === 0) return '当前没有参与试算的启用规则';
   const failed = results.value.filter((item) => !item.passed).length;
