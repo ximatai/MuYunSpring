@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleRegistrationSource;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceCompiler;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
 import net.ximatai.muyun.spring.platform.module.StaticServiceAbilityCompiler;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.platform.module.StaticModuleServiceDeclaration;
 import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.spring.web.EnableWeb;
@@ -702,8 +703,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addPlatform(actions, PlatformAction.SORT);
         }
         if (EnableWeb.class.isAssignableFrom(beanClass)) {
-            addPlatform(actions, PlatformAction.ENABLE);
-            addPlatform(actions, PlatformAction.DISABLE);
+            CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.ENABLE).orElseThrow()
+                    .standardActions().forEach(action -> addPlatform(actions, action));
         }
         if (RecycleBinWeb.class.isAssignableFrom(beanClass)) {
             addPlatform(actions, PlatformAction.RECYCLE_BIN_QUERY);
@@ -740,8 +741,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 addContributionPlatform(actions, contribution, PlatformAction.SORT);
             }
             if (EnableWeb.class.isAssignableFrom(beanClass)) {
-                addContributionPlatform(actions, contribution, PlatformAction.ENABLE);
-                addContributionPlatform(actions, contribution, PlatformAction.DISABLE);
+                CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.ENABLE).orElseThrow()
+                        .standardActions().forEach(action -> addContributionPlatform(actions, contribution, action));
             }
             if (RecycleBinWeb.class.isAssignableFrom(beanClass)) {
                 addContributionPlatform(actions, contribution, PlatformAction.RECYCLE_BIN_QUERY);

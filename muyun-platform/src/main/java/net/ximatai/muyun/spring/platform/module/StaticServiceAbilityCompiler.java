@@ -4,7 +4,6 @@ import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
-import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.PlatformOperation;
 import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
@@ -16,6 +15,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import org.springframework.aop.support.AopUtils;
 
 import java.lang.reflect.Method;
@@ -59,7 +59,10 @@ public final class StaticServiceAbilityCompiler {
         }
         if (service instanceof ReferenceAbility<?>) capabilities.add(EntityCapability.REFERENCE);
         if (service instanceof ReferencerAbility<?>) capabilities.add(EntityCapability.REFERENCE_DEPENDENCY);
-        if (service instanceof EnableAbility<?>) capabilities.add(EntityCapability.ENABLE);
+        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.ENABLE,
+                net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityModule.class).isEnabledOnStaticService(service)) {
+            capabilities.add(EntityCapability.ENABLE);
+        }
         if (service instanceof DataScopeAbility<?>) capabilities.add(EntityCapability.DATA_SCOPE);
         if (service instanceof RecycleBinAbility<?>) capabilities.add(EntityCapability.RECYCLE_BIN);
         if (service instanceof ChildrenAbility<?>) capabilities.add(EntityCapability.CHILD_RELATION);
@@ -80,14 +83,11 @@ public final class StaticServiceAbilityCompiler {
         } else if (service instanceof SortAbility<?>) {
             operations.add(operation("sort", "sort", PlatformAction.SORT));
         }
-        if (service instanceof EnableAbility<?>) {
-            Set<PlatformAction> directOperations = operationMethods(service).keySet();
-            if (directOperations.contains(PlatformAction.ENABLE)) {
-                operations.add(operation("enable", "enable", PlatformAction.ENABLE));
-            }
-            if (directOperations.contains(PlatformAction.DISABLE)) {
-                operations.add(operation("enable", "disable", PlatformAction.DISABLE));
-            }
+        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.ENABLE,
+                net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityModule.class).isEnabledOnStaticService(service)) {
+            operations.addAll(CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.ENABLE,
+                            net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityModule.class).actions()
+                    .staticOperations(operationMethods(service)));
         }
         if (service instanceof RecycleBinAbility<?> recycleBinAbility) {
             operations.add(operation("recycleBin", "query", PlatformAction.RECYCLE_BIN_QUERY));

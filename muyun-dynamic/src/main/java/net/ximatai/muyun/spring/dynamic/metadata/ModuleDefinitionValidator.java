@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.common.schema.PlatformDataScopeSchema;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.web.PlatformWebPathRules;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 
 import java.util.Optional;
 import java.util.HashSet;
@@ -160,9 +161,7 @@ public class ModuleDefinitionValidator {
         if (entity.supports(EntityCapability.REFERENCE)) {
             requireTitleField(entity, titleField);
         }
-        if (entity.supports(EntityCapability.ENABLE)) {
-            requireEnabledField(entity, enabledField);
-        }
+        CapabilityModuleRegistry.defaultRegistry().validate(entity);
         FieldCompanionRules.validateEntity(entity);
         validateFormulaRules(entity);
     }
@@ -1347,17 +1346,6 @@ public class ModuleDefinitionValidator {
                 || !PlatformAbilityFields.TITLE_COLUMN.equals(field.columnName())
                 || field.type() != FieldType.STRING) {
             throw new ModuleDefinitionException("REFERENCE capability requires standard field title/title: " + entity.alias());
-        }
-    }
-
-    private void requireEnabledField(EntityDefinition entity, FieldDefinition field) {
-        if (field == null) {
-            throw new ModuleDefinitionException("ENABLE capability requires standard field enabled: " + entity.alias());
-        }
-        if (!PlatformAbilityFields.ENABLED_FIELD.equals(field.fieldName())
-                || !PlatformAbilityFields.ENABLED_COLUMN.equals(field.columnName())
-                || field.type() != FieldType.BOOLEAN) {
-            throw new ModuleDefinitionException("ENABLE capability requires standard field enabled/enabled: " + entity.alias());
         }
     }
 

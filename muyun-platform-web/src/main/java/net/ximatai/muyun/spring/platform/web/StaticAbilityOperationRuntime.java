@@ -22,6 +22,7 @@ import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.model.title.RecordLabelResolver;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.platform.deletion.PurgeReport;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinActionOutcome;
@@ -42,6 +43,7 @@ import java.util.Set;
 /** Executes standard static ability operations independently from Spring MVC handler methods. */
 public final class StaticAbilityOperationRuntime {
     private final ObjectProvider<RecycleBinFacade> recycleBinFacade;
+    private final StaticCapabilityActionRuntimeAdapter capabilityActionAdapter = new StaticCapabilityActionRuntimeAdapter();
 
     public StaticAbilityOperationRuntime(ObjectProvider<RecycleBinFacade> recycleBinFacade) {
         this.recycleBinFacade = recycleBinFacade;
@@ -54,9 +56,13 @@ public final class StaticAbilityOperationRuntime {
                     + endpoint.definition().endpointId());
         }
         OperationScope scope = new OperationScope(target);
-        return switch (endpoint.definition().action()) {
-            case ENABLE -> enable(scope, request, pathVariable(request, "id"), (RecordActionWebRequest) body);
-            case DISABLE -> disable(scope, request, pathVariable(request, "id"), (RecordActionWebRequest) body);
+        PlatformAction action = endpoint.definition().action();
+        var capabilityAction = CapabilityModuleRegistry.defaultRegistry().actionOwner(action);
+        if (capabilityAction.isPresent()) {
+            return capabilityActionAdapter.execute(capabilityAction.get(), scope, request, action, pathVariable(request, "id"),
+                    (RecordActionWebRequest) body);
+        }
+        return switch (action) {
             case SORT -> target.service() instanceof TreeAbility<?>
                     ? sortTree(scope, request, pathVariable(request, "id"), (TreeSortWebRequest) body)
                     : sort(scope, request, pathVariable(request, "id"), (SortWebRequest) body);
@@ -69,38 +75,6 @@ public final class StaticAbilityOperationRuntime {
             default -> throw new IllegalStateException("unsupported compiled static operation: "
                     + endpoint.definition().action());
         };
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private int enable(OperationScope scope,
-                       HttpServletRequest httpRequest,
-                       String id,
-                       RecordActionWebRequest request) {
-        EnableAbility ability = requireService(scope, EnableAbility.class);
-        RecordActionWebRequest normalized = request == null ? new RecordActionWebRequest(null) : request;
-        return MutationTenantScopeExecutor.forExistingRecord(scope, id, () -> scope.webScope(() -> {
-            requireProjectionRecord(scope, httpRequest, PlatformAction.ENABLE, id);
-            StaticStandardMutationSupport.requireDataScopeRecord((ScopedWeb) scope, PlatformAction.ENABLE, id);
-            EntityContract existing = (EntityContract) ability.select(id);
-            return StandardMutationResultSupport.enabled(scope, id, recordLabel(existing, ability),
-                    () -> ability.enable(id, normalized.version()));
-        }));
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private int disable(OperationScope scope,
-                        HttpServletRequest httpRequest,
-                        String id,
-                        RecordActionWebRequest request) {
-        EnableAbility ability = requireService(scope, EnableAbility.class);
-        RecordActionWebRequest normalized = request == null ? new RecordActionWebRequest(null) : request;
-        return MutationTenantScopeExecutor.forExistingRecord(scope, id, () -> scope.webScope(() -> {
-            requireProjectionRecord(scope, httpRequest, PlatformAction.DISABLE, id);
-            StaticStandardMutationSupport.requireDataScopeRecord((ScopedWeb) scope, PlatformAction.DISABLE, id);
-            EntityContract existing = (EntityContract) ability.select(id);
-            return StandardMutationResultSupport.disabled(scope, id, recordLabel(existing, ability),
-                    () -> ability.disable(id, normalized.version()));
-        }));
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -495,6 +469,57 @@ public final class StaticAbilityOperationRuntime {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    /** Static source adapter registry; each capability owns its own service contract here. */
+    private final class StaticCapabilityActionRuntimeAdapter {
+        private final List<Handler> handlers = List.of(new EnableHandler());
+
+        int execute(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution,
+                    OperationScope scope,
+                    HttpServletRequest request,
+                    PlatformAction action,
+                    String id,
+                    RecordActionWebRequest body) {
+            return handlers.stream().filter(handler -> handler.supports(contribution)).findFirst()
+                    .orElseThrow(() -> new IllegalStateException("no static runtime adapter for capability action: "
+                            + action.code()))
+                    .execute(scope, request, action, id, body);
+        }
+
+        private interface Handler {
+            boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution);
+
+            int execute(OperationScope scope, HttpServletRequest request, PlatformAction action, String id,
+                        RecordActionWebRequest body);
+        }
+
+        private final class EnableHandler implements Handler {
+            @Override
+            public boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution) {
+                return contribution instanceof net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityActionFacet;
+            }
+
+            @Override
+            @SuppressWarnings({"rawtypes", "unchecked"})
+            public int execute(OperationScope scope, HttpServletRequest httpRequest, PlatformAction action, String id,
+                               RecordActionWebRequest request) {
+                EnableAbility ability = requireService(scope, EnableAbility.class);
+                RecordActionWebRequest normalized = request == null ? new RecordActionWebRequest(null) : request;
+                return MutationTenantScopeExecutor.forExistingRecord(scope, id, () -> scope.webScope(() -> {
+                    requireProjectionRecord(scope, httpRequest, action, id);
+                    StaticStandardMutationSupport.requireDataScopeRecord((ScopedWeb) scope, action, id);
+                    EntityContract existing = (EntityContract) ability.select(id);
+                    return switch (action) {
+                        case ENABLE -> StandardMutationResultSupport.enabled(scope, id, recordLabel(existing, ability),
+                                () -> ability.enable(id, normalized.version()));
+                        case DISABLE -> StandardMutationResultSupport.disabled(scope, id, recordLabel(existing, ability),
+                                () -> ability.disable(id, normalized.version()));
+                        default -> throw new IllegalArgumentException("ENABLE static adapter does not own: " + action.code());
+                    };
+                }));
+            }
+        }
     }
 
     private static final class OperationScope implements ScopedWeb<Object>, MutationTenantScopeResolver<EntityContract> {

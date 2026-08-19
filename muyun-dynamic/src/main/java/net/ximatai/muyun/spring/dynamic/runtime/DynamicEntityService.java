@@ -48,6 +48,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityStandardActionCatalog;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 
 import java.util.Collection;
 import java.util.ArrayList;
@@ -372,8 +373,10 @@ public class DynamicEntityService implements
                 && (record.parentId() == null || record.parentId().isBlank())) {
             record.parentId(DynamicTreeRuntime.ROOT_ID);
         }
-        if (dao.getEntity().supports(EntityCapability.ENABLE) && record.enabled() == null) {
-            record.enabled(Boolean.TRUE);
+        if (dao.getEntity().supports(EntityCapability.ENABLE)) {
+            CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.ENABLE,
+                            net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityModule.class).definition()
+                    .applyCreateDefault(record.enabled(), record::enabled);
         }
         if (dao.getEntity().supports(EntityCapability.SORT) && record.sortOrder() == null) {
             record.sortOrder(nextSortOrder(record));

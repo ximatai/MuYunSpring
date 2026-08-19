@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
@@ -980,12 +981,16 @@ public class PlatformModuleRuntimeContextService {
 
     private void inferCapabilities(EnumSet<EntityCapability> capabilities, String actionCode) {
         PlatformAction.fromCode(actionCode).ifPresent(action -> {
+            if (CapabilityModuleRegistry.defaultRegistry().actionOwner(action)
+                    .map(contribution -> capabilities.add(contribution.capability()))
+                    .orElse(false)) {
+                return;
+            }
             switch (action) {
                 case CREATE, VIEW, UPDATE, DELETE, BATCH_DELETE, QUERY -> capabilities.add(EntityCapability.CRUD);
                 case TREE -> capabilities.add(EntityCapability.TREE);
                 case SORT -> capabilities.add(EntityCapability.SORT);
                 case REFERENCE -> capabilities.add(EntityCapability.REFERENCE);
-                case ENABLE, DISABLE -> capabilities.add(EntityCapability.ENABLE);
                 case RECYCLE_BIN_QUERY, RECYCLE_BIN_RESTORE, RECYCLE_BIN_PURGE ->
                         capabilities.add(EntityCapability.RECYCLE_BIN);
                 case IMPORT, EXPORT -> capabilities.add(EntityCapability.EXCHANGE);

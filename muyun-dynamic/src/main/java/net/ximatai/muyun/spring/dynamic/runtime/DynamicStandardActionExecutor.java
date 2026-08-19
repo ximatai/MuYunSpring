@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 
 final class DynamicStandardActionExecutor {
     private final DynamicRecordService service;
@@ -24,6 +25,11 @@ final class DynamicStandardActionExecutor {
         PlatformAction action = PlatformAction.fromCode(actionCode)
                 .orElseThrow(() -> new IllegalArgumentException("unknown standard dynamic action: "
                         + moduleAlias + "." + entityAlias + "." + actionCode));
+        var capabilityAction = CapabilityModuleRegistry.defaultRegistry().actionOwner(action);
+        if (capabilityAction.isPresent()) {
+            return countResult(DynamicCapabilityActionRuntimeAdapter.execute(capabilityAction.get(), action,
+                    service, moduleAlias, entityAlias, requireRecordId(request, actionCode), traceId));
+        }
         return switch (action) {
             case CREATE -> DynamicActionResultBody.createdRecordId(
                     service.createFromAction(moduleAlias, entityAlias, requireRecord(request, actionCode), traceId));
@@ -50,8 +56,7 @@ final class DynamicStandardActionExecutor {
             case MENU, TREE, REFERENCE, IMPORT, EXPORT,
                     RECYCLE_BIN_QUERY, RECYCLE_BIN_RESTORE, RECYCLE_BIN_PURGE -> throw new IllegalArgumentException(
                     "standard action is only exposed through web endpoint: " + actionCode);
-            case ENABLE -> countResult(service.enableFromAction(moduleAlias, entityAlias, requireRecordId(request, actionCode), traceId));
-            case DISABLE -> countResult(service.disableFromAction(moduleAlias, entityAlias, requireRecordId(request, actionCode), traceId));
+            default -> throw new IllegalStateException("registered capability action was not dispatched: " + actionCode);
         };
     }
 

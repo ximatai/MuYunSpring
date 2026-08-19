@@ -278,6 +278,7 @@ class StaticAbilityWebEndpointRegistrarTest {
     void shouldServeGeneratedEndpointThroughRealSpringMvcHandlerPipeline() throws Exception {
         EnableAbility<?> service = mock(EnableAbility.class);
         when(service.enable("record-1", 3)).thenReturn(1);
+        when(service.disable("record-1", 4)).thenReturn(2);
         try (AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext()) {
             context.setServletContext(new MockServletContext());
             context.register(MvcConfiguration.class);
@@ -291,12 +292,18 @@ class StaticAbilityWebEndpointRegistrarTest {
                     context.getBeanProvider(net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade.class)
             ).afterSingletonsInstantiated();
 
-            MockMvcBuilders.webAppContextSetup(context).build()
+            var mvc = MockMvcBuilders.webAppContextSetup(context).build();
+            mvc
                     .perform(post("/demo.resource/enable/record-1")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"version\":3}"))
                     .andExpect(status().isOk())
                     .andExpect(content().json("1"));
+            mvc.perform(post("/demo.resource/disable/record-1")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"version\":4}"))
+                    .andExpect(status().isOk())
+                    .andExpect(content().json("2"));
         }
     }
 
