@@ -4,12 +4,10 @@ import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 
 import net.ximatai.muyun.spring.web.SystemScope;
 import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
-import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.platform.application.Application;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.beans.factory.annotation.Autowired;
 
 
 @RestController
@@ -18,28 +16,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.MODELING, title = "应用管理", order = 10)
 @RequestMapping("/platform.application")
-public class ApplicationWebController extends WebSupport<ApplicationService> implements
+public class ApplicationWebController extends StaticModuleWebControllerAdapter<ApplicationService> implements
         CrudWeb<Application, ApplicationService>,
         SystemScope<ApplicationService>,
         NavigatorReferenceWeb<Application, ApplicationService>,
         StaticModuleUiContributor {
-    private StandardModuleWebRuntime standardModuleWebRuntime;
-
-    @Autowired(required = false)
-    void setStandardModuleWebRuntime(StandardModuleWebRuntime standardModuleWebRuntime) {
-        this.standardModuleWebRuntime = standardModuleWebRuntime;
-    }
-
-    @Override
-    public StandardModuleWebRuntime standardModuleWebRuntime() {
-        return standardModuleWebRuntime;
-    }
-
-    @Override
-    public boolean requiresModuleExecutionPlan() {
-        return true;
-    }
-
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(ApplicationService.MODULE_ALIAS)

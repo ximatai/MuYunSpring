@@ -10,10 +10,9 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
-import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
+import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
-import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.iam.position.Position;
 import net.ximatai.muyun.spring.iam.position.PositionCategory;
 import net.ximatai.muyun.spring.iam.position.PositionCategoryService;
@@ -31,32 +30,16 @@ import java.util.Optional;
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, title = "岗位管理", order = 40)
 @RequestMapping("/iam.position")
-public class PositionWebController extends WebSupport<PositionService> implements
+public class PositionWebController extends StaticModuleWebControllerAdapter<PositionService> implements
         CrudWeb<Position, PositionService>,
         MutationTenantScopeResolver<Position>,
         StaticModuleUiContributor {
 
     private PositionCategoryService positionCategoryService;
-    private StandardModuleWebRuntime standardModuleWebRuntime;
 
     @Autowired
     void setPositionCategoryService(PositionCategoryService positionCategoryService) {
         this.positionCategoryService = positionCategoryService;
-    }
-
-    @Autowired(required = false)
-    void setStandardModuleWebRuntime(StandardModuleWebRuntime standardModuleWebRuntime) {
-        this.standardModuleWebRuntime = standardModuleWebRuntime;
-    }
-
-    @Override
-    public StandardModuleWebRuntime standardModuleWebRuntime() {
-        return standardModuleWebRuntime;
-    }
-
-    @Override
-    public boolean requiresModuleExecutionPlan() {
-        return true;
     }
 
     @Override

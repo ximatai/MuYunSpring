@@ -10,7 +10,6 @@ import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
 import net.ximatai.muyun.spring.web.ScopedTreeWebProjectionPolicy;
 import net.ximatai.muyun.spring.web.TreeScope;
 import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
-import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
@@ -37,7 +36,7 @@ import java.util.List;
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.MODELING, title = "模块管理", order = 20)
 @RequestMapping("/platform.module")
-public class PlatformModuleWebController extends WebSupport<PlatformModuleService> implements
+public class PlatformModuleWebController extends StaticModuleWebControllerAdapter<PlatformModuleService> implements
         CrudWeb<PlatformModule, PlatformModuleService>,
         NavigatorReferenceWeb<PlatformModule, PlatformModuleService>,
         NavigatorReferenceTreeWeb<PlatformModule, PlatformModuleService>,
@@ -47,7 +46,6 @@ public class PlatformModuleWebController extends WebSupport<PlatformModuleServic
 
     private PlatformDynamicRuntimeRefreshService runtimeRefreshService;
     private PlatformOpenApiCatalogService openApiCatalogService;
-    private StandardModuleWebRuntime standardModuleWebRuntime;
 
     @Autowired
     public PlatformModuleWebController(PlatformDynamicRuntimeRefreshService runtimeRefreshService) {
@@ -55,21 +53,6 @@ public class PlatformModuleWebController extends WebSupport<PlatformModuleServic
     }
 
     public PlatformModuleWebController() {
-    }
-
-    @Autowired(required = false)
-    void setStandardModuleWebRuntime(StandardModuleWebRuntime standardModuleWebRuntime) {
-        this.standardModuleWebRuntime = standardModuleWebRuntime;
-    }
-
-    @Override
-    public StandardModuleWebRuntime standardModuleWebRuntime() {
-        return standardModuleWebRuntime;
-    }
-
-    @Override
-    public boolean requiresModuleExecutionPlan() {
-        return true;
     }
 
     /**
