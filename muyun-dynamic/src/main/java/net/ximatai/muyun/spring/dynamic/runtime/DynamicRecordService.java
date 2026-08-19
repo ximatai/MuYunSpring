@@ -71,6 +71,7 @@ public class DynamicRecordService {
     private final DynamicRecordEventPublisher eventPublisher;
     private final ActionExecutionPolicyService actionExecutionPolicyService;
     private final DataScopeCriteriaService dataScopeCriteriaService;
+    private final DynamicRecordQueryRuntime queryRuntime;
     private final DynamicRecordMutationCoordinator mutationCoordinator;
     private final Clock mutationClock;
 
@@ -108,6 +109,8 @@ public class DynamicRecordService {
                 "actionExecutionPolicyService must not be null");
         this.dataScopeCriteriaService = Objects.requireNonNull(dataScopeCriteriaService,
                 "dataScopeCriteriaService must not be null");
+        this.queryRuntime = new DynamicRecordQueryRuntime(runtime, this.actionExecutionPolicyService,
+                this.dataScopeCriteriaService);
         this.mutationCoordinator = mutationCoordinator == null ? DynamicRecordMutationCoordinator.NONE : mutationCoordinator;
         this.mutationClock = mutationClock == null ? Clock.systemDefaultZone() : mutationClock;
     }
@@ -1017,14 +1020,11 @@ public class DynamicRecordService {
     }
 
     public List<DynamicRecord> list(String moduleAlias, String entityAlias, Criteria criteria, PageRequest pageRequest, Sort... sorts) {
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.QUERY, criteria);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).list(scope.criteria(),
-                pageRequest, sorts));
+        return queryRuntime.list(moduleAlias, entityAlias, criteria, pageRequest, sorts);
     }
 
     public List<DynamicRecord> list(String moduleAlias, String entityAlias, Criteria criteria, Sort... sorts) {
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.QUERY, criteria);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).list(scope.criteria(), sorts));
+        return queryRuntime.list(moduleAlias, entityAlias, criteria, sorts);
     }
 
     public List<DynamicRecord> listSystem(String moduleAlias,
@@ -1048,9 +1048,7 @@ public class DynamicRecordService {
                                       Criteria criteria,
                                       PageRequest pageRequest,
                                       Sort... sorts) {
-        DataScopeCriteriaResult scope = readScope(moduleAlias, action, criteria);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).list(scope.criteria(),
-                pageRequest, sorts));
+        return queryRuntime.listForAction(moduleAlias, entityAlias, action, criteria, pageRequest, sorts);
     }
 
     List<DynamicRecord> listForAction(String moduleAlias,
@@ -1058,14 +1056,11 @@ public class DynamicRecordService {
                                       PlatformAction action,
                                       Criteria criteria,
                                       Sort... sorts) {
-        DataScopeCriteriaResult scope = readScope(moduleAlias, action, criteria);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).list(scope.criteria(), sorts));
+        return queryRuntime.listForAction(moduleAlias, entityAlias, action, criteria, sorts);
     }
 
     public PageResult<DynamicRecord> page(String moduleAlias, String entityAlias, Criteria criteria, PageRequest pageRequest, Sort... sorts) {
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.QUERY, criteria);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).pageQuery(scope.criteria(),
-                pageRequest, sorts));
+        return queryRuntime.page(moduleAlias, entityAlias, criteria, pageRequest, sorts);
     }
 
     /** Retained-record read uses the same dynamic data-scope kernel, but the RECYCLE_BIN action policy. */
@@ -1101,9 +1096,7 @@ public class DynamicRecordService {
     }
 
     public <R> R withQueryReadScope(String moduleAlias, Criteria criteria, Function<Criteria, R> action) {
-        Objects.requireNonNull(action, "action must not be null");
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.QUERY, criteria);
-        return withTenantScope(scope, () -> action.apply(scope.criteria()));
+        return queryRuntime.withQueryReadScope(moduleAlias, criteria, action);
     }
 
     public PageResult<DynamicRecord> pageForAction(String moduleAlias,
@@ -1112,17 +1105,7 @@ public class DynamicRecordService {
                                                    Criteria criteria,
                                                    PageRequest pageRequest,
                                                    Sort... sorts) {
-        DynamicActionDescriptor action = findAction(moduleAlias, entityDescriptor(moduleAlias, entityAlias), actionCode);
-        ActionExecutionPolicy policy = actionPolicy(action);
-        actionExecutionPolicyService.authorize(ActionExecutionContext.ofPolicy(
-                moduleAlias,
-                policy,
-                Set.of(),
-                CurrentUserContext.currentUser()
-        ));
-        DataScopeCriteriaResult scope = readScope(moduleAlias, policy, criteria);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).pageQuery(scope.criteria(),
-                pageRequest, sorts));
+        return queryRuntime.pageForAction(moduleAlias, entityAlias, actionCode, criteria, pageRequest, sorts);
     }
 
     /**
@@ -1136,28 +1119,15 @@ public class DynamicRecordService {
                                                   String actionCode,
                                                   Criteria criteria,
                                                   String parentId) {
-        requireCapability(moduleAlias, entityAlias, EntityCapability.TREE);
-        DynamicActionDescriptor action = findAction(moduleAlias, entityDescriptor(moduleAlias, entityAlias), actionCode);
-        ActionExecutionPolicy policy = actionPolicy(action);
-        actionExecutionPolicyService.authorize(ActionExecutionContext.ofPolicy(
-                moduleAlias,
-                policy,
-                Set.of(),
-                CurrentUserContext.currentUser()
-        ));
-        DataScopeCriteriaResult scope = readScope(moduleAlias, policy, criteria);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias)
-                .children(scope.criteria(), parentId));
+        return queryRuntime.childrenForAction(moduleAlias, entityAlias, actionCode, criteria, parentId);
     }
 
     public long count(String moduleAlias, String entityAlias, Criteria criteria) {
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.QUERY, criteria);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).count(scope.criteria()));
+        return queryRuntime.count(moduleAlias, entityAlias, criteria);
     }
 
     public List<DynamicRecord> sortedList(String moduleAlias, String entityAlias, Criteria criteria) {
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.QUERY, criteria);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).sortedList(scope.criteria()));
+        return queryRuntime.sortedList(moduleAlias, entityAlias, criteria);
     }
 
     public void reorder(String moduleAlias, String entityAlias, List<String> orderedIds) {
@@ -1254,13 +1224,7 @@ public class DynamicRecordService {
     }
 
     public List<DynamicRecord> children(String moduleAlias, String entityAlias, String parentId) {
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.TREE, Criteria.of());
-        return withTenantScope(scope, () -> {
-            if (!scope.restricted()) {
-                return entityService(moduleAlias, entityAlias).children(parentId);
-            }
-            return entityService(moduleAlias, entityAlias).children(scope.criteria(), parentId);
-        });
+        return queryRuntime.children(moduleAlias, entityAlias, parentId);
     }
 
     public List<String> ancestorIds(String moduleAlias, String entityAlias, String id) {

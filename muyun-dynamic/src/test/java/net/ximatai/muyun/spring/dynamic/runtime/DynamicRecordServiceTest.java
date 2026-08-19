@@ -3094,6 +3094,39 @@ class DynamicRecordServiceTest {
     }
 
     @Test
+    void shouldKeepQueryReadScopeTenantBoundaryAndReturnScopedCriteria() {
+        DynamicRecordService service = service(operations(), contractEntity(), RuntimeEventPublisher.noop(),
+                new CrossTenantAllDataScopeCriteriaService());
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            String scopedSql = service.withQueryReadScope(MODULE, Criteria.of().eq("code", "C-001"), criteria -> {
+                assertThat(TenantContext.tenantFilterBypassed()).isTrue();
+                return new CriteriaSqlCompiler().compile(criteria, field -> field, DBInfo.Type.POSTGRESQL).getSql();
+            });
+
+            assertThat(scopedSql).contains("\"code\" =");
+            assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+            assertThat(TenantContext.tenantFilterBypassed()).isFalse();
+        }
+    }
+
+    @Test
+    void shouldApplyDataScopeBeforeTheQueryRuntimeSoftDeleteBoundary() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of(row("visible", "C-001", 0, false)));
+        DynamicRecordService service = service(operations, contractEntity(), RuntimeEventPublisher.noop(),
+                new VisibleOnlyDataScopeCriteriaService());
+
+        assertThat(service.list(MODULE, "contract", Criteria.of().eq("code", "C-001"), PageRequest.of(1, 10)))
+                .extracting(DynamicRecord::getId)
+                .containsExactly("visible");
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(operations).query(sql.capture(), anyMap());
+        assertThat(sql.getValue()).contains("\"code\" =").contains("\"id\" =").contains("\"deleted\" IS NULL");
+    }
+
+    @Test
     void shouldBypassTenantScopeWhenUpdatingDynamicRecordWithCrossTenantDataScope() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.query(anyString(), anyMap()))
