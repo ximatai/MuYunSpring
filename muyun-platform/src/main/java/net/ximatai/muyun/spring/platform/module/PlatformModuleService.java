@@ -5,12 +5,10 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.BaseDao;
-import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.TreeAbility;
-import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -25,7 +23,6 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
-@DisablePlatformOperations({PlatformAction.TREE, PlatformAction.SORT})
 public class PlatformModuleService extends AbstractAbilityService<PlatformModule> implements
         SoftDeleteAbility<PlatformModule>,
         EnableAbility<PlatformModule>,
@@ -109,14 +106,26 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
      * global catalog instead of every tenant's private definitions.
      */
     public List<PlatformModule> listVisibleModules() {
+        return listVisibleModules(TenantContext.currentTenantId().orElse(null));
+    }
+
+    /**
+     * Resolves the catalog for an explicitly captured request tenant. This keeps delivery adapters
+     * correct even when they temporarily enter system scope to read platform-managed configuration.
+     */
+    public List<PlatformModule> listVisibleModules(String tenantId) {
         LinkedHashMap<String, PlatformModule> visible = new LinkedHashMap<>();
         listGlobalEnabledModules().forEach(module -> visible.put(module.getAlias(), module));
-        TenantContext.currentTenantId().ifPresent(tenantId -> {
-            list(Criteria.of()
-                    .eq("enabled", Boolean.TRUE)
-                    .eq(StandardEntitySchema.TENANT_ID_FIELD, tenantId), new PageRequest(0, Integer.MAX_VALUE))
-                    .forEach(module -> visible.put(module.getAlias(), module));
-        });
+        String normalizedTenantId = tenantId == null || tenantId.isBlank() ? null : tenantId.trim();
+        if (normalizedTenantId != null) {
+            try (TenantContext.Scope ignored = TenantContext.use(normalizedTenantId)) {
+                list(Criteria.of()
+                        .eq("enabled", Boolean.TRUE)
+                        .eq(StandardEntitySchema.TENANT_ID_FIELD, normalizedTenantId),
+                        new PageRequest(0, Integer.MAX_VALUE))
+                        .forEach(module -> visible.put(module.getAlias(), module));
+            }
+        }
         return visible.values().stream()
                 .sorted(Comparator.comparing(PlatformModule::getSortOrder, Comparator.nullsLast(Integer::compareTo))
                         .thenComparing(PlatformModule::getApplicationAlias)

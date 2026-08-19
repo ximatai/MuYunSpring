@@ -10,15 +10,18 @@ public record ResolvedPageNavigatorLevelDescriptor(String key,
                                                    String searchPlaceholder,
                                                    ResolvedPageNavigatorManagementDescriptor management,
                                                    PageNavigatorSingleResultPolicy singleResultPolicy,
+                                                   PageNavigatorInitialSelectionPolicy initialSelectionPolicy,
                                                    PageNavigatorSourceScope sourceScope) {
     public ResolvedPageNavigatorLevelDescriptor {
         singleResultPolicy = singleResultPolicy == null ? PageNavigatorSingleResultPolicy.NONE : singleResultPolicy;
+        initialSelectionPolicy = initialSelectionPolicy == null ? PageNavigatorInitialSelectionPolicy.NONE
+                : initialSelectionPolicy;
         sourceScope = sourceScope == null ? PageNavigatorSourceScope.NONE : sourceScope;
     }
 
     static ResolvedPageNavigatorLevelDescriptor from(PageNavigatorLevelDefinition definition) {
         return new ResolvedPageNavigatorLevelDescriptor(definition.key(), definition.kind(), definition.sourceModuleAlias(),
                 definition.title(), definition.searchPlaceholder(), ResolvedPageNavigatorManagementDescriptor.from(definition.management()),
-                definition.singleResultPolicy(), definition.sourceScope());
+                definition.singleResultPolicy(), definition.initialSelectionPolicy(), definition.sourceScope());
     }
 }

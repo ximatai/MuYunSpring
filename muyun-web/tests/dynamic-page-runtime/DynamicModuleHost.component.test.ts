@@ -12,6 +12,196 @@ describe('DynamicModuleHost', () => {
     globalThis.fetch = originalFetch;
     configureModulePageEnhancements([]);
     window.localStorage.removeItem('muyun.preference.module-page.detail-surface.crm.customer');
+    window.localStorage.removeItem('muyun.preference.module-page.list-page-size.crm.customer');
+  });
+
+  it('executes a declared detail action block through the standard record action endpoint', async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) {
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: [],
+          actions: [{ actionCode: 'submit', title: '提交', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'crm.customer',
+            page: page({ template: 'FLAT_MANAGEMENT' }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.menu/customer-menu/entry?clientType=WEB')) {
+        return Response.json({
+          entry: { menuId: 'customer-menu', moduleAlias: 'crm.customer', pageMode: 'LIST' },
+          clientType: 'WEB',
+          mainEntityAlias: 'customer',
+          resolvedConfig: {
+            uiFields: [],
+            queryItems: [],
+            actionBlocks: [{ type: 'action', key: 'submit', actionCode: 'submit', title: '提交' }],
+          },
+          openApiPath: '/crm.customer/openapi',
+        });
+      }
+      if (request.url.endsWith('/crm.customer/actions/customer-1')) {
+        return Response.json({
+          recordId: 'customer-1',
+          actions: [{ actionCode: 'submit', available: true }],
+        });
+      }
+      if (request.url.endsWith('/crm.customer/view/customer-1')) {
+        return Response.json({ id: 'customer-1', title: '客户一', version: 1 });
+      }
+      if (request.url.endsWith('/crm.customer/submit/customer-1')) {
+        return Response.json({ changed: true });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          menuId: 'customer-menu',
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          StaticManagementLayout: {
+            template: '<section><slot name="explorer" /><slot name="detail-actions" /><slot /></section>',
+          },
+          RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+
+    wrapper.findComponent({ name: 'CrudRecordListExplorer' }).vm.$emit('select', { id: 'customer-1' });
+    await flushPromises();
+
+    const actionBar = wrapper
+      .findAllComponents({ name: 'RecordActionBar' })
+      .find((item) =>
+        (item.props('actions') as Array<{ actionCode?: string }>).some(
+          (action) => action.actionCode === 'submit',
+        ),
+      );
+    expect(actionBar).toBeDefined();
+    actionBar!.vm.$emit('action', { key: 'page-action-block:entry:submit:0', actionCode: 'submit' });
+    await flushPromises();
+
+    expect(requests.some((request) => request.url.endsWith('/crm.customer/submit/customer-1'))).toBe(true);
+  });
+
+  it('submits a signed local-edit form with its versioned action contract', async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) {
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: [],
+          actions: [{ actionCode: 'editBaseInfo', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'crm.customer',
+            page: page({ template: 'FLAT_MANAGEMENT' }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.menu/customer-menu/entry?clientType=WEB')) {
+        return Response.json({
+          entry: { menuId: 'customer-menu', moduleAlias: 'crm.customer', pageMode: 'LIST' },
+          clientType: 'WEB',
+          mainEntityAlias: 'customer',
+          resolvedConfig: {
+            uiFields: [],
+            queryItems: [],
+            actionBlocks: [
+              {
+                type: 'localEdit',
+                key: 'base',
+                actionCode: 'editBaseInfo',
+                title: '编辑资料',
+                submitPath: '/crm.customer/editBaseInfo/{recordId}',
+                localEditForm: {
+                  uiConfigId: 'customer-local-form',
+                  fields: [{ fieldName: 'name', fieldTitle: '名称', visible: true }],
+                  submitContract: {
+                    recordRequired: true,
+                    recordVersionRequired: true,
+                    fieldNamesRequired: true,
+                    uiConfigIdPayloadKey: 'uiConfigId',
+                  },
+                },
+              },
+            ],
+          },
+          openApiPath: '/crm.customer/openapi',
+        });
+      }
+      if (request.url.endsWith('/crm.customer/actions/customer-1'))
+        return Response.json({
+          recordId: 'customer-1',
+          actions: [{ actionCode: 'editBaseInfo', available: true }],
+        });
+      if (request.url.endsWith('/crm.customer/view/customer-1'))
+        return Response.json({ id: 'customer-1', title: '客户一', name: '旧名称', version: 7 });
+      if (request.url.endsWith('/crm.customer/editBaseInfo/customer-1'))
+        return Response.json({ changed: true });
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          menuId: 'customer-menu',
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          StaticManagementLayout: {
+            template: '<section><slot name="explorer" /><slot name="detail-actions" /><slot /></section>',
+          },
+          RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+    wrapper.findComponent({ name: 'CrudRecordListExplorer' }).vm.$emit('select', { id: 'customer-1' });
+    await flushPromises();
+    const actionBar = wrapper
+      .findAllComponents({ name: 'RecordActionBar' })
+      .find((item) =>
+        (item.props('actions') as Array<{ actionCode?: string }>).some(
+          (action) => action.actionCode === 'editBaseInfo',
+        ),
+      );
+    actionBar!.vm.$emit('action', { key: 'page-local-edit:entry:base:0', actionCode: 'editBaseInfo' });
+    await flushPromises();
+    wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+    await flushPromises();
+    const submit = requests.find((request) => request.url.endsWith('/crm.customer/editBaseInfo/customer-1'));
+    expect(submit).toBeDefined();
+    expect(await submit!.json()).toEqual({
+      recordId: 'customer-1',
+      record: { id: 'customer-1', version: 7, values: { name: '旧名称' } },
+      fieldNames: ['name'],
+      payload: { uiConfigId: 'customer-local-form' },
+    });
   });
 
   it('merges frontend-owned list enhancements into the standard descriptor runner', async () => {
@@ -96,6 +286,13 @@ describe('DynamicModuleHost', () => {
     expect(panel.props('extraRowActionsOf')()).toEqual([
       expect.objectContaining({ key: 'conversation', actionCode: 'crm.customer.conversation' }),
     ]);
+    expect(panel.props('pageSize')).toBe(20);
+    panel.vm.$emit('pageSizeChange', 50);
+    await flushPromises();
+    expect(panel.props('pageSize')).toBe(50);
+    expect(window.localStorage.getItem('muyun.preference.module-page.list-page-size.crm.customer')).toBe(
+      '50',
+    );
   });
 
   it('forwards recycle-bin mode through the standard module runner and clears the active detail', async () => {
@@ -730,6 +927,90 @@ describe('DynamicModuleHost', () => {
     expect(wrapper.findComponent({ name: 'CrudRecordListExplorer' }).exists()).toBe(false);
   });
 
+  it('selects the first declared navigator record without hiding a multi-record source', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/demo.position/context')) {
+        return Response.json({
+          moduleAlias: 'demo.position',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'demo.position',
+            page: page({
+              navigator: {
+                contextBindings: [
+                  { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'LIST_QUERY', targetKey: 'tenantId' },
+                ],
+                levels: [
+                  {
+                    key: 'tenant',
+                    kind: 'MICRO_LIST',
+                    sourceModuleAlias: 'iam.tenant',
+                    title: '租户',
+                    searchPlaceholder: '搜索租户',
+                    initialSelectionPolicy: 'FIRST_RECORD',
+                    management: { actions: ['CREATE'] },
+                  },
+                ],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/iam.tenant/reference-context')) {
+        return Response.json({
+          moduleAlias: 'iam.tenant',
+          capabilities: [],
+          actions: [
+            { actionCode: 'create', authorized: true },
+            { actionCode: 'update', authorized: true },
+            { actionCode: 'delete', authorized: true },
+          ],
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.position', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+
+    const navigator = wrapper.findComponent({ name: 'CrudRecordListExplorer' });
+    const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    navigator.vm.$emit('loaded', [
+      { id: 'tenant-a', title: '甲租户' },
+      { id: 'tenant-b', title: '乙租户' },
+    ]);
+    await flushPromises();
+
+    expect(list.props('externalQueryValues')).toEqual({ tenantId: 'tenant-a' });
+    expect(wrapper.findComponent({ name: 'CrudRecordListExplorer' }).exists()).toBe(true);
+    const navigatorActions = wrapper
+      .findAllComponents({ name: 'ModuleActionButton' })
+      .filter((button) => button.props('context').moduleAlias === 'iam.tenant');
+    expect(navigatorActions).toHaveLength(1);
+    expect(navigatorActions[0].props('actionCode')).toBe('create');
+  });
+
   it('blocks every list runner when its menu bootstrap fails', async () => {
     globalThis.fetch = async (input) => {
       const request = new Request(input);
@@ -1053,6 +1334,91 @@ describe('DynamicModuleHost', () => {
     );
     expect(wrapper.findComponent({ name: 'TreeRecordExplorer' }).exists()).toBe(false);
     expect(refreshModulePageList('demo.tree')).toBe(false);
+  });
+
+  it('applies signed form-compute rules through the host draft coordinator after a field edit', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/demo.invoice/context')) {
+        return Response.json({
+          moduleAlias: 'demo.invoice',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'demo.invoice',
+            page: page({
+              detail: {
+                emptyDescription: '请选择记录',
+                createTitle: '新建记录',
+                editor: {
+                  viewCode: 'default_form',
+                  viewKind: 'FORM',
+                  fields: [{ fieldRef: { fieldName: 'quantity' } }, { fieldRef: { fieldName: 'amount' } }],
+                  formComputeRules: [
+                    {
+                      code: 'amount-from-quantity',
+                      targetField: 'amount',
+                      targetValueType: 'DECIMAL',
+                      triggerFields: ['quantity'],
+                      writePolicy: 'ALWAYS',
+                      program: {
+                        schemaVersion: 1,
+                        profile: 'FORM_COMPUTE',
+                        referencedFields: ['quantity'],
+                        root: {
+                          kind: 'ASSIGN',
+                          operator: '=',
+                          arguments: [
+                            { kind: 'FIELD', field: 'amount', arguments: [] },
+                            {
+                              kind: 'BINARY',
+                              operator: '*',
+                              arguments: [
+                                { kind: 'FIELD', field: 'quantity', arguments: [] },
+                                { kind: 'VALUE', value: 10, arguments: [] },
+                              ],
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            }),
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.invoice', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /><slot name="detail" /></section>' },
+          RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+
+    wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
+    await flushPromises();
+    const form = wrapper.findComponent({ name: 'RecordFormFields' });
+    form.vm.$emit('update:field', 'quantity', 4);
+    await flushPromises();
+
+    expect(form.props('record')).toMatchObject({ quantity: 4, amount: 40 });
   });
 });
 

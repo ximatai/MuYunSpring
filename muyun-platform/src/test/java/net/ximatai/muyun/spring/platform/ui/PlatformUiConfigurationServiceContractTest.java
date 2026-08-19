@@ -167,6 +167,40 @@ class PlatformUiConfigurationServiceContractTest {
     }
 
     @Test
+    void shouldValidatePortableConditionalUiPredicatesBeforePublish() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String moduleFieldId = seedModuleField("crm.customer", "customer", "category", "category", "string");
+        String kindFieldId = addModuleField("crm.customer", "kind", "kind", "string");
+        String levelFieldId = addModuleField("crm.customer", "level", "level", "string");
+        String statusFieldId = addModuleField("crm.customer", "status", "status", "string");
+        String uiSetId = uiSetService.insert(uiSet("crm.customer", "form", PlatformUiSetType.FORM, true));
+        String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(uiConfigId, kindFieldId, "text"));
+        uiConfigFieldService.insert(uiField(uiConfigId, levelFieldId, "text"));
+        uiConfigFieldService.insert(uiField(uiConfigId, statusFieldId, "text"));
+        PlatformUiConfigField field = uiField(uiConfigId, moduleFieldId, "text");
+        field.setVisibleWhen("{kind} == 'company' && IN({level}, 'gold', 'silver')");
+        field.setReadOnlyWhen("{status} != 'draft'");
+
+        String fieldId = uiConfigFieldService.insert(field);
+        PlatformUiConfigField persisted = uiConfigFieldService.select(fieldId);
+        assertThat(persisted.getVisibleWhen()).isEqualTo("{kind} == 'company' && IN({level}, 'gold', 'silver')");
+        assertThat(persisted.getReadOnlyWhen()).isEqualTo("{status} != 'draft'");
+        PlatformUiConfigField invalid = uiField(uiConfigId, moduleFieldId, "text");
+        invalid.setVisibleWhen("window.alert('not portable')");
+        assertThatThrownBy(() -> uiConfigFieldService.insert(invalid))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("visibleWhen must be a FormulaEngine WEB_UI predicate");
+        PlatformUiConfigField unavailable = uiField(uiConfigId, moduleFieldId, "text");
+        unavailable.setReadOnlyWhen("{unconfigured} == true");
+        assertThatThrownBy(() -> uiConfigFieldService.insert(unavailable))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("may only reference fields available in the same UI config and relation");
+        publishService.publishUiConfig(uiConfigId);
+    }
+
+    @Test
     void shouldExposeFieldUiControlMappingsInPageBootstrap() {
         seedFieldType("date", FieldType.DATE, DynamicQueryOperator.BETWEEN);
         seedUiType("date_range", "date");
@@ -423,6 +457,86 @@ class PlatformUiConfigurationServiceContractTest {
         PlatformUiConfig unpublished = uiConfigService.select(uiConfigId);
         assertThat(unpublished.getPublished()).isFalse();
         assertThat(unpublished.getLayoutJson()).contains("navigator", "projectId");
+    }
+
+    @Test
+    void shouldRejectPageValuesThatTheRuntimeCannotCompile() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField(
+                "crm.customer", "customer", "customerName", "customer_name", "string");
+        String uiSetId = uiSetService.insert(uiSet("crm.customer", "list", PlatformUiSetType.LIST, true));
+        String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
+
+        PlatformUiConfig config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("{\"template\":\"UNKNOWN\"}");
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("template is unsupported");
+
+        config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("{\"template\":\"LIST_DETAIL_CARD\",\"traits\":[\"UNKNOWN\"]}");
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("traits contains unsupported value");
+
+        config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {"template":"LIST_DETAIL_CARD","navigator":{"levels":[{
+                  "key":"project","kind":"MICRO_LIST","sourceModuleAlias":"crm.project",
+                  "singleResultPolicy":"UNKNOWN"
+                }]}}
+                """);
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("navigator layout is invalid")
+                .hasRootCauseMessage("navigator level singleResultPolicy is unsupported: UNKNOWN");
+
+        config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {"template":"LIST_DETAIL_CARD","navigator":{"levels":[{
+                  "key":"project","kind":"MICRO_LIST","sourceModuleAlias":"crm.project",
+                  "management":{"actions":["UPSERT"]}
+                }]}}
+                """);
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("navigator layout is invalid")
+                .hasRootCauseMessage("navigator management action is unsupported: UPSERT");
+    }
+
+    @Test
+    void shouldRejectNavigatorManagementWhenSourceContractCannotBeProved() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField(
+                "crm.customer", "customer", "customerName", "customer_name", "string");
+        String uiSetId = uiSetService.insert(uiSet("crm.customer", "list", PlatformUiSetType.LIST, true));
+        String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
+        PlatformUiConfig config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {"template":"LIST_DETAIL_CARD","navigator":{"levels":[{
+                  "key":"project","kind":"MICRO_LIST","sourceModuleAlias":"crm.project",
+                  "management":{"actions":["CREATE"]}
+                }]}}
+                """);
+        uiConfigService.update(config);
+
+        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
+        PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
+                uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
+                recordService, moduleAlias -> Set.of(NavigatorSourceCapability.REFERENCE_QUERY));
+
+        assertThatThrownBy(() -> verifyingPublishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("Navigator source management contract is unavailable")
+                .hasMessageContaining("source=crm.project");
     }
 
     @Test
@@ -688,7 +802,6 @@ class PlatformUiConfigurationServiceContractTest {
                   ],
                   "blocks": [
                     {"type":"associationView", "key":"contracts", "viewCode":"contracts"},
-                    {"type":"localEdit", "key":"baseInfo", "actionCode":"editBaseInfo", "width":720, "height":520, "refresh":{"list":false, "detail":true}},
                     {"type":"dialog", "key":"submitDialog", "actionCode":"submitDialog", "position":"recordToolbar", "width":640},
                     {"type":"taskPanel", "key":"completion"}
                   ]
@@ -733,7 +846,6 @@ class PlatformUiConfigurationServiceContractTest {
         PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
                 uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
                 recordService);
-
         PlatformUiConfig config = uiConfigService.select(uiConfigId);
         config.setLayoutJson("""
                 {
@@ -879,12 +991,30 @@ class PlatformUiConfigurationServiceContractTest {
         targetConfig.setLayoutJson("""
                 {
                   "blocks": [
-                    {"type":"localEdit", "key":"baseInfo", "actionCode":"editBaseInfo"}
+                    {"type":"localEdit", "key":"baseInfo", "actionCode":"editBaseInfo", "targetUiConfigId":"%s"}
                   ]
                 }
-                """);
+                """.formatted(targetConfigId));
         uiConfigService.update(targetConfig);
         PlatformUiConfig sourceConfig = uiConfigService.select(sourceConfigId);
+        sourceConfig.setLayoutJson("""
+                {"blocks":[{"type":"localEdit", "key":"baseInfo", "actionCode":"editBaseInfo"}]}
+                """);
+        uiConfigService.update(sourceConfig);
+        assertThatThrownBy(() -> publishService.publishUiConfig(sourceConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("targetUiConfigId is required");
+
+        sourceConfig = uiConfigService.select(sourceConfigId);
+        sourceConfig.setLayoutJson("""
+                {"blocks":[{"type":"localEdit", "key":"baseInfo", "actionCode":"editBaseInfo", "targetUiConfigId":"%s"}]}
+                """.formatted(sourceConfigId));
+        uiConfigService.update(sourceConfig);
+        assertThatThrownBy(() -> publishService.publishUiConfig(sourceConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("targetUiConfigId must use FORM UI set");
+
+        sourceConfig = uiConfigService.select(sourceConfigId);
         sourceConfig.setLayoutJson("""
                 {
                   "blocks": [
@@ -931,6 +1061,15 @@ class PlatformUiConfigurationServiceContractTest {
         PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
                 uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
                 recordService);
+        String localEditSetId = uiSetService.insert(uiSet("crm.customer", "local_edit", PlatformUiSetType.FORM, false));
+        String localEditConfigId = uiConfigService.insert(uiConfig(localEditSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(localEditConfigId, customerNameField, "text"));
+        PlatformUiConfig localEditConfig = uiConfigService.select(localEditConfigId);
+        localEditConfig.setLayoutJson("""
+                {"blocks":[{"type":"localEdit","actionCode":"editBaseInfo","targetUiConfigId":"%s"}]}
+                """.formatted(localEditConfigId));
+        uiConfigService.update(localEditConfig);
+        verifyingPublishService.publishUiConfig(localEditConfigId);
 
         PlatformUiConfig config = uiConfigService.select(uiConfigId);
         config.setLayoutJson("""
@@ -944,6 +1083,19 @@ class PlatformUiConfigurationServiceContractTest {
         assertThatThrownBy(() -> verifyingPublishService.publishUiConfig(uiConfigId))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("must be DIALOG action");
+
+        config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {
+                  "blocks": [
+                    {"type":"action", "actionCode":"submitDialog"}
+                  ]
+                }
+                """);
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> verifyingPublishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("must not be DIALOG action");
 
         config = uiConfigService.select(uiConfigId);
         config.setLayoutJson("""
@@ -963,10 +1115,10 @@ class PlatformUiConfigurationServiceContractTest {
                 {
                   "blocks": [
                     {"type":"dialog", "actionCode":"submitDialog"},
-                    {"type":"localEdit", "actionCode":"editBaseInfo"}
+                    {"type":"localEdit", "actionCode":"editBaseInfo", "targetUiConfigId":"%s"}
                   ]
                 }
-                """);
+                """.formatted(localEditConfigId));
         uiConfigService.update(config);
         assertThatCode(() -> verifyingPublishService.publishUiConfig(uiConfigId)).doesNotThrowAnyException();
     }
@@ -1771,8 +1923,10 @@ class PlatformUiConfigurationServiceContractTest {
         target.setModuleMetadataFieldId(source.getModuleMetadataFieldId());
         target.setFieldUiControlAlias(source.getFieldUiControlAlias());
         target.setVisible(source.getVisible());
+        target.setVisibleWhen(source.getVisibleWhen());
         target.setRequiredOverride(source.getRequiredOverride());
         target.setReadOnly(source.getReadOnly());
+        target.setReadOnlyWhen(source.getReadOnlyWhen());
         target.setPlaceholder(source.getPlaceholder());
         target.setDefaultValue(source.getDefaultValue());
         target.setWidth(source.getWidth());

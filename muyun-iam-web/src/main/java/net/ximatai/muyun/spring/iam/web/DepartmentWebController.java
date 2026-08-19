@@ -79,7 +79,7 @@ public class DepartmentWebController extends WebSupport<DepartmentService> imple
                         .field("code", field -> field.label("部门编码").required())
                         .field("title", field -> field.label("部门名称").required())
                         .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
-                .traits(traits -> traits.standardCrud().enabledStatus().recycleBin())))
+                .traits(traits -> traits.standardCrud().enabledStatus())))
                 .build();
     }
 

@@ -62,6 +62,7 @@ import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import net.ximatai.muyun.spring.web.RequestTraceWebFilter;
+import net.ximatai.muyun.spring.web.TenantRequestScope;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadServiceTestFactory;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryDescriptor;
@@ -274,14 +275,13 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
-    void shouldExposeFormulaPreviewAsCreateActionEndpoint() throws Exception {
+    void shouldLeaveFormulaPreviewAuthorizationToTheRecordService() throws Exception {
         Method method = DynamicRecordWebController.class.getDeclaredMethod("previewFormula",
                 String.class, DynamicFormulaPreviewRequest.class);
 
         ActionEndpoint endpoint = method.getAnnotation(ActionEndpoint.class);
 
-        assertThat(endpoint).isNotNull();
-        assertThat(endpoint.value()).isEqualTo(PlatformAction.CREATE);
+        assertThat(endpoint).isNull();
     }
 
     @Test
@@ -3329,6 +3329,12 @@ class DynamicRecordWebControllerTest {
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.message").value(MODULE + " requires tenant context"));
 
+        noTenantMvc.perform(get("/{moduleAlias}/openapi", MODULE))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value(MODULE + " requires tenant context"));
+
         verifyNoInteractions(activeTenantVerifier);
     }
 
@@ -3592,7 +3598,7 @@ class DynamicRecordWebControllerTest {
         DynamicRecordWebController build() {
             return new DynamicRecordWebController(
                     recordService,
-                    activeTenantVerifier,
+                    new TenantRequestScope(activeTenantVerifier),
                     new DynamicRecordQueryServices(pageConfigSnapshotService, queryItemService,
                             moduleMetadataFieldService, fieldUiControlService, fieldUiControlBindingService,
                             relationProjectionReadService),

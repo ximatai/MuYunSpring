@@ -562,6 +562,15 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             }
             editorContributions.add(contribution);
         }
+        List<PageDetailRelationDefinition> detailRelations = new ArrayList<>();
+        if (targetUiDefinition != null) detailRelations.addAll(targetUiDefinition.detailRelations());
+        for (PageDetailRelationDefinition relation : contributionUiDefinition.detailRelations()) {
+            if (detailRelations.stream().anyMatch(existing -> existing.code().equals(relation.code()))) {
+                throw new IllegalStateException("@PlatformStaticActionContribution detail relation conflicts with target module: "
+                        + targetModule + "." + relation.code() + " <- " + contributor.getName());
+            }
+            detailRelations.add(relation);
+        }
         ViewDefinition defaultEditor = targetUiDefinition == null ? null : targetUiDefinition.defaultEditor();
         if (contributionUiDefinition.defaultEditor() != null) {
             if (defaultEditor != null) {
@@ -582,7 +591,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         return new ModuleUiDefinition(targetModule, List.copyOf(actions.values()),
                 targetUiDefinition != null && targetUiDefinition.page() != null
                         ? targetUiDefinition.page() : contributionUiDefinition.page(), defaultEditor,
-                editorSurfaces, editorContributions);
+                editorSurfaces, editorContributions, detailRelations);
     }
 
     private void mergeDeclaredAction(String sourceAnnotation,

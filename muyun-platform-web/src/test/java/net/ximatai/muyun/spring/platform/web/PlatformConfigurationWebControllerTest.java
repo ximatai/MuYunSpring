@@ -18,8 +18,6 @@ import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import net.ximatai.muyun.spring.platform.web.endpoint.StaticAbilityWebEndpointRegistrar;
 import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
-import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.refresh.DynamicModuleRefreshResult;
@@ -59,7 +57,6 @@ import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
-import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigPublishService;
@@ -138,45 +135,111 @@ class PlatformConfigurationWebControllerTest {
     }
 
     @Test
-    void shouldExposeApplicationScopedModuleTree() throws Exception {
+    void shouldExposeStandardModuleTreeWithinNavigatorApplicationScope() throws Exception {
         PlatformModuleService service = mock(PlatformModuleService.class);
         PlatformModuleWebController controller = new PlatformModuleWebController();
         ReflectionTestUtils.setField(controller, "service", service);
 
         PlatformModule root = module("platform.sales", "platform", null);
         PlatformModule child = module("platform.sales.order", "platform", "platform.sales");
-        when(service.rootModules("platform")).thenReturn(List.of(root));
-        when(service.children("platform", "platform.sales")).thenReturn(List.of(child));
-        when(service.children("platform", "platform.sales.order")).thenReturn(List.of());
+        when(service.children(any(Criteria.class), any(String.class))).thenAnswer(invocation -> {
+            String parentId = invocation.getArgument(1);
+            if (net.ximatai.muyun.spring.ability.TreeAbility.ROOT_ID.equals(parentId)) return List.of(root);
+            if ("platform.sales".equals(parentId)) return List.of(child);
+            return List.of();
+        });
+        when(service.selectInScope(any(Criteria.class), eq("platform.sales"))).thenReturn(root);
 
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
-        mvc.perform(get("/platform.module/tree/platform"))
+        MockMvc mvc = abilityAwareMvc(controller);
+        mvc.perform(post("/platform.module/tree/query")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"externalQueryValues\":{\"applicationAlias\":\"platform\"}}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].record.id").value("platform.sales"))
                 .andExpect(jsonPath("$.records[0].children[0].record.id").value("platform.sales.order"));
 
-        verify(service).rootModules("platform");
+        ArgumentCaptor<Criteria> criteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(service, org.mockito.Mockito.atLeastOnce())
+                .children(criteria.capture(), any(String.class));
+        assertClause(criteria.getAllValues().getFirst(), "applicationAlias", "platform");
     }
 
     @Test
-    void shouldHideUndescribableModulesFromOpenApiCatalog() {
+    void shouldExposeStandardModuleSubtreeByModuleAlias() throws Exception {
         PlatformModuleService service = mock(PlatformModuleService.class);
-        PlatformModule allowed = module("crm.customer", "crm", null);
-        allowed.setModuleKind(ModuleKind.DYNAMIC);
-        PlatformModule denied = module("crm.contract", "crm", null);
-        denied.setModuleKind(ModuleKind.DYNAMIC);
-        when(service.listVisibleModules()).thenReturn(List.of(allowed, denied));
-        ActionExecutionPolicyService authorizationService = mock(ActionExecutionPolicyService.class);
-        doThrow(new PlatformAccessDeniedException("action permission denied"))
-                .when(authorizationService)
-                .authorize(argThat(context -> context != null && "crm.contract".equals(context.moduleAlias())));
         PlatformModuleWebController controller = new PlatformModuleWebController();
         ReflectionTestUtils.setField(controller, "service", service);
-        controller.configureOpenApiAuthorization(new ActionEndpointContextResolver(), authorizationService);
 
-        List<OpenApiModuleCatalogItem> catalog = controller.openApiCatalog();
+        PlatformModule root = module("platform.sales", "platform", null);
+        PlatformModule child = module("platform.sales.order", "platform", "platform.sales");
+        when(service.selectInScope(any(Criteria.class), eq("platform.sales"))).thenReturn(root);
+        when(service.children(any(Criteria.class), eq("platform.sales"))).thenReturn(List.of(child));
+        when(service.children(any(Criteria.class), eq("platform.sales.order"))).thenReturn(List.of());
 
-        assertThat(catalog).extracting(OpenApiModuleCatalogItem::moduleAlias).containsExactly("crm.customer");
+        MockMvc mvc = abilityAwareMvc(controller);
+        mvc.perform(get("/platform.module/tree/platform.sales"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].record.id").value("platform.sales"))
+                .andExpect(jsonPath("$.records[0].children[0].record.id").value("platform.sales.order"));
+
+        verify(service, org.mockito.Mockito.atLeastOnce()).selectInScope(any(Criteria.class), eq("platform.sales"));
+    }
+
+    @Test
+    void shouldExposeUnscopedModuleForestForReadOnlyCatalogConsumers() throws Exception {
+        PlatformModuleService service = mock(PlatformModuleService.class);
+        PlatformModuleWebController controller = new PlatformModuleWebController();
+        ReflectionTestUtils.setField(controller, "service", service);
+
+        PlatformModule platform = module("platform.sales", "platform", null);
+        PlatformModule iam = module("iam.role", "iam", null);
+        when(service.children(any(Criteria.class), any(String.class))).thenAnswer(invocation ->
+                net.ximatai.muyun.spring.ability.TreeAbility.ROOT_ID.equals(invocation.getArgument(1))
+                        ? List.of(platform, iam) : List.of());
+
+        MockMvc mvc = abilityAwareMvc(controller);
+        mvc.perform(get("/platform.module/tree"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].record.id").value("platform.sales"))
+                .andExpect(jsonPath("$.records[1].record.id").value("iam.role"));
+
+        ArgumentCaptor<Criteria> criteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(service, org.mockito.Mockito.atLeastOnce())
+                .children(criteria.capture(), any(String.class));
+        assertThat(clauses(criteria.getAllValues().getFirst()))
+                .extracting(CriteriaClause::getField)
+                .doesNotContain("applicationAlias");
+    }
+
+    @Test
+    void shouldCaptureRequestTenantBeforeDelegatingOpenApiCatalogInSystemScope() {
+        PlatformOpenApiCatalogService catalogService = mock(PlatformOpenApiCatalogService.class);
+        OpenApiModuleCatalogItem item = new OpenApiModuleCatalogItem(
+                "crm.customer", "客户", "dynamic", "/crm.customer/openapi");
+        when(catalogService.discover("tenant-a")).thenAnswer(invocation -> {
+            assertThat(TenantContext.isSystem()).isTrue();
+            return List.of(item);
+        });
+        PlatformModuleWebController controller = new PlatformModuleWebController();
+        controller.configureOpenApiCatalog(catalogService);
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThat(controller.openApiCatalog()).containsExactly(item);
+        }
+
+        verify(catalogService).discover("tenant-a");
+    }
+
+    @Test
+    void shouldDelegateOpenApiCatalogWithoutInventingATenant() {
+        PlatformOpenApiCatalogService catalogService = mock(PlatformOpenApiCatalogService.class);
+        when(catalogService.discover(null)).thenReturn(List.of());
+        PlatformModuleWebController controller = new PlatformModuleWebController();
+        controller.configureOpenApiCatalog(catalogService);
+
+        assertThat(controller.openApiCatalog()).isEmpty();
+
+        verify(catalogService).discover(null);
     }
 
     @Test

@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Parses the navigator portion of dynamic page layout JSON once for every consumer.
@@ -40,7 +42,8 @@ public final class PlatformPageLayoutNavigator {
                 values.add(new PlatformPageNavigatorLevel(text(level, "key", config), text(level, "kind", config),
                         text(level, "sourceModuleAlias", config), optionalText(level, "title", config),
                         optionalText(level, "searchPlaceholder", config), management(level.get("management"), config),
-                        optionalText(level, "singleResultPolicy", config), optionalText(level, "sourceScope", config)));
+                        optionalText(level, "singleResultPolicy", config),
+                        optionalText(level, "initialSelectionPolicy", config), optionalText(level, "sourceScope", config)));
             }
             return new PlatformPageNavigatorLayout(values, contextBindings(navigator.get("contextBindings"), config));
         } catch (IOException exception) {
@@ -69,7 +72,25 @@ public final class PlatformPageLayoutNavigator {
     private static PlatformPageNavigatorManagement management(JsonNode node, PlatformUiConfig config) {
         if (node == null || node.isNull()) return null;
         if (!node.isObject()) throw new IllegalArgumentException("navigator management must be an object: " + config.getId());
-        return new PlatformPageNavigatorManagement(optionalText(node, "editorSurface", config));
+        return new PlatformPageNavigatorManagement(optionalText(node, "editorSurface", config),
+                optionalActionNames(node.get("actions"), config));
+    }
+
+    private static Set<String> optionalActionNames(JsonNode node, PlatformUiConfig config) {
+        if (node == null || node.isNull()) return null;
+        if (!node.isArray()) throw new IllegalArgumentException("navigator management actions must be an array: " + config.getId());
+        Set<String> actions = new LinkedHashSet<>();
+        for (JsonNode action : node) {
+            if (!action.isTextual()) {
+                throw new IllegalArgumentException("navigator management actions must contain strings: " + config.getId());
+            }
+            String value = action.asText().trim();
+            if (value.isEmpty()) {
+                throw new IllegalArgumentException("navigator management actions must not contain blank values: " + config.getId());
+            }
+            actions.add(value);
+        }
+        return actions;
     }
 
     private static String text(JsonNode node, String field, PlatformUiConfig config) {

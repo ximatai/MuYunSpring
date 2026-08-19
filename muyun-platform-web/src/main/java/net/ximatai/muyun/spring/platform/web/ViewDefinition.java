@@ -10,7 +10,8 @@ public record ViewDefinition(String viewCode,
                              String title,
                              List<ViewFieldDefinition> fields,
                              String sourceUiConfigId,
-                             List<FormGroupDefinition> formGroups) {
+                             List<FormGroupDefinition> formGroups,
+                             List<FormComputeRuleDefinition> formComputeRules) {
     public ViewDefinition {
         if (viewCode == null || viewCode.isBlank()) {
             throw new IllegalArgumentException("view code must not be blank");
@@ -27,11 +28,22 @@ public record ViewDefinition(String viewCode,
         if (!formGroups.isEmpty() && viewKind != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("form groups are only supported by form views: " + viewCode);
         }
+        formComputeRules = formComputeRules == null ? List.of() : List.copyOf(formComputeRules);
+        if (!formComputeRules.isEmpty() && viewKind != ModuleViewKind.FORM) {
+            throw new IllegalArgumentException("form compute rules are only supported by form views: " + viewCode);
+        }
+    }
+
+    /** Source-compatible constructor for views declared before form computations were introduced. */
+    public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
+                          List<ViewFieldDefinition> fields, String sourceUiConfigId,
+                          List<FormGroupDefinition> formGroups) {
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups, List.of());
     }
 
     public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                           List<ViewFieldDefinition> fields) {
-        this(viewCode, viewKind, clientType, title, fields, null, null);
+        this(viewCode, viewKind, clientType, title, fields, null, null, List.of());
     }
 
     public static Builder list() {
@@ -58,6 +70,7 @@ public record ViewDefinition(String viewCode,
         private String sourceUiConfigId;
         private final List<ViewFieldDefinition> fields = new ArrayList<>();
         private final List<FormGroupDefinition> formGroups = new ArrayList<>();
+        private final List<FormComputeRuleDefinition> formComputeRules = new ArrayList<>();
 
         private Builder(String viewCode, ModuleViewKind viewKind) {
             this.viewCode = viewCode;
@@ -113,8 +126,18 @@ public record ViewDefinition(String viewCode,
             return this;
         }
 
+        /** Declares one deterministic main-record calculation for this form. */
+        public Builder formCompute(String code, String targetField, List<String> triggerFields, String expression) {
+            if (viewKind != ModuleViewKind.FORM) {
+                throw new IllegalStateException("form compute rules are only supported by form views");
+            }
+            formComputeRules.add(new FormComputeRuleDefinition(code, targetField, triggerFields, expression));
+            return this;
+        }
+
         public ViewDefinition build() {
-            return new ViewDefinition(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups);
+            return new ViewDefinition(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups,
+                    formComputeRules);
         }
     }
 }

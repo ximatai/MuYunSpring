@@ -97,6 +97,26 @@ class PlatformModuleServiceContractTest {
     }
 
     @Test
+    void shouldListCapturedTenantModulesWhileCallerIsInSystemScope() {
+        PlatformModuleService service = new PlatformModuleService(new ModuleMemoryDao());
+        try (TenantContext.Scope ignored = TenantContext.system("create global module")) {
+            service.insert(module("crm.customer", "crm"));
+        }
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            PlatformModule tenantModule = module("crm.tenant_customer", "crm");
+            tenantModule.setTenantId("tenant-a");
+            service.insert(tenantModule);
+        }
+
+        try (TenantContext.Scope ignored = TenantContext.system("openapi catalog")) {
+            assertThat(service.listVisibleModules("tenant-a")).extracting(PlatformModule::getAlias)
+                    .containsExactly("crm.customer", "crm.tenant_customer");
+            assertThat(service.listVisibleModules(null)).extracting(PlatformModule::getAlias)
+                    .containsExactly("crm.customer");
+        }
+    }
+
+    @Test
     void shouldRejectModuleAliasOutsideApplication() {
         PlatformModuleService service = new PlatformModuleService(new ModuleMemoryDao());
         PlatformModule module = module("sales.customer", "crm");
@@ -243,6 +263,21 @@ class PlatformModuleServiceContractTest {
         assertThat(selected.getSortOrder()).isEqualTo(50);
         assertThat(selected.getTitle()).isEqualTo("crm.customer");
         assertThat(selected.getSystemManaged()).isTrue();
+    }
+
+    @Test
+    void shouldProjectManagedModuleMutationBoundaryToRecordActions() {
+        PlatformModuleService service = new PlatformModuleService(new ModuleMemoryDao());
+        PlatformModule managed = module("crm.customer", "crm");
+        managed.setSystemManaged(Boolean.TRUE);
+        PlatformManagedMutationContext.runAsPlatformManaged(() -> service.insert(managed));
+
+        assertThat(service.ordinaryRecordActionAvailability("update", managed))
+                .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管记录不可编辑"));
+        assertThat(service.ordinaryRecordActionAvailability("delete", managed))
+                .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管记录不可删除"));
+        assertThat(service.ordinaryRecordActionAvailability("disable", managed)).isEmpty();
+        assertThat(service.ordinaryRecordActionAvailability("sort", managed)).isEmpty();
     }
 
     private PlatformModule module(String alias, String applicationAlias) {

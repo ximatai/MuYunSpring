@@ -11,7 +11,7 @@ export interface ModuleActionManagementWorkspaceViewInput {
 export const moduleActionManagementWorkspaceView =
   defineWorkspaceView<ModuleActionManagementWorkspaceViewInput>({
     type: 'platform.module.actions',
-    route: '/config/modules',
+    route: '/_workspace/platform.module.actions',
     moduleAlias: 'platform.module',
     component: defineAsyncComponent(() => import('./ModuleActionManagementView.vue')),
     layout: 'workspace',

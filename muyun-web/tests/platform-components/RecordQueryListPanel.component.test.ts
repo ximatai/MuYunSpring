@@ -97,6 +97,47 @@ describe('RecordQueryListPanel', () => {
 
     expect(wrapper.text()).not.toContain('新建');
   });
+
+  it('preloads record availability and fails closed for row mutations until it is resolved', async () => {
+    const recordActionsBatch = vi.fn().mockResolvedValue([]);
+    const context = createContext({
+      id: 'managed-note',
+      title: '平台托管记录',
+    }) as ModuleContext<QueryListRecord>;
+    Object.assign(context, {
+      runtime: { ready: Promise.resolve({}), snapshot: () => ({}) },
+      can: () => true,
+      action: (_actionCode: string, recordId?: string) =>
+        recordId ? undefined : { actionCode: 'update', available: true },
+      recordActionsSnapshot: () => undefined,
+      recordActionsBatch,
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '记录',
+        standardCrudRowActions: true,
+      },
+      global: {
+        stubs: {
+          UiDataTable: { name: 'UiDataTable', props: ['rows'], template: '<div />' },
+        },
+      },
+    });
+
+    await flushPromises();
+
+    expect(recordActionsBatch).toHaveBeenCalledWith(['managed-note']);
+    const rows = wrapper.findComponent({ name: 'UiDataTable' }).props('rows') as Array<{
+      secondaryActions: Array<{ key: string; disabled: boolean; disabledReason?: string }>;
+    }>;
+    expect(rows[0].secondaryActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'edit', disabled: true, disabledReason: '正在校验操作可用性' }),
+        expect.objectContaining({ key: 'delete', disabled: true, disabledReason: '正在校验操作可用性' }),
+      ]),
+    );
+  });
 });
 
 function createContext(

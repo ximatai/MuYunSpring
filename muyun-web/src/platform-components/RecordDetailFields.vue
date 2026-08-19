@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { UiSwitch } from '@muyun/vue-ui-antdv';
+import type { OptionItemDescriptor } from '@muyun/web-contracts';
+import type { ModuleContext } from '@muyun/web-core';
 import RecordStatusTag from './RecordStatusTag.vue';
 import FileSizeText from './FileSizeText.vue';
 import {
@@ -14,6 +16,7 @@ import {
   type RecordFormRecord,
 } from './recordFormFieldModel';
 import { resolveRecordDetailDisplayValue, type RecordDetailDisplayResolver } from './recordDetailFieldModel';
+import { loadOptionFieldItems } from './optionFieldOptionCache';
 
 defineOptions({ name: 'RecordDetailFields' });
 
@@ -25,6 +28,7 @@ const props = withDefaults(
     fields?: Map<string, RecordFormFieldDescriptor>;
     fallback?: Record<string, RecordFormFieldFallback>;
     pickerConfigs?: Record<string, RecordFormFieldPickerConfig>;
+    optionContext?: ModuleContext<unknown>;
     displayOf?: RecordDetailDisplayResolver;
     emptyText?: string;
   }>(),
@@ -34,6 +38,7 @@ const props = withDefaults(
     excludeFieldNames: () => [],
     fallback: () => ({}),
     pickerConfigs: () => ({}),
+    optionContext: undefined,
     displayOf: undefined,
     emptyText: '-',
   },
@@ -48,12 +53,20 @@ const resolvedFieldNames = computed(
 const fieldStates = computed<RecordFormFieldState[]>(() =>
   resolvedFieldNames.value.map(fieldState).filter((field) => field.visible),
 );
+const optionItems = ref<Record<string, OptionItemDescriptor[]>>({});
+
+onMounted(() => void loadOptionFields());
+watch(
+  () => [props.fields, props.optionContext],
+  () => void loadOptionFields(),
+);
 
 function fieldState(fieldName: string): RecordFormFieldState {
   return resolveRecordFormFieldState(fieldName, {
     fields: props.fields,
     fallback: props.fallback,
     pickerConfigs: props.pickerConfigs,
+    record: props.record,
   });
 }
 
@@ -66,7 +79,23 @@ function displayValue(field: RecordFormFieldState) {
   return resolveRecordDetailDisplayValue(field, props.record, {
     displayOf: props.displayOf,
     emptyText: props.emptyText,
+    optionItems: optionItems.value[field.fieldName],
   });
+}
+
+async function loadOptionFields() {
+  if (!props.optionContext || !props.fields) return;
+  for (const field of props.fields.values()) {
+    if (!field.option || field.option.inlineItems?.length) continue;
+    try {
+      optionItems.value = {
+        ...optionItems.value,
+        [field.fieldRef.fieldName]: await loadOptionFieldItems(props.optionContext, field.fieldRef.fieldName),
+      };
+    } catch {
+      // Keep the raw value as a safe fallback; the editable form exposes a retry affordance.
+    }
+  }
 }
 
 function colorValue(field: RecordFormFieldState) {

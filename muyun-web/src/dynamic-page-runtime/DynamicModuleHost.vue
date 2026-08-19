@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, toRaw } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, toRaw, watch } from 'vue';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
   createQueryScopedTreeModuleContext,
@@ -11,6 +11,7 @@ import {
   RecordDetailPanel,
   RecordActionBar,
   RecordDetailExtensionSection,
+  DetailRelationListPanel,
   RecordDetailFields,
   RecordExplorerPanel,
   RecordFormFields,
@@ -29,9 +30,11 @@ import {
   handlePlatformActionSuccess,
   parentRecordConstraints,
   presentPlatformError,
+  resolveRecordDetailFields,
   providePageLayout,
   resolveRecordFormFields,
   useRecycleBinExplorerMode,
+  UiModal,
   type RecordFormFieldPickerConfig,
   type RecordPickerRecord,
   type CrudRecordListBase,
@@ -42,17 +45,24 @@ import {
   type StandardCrudRowActionKey,
   type QueryListRecord,
   type RecordFormRecord,
+  type RecordFormFieldDescriptor,
 } from '@muyun/platform-components';
 import type {
   DynamicModulePageDescriptor,
   MenuPageMode,
   PageBootstrap,
+  PageBootstrapActionBlock,
+  ResolvedDetailRelationDescriptor,
+  ResolvedFormComputeRuleDescriptor,
+  ResolvedModuleUiDescriptor,
+  ResolvedViewDescriptor,
   RecordInlineAction,
   ResolvedModulePageDescriptor,
   ResolvedPageNavigatorLevelDescriptor,
   ResolvedPageContextBindingDescriptor,
   RouteQueryValue,
 } from '@muyun/web-contracts';
+import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
 import {
   createModuleContext,
   createPageBootstrapClient,
@@ -87,11 +97,13 @@ import {
   saveDetailSurfacePreference,
   type DetailSurfacePreference,
 } from './detailSurfacePreference';
+import { normalizeListPageSize, restoreListPageSize, saveListPageSize } from './listPageSizePreference';
 import DynamicRecordDetailActions from './DynamicRecordDetailActions.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { useRecordDetailController } from './recordDetailController';
 import { externalPageContextCriteriaKeys, resolvePageContextTargetValues } from './pageContextRuntime';
+import { FormComputeCoordinator } from './formComputeCoordinator';
 
 /**
  * Descriptor-driven CRUD runner shared by static and dynamic modules.
@@ -124,9 +136,11 @@ const {
   loadFailed: detailLoadFailed,
 } = detail;
 const formFields = ref(resolveRecordFormFields(undefined));
+const detailDisplayFields = ref(resolveRecordDetailFields(undefined));
 const runtimePage = ref<ResolvedModulePageDescriptor>();
 const listMode = ref<RecordQueryListMode>('normal');
 const reloadKey = ref(0);
+const detailRelationReloadKey = ref(0);
 const treeReloadKey = ref(0);
 const selectedTreeRecord = ref<QueryListRecord>();
 const treeSearchKeyword = ref('');
@@ -147,6 +161,9 @@ const detailSurfacePreference = ref<DetailSurfacePreference | undefined>(
     userPreferences.get(`module-page.detail-surface.${context.moduleAlias}`, undefined),
   ),
 );
+const listPageSize = ref(
+  normalizeListPageSize(userPreferences.get(`module-page.list-page-size.${context.moduleAlias}`, 20)),
+);
 const workspaceElement = ref<HTMLElement>();
 const enhancementDrawer = ref<{
   definition: ModulePageDrawer;
@@ -159,6 +176,8 @@ let workspaceResizeObserver: ResizeObserver | undefined;
 let removeWorkspaceResizeFallback: (() => void) | undefined;
 let detailSurfacePreferenceRestoreRevision = 0;
 let detailSurfacePreferenceWrite = Promise.resolve();
+let listPageSizePreferenceRestoreRevision = 0;
+let listPageSizePreferenceWrite = Promise.resolve();
 
 interface NavigatorLevelRuntime {
   descriptor: ResolvedPageNavigatorLevelDescriptor;
@@ -226,6 +245,75 @@ const detailTitle = computed(() => {
 });
 const pageBootstrap = ref<PageBootstrap>();
 const pageBootstrapError = ref<string>();
+/**
+ * `action` is the only detail action block whose execution needs no extra
+ * client-side input surface. Dialog and local-edit blocks deliberately remain
+ * outside this runner until their typed parameter/form contracts are rendered.
+ */
+const supportedDetailActionBlocks = computed(() =>
+  (pageBootstrap.value?.resolvedConfig.actionBlocks ?? []).filter(
+    (block): block is PageBootstrapActionBlock => block.type === 'action',
+  ),
+);
+const supportedDetailActions = computed<RecordActionItem[]>(() =>
+  supportedDetailActionBlocks.value.map((block, index) => ({
+    key: `page-action-block:${block.uiConfigId ?? 'entry'}:${block.key ?? block.actionCode}:${index}`,
+    actionCode: block.actionCode,
+    title: block.title ?? context.runtimeAction(block.actionCode)?.title ?? block.actionCode,
+  })),
+);
+const localEditActionBlocks = computed(() =>
+  (pageBootstrap.value?.resolvedConfig.actionBlocks ?? []).filter(
+    (
+      block,
+    ): block is PageBootstrapActionBlock & {
+      localEditForm: NonNullable<PageBootstrapActionBlock['localEditForm']>;
+    } => block.type === 'localEdit' && block.localEditForm != null,
+  ),
+);
+const localEditActions = computed<RecordActionItem[]>(() =>
+  localEditActionBlocks.value.map((block, index) => ({
+    key: `page-local-edit:${block.uiConfigId ?? 'entry'}:${block.key ?? block.actionCode}:${index}`,
+    actionCode: block.actionCode,
+    title: block.title ?? context.runtimeAction(block.actionCode)?.title ?? block.actionCode,
+  })),
+);
+const detailPageActions = computed(() => [...supportedDetailActions.value, ...localEditActions.value]);
+const localEditOpen = ref(false);
+const localEditSaving = ref(false);
+const localEditBlock = ref<(typeof localEditActionBlocks.value)[number]>();
+const localEditDraft = ref<RecordFormRecord>();
+const localEditFields = computed<Map<string, RecordFormFieldDescriptor>>(() => {
+  const form = localEditBlock.value?.localEditForm;
+  return new Map(
+    (form?.fields ?? [])
+      .filter((field) => field.visible !== false && !field.relationAlias)
+      .map((field) => [
+        field.fieldName,
+        {
+          fieldRef: { fieldName: field.fieldName },
+          label: field.fieldTitle,
+          visible: { constant: true },
+          required: { constant: field.requiredOverride === true },
+          readOnly: { constant: field.readOnly === true },
+          uiType: field.fieldUiControlAlias,
+          columnSpan: field.columnSpan,
+        },
+      ]),
+  );
+});
+/** Only server-issued executable contracts may mount a relation-list runner. */
+const executableDetailRelations = computed<ResolvedDetailRelationDescriptor[]>(() =>
+  (pageBootstrap.value?.resolvedConfig.associationBlocks ?? []).flatMap((block) =>
+    hasExecutableDetailRelationQueryContract(block.relation) ? [block.relation] : [],
+  ),
+);
+const detailRelationRecordId = computed(() => {
+  if (!detailOpen.value || editorMode.value !== 'view' || detailLoading.value || detailLoadFailed.value) {
+    return undefined;
+  }
+  return selectedRecord.value?.id == null ? undefined : String(selectedRecord.value.id);
+});
 const configuredPageMode = computed<MenuPageMode>(() => props.descriptor.target.pageMode ?? 'LIST');
 const pageMode = computed<MenuPageMode>(
   () => pageBootstrap.value?.entry.pageMode ?? configuredPageMode.value,
@@ -282,6 +370,16 @@ const recordLabel = computed(() =>
 const pageEnhancement = computed(() =>
   resolveModulePageEnhancement(context.moduleAlias, activeListView.value?.viewCode),
 );
+let disposePageEnhancement: (() => void) | undefined;
+watch(
+  pageEnhancement,
+  (enhancement) => {
+    disposePageEnhancement?.();
+    const dispose = enhancement?.activate?.({ module: context });
+    disposePageEnhancement = typeof dispose === 'function' ? dispose : undefined;
+  },
+  { immediate: true },
+);
 const enhancementActionContributions = computed<ModulePageActionContribution[]>(
   () => pageEnhancement.value?.list?.actions ?? [],
 );
@@ -320,9 +418,13 @@ function enhancementRowActionsFor(record: QueryListRecord) {
 const enhancementBatchActions = computed<ModulePageBatchActionContribution[]>(
   () => pageEnhancement.value?.list?.batchActions ?? [],
 );
-const enhancementDetailActions = computed<ModulePageRecordActionContribution[]>(
-  () => pageEnhancement.value?.detail?.actions ?? [],
-);
+const enhancementDetailActions = computed<ModulePageRecordActionContribution[]>(() => {
+  const record = selectedRecord.value;
+  return (pageEnhancement.value?.detail?.actions ?? []).map(({ state, ...action }) => ({
+    ...action,
+    ...(record ? state?.(record) : { visible: false }),
+  }));
+});
 const enhancementDetailSections = computed<ModulePageDetailSection[]>(
   () => pageEnhancement.value?.detail?.sections ?? [],
 );
@@ -499,6 +601,10 @@ const flatManagementActions = computed<RecordActionItem[]>(() => {
     },
   ];
 });
+const flatManagementDetailActions = computed<RecordActionItem[]>(() => [
+  ...flatManagementActions.value,
+  ...detailPageActions.value,
+]);
 const recycleBinDetailActive = computed(
   () => flatManagementRecycleBin.active.value || listMode.value === 'recycleBin',
 );
@@ -556,6 +662,7 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
 
 onMounted(async () => {
   void restoreDetailSurfaceMode();
+  void restoreListPageSizePreference();
   await loadPageBootstrap();
   try {
     await loadRuntimeForm();
@@ -600,7 +707,31 @@ function setDetailSurfacePreference(preference: DetailSurfacePreference) {
   void detailSurfacePreferenceWrite.catch(() => undefined);
 }
 
+async function restoreListPageSizePreference() {
+  const revision = ++listPageSizePreferenceRestoreRevision;
+  try {
+    const restored = await restoreListPageSize(userPreferences, context.moduleAlias, listPageSize.value);
+    if (revision === listPageSizePreferenceRestoreRevision) {
+      listPageSize.value = restored;
+    }
+  } catch {
+    // The local value keeps pagination usable if optional account persistence is unavailable.
+  }
+}
+
+function setListPageSize(pageSize: number) {
+  // A user selection wins over an in-flight optional backend restoration.
+  listPageSizePreferenceRestoreRevision += 1;
+  const preference = normalizeListPageSize(pageSize, listPageSize.value);
+  listPageSize.value = preference;
+  listPageSizePreferenceWrite = listPageSizePreferenceWrite
+    .catch(() => undefined)
+    .then(() => saveListPageSize(userPreferences, context.moduleAlias, preference));
+  void listPageSizePreferenceWrite.catch(() => undefined);
+}
+
 onUnmounted(() => {
+  disposePageEnhancement?.();
   workspaceResizeObserver?.disconnect();
   removeWorkspaceResizeFallback?.();
   unregisterListRefresh?.();
@@ -690,6 +821,7 @@ async function loadRuntimeForm() {
     }),
   );
   formFields.value = resolveRecordFormFields(runtimeContext.uiDescriptor);
+  detailDisplayFields.value = resolveRecordDetailFields(runtimeContext.uiDescriptor);
 }
 
 function handleLoaded(records: QueryListRecord[]) {
@@ -740,6 +872,10 @@ function openFlatManagementRecord(record: QueryListRecord) {
 }
 
 function handleFlatManagementAction(action: RecordActionItem) {
+  if (detailPageActions.value.some((item) => item.key === action.key)) {
+    handleSupportedDetailActionBlock(action);
+    return;
+  }
   if (action.key === 'cancel') {
     closeTreeCardEditor();
     return;
@@ -823,6 +959,7 @@ function selectNavigatorRecord(levelKey: string, record: { id?: string }) {
 }
 
 function handleNavigatorLoaded(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
+  preloadNavigatorRecordActions(level, records);
   const key = level.descriptor.key;
   const single = records.length === 1 && records[0]?.id != null;
   const alreadyMarkedSingle = navigatorSingleResultKeys.value.includes(key);
@@ -834,14 +971,24 @@ function handleNavigatorLoaded(level: NavigatorLevelRuntime, records: Array<{ id
       ? [...navigatorSingleResultKeys.value, key]
       : navigatorSingleResultKeys.value.filter((candidate) => candidate !== key);
   }
-  if (
+  const selectsSingleResult =
     single &&
     level.descriptor.singleResultPolicy !== undefined &&
-    level.descriptor.singleResultPolicy !== 'NONE' &&
-    selectedNavigatorRecords.value[key]?.id == null
-  ) {
+    level.descriptor.singleResultPolicy !== 'NONE';
+  const selectsFirstRecord =
+    records[0]?.id != null && level.descriptor.initialSelectionPolicy === 'FIRST_RECORD';
+  if ((selectsSingleResult || selectsFirstRecord) && selectedNavigatorRecords.value[key]?.id == null) {
     selectNavigatorRecord(key, records[0]);
   }
+}
+
+function preloadNavigatorRecordActions(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
+  if (!navigatorManagementAvailable(level)) return;
+  const recordIds = records.flatMap((record) => (record.id == null ? [] : [String(record.id)]));
+  if (recordIds.length === 0) return;
+  void level.context.recordActionsBatch?.(recordIds).catch(() => {
+    // Inline actions remain safely disabled until a later refresh resolves availability.
+  });
 }
 
 function navigatorDescendantKeys(levelKey: string): Set<string> {
@@ -879,31 +1026,104 @@ function navigatorManagementAvailable(level: NavigatorLevelRuntime) {
   return level.descriptor.management !== undefined;
 }
 
-function navigatorInlineActions(level: NavigatorLevelRuntime): RecordInlineAction[] {
+function navigatorManagementAllows(level: NavigatorLevelRuntime, action: 'CREATE' | 'UPDATE' | 'DELETE') {
+  // Older descriptors did not publish a presentation policy. Keep their
+  // complete standard management surface wire-compatible.
+  const actions = level.descriptor.management?.actions;
+  return actions == null || actions.includes(action);
+}
+
+function navigatorInlineActions(level: NavigatorLevelRuntime, record: NavigatorRecord): RecordInlineAction[] {
   if (!navigatorManagementAvailable(level)) return [];
   const actions: RecordInlineAction[] = [];
-  if (level.tree && level.context.can('create') === true) {
+  if (level.tree && navigatorManagementAllows(level, 'CREATE') && level.context.can('create') === true) {
     actions.push({ key: 'create-child', title: '新建子项', iconName: 'plus' });
   }
-  if (level.context.can('update') === true) {
-    actions.push({ key: 'edit', title: `编辑${level.descriptor.title}`, iconName: 'edit' });
+  if (navigatorManagementAllows(level, 'UPDATE') && level.context.can('update') === true) {
+    actions.push(
+      navigatorRecordAction(level, record, 'edit', 'update', `编辑${level.descriptor.title}`, 'edit'),
+    );
   }
-  if (level.context.can('delete') === true) {
-    actions.push({ key: 'delete', title: `删除${level.descriptor.title}`, iconName: 'delete', danger: true });
+  if (navigatorManagementAllows(level, 'DELETE') && level.context.can('delete') === true) {
+    actions.push(
+      navigatorRecordAction(level, record, 'delete', 'delete', `删除${level.descriptor.title}`, 'delete'),
+    );
   }
   return actions;
 }
 
+function navigatorRecordAction(
+  level: NavigatorLevelRuntime,
+  record: NavigatorRecord,
+  key: string,
+  actionCode: string,
+  title: string,
+  iconName: 'edit' | 'delete',
+): RecordInlineAction {
+  const recordId = record.id == null ? undefined : String(record.id);
+  if (!recordId) {
+    return {
+      key,
+      actionCode,
+      title,
+      iconName,
+      danger: key === 'delete',
+      disabled: true,
+      disabledReason: '记录标识缺失',
+    };
+  }
+  const decision = level.context
+    .recordActionsSnapshot(recordId)
+    ?.actions.find((candidate) => candidate.actionCode === actionCode);
+  if (!decision) {
+    return {
+      key,
+      actionCode,
+      title,
+      iconName,
+      danger: key === 'delete',
+      disabled: true,
+      disabledReason: '正在校验操作可用性',
+    };
+  }
+  return {
+    key,
+    actionCode,
+    title,
+    iconName,
+    danger: key === 'delete',
+    disabled: !decision.available,
+    disabledReason: decision.reason,
+  };
+}
+
 function createNavigatorRecord(level: NavigatorLevelRuntime, parentId?: string) {
-  if (!navigatorManagementAvailable(level) || level.context.can('create') !== true) return;
+  if (
+    !navigatorManagementAvailable(level) ||
+    !navigatorManagementAllows(level, 'CREATE') ||
+    level.context.can('create') !== true
+  )
+    return;
   navigatorManagementLevel.value = level;
   // Incoming navigator bindings constrain this source and must also establish
   // its ownership fields when creating a new source record (for example,
   // tenantId on a tenant-scoped category). Tree child creation adds parentId.
-  navigatorManagementDetail.beginCreate({
+  const defaults = {
     ...(navigatorExplorerQueryValues(level.descriptor.key) ?? {}),
     ...(parentId ? { parentId } : {}),
-  });
+  };
+  navigatorManagementDetail.beginCreate(defaults);
+  const draft = navigatorManagementDetail.draft.value;
+  if (draft) {
+    navigatorManagementDetail.draft.value = applyFormComputeAfterChanges(
+      draft,
+      Object.keys(defaults),
+      formComputeRulesOf(
+        level.context.runtime.snapshot()?.uiDescriptor,
+        level.descriptor.management?.editorSurface,
+      ),
+    );
+  }
 }
 
 function updateNavigatorManagementDraft(
@@ -912,12 +1132,26 @@ function updateNavigatorManagementDraft(
 ) {
   const draft = navigatorManagementDetail.draft.value;
   if (!draft) return;
-  navigatorManagementDetail.draft.value = { ...draft, [fieldName]: value };
+  const level = navigatorManagementLevel.value;
+  navigatorManagementDetail.draft.value = applyFormComputeAfterChange(
+    { ...draft, [fieldName]: value },
+    fieldName,
+    formComputeRulesOf(
+      level?.context.runtime.snapshot()?.uiDescriptor,
+      level?.descriptor.management?.editorSurface,
+    ),
+  );
 }
 
 async function editNavigatorRecord(level: NavigatorLevelRuntime, record: NavigatorRecord) {
   const id = record.id == null ? undefined : String(record.id);
-  if (!navigatorManagementAvailable(level) || !id || level.context.can('update') !== true) return;
+  if (
+    !navigatorManagementAvailable(level) ||
+    !navigatorManagementAllows(level, 'UPDATE') ||
+    !id ||
+    level.context.can('update') !== true
+  )
+    return;
   navigatorManagementLevel.value = level;
   navigatorManagementDetail.beginLoad(record as QueryListRecord, 'edit');
   try {
@@ -955,6 +1189,7 @@ async function saveNavigatorRecord() {
     const id = record.id == null ? undefined : String(record.id);
     const result =
       !creating && id ? await level.context.crud.update(id, record) : await level.context.crud.insert(record);
+    if (id) level.context.invalidateRecordActions?.([id]);
     navigatorManagementDetail.applySaved(result.record);
     scopeReloadKey.value += 1;
     await presentDynamicModuleActionSuccess(result, '保存成功');
@@ -972,7 +1207,13 @@ async function saveNavigatorRecord() {
 async function deleteNavigatorRecord(level: NavigatorLevelRuntime, record: NavigatorRecord) {
   const id = record.id == null ? undefined : String(record.id);
   const version = typeof record.version === 'number' ? record.version : undefined;
-  if (!id || version === undefined || level.context.can('delete') !== true) return;
+  if (
+    !id ||
+    version === undefined ||
+    !navigatorManagementAllows(level, 'DELETE') ||
+    level.context.can('delete') !== true
+  )
+    return;
   try {
     if (
       !(await confirmAction({
@@ -984,6 +1225,7 @@ async function deleteNavigatorRecord(level: NavigatorLevelRuntime, record: Navig
     )
       return;
     const result = await level.context.crud.delete(id, { version });
+    level.context.invalidateRecordActions?.([id]);
     if (selectedNavigatorRecords.value[level.descriptor.key]?.id === id) {
       selectNavigatorRecord(level.descriptor.key, { id });
     }
@@ -1034,6 +1276,7 @@ async function openRecord(record: QueryListRecord, mode: 'edit' | 'view') {
     )
       return;
     detail.resolveLoad(loadedRecord);
+    detailRelationReloadKey.value += 1;
   } catch {
     if (
       !shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
@@ -1069,6 +1312,7 @@ async function openRecycleBinRecord(record: QueryListRecord) {
       return;
     }
     detail.resolveLoad(loadedRecord);
+    detailRelationReloadKey.value += 1;
   } catch {
     if (
       !shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
@@ -1092,16 +1336,71 @@ function updateDraftField(
   if (!editingRecord.value) {
     return;
   }
-  editingRecord.value = {
-    ...editingRecord.value,
-    [fieldName]: value,
-  };
+  editingRecord.value = applyFormComputeAfterChange(
+    { ...editingRecord.value, [fieldName]: value },
+    fieldName,
+    formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor),
+  );
+}
+
+/**
+ * Rules are attached to the resolved FORM view, not to a page/template. This
+ * keeps the same calculation semantics for main details and managed
+ * navigators while local-edit action forms remain isolated until they publish
+ * their own signed FORM descriptor.
+ */
+function formComputeRulesOf(
+  uiDescriptor: ResolvedModuleUiDescriptor | undefined,
+  editorSurface?: string,
+): readonly ResolvedFormComputeRuleDescriptor[] | undefined {
+  const view = formViewOf(uiDescriptor, editorSurface);
+  return view?.formComputeRules;
+}
+
+function formViewOf(
+  uiDescriptor: ResolvedModuleUiDescriptor | undefined,
+  editorSurface?: string,
+): ResolvedViewDescriptor | undefined {
+  if (editorSurface) {
+    return uiDescriptor?.editorSurfaces?.find((surface) => surface.key === editorSurface)?.editor;
+  }
+  return uiDescriptor?.page?.detail.editor ?? uiDescriptor?.defaultEditor;
+}
+
+function applyFormComputeAfterChange(
+  draft: RecordFormRecord,
+  fieldName: string,
+  rules: readonly ResolvedFormComputeRuleDescriptor[] | undefined,
+): RecordFormRecord {
+  return applyFormComputeAfterChanges(draft, [fieldName], rules);
+}
+
+function applyFormComputeAfterChanges(
+  draft: RecordFormRecord,
+  changedFields: readonly string[],
+  rules: readonly ResolvedFormComputeRuleDescriptor[] | undefined,
+): RecordFormRecord {
+  return new FormComputeCoordinator(rules).applyAfterChange(draft, changedFields);
 }
 
 function createRecord(parentId?: string) {
   if (context.can('create') !== true) return;
   detailLoadSequence += 1;
-  detail.beginCreate({ ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) });
+  const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
+  detail.beginCreate(
+    defaults,
+    // A persistent explorer selection remains meaningful while its create
+    // form is open. Keep it as a return target without exposing it as the
+    // active create record or issuing a second detail request on cancellation.
+    { restoreRecord: selectedRecord.value },
+  );
+  if (editingRecord.value) {
+    editingRecord.value = applyFormComputeAfterChanges(
+      editingRecord.value,
+      Object.keys(defaults),
+      formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor),
+    );
+  }
 }
 
 function createRootRecord() {
@@ -1142,11 +1441,13 @@ async function saveRecord() {
       editorMode.value === 'edit' && id
         ? await context.crud.update(id, record)
         : await context.crud.insert(record);
+    if (id) context.invalidateRecordActions?.([id]);
     selectedRecord.value = result.record;
     if (treeModule.value) {
       selectedTreeRecord.value = result.record;
     }
     detail.applySaved(result.record);
+    detailRelationReloadKey.value += 1;
     refreshList();
     formSessionKey.value += 1;
     await presentDynamicModuleActionSuccess(result, '保存成功');
@@ -1173,6 +1474,7 @@ async function deleteRecord(record: QueryListRecord) {
       return;
     }
     const result = await context.crud.delete(id, { version });
+    context.invalidateRecordActions?.([id]);
     if (selectedRecord.value?.id === id) {
       detail.clearDeleted();
       selectedTreeRecord.value = undefined;
@@ -1196,6 +1498,7 @@ async function toggleEnabled() {
     const result = enabling
       ? await context.crud.enable(id, { version })
       : await context.crud.disable(id, { version });
+    context.invalidateRecordActions?.([id]);
     const refreshed = await context.crud.view(id);
     detail.resolveLoad(refreshed);
     refreshList();
@@ -1268,10 +1571,106 @@ async function openRecordView(record: QueryListRecord) {
 }
 
 function handleDetailAction(action: { key?: string }) {
+  if (detailPageActions.value.some((item) => item.key === action.key)) {
+    handleSupportedDetailActionBlock(action);
+    return;
+  }
   const record = selectedRecord.value;
   const contribution = enhancementDetailActions.value.find((item) => item.key === action.key);
   if (record && contribution) {
     void executeEnhancementAction(contribution, { ...modulePageActionContext(record), record });
+  }
+}
+
+function handleSupportedDetailActionBlock(action: { key?: string }) {
+  const localIndex = localEditActions.value.findIndex((item) => item.key === action.key);
+  if (localIndex >= 0) {
+    openLocalEdit(localEditActionBlocks.value[localIndex]);
+    return;
+  }
+  const index = supportedDetailActions.value.findIndex((item) => item.key === action.key);
+  const block = index < 0 ? undefined : supportedDetailActionBlocks.value[index];
+  const recordId = selectedRecord.value?.id == null ? undefined : String(selectedRecord.value.id);
+  if (!block || !recordId || editorMode.value !== 'view') return;
+  void executeSupportedDetailActionBlock(block, recordId);
+}
+
+function openLocalEdit(block: (typeof localEditActionBlocks.value)[number]) {
+  const record = selectedRecord.value;
+  if (!record || typeof record.version !== 'number') return;
+  localEditBlock.value = block;
+  localEditDraft.value = {
+    id: record.id,
+    version: record.version,
+    ...Object.fromEntries(
+      (block.localEditForm.fields ?? []).map((field) => [field.fieldName, record[field.fieldName]]),
+    ),
+  };
+  localEditOpen.value = true;
+}
+
+async function submitLocalEdit() {
+  const block = localEditBlock.value;
+  const draft = localEditDraft.value;
+  const recordId = selectedRecord.value?.id == null ? undefined : String(selectedRecord.value.id);
+  if (!block || !draft || !recordId || typeof draft.version !== 'number' || !block.submitPath) return;
+  localEditSaving.value = true;
+  try {
+    const fieldNames = [...localEditFields.value.keys()];
+    const values = Object.fromEntries(fieldNames.map((fieldName) => [fieldName, draft[fieldName]]));
+    const result = await context.http.request<unknown>({
+      method: 'POST',
+      path: block.submitPath.replace('{recordId}', encodeURIComponent(recordId)),
+      body: {
+        recordId,
+        record: { id: recordId, version: draft.version, values },
+        fieldNames,
+        payload: {
+          [block.localEditForm.submitContract.uiConfigIdPayloadKey]: block.localEditForm.uiConfigId,
+        },
+      },
+    });
+    if (block.refreshStrategy?.detail !== false) detail.resolveLoad(await context.crud.view(recordId));
+    if (block.refreshStrategy?.list !== false) refreshList();
+    localEditOpen.value = false;
+    await presentDynamicModuleActionSuccess(
+      result,
+      `${block.title ?? block.actionCode}成功`,
+      'dynamic-local-edit',
+    );
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'dynamic-local-edit', phase: 'action' });
+  } finally {
+    localEditSaving.value = false;
+  }
+}
+
+/**
+ * Keep configured actions on the same record-action endpoint as every other
+ * dynamic action. `RecordActionBar` has already requested availability for
+ * this record, while the endpoint remains the authoritative authorization and
+ * data-scope check.
+ */
+async function executeSupportedDetailActionBlock(block: PageBootstrapActionBlock, recordId: string) {
+  try {
+    const result = await context.http.request<unknown>({
+      method: 'POST',
+      path: `/${encodeURIComponent(context.moduleAlias)}/${encodeURIComponent(block.actionCode)}/${encodeURIComponent(recordId)}`,
+      body: {},
+    });
+    const refreshed = await context.crud.view(recordId);
+    detail.resolveLoad(refreshed);
+    refreshList();
+    await presentDynamicModuleActionSuccess(
+      result,
+      `${block.title ?? block.actionCode}成功`,
+      'dynamic-module-action-block',
+    );
+  } catch (cause) {
+    presentPlatformError(cause, {
+      source: 'dynamic-module-action-block',
+      phase: 'action',
+    });
   }
 }
 
@@ -1352,6 +1751,12 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
       }
       modulePageNavigation.openWorkspaceTab(view, input);
     },
+    openPage: (descriptor) => {
+      if (!modulePageNavigation) {
+        throw new Error('模块页面跳转需要 Workbench 导航承载');
+      }
+      modulePageNavigation.openPage(descriptor);
+    },
   };
 }
 
@@ -1416,12 +1821,11 @@ function cancelDetailEditing() {
 function closeTreeCardEditor() {
   if (saving.value) return;
   detailLoadSequence += 1;
-  detailLoading.value = false;
-  detailLoadFailed.value = false;
-  formSessionKey.value += 1;
-  detailOpen.value = false;
-  editorMode.value = 'view';
-  editingRecord.value = selectedRecord.value;
+  // Tree management uses a persistent card rather than a drawer, but its
+  // cancellation semantics are the same as every other detail surface.
+  // In particular a create started from a selected tree node must return to
+  // that node's loaded detail instead of leaving the card empty.
+  detail.cancelEdit();
 }
 
 function retryLoadDetail() {
@@ -1481,7 +1885,13 @@ function recordTitle(record: QueryListRecord | undefined) {
           @update:search-keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
         >
-          <template v-if="navigatorManagementAvailable(visibleNavigatorLevels[index])" #actions>
+          <template
+            v-if="
+              navigatorManagementAvailable(visibleNavigatorLevels[index]) &&
+              navigatorManagementAllows(visibleNavigatorLevels[index], 'CREATE')
+            "
+            #actions
+          >
             <ModuleActionButton
               :context="visibleNavigatorLevels[index].context"
               action-code="create"
@@ -1505,7 +1915,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             "
             search-mode="none"
             :empty-description="`暂无${visibleNavigatorLevels[index].descriptor.title}`"
-            :actions-of="() => navigatorInlineActions(visibleNavigatorLevels[index])"
+            :actions-of="(record) => navigatorInlineActions(visibleNavigatorLevels[index], record)"
             @loaded="handleNavigatorLoaded(visibleNavigatorLevels[index], $event)"
             @select="selectNavigatorRecord(visibleNavigatorLevels[index].descriptor.key, $event)"
             @action="
@@ -1526,7 +1936,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               navigatorExplorerQueryValues(visibleNavigatorLevels[index].descriptor.key)
             "
             :empty-description="`暂无${visibleNavigatorLevels[index].descriptor.title}`"
-            :actions-of="() => navigatorInlineActions(visibleNavigatorLevels[index])"
+            :actions-of="(record) => navigatorInlineActions(visibleNavigatorLevels[index], record)"
             @loaded="handleNavigatorLoaded(visibleNavigatorLevels[index], $event)"
             @select="selectNavigatorRecord(visibleNavigatorLevels[index].descriptor.key, $event)"
             @action="
@@ -1635,7 +2045,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :record-id="
             editorMode === 'create' || selectedRecord?.id == null ? undefined : String(selectedRecord.id)
           "
-          :actions="flatManagementActions"
+          :actions="flatManagementDetailActions"
           @action="handleFlatManagementAction"
         />
       </template>
@@ -1667,7 +2077,8 @@ function recordTitle(record: QueryListRecord | undefined) {
         <RecordDetailFields
           v-if="editorMode === 'view'"
           :record="editingRecord as RecordFormRecord"
-          :fields="formFields"
+          :fields="detailDisplayFields"
+          :option-context="context"
           :exclude-field-names="['enabled']"
         />
         <div v-else class="dynamic-form">
@@ -1690,6 +2101,18 @@ function recordTitle(record: QueryListRecord | undefined) {
           >
             <component :is="section.component" :context="detailSectionContext(editingRecord)" />
           </RecordDetailExtensionSection>
+          <RecordDetailExtensionSection
+            v-for="relation in executableDetailRelations"
+            :key="`relation:${relation.code}`"
+            :title="relation.title ?? relation.code"
+          >
+            <DetailRelationListPanel
+              :source-context="context"
+              :relation="relation"
+              :record-id="detailRelationRecordId"
+              :reload-key="detailRelationReloadKey"
+            />
+          </RecordDetailExtensionSection>
         </template>
         <RecordMetaSection v-if="editorMode !== 'create'" :record="editingRecord" show-sort-order />
       </template>
@@ -1711,7 +2134,10 @@ function recordTitle(record: QueryListRecord | undefined) {
           @update:search-keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
         >
-          <template v-if="navigatorManagementAvailable(level)" #actions>
+          <template
+            v-if="navigatorManagementAvailable(level) && navigatorManagementAllows(level, 'CREATE')"
+            #actions
+          >
             <ModuleActionButton
               :context="level.context"
               action-code="create"
@@ -1733,7 +2159,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
             search-mode="none"
             :empty-description="`暂无${level.descriptor.title}`"
-            :actions-of="() => navigatorInlineActions(level)"
+            :actions-of="(record) => navigatorInlineActions(level, record)"
             @loaded="handleNavigatorLoaded(level, $event)"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
@@ -1750,7 +2176,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :keyword="scopeSearchKeyword"
             :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
             :empty-description="`暂无${level.descriptor.title}`"
-            :actions-of="() => navigatorInlineActions(level)"
+            :actions-of="(record) => navigatorInlineActions(level, record)"
             @loaded="handleNavigatorLoaded(level, $event)"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
@@ -1824,6 +2250,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         :batch-actions="enhancementBatchActions"
         :ui-config-id="listUiConfigId"
         :query-template-id="listQueryTemplateId"
+        :page-size="listPageSize"
         :ready="pageReady"
         :external-query-values="navigatorListQueryValues"
         :required-external-criteria-keys="navigatorListCriteriaKeys"
@@ -1832,6 +2259,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         empty-description="暂无动态记录"
         @loaded="handleLoaded"
         @mode-change="handleListModeChange"
+        @page-size-change="setListPageSize"
         @restored="handleRecycleBinRestore"
         @select="selectListDetailRecord"
         @row-dblclick="openListRecord"
@@ -1875,6 +2303,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :detail-load-failed="detailLoadFailed"
             :recycle-bin-active="recycleBinDetailActive"
             :actions="enhancementDetailActions"
+            :configured-actions="detailPageActions"
             @cancel="cancelDetailEditing"
             @save="saveRecord"
             @edit="selectedRecord && editRecord(selectedRecord)"
@@ -1904,7 +2333,8 @@ function recordTitle(record: QueryListRecord | undefined) {
           <template v-if="editorMode === 'view'">
             <RecordDetailFields
               :record="editingRecord as RecordFormRecord"
-              :fields="formFields"
+              :fields="detailDisplayFields"
+              :option-context="context"
               :exclude-field-names="['enabled']"
             />
             <RecordDetailExtensionSection
@@ -1913,6 +2343,18 @@ function recordTitle(record: QueryListRecord | undefined) {
               :title="section.title"
             >
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
+            </RecordDetailExtensionSection>
+            <RecordDetailExtensionSection
+              v-for="relation in executableDetailRelations"
+              :key="`relation:${relation.code}`"
+              :title="relation.title ?? relation.code"
+            >
+              <DetailRelationListPanel
+                :source-context="context"
+                :relation="relation"
+                :record-id="detailRelationRecordId"
+                :reload-key="detailRelationReloadKey"
+              />
             </RecordDetailExtensionSection>
           </template>
           <div v-else class="dynamic-form">
@@ -1948,7 +2390,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :reload-key="scopeReloadKey"
           :keyword="scopeSearchKeyword"
           :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
-          :actions-of="() => navigatorInlineActions(level)"
+          :actions-of="(record) => navigatorInlineActions(level, record)"
           @update:keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
           @create="createNavigatorRecord(level)"
@@ -2042,10 +2484,13 @@ function recordTitle(record: QueryListRecord | undefined) {
               @click="openDetailWorkspaceView"
             />
             <RecordActionBar
-              v-if="selectedRecord?.id != null && enhancementDetailActions.length > 0"
+              v-if="
+                selectedRecord?.id != null &&
+                (enhancementDetailActions.length > 0 || detailPageActions.length > 0)
+              "
               :context="context"
               :record-id="String(selectedRecord.id)"
-              :actions="enhancementDetailActions"
+              :actions="[...enhancementDetailActions, ...detailPageActions]"
               @action="handleDetailAction"
             />
             <ModuleActionButton
@@ -2059,6 +2504,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             <ModuleActionButton
               :context="context"
               action-code="update"
+              :record-id="selectedRecord?.id == null ? undefined : String(selectedRecord.id)"
               :disabled="!selectedRecord"
               @click="selectedRecord && editRecord(selectedRecord)"
             >
@@ -2067,6 +2513,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             <ModuleActionButton
               :context="context"
               action-code="delete"
+              :record-id="selectedRecord?.id == null ? undefined : String(selectedRecord.id)"
               :loading="saving"
               danger
               :disabled="!selectedRecord"
@@ -2098,7 +2545,8 @@ function recordTitle(record: QueryListRecord | undefined) {
           <template v-if="editorMode === 'view'">
             <RecordDetailFields
               :record="editingRecord as RecordFormRecord"
-              :fields="formFields"
+              :fields="detailDisplayFields"
+              :option-context="context"
               :exclude-field-names="['enabled']"
             />
             <RecordDetailExtensionSection
@@ -2107,6 +2555,18 @@ function recordTitle(record: QueryListRecord | undefined) {
               :title="section.title"
             >
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
+            </RecordDetailExtensionSection>
+            <RecordDetailExtensionSection
+              v-for="relation in executableDetailRelations"
+              :key="`relation:${relation.code}`"
+              :title="relation.title ?? relation.code"
+            >
+              <DetailRelationListPanel
+                :source-context="context"
+                :relation="relation"
+                :record-id="detailRelationRecordId"
+                :reload-key="detailRelationReloadKey"
+              />
             </RecordDetailExtensionSection>
           </template>
           <div v-else class="dynamic-form">
@@ -2143,12 +2603,14 @@ function recordTitle(record: QueryListRecord | undefined) {
       :batch-actions="enhancementBatchActions"
       :ui-config-id="listUiConfigId"
       :query-template-id="listQueryTemplateId"
+      :page-size="listPageSize"
       :ready="pageReady"
       :mode="listMode"
       quick-search-placeholder="搜索动态记录"
       empty-description="暂无动态记录"
       @loaded="handleLoaded"
       @mode-change="handleListModeChange"
+      @page-size-change="setListPageSize"
       @restored="handleRecycleBinRestore"
       @select="selectStandaloneListRecord"
       @row-dblclick="openListRecord"
@@ -2212,6 +2674,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :detail-load-failed="detailLoadFailed"
           :recycle-bin-active="recycleBinDetailActive"
           :actions="enhancementDetailActions"
+          :configured-actions="detailPageActions"
           :show-standard-view-actions="!enhancementDetailDrawer"
           @cancel="cancelDetailEditing"
           @save="saveRecord"
@@ -2230,7 +2693,8 @@ function recordTitle(record: QueryListRecord | undefined) {
           <template v-else>
             <RecordDetailFields
               :record="editingRecord as RecordFormRecord"
-              :fields="formFields"
+              :fields="detailDisplayFields"
+              :option-context="context"
               :exclude-field-names="['enabled']"
             />
             <RecordDetailExtensionSection
@@ -2239,6 +2703,18 @@ function recordTitle(record: QueryListRecord | undefined) {
               :title="section.title"
             >
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
+            </RecordDetailExtensionSection>
+            <RecordDetailExtensionSection
+              v-for="relation in executableDetailRelations"
+              :key="`relation:${relation.code}`"
+              :title="relation.title ?? relation.code"
+            >
+              <DetailRelationListPanel
+                :source-context="context"
+                :relation="relation"
+                :record-id="detailRelationRecordId"
+                :reload-key="detailRelationReloadKey"
+              />
             </RecordDetailExtensionSection>
           </template>
         </template>
@@ -2275,6 +2751,24 @@ function recordTitle(record: QueryListRecord | undefined) {
     <h2>{{ title }}</h2>
     <p>{{ unsupportedPageModeText }}</p>
   </section>
+  <UiModal
+    :open="localEditOpen"
+    :title="localEditBlock?.title ?? '局部编辑'"
+    confirm-text="保存"
+    :width="localEditBlock?.width ?? 640"
+    :confirm-loading="localEditSaving"
+    @confirm="submitLocalEdit"
+    @cancel="localEditOpen = false"
+  >
+    <RecordFormFields
+      v-if="localEditDraft"
+      :record="localEditDraft"
+      :fields="localEditFields"
+      :option-context="context"
+      :disabled="localEditSaving"
+      @update:field="(fieldName, value) => (localEditDraft![fieldName] = value)"
+    />
+  </UiModal>
 </template>
 
 <style scoped>

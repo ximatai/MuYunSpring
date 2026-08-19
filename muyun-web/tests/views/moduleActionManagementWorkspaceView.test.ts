@@ -10,7 +10,7 @@ it('creates one closable action-management tab per governed module', () => {
 
   assert.equal(descriptor.title, '动作：教师');
   assert.equal(descriptor.layout, 'workspace');
-  assert.equal(descriptor.target.route, '/config/modules');
+  assert.equal(descriptor.target.route, '/_workspace/platform.module.actions');
   assert.equal(descriptor.target.moduleAlias, 'platform.module');
   assert.deepEqual(descriptor.target.query, {
     workspaceView: 'platform.module.actions',

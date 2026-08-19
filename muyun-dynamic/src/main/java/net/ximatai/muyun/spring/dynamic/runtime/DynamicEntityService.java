@@ -226,6 +226,21 @@ public class DynamicEntityService implements
         return new DynamicActionAvailabilityRuntime(dao.getEntity(), module).evaluate(action, record, existing);
     }
 
+    /** Uses an already-scoped persisted record and deliberately avoids another activeRaw lookup. */
+    DynamicActionAvailability actionAvailabilityPersisted(String actionCode, DynamicRecord record) {
+        if (record != null) {
+            requireSameEntity(record);
+        }
+        EntityActionDefinition action = actionDefinition(actionCode);
+        if (!action.enabled()) {
+            return DynamicActionAvailability.unavailable(action.actionCode(), disabledActionMessage(action));
+        }
+        if (!action.hasAvailabilityCondition()) {
+            return DynamicActionAvailability.available(action.actionCode());
+        }
+        return new DynamicActionAvailabilityRuntime(dao.getEntity(), module).evaluate(action, record, record);
+    }
+
     @Override
     public String cacheNamespace() {
         return cacheNamespace;
@@ -312,7 +327,14 @@ public class DynamicEntityService implements
 
     public DynamicFormulaPreviewResult previewFormula(DynamicRecord record) {
         DynamicRecord working = record == null ? new DynamicRecord(dao.getEntity()) : record.copy();
-        return formulaRuntime().preview(working, null);
+        if (working.getId() == null || working.getId().isBlank()) {
+            return formulaRuntime().preview(working, null, Map.of());
+        }
+        DynamicRecord existing = activeRaw(working.getId());
+        if (existing == null) {
+            throw new IllegalArgumentException("dynamic record not found: " + working.getId());
+        }
+        return formulaRuntime().preview(working, existing, existingChildrenForFormula(working));
     }
 
     @Override
@@ -873,9 +895,7 @@ public class DynamicEntityService implements
         }
         Map<String, List<DynamicRecord>> values = new LinkedHashMap<>();
         for (EntityRelationDefinition relation : module.relations()) {
-            if (!dao.getEntity().alias().equals(relation.parentEntityAlias())
-                    || !record.getChildren().containsKey(relation.code())
-                    || record.getChildren(relation.code()) == null) {
+            if (!dao.getEntity().alias().equals(relation.parentEntityAlias())) {
                 continue;
             }
             DynamicEntityService childService = relationServiceResolver.apply(relation.childEntityAlias());

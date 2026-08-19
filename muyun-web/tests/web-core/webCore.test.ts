@@ -1158,6 +1158,44 @@ it('module context ignores record action decisions without runtime definition', 
   }
 });
 
+it('module context batches, caches, and invalidates record action availability', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    if (request.url.endsWith('/context')) {
+      return Response.json(runtimeContext());
+    }
+    return Response.json([
+      { recordId: 'org-1', actions: [{ actionCode: 'update', available: false, reason: '受保护记录' }] },
+      { recordId: 'org-2', actions: [{ actionCode: 'update', available: true }] },
+    ]);
+  };
+
+  try {
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const context = createModuleContext({ moduleAlias: 'iam.organization' });
+    await context.runtime.ready;
+
+    await context.recordActionsBatch?.(['org-1', 'org-2', 'org-1']);
+    const batchRequest = requests.find((request) =>
+      request.url.endsWith('/iam.organization/actions/availability'),
+    );
+    assert.ok(batchRequest);
+    assert.deepEqual(await batchRequest.json(), { recordIds: ['org-1', 'org-2'] });
+    assert.equal(context.action('update', 'org-1')?.reason, '受保护记录');
+
+    await context.recordActionsBatch?.(['org-1', 'org-2']);
+    assert.equal(requests.filter((request) => request.url.endsWith('/actions/availability')).length, 1);
+    context.invalidateRecordActions?.(['org-1']);
+    assert.equal(context.recordActionsSnapshot('org-1'), undefined);
+    assert.notEqual(context.recordActionsSnapshot('org-2'), undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 it('module context abilities compose tree and enable capabilities', async () => {
   const requests: Request[] = [];
   const originalFetch = globalThis.fetch;

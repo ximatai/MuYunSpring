@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { ModuleContext } from '@muyun/web-core';
-import { UiActionButton, type UiIconName } from '@muyun/vue-ui-antdv';
+import { UiActionButton, UiTooltip, type UiIconName } from '@muyun/vue-ui-antdv';
 
 defineOptions({ name: 'ModuleActionButton' });
 
@@ -9,6 +9,8 @@ const props = withDefaults(
   defineProps<{
     context: ModuleContext<unknown>;
     actionCode: string;
+    /** Resolves the existing record-level action contract for a selected record. */
+    recordId?: string;
     type?: 'button' | 'submit' | 'reset';
     disabled?: boolean;
     loading?: boolean;
@@ -27,6 +29,7 @@ const props = withDefaults(
     title: undefined,
     iconName: undefined,
     iconOnly: false,
+    recordId: undefined,
   },
 );
 
@@ -34,11 +37,45 @@ const emit = defineEmits<{
   click: [event: MouseEvent];
 }>();
 
-const action = computed(() => props.context.action(props.actionCode));
+const actionAvailabilityLoading = ref(false);
+let actionAvailabilitySequence = 0;
+
+watch(
+  () => [props.recordId, props.actionCode] as const,
+  async ([recordId]) => {
+    const sequence = ++actionAvailabilitySequence;
+    if (!recordId) {
+      actionAvailabilityLoading.value = false;
+      return;
+    }
+    actionAvailabilityLoading.value = true;
+    try {
+      await props.context.recordActions(recordId);
+    } catch {
+      // The action endpoint remains authoritative; keep the UI safely disabled on a load failure.
+    } finally {
+      if (sequence === actionAvailabilitySequence) {
+        actionAvailabilityLoading.value = false;
+      }
+    }
+  },
+  { immediate: true },
+);
+
+const action = computed(() => props.context.action(props.actionCode, props.recordId));
 const runtimeLoaded = computed(() => props.context.runtime.snapshot() !== undefined);
 const authorized = computed(() => action.value?.available === true);
-const buttonDisabled = computed(() => props.loading || props.disabled || !authorized.value);
-const buttonTitle = computed(() => props.title ?? action.value?.title);
+const buttonDisabled = computed(
+  () => props.loading || props.disabled || actionAvailabilityLoading.value || !authorized.value,
+);
+const buttonTitle = computed(() => {
+  if (buttonDisabled.value) {
+    return actionAvailabilityLoading.value
+      ? '正在校验操作可用性'
+      : (action.value?.reason ?? props.title ?? action.value?.title);
+  }
+  return props.title ?? action.value?.title;
+});
 
 function handleClick(event: MouseEvent) {
   if (buttonDisabled.value) {
@@ -67,22 +104,25 @@ function defaultIconName(actionCode: string): UiIconName | undefined {
 </script>
 
 <template>
-  <UiActionButton
-    v-if="!runtimeLoaded || action"
-    :submit="type === 'submit'"
-    :emphasis="primary ? 'primary' : 'secondary'"
-    :disabled="buttonDisabled"
-    :loading="loading"
-    :intent="danger ? 'danger' : 'normal'"
-    :icon-name="iconName ?? defaultIconName(actionCode)"
-    :title="buttonTitle"
-    :class="{ 'module-action-button--icon-only': iconOnly }"
-    @click="handleClick"
-  >
-    <template v-if="!iconOnly">
-      <slot>{{ action?.title ?? actionCode }}</slot>
-    </template>
-  </UiActionButton>
+  <UiTooltip v-if="!runtimeLoaded || action || recordId" :title="buttonDisabled ? (buttonTitle ?? '') : ''">
+    <span class="module-action-button-tooltip-trigger">
+      <UiActionButton
+        :submit="type === 'submit'"
+        :emphasis="primary ? 'primary' : 'secondary'"
+        :disabled="buttonDisabled"
+        :loading="loading"
+        :intent="danger ? 'danger' : 'normal'"
+        :icon-name="iconName ?? defaultIconName(actionCode)"
+        :title="buttonTitle"
+        :class="{ 'module-action-button--icon-only': iconOnly }"
+        @click="handleClick"
+      >
+        <template v-if="!iconOnly">
+          <slot>{{ action?.title ?? actionCode }}</slot>
+        </template>
+      </UiActionButton>
+    </span>
+  </UiTooltip>
 </template>
 
 <style scoped>
@@ -92,5 +132,9 @@ function defaultIconName(actionCode: string): UiIconName | undefined {
   height: 28px;
   padding: 0;
   border-radius: 999px;
+}
+
+.module-action-button-tooltip-trigger {
+  display: inline-flex;
 }
 </style>

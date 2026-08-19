@@ -19,7 +19,7 @@ it('keeps one existing record detail open when an edit is cancelled', () => {
   expect(detail.draft.value?.title).toBe('已加载标题');
 });
 
-it('clears a create draft on cancellation but keeps saved records as the new view state', () => {
+it('clears an unscoped create draft on cancellation but keeps saved records as the new view state', () => {
   const detail = useRecordDetailController<RecordDetail>();
   detail.beginCreate({ title: '新设备' });
   detail.cancelEdit();
@@ -35,4 +35,17 @@ it('clears a create draft on cancellation but keeps saved records as the new vie
   expect(detail.mode.value).toBe('view');
   expect(detail.record.value?.title).toBe('新设备');
   expect(detail.draft.value?.title).toBe('新设备');
+});
+
+it('restores a selected record when a create draft is cancelled', () => {
+  const detail = useRecordDetailController<RecordDetail>();
+  const selected = { id: 'device-3', title: '已选设备' };
+
+  detail.beginCreate({ title: '新设备' }, { restoreRecord: selected });
+  detail.cancelEdit();
+
+  expect(detail.open.value).toBe(true);
+  expect(detail.mode.value).toBe('view');
+  expect(detail.record.value).toEqual(selected);
+  expect(detail.draft.value).toEqual(selected);
 });

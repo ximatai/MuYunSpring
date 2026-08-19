@@ -890,8 +890,8 @@ it('employee management uses organization scope and platform query list panel', 
   assert.match(panelSource, /interface QueryListRow/);
   assert.match(panelSource, /const rows = computed<QueryListRow/);
   assert.match(panelSource, /function resolveRow/);
-  assert.match(panelSource, /resolveRecordActions\(props\.context, configuredActions\)/);
-  assert.notMatch(panelSource, /resolveRecordActions\(props\.context, configuredActions, false, recordId/);
+  assert.match(panelSource, /resolveRecordActions\(props\.context, configuredActions, false, recordId\)/);
+  assert.notMatch(panelSource, /resolveRecordActions\(props\.context, configuredActions\)/);
   assert.match(panelSource, /<RecordActionBar/);
   assert.match(panelSource, /<RecordStatusTag/);
   assert.match(panelSource, /<UiDropdown/);
@@ -1950,48 +1950,6 @@ it('workbench keeps cacheable tab pages mounted behind their stable tab keys', (
   assert.match(workbenchSource, /\.tab-page \{[\s\S]*padding: 10px;[\s\S]*overflow: auto;/);
   assert.match(workbenchSource, /tab-page--workspace/);
   assert.match(workbenchSource, /\.tab-page--workspace \{\s*overflow-x: auto;\s*overflow-y: hidden;/);
-});
-
-it('module management keeps application-scoped tree maintenance separate from module child resources', () => {
-  const moduleManagementSource = readSource('src/views/ModuleManagementView.vue');
-  const moduleStateSource = readSource('src/views/moduleManagementState.ts');
-
-  assert.match(moduleManagementSource, /defineOptions\(\{ name: 'ModuleManagementView' \}\)/);
-  assert.match(moduleManagementSource, /<CrudRecordListExplorer/);
-  assert.match(
-    moduleManagementSource,
-    /const treePath = `\/platform\.module\/tree\/\$\{encodeURIComponent\(applicationAlias\)\}`/,
-  );
-  assert.match(moduleManagementSource, /path: treePath/);
-  assert.match(moduleManagementSource, /path: `\/platform\.module\/sort\/\$\{encodeURIComponent\(id\)\}`/);
-  assert.match(moduleManagementSource, /<TreeRecordExplorer/);
-  assert.match(
-    moduleManagementSource,
-    /<ManagementWorkspace class="module-management-workspace" :explorer-count="2">/,
-  );
-  assert.match(moduleManagementSource, /<RecordDetailPanel class="module-detail-column" :title="cardTitle">/);
-  assert.match(
-    moduleManagementSource,
-    /grid-template-columns: minmax\(220px, 260px\) minmax\(260px, 320px\) minmax\(560px, 1fr\)/,
-  );
-  assert.notMatch(moduleManagementSource, /scrollable-content/);
-  assert.match(moduleManagementSource, /moduleFormFieldNames/);
-  assert.notMatch(moduleManagementSource, /runtime\/refresh/);
-  assert.notMatch(moduleManagementSource, /metadata-relations/);
-  assert.match(
-    moduleStateSource,
-    /applicationAlias: applicationAlias \?\? record\.applicationAlias\?\.trim\(\)/,
-  );
-  assert.match(
-    moduleStateSource,
-    /entryType === 'route' \? normalizeBlank\(record\.entryRoute\) : undefined/,
-  );
-  assert.match(
-    moduleStateSource,
-    /entryType === 'link' \? normalizeBlank\(record\.entryExternalUrl\) : undefined/,
-  );
-  assert.notMatch(moduleManagementSource, /tenantExposure/);
-  assert.notMatch(moduleManagementSource, /租户开放范围/);
 });
 
 it('tenant management governs application entitlements as tenant child records', () => {

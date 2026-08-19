@@ -48,6 +48,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -164,6 +165,20 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         return CurrentUserContext.currentUser()
                 .filter(currentUser -> currentUser.userId().equals(recordId))
                 .map(currentUser -> RecordActionAvailabilityDecision.unavailable(selfAdministrationReason(actionCode)));
+    }
+
+    @Override
+    public Map<String, Optional<RecordActionAvailabilityDecision>> availability(String moduleAlias,
+                                                                                  String actionCode,
+                                                                                  Collection<String> recordIds) {
+        if (recordIds == null || recordIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Optional<RecordActionAvailabilityDecision>> result = new HashMap<>();
+        for (String recordId : recordIds) {
+            result.put(recordId, availability(moduleAlias, actionCode, recordId));
+        }
+        return Map.copyOf(result);
     }
 
     @Override

@@ -138,7 +138,7 @@ public class RoleWebController extends WebSupport<RoleService> implements
                         .field("description", field -> field.label("说明"))
                         .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))
                         .field("sortOrder", field -> field.label("排序号"))))
-                .traits(traits -> traits.standardCrud().enabledStatus().recycleBin().responsiveDetailSurface())))
+                .traits(traits -> traits.standardCrud().enabledStatus().responsiveDetailSurface())))
                 .build();
     }
 

@@ -13,6 +13,14 @@ public interface PageNavigatorSourceCapabilityResolver {
         return capabilities(PlatformNameRules.requireModuleAlias(moduleAlias)).contains(capability);
     }
 
+    /**
+     * Whether the source's currently published contract can serve the requested in-place management UI.
+     * Implementations must return false when the source action or editor contract cannot be proved.
+     */
+    default boolean supportsManagement(String moduleAlias, Set<String> actions, String editorSurface) {
+        return false;
+    }
+
     static PageNavigatorSourceCapabilityResolver unavailable() {
         return moduleAlias -> Set.of();
     }

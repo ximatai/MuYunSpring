@@ -10,7 +10,7 @@ export interface MetadataOrchestrationWorkspaceViewInput {
 export const metadataOrchestrationWorkspaceView =
   defineWorkspaceView<MetadataOrchestrationWorkspaceViewInput>({
     type: 'platform.module.metadata-orchestration',
-    route: '/config/modules',
+    route: '/_workspace/platform.module.metadata-orchestration',
     moduleAlias: 'platform.module',
     component: defineAsyncComponent(() => import('./MetadataOrchestrationView.vue')),
     layout: 'workspace',

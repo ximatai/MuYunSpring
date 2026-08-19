@@ -30,9 +30,17 @@ public class PlatformUiConfigField extends StandardEnabledSortableEntity {
             defaultVal = @Default(bool = TrueOrFalse.TRUE))
     private Boolean visible = Boolean.TRUE;
 
+    @Column(name = "visible_when", type = ColumnType.VARCHAR, length = 512,
+            comment = "Portable visible predicate")
+    private String visibleWhen;
+
     @Column(name = "read_only", type = ColumnType.BOOLEAN, comment = "Read only flag",
             defaultVal = @Default(bool = TrueOrFalse.FALSE))
     private Boolean readOnly = Boolean.FALSE;
+
+    @Column(name = "read_only_when", type = ColumnType.VARCHAR, length = 512,
+            comment = "Portable read only predicate")
+    private String readOnlyWhen;
 
     @Column(name = "required_override", type = ColumnType.BOOLEAN, comment = "Required override")
     private Boolean requiredOverride;

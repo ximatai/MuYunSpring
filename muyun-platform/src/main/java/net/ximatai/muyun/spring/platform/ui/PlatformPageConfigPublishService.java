@@ -114,8 +114,9 @@ public class PlatformPageConfigPublishService {
             throw BusinessExceptions.warning("platform.ui-config.publish-no-visible-field",
                     "UI config publish requires at least one visible field: " + uiConfigId);
         }
-        validateLayoutJson(uiSet.getModuleAlias(), uiConfig);
+        JsonNode layout = validateLayoutJson(uiSet.getModuleAlias(), uiConfig);
         validatePageNavigator(uiSet, uiConfig);
+        validatePageCapabilityContract(uiSet, uiConfig, layout);
         return uiConfig;
     }
 
@@ -234,6 +235,18 @@ public class PlatformPageConfigPublishService {
                         + uiSet.getModuleAlias() + ", uiConfig=" + uiConfig.getId() + ", level=" + level.key()
                         + ", source=" + level.sourceModuleAlias() + ", required=" + required);
             }
+            PlatformPageNavigatorManagement management = level.management();
+            if (management != null) {
+                Set<String> actions = management.actions() == null
+                        ? Set.of("CREATE", "UPDATE", "DELETE")
+                        : management.actions();
+                if (!actions.isEmpty() && !navigatorSourceCapabilityResolver.supportsManagement(
+                        level.sourceModuleAlias(), actions, management.editorSurface())) {
+                    throw new PlatformException("Navigator source management contract is unavailable: page="
+                            + uiSet.getModuleAlias() + ", uiConfig=" + uiConfig.getId() + ", level=" + level.key()
+                            + ", source=" + level.sourceModuleAlias());
+                }
+            }
         }
     }
 
@@ -261,14 +274,46 @@ public class PlatformPageConfigPublishService {
         return template;
     }
 
-    private void validateLayoutJson(String moduleAlias, PlatformUiConfig uiConfig) {
+    private void validatePageCapabilityContract(PlatformUiSet uiSet, PlatformUiConfig uiConfig, JsonNode layout) {
+        if (recordService == null || layout == null) return;
+        Set<String> traits = new java.util.LinkedHashSet<>();
+        JsonNode traitValues = layout.path("traits");
+        if (traitValues.isArray()) {
+            traitValues.forEach(value -> traits.add(value.asText()));
+        }
+        String template = layout.path("template").asText(null);
+        if (!PageCapabilityContractValidator.TREE_MANAGEMENT.equals(template)
+                && !traits.contains(PageCapabilityContractValidator.STANDARD_CRUD)
+                && !traits.contains(PageCapabilityContractValidator.ENABLED_STATUS)
+                && !traits.contains(PageCapabilityContractValidator.RECYCLE_BIN)) {
+            return;
+        }
+        DynamicModuleDescriptor module = recordService.describe(uiSet.getModuleAlias());
+        if (module == null) return;
+        DynamicEntityDescriptor mainEntity = module.entities().stream()
+                .filter(entity -> entity.entityAlias().equals(module.mainEntityAlias()))
+                .findFirst()
+                .orElse(null);
+        if (mainEntity == null) return;
+        try {
+            PageCapabilityContractValidator.validate(uiSet.getModuleAlias(), template,
+                    traits, mainEntity.capabilities(), module.actions().stream()
+                            .map(DynamicActionDescriptor::code)
+                            .collect(Collectors.toUnmodifiableSet()));
+        } catch (IllegalArgumentException exception) {
+            throw new PlatformException("UI config page capability is invalid: " + uiConfig.getId(), exception);
+        }
+    }
+
+    private JsonNode validateLayoutJson(String moduleAlias, PlatformUiConfig uiConfig) {
         String layoutJson = uiConfig.getLayoutJson();
         if (layoutJson == null || layoutJson.isBlank()) {
-            return;
+            return null;
         }
         try {
             JsonNode root = OBJECT_MAPPER.readTree(layoutJson);
             validateLayoutRoot(moduleAlias, root, uiConfig.getId());
+            return root;
         } catch (JsonProcessingException exception) {
             throw new PlatformException("UI config layout JSON cannot be decoded: " + uiConfig.getId());
         }
@@ -278,12 +323,35 @@ public class PlatformPageConfigPublishService {
         if (root == null || !root.isObject()) {
             throw new PlatformException("UI config layout JSON root must be object: " + uiConfigId);
         }
+        validatePageRootContract(root, uiConfigId);
         validateSummaryPanel(root.get("summaryPanel"), uiConfigId);
         validateReferenceCandidate(root.get("referenceCandidate"), "referenceCandidate", uiConfigId);
         validateReferenceCandidateArray(root.get("referenceCandidates"), "referenceCandidates", uiConfigId);
         validateChildSections(root.get("children"), "children", uiConfigId);
         validateChildSections(root.get("childSections"), "childSections", uiConfigId);
         validateKnownBlocks(moduleAlias, root.get("blocks"), uiConfigId);
+    }
+
+    private void validatePageRootContract(JsonNode root, String uiConfigId) {
+        JsonNode template = root.get("template");
+        if (template != null && !template.isNull()) {
+            if (!template.isTextual() || !Set.of("FLAT_MANAGEMENT", "LIST_DETAIL_CARD", "TREE_MANAGEMENT")
+                    .contains(template.asText())) {
+                throw layoutException(uiConfigId, "template is unsupported");
+            }
+        }
+        JsonNode traits = root.get("traits");
+        if (traits == null || traits.isNull()) return;
+        if (!traits.isArray()) {
+            throw layoutException(uiConfigId, "traits must be array");
+        }
+        Set<String> supported = Set.of(
+                "STANDARD_CRUD", "ENABLED_STATUS", "RECYCLE_BIN", "RESPONSIVE_DETAIL_SURFACE");
+        for (JsonNode trait : traits) {
+            if (!trait.isTextual() || !supported.contains(trait.asText())) {
+                throw layoutException(uiConfigId, "traits contains unsupported value");
+            }
+        }
     }
 
     private void validateSummaryPanel(JsonNode summaryPanel, String uiConfigId) {
@@ -426,7 +494,6 @@ public class PlatformPageConfigPublishService {
         }
         validateOptionalText(block, "title", path, uiConfigId);
         validateOptionalText(block, "position", path, uiConfigId);
-        validateOptionalText(block, "uiConfigId", path, uiConfigId);
         validateOptionalText(block, "targetUiConfigId", path, uiConfigId);
         validateOptionalPositiveInt(block, "width", path, uiConfigId);
         validateOptionalPositiveInt(block, "height", path, uiConfigId);
@@ -444,6 +511,9 @@ public class PlatformPageConfigPublishService {
         DynamicActionDescriptor action = validateActionCode(moduleAlias, actionCode, path, uiConfigId);
         if (action != null && "dialog".equals(type.asText()) && action.executorType() != EntityActionExecutorType.DIALOG) {
             throw layoutException(uiConfigId, path + ".actionCode must be DIALOG action");
+        }
+        if (action != null && "action".equals(type.asText()) && action.executorType() == EntityActionExecutorType.DIALOG) {
+            throw layoutException(uiConfigId, path + ".actionCode must not be DIALOG action");
         }
         validateOptionalText(block, "title", path, uiConfigId);
         validateOptionalText(block, "position", path, uiConfigId);
@@ -571,9 +641,9 @@ public class PlatformPageConfigPublishService {
                                                JsonNode block,
                                                String path,
                                                String uiConfigId) {
-        String targetUiConfigId = firstText(text(block, "targetUiConfigId"), text(block, "uiConfigId"));
-        if (targetUiConfigId == null || targetUiConfigId.equals(uiConfigId)) {
-            return;
+        String targetUiConfigId = text(block, "targetUiConfigId");
+        if (targetUiConfigId == null) {
+            throw layoutException(uiConfigId, path + ".targetUiConfigId is required");
         }
         PlatformUiConfig sourceConfig = uiConfigService.requireUiConfig(uiConfigId);
         PlatformUiConfig targetConfig = uiConfigService.requireUiConfig(targetUiConfigId);
@@ -581,13 +651,18 @@ public class PlatformPageConfigPublishService {
         if (!moduleAlias.equals(targetSet.getModuleAlias())) {
             throw layoutException(uiConfigId, path + ".targetUiConfigId must belong to module");
         }
+        if (targetSet.getSetType() != PlatformUiSetType.FORM) {
+            throw layoutException(uiConfigId, path + ".targetUiConfigId must use FORM UI set");
+        }
         if (sourceConfig.getClientType() != targetConfig.getClientType()) {
             throw layoutException(uiConfigId, path + ".targetUiConfigId must use same client type");
         }
         if (!Boolean.TRUE.equals(targetSet.getEnabled())) {
             throw layoutException(uiConfigId, path + ".targetUiConfigId must use enabled UI set");
         }
-        if (!Boolean.TRUE.equals(targetConfig.getEnabled()) || !Boolean.TRUE.equals(targetConfig.getPublished())) {
+        boolean publishingTargetItself = targetUiConfigId.equals(uiConfigId);
+        if (!Boolean.TRUE.equals(targetConfig.getEnabled())
+                || (!publishingTargetItself && !Boolean.TRUE.equals(targetConfig.getPublished()))) {
             throw layoutException(uiConfigId, path + ".targetUiConfigId must be published and enabled");
         }
         if (!hasLocalEditBinding(targetConfig, actionCode)) {

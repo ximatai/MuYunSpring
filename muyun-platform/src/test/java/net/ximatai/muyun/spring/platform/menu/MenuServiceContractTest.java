@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.menu;
 
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.common.exception.PlatformConfigurationException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -272,6 +273,22 @@ class MenuServiceContractTest {
                     .hasMessageContaining("menus exist");
 
             assertThat(guardedSchemeService.delete(emptySchemeId)).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void shouldProjectManagedMenuMutationBoundaryToRecordActions() {
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            String schemeId = schemeService.insert(scheme("default", MenuScopeType.TENANT, null));
+            Menu managed = groupMenu(schemeId, "平台菜单", TreeAbility.ROOT_ID);
+            managed.setSystemManaged(Boolean.TRUE);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.insert(managed));
+
+            assertThat(menuService.ordinaryRecordActionAvailability("update", managed))
+                    .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管记录不可编辑"));
+            assertThat(menuService.ordinaryRecordActionAvailability("delete", managed))
+                    .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管记录不可删除"));
+            assertThat(menuService.ordinaryRecordActionAvailability("enable", managed)).isEmpty();
         }
     }
 
