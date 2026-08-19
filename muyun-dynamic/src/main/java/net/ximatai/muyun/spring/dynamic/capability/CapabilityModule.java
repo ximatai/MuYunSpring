@@ -6,7 +6,7 @@ import java.util.Set;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 
 /** Closed capability-module vocabulary; this is not a third-party extension SPI. */
-public sealed interface CapabilityModule permits EnableCapabilityModule {
+public sealed interface CapabilityModule permits EnableCapabilityModule, SortCapabilityModule {
     EntityCapability capability();
 
     default Set<EntityCapability> dependencies() {
@@ -14,6 +14,10 @@ public sealed interface CapabilityModule permits EnableCapabilityModule {
     }
 
     default void validateDynamicDefinition(EntityDefinition entity) {
+    }
+
+    /** Validates declarations that name this capability even when it is not enabled. */
+    default void validateDynamicReferences(EntityDefinition entity) {
     }
 
     CapabilityActionContribution actionContribution();

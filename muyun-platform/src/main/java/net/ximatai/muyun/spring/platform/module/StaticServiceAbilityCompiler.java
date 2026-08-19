@@ -8,7 +8,6 @@ import net.ximatai.muyun.spring.ability.PlatformOperation;
 import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
@@ -53,8 +52,9 @@ public final class StaticServiceAbilityCompiler {
         if (service instanceof CacheAbility<?>) capabilities.add(EntityCapability.CACHE);
         if (service instanceof TreeAbility<?>) {
             capabilities.add(EntityCapability.TREE);
-            capabilities.add(EntityCapability.SORT);
-        } else if (service instanceof SortAbility<?>) {
+        }
+        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.SORT,
+                net.ximatai.muyun.spring.dynamic.capability.SortCapabilityModule.class).isEnabledOnStaticService(service)) {
             capabilities.add(EntityCapability.SORT);
         }
         if (service instanceof ReferenceAbility<?>) capabilities.add(EntityCapability.REFERENCE);
@@ -80,8 +80,11 @@ public final class StaticServiceAbilityCompiler {
             operations.add(operation("tree", "treeQuery", PlatformAction.TREE));
             operations.add(operation("tree", "subtree", PlatformAction.TREE));
             operations.add(operation("tree", "sort", PlatformAction.SORT));
-        } else if (service instanceof SortAbility<?>) {
-            operations.add(operation("sort", "sort", PlatformAction.SORT));
+        } else if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.SORT,
+                net.ximatai.muyun.spring.dynamic.capability.SortCapabilityModule.class).isEnabledOnStaticService(service)) {
+            operations.addAll(CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.SORT,
+                            net.ximatai.muyun.spring.dynamic.capability.SortCapabilityModule.class).actions()
+                    .staticOperations());
         }
         if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.ENABLE,
                 net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityModule.class).isEnabledOnStaticService(service)) {

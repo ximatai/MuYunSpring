@@ -9,6 +9,8 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformPermissionCode;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
+import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpoint;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -91,8 +93,8 @@ public class StaticModuleOpenApiGenerator {
     private PlatformApiDocument.Operation operation(RegisteredWebEndpoint endpoint, String mainSchemaName) {
         var definition = endpoint.definition();
         String actionCode = definition.action().code();
-        String requestSchema = requestSchema(definition.action(), mainSchemaName);
-        String responseSchema = responseSchema(definition.action(), mainSchemaName);
+        String requestSchema = requestSchema(endpoint, mainSchemaName);
+        String responseSchema = responseSchema(endpoint, mainSchemaName);
         return new PlatformApiDocument.Operation(definition.method().name(), definition.path(), definition.endpointId(),
                 definition.operationCode(), requestSchema, responseSchema, actionCode,
                 PlatformPermissionCode.action(definition.moduleAlias(),
@@ -101,18 +103,34 @@ public class StaticModuleOpenApiGenerator {
                 definition.action() == PlatformAction.QUERY ? Map.of() : null);
     }
 
-    private String requestSchema(PlatformAction action, String mainSchemaName) {
+    private String requestSchema(RegisteredWebEndpoint endpoint, String mainSchemaName) {
+        PlatformAction action = endpoint.definition().action();
+        String capabilitySchema = capabilityWebContract(endpoint)
+                .map(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution.CapabilityWebActionContract::openApiRequestSchema)
+                .orElse(null);
+        if (capabilitySchema != null) return capabilitySchema;
         if (action == PlatformAction.QUERY) return "WebQueryRequest";
         if (action == PlatformAction.DELETE) return "RecordActionWebRequest";
         return action == PlatformAction.CREATE || action == PlatformAction.UPDATE ? mainSchemaName : null;
     }
 
-    private String responseSchema(PlatformAction action, String mainSchemaName) {
+    private String responseSchema(RegisteredWebEndpoint endpoint, String mainSchemaName) {
+        PlatformAction action = endpoint.definition().action();
+        String capabilitySchema = capabilityWebContract(endpoint)
+                .map(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution.CapabilityWebActionContract::openApiResponseSchema)
+                .orElse(null);
+        if (capabilitySchema != null) return capabilitySchema;
         if (action == PlatformAction.QUERY) return mainSchemaName == null ? null : mainSchemaName + "PageResponse";
         if (action == PlatformAction.VIEW || action == PlatformAction.CREATE || action == PlatformAction.UPDATE) return mainSchemaName;
-        if (action == PlatformAction.DELETE || action == PlatformAction.ENABLE || action == PlatformAction.DISABLE
-                || action == PlatformAction.SORT) return "integer";
+        if (action == PlatformAction.DELETE || action == PlatformAction.ENABLE || action == PlatformAction.DISABLE) return "integer";
         return null;
+    }
+
+    private java.util.Optional<net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution.CapabilityWebActionContract>
+    capabilityWebContract(RegisteredWebEndpoint endpoint) {
+        return CapabilityModuleRegistry.defaultRegistry().actionOwner(endpoint.definition().action())
+                .flatMap(contribution -> contribution.webActionContract(endpoint.definition().action(),
+                        endpoint.staticTarget() != null && endpoint.staticTarget().service() instanceof TreeAbility<?>));
     }
 
     private Map<String, PlatformApiDocument.ErrorResponse> errors() {

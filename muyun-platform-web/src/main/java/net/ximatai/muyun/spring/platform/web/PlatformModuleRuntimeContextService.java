@@ -989,7 +989,6 @@ public class PlatformModuleRuntimeContextService {
             switch (action) {
                 case CREATE, VIEW, UPDATE, DELETE, BATCH_DELETE, QUERY -> capabilities.add(EntityCapability.CRUD);
                 case TREE -> capabilities.add(EntityCapability.TREE);
-                case SORT -> capabilities.add(EntityCapability.SORT);
                 case REFERENCE -> capabilities.add(EntityCapability.REFERENCE);
                 case RECYCLE_BIN_QUERY, RECYCLE_BIN_RESTORE, RECYCLE_BIN_PURGE ->
                         capabilities.add(EntityCapability.RECYCLE_BIN);

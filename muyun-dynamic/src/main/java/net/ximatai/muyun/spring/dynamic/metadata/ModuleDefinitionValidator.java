@@ -133,7 +133,6 @@ public class ModuleDefinitionValidator {
         }
         validateTenantUniqueConstraints(entity, fields);
         validateFileReferences(entity, fields);
-        validateSortPartition(entity, fields);
         if (!entity.supports(EntityCapability.CRUD)) {
             throw new ModuleDefinitionException("dynamic entity requires CRUD capability: " + entity.alias());
         }
@@ -143,14 +142,8 @@ public class ModuleDefinitionValidator {
         if (titleFields > 1) {
             throw new ModuleDefinitionException("entity can only have one title field: " + entity.alias());
         }
-        if (sortableFields > 0 && !entity.supports(EntityCapability.SORT)) {
-            throw new ModuleDefinitionException("sortable field requires SORT capability: " + entity.alias());
-        }
         if (entity.supports(EntityCapability.TREE)) {
             requireTreeParentField(entity, treeParentField);
-        }
-        if (entity.supports(EntityCapability.SORT)) {
-            requireSortField(entity, sortableField);
         }
         if (titleFields > 0 && !entity.supports(EntityCapability.REFERENCE)) {
             throw new ModuleDefinitionException("title field requires REFERENCE capability: " + entity.alias());
@@ -216,27 +209,6 @@ public class ModuleDefinitionValidator {
                             + " field: " + entity.alias() + "." + targetFieldName);
                 }
             });
-        }
-    }
-
-    private void validateSortPartition(EntityDefinition entity, List<FieldDefinition> fields) {
-        if (entity.sortPartitionFields().isEmpty()) {
-            return;
-        }
-        if (!entity.supports(EntityCapability.SORT)) {
-            throw new ModuleDefinitionException("sort partition requires SORT capability: " + entity.alias());
-        }
-        Set<String> declared = new HashSet<>();
-        for (String fieldName : entity.sortPartitionFields()) {
-            requireFieldName(fieldName, "sort partition field");
-            if (!declared.add(fieldName)) {
-                throw new ModuleDefinitionException("duplicate sort partition field: " + entity.alias() + "." + fieldName);
-            }
-            boolean physical = fields.stream().anyMatch(field -> field.fieldName().equals(fieldName) && field.isPhysical());
-            if (!physical) {
-                throw new ModuleDefinitionException("sort partition requires physical field: "
-                        + entity.alias() + "." + fieldName);
-            }
         }
     }
 
@@ -1313,17 +1285,6 @@ public class ModuleDefinitionValidator {
     private String physicalTableKey(EntityDefinition entity) {
         String schemaName = entity.schemaName() == null || entity.schemaName().isBlank() ? "" : entity.schemaName();
         return schemaName + "." + entity.tableName();
-    }
-
-    private void requireSortField(EntityDefinition entity, FieldDefinition field) {
-        if (field == null) {
-            throw new ModuleDefinitionException("SORT capability requires standard field sortOrder: " + entity.alias());
-        }
-        if (!PlatformAbilityFields.SORT_FIELD.equals(field.fieldName())
-                || !PlatformAbilityFields.SORT_COLUMN.equals(field.columnName())
-                || field.type() != FieldType.INTEGER) {
-            throw new ModuleDefinitionException("SORT capability requires standard field sortOrder/sort_order: " + entity.alias());
-        }
     }
 
     private void requireTreeParentField(EntityDefinition entity, FieldDefinition field) {

@@ -19,7 +19,8 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
  * complete module and provides the template for subsequent capabilities.</p>
  */
 public final class CapabilityModuleRegistry {
-    private static final CapabilityModuleRegistry DEFAULT = new CapabilityModuleRegistry(List.of(new EnableCapabilityModule()));
+    private static final CapabilityModuleRegistry DEFAULT = new CapabilityModuleRegistry(List.of(
+            new EnableCapabilityModule(), new SortCapabilityModule()));
 
     private final Map<EntityCapability, CapabilityModule> modules;
     private final Map<PlatformAction, CapabilityActionContribution> actionContributions;
@@ -67,6 +68,7 @@ public final class CapabilityModuleRegistry {
     /** Validates capability ownership/dependencies and the owned dynamic-definition contract. */
     public void validate(EntityDefinition entity) {
         for (CapabilityModule module : modules.values()) {
+            module.validateDynamicReferences(entity);
             if (!entity.supports(module.capability())) {
                 continue;
             }

@@ -27,8 +27,9 @@ final class DynamicStandardActionExecutor {
                         + moduleAlias + "." + entityAlias + "." + actionCode));
         var capabilityAction = CapabilityModuleRegistry.defaultRegistry().actionOwner(action);
         if (capabilityAction.isPresent()) {
-            return countResult(DynamicCapabilityActionRuntimeAdapter.execute(capabilityAction.get(), action,
-                    service, moduleAlias, entityAlias, requireRecordId(request, actionCode), traceId));
+            int count = DynamicCapabilityActionRuntimeAdapter.execute(capabilityAction.get(), action,
+                    service, moduleAlias, entityAlias, request, traceId);
+            return action == PlatformAction.SORT ? DynamicActionResultBody.refreshed() : countResult(count);
         }
         return switch (action) {
             case CREATE -> DynamicActionResultBody.createdRecordId(
@@ -38,21 +39,6 @@ final class DynamicStandardActionExecutor {
             case DELETE -> countResult(service.deleteFromAction(moduleAlias, entityAlias, requireRecordId(request, actionCode), traceId));
             case BATCH_DELETE -> countResult(service.deleteBatchFromAction(moduleAlias, entityAlias, requireIds(request, actionCode), traceId));
             case QUERY -> DynamicActionResultBody.of(operations.page(criteria(request), requirePageRequest(request, actionCode), sorts(request)));
-            case SORT -> {
-                SortIntent intent = sortIntent(request, actionCode);
-                if (intent == SortIntent.REORDER) {
-                    service.reorderFromAction(moduleAlias, entityAlias, request.orderedIds(), traceId);
-                    yield DynamicActionResultBody.refreshed();
-                }
-                if (intent == SortIntent.MOVE_BEFORE) {
-                    service.moveBeforeFromAction(moduleAlias, entityAlias, requireRecordId(request, actionCode),
-                            request.beforeId(), traceId);
-                    yield DynamicActionResultBody.refreshed();
-                }
-                service.moveAfterFromAction(moduleAlias, entityAlias, requireRecordId(request, actionCode),
-                        request.afterId(), traceId);
-                yield DynamicActionResultBody.refreshed();
-            }
             case MENU, TREE, REFERENCE, IMPORT, EXPORT,
                     RECYCLE_BIN_QUERY, RECYCLE_BIN_RESTORE, RECYCLE_BIN_PURGE -> throw new IllegalArgumentException(
                     "standard action is only exposed through web endpoint: " + actionCode);
@@ -60,26 +46,6 @@ final class DynamicStandardActionExecutor {
         };
     }
 
-    private SortIntent sortIntent(DynamicActionExecutionRequest request, String actionCode) {
-        int intents = 0;
-        SortIntent intent = null;
-        if (!request.orderedIds().isEmpty()) {
-            intents++;
-            intent = SortIntent.REORDER;
-        }
-        if (request.beforeId() != null && !request.beforeId().isBlank()) {
-            intents++;
-            intent = SortIntent.MOVE_BEFORE;
-        }
-        if (request.afterId() != null && !request.afterId().isBlank()) {
-            intents++;
-            intent = SortIntent.MOVE_AFTER;
-        }
-        if (intents != 1) {
-            throw new IllegalArgumentException("dynamic action requires exactly one sort intent: " + actionCode);
-        }
-        return intent;
-    }
 
     private DynamicActionResultBody countResult(int count) {
         return DynamicActionResultBody.changedCount(count);
@@ -124,9 +90,4 @@ final class DynamicStandardActionExecutor {
         return request.sorts().toArray(Sort[]::new);
     }
 
-    private enum SortIntent {
-        REORDER,
-        MOVE_BEFORE,
-        MOVE_AFTER
-    }
 }

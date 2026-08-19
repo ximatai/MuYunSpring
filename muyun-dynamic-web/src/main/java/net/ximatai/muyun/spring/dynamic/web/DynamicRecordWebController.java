@@ -78,7 +78,6 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
-import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.openapi.DynamicOpenApiGenerator;
@@ -1465,28 +1464,7 @@ public class DynamicRecordWebController implements
                                  @RequestBody(required = false) TreeSortWebRequest request) {
         return webScope(() -> {
             TreeSortWebRequest normalized = request == null ? new TreeSortWebRequest(null, null, null) : request;
-            DynamicEntityOperations operations = service();
-            Set<String> capabilities = operations.describe().capabilities();
-            if (capabilities.contains(EntityCapability.TREE.name())) {
-                requireSortInput(normalized);
-                operations.moveInTree(id, normalized.previousId(), normalized.nextId(), normalized.parentId());
-                return 1;
-            }
-            if (!capabilities.contains(EntityCapability.SORT.name())) {
-                throw new PlatformException("dynamic entity does not support capability: SORT");
-            }
-            if (normalized.parentId() != null && !normalized.parentId().isBlank()) {
-                throw new IllegalArgumentException("sort parentId requires TREE capability");
-            }
-            if (normalized.previousId() != null && !normalized.previousId().isBlank()) {
-                operations.moveAfter(id, normalized.previousId());
-                return 1;
-            }
-            if (normalized.nextId() != null && !normalized.nextId().isBlank()) {
-                operations.moveBefore(id, normalized.nextId());
-                return 1;
-            }
-            throw new IllegalArgumentException("sort requires previousId or nextId");
+            return DynamicCapabilityWebActionAdapter.sort(service(), id, normalized);
         });
     }
 
@@ -1882,14 +1860,6 @@ public class DynamicRecordWebController implements
                 .filter(action -> recordService.actionAuthorizationAvailability(
                         moduleAlias, entityAlias, action.code(), Set.of()).available())
                 .toList();
-    }
-
-    private void requireSortInput(TreeSortWebRequest request) {
-        if ((request.previousId() == null || request.previousId().isBlank())
-                && (request.nextId() == null || request.nextId().isBlank())
-                && (request.parentId() == null || request.parentId().isBlank())) {
-            throw new IllegalArgumentException("tree sort requires previousId, nextId, or parentId");
-        }
     }
 
     private <T> T tenantScope(String moduleAlias, Supplier<T> action) {

@@ -5,7 +5,9 @@ import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -23,6 +25,33 @@ class DynamicCapabilityActionRuntimeAdapterTest {
 
         verify(service).enableFromAction("sales", "contract", "record-1", "trace-1");
         verify(service).disableFromAction("sales", "contract", "record-1", "trace-1");
+    }
+
+    @Test
+    void shouldDispatchTheSharedSortActionVectorToDynamicRuntime() {
+        DynamicRecordService service = mock(DynamicRecordService.class);
+
+        assertThat(DynamicCapabilityActionRuntimeAdapter.execute(owner(PlatformAction.SORT), PlatformAction.SORT,
+                service, "sales", "contract", DynamicActionExecutionRequest.empty()
+                        .withRecordId("record-1").withBeforeId("record-2"), "trace-1")).isZero();
+
+        verify(service).moveBeforeFromAction("sales", "contract", "record-1", "record-2", "trace-1");
+    }
+
+    @Test
+    void shouldDispatchTheSameSortAfterVectorAndPreservePartitionRejection() {
+        DynamicRecordService service = mock(DynamicRecordService.class);
+        DynamicActionExecutionRequest after = DynamicActionExecutionRequest.empty()
+                .withRecordId("moving").withAfterId("other-partition");
+        doThrow(new net.ximatai.muyun.spring.common.exception.PlatformException(
+                "Sort can only move records within the same partition: organizationId"))
+                .when(service).moveAfterFromAction("sales", "contract", "moving", "other-partition", "trace-1");
+
+        assertThatThrownBy(() -> DynamicCapabilityActionRuntimeAdapter.execute(owner(PlatformAction.SORT), PlatformAction.SORT,
+                service, "sales", "contract", after, "trace-1"))
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                .hasMessageContaining("same partition");
+        verify(service).moveAfterFromAction("sales", "contract", "moving", "other-partition", "trace-1");
     }
 
     private net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution owner(PlatformAction action) {

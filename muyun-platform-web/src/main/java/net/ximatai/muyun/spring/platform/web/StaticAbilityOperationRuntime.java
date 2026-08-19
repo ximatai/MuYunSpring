@@ -60,12 +60,9 @@ public final class StaticAbilityOperationRuntime {
         var capabilityAction = CapabilityModuleRegistry.defaultRegistry().actionOwner(action);
         if (capabilityAction.isPresent()) {
             return capabilityActionAdapter.execute(capabilityAction.get(), scope, request, action, pathVariable(request, "id"),
-                    (RecordActionWebRequest) body);
+                    body);
         }
         return switch (action) {
-            case SORT -> target.service() instanceof TreeAbility<?>
-                    ? sortTree(scope, request, pathVariable(request, "id"), (TreeSortWebRequest) body)
-                    : sort(scope, request, pathVariable(request, "id"), (SortWebRequest) body);
             case TREE -> tree(scope, request, endpoint.definition().operationCode(), (WebQueryRequest) body);
             case RECYCLE_BIN_QUERY -> "view".equals(endpoint.definition().operationCode())
                     ? recycleBinView(scope, pathVariable(request, "id"))
@@ -473,14 +470,14 @@ public final class StaticAbilityOperationRuntime {
 
     /** Static source adapter registry; each capability owns its own service contract here. */
     private final class StaticCapabilityActionRuntimeAdapter {
-        private final List<Handler> handlers = List.of(new EnableHandler());
+        private final List<Handler> handlers = List.of(new EnableHandler(), new SortHandler());
 
         int execute(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution,
                     OperationScope scope,
                     HttpServletRequest request,
                     PlatformAction action,
                     String id,
-                    RecordActionWebRequest body) {
+                    Object body) {
             return handlers.stream().filter(handler -> handler.supports(contribution)).findFirst()
                     .orElseThrow(() -> new IllegalStateException("no static runtime adapter for capability action: "
                             + action.code()))
@@ -491,7 +488,7 @@ public final class StaticAbilityOperationRuntime {
             boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution);
 
             int execute(OperationScope scope, HttpServletRequest request, PlatformAction action, String id,
-                        RecordActionWebRequest body);
+                        Object body);
         }
 
         private final class EnableHandler implements Handler {
@@ -503,9 +500,10 @@ public final class StaticAbilityOperationRuntime {
             @Override
             @SuppressWarnings({"rawtypes", "unchecked"})
             public int execute(OperationScope scope, HttpServletRequest httpRequest, PlatformAction action, String id,
-                               RecordActionWebRequest request) {
+                               Object body) {
                 EnableAbility ability = requireService(scope, EnableAbility.class);
-                RecordActionWebRequest normalized = request == null ? new RecordActionWebRequest(null) : request;
+                RecordActionWebRequest normalized = body instanceof RecordActionWebRequest request
+                        ? request : new RecordActionWebRequest(null);
                 return MutationTenantScopeExecutor.forExistingRecord(scope, id, () -> scope.webScope(() -> {
                     requireProjectionRecord(scope, httpRequest, action, id);
                     StaticStandardMutationSupport.requireDataScopeRecord((ScopedWeb) scope, action, id);
@@ -518,6 +516,28 @@ public final class StaticAbilityOperationRuntime {
                         default -> throw new IllegalArgumentException("ENABLE static adapter does not own: " + action.code());
                     };
                 }));
+            }
+        }
+
+        private final class SortHandler implements Handler {
+            @Override
+            public boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution) {
+                return contribution instanceof net.ximatai.muyun.spring.dynamic.capability.SortCapabilityActionFacet;
+            }
+
+            @Override
+            public int execute(OperationScope scope, HttpServletRequest request, PlatformAction action, String id,
+                               Object body) {
+                if (action != PlatformAction.SORT) {
+                    throw new IllegalArgumentException("SORT static adapter does not own: " + action.code());
+                }
+                // TREE depends on SORT but keeps its distinct placement semantics.
+                if (scope.service() instanceof TreeAbility<?>) {
+                    return sortTree(scope, request, id, body instanceof TreeSortWebRequest tree
+                            ? tree : new TreeSortWebRequest(null, null, null));
+                }
+                return sort(scope, request, id, body instanceof SortWebRequest sort
+                        ? sort : new SortWebRequest(null, null));
             }
         }
     }

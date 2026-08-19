@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
 import net.ximatai.muyun.spring.ability.EnableAbility;
+import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
@@ -47,12 +48,14 @@ class StaticAbilityWebEndpointRegistrarTest {
     @Test
     void shouldGrowAndShrinkPhysicalMappingsFromServiceAbilityWithoutChangingController() throws Exception {
         Set<String> enabledMappings = mappings(mock(EnableAbility.class));
+        Set<String> sortMappings = mappings(mock(SortAbility.class));
         Set<String> plainMappings = mappings(mock(CrudAbility.class));
 
         assertThat(enabledMappings).containsExactlyInAnyOrder(
                 "/demo.resource/enable/{id}",
                 "/demo.resource/disable/{id}"
         );
+        assertThat(sortMappings).containsExactly("/demo.resource/sort/{id}");
         assertThat(plainMappings).isEmpty();
     }
 

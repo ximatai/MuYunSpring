@@ -698,9 +698,11 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                                                 Class<?> beanClass) {
         if (TreeWeb.class.isAssignableFrom(beanClass)) {
             addPlatform(actions, PlatformAction.TREE);
-            addPlatform(actions, PlatformAction.SORT);
+            CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.SORT).orElseThrow()
+                    .standardActions().forEach(action -> addPlatform(actions, action));
         } else if (SortWeb.class.isAssignableFrom(beanClass)) {
-            addPlatform(actions, PlatformAction.SORT);
+            CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.SORT).orElseThrow()
+                    .standardActions().forEach(action -> addPlatform(actions, action));
         }
         if (EnableWeb.class.isAssignableFrom(beanClass)) {
             CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.ENABLE).orElseThrow()
@@ -736,9 +738,11 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         if (service == null) {
             if (TreeWeb.class.isAssignableFrom(beanClass)) {
                 addContributionPlatform(actions, contribution, PlatformAction.TREE);
-                addContributionPlatform(actions, contribution, PlatformAction.SORT);
+                CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.SORT).orElseThrow()
+                        .standardActions().forEach(action -> addContributionPlatform(actions, contribution, action));
             } else if (SortWeb.class.isAssignableFrom(beanClass)) {
-                addContributionPlatform(actions, contribution, PlatformAction.SORT);
+                CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.SORT).orElseThrow()
+                        .standardActions().forEach(action -> addContributionPlatform(actions, contribution, action));
             }
             if (EnableWeb.class.isAssignableFrom(beanClass)) {
                 CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.ENABLE).orElseThrow()

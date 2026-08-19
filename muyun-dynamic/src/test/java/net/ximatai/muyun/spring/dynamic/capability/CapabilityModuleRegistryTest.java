@@ -22,6 +22,10 @@ class CapabilityModuleRegistryTest {
         return registry.require(EntityCapability.ENABLE, EnableCapabilityModule.class);
     }
 
+    private SortCapabilityModule sort() {
+        return registry.require(EntityCapability.SORT, SortCapabilityModule.class);
+    }
+
     @Test
     void shouldOwnEnableDefinitionAndStandardActionsAsOneTypedModule() {
         EntityDefinition entity = entity(Set.of(EntityCapability.CRUD, EntityCapability.ENABLE), FieldDefinition.enabled());
@@ -45,6 +49,44 @@ class CapabilityModuleRegistryTest {
         assertThatThrownBy(() -> registry.validate(entity))
                 .isInstanceOf(ModuleDefinitionException.class)
                 .hasMessageContaining("ENABLE capability requires standard field enabled");
+    }
+
+    @Test
+    void shouldOwnSortDefinitionAndEndpointProjectionAsOneTypedModule() {
+        EntityDefinition entity = entity(Set.of(EntityCapability.CRUD, EntityCapability.SORT), FieldDefinition.sortOrder());
+
+        registry.validate(entity);
+
+        assertThat(sort().dependencies()).containsExactly(EntityCapability.CRUD);
+        assertThat(sort().actions().standardActions()).containsExactly(PlatformAction.SORT);
+        assertThat(registry.actionOwner(PlatformAction.SORT)).containsSame(sort().actions());
+        assertThat(registry.actionOwner(PlatformAction.SORT).orElseThrow()
+                .endpointProjection(PlatformAction.SORT).orElseThrow().path()).isEqualTo("/sort/{id}");
+    }
+
+    @Test
+    void shouldRejectSortWithoutTheOwnedStandardField() {
+        EntityDefinition entity = entity(Set.of(EntityCapability.CRUD, EntityCapability.SORT),
+                FieldDefinition.integer("rank", "Rank").sortable());
+
+        assertThatThrownBy(() -> registry.validate(entity))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("SORT capability requires standard field sortOrder/sort_order");
+    }
+
+    @Test
+    void shouldRejectSortFieldAndPartitionDeclarationsWhenSortIsNotEnabled() {
+        EntityDefinition sortable = entity(Set.of(EntityCapability.CRUD), FieldDefinition.sortOrder());
+        EntityDefinition partitioned = new EntityDefinition("contract", "contract", "Contract",
+                List.of(FieldDefinition.string("organizationId", "Organization")), Set.of(EntityCapability.CRUD))
+                .withSortPartitionFields("organizationId");
+
+        assertThatThrownBy(() -> registry.validate(sortable))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("sortable field requires SORT capability");
+        assertThatThrownBy(() -> registry.validate(partitioned))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("sort partition requires SORT capability");
     }
 
     @Test

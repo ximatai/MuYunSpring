@@ -43,7 +43,7 @@ final class StaticWebEndpointProjectionCompiler {
         if (capabilityProjection.isPresent()) {
             var projection = capabilityProjection.get();
             if (!projection.operationCode().equals(operation.operationCode())) {
-                throw new IllegalArgumentException("ENABLE endpoint operation does not match capability contract: "
+                throw new IllegalArgumentException("capability endpoint operation does not match capability contract: "
                         + operation);
             }
             return new WebShape(RequestMethod.valueOf(projection.httpMethod()), projection.path());
