@@ -1,17 +1,13 @@
-import { shallowMount } from '@vue/test-utils';
 import { assert, it } from 'vitest';
-import DynamicModuleHost from '@/dynamic-page-runtime/DynamicModuleHost.vue';
-import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-it('forwards neutral module page descriptors to the shared compatibility implementation', () => {
-  const descriptor = {
-    pageType: 'dynamic-module' as const,
-    openMode: 'dynamic-runner' as const,
-    hostType: 'module-page-host' as const,
-    target: { moduleAlias: 'iam.organization', pageMode: 'LIST' as const },
-    tabPolicy: { identity: 'by-target' as const },
-  };
-  const wrapper = shallowMount(ModulePageHost, { props: { descriptor } });
+it('is the implementation owner for neutral module page descriptors', () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
+    'utf8',
+  );
 
-  assert.deepEqual(wrapper.findComponent(DynamicModuleHost).props('descriptor'), descriptor);
+  assert.match(source, /defineOptions\(\{ name: 'ModulePageHost' \}\)/);
+  assert.match(source, /descriptor: StandardModulePageDescriptor/);
 });

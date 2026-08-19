@@ -29,7 +29,7 @@ import {
   type ModulePageRecordActionContribution,
 } from './modulePageEnhancements';
 import { useModulePageNavigation } from './modulePageNavigation';
-import DynamicRecordDetailActions from './DynamicRecordDetailActions.vue';
+import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import { useRecordDetailController } from './recordDetailController';
 
 defineOptions({ name: 'DynamicModuleWorkspaceDetailView' });
@@ -274,7 +274,7 @@ async function toggleEnabled() {
 <template>
   <RecordDetailPanel class="dynamic-module-workspace-detail" :title="title">
     <template #actions>
-      <DynamicRecordDetailActions
+      <ModuleRecordDetailActions
         :context="context"
         :record="record"
         :mode="mode"

@@ -244,6 +244,12 @@ Service Ability 已经提供较轻的业务组合方式，但新增一种平台�
 5. 增加架构适配测试：业务领域模块不得依赖其他领域的 `*-web`，后端 Descriptor 不得出现前端组件名，标准 Host 不得出现“动态记录”等来源措辞。
 6. 为兼容 API 标明替代入口和删除条件，避免 `Dynamic*`、`Static*` 历史命名长期成为新的开发默认。
 
+### 静态接入检查清单
+
+普通静态模块以岗位管理、应用管理和模块管理为样板：Service 只声明领域事实与 Ability，Controller 只声明模块交付和 typed Web policy；不得注入 Execution Plan catalog 或运行时内部协作者。
+
+`LegacyStaticReadProjectionCompatibility` 当前仅由 `EmployeeWebController` 临时使用。删除条件是该 Controller 改由 `StandardModuleWebRuntime` 消费已编译 plan，并以启动期 plan 缺失失败和请求期不重解 DSL 的契约测试替代兼容路径；满足后同时删除 marker、目录标记字段和对应 fallback。
+
 ### 验收标准
 
 1. 普通模块的 Service 只包含领域归一化、领域校验、引用保护和个性动作，不编排租户、权限、缓存、审计或 HTTP 生命周期。
@@ -270,4 +276,3 @@ Service Ability 已经提供较轻的业务组合方式，但新增一种平台�
 4. 标准能力可以按实现单元演进，新增能力不需要在多个中心类复制分支。
 5. 平台大运行时由可独立测试的协作者组成，同时保持业务接入 API 轻量。
 6. 应用管理、模块管理、岗位管理分别成为系统平铺、平台树和普通租户业务的长期契约样板。
-

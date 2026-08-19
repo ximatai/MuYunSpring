@@ -337,8 +337,8 @@ it('record mode drawer owns detail mode branch switching', () => {
 });
 
 it('standard module runner waits for a complete detail and action availability before enabling mutations', () => {
-  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
-  const detailActionsSource = readSource('src/dynamic-page-runtime/DynamicRecordDetailActions.vue');
+  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const detailActionsSource = readSource('src/dynamic-page-runtime/ModuleRecordDetailActions.vue');
   const detailControllerSource = readSource('src/dynamic-page-runtime/recordDetailController.ts');
   const editingSessionSource = readSource('src/dynamic-page-runtime/composables/useRecordEditingSession.ts');
 
@@ -357,8 +357,8 @@ it('standard module runner waits for a complete detail and action availability b
   assert.match(hostSource, /:loading="detailLoading"/);
   assert.match(hostSource, /:load-failed="detailLoadFailed"/);
   assert.match(hostSource, /@retry="retryLoadDetail"/);
-  assert.match(hostSource, /canMutateDynamicModuleDetail/);
-  assert.match(hostSource, /<DynamicRecordDetailActions/);
+  assert.match(hostSource, /canMutateModuleDetail/);
+  assert.match(hostSource, /<ModuleRecordDetailActions/);
   assert.match(hostSource, /:detail-loading="detailLoading"/);
   assert.match(hostSource, /:detail-load-failed="detailLoadFailed"/);
   assert.match(detailActionsSource, /const formActive = computed/);
@@ -375,7 +375,7 @@ it('standard module runner waits for a complete detail and action availability b
 });
 
 it('page navigator renders levels through the standard module runner', () => {
-  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
+  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
   const navigatorRuntimeSource = readSource('src/dynamic-page-runtime/composables/useNavigatorRuntime.ts');
 
   assert.match(hostSource, /useNavigatorRuntime\(context\)/);
@@ -1550,7 +1550,7 @@ it('ordinary management pages do not infer their height from the workbench chrom
 it('password management uses the standard module runner with a source-owned card assistant', () => {
   const passwordPreviewSource = readSource('src/views/PasswordPolicyPreview.vue');
   const enhancementSource = readSource('src/platform-admin-runtime/passwordPolicyPageEnhancement.ts');
-  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
+  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
   const contractsSource = readSource('src/web-contracts/index.ts');
 
@@ -1561,7 +1561,7 @@ it('password management uses the standard module runner with a source-owned card
   assert.match(enhancementSource, /boundary: 'outside'/);
   assert.match(enhancementSource, /position: 'bottom'/);
   assert.match(hostSource, /createReadonlyCardRecordSnapshot/);
-  assert.match(hostSource, /dynamic-card-assistant/);
+  assert.match(hostSource, /module-card-assistant/);
   assert.match(passwordPreviewSource, /defineOptions\(\{ name: 'PasswordPolicyPreview' \}\)/);
   assert.match(passwordPreviewSource, /本规则/);
   assert.match(passwordPreviewSource, /全规则/);
@@ -1648,7 +1648,7 @@ it('business views use page realtime lifecycle wrappers only', () => {
 });
 
 it('dynamic module host uses shared descriptor driven list and form runners', () => {
-  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
+  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
   const navigatorExplorerSource = readSource('src/dynamic-page-runtime/PageNavigatorExplorer.vue');
   const listPanelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
   const bootstrapSource = readSource('src/dynamic-page-runtime/composables/useModulePageBootstrap.ts');
@@ -1659,7 +1659,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /<RecordModeDrawer/);
   assert.match(hostSource, /enhancementDetailActions/);
   assert.match(hostSource, /<template(?: v-if="[^"]+")? #operation>/);
-  assert.match(hostSource, /<DynamicRecordDetailActions/);
+  assert.match(hostSource, /<ModuleRecordDetailActions/);
   assert.match(hostSource, /<RecordDetailFields/);
   assert.match(hostSource, /<RecordFormFields/);
   assert.match(hostSource, /RecordStatusSwitch/);
@@ -1742,14 +1742,14 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
     /function selectListDetailRecord\(record: QueryListRecord\)[\s\S]*openRecordView\(record\)/,
   );
   assert.match(hostSource, /<StaticManagementLayout\s+v-if="flatManagementPage"/);
-  assert.equal(matchCount(hostSource, /class="dynamic-card-layout"/g), 0);
-  assert.equal(matchCount(hostSource, /class="dynamic-card-assistant"/g), 6);
-  assert.equal(matchCount(hostSource, /dynamic-card-assistant--outside/g), 6);
+  assert.equal(matchCount(hostSource, /class="module-card-layout"/g), 0);
+  assert.equal(matchCount(hostSource, /class="module-card-assistant"/g), 6);
+  assert.equal(matchCount(hostSource, /module-card-assistant--outside/g), 6);
   assert.match(hostSource, /hasCardAssistantAt\('inside', 'bottom'\)/);
   assert.match(hostSource, /hasCardAssistantAt\('outside', 'bottom'\)/);
-  assert.match(hostSource, /<div v-else class="dynamic-form">[\s\S]*<RecordFormFields/);
-  assert.match(hostSource, /\.dynamic-form \{[\s\S]*column-gap: 12px;[\s\S]*row-gap: 16px;/);
-  assert.match(hostSource, /\.dynamic-form \{[\s\S]*--muyun-record-form-label-gap: 8px;/);
+  assert.match(hostSource, /<div v-else class="module-form">[\s\S]*<RecordFormFields/);
+  assert.match(hostSource, /\.module-form \{[\s\S]*column-gap: 12px;[\s\S]*row-gap: 16px;/);
+  assert.match(hostSource, /\.module-form \{[\s\S]*--muyun-record-form-label-gap: 8px;/);
   const recordFormFieldsSource = readSource('src/platform-components/RecordFormFields.vue');
   const moduleActionsSource = readSource('src/dynamic-page-runtime/composables/useModulePageActions.ts');
   assert.match(recordFormFieldsSource, /gap: var\(--muyun-record-form-label-gap, 6px\)/);
@@ -1757,16 +1757,10 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /title: `删除\$\{recordLabel\.value\}`/);
   assert.match(hostSource, /useModulePageActions\(\)/);
   assert.match(moduleActionsSource, /handlePlatformActionSuccess\(result,/);
-  assert.match(hostSource, /await presentDynamicModuleActionSuccess\(result, '保存成功'\)/);
-  assert.match(hostSource, /await presentDynamicModuleActionSuccess\(result, '删除成功'\)/);
-  assert.match(
-    hostSource,
-    /await presentDynamicModuleActionSuccess\(result, enabling \? '已启用' : '已停用'\)/,
-  );
-  assert.match(
-    hostSource,
-    /presentPlatformError\(cause, \{ source: 'dynamic-module-action', phase: 'action' \}\)/,
-  );
+  assert.match(hostSource, /await presentModuleActionSuccess\(result, '保存成功'\)/);
+  assert.match(hostSource, /await presentModuleActionSuccess\(result, '删除成功'\)/);
+  assert.match(hostSource, /await presentModuleActionSuccess\(result, enabling \? '已启用' : '已停用'\)/);
+  assert.match(hostSource, /presentPlatformError\(cause, \{ source: 'module-action', phase: 'action' \}\)/);
   assert.notMatch(hostSource, /formViewCode/);
   assert.notMatch(hostSource, /:subtitle=/);
   assert.notMatch(hostSource, /<button/);
@@ -2065,7 +2059,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   const explorerItemSource = readSource('src/vue-ui-antdv/components/UiRecordExplorerItem.vue');
   const explorerPanelSource = readSource('src/platform-components/RecordExplorerPanel.vue');
   const staticLayoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
-  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
+  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
   const tenantSource = readSource('src/views/TenantManagementView.vue');
   const recycleBinModeSource = readSource('src/platform-components/useRecycleBinExplorerMode.ts');

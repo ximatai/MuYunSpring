@@ -575,6 +575,9 @@ export type DynamicModulePageDescriptor = PageDescriptorBase<
   DynamicModulePageTarget
 >;
 
+/** Source-neutral descriptor accepted by the standard module page runner. */
+export type StandardModulePageDescriptor = ModulePageDescriptor | DynamicModulePageDescriptor;
+
 export interface UrlPageTarget {
   url: string;
   moduleAlias?: string;

@@ -1,12 +1,12 @@
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defineComponent } from 'vue';
-import DynamicModuleHost from '@/dynamic-page-runtime/DynamicModuleHost.vue';
+import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import { configureModuleContext, createHttpClient } from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefresh.ts';
 
-describe('DynamicModuleHost', () => {
+describe('ModulePageHost', () => {
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {
@@ -62,7 +62,7 @@ describe('DynamicModuleHost', () => {
     };
     configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -161,7 +161,7 @@ describe('DynamicModuleHost', () => {
       throw new Error(`Unexpected request: ${request.url}`);
     };
     configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -257,7 +257,7 @@ describe('DynamicModuleHost', () => {
       },
     ]);
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -274,9 +274,7 @@ describe('DynamicModuleHost', () => {
 
     await flushPromises();
 
-    expect(wrapper.find('.dynamic-module-workspace').classes()).toContain(
-      'dynamic-module-workspace--management',
-    );
+    expect(wrapper.find('.module-workspace').classes()).toContain('module-workspace--management');
     const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
     expect(panel.props('extraActions')).toEqual([
       expect.objectContaining({ key: 'conversation', actionCode: 'crm.customer.conversation' }),
@@ -323,7 +321,7 @@ describe('DynamicModuleHost', () => {
       httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
     });
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -407,7 +405,7 @@ describe('DynamicModuleHost', () => {
       httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
     });
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -510,7 +508,7 @@ describe('DynamicModuleHost', () => {
       },
     ]);
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -579,7 +577,7 @@ describe('DynamicModuleHost', () => {
       },
     ]);
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -683,7 +681,7 @@ describe('DynamicModuleHost', () => {
       },
     ]);
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -806,7 +804,7 @@ describe('DynamicModuleHost', () => {
       httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
     });
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -909,7 +907,7 @@ describe('DynamicModuleHost', () => {
       httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
     });
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -985,7 +983,7 @@ describe('DynamicModuleHost', () => {
     };
     configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -1056,7 +1054,7 @@ describe('DynamicModuleHost', () => {
       httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
     });
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -1108,7 +1106,7 @@ describe('DynamicModuleHost', () => {
       httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
     });
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -1140,7 +1138,7 @@ describe('DynamicModuleHost', () => {
       httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
     });
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -1182,7 +1180,7 @@ describe('DynamicModuleHost', () => {
       httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
     });
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -1256,7 +1254,7 @@ describe('DynamicModuleHost', () => {
       httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
     });
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -1276,9 +1274,7 @@ describe('DynamicModuleHost', () => {
     });
 
     await flushPromises();
-    expect(wrapper.find('.dynamic-module-workspace').classes()).toContain(
-      'dynamic-module-workspace--management',
-    );
+    expect(wrapper.find('.module-workspace').classes()).toContain('module-workspace--management');
     const tenantExplorer = wrapper.findComponent({ name: 'PageNavigatorExplorer' });
     expect(tenantExplorer).toBeDefined();
     expect(
@@ -1363,7 +1359,7 @@ describe('DynamicModuleHost', () => {
       throw new Error(`Unexpected request: ${request.url}`);
     };
     configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -1446,7 +1442,7 @@ describe('DynamicModuleHost', () => {
       },
     ]);
 
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -1524,7 +1520,7 @@ describe('DynamicModuleHost', () => {
       throw new Error(`Unexpected request: ${request.url}`);
     };
     configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -1585,7 +1581,7 @@ describe('DynamicModuleHost', () => {
         card: { assistant: { component: Assistant, placement: { boundary: 'inside', position: 'bottom' } } },
       },
     ]);
-    const wrapper = shallowMount(DynamicModuleHost, {
+    const wrapper = shallowMount(ModulePageHost, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
