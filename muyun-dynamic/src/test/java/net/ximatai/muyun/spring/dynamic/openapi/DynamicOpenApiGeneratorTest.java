@@ -349,6 +349,35 @@ class DynamicOpenApiGeneratorTest {
     }
 
     @Test
+    void shouldExposeRecycleBinLifecycleOnlyWhenMainEntitySupportsRecycleBin() {
+        DynamicOpenApiDocument plain = generator.generate(DynamicModuleDescriptor.from(
+                new ModuleDefinition("sales.contract", "Contract", List.of(contractEntityWithoutExchange()))));
+        DynamicOpenApiDocument recycleBin = generator.generate(DynamicModuleDescriptor.from(
+                new ModuleDefinition("sales.contract", "Contract", List.of(recycleBinEntity()))));
+
+        assertThat(plain.operations()).extracting(DynamicOpenApiDocument.Operation::path)
+                .doesNotContain("/sales.contract/recycle-bin/query");
+        assertThat(recycleBin.operations()).extracting(DynamicOpenApiDocument.Operation::path).contains(
+                "/sales.contract/recycle-bin/query", "/sales.contract/recycle-bin/view/{id}",
+                "/sales.contract/recycle-bin/{sourceDeleteOperationId}/restore",
+                "/sales.contract/recycle-bin/{sourceDeleteOperationId}/purge");
+        assertThat(recycleBin.operations().stream()
+                .filter(operation -> operation.path().equals("/sales.contract/recycle-bin/query"))).singleElement()
+                .satisfies(operation -> {
+                    assertThat(operation.requestSchema()).isEqualTo("WebQueryRequest");
+                    assertThat(operation.responseSchema()).isEqualTo("RecycleBinItemPage");
+                    assertThat(operation.actionCode()).isEqualTo(PlatformAction.RECYCLE_BIN_QUERY.code());
+                });
+        assertThat(generator.generate(DynamicModuleDescriptor.from(
+                new ModuleDefinition("sales.contract", "Contract", List.of(recycleBinEntity()))),
+                action -> action != PlatformAction.RECYCLE_BIN_QUERY)
+                .operations()).extracting(DynamicOpenApiDocument.Operation::path)
+                .doesNotContain("/sales.contract/recycle-bin/query", "/sales.contract/recycle-bin/view/{id}")
+                .contains("/sales.contract/recycle-bin/{sourceDeleteOperationId}/restore",
+                        "/sales.contract/recycle-bin/{sourceDeleteOperationId}/purge");
+    }
+
+    @Test
     void shouldExposeExchangeOperationsOnlyWhenMainEntitySupportsExchange() {
         DynamicOpenApiDocument document = generator.generate(DynamicModuleDescriptor.from(
                 new ModuleDefinition("sales.contract", "Contract", List.of(contractEntityWithoutExchange()))));
@@ -694,5 +723,11 @@ class DynamicOpenApiGeneratorTest {
                 FieldDefinition.string("code", "Code").length(64).required(),
                 FieldDefinition.enabled()
         )).withCapabilities(EntityCapability.ENABLE);
+    }
+
+    private EntityDefinition recycleBinEntity() {
+        return new EntityDefinition("contract", "sales_contract", "Contract", List.of(
+                FieldDefinition.string("code", "Code").length(64).required()
+        )).withCapabilities(EntityCapability.RECYCLE_BIN);
     }
 }

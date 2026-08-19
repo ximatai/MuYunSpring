@@ -30,6 +30,10 @@ class CapabilityModuleRegistryTest {
         return registry.require(EntityCapability.TREE, TreeCapabilityModule.class);
     }
 
+    private RecycleBinCapabilityModule recycleBin() {
+        return registry.require(EntityCapability.RECYCLE_BIN, RecycleBinCapabilityModule.class);
+    }
+
     @Test
     void shouldOwnEnableDefinitionAndStandardActionsAsOneTypedModule() {
         EntityDefinition entity = entity(Set.of(EntityCapability.CRUD, EntityCapability.ENABLE), FieldDefinition.enabled());
@@ -109,6 +113,31 @@ class CapabilityModuleRegistryTest {
         assertThat(tree().actions().staticOperations(sort().actions()))
                 .extracting(operation -> operation.operationCode())
                 .containsExactly("tree", "treeQuery", "subtree", "sort");
+    }
+
+    @Test
+    void shouldOwnRecycleBinLifecycleActionsAndEndpointFactsAsOneTypedModule() {
+        EntityDefinition entity = entity(Set.of(EntityCapability.CRUD, EntityCapability.RECYCLE_BIN),
+                FieldDefinition.string("code", "Code"));
+
+        registry.validate(entity);
+
+        assertThat(recycleBin().dependencies()).containsExactly(EntityCapability.CRUD);
+        assertThat(recycleBin().actions().standardActions()).containsExactly(
+                PlatformAction.RECYCLE_BIN_QUERY, PlatformAction.RECYCLE_BIN_RESTORE, PlatformAction.RECYCLE_BIN_PURGE);
+        assertThat(registry.actionOwner(PlatformAction.RECYCLE_BIN_RESTORE)).containsSame(recycleBin().actions());
+        assertThat(recycleBin().actions().staticOperations(false)).extracting(operation -> operation.operationCode())
+                .containsExactly("query", "view", "restore");
+        assertThat(recycleBin().actions().staticOperations(true)).extracting(operation -> operation.operationCode())
+                .containsExactly("query", "view", "restore", "purge");
+        assertThat(recycleBin().actions().dynamicHttpEndpoints()).extracting(endpoint -> endpoint.endpoint().path())
+                .containsExactly("/recycle-bin/query", "/recycle-bin/view/{id}",
+                        "/recycle-bin/{sourceDeleteOperationId}/restore",
+                        "/recycle-bin/{sourceDeleteOperationId}/purge");
+        assertThat(recycleBin().actions().dynamicHttpEndpoints())
+                .extracting(CapabilityActionContribution.CapabilityHttpEndpointContract::openApiResponseSchema)
+                .containsExactly("RecycleBinItemPage", "RecycleBinItem", "RestoreReport", "PurgeReport");
+        assertThat(recycleBin().actions().isHttpOnlyDynamicAction(PlatformAction.RECYCLE_BIN_RESTORE)).isTrue();
     }
 
     @Test

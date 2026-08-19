@@ -20,13 +20,16 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
  */
 public final class CapabilityModuleRegistry {
     private static final CapabilityModuleRegistry DEFAULT = new CapabilityModuleRegistry(List.of(
-            new EnableCapabilityModule(), new SortCapabilityModule(), new TreeCapabilityModule()));
+            new EnableCapabilityModule(), new SortCapabilityModule(), new TreeCapabilityModule(),
+            new RecycleBinCapabilityModule()));
 
     private final Map<EntityCapability, CapabilityModule> modules;
+    private final List<CapabilityModule> registeredModules;
     private final Map<PlatformAction, CapabilityActionContribution> actionContributions;
 
     public CapabilityModuleRegistry(List<? extends CapabilityModule> registeredModules) {
         List<? extends CapabilityModule> values = registeredModules == null ? List.of() : List.copyOf(registeredModules);
+        this.registeredModules = List.copyOf(values);
         this.modules = values.stream().collect(Collectors.toUnmodifiableMap(CapabilityModule::capability,
                 Function.identity(), (left, right) -> {
                     throw new IllegalStateException("duplicate capability module registration: " + left.capability());
@@ -49,6 +52,11 @@ public final class CapabilityModuleRegistry {
 
     public Optional<CapabilityModule> find(EntityCapability capability) {
         return Optional.ofNullable(modules.get(capability));
+    }
+
+    /** Closed registered modules, exposed only for platform composition of their typed facets. */
+    public List<CapabilityModule> modules() {
+        return registeredModules;
     }
 
     public Optional<CapabilityActionContribution> actionOwner(PlatformAction action) {

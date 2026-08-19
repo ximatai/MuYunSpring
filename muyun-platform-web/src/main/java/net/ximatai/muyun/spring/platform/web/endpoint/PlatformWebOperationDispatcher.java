@@ -48,14 +48,14 @@ public final class PlatformWebOperationDispatcher {
         Class<?> bodyType = CapabilityModuleRegistry.defaultRegistry().actionOwner(endpoint.definition().action())
                 .flatMap(contribution -> contribution.webActionContract(endpoint.definition().action(),
                         endpoint.staticTarget() != null && endpoint.staticTarget().service() instanceof TreeAbility<?>))
-                .map(contract -> switch (contract.requestBody()) {
+                .flatMap(contract -> java.util.Optional.ofNullable(switch (contract.requestBody()) {
                     case SORT -> SortWebRequest.class;
                     case TREE_SORT -> TreeSortWebRequest.class;
-                })
+                    case WEB_QUERY -> WebQueryRequest.class;
+                    case NONE -> null;
+                }))
                 .orElseGet(() -> switch (endpoint.definition().action()) {
             case ENABLE, DISABLE -> RecordActionWebRequest.class;
-            case RECYCLE_BIN_QUERY -> "query".equals(endpoint.definition().operationCode())
-                    ? WebQueryRequest.class : null;
             case TREE -> "treeQuery".equals(endpoint.definition().operationCode())
                     ? WebQueryRequest.class : null;
             default -> null;

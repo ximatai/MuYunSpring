@@ -29,6 +29,16 @@ public interface CapabilityActionContribution {
         return Optional.empty();
     }
 
+    /** Actions with endpoint-specific identity must not be shown by the generic record-action API. */
+    default boolean isHttpOnlyDynamicAction(PlatformAction action) {
+        return false;
+    }
+
+    /** Complete source-neutral HTTP facts for endpoints that do not fit generic record action payloads. */
+    default List<CapabilityHttpEndpointContract> dynamicHttpEndpoints() {
+        return List.of();
+    }
+
     record CapabilityEndpointProjection(String operationCode, String httpMethod, String path) {
     }
 
@@ -37,8 +47,16 @@ public interface CapabilityActionContribution {
                                        String openApiResponseSchema) {
     }
 
+    record CapabilityHttpEndpointContract(PlatformAction action,
+                                          CapabilityEndpointProjection endpoint,
+                                          String openApiRequestSchema,
+                                          String openApiResponseSchema) {
+    }
+
     enum CapabilityWebRequestBody {
         SORT,
-        TREE_SORT
+        TREE_SORT,
+        WEB_QUERY,
+        NONE
     }
 }

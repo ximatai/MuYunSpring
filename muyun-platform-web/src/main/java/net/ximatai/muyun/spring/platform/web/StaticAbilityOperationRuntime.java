@@ -60,17 +60,15 @@ public final class StaticAbilityOperationRuntime {
         var capabilityAction = CapabilityModuleRegistry.defaultRegistry().actionOwner(action);
         if (capabilityAction.isPresent()) {
             return capabilityActionAdapter.execute(capabilityAction.get(), scope, request, action,
-                    endpoint.definition().operationCode(), action == PlatformAction.TREE ? null : pathVariable(request, "id"), body);
+                    endpoint.definition().operationCode(), recordIdForAction(request, action), body);
         }
+        throw new IllegalStateException("unsupported compiled static operation: " + endpoint.definition().action());
+    }
+
+    private String recordIdForAction(HttpServletRequest request, PlatformAction action) {
         return switch (action) {
-            case TREE -> tree(scope, request, endpoint.definition().operationCode(), (WebQueryRequest) body);
-            case RECYCLE_BIN_QUERY -> "view".equals(endpoint.definition().operationCode())
-                    ? recycleBinView(scope, pathVariable(request, "id"))
-                    : recycleBin(scope, (WebQueryRequest) body);
-            case RECYCLE_BIN_RESTORE -> restore(scope, pathVariable(request, "sourceDeleteOperationId"));
-            case RECYCLE_BIN_PURGE -> purge(scope, pathVariable(request, "sourceDeleteOperationId"));
-            default -> throw new IllegalStateException("unsupported compiled static operation: "
-                    + endpoint.definition().action());
+            case ENABLE, DISABLE, SORT -> pathVariable(request, "id");
+            default -> null;
         };
     }
 
@@ -471,7 +469,8 @@ public final class StaticAbilityOperationRuntime {
     /** Static source adapter registry; each capability owns its own service contract here. */
     private final class StaticCapabilityActionRuntimeAdapter {
         private final TreeHandler treeHandler = new TreeHandler();
-        private final List<Handler> handlers = List.of(treeHandler, new EnableHandler(), new SortHandler());
+        private final List<Handler> handlers = List.of(treeHandler, new EnableHandler(), new SortHandler(),
+                new RecycleBinHandler());
 
         Object execute(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution,
                        OperationScope scope,
@@ -564,6 +563,25 @@ public final class StaticAbilityOperationRuntime {
                 }
                 return sort(scope, request, id, body instanceof SortWebRequest sort
                         ? sort : new SortWebRequest(null, null));
+            }
+        }
+
+        private final class RecycleBinHandler implements Handler {
+            @Override
+            public boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution) {
+                return contribution instanceof net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityActionFacet;
+            }
+
+            @Override
+            public Object execute(OperationScope scope, HttpServletRequest request, PlatformAction action,
+                                  String operationCode, String id, Object body) {
+                return switch (action) {
+                    case RECYCLE_BIN_QUERY -> "view".equals(operationCode)
+                            ? recycleBinView(scope, id) : recycleBin(scope, body instanceof WebQueryRequest query ? query : null);
+                    case RECYCLE_BIN_RESTORE -> restore(scope, pathVariable(request, "sourceDeleteOperationId"));
+                    case RECYCLE_BIN_PURGE -> purge(scope, pathVariable(request, "sourceDeleteOperationId"));
+                    default -> throw new IllegalArgumentException("RECYCLE_BIN static adapter does not own: " + action.code());
+                };
             }
         }
     }

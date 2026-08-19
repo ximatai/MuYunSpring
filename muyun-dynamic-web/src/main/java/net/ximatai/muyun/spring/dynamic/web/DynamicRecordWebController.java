@@ -15,6 +15,7 @@ import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.ActionWeb;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
+import net.ximatai.muyun.spring.platform.web.RecycleBinPurgeWeb;
 import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
 import net.ximatai.muyun.spring.platform.web.PageContextServerValueResolver;
 import net.ximatai.muyun.spring.platform.web.PageContextSource;
@@ -93,6 +94,7 @@ import net.ximatai.muyun.spring.dynamic.descriptor.DynamicQuerySchemas;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicQueryCondition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceMatchMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveRequest;
@@ -109,6 +111,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigField;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
+import net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -141,6 +144,7 @@ public class DynamicRecordWebController implements
         CrudWeb<DynamicRecord, DynamicEntityOperations>,
         EnableWeb<DynamicRecord, DynamicEntityOperations>,
         TreeWeb<DynamicRecord, DynamicEntityOperations>,
+        RecycleBinPurgeWeb<DynamicRecord, DynamicEntityOperations>,
         ActionWeb<DynamicEntityOperations,
                 DynamicWebActionRequest,
                 DynamicActionDescriptor,
@@ -163,6 +167,7 @@ public class DynamicRecordWebController implements
     private final DynamicRelationProjectionReadService dynamicRelationProjectionReadService;
     private final ModuleExecutionPlanCatalog executionPlanCatalog;
     private final TenantRequestScope tenantRequestScope;
+    private RecycleBinFacade recycleBinFacade;
     private final DynamicOpenApiGenerator openApiGenerator = new DynamicOpenApiGenerator();
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int SUMMARY_MAX_RECORDS = 10_000;
@@ -188,6 +193,19 @@ public class DynamicRecordWebController implements
         this.dynamicRelationProjectionReadService = queryServices.relationProjectionReadService();
         this.executionPlanCatalog = queryServices.executionPlanCatalog();
         this.tenantRequestScope = tenantRequestScope;
+    }
+
+    @Autowired(required = false)
+    void setRecycleBinFacade(RecycleBinFacade recycleBinFacade) {
+        this.recycleBinFacade = recycleBinFacade;
+    }
+
+    @Override
+    public RecycleBinFacade recycleBinFacade() {
+        if (recycleBinFacade == null) {
+            throw new PlatformException("RecycleBinFacade is not configured for dynamic recycle-bin operations");
+        }
+        return recycleBinFacade;
     }
 
     @Override
@@ -1434,6 +1452,11 @@ public class DynamicRecordWebController implements
         return value != null && !value.isBlank();
     }
 
+    private boolean actionIsHttpOnly(PlatformAction action) {
+        return CapabilityModuleRegistry.defaultRegistry().actionOwner(action)
+                .map(contribution -> contribution.isHttpOnlyDynamicAction(action)).orElse(false);
+    }
+
     private String text(Object value) {
         if (value == null) {
             return null;
@@ -1479,8 +1502,9 @@ public class DynamicRecordWebController implements
     public Map<String, Object> openApi(@PathVariable String moduleAlias) {
         return tenantScope(moduleAlias, () -> OpenApi31Projector.project(openApiGenerator.generate(
                 permissionScopedDescriptor(moduleAlias),
-                action -> recordService.actionAuthorizationAvailability(
-                        moduleAlias, action.code(), Set.of()).available())));
+                action -> actionIsHttpOnly(action)
+                        ? recordService.httpOnlyCapabilityAuthorizationAvailability(moduleAlias, action, Set.of()).available()
+                        : recordService.actionAuthorizationAvailability(moduleAlias, action.code(), Set.of()).available())));
     }
 
     @GetMapping("/navigation/{sessionId}/{recordId}")

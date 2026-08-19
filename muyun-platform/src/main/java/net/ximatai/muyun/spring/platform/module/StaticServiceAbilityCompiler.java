@@ -65,7 +65,9 @@ public final class StaticServiceAbilityCompiler {
             capabilities.add(EntityCapability.ENABLE);
         }
         if (service instanceof DataScopeAbility<?>) capabilities.add(EntityCapability.DATA_SCOPE);
-        if (service instanceof RecycleBinAbility<?>) capabilities.add(EntityCapability.RECYCLE_BIN);
+        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
+                net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class)
+                .isEnabledOnStaticService(service)) capabilities.add(EntityCapability.RECYCLE_BIN);
         if (service instanceof ChildrenAbility<?>) capabilities.add(EntityCapability.CHILD_RELATION);
         return Set.copyOf(capabilities);
     }
@@ -94,13 +96,13 @@ public final class StaticServiceAbilityCompiler {
                             net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityModule.class).actions()
                     .staticOperations(operationMethods(service)));
         }
-        if (service instanceof RecycleBinAbility<?> recycleBinAbility) {
-            operations.add(operation("recycleBin", "query", PlatformAction.RECYCLE_BIN_QUERY));
-            operations.add(operation("recycleBin", "view", PlatformAction.RECYCLE_BIN_QUERY));
-            operations.add(operation("recycleBin", "restore", PlatformAction.RECYCLE_BIN_RESTORE));
-            if (recycleBinAbility.isRecycleBinPurgeEnabled()) {
-                operations.add(operation("recycleBin", "purge", PlatformAction.RECYCLE_BIN_PURGE));
-            }
+        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
+                net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class)
+                .isEnabledOnStaticService(service)) {
+            boolean purgeEnabled = ((RecycleBinAbility<?>) service).isRecycleBinPurgeEnabled();
+            operations.addAll(CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
+                            net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class)
+                    .actions().staticOperations(purgeEnabled));
         }
         Set<PlatformAction> disabled = disabledActions(service);
         return operations.stream().filter(operation -> !disabled.contains(operation.action())).toList();
@@ -111,12 +113,6 @@ public final class StaticServiceAbilityCompiler {
                 .map(PlatformOperationDefinition::action)
                 .distinct()
                 .toList();
-    }
-
-    private static PlatformOperationDefinition operation(String abilityCode,
-                                                         String operationCode,
-                                                         PlatformAction action) {
-        return new PlatformOperationDefinition(abilityCode, operationCode, action);
     }
 
     public static Map<PlatformAction, Method> operationMethods(Object service) {

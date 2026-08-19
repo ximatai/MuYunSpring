@@ -176,6 +176,7 @@ public class DynamicOpenApiGenerator {
         addCapabilityOperation(operations, descriptor, mainEntity, basePath, PlatformAction.SORT,
                 standardActionVisible, mainEntity.capabilities().contains(EntityCapability.TREE.name()));
         addTreeCapabilityOperations(operations, descriptor, mainEntity, basePath, standardActionVisible);
+        addCapabilityHttpEndpoints(operations, descriptor, mainEntity, basePath, standardActionVisible);
         operations.add(getOperation(descriptor.moduleAlias(), basePath + "/actions", operationId(descriptor, "actions"),
                 "List module actions", null, "DynamicActionDescriptorList", null));
         operations.add(getOperation(descriptor.moduleAlias(), basePath + "/actions/{recordId}", operationId(descriptor, "recordActions"),
@@ -246,6 +247,21 @@ public class DynamicOpenApiGenerator {
                                 "subtree".equals(projection.operationCode()) ? "treeNode" : projection.operationCode()),
                         ("subtree".equals(projection.operationCode()) ? "Tree node " : "Tree ") + mainEntity.title(),
                         null, "WebListResponse", PlatformAction.TREE.code())));
+    }
+
+    private void addCapabilityHttpEndpoints(List<DynamicOpenApiDocument.Operation> operations,
+                                            DynamicModuleDescriptor descriptor,
+                                            DynamicEntityDescriptor mainEntity,
+                                            String basePath,
+                                            Predicate<PlatformAction> standardActionVisible) {
+        CapabilityModuleRegistry.defaultRegistry().modules().stream()
+                .filter(module -> mainEntity.capabilities().contains(module.capability().name()))
+                .flatMap(module -> module.actionContribution().dynamicHttpEndpoints().stream())
+                .filter(endpoint -> standardActionVisible.test(endpoint.action()))
+                .forEach(endpoint -> operations.add(operation(descriptor.moduleAlias(),
+                        basePath + endpoint.endpoint().path(), operationId(descriptor, endpoint.endpoint().operationCode()),
+                        endpoint.action().title() + " " + mainEntity.title(), endpoint.openApiRequestSchema(),
+                        endpoint.openApiResponseSchema(), endpoint.action().code())));
     }
 
     private boolean hasActionPath(DynamicActionDescriptor action,

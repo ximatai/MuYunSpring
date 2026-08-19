@@ -278,6 +278,27 @@ public class DynamicRecordService {
         return actionAuthorizationAvailability(moduleAlias, entityAlias, action, recordIds);
     }
 
+    /** Authorization for capability endpoints intentionally excluded from the generic action directory. */
+    public DynamicActionAvailability httpOnlyCapabilityAuthorizationAvailability(String moduleAlias,
+                                                                                  PlatformAction action,
+                                                                                  Collection<String> recordIds) {
+        Objects.requireNonNull(action, "action must not be null");
+        DynamicModuleDescriptor module = describe(moduleAlias);
+        DynamicEntityDescriptor entity = findEntity(module, module.mainEntityAlias());
+        if (!entity.capabilities().contains(action.group().capability().name())) {
+            return DynamicActionAvailability.unavailable(action.code(), "dynamic entity does not support capability: "
+                    + action.group().capability());
+        }
+        ActionExecutionPolicy policy = action.executionPolicy();
+        try {
+            actionExecutionPolicyService.authorizeAction(moduleAlias, policy, CurrentUserContext.currentUser());
+            requireActionRecordDataScope(moduleAlias, entity.entityAlias(), policy, normalizeRecordIds(recordIds));
+            return DynamicActionAvailability.available(action.code());
+        } catch (PlatformException e) {
+            return DynamicActionAvailability.unavailable(action.code(), e.getMessage());
+        }
+    }
+
     public DynamicActionExecutionResult executeAction(String moduleAlias,
                                                       String actionCode,
                                                       DynamicActionExecutionRequest request) {
@@ -1047,6 +1068,38 @@ public class DynamicRecordService {
                 pageRequest, sorts));
     }
 
+    /** Retained-record read uses the same dynamic data-scope kernel, but the RECYCLE_BIN action policy. */
+    PageResult<DynamicRecord> pageRecycleBinForAction(String moduleAlias,
+                                                      String entityAlias,
+                                                      Criteria criteria,
+                                                      PageRequest pageRequest,
+                                                      Sort... sorts) {
+        requireCapability(moduleAlias, entityAlias, EntityCapability.RECYCLE_BIN);
+        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.RECYCLE_BIN_QUERY, criteria);
+        Criteria retained = retainedCriteria(scope.criteria());
+        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).getDao()
+                .pageQuery(retained, pageRequest == null ? PageRequest.of(1, 20) : pageRequest, sorts));
+    }
+
+    /** Restore and purge validate the retained root through the same action data-range before coordinators mutate it. */
+    boolean canAccessRecycleBinSourceForAction(String moduleAlias, String entityAlias, String id) {
+        requireCapability(moduleAlias, entityAlias, EntityCapability.RECYCLE_BIN);
+        if (id == null || id.isBlank()) return false;
+        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.RECYCLE_BIN_QUERY,
+                Criteria.of().eq("id", id));
+        return withTenantScope(scope, () -> !entityService(moduleAlias, entityAlias).getDao()
+                .query(scope.criteria(), PageRequest.of(1, 1)).isEmpty());
+    }
+
+    boolean canAccessRecycleBinRecordForAction(String moduleAlias, String entityAlias, String id) {
+        requireCapability(moduleAlias, entityAlias, EntityCapability.RECYCLE_BIN);
+        if (id == null || id.isBlank()) return false;
+        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.RECYCLE_BIN_QUERY,
+                Criteria.of().eq("id", id));
+        return withTenantScope(scope, () -> !entityService(moduleAlias, entityAlias).getDao()
+                .query(retainedCriteria(scope.criteria()), PageRequest.of(1, 1)).isEmpty());
+    }
+
     public <R> R withQueryReadScope(String moduleAlias, Criteria criteria, Function<Criteria, R> action) {
         Objects.requireNonNull(action, "action must not be null");
         DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.QUERY, criteria);
@@ -1450,6 +1503,14 @@ public class DynamicRecordService {
 
     private DataScopeCriteriaResult readScope(String moduleAlias, PlatformAction action, Criteria criteria) {
         return readScope(moduleAlias, action.executionPolicy(), criteria);
+    }
+
+    private Criteria retainedCriteria(Criteria criteria) {
+        Criteria result = Criteria.of();
+        if (criteria != null && !criteria.isEmpty()) {
+            result.andGroup(criteria.getRoot());
+        }
+        return result.eq(net.ximatai.muyun.spring.common.schema.StandardEntitySchema.DELETED_FIELD, Boolean.TRUE);
     }
 
     private DataScopeCriteriaResult readScope(String moduleAlias, String actionCode, Criteria criteria) {

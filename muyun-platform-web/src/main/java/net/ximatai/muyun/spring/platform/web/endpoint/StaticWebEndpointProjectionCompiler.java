@@ -48,14 +48,7 @@ final class StaticWebEndpointProjectionCompiler {
             }
             return new WebShape(RequestMethod.valueOf(projection.httpMethod()), projection.path());
         }
-        return switch (operation.operationCode()) {
-            case "sort" -> new WebShape(RequestMethod.POST, "/sort/{id}");
-            case "query" -> new WebShape(RequestMethod.POST, "/recycle-bin/query");
-            case "view" -> new WebShape(RequestMethod.GET, "/recycle-bin/view/{id}");
-            case "restore" -> new WebShape(RequestMethod.POST, "/recycle-bin/{sourceDeleteOperationId}/restore");
-            case "purge" -> new WebShape(RequestMethod.POST, "/recycle-bin/{sourceDeleteOperationId}/purge");
-            default -> throw new IllegalArgumentException("unsupported static standard operation: " + operation);
-        };
+        throw new IllegalArgumentException("unsupported static standard operation: " + operation);
     }
 
     private ActionExecutionPolicy contributionPolicy(PlatformStaticActionContribution contribution,

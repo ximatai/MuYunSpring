@@ -711,11 +711,16 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                     .standardActions().forEach(action -> addPlatform(actions, action));
         }
         if (RecycleBinWeb.class.isAssignableFrom(beanClass)) {
-            addPlatform(actions, PlatformAction.RECYCLE_BIN_QUERY);
-            addPlatform(actions, PlatformAction.RECYCLE_BIN_RESTORE);
+            CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
+                            net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class).actions()
+                    .standardActions().stream().filter(action -> action != PlatformAction.RECYCLE_BIN_PURGE)
+                    .forEach(action -> addPlatform(actions, action));
         }
         if (RecycleBinPurgeWeb.class.isAssignableFrom(beanClass)) {
-            addPlatform(actions, PlatformAction.RECYCLE_BIN_PURGE);
+            CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
+                            net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class).actions()
+                    .standardActions().stream().filter(action -> action == PlatformAction.RECYCLE_BIN_PURGE)
+                    .forEach(action -> addPlatform(actions, action));
         }
     }
 
@@ -753,11 +758,16 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                         .standardActions().forEach(action -> addContributionPlatform(actions, contribution, action));
             }
             if (RecycleBinWeb.class.isAssignableFrom(beanClass)) {
-                addContributionPlatform(actions, contribution, PlatformAction.RECYCLE_BIN_QUERY);
-                addContributionPlatform(actions, contribution, PlatformAction.RECYCLE_BIN_RESTORE);
+                CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
+                                net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class).actions()
+                        .standardActions().stream().filter(action -> action != PlatformAction.RECYCLE_BIN_PURGE)
+                        .forEach(action -> addContributionPlatform(actions, contribution, action));
             }
             if (RecycleBinPurgeWeb.class.isAssignableFrom(beanClass)) {
-                addContributionPlatform(actions, contribution, PlatformAction.RECYCLE_BIN_PURGE);
+                CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
+                                net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class).actions()
+                        .standardActions().stream().filter(action -> action == PlatformAction.RECYCLE_BIN_PURGE)
+                        .forEach(action -> addContributionPlatform(actions, contribution, action));
             }
         }
         if (ReferenceWeb.class.isAssignableFrom(beanClass)
