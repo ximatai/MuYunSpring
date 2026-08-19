@@ -340,16 +340,19 @@ it('standard module runner waits for a complete detail and action availability b
   const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
   const detailActionsSource = readSource('src/dynamic-page-runtime/DynamicRecordDetailActions.vue');
   const detailControllerSource = readSource('src/dynamic-page-runtime/recordDetailController.ts');
+  const editingSessionSource = readSource('src/dynamic-page-runtime/composables/useRecordEditingSession.ts');
 
   assert.match(hostSource, /import \{ useRecordDetailController \} from '.\/recordDetailController'/);
   assert.match(hostSource, /const detail = useRecordDetailController<QueryListRecord>\(\)/);
   assert.match(hostSource, /loading: detailLoading/);
   assert.match(hostSource, /loadFailed: detailLoadFailed/);
-  assert.match(hostSource, /const requestSequence = \+\+detailLoadSequence/);
-  assert.match(hostSource, /detail\.beginLoad\(record, mode\)/);
-  assert.match(hostSource, /await context\.crud\.view\(id\)/);
-  assert.match(hostSource, /shouldCommitDynamicModuleDetailRequest/);
-  assert.match(hostSource, /detail\.failLoad\(\)/);
+  assert.match(hostSource, /useRecordEditingSession/);
+  assert.match(hostSource, /invalidatePendingRequests\(\)/);
+  assert.match(editingSessionSource, /const sequence = \+\+requestSequence/);
+  assert.match(editingSessionSource, /detail\.beginLoad\(record, mode\)/);
+  assert.match(editingSessionSource, /await context\.crud\.view\(id\)/);
+  assert.match(editingSessionSource, /sequence !== requestSequence/);
+  assert.match(editingSessionSource, /detail\.failLoad\(\)/);
   assert.match(hostSource, /function retryLoadDetail\(\)/);
   assert.match(hostSource, /:loading="detailLoading"/);
   assert.match(hostSource, /:load-failed="detailLoadFailed"/);
@@ -373,8 +376,10 @@ it('standard module runner waits for a complete detail and action availability b
 
 it('page navigator renders levels through the standard module runner', () => {
   const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
+  const navigatorRuntimeSource = readSource('src/dynamic-page-runtime/composables/useNavigatorRuntime.ts');
 
-  assert.match(hostSource, /navigatorLevels = ref<NavigatorLevelRuntime\[\]>/);
+  assert.match(hostSource, /useNavigatorRuntime\(context\)/);
+  assert.match(navigatorRuntimeSource, /navigatorLevels = ref<NavigatorLevelRuntime\[\]>/);
   assert.match(hostSource, /selectedNavigatorRecords/);
   assert.match(hostSource, /function selectNavigatorRecord/);
   assert.match(hostSource, /function navigatorExplorerQueryValues/);
@@ -1646,6 +1651,8 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
   const navigatorExplorerSource = readSource('src/dynamic-page-runtime/PageNavigatorExplorer.vue');
   const listPanelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
+  const bootstrapSource = readSource('src/dynamic-page-runtime/composables/useModulePageBootstrap.ts');
+  const navigatorRuntimeSource = readSource('src/dynamic-page-runtime/composables/useNavigatorRuntime.ts');
 
   assert.match(hostSource, /useModuleContext<QueryListRecord>/);
   assert.match(hostSource, /<RecordQueryListPanel/);
@@ -1660,20 +1667,21 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /context\.crud\.enable\(id, \{ version \}\)/);
   assert.match(hostSource, /context\.crud\.disable\(id, \{ version \}\)/);
   assert.match(hostSource, /:exclude-field-names="\['enabled'\]"/);
-  assert.match(hostSource, /resolveRecordFormFields\(runtimeContext\.uiDescriptor\)/);
+  assert.match(hostSource, /useNavigatorRuntime\(context\)/);
   assert.match(hostSource, /isListPage/);
   assert.match(hostSource, /listUiConfigId/);
-  assert.match(hostSource, /runtimePage\.value\?\.navigator\?\.levels/);
+  assert.match(navigatorRuntimeSource, /runtimePage\.value\?\.navigator\?\.levels/);
   assert.match(hostSource, /:ui-config-id="listUiConfigId"/);
-  assert.match(hostSource, /createPageBootstrapClient\(context\.http\)\.byMenu\(menuId\)/);
-  assert.match(hostSource, /bootstrap\.entry\.moduleAlias !== context\.moduleAlias/);
+  assert.match(hostSource, /useModulePageBootstrap/);
+  assert.match(bootstrapSource, /createPageBootstrapClient\(context\.http\)\.byMenu\(entryMenuId\)/);
+  assert.match(bootstrapSource, /bootstrap\.entry\.moduleAlias !== context\.moduleAlias/);
   assert.match(hostSource, /pageBootstrap\.value\?\.entry\.pageMode/);
   assert.match(hostSource, /v-else-if="!pageReady"/);
   assert.match(hostSource, /v-else-if="isListPage"/);
   assert.match(hostSource, /:query-template-id="listQueryTemplateId"/);
   assert.match(hostSource, /:ready="pageReady && navigatorListScopeReady"/);
   assert.match(hostSource, /\$\{pageMode\.value\}入口暂未接入模块页面运行器/);
-  assert.match(hostSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
+  assert.match(navigatorRuntimeSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
   assert.match(hostSource, /:explorer-count="visibleNavigatorLevels\.length"/);
   assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);
   assert.match(hostSource, /listDetailWorkspaceMinWidth\(navigatorLevels\.value\.length\)/);
@@ -1688,7 +1696,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /const navigatorCreateDefaults = computed/);
   assert.equal(/scopedListWorkspace/.test(hostSource), false);
   assert.equal(/selectedScopeRecord/.test(hostSource), false);
-  assert.match(hostSource, /sourceCapabilities\?\.includes\('REFERENCE_TREE'\)/);
+  assert.match(navigatorRuntimeSource, /sourceCapabilities\?\.includes\('REFERENCE_TREE'\)/);
   assert.match(navigatorExplorerSource, /<TreeRecordExplorer[\s\S]*v-if="level\.tree"/);
   assert.match(navigatorExplorerSource, /search-mode="none"/);
   assert.match(hostSource, /:external-query-values="navigatorListQueryValues"/);
@@ -1743,13 +1751,12 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /\.dynamic-form \{[\s\S]*column-gap: 12px;[\s\S]*row-gap: 16px;/);
   assert.match(hostSource, /\.dynamic-form \{[\s\S]*--muyun-record-form-label-gap: 8px;/);
   const recordFormFieldsSource = readSource('src/platform-components/RecordFormFields.vue');
+  const moduleActionsSource = readSource('src/dynamic-page-runtime/composables/useModulePageActions.ts');
   assert.match(recordFormFieldsSource, /gap: var\(--muyun-record-form-label-gap, 6px\)/);
   assert.match(hostSource, /useRecycleBinExplorerMode<QueryListRecord>/);
   assert.match(hostSource, /title: `删除\$\{recordLabel\.value\}`/);
-  assert.match(
-    hostSource,
-    /function presentDynamicModuleActionSuccess\([\s\S]*handlePlatformActionSuccess\(result,[\s\S]*source,[\s\S]*fallbackMessage/,
-  );
+  assert.match(hostSource, /useModulePageActions\(\)/);
+  assert.match(moduleActionsSource, /handlePlatformActionSuccess\(result,/);
   assert.match(hostSource, /await presentDynamicModuleActionSuccess\(result, '保存成功'\)/);
   assert.match(hostSource, /await presentDynamicModuleActionSuccess\(result, '删除成功'\)/);
   assert.match(
@@ -2062,6 +2069,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
   const tenantSource = readSource('src/views/TenantManagementView.vue');
   const recycleBinModeSource = readSource('src/platform-components/useRecycleBinExplorerMode.ts');
+  const editingSessionSource = readSource('src/dynamic-page-runtime/composables/useRecordEditingSession.ts');
   const indexSource = readSource('src/platform-components/index.ts');
 
   assert.match(panelSource, /export type RecordQueryListMode = 'normal' \| 'recycleBin'/);
@@ -2115,8 +2123,8 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(explorerSource, /showLabel: true/);
   assert.match(explorerSource, /disabledReason: recycleBinRestoreUnavailableReason\(item\)/);
   assert.match(explorerSource, /recycleBinState\.restore\(item, false\)/);
-  assert.match(hostSource, /function openRecycleBinRecord/);
-  assert.match(hostSource, /\/recycle-bin\/view\/\$\{encodeURIComponent\(id\)\}/);
+  assert.match(hostSource, /openRecycleBinRecord/);
+  assert.match(editingSessionSource, /\/recycle-bin\/view\/\$\{encodeURIComponent\(id\)\}/);
   assert.match(hostSource, /const recycleBinDetailActive = computed/);
   assert.match(tenantSource, /<CrudRecordListExplorer/);
   assert.match(explorerItemSource, /action\.showLabel \? action\.title : actionFallbackLabel\(action\)/);

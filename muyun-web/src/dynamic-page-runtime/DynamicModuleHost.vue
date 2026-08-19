@@ -27,11 +27,9 @@ import {
   StaticManagementLayout,
   TreeRecordExplorer,
   confirmAction,
-  handlePlatformActionSuccess,
   parentRecordConstraints,
   presentPlatformError,
   recordPickerModeOf,
-  resolveRecordDetailFields,
   providePageLayout,
   resolveRecordFormFields,
   useRecycleBinExplorerMode,
@@ -52,30 +50,17 @@ import type {
   DynamicModulePageDescriptor,
   ModulePageDescriptor,
   MenuPageMode,
-  PageBootstrap,
   PageBootstrapActionBlock,
   ResolvedDetailRelationDescriptor,
   ResolvedFormComputeRuleDescriptor,
   ResolvedModuleUiDescriptor,
   ResolvedViewDescriptor,
   RecordInlineAction,
-  ResolvedModulePageDescriptor,
-  ResolvedPageNavigatorLevelDescriptor,
-  ResolvedPageContextBindingDescriptor,
   RouteQueryValue,
 } from '@muyun/web-contracts';
 import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
-import {
-  createModuleContext,
-  createPageBootstrapClient,
-  userPreferences,
-  useModuleContext,
-  type ModuleContext,
-} from '@muyun/web-core';
-import {
-  canMutateDynamicModuleDetail,
-  shouldCommitDynamicModuleDetailRequest,
-} from './dynamicModuleDetailStateModel';
+import { createModuleContext, userPreferences, useModuleContext, type ModuleContext } from '@muyun/web-core';
+import { canMutateDynamicModuleDetail } from './dynamicModuleDetailStateModel';
 import {
   createReadonlyCardRecordSnapshot,
   resolveModulePageEnhancement,
@@ -108,6 +93,10 @@ import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { useRecordDetailController } from './recordDetailController';
 import { externalPageContextCriteriaKeys, resolvePageContextTargetValues } from './pageContextRuntime';
 import { FormComputeCoordinator } from './formComputeCoordinator';
+import { useModulePageBootstrap } from './composables/useModulePageBootstrap';
+import { useNavigatorRuntime, type NavigatorLevelRuntime } from './composables/useNavigatorRuntime';
+import { useModulePageActions } from './composables/useModulePageActions';
+import { useRecordEditingSession } from './composables/useRecordEditingSession';
 
 /**
  * Descriptor-driven CRUD runner shared by static and dynamic modules.
@@ -127,7 +116,18 @@ const context = useModuleContext<QueryListRecord>({
 });
 const currentUser = useCurrentUserContext();
 const modulePageNavigation = useModulePageNavigation();
+const { presentActionSuccess, runEnhancementAction } = useModulePageActions();
 const detail = useRecordDetailController<QueryListRecord>();
+const {
+  invalidatePendingRequests,
+  openRecord: loadRecord,
+  openRecycleBinRecord,
+} = useRecordEditingSession(context, detail, () => {
+  detailRelationReloadKey.value += 1;
+});
+function openRecord(record: QueryListRecord, mode: 'edit' | 'view') {
+  return loadRecord(record, mode, mode === 'view' && enhancementDetailDrawer.value?.loadRecord === false);
+}
 const {
   record: selectedRecord,
   draft: editingRecord,
@@ -139,9 +139,22 @@ const {
   loading: detailLoading,
   loadFailed: detailLoadFailed,
 } = detail;
-const formFields = ref(resolveRecordFormFields(undefined));
-const detailDisplayFields = ref(resolveRecordDetailFields(undefined));
-const runtimePage = ref<ResolvedModulePageDescriptor>();
+const { pageBootstrap, pageBootstrapError, loadPageBootstrap } = useModulePageBootstrap(
+  context,
+  () => props.descriptor.menuId,
+);
+const {
+  formFields,
+  detailDisplayFields,
+  runtimePage,
+  treeModule,
+  navigatorLevels,
+  pageContextBindings,
+  selectedNavigatorRecords,
+  navigatorSingleResultKeys,
+  navigatorDismissedSelectionKeys,
+  loadRuntimeForm,
+} = useNavigatorRuntime(context);
 const listMode = ref<RecordQueryListMode>('normal');
 const reloadKey = ref(0);
 const detailRelationReloadKey = ref(0);
@@ -151,12 +164,6 @@ const treeSearchKeyword = ref('');
 const flatManagementSearchKeyword = ref('');
 const flatManagementReloadKey = ref(0);
 const cardAssistantRecords = ref<QueryListRecord[]>([]);
-const treeModule = ref(false);
-const navigatorLevels = ref<NavigatorLevelRuntime[]>([]);
-const pageContextBindings = ref<ResolvedPageContextBindingDescriptor[]>([]);
-const selectedNavigatorRecords = ref<Record<string, QueryListRecord | undefined>>({});
-const navigatorSingleResultKeys = ref<string[]>([]);
-const navigatorDismissedSelectionKeys = ref<string[]>([]);
 const navigatorManagementDetail = useRecordDetailController<QueryListRecord>();
 const navigatorManagementLevel = ref<NavigatorLevelRuntime>();
 const navigatorManagementTogglingEnabled = ref(false);
@@ -178,7 +185,6 @@ const enhancementDrawer = ref<{
   context: ModulePageDrawerContext;
   titleActions: import('./modulePageEnhancements').ModulePageDrawerAction[];
 }>();
-let detailLoadSequence = 0;
 let unregisterListRefresh: (() => void) | undefined;
 let workspaceResizeObserver: ResizeObserver | undefined;
 let removeWorkspaceResizeFallback: (() => void) | undefined;
@@ -186,12 +192,6 @@ let detailSurfacePreferenceRestoreRevision = 0;
 let detailSurfacePreferenceWrite = Promise.resolve();
 let listPageSizePreferenceRestoreRevision = 0;
 let listPageSizePreferenceWrite = Promise.resolve();
-
-interface NavigatorLevelRuntime {
-  descriptor: ResolvedPageNavigatorLevelDescriptor;
-  context: ModuleContext<QueryListRecord>;
-  tree: boolean;
-}
 
 type NavigatorRecord = { id?: string; version?: number };
 
@@ -251,8 +251,6 @@ const detailTitle = computed(() => {
   }
   return recordTitle(editingRecord.value ?? selectedRecord.value) ?? '记录详情';
 });
-const pageBootstrap = ref<PageBootstrap>();
-const pageBootstrapError = ref<string>();
 /**
  * `action` is the only detail action block whose execution needs no extra
  * client-side input surface. Dialog and local-edit blocks deliberately remain
@@ -716,7 +714,13 @@ onMounted(async () => {
   void restoreListPageSizePreference();
   await loadPageBootstrap();
   try {
-    await loadRuntimeForm();
+    await loadRuntimeForm(
+      isListPage,
+      () => Boolean(pageEnhancement.value?.recordView),
+      () => {
+        pageBootstrapError.value = `模块页面增强 ${pageEnhancement.value?.id ?? 'unknown'} 的业务查看呈现仅支持普通列表模块，不支持树模块`;
+      },
+    );
   } catch (cause) {
     pageBootstrapError.value = cause instanceof Error ? cause.message : '页面运行时加载失败';
   }
@@ -811,71 +815,6 @@ function updateDetailSurfaceForWorkspaceWidth() {
   narrowDetailSurface.value = workspaceWidth < listDetailMinimumWidth.value;
 }
 
-async function loadPageBootstrap() {
-  const menuId = props.descriptor.menuId;
-  if (!menuId) return;
-  try {
-    const bootstrap = await createPageBootstrapClient(context.http).byMenu(menuId);
-    if (bootstrap.entry.moduleAlias !== context.moduleAlias) {
-      throw new Error(
-        `Menu ${menuId} resolves ${bootstrap.entry.moduleAlias}, expected ${context.moduleAlias}`,
-      );
-    }
-    pageBootstrap.value = bootstrap;
-    pageBootstrapError.value = undefined;
-  } catch (cause) {
-    pageBootstrapError.value = cause instanceof Error ? cause.message : '页面入口加载失败';
-  }
-}
-
-async function loadRuntimeForm() {
-  if (!isListPage.value) {
-    return;
-  }
-  const runtimeContext = await context.runtime.ready;
-  runtimePage.value = runtimeContext.uiDescriptor?.page;
-  treeModule.value = context.abilities.hasTree() === true;
-  const enhancement = pageEnhancement.value;
-  if (treeModule.value && enhancement?.recordView) {
-    pageBootstrapError.value = `模块页面增强 ${enhancement.id} 的业务查看呈现仅支持普通列表模块，不支持树模块`;
-    return;
-  }
-  const resolvedNavigatorLevels = runtimePage.value?.navigator?.levels ?? [];
-  pageContextBindings.value = runtimePage.value?.navigator?.contextBindings ?? [];
-  selectedNavigatorRecords.value = {};
-  navigatorSingleResultKeys.value = [];
-  navigatorDismissedSelectionKeys.value = [];
-  navigatorLevels.value = await Promise.all(
-    resolvedNavigatorLevels.map(async (descriptor) => {
-      const navigatorContext = createModuleContext<QueryListRecord>({
-        http: context.http,
-        moduleAlias: descriptor.sourceModuleAlias,
-        runtimeAccess: 'REFERENCE',
-      });
-      await navigatorContext.runtime.ready;
-      const requiredCapability = descriptor.kind === 'TREE' ? 'REFERENCE_TREE' : 'REFERENCE_QUERY';
-      const sourceCapabilities = navigatorContext.runtime.snapshot()?.navigatorSourceCapabilities;
-      // The server validates this before it publishes the page.  Retain the fact at the client
-      // boundary as well so a mixed-version deployment surfaces a diagnostic instead of quietly
-      // rendering an empty navigator.  Undefined keeps older server payloads wire-compatible.
-      if (sourceCapabilities !== undefined && !sourceCapabilities.includes(requiredCapability)) {
-        throw new Error(
-          `导航源能力不可用：层级 ${descriptor.key} 引用模块 ${descriptor.sourceModuleAlias}，缺少 ${requiredCapability}`,
-        );
-      }
-      return {
-        descriptor,
-        context: navigatorContext,
-        tree:
-          descriptor.kind === 'TREE' &&
-          (sourceCapabilities?.includes('REFERENCE_TREE') ?? navigatorContext.abilities.hasTree() === true),
-      };
-    }),
-  );
-  formFields.value = resolveRecordFormFields(runtimeContext.uiDescriptor);
-  detailDisplayFields.value = resolveRecordDetailFields(runtimeContext.uiDescriptor);
-}
-
 function handleLoaded(records: QueryListRecord[]) {
   if (listMode.value !== 'recycleBin') cardAssistantRecords.value = records;
   if (selectedRecord.value) {
@@ -889,7 +828,7 @@ function handleLoaded(records: QueryListRecord[]) {
 }
 
 function resetFlatManagementSelection() {
-  detailLoadSequence += 1;
+  invalidatePendingRequests();
   detail.close();
   selectedRecord.value = undefined;
   editingRecord.value = undefined;
@@ -958,7 +897,7 @@ function handleFlatManagementAction(action: RecordActionItem) {
 function handleListModeChange(mode: RecordQueryListMode) {
   if (saving.value || listMode.value === mode) return;
   listMode.value = mode;
-  detailLoadSequence += 1;
+  invalidatePendingRequests();
   detailLoading.value = false;
   detailLoadFailed.value = false;
   detailOpen.value = false;
@@ -1436,7 +1375,7 @@ async function deleteNavigatorRecord(level: NavigatorLevelRuntime, record: Navig
 /** A scope selection immediately constrains the list; its former detail may no longer be in range. */
 function clearSelectionForScopeChange() {
   closeNavigatorManagementEditor();
-  detailLoadSequence += 1;
+  invalidatePendingRequests();
   detailLoading.value = false;
   detailLoadFailed.value = false;
   detailOpen.value = false;
@@ -1460,7 +1399,7 @@ function selectTreeRecord(record: unknown) {
 
 function clearTreeRecordSelection() {
   if (saving.value) return;
-  detailLoadSequence += 1;
+  invalidatePendingRequests();
   selectedTreeRecord.value = undefined;
   detail.close();
   selectedRecord.value = undefined;
@@ -1472,76 +1411,6 @@ function handleTreeLoaded(records: unknown[]) {
   if (selectedTreeRecord.value || editorMode.value !== 'view') return;
   const firstRecord = records.at(0);
   if (firstRecord) selectTreeRecord(firstRecord);
-}
-
-async function openRecord(record: QueryListRecord, mode: 'edit' | 'view') {
-  const id = record.id == null ? undefined : String(record.id);
-  if (!id) return;
-  const requestSequence = ++detailLoadSequence;
-  detail.beginLoad(record, mode);
-  if (mode === 'view' && enhancementDetailDrawer.value?.loadRecord === false) {
-    detail.resolveLoad(record);
-    detail.finishLoad();
-    return;
-  }
-  try {
-    const loadedRecord = await context.crud.view(id);
-    if (
-      !shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
-    )
-      return;
-    detail.resolveLoad(loadedRecord);
-    detailRelationReloadKey.value += 1;
-  } catch {
-    if (
-      !shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
-    )
-      return;
-    detail.failLoad();
-  } finally {
-    if (
-      shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
-    ) {
-      detail.finishLoad();
-    }
-  }
-}
-
-/**
- * A deleted record is intentionally unreadable through CRUD `/view/{id}`. Its card therefore loads through the
- * retained-read endpoint, which shares the recycle-bin query permission and data scope with the list.
- */
-async function openRecycleBinRecord(record: QueryListRecord) {
-  const id = record.id == null ? undefined : String(record.id);
-  if (!id) return;
-  const requestSequence = ++detailLoadSequence;
-  detail.beginLoad(record, 'view');
-  try {
-    const loadedRecord = await context.http.request<QueryListRecord>({
-      method: 'GET',
-      path: `/${context.moduleAlias}/recycle-bin/view/${encodeURIComponent(id)}`,
-    });
-    if (
-      !shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
-    ) {
-      return;
-    }
-    detail.resolveLoad(loadedRecord);
-    detailRelationReloadKey.value += 1;
-  } catch {
-    if (
-      !shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
-    ) {
-      return;
-    }
-    detail.failLoad();
-  } finally {
-    if (
-      shouldCommitDynamicModuleDetailRequest({ activeRequestSequence: detailLoadSequence, requestSequence })
-    ) {
-      detail.finishLoad();
-    }
-  }
 }
 
 function updateDraftField(
@@ -1600,7 +1469,7 @@ function applyFormComputeAfterChanges(
 
 function createRecord(parentId?: string) {
   if (context.can('create') !== true) return;
-  detailLoadSequence += 1;
+  invalidatePendingRequests();
   const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
   detail.beginCreate(
     defaults,
@@ -1730,11 +1599,7 @@ function presentDynamicModuleActionSuccess(
   fallbackMessage: string,
   source = 'dynamic-module-action',
 ) {
-  return handlePlatformActionSuccess(result, {
-    source,
-    phase: 'action',
-    fallbackMessage,
-  });
+  return presentActionSuccess(result, fallbackMessage, source);
 }
 
 function handleListAction(action: { key?: string }) {
@@ -1744,7 +1609,7 @@ function handleListAction(action: { key?: string }) {
   }
   const contribution = enhancementActionContributions.value.find((item) => item.key === action.key);
   if (contribution) {
-    void executeEnhancementAction(contribution, modulePageActionContext());
+    void runEnhancementAction(contribution, modulePageActionContext());
   }
 }
 
@@ -1763,7 +1628,7 @@ function handleRowAction(action: { key?: string }, record: QueryListRecord) {
   }
   const contribution = enhancementRowActions.value.find((item) => item.key === action.key);
   if (contribution) {
-    void executeEnhancementAction(contribution, { ...modulePageActionContext(record), record });
+    void runEnhancementAction(contribution, { ...modulePageActionContext(record), record });
   }
 }
 
@@ -1793,7 +1658,7 @@ function handleDetailAction(action: { key?: string }) {
   const record = selectedRecord.value;
   const contribution = enhancementDetailActions.value.find((item) => item.key === action.key);
   if (record && contribution) {
-    void executeEnhancementAction(contribution, { ...modulePageActionContext(record), record });
+    void runEnhancementAction(contribution, { ...modulePageActionContext(record), record });
   }
 }
 
@@ -1892,18 +1757,7 @@ async function executeSupportedDetailActionBlock(block: PageBootstrapActionBlock
 function handleBatchAction(action: { key?: string }, records: QueryListRecord[], clearSelection: () => void) {
   const contribution = enhancementBatchActions.value.find((item) => item.key === action.key);
   if (contribution) {
-    void executeEnhancementAction(contribution, { ...modulePageActionContext(), records, clearSelection });
-  }
-}
-
-async function executeEnhancementAction<TContext>(
-  contribution: { key: string; run(context: TContext): void | Promise<void> },
-  actionContext: TContext,
-) {
-  try {
-    await contribution.run(actionContext);
-  } catch (cause) {
-    presentPlatformError(cause, { source: `module-page-enhancement:${contribution.key}`, phase: 'action' });
+    void runEnhancementAction(contribution, { ...modulePageActionContext(), records, clearSelection });
   }
 }
 
@@ -2019,7 +1873,7 @@ defineExpose({ refreshList });
 
 function closeDetail() {
   if (saving.value) return;
-  detailLoadSequence += 1;
+  invalidatePendingRequests();
   detail.close();
 }
 
@@ -2029,13 +1883,13 @@ function closeDetail() {
  */
 function cancelDetailEditing() {
   if (saving.value) return;
-  detailLoadSequence += 1;
+  invalidatePendingRequests();
   detail.cancelEdit();
 }
 
 function closeTreeCardEditor() {
   if (saving.value) return;
-  detailLoadSequence += 1;
+  invalidatePendingRequests();
   // Tree management uses a persistent card rather than a drawer, but its
   // cancellation semantics are the same as every other detail surface.
   // In particular a create started from a selected tree node must return to
