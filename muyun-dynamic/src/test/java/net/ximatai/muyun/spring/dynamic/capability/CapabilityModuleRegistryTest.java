@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityStandardActionCatalog;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
+import net.ximatai.muyun.spring.ability.TreeAbility;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -14,6 +15,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class CapabilityModuleRegistryTest {
     private final CapabilityModuleRegistry registry = CapabilityModuleRegistry.defaultRegistry();
@@ -48,6 +50,13 @@ class CapabilityModuleRegistryTest {
                 .endpointProjection(PlatformAction.ENABLE).orElseThrow().path()).isEqualTo("/enable/{id}");
         assertThat(registry.actionOwner(PlatformAction.DISABLE).orElseThrow()
                 .endpointProjection(PlatformAction.DISABLE).orElseThrow().path()).isEqualTo("/disable/{id}");
+        assertThat(registry.actionOwner(PlatformAction.ENABLE).orElseThrow()
+                .webActionContract(PlatformAction.ENABLE, false).orElseThrow())
+                .extracting(CapabilityActionContribution.CapabilityWebActionContract::requestBody,
+                        CapabilityActionContribution.CapabilityWebActionContract::openApiRequestSchema,
+                        CapabilityActionContribution.CapabilityWebActionContract::openApiResponseSchema)
+                .containsExactly(CapabilityActionContribution.CapabilityWebRequestBody.RECORD_ACTION,
+                        "RecordActionWebRequest", "integer");
     }
 
     @Test
@@ -156,6 +165,21 @@ class CapabilityModuleRegistryTest {
         assertThatIllegalStateException().isThrownBy(() -> new CapabilityModuleRegistry(List.of(
                 new EnableCapabilityModule(), new EnableCapabilityModule())))
                 .withMessageContaining("duplicate capability module registration");
+    }
+
+    @Test
+    void shouldComposeSourceRuntimeFacetsFromActionOwnersAndKeepTheTreeSortBridgeExplicit() {
+        assertThat(registry.modules())
+                .allSatisfy(module -> assertThat(module.actionContribution().staticRuntimeHandler()).isPresent());
+        assertThat(enable().actions().dynamicRuntimeHandler()).isPresent();
+        assertThat(sort().actions().dynamicRuntimeHandler()).isPresent();
+        assertThat(tree().actions().dynamicRuntimeHandler()).isEmpty();
+        assertThat(recycleBin().actions().dynamicRuntimeHandler()).isEmpty();
+
+        assertThat(registry.staticActionOwner(PlatformAction.SORT, mock(TreeAbility.class)))
+                .containsSame(tree().actions());
+        assertThat(registry.staticActionOwner(PlatformAction.SORT, new Object()))
+                .containsSame(sort().actions());
     }
 
     @Test

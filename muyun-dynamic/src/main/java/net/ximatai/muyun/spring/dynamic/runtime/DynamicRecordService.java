@@ -1164,7 +1164,8 @@ public class DynamicRecordService {
         reorder(moduleAlias, entityAlias, orderedIds, RuntimeMutationSource.BUSINESS, null);
     }
 
-    void reorderFromAction(String moduleAlias, String entityAlias, List<String> orderedIds, String traceId) {
+    /** Stable capability-runtime facade for the registered SORT action handler. */
+    public void reorderFromAction(String moduleAlias, String entityAlias, List<String> orderedIds, String traceId) {
         reorder(moduleAlias, entityAlias, orderedIds, RuntimeMutationSource.ACTION, traceId);
     }
 
@@ -1185,7 +1186,8 @@ public class DynamicRecordService {
         moveBefore(moduleAlias, entityAlias, id, beforeId, RuntimeMutationSource.BUSINESS, null);
     }
 
-    void moveBeforeFromAction(String moduleAlias, String entityAlias, String id, String beforeId, String traceId) {
+    /** Stable capability-runtime facade for the registered SORT action handler. */
+    public void moveBeforeFromAction(String moduleAlias, String entityAlias, String id, String beforeId, String traceId) {
         moveBefore(moduleAlias, entityAlias, id, beforeId, RuntimeMutationSource.ACTION, traceId);
     }
 
@@ -1206,7 +1208,8 @@ public class DynamicRecordService {
         moveAfter(moduleAlias, entityAlias, id, afterId, RuntimeMutationSource.BUSINESS, null);
     }
 
-    void moveAfterFromAction(String moduleAlias, String entityAlias, String id, String afterId, String traceId) {
+    /** Stable capability-runtime facade for the registered SORT action handler. */
+    public void moveAfterFromAction(String moduleAlias, String entityAlias, String id, String afterId, String traceId) {
         moveAfter(moduleAlias, entityAlias, id, afterId, RuntimeMutationSource.ACTION, traceId);
     }
 
@@ -1405,7 +1408,8 @@ public class DynamicRecordService {
         return enable(moduleAlias, entityAlias, id, expectedVersion, RuntimeMutationSource.BUSINESS, null);
     }
 
-    int enableFromAction(String moduleAlias, String entityAlias, String id, String traceId) {
+    /** Stable capability-runtime facade for the registered ENABLE action handler. */
+    public int enableFromAction(String moduleAlias, String entityAlias, String id, String traceId) {
         return enable(moduleAlias, entityAlias, id, null, RuntimeMutationSource.ACTION, traceId);
     }
 
@@ -1431,7 +1435,8 @@ public class DynamicRecordService {
         return disable(moduleAlias, entityAlias, id, expectedVersion, RuntimeMutationSource.BUSINESS, null);
     }
 
-    int disableFromAction(String moduleAlias, String entityAlias, String id, String traceId) {
+    /** Stable capability-runtime facade for the registered ENABLE action handler. */
+    public int disableFromAction(String moduleAlias, String entityAlias, String id, String traceId) {
         return disable(moduleAlias, entityAlias, id, null, RuntimeMutationSource.ACTION, traceId);
     }
 

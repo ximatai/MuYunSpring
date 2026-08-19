@@ -122,7 +122,7 @@ public class StaticModuleOpenApiGenerator {
         if (capabilitySchema != null) return capabilitySchema;
         if (action == PlatformAction.QUERY) return mainSchemaName == null ? null : mainSchemaName + "PageResponse";
         if (action == PlatformAction.VIEW || action == PlatformAction.CREATE || action == PlatformAction.UPDATE) return mainSchemaName;
-        if (action == PlatformAction.DELETE || action == PlatformAction.ENABLE || action == PlatformAction.DISABLE) return "integer";
+        if (action == PlatformAction.DELETE) return "integer";
         return null;
     }
 

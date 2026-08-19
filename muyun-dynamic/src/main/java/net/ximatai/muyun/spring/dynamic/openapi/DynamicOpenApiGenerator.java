@@ -163,18 +163,7 @@ public class DynamicOpenApiGenerator {
                     operationId(descriptor, "exportSelected"),
                     "Export selected data " + mainEntity.title(), "DynamicSelectedExportRequest", PlatformAction.EXPORT.code()));
         }
-        if (mainEntity.capabilities().contains(EntityCapability.ENABLE.name())
-                && standardActionVisible.test(PlatformAction.ENABLE)) {
-            operations.add(operation(descriptor.moduleAlias(), basePath + "/enable/{id}", operationId(descriptor, "enable"),
-                    "Enable " + mainEntity.title(), null, "integer", PlatformAction.ENABLE.code()));
-        }
-        if (mainEntity.capabilities().contains(EntityCapability.ENABLE.name())
-                && standardActionVisible.test(PlatformAction.DISABLE)) {
-            operations.add(operation(descriptor.moduleAlias(), basePath + "/disable/{id}", operationId(descriptor, "disable"),
-                    "Disable " + mainEntity.title(), null, "integer", PlatformAction.DISABLE.code()));
-        }
-        addCapabilityOperation(operations, descriptor, mainEntity, basePath, PlatformAction.SORT,
-                standardActionVisible, mainEntity.capabilities().contains(EntityCapability.TREE.name()));
+        addCapabilityOperations(operations, descriptor, mainEntity, basePath, standardActionVisible);
         addTreeCapabilityOperations(operations, descriptor, mainEntity, basePath, standardActionVisible);
         addCapabilityHttpEndpoints(operations, descriptor, mainEntity, basePath, standardActionVisible);
         operations.add(getOperation(descriptor.moduleAlias(), basePath + "/actions", operationId(descriptor, "actions"),
@@ -213,23 +202,35 @@ public class DynamicOpenApiGenerator {
         return List.copyOf(operations);
     }
 
+    private void addCapabilityOperations(List<DynamicOpenApiDocument.Operation> operations,
+                                         DynamicModuleDescriptor descriptor,
+                                         DynamicEntityDescriptor mainEntity,
+                                         String basePath,
+                                         Predicate<PlatformAction> standardActionVisible) {
+        CapabilityModuleRegistry.defaultRegistry().modules().stream()
+                .filter(module -> mainEntity.capabilities().contains(module.capability().name()))
+                .flatMap(module -> module.actionContribution().standardActions().stream()
+                        .map(action -> Map.entry(action, module.actionContribution())))
+                .filter(entry -> standardActionVisible.test(entry.getKey()))
+                .forEach(entry -> addCapabilityOperation(operations, descriptor, mainEntity, basePath,
+                        entry.getKey(), entry.getValue(),
+                        entry.getKey() == PlatformAction.SORT
+                                && mainEntity.capabilities().contains(EntityCapability.TREE.name())));
+    }
+
     private void addCapabilityOperation(List<DynamicOpenApiDocument.Operation> operations,
                                         DynamicModuleDescriptor descriptor,
                                         DynamicEntityDescriptor mainEntity,
                                         String basePath,
                                         PlatformAction action,
-                                        Predicate<PlatformAction> standardActionVisible,
+                                        net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution,
                                         boolean treeBridge) {
-        if (!mainEntity.capabilities().contains(action.group().capability().name()) || !standardActionVisible.test(action)) {
-            return;
-        }
-        CapabilityModuleRegistry.defaultRegistry().actionOwner(action)
-                .flatMap(contribution -> contribution.endpointProjection(action)
-                        .flatMap(projection -> contribution.webActionContract(action, treeBridge)
-                                .map(contract -> operation(descriptor.moduleAlias(), basePath + projection.path(),
-                                        operationId(descriptor, projection.operationCode()),
-                                        "Sort " + mainEntity.title(), contract.openApiRequestSchema(),
-                                        contract.openApiResponseSchema(), action.code()))))
+        contribution.endpointProjection(action)
+                .flatMap(projection -> contribution.webActionContract(action, treeBridge)
+                        .map(contract -> operation(descriptor.moduleAlias(), basePath + projection.path(),
+                                operationId(descriptor, projection.operationCode()),
+                                action.title() + " " + mainEntity.title(), contract.openApiRequestSchema(),
+                                contract.openApiResponseSchema(), action.code())))
                 .ifPresent(operations::add);
     }
 

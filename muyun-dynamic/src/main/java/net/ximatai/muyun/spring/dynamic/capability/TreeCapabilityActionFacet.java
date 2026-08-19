@@ -31,6 +31,32 @@ public final class TreeCapabilityActionFacet implements CapabilityActionContribu
                 sort.treeBridgeOperation());
     }
 
+    @Override
+    public Optional<StaticCapabilityActionRuntimeHandler> staticRuntimeHandler() {
+        return Optional.of((execution, action) -> execution.executeTree(action));
+    }
+
+    @Override
+    public Optional<DynamicCapabilityWebActionHandler> dynamicWebActionHandler() {
+        return Optional.of(this::executeDynamicWeb);
+    }
+
+    private int executeDynamicWeb(DynamicCapabilityWebActionExecution execution, PlatformAction action,
+                                  DynamicCapabilityWebSortRequest request) {
+        if (action != PlatformAction.SORT) {
+            throw new IllegalArgumentException("TREE dynamic-web handler does not own: " + action.code());
+        }
+        if (!execution.supports(EntityCapability.TREE)) {
+            throw new net.ximatai.muyun.spring.common.exception.PlatformException(
+                    "dynamic entity does not support capability: TREE");
+        }
+        if (!request.hasPlacementIntent()) {
+            throw new IllegalArgumentException("tree sort requires previousId, nextId, or parentId");
+        }
+        execution.moveInTree(request.id(), request.previousId(), request.nextId(), request.parentId());
+        return 1;
+    }
+
     /** Dynamic web/OpenAPI projection facts; tree query remains a static-host only operation. */
     public List<CapabilityEndpointProjection> webEndpointProjections() {
         return WEB_ENDPOINTS;
@@ -44,6 +70,14 @@ public final class TreeCapabilityActionFacet implements CapabilityActionContribu
     @Override
     public Optional<CapabilityEndpointProjection> endpointProjection(PlatformAction action) {
         return Optional.empty();
+    }
+
+    @Override
+    public Optional<CapabilityWebActionContract> webActionContract(PlatformAction action, boolean treeBridge) {
+        return action == PlatformAction.TREE
+                ? Optional.of(new CapabilityWebActionContract(CapabilityWebRequestBody.WEB_QUERY,
+                "WebQueryRequest", "WebListResponse"))
+                : Optional.empty();
     }
 
     @Override

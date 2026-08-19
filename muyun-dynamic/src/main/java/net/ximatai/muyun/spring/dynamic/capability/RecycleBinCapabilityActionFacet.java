@@ -34,6 +34,11 @@ public final class RecycleBinCapabilityActionFacet implements CapabilityActionCo
         return List.copyOf(operations);
     }
 
+    @Override
+    public Optional<StaticCapabilityActionRuntimeHandler> staticRuntimeHandler() {
+        return Optional.of((execution, action) -> execution.executeRecycleBin(action));
+    }
+
     /** Dynamic declaration is a complete lifecycle opt-in, including explicit irreversible cleanup. */
     @Override
     public List<CapabilityHttpEndpointContract> dynamicHttpEndpoints() {

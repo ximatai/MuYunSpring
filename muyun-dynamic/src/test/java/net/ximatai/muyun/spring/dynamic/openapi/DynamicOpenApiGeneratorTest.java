@@ -412,6 +412,7 @@ class DynamicOpenApiGeneratorTest {
                 .findFirst())
                 .get()
                 .satisfies(operation -> {
+                    assertThat(operation.requestSchema()).isEqualTo("RecordActionWebRequest");
                     assertThat(operation.responseSchema()).isEqualTo("integer");
                     assertThat(operation.actionCode()).isEqualTo(PlatformAction.ENABLE.code());
                 });
@@ -419,6 +420,8 @@ class DynamicOpenApiGeneratorTest {
                 .filter(operation -> operation.path().equals("/sales.contract/disable/{id}")))
                 .singleElement()
                 .satisfies(operation -> {
+                    assertThat(operation.requestSchema()).isEqualTo("RecordActionWebRequest");
+                    assertThat(operation.responseSchema()).isEqualTo("integer");
                     assertThat(operation.actionCode()).isEqualTo(PlatformAction.DISABLE.code());
                     assertThat(operation.permissionCode()).isEqualTo("sales.contract:enable");
                 });

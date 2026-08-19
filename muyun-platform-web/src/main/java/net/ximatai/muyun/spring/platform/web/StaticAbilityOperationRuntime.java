@@ -23,6 +23,7 @@ import net.ximatai.muyun.spring.common.model.title.RecordLabelResolver;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
+import net.ximatai.muyun.spring.dynamic.capability.StaticCapabilityActionExecution;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.platform.deletion.PurgeReport;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinActionOutcome;
@@ -43,7 +44,6 @@ import java.util.Set;
 /** Executes standard static ability operations independently from Spring MVC handler methods. */
 public final class StaticAbilityOperationRuntime {
     private final ObjectProvider<RecycleBinFacade> recycleBinFacade;
-    private final StaticCapabilityActionRuntimeAdapter capabilityActionAdapter = new StaticCapabilityActionRuntimeAdapter();
 
     public StaticAbilityOperationRuntime(ObjectProvider<RecycleBinFacade> recycleBinFacade) {
         this.recycleBinFacade = recycleBinFacade;
@@ -57,10 +57,13 @@ public final class StaticAbilityOperationRuntime {
         }
         OperationScope scope = new OperationScope(target);
         PlatformAction action = endpoint.definition().action();
-        var capabilityAction = CapabilityModuleRegistry.defaultRegistry().actionOwner(action);
+        var capabilityAction = CapabilityModuleRegistry.defaultRegistry().staticActionOwner(action, scope.service());
         if (capabilityAction.isPresent()) {
-            return capabilityActionAdapter.execute(capabilityAction.get(), scope, request, action,
-                    endpoint.definition().operationCode(), recordIdForAction(request, action), body);
+            return capabilityAction.get().staticRuntimeHandler()
+                    .orElseThrow(() -> new IllegalStateException("no static runtime handler for capability action: "
+                            + action.code()))
+                    .execute(new StaticActionExecution(scope, request, endpoint.definition().operationCode(),
+                            recordIdForAction(request, action), body), action);
         }
         throw new IllegalStateException("unsupported compiled static operation: " + endpoint.definition().action());
     }
@@ -189,7 +192,9 @@ public final class StaticAbilityOperationRuntime {
                         String operationCode,
                         WebQueryRequest queryRequest) {
         TreeAbility ability = requireService(scope, TreeAbility.class);
-        if ("treeQuery".equals(operationCode)) {
+        // The compiled plan owns endpoint aliases. A POST tree-query is identified by its typed
+        // query payload, rather than re-interpreting a legacy operation-code spelling here.
+        if (queryRequest != null) {
             TreeWebQuerySupport.bind(request, queryRequest);
         }
         boolean flat = Boolean.parseBoolean(request.getParameter("flat"));
@@ -466,123 +471,68 @@ public final class StaticAbilityOperationRuntime {
         return value != null && !value.isBlank();
     }
 
-    /** Static source adapter registry; each capability owns its own service contract here. */
-    private final class StaticCapabilityActionRuntimeAdapter {
-        private final TreeHandler treeHandler = new TreeHandler();
-        private final List<Handler> handlers = List.of(treeHandler, new EnableHandler(), new SortHandler(),
-                new RecycleBinHandler());
+    private final class StaticActionExecution implements StaticCapabilityActionExecution {
+        private final OperationScope scope;
+        private final HttpServletRequest request;
+        private final String operationCode;
+        private final String id;
+        private final Object body;
 
-        Object execute(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution,
-                       OperationScope scope,
-                       HttpServletRequest request,
-                       PlatformAction action,
-                       String operationCode,
-                       String id,
-                       Object body) {
-            // The SORT contract remains source-neutral. TREE owns the bridge that turns it into a
-            // placement operation, instead of making SORT know about every hierarchical source.
-            if (action == PlatformAction.SORT && CapabilityModuleRegistry.defaultRegistry().require(
-                    net.ximatai.muyun.spring.common.platform.EntityCapability.TREE,
-                    net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityModule.class)
-                    .isEnabledOnStaticService(scope.service())) {
-                return treeHandler.execute(scope, request, action, operationCode, id, body);
-            }
-            return handlers.stream().filter(handler -> handler.supports(contribution)).findFirst()
-                    .orElseThrow(() -> new IllegalStateException("no static runtime adapter for capability action: "
-                            + action.code()))
-                    .execute(scope, request, action, operationCode, id, body);
+        private StaticActionExecution(OperationScope scope, HttpServletRequest request, String operationCode, String id, Object body) {
+            this.scope = scope;
+            this.request = request;
+            this.operationCode = operationCode;
+            this.id = id;
+            this.body = body;
         }
 
-        private interface Handler {
-            boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution);
-
-            Object execute(OperationScope scope, HttpServletRequest request, PlatformAction action, String operationCode, String id,
-                           Object body);
-        }
-
-        private final class TreeHandler implements Handler {
-            @Override
-            public boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution) {
-                return contribution instanceof net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityActionFacet;
-            }
-
-            @Override
-            public Object execute(OperationScope scope, HttpServletRequest request, PlatformAction action, String operationCode, String id,
-                                  Object body) {
-                if (action == PlatformAction.TREE) {
-                    return tree(scope, request, operationCode,
-                            body instanceof WebQueryRequest query ? query : null);
-                }
-                if (action == PlatformAction.SORT) {
-                    return sortTree(scope, request, id, body instanceof TreeSortWebRequest tree
-                            ? tree : new TreeSortWebRequest(null, null, null));
-                }
-                throw new IllegalArgumentException("TREE static adapter does not own: " + action.code());
-            }
-        }
-
-        private final class EnableHandler implements Handler {
-            @Override
-            public boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution) {
-                return contribution instanceof net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityActionFacet;
-            }
-
-            @Override
-            @SuppressWarnings({"rawtypes", "unchecked"})
-            public Object execute(OperationScope scope, HttpServletRequest httpRequest, PlatformAction action, String operationCode, String id,
-                                  Object body) {
-                EnableAbility ability = requireService(scope, EnableAbility.class);
-                RecordActionWebRequest normalized = body instanceof RecordActionWebRequest request
-                        ? request : new RecordActionWebRequest(null);
-                return MutationTenantScopeExecutor.forExistingRecord(scope, id, () -> scope.webScope(() -> {
-                    requireProjectionRecord(scope, httpRequest, action, id);
-                    StaticStandardMutationSupport.requireDataScopeRecord((ScopedWeb) scope, action, id);
-                    EntityContract existing = (EntityContract) ability.select(id);
-                    return switch (action) {
-                        case ENABLE -> StandardMutationResultSupport.enabled(scope, id, recordLabel(existing, ability),
-                                () -> ability.enable(id, normalized.version()));
-                        case DISABLE -> StandardMutationResultSupport.disabled(scope, id, recordLabel(existing, ability),
-                                () -> ability.disable(id, normalized.version()));
-                        default -> throw new IllegalArgumentException("ENABLE static adapter does not own: " + action.code());
-                    };
-                }));
-            }
-        }
-
-        private final class SortHandler implements Handler {
-            @Override
-            public boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution) {
-                return contribution instanceof net.ximatai.muyun.spring.dynamic.capability.SortCapabilityActionFacet;
-            }
-
-            @Override
-            public Object execute(OperationScope scope, HttpServletRequest request, PlatformAction action, String operationCode, String id,
-                                  Object body) {
-                if (action != PlatformAction.SORT) {
-                    throw new IllegalArgumentException("SORT static adapter does not own: " + action.code());
-                }
-                return sort(scope, request, id, body instanceof SortWebRequest sort
-                        ? sort : new SortWebRequest(null, null));
-            }
-        }
-
-        private final class RecycleBinHandler implements Handler {
-            @Override
-            public boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution) {
-                return contribution instanceof net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityActionFacet;
-            }
-
-            @Override
-            public Object execute(OperationScope scope, HttpServletRequest request, PlatformAction action,
-                                  String operationCode, String id, Object body) {
+        @Override
+        @SuppressWarnings({"rawtypes", "unchecked"})
+        public Object executeEnable(PlatformAction action) {
+            EnableAbility ability = requireService(scope, EnableAbility.class);
+            RecordActionWebRequest normalized = body instanceof RecordActionWebRequest actionRequest
+                    ? actionRequest : new RecordActionWebRequest(null);
+            return MutationTenantScopeExecutor.forExistingRecord(scope, id, () -> scope.webScope(() -> {
+                requireProjectionRecord(scope, request, action, id);
+                StaticStandardMutationSupport.requireDataScopeRecord((ScopedWeb) scope, action, id);
+                EntityContract existing = (EntityContract) ability.select(id);
                 return switch (action) {
-                    case RECYCLE_BIN_QUERY -> "view".equals(operationCode)
-                            ? recycleBinView(scope, id) : recycleBin(scope, body instanceof WebQueryRequest query ? query : null);
-                    case RECYCLE_BIN_RESTORE -> restore(scope, pathVariable(request, "sourceDeleteOperationId"));
-                    case RECYCLE_BIN_PURGE -> purge(scope, pathVariable(request, "sourceDeleteOperationId"));
-                    default -> throw new IllegalArgumentException("RECYCLE_BIN static adapter does not own: " + action.code());
+                    case ENABLE -> StandardMutationResultSupport.enabled(scope, id, recordLabel(existing, ability),
+                            () -> ability.enable(id, normalized.version()));
+                    case DISABLE -> StandardMutationResultSupport.disabled(scope, id, recordLabel(existing, ability),
+                            () -> ability.disable(id, normalized.version()));
+                    default -> throw new IllegalArgumentException("ENABLE static runtime handler does not own: " + action.code());
                 };
+            }));
+        }
+
+        @Override
+        public Object executeSort() {
+            return sort(scope, request, id, body instanceof SortWebRequest sort
+                    ? sort : new SortWebRequest(null, null));
+        }
+
+        @Override
+        public Object executeTree(PlatformAction action) {
+            if (action == PlatformAction.TREE) {
+                return tree(scope, request, operationCode, body instanceof WebQueryRequest query ? query : null);
             }
+            if (action == PlatformAction.SORT) {
+                return sortTree(scope, request, id, body instanceof TreeSortWebRequest tree
+                        ? tree : new TreeSortWebRequest(null, null, null));
+            }
+            throw new IllegalArgumentException("TREE static runtime handler does not own: " + action.code());
+        }
+
+        @Override
+        public Object executeRecycleBin(PlatformAction action) {
+            return switch (action) {
+                case RECYCLE_BIN_QUERY -> "view".equals(operationCode)
+                        ? recycleBinView(scope, id) : recycleBin(scope, body instanceof WebQueryRequest query ? query : null);
+                case RECYCLE_BIN_RESTORE -> restore(scope, pathVariable(request, "sourceDeleteOperationId"));
+                case RECYCLE_BIN_PURGE -> purge(scope, pathVariable(request, "sourceDeleteOperationId"));
+                default -> throw new IllegalArgumentException("RECYCLE_BIN static runtime handler does not own: " + action.code());
+            };
         }
     }
 

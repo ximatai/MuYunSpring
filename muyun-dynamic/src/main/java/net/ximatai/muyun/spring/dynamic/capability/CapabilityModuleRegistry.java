@@ -63,6 +63,31 @@ public final class CapabilityModuleRegistry {
         return Optional.ofNullable(actionContributions.get(action));
     }
 
+    /**
+     * Resolves static execution ownership. TREE deliberately owns SORT when its service contract
+     * is present, while the action's HTTP/OpenAPI facts remain owned by SORT.
+     */
+    public Optional<CapabilityActionContribution> staticActionOwner(PlatformAction action, Object staticService) {
+        if (action == PlatformAction.SORT) {
+            TreeCapabilityModule tree = require(EntityCapability.TREE, TreeCapabilityModule.class);
+            if (tree.isEnabledOnStaticService(staticService)) {
+                return Optional.of(tree.actionContribution());
+            }
+        }
+        return actionOwner(action);
+    }
+
+    /** TREE explicitly owns the dynamic-web SORT-to-placement bridge when TREE is declared. */
+    public Optional<CapabilityActionContribution> dynamicWebActionOwner(PlatformAction action,
+                                                                         java.util.Set<String> capabilityNames) {
+        if (action == PlatformAction.SORT
+                && capabilityNames != null
+                && capabilityNames.contains(EntityCapability.TREE.name())) {
+            return Optional.of(require(EntityCapability.TREE, TreeCapabilityModule.class).actionContribution());
+        }
+        return actionOwner(action);
+    }
+
     public <T extends CapabilityModule> T require(EntityCapability capability, Class<T> moduleType) {
         CapabilityModule module = find(capability)
                 .orElseThrow(() -> new IllegalArgumentException("capability module is not registered: " + capability));

@@ -45,24 +45,30 @@ public final class PlatformWebOperationDispatcher {
     }
 
     private Object readBody(RegisteredWebEndpoint endpoint, HttpServletRequest request) throws IOException {
-        Class<?> bodyType = CapabilityModuleRegistry.defaultRegistry().actionOwner(endpoint.definition().action())
+        var actionOwner = CapabilityModuleRegistry.defaultRegistry().actionOwner(endpoint.definition().action());
+        Class<?> bodyType = actionOwner
                 .flatMap(contribution -> contribution.webActionContract(endpoint.definition().action(),
                         endpoint.staticTarget() != null && endpoint.staticTarget().service() instanceof TreeAbility<?>))
-                .flatMap(contract -> java.util.Optional.ofNullable(switch (contract.requestBody()) {
+                .<Class<?>>map(contract -> switch (contract.requestBody()) {
+                    case RECORD_ACTION -> RecordActionWebRequest.class;
                     case SORT -> SortWebRequest.class;
                     case TREE_SORT -> TreeSortWebRequest.class;
                     case WEB_QUERY -> WebQueryRequest.class;
                     case NONE -> null;
-                }))
-                .orElseGet(() -> switch (endpoint.definition().action()) {
-            case ENABLE, DISABLE -> RecordActionWebRequest.class;
-            case TREE -> "treeQuery".equals(endpoint.definition().operationCode())
-                    ? WebQueryRequest.class : null;
-            default -> null;
-        });
+                })
+                .orElseGet(() -> actionOwner.isEmpty() ? legacyRequestBody(endpoint) : null);
         if (bodyType == null) return null;
         byte[] content = request.getInputStream().readAllBytes();
         return content.length == 0 ? null : objectMapper.readValue(content, bodyType);
+    }
+
+    /** Compatibility only for actions not yet owned by a registered capability contract. */
+    private static Class<?> legacyRequestBody(RegisteredWebEndpoint endpoint) {
+        return switch (endpoint.definition().action()) {
+            case TREE -> "treeQuery".equals(endpoint.definition().operationCode())
+                    ? WebQueryRequest.class : null;
+            default -> null;
+        };
     }
 
     private static Method dispatchMethod() {

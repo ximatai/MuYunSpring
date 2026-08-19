@@ -13,6 +13,21 @@ public interface CapabilityActionContribution {
 
     List<PlatformAction> standardActions();
 
+    /** Dynamic runtime handler when this capability has a generic record-action route. */
+    default Optional<DynamicCapabilityActionRuntimeHandler> dynamicRuntimeHandler() {
+        return Optional.empty();
+    }
+
+    /** Dynamic HTTP handler where the capability owns a standard endpoint action. */
+    default Optional<DynamicCapabilityWebActionHandler> dynamicWebActionHandler() {
+        return Optional.empty();
+    }
+
+    /** Static web runtime handler. Every standard capability module contributes this facet. */
+    default Optional<StaticCapabilityActionRuntimeHandler> staticRuntimeHandler() {
+        return Optional.empty();
+    }
+
     Optional<CapabilityEndpointProjection> endpointProjection(PlatformAction action);
 
     /**
@@ -54,6 +69,7 @@ public interface CapabilityActionContribution {
     }
 
     enum CapabilityWebRequestBody {
+        RECORD_ACTION,
         SORT,
         TREE_SORT,
         WEB_QUERY,
