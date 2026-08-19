@@ -1487,7 +1487,9 @@ public class DynamicRecordWebController implements
                                  @RequestBody(required = false) TreeSortWebRequest request) {
         return webScope(() -> {
             TreeSortWebRequest normalized = request == null ? new TreeSortWebRequest(null, null, null) : request;
-            return DynamicCapabilityWebActionAdapter.sort(service(), id, normalized);
+            String moduleAlias = DynamicWebRequest.moduleAlias();
+            return DynamicCapabilityWebActionAdapter.sort(recordService, service(), moduleAlias, mainEntityAlias(moduleAlias), id,
+                    normalized, net.ximatai.muyun.spring.common.web.RequestTraceContext.currentTraceId().orElse(null));
         });
     }
 

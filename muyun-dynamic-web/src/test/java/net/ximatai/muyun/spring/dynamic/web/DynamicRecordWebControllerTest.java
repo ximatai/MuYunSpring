@@ -2491,7 +2491,7 @@ class DynamicRecordWebControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(1));
 
-        verify(mainEntity).moveInTree("A", "B", null, "P");
+        verify(service).moveInTreeFromAction(eq(MODULE), eq(ENTITY), eq("A"), eq("B"), eq(null), eq("P"), anyString());
     }
 
     @Test
@@ -2515,7 +2515,7 @@ class DynamicRecordWebControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(1));
 
-        verify(mainEntity).moveAfter("A", "B");
+        verify(service).moveAfterFromAction(eq(MODULE), eq(ENTITY), eq("A"), eq("B"), anyString());
     }
 
     @Test

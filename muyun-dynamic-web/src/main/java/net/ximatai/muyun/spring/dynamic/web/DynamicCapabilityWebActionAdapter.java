@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.dynamic.capability.DynamicCapabilityWebActionExecution;
 import net.ximatai.muyun.spring.dynamic.capability.DynamicCapabilityWebSortRequest;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicEntityOperations;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.web.TreeSortWebRequest;
 
 /** Source-side HTTP adapter for registered capability actions; controller methods stay endpoint-only. */
@@ -13,8 +14,8 @@ final class DynamicCapabilityWebActionAdapter {
     private DynamicCapabilityWebActionAdapter() {
     }
 
-    static int sort(DynamicEntityOperations operations, String id, TreeSortWebRequest request) {
-        DynamicEntityOperations target = operations;
+    static int sort(DynamicRecordService records, DynamicEntityOperations target, String moduleAlias, String entityAlias,
+                    String id, TreeSortWebRequest request, String traceId) {
         TreeSortWebRequest normalized = request == null ? new TreeSortWebRequest(null, null, null) : request;
         CapabilityActionContribution owner = CapabilityModuleRegistry.defaultRegistry()
                 .dynamicWebActionOwner(PlatformAction.SORT, target.describe().capabilities())
@@ -29,17 +30,17 @@ final class DynamicCapabilityWebActionAdapter {
 
                     @Override
                     public void moveBefore(String recordId, String beforeId) {
-                        target.moveBefore(recordId, beforeId);
+                        records.moveBeforeFromAction(moduleAlias, entityAlias, recordId, beforeId, traceId);
                     }
 
                     @Override
                     public void moveAfter(String recordId, String afterId) {
-                        target.moveAfter(recordId, afterId);
+                        records.moveAfterFromAction(moduleAlias, entityAlias, recordId, afterId, traceId);
                     }
 
                     @Override
                     public void moveInTree(String recordId, String previousId, String nextId, String parentId) {
-                        target.moveInTree(recordId, previousId, nextId, parentId);
+                        records.moveInTreeFromAction(moduleAlias, entityAlias, recordId, previousId, nextId, parentId, traceId);
                     }
                 }, PlatformAction.SORT,
                         new DynamicCapabilityWebSortRequest(id, normalized.previousId(), normalized.nextId(), normalized.parentId()));
