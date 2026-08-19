@@ -211,13 +211,13 @@ export function createStaticResourceTreeClient<TRecord>(
   };
 }
 
-/** @deprecated Static modules use the same module client contract. */
+/** @deprecated Use ModuleCrudClient. Remove after static-prefixed consumer imports migrate. */
 export type StaticModuleCrudClient<TRecord> = ModuleCrudClient<TRecord>;
-/** @deprecated Static modules use the same module tree client contract. */
+/** @deprecated Use ModuleTreeClient. Remove after static-prefixed consumer imports migrate. */
 export type StaticModuleTreeClient<TRecord> = ModuleTreeClient<TRecord>;
-/** @deprecated Use createModuleCrudClient. */
+/** @deprecated Use createModuleCrudClient. Remove after static-prefixed consumer imports migrate. */
 export const createStaticModuleCrudClient = createModuleCrudClient;
-/** @deprecated Use createModuleTreeClient. */
+/** @deprecated Use createModuleTreeClient. Remove after static-prefixed consumer imports migrate. */
 export const createStaticModuleTreeClient = createModuleTreeClient;
 
 function modulePathOf(moduleAlias: string) {
