@@ -8,7 +8,8 @@ public record ResolvedViewDescriptor(String viewCode,
                                      String title,
                                      List<ResolvedViewFieldDescriptor> fields,
                                      String sourceUiConfigId,
-                                     List<ResolvedFormGroupDescriptor> formGroups) {
+                                     List<ResolvedFormGroupDescriptor> formGroups,
+                                     List<ResolvedFormComputeRuleDescriptor> formComputeRules) {
     public ResolvedViewDescriptor {
         if (viewCode == null || viewCode.isBlank()) {
             throw new IllegalArgumentException("view code must not be blank");
@@ -25,11 +26,22 @@ public record ResolvedViewDescriptor(String viewCode,
         if (!formGroups.isEmpty() && viewKind != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("form groups are only supported by form views: " + viewCode);
         }
+        formComputeRules = formComputeRules == null ? List.of() : List.copyOf(formComputeRules);
+        if (!formComputeRules.isEmpty() && viewKind != ModuleViewKind.FORM) {
+            throw new IllegalArgumentException("form compute rules are only supported by form views: " + viewCode);
+        }
+    }
+
+    /** Source-compatible constructor for descriptors issued before form computations were introduced. */
+    public ResolvedViewDescriptor(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
+                                  List<ResolvedViewFieldDescriptor> fields, String sourceUiConfigId,
+                                  List<ResolvedFormGroupDescriptor> formGroups) {
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups, List.of());
     }
 
     public ResolvedViewDescriptor(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                                   List<ResolvedViewFieldDescriptor> fields) {
-        this(viewCode, viewKind, clientType, title, fields, null, null);
+        this(viewCode, viewKind, clientType, title, fields, null, null, List.of());
     }
 
 }

@@ -2,6 +2,15 @@ import { ref } from 'vue';
 
 export type RecordDetailMode = 'create' | 'edit' | 'view';
 
+export interface RecordDetailCreateOptions<TRecord> {
+  /**
+   * The already selected detail to reinstate if the user abandons this new
+   * draft. It is deliberately held outside `record`: while creating, the
+   * detail surface must not accidentally expose actions for the prior record.
+   */
+  restoreRecord?: TRecord;
+}
+
 /**
  * State transitions shared by descriptor-driven record detail surfaces.
  * Containers own their layout; this controller owns only one record's
@@ -17,6 +26,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
   const saving = ref(false);
   const togglingEnabled = ref(false);
   const formSessionKey = ref(0);
+  const createRestoreRecord = ref<TRecord>();
 
   function beginLoad(next: TRecord, nextMode: Extract<RecordDetailMode, 'edit' | 'view'>) {
     formSessionKey.value += 1;
@@ -26,6 +36,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     open.value = true;
     loading.value = true;
     loadFailed.value = false;
+    createRestoreRecord.value = undefined;
   }
 
   function resolveLoad(next: TRecord) {
@@ -43,7 +54,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     loading.value = false;
   }
 
-  function beginCreate(initial: TRecord) {
+  function beginCreate(initial: TRecord, options: RecordDetailCreateOptions<TRecord> = {}) {
     formSessionKey.value += 1;
     record.value = undefined;
     draft.value = { ...initial };
@@ -51,6 +62,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     open.value = true;
     loading.value = false;
     loadFailed.value = false;
+    createRestoreRecord.value = options.restoreRecord;
   }
 
   function beginEdit() {
@@ -63,12 +75,14 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
 
   function cancelEdit() {
     if (mode.value === 'create') {
-      open.value = false;
-      record.value = undefined;
-      draft.value = undefined;
+      const restoreRecord = createRestoreRecord.value;
+      open.value = Boolean(restoreRecord);
+      record.value = restoreRecord;
+      draft.value = restoreRecord ? { ...restoreRecord } : undefined;
       mode.value = 'view';
       loading.value = false;
       loadFailed.value = false;
+      createRestoreRecord.value = undefined;
       formSessionKey.value += 1;
       return;
     }
@@ -83,6 +97,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     record.value = next;
     draft.value = { ...next };
     mode.value = 'view';
+    createRestoreRecord.value = undefined;
     formSessionKey.value += 1;
   }
 
@@ -92,6 +107,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     mode.value = 'view';
     loading.value = false;
     loadFailed.value = false;
+    createRestoreRecord.value = undefined;
   }
 
   function close() {
@@ -99,6 +115,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     if (mode.value === 'create') {
       record.value = undefined;
       draft.value = undefined;
+      createRestoreRecord.value = undefined;
     } else {
       draft.value = record.value ? { ...record.value } : undefined;
     }

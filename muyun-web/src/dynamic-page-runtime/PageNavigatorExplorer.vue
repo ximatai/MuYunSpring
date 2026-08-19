@@ -23,7 +23,7 @@ defineProps<{
   reloadKey: number;
   keyword: string;
   externalQueryValues?: Record<string, unknown>;
-  actionsOf?: () => RecordInlineAction[];
+  actionsOf?: (record: { id?: string }) => RecordInlineAction[];
 }>();
 
 const emit = defineEmits<{
@@ -34,6 +34,13 @@ const emit = defineEmits<{
   loaded: [records: QueryListRecord[]];
   action: [action: RecordInlineAction, record: QueryListRecord];
 }>();
+
+function managementAllows(level: NavigatorLevelRuntime, action: 'CREATE' | 'UPDATE' | 'DELETE') {
+  // Omitted actions come from descriptors published before presentation policy
+  // existed and retain the complete legacy management surface.
+  const actions = level.descriptor.management?.actions;
+  return actions == null || actions.includes(action);
+}
 </script>
 
 <template>
@@ -45,7 +52,7 @@ const emit = defineEmits<{
     @update:search-keyword="emit('update:keyword', $event)"
     @refresh="emit('refresh')"
   >
-    <template v-if="level.descriptor.management" #actions>
+    <template v-if="level.descriptor.management && managementAllows(level, 'CREATE')" #actions>
       <ModuleActionButton
         :context="level.context"
         action-code="create"

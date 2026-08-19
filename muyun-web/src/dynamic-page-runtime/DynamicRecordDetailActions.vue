@@ -22,6 +22,8 @@ const props = withDefaults(
     detailLoadFailed?: boolean;
     recycleBinActive?: boolean;
     actions?: ModulePageRecordActionContribution[];
+    /** Server-resolved standard action blocks, intentionally separate from frontend extensions. */
+    configuredActions?: RecordActionItem[];
     /** Custom record views retain their own operation model. */
     showStandardViewActions?: boolean;
   }>(),
@@ -32,6 +34,7 @@ const props = withDefaults(
     detailLoadFailed: false,
     recycleBinActive: false,
     actions: () => [],
+    configuredActions: () => [],
     showStandardViewActions: true,
   },
 );
@@ -66,10 +69,10 @@ const viewActionsActive = computed(
   </template>
   <template v-else-if="viewActionsActive">
     <RecordActionBar
-      v-if="recordId && actions.length > 0"
+      v-if="recordId && (actions.length > 0 || configuredActions.length > 0)"
       :context="context"
       :record-id="recordId"
-      :actions="actions"
+      :actions="[...actions, ...configuredActions]"
       @action="emit('detailAction', $event)"
     />
     <ModuleActionButton :context="context" action-code="update" :disabled="!record" @click="emit('edit')">
@@ -87,10 +90,12 @@ const viewActionsActive = computed(
     </ModuleActionButton>
   </template>
   <RecordActionBar
-    v-else-if="mode === 'view' && !recycleBinActive && recordId && actions.length > 0"
+    v-else-if="
+      mode === 'view' && !recycleBinActive && recordId && (actions.length > 0 || configuredActions.length > 0)
+    "
     :context="context"
     :record-id="recordId"
-    :actions="actions"
+    :actions="[...actions, ...configuredActions]"
     @action="emit('detailAction', $event)"
   />
 </template>

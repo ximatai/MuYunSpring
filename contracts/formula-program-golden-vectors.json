@@ -1,0 +1,154 @@
+{
+  "vectors": [
+    {
+      "id": "web-ui-present-in",
+      "profile": "WEB_UI",
+      "expression": "PRESENT({entryType}) && IN({moduleKind}, 'standard', 'system')",
+      "record": { "entryType": "route", "moduleKind": "system" },
+      "expected": true,
+      "program": {
+        "schemaVersion": 1,
+        "profile": "WEB_UI",
+        "root": {
+          "kind": "BINARY", "operator": "&&", "field": null, "value": null,
+          "arguments": [
+            { "kind": "FUNCTION", "operator": "PRESENT", "field": null, "value": null, "arguments": [
+              { "kind": "FIELD", "operator": null, "field": "entryType", "value": null, "arguments": [] }
+            ] },
+            { "kind": "FUNCTION", "operator": "IN", "field": null, "value": null, "arguments": [
+              { "kind": "FIELD", "operator": null, "field": "moduleKind", "value": null, "arguments": [] },
+              { "kind": "VALUE", "operator": null, "field": null, "value": "standard", "arguments": [] },
+              { "kind": "VALUE", "operator": null, "field": null, "value": "system", "arguments": [] }
+            ] }
+          ]
+        },
+        "referencedFields": ["entryType", "moduleKind"]
+      }
+    },
+    {
+      "id": "web-ui-null-and-loose-number",
+      "profile": "WEB_UI",
+      "expression": "ISNULL({comment}) || {quantity} == 3",
+      "record": { "comment": "", "quantity": "3" },
+      "expected": true,
+      "program": {
+        "schemaVersion": 1,
+        "profile": "WEB_UI",
+        "root": {
+          "kind": "BINARY", "operator": "||", "field": null, "value": null,
+          "arguments": [
+            { "kind": "FUNCTION", "operator": "ISNULL", "field": null, "value": null, "arguments": [
+              { "kind": "FIELD", "operator": null, "field": "comment", "value": null, "arguments": [] }
+            ] },
+            { "kind": "BINARY", "operator": "==", "field": null, "value": null, "arguments": [
+              { "kind": "FIELD", "operator": null, "field": "quantity", "value": null, "arguments": [] },
+              { "kind": "VALUE", "operator": null, "field": null, "value": 3.0, "arguments": [] }
+            ] }
+          ]
+        },
+        "referencedFields": ["comment", "quantity"]
+      }
+    },
+    {
+      "id": "web-ui-short-circuit-not-equals",
+      "profile": "WEB_UI",
+      "expression": "{enabled} == false && {status} != 'disabled'",
+      "record": { "enabled": true, "status": "disabled" },
+      "expected": false,
+      "program": {
+        "schemaVersion": 1,
+        "profile": "WEB_UI",
+        "root": {
+          "kind": "BINARY", "operator": "&&", "field": null, "value": null,
+          "arguments": [
+            { "kind": "BINARY", "operator": "==", "field": null, "value": null, "arguments": [
+              { "kind": "FIELD", "operator": null, "field": "enabled", "value": null, "arguments": [] },
+              { "kind": "VALUE", "operator": null, "field": null, "value": false, "arguments": [] }
+            ] },
+            { "kind": "BINARY", "operator": "!=", "field": null, "value": null, "arguments": [
+              { "kind": "FIELD", "operator": null, "field": "status", "value": null, "arguments": [] },
+              { "kind": "VALUE", "operator": null, "field": null, "value": "disabled", "arguments": [] }
+            ] }
+          ]
+        },
+        "referencedFields": ["enabled", "status"]
+      }
+    },
+    {
+      "id": "form-compute-arithmetic-zero-division",
+      "profile": "FORM_COMPUTE",
+      "expression": "{amount} = ({quantity} * {unitPrice}) / {divisor}",
+      "record": { "amount": null, "quantity": "3", "unitPrice": 4, "divisor": 0 },
+      "expected": { "amount": 0.0 },
+      "program": {
+        "schemaVersion": 1,
+        "profile": "FORM_COMPUTE",
+        "root": {
+          "kind": "ASSIGN", "operator": "=", "field": null, "value": null,
+          "arguments": [
+            { "kind": "FIELD", "operator": null, "field": "amount", "value": null, "arguments": [] },
+            { "kind": "BINARY", "operator": "/", "field": null, "value": null, "arguments": [
+              { "kind": "BINARY", "operator": "*", "field": null, "value": null, "arguments": [
+                { "kind": "FIELD", "operator": null, "field": "quantity", "value": null, "arguments": [] },
+                { "kind": "FIELD", "operator": null, "field": "unitPrice", "value": null, "arguments": [] }
+              ] },
+              { "kind": "FIELD", "operator": null, "field": "divisor", "value": null, "arguments": [] }
+            ] }
+          ]
+        },
+        "referencedFields": ["amount", "quantity", "unitPrice", "divisor"]
+      }
+    },
+    {
+      "id": "form-compute-java-double-text",
+      "profile": "FORM_COMPUTE",
+      "expression": "{amount} = +{scientific} + +{hexadecimal}",
+      "record": { "amount": null, "scientific": "1e2", "hexadecimal": "0x1.0p4" },
+      "expected": { "amount": 116.0 },
+      "program": {
+        "schemaVersion": 1,
+        "profile": "FORM_COMPUTE",
+        "root": {
+          "kind": "ASSIGN", "operator": "=", "field": null, "value": null,
+          "arguments": [
+            { "kind": "FIELD", "operator": null, "field": "amount", "value": null, "arguments": [] },
+            { "kind": "BINARY", "operator": "+", "field": null, "value": null, "arguments": [
+              { "kind": "UNARY", "operator": "+", "field": null, "value": null, "arguments": [
+                { "kind": "FIELD", "operator": null, "field": "scientific", "value": null, "arguments": [] }
+              ] },
+              { "kind": "UNARY", "operator": "+", "field": null, "value": null, "arguments": [
+                { "kind": "FIELD", "operator": null, "field": "hexadecimal", "value": null, "arguments": [] }
+              ] }
+            ] }
+          ]
+        },
+        "referencedFields": ["amount", "scientific", "hexadecimal"]
+      }
+    },
+    {
+      "id": "form-compute-non-finite-text-normalizes-number",
+      "profile": "FORM_COMPUTE",
+      "expression": "{amount} = ({source} * 1) + 1",
+      "record": { "amount": null, "source": "Infinity" },
+      "expected": { "amount": 1.0 },
+      "program": {
+        "schemaVersion": 1,
+        "profile": "FORM_COMPUTE",
+        "root": {
+          "kind": "ASSIGN", "operator": "=", "field": null, "value": null,
+          "arguments": [
+            { "kind": "FIELD", "operator": null, "field": "amount", "value": null, "arguments": [] },
+            { "kind": "BINARY", "operator": "+", "field": null, "value": null, "arguments": [
+              { "kind": "BINARY", "operator": "*", "field": null, "value": null, "arguments": [
+                { "kind": "FIELD", "operator": null, "field": "source", "value": null, "arguments": [] },
+                { "kind": "VALUE", "operator": null, "field": null, "value": 1.0, "arguments": [] }
+              ] },
+              { "kind": "VALUE", "operator": null, "field": null, "value": 1.0, "arguments": [] }
+            ] }
+          ]
+        },
+        "referencedFields": ["amount", "source"]
+      }
+    }
+  ]
+}

@@ -274,14 +274,13 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
-    void shouldExposeFormulaPreviewAsCreateActionEndpoint() throws Exception {
+    void shouldLeaveFormulaPreviewAuthorizationToTheRecordService() throws Exception {
         Method method = DynamicRecordWebController.class.getDeclaredMethod("previewFormula",
                 String.class, DynamicFormulaPreviewRequest.class);
 
         ActionEndpoint endpoint = method.getAnnotation(ActionEndpoint.class);
 
-        assertThat(endpoint).isNotNull();
-        assertThat(endpoint.value()).isEqualTo(PlatformAction.CREATE);
+        assertThat(endpoint).isNull();
     }
 
     @Test
@@ -3324,6 +3323,12 @@ class DynamicRecordWebControllerTest {
                 .build();
 
         noTenantMvc.perform(get("/{moduleAlias}/describe", MODULE))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value(MODULE + " requires tenant context"));
+
+        noTenantMvc.perform(get("/{moduleAlias}/openapi", MODULE))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
                 .andExpect(jsonPath("$.status").value(400))

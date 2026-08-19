@@ -28,7 +28,9 @@ export interface ModuleContext<TRecord> {
   runtimeAction(actionCode: string): ModuleRuntimeAction | undefined;
   can(actionCode: string, recordId?: string): boolean | undefined;
   recordActions(recordId: string): Promise<ModuleRecordActionAvailability>;
+  recordActionsBatch?(recordIds: string[]): Promise<ModuleRecordActionAvailability[]>;
   recordActionsSnapshot(recordId: string): ModuleRecordActionAvailability | undefined;
+  invalidateRecordActions?(recordIds?: string[]): void;
 }
 
 export interface ModuleTreeContext<TRecord> extends ModuleContext<TRecord> {
@@ -147,7 +149,9 @@ function moduleContextOf<TRecord>(
     runtimeAction: runtime.runtimeAction,
     can: runtime.can,
     recordActions: runtime.recordActions,
+    recordActionsBatch: runtime.recordActionsBatch,
     recordActionsSnapshot: runtime.recordActionsSnapshot,
+    invalidateRecordActions: runtime.invalidateRecordActions,
   };
 }
 

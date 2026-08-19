@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.web;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 
 import net.ximatai.muyun.spring.web.SystemScope;
+import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.platform.application.Application;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class ApplicationWebController extends WebSupport<ApplicationService> implements
         CrudWeb<Application, ApplicationService>,
         SystemScope<ApplicationService>,
+        NavigatorReferenceWeb<Application, ApplicationService>,
         StaticModuleUiContributor {
     @Override
     public ModuleUiDefinition moduleUiDefinition() {

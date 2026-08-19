@@ -34,13 +34,13 @@ describe('RecordActionBar', () => {
     vi.useRealTimers();
   });
 
-  it('shows the runtime authorization reason when an action has no extension-specific reason', async () => {
+  it('shows the platform record-availability reason when a managed record cannot be mutated', async () => {
     vi.useFakeTimers();
     const wrapper = mount(RecordActionBar, {
       attachTo: document.body,
       props: {
         context: {
-          action: (actionCode: string) => ({ actionCode, available: false, reason: '无权操作当前记录' }),
+          action: (actionCode: string) => ({ actionCode, available: false, reason: '平台托管记录不可删除' }),
           recordActions: (recordId: string) => Promise.resolve({ recordId, actions: [] }),
         } as unknown as ModuleContext<unknown>,
         recordId: 'knowledge-file-1',
@@ -54,7 +54,7 @@ describe('RecordActionBar', () => {
     await trigger.trigger('mouseenter');
     await vi.advanceTimersByTimeAsync(150);
 
-    expect(document.body.textContent).toContain('无权操作当前记录');
+    expect(document.body.textContent).toContain('平台托管记录不可删除');
     vi.useRealTimers();
   });
 

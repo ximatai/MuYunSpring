@@ -6,7 +6,7 @@ export type PageContextSourceValues = Partial<
 
 /** Returns context fields that must be supplied by the browser for a query target. */
 export function externalPageContextCriteriaKeys(
-  bindings: ResolvedPageContextBindingDescriptor[],
+  bindings: readonly ResolvedPageContextBindingDescriptor[],
   target: ResolvedPageContextBindingDescriptor['target'],
 ): string[] {
   return bindings
@@ -16,7 +16,7 @@ export function externalPageContextCriteriaKeys(
 
 /** Resolves declared context flows without coupling a target to navigator UI state. */
 export function resolvePageContextTargetValues(
-  bindings: ResolvedPageContextBindingDescriptor[],
+  bindings: readonly ResolvedPageContextBindingDescriptor[],
   target: ResolvedPageContextBindingDescriptor['target'],
   sourceValues: PageContextSourceValues,
   targetNavigatorLevelKey?: string,

@@ -41,7 +41,7 @@ public class FieldSpecWebController extends WebSupport<FieldSpecService> impleme
                                         .field("defaultUiControlAlias", field -> field.label("默认 UI 控件"))
                                         .field("uiControlAliases", field -> field.label("允许 UI 控件"))
                                         .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
-                        .traits(traits -> traits.standardCrud().enabledStatus().recycleBin())))
+                        .traits(traits -> traits.standardCrud().enabledStatus())))
                 .build();
     }
 }

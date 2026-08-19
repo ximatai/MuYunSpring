@@ -105,6 +105,7 @@ class PlatformMenuInitialDataDeclarationProviderTest {
                 assertThat(menu.getSystemManaged()).isTrue();
                 assertThat(menu.getOpenMode()).isEqualTo(MenuOpenMode.TAB);
                 assertThat(menu.getModuleAlias()).isEqualTo("platform.module");
+                assertThat(menu.getRoute()).isNull();
                 assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
                 assertThat(menu.getTitle()).isEqualTo("模块管理");
                 assertThat(menu.getSortOrder()).isEqualTo(20);

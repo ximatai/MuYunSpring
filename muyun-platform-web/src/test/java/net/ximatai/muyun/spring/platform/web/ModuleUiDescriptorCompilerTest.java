@@ -26,6 +26,57 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
     @Test
+    void shouldCompileSourceNeutralFormComputeRuleToSignedProgram() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page
+                        .explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("quantity")
+                                .field("unitPrice")
+                                .field("amount")
+                                .formCompute("amountFromQuantity", "amount", List.of("quantity", "unitPrice"),
+                                        "{amount} = {quantity} * {unitPrice}")))))
+                .build();
+
+        ResolvedFormComputeRuleDescriptor rule = ModuleUiDescriptorCompiler.compile(definition).page().detail()
+                .editor().formComputeRules().getFirst();
+
+        assertThat(rule.code()).isEqualTo("amountFromQuantity");
+        assertThat(rule.targetField()).isEqualTo("amount");
+        assertThat(rule.triggerFields()).containsExactly("quantity", "unitPrice");
+        assertThat(rule.writePolicy()).isEqualTo(FormComputeWritePolicy.ALWAYS);
+        assertThat(rule.program().profile().name()).isEqualTo("FORM_COMPUTE");
+        assertThat(rule.program().root().arguments().getFirst().field()).isEqualTo("amount");
+    }
+
+    @Test
+    void shouldRejectFormComputeRulesOutsideTheirWritableMainFormFields() {
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page
+                        .explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("quantity")
+                                .field("amount", field -> field.readOnly())
+                                .formCompute("amountFromQuantity", "amount", List.of("quantity"),
+                                        "{amount} = {quantity}")))))
+                .build()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("target field must be writable");
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page
+                        .explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("quantity")
+                                .field("amount")
+                                .formCompute("amountFromQuantity", "amount", List.of("quantity"),
+                                        "{amount} = {amount} + {quantity}")))))
+                .build()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cannot reference itself");
+    }
+
+    @Test
     void shouldCompileFlatManagementAsPageRootWithOnlyItsSupportedSlots() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("platform.application")
                 .page(ModulePageDefinition.flatManagement(page -> page
@@ -103,6 +154,31 @@ class ModuleUiDescriptorCompilerTest {
         assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
                 .containsExactly("title", "parentId", "color");
         assertThat(page.traits()).containsExactly(PageTrait.STANDARD_CRUD);
+    }
+
+    @Test
+    void shouldCompileApplicationScopeForTheTemplateOwnedModuleTree() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("platform.module")
+                .page(PageTemplates.treeManagement(page -> page
+                        .navigator(navigator -> navigator
+                                .level("application", level -> level.microList("platform.application", "应用", null))
+                                .bindNavigatorToList("application", "applicationAlias"))
+                        .detail(detail -> detail.editor(editor -> editor.field("applicationAlias").field("parentId")))
+                        .traits(traits -> traits.standardCrud())))
+                .build();
+
+        ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition, null, null, Map.of(),
+                Map.of("applicationAlias", new ResolvedReferenceFieldDescriptor("platform.application",
+                        ReferenceCardinality.ONE)), null).page();
+
+        assertThat(page.template()).isEqualTo(ModulePageTemplate.TREE_MANAGEMENT);
+        assertThat(page.navigator().levels()).extracting(ResolvedPageNavigatorLevelDescriptor::sourceModuleAlias)
+                .containsExactly("platform.application");
+        assertThat(page.navigator().contextBindings()).containsExactlyInAnyOrder(
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "application",
+                        PageContextTarget.LIST_QUERY, "applicationAlias", null),
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "application",
+                        PageContextTarget.FORM_DEFAULT, "applicationAlias", null));
     }
 
     @Test
@@ -262,7 +338,8 @@ class ModuleUiDescriptorCompilerTest {
                         .navigator(navigator -> navigator
                                 .level("tenant", level -> level
                                         .microList("iam.tenant", "租户", "搜索租户")
-                                        .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
+                                        .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE)
+                                        .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
                                 .level("organization", level -> level.tree("iam.organization", "所属组织", "搜索组织"))
                                 .bindNavigatorToList("tenant", "tenantId")
                                 .bindNavigatorToNavigator("tenant", "organization", "tenantId")
@@ -281,6 +358,8 @@ class ModuleUiDescriptorCompilerTest {
         assertThat(navigator.levels()).hasSize(2);
         assertThat(navigator.levels().getFirst().singleResultPolicy())
                 .isEqualTo(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE);
+        assertThat(navigator.levels().getFirst().initialSelectionPolicy())
+                .isEqualTo(PageNavigatorInitialSelectionPolicy.FIRST_RECORD);
         assertThat(navigator.contextBindings()).containsExactly(
                 new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "tenant",
                         PageContextTarget.LIST_QUERY, "tenantId", null),
@@ -688,6 +767,25 @@ class ModuleUiDescriptorCompilerTest {
 
         assertThat(management).isNotNull();
         assertThat(management.editorSurface()).isEqualTo("quick_manage");
+        assertThat(management.actions()).containsExactlyInAnyOrder(PageNavigatorManagementAction.values());
+    }
+
+    @Test
+    void shouldPublishDeclaredNavigatorManagementActionAllowList() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .navigator(navigator -> navigator.level("directory", level -> level
+                                .microList("sales.directory", "目录", "搜索目录")
+                                .manageable(PageNavigatorManagementAction.CREATE)))
+                        .list(list -> list.fields(fields -> fields.field("title")))
+                        .detail(detail -> detail.editor(editor -> editor.field("title")))
+                        .traits(traits -> traits.standardCrud())))
+                .build();
+
+        ResolvedPageNavigatorManagementDescriptor management = ModuleUiDescriptorCompiler.compile(definition)
+                .page().navigator().levels().getFirst().management();
+
+        assertThat(management.actions()).containsExactly(PageNavigatorManagementAction.CREATE);
     }
 
     @Test
@@ -871,6 +969,27 @@ class ModuleUiDescriptorCompilerTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("static module UI field is not declared by model facts")
                 .hasMessageContaining("iam.position_category.position_default_form.position.ghostField");
+    }
+
+    @Test
+    void shouldResolveExplicitStaticDetailRelationWithoutInventingQueryContract() {
+        ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.position_category")
+                .page(emptyEditorPage())
+                .detailRelation("positions", "岗位", "position", "categoryId", false)
+                .build();
+
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
+                staticDefinition(uiDefinition, positionEntities()));
+
+        assertThat(descriptor.detailRelations()).singleElement().satisfies(relation -> {
+            assertThat(relation.code()).isEqualTo("positions");
+            assertThat(relation.sourceModuleAlias()).isEqualTo("iam.position_category");
+            assertThat(relation.sourceEntityAlias()).isEqualTo("position_category");
+            assertThat(relation.targetEntityAlias()).isEqualTo("position");
+            assertThat(relation.parentBinding()).isEqualTo("categoryId");
+            assertThat(relation.readOnly()).isFalse();
+            assertThat(relation.hasExecutableQueryContract()).isFalse();
+        });
     }
 
     private StaticModuleDefinition staticDefinition(ModuleUiDefinition uiDefinition) {

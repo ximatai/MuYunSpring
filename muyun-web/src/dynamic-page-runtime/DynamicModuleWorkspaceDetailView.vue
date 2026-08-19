@@ -53,9 +53,13 @@ const title = computed(() => {
 });
 const pageEnhancement = computed(() => resolveModulePageEnhancement(context.moduleAlias));
 const detailSections = computed(() => pageEnhancement.value?.detail?.sections ?? []);
-const detailActions = computed<ModulePageRecordActionContribution[]>(
-  () => pageEnhancement.value?.detail?.actions ?? [],
-);
+const detailActions = computed<ModulePageRecordActionContribution[]>(() => {
+  const current = record.value;
+  return (pageEnhancement.value?.detail?.actions ?? []).map(({ state, ...action }) => ({
+    ...action,
+    ...(current ? state?.(current) : { visible: false }),
+  }));
+});
 const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() => {
   const configs: Record<string, RecordFormFieldPickerConfig> = {};
   for (const field of fields.value.values()) {
@@ -230,6 +234,10 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
     openWorkspaceTab: (view, input) => {
       if (!modulePageNavigation) throw new Error('模块页面工作视图需要 Workbench 导航承载');
       modulePageNavigation.openWorkspaceTab(view, input);
+    },
+    openPage: (descriptor) => {
+      if (!modulePageNavigation) throw new Error('模块页面跳转需要 Workbench 导航承载');
+      modulePageNavigation.openPage(descriptor);
     },
   };
 }

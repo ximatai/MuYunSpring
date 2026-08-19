@@ -16,6 +16,8 @@ const stubs = {
     template: '<button class="module-action-button" @click="$emit(\'click\')"><slot /></button>',
   },
   RecordActionBar: {
+    name: 'RecordActionBar',
+    props: ['actions'],
     template: '<div class="record-action-bar" />',
   },
 };
@@ -48,5 +50,23 @@ describe('DynamicRecordDetailActions', () => {
 
     await wrapper.find('.record-panel-button').trigger('click');
     expect(wrapper.emitted('cancel')).toHaveLength(1);
+  });
+
+  it('renders a server-configured detail action without a frontend enhancement', () => {
+    const wrapper = mount(DynamicRecordDetailActions, {
+      props: {
+        context,
+        record: { id: 'record-1', title: '记录一' },
+        mode: 'view',
+        configuredActions: [{ key: 'page-action-block:submit', actionCode: 'submit', title: '提交' }],
+      },
+      global: { stubs },
+    });
+
+    const actionBar = wrapper.findComponent({ name: 'RecordActionBar' });
+    expect(actionBar.exists()).toBe(true);
+    expect(actionBar.props('actions')).toEqual([
+      expect.objectContaining({ actionCode: 'submit', title: '提交' }),
+    ]);
   });
 });

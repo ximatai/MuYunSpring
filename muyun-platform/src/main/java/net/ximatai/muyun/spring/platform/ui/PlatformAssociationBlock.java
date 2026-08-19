@@ -7,8 +7,13 @@ public record PlatformAssociationBlock(
         String title,
         String targetUiConfigId,
         String queryTemplateId,
-        String queryPath
+        String queryPath,
+        ResolvedDetailRelationDescriptor relation
 ) {
+    public PlatformAssociationBlock(String uiConfigId, String key, String viewCode, String title,
+                                    String targetUiConfigId, String queryTemplateId, String queryPath) {
+        this(uiConfigId, key, viewCode, title, targetUiConfigId, queryTemplateId, queryPath, null);
+    }
     public PlatformAssociationBlock {
         uiConfigId = normalize(uiConfigId);
         key = normalize(key);

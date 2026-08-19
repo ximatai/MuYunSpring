@@ -245,6 +245,21 @@ class PlatformModuleServiceContractTest {
         assertThat(selected.getSystemManaged()).isTrue();
     }
 
+    @Test
+    void shouldProjectManagedModuleMutationBoundaryToRecordActions() {
+        PlatformModuleService service = new PlatformModuleService(new ModuleMemoryDao());
+        PlatformModule managed = module("crm.customer", "crm");
+        managed.setSystemManaged(Boolean.TRUE);
+        PlatformManagedMutationContext.runAsPlatformManaged(() -> service.insert(managed));
+
+        assertThat(service.ordinaryRecordActionAvailability("update", managed))
+                .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管记录不可编辑"));
+        assertThat(service.ordinaryRecordActionAvailability("delete", managed))
+                .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管记录不可删除"));
+        assertThat(service.ordinaryRecordActionAvailability("disable", managed)).isEmpty();
+        assertThat(service.ordinaryRecordActionAvailability("sort", managed)).isEmpty();
+    }
+
     private PlatformModule module(String alias, String applicationAlias) {
         PlatformModule module = new PlatformModule();
         module.setAlias(alias);

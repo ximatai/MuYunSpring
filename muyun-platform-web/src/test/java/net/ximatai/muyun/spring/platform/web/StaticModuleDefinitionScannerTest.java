@@ -60,6 +60,7 @@ import net.ximatai.muyun.spring.iam.user.UserAccountDao;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowActionPolicyService;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowDefinitionService;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowPublishFacade;
@@ -140,6 +141,79 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(page.detail().emptyDescription()).isEqualTo("请选择应用，或新建应用");
                 assertThat(page.detail().createTitle()).isEqualTo("新建应用");
                 assertThat(page.explorer().recordLabel()).isEqualTo("应用");
+            });
+        }
+    }
+
+    @Test
+    void shouldCompilePlatformModuleAsApplicationScopedTreeManagementPage() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ApplicationWebController.class);
+            context.registerBean(PlatformModuleWebController.class,
+                    () -> withService(new PlatformModuleWebController(),
+                            new PlatformModuleService(mock(BaseDao.class))));
+            context.refresh();
+
+            List<StaticModuleDefinition> definitions = new StaticModuleDefinitionScanner(context).scan();
+            StaticModuleDefinition definition = definitions.stream()
+                    .filter(candidate -> PlatformModuleService.MODULE_ALIAS.equals(candidate.moduleAlias()))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertThat(definition.navigatorSourceCapabilities()).containsExactlyInAnyOrder(
+                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY,
+                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE);
+            assertThat(definition.uiDefinition().page()).isInstanceOf(TreeManagementPageDefinition.class);
+
+            ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition).page();
+            assertThat(page.template()).isEqualTo(ModulePageTemplate.TREE_MANAGEMENT);
+            assertThat(page.navigator().levels()).extracting(ResolvedPageNavigatorLevelDescriptor::key)
+                    .containsExactly("application");
+            assertThat(page.navigator().levels()).extracting(ResolvedPageNavigatorLevelDescriptor::kind)
+                    .containsExactly(PageNavigatorKind.MICRO_LIST);
+            assertThat(page.navigator().contextBindings()).containsExactlyInAnyOrder(
+                    new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "application",
+                            PageContextTarget.LIST_QUERY, "applicationAlias", null),
+                    new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "application",
+                            PageContextTarget.FORM_DEFAULT, "applicationAlias", null),
+                    new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "application",
+                            PageContextTarget.PICKER_QUERY, "applicationAlias", null, "parentId"));
+            assertThat(page.detail().display().fields()).extracting(field -> field.fieldRef().fieldName())
+                    .containsExactly("applicationAlias", "alias", "title", "parentId", "moduleKind", "entryType",
+                            "entryRoute", "entryExternalUrl");
+            assertThat(page.detail().display().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("parentId")).singleElement().satisfies(field -> assertThat(field.treeRootTitle())
+                    .isEqualTo("根模块"));
+            assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
+                    .containsExactly("alias", "title", "applicationAlias", "parentId", "moduleKind", "entryType",
+                            "entryRoute", "entryExternalUrl", "enabled");
+            assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("moduleKind")).singleElement().satisfies(field -> assertThat(field.option().binding()
+                    .sourceType()).isEqualTo("enum"));
+            assertThat(page.detail().display().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("moduleKind")).singleElement().satisfies(field -> assertThat(field.option().inlineItems())
+                    .extracting(net.ximatai.muyun.spring.common.option.OptionItem::code)
+                    .containsExactly("static", "dynamic"));
+            assertThat(page.detail().display().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("moduleKind")).singleElement().satisfies(field -> assertThat(field.option().inlineItems())
+                    .extracting(net.ximatai.muyun.spring.common.option.OptionItem::title)
+                    .containsExactly("静态模块", "动态模块"));
+            assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("entryType")).singleElement().satisfies(field -> assertThat(field.option().binding()
+                    .sourceType()).isEqualTo("enum"));
+            assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("entryRoute")).singleElement().satisfies(field -> {
+                assertThat(field.visible().formula()).isNotNull();
+                assertThat(field.visible().formula().expression()).isEqualTo("{entryType} == 'route'");
+                assertThat(field.visible().formula().program().profile().name()).isEqualTo("WEB_UI");
+                assertThat(field.visible().formula().program().referencedFields()).containsExactly("entryType");
+            });
+            assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("entryExternalUrl")).singleElement().satisfies(field -> {
+                assertThat(field.visible().formula()).isNotNull();
+                assertThat(field.visible().formula().expression()).isEqualTo("{entryType} == 'link'");
+                assertThat(field.visible().formula().program().profile().name()).isEqualTo("WEB_UI");
+                assertThat(field.visible().formula().program().referencedFields()).containsExactly("entryType");
             });
         }
     }

@@ -31,7 +31,7 @@ import net.ximatai.muyun.spring.web.WebQueryCondition;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.web.WebTreeNode;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
-import net.ximatai.muyun.spring.platform.web.PlatformDynamicModuleScopeService;
+import net.ximatai.muyun.spring.web.TenantRequestScope;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryDescriptor;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryFallbackReason;
 import net.ximatai.muyun.spring.common.exception.ErrorScope;
@@ -160,7 +160,7 @@ public class DynamicRecordWebController implements
     private final RecordDuplicateCheckService duplicateCheckService;
     private final PlatformRecordNavigationService navigationService;
     private final DynamicRelationProjectionReadService dynamicRelationProjectionReadService;
-    private final PlatformDynamicModuleScopeService dynamicModuleScopeService;
+    private final TenantRequestScope tenantRequestScope;
     private final DynamicOpenApiGenerator openApiGenerator = new DynamicOpenApiGenerator();
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int SUMMARY_MAX_RECORDS = 10_000;
@@ -184,7 +184,7 @@ public class DynamicRecordWebController implements
         this.duplicateCheckService = actionServices.duplicateCheckService();
         this.navigationService = actionServices.navigationService();
         this.dynamicRelationProjectionReadService = queryServices.relationProjectionReadService();
-        this.dynamicModuleScopeService = new PlatformDynamicModuleScopeService(activeTenantVerifier);
+        this.tenantRequestScope = new TenantRequestScope(activeTenantVerifier);
     }
 
     @Override
@@ -1308,7 +1308,6 @@ public class DynamicRecordWebController implements
     }
 
     @PostMapping("/formula/preview")
-    @ActionEndpoint(PlatformAction.CREATE)
     public DynamicFormulaPreviewResponse previewFormula(@PathVariable String moduleAlias,
                                                         @RequestBody(required = false) DynamicFormulaPreviewRequest request) {
         return tenantScope(moduleAlias, () -> {
@@ -1662,7 +1661,7 @@ public class DynamicRecordWebController implements
     }
 
     private <T> T tenantScope(String moduleAlias, Supplier<T> action) {
-        dynamicModuleScopeService.requireTenantScope(moduleAlias);
+        tenantRequestScope.requireActiveTenant(moduleAlias);
         return action.get();
     }
 

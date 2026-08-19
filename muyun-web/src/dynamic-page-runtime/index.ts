@@ -3,6 +3,7 @@ export { default as DynamicModulePage } from './DynamicModulePage.vue';
 export { default as DynamicModuleWorkspaceDetailView } from './DynamicModuleWorkspaceDetailView.vue';
 export { customerDescriptor } from './mockDescriptor';
 export {
+  configureModulePageEnhancementContributions,
   configureModulePageEnhancements,
   createModulePageEnhancementRegistry,
   modulePageWorkspaceViews,
@@ -30,6 +31,7 @@ export type {
   ModulePageDrawer,
   ModulePageDrawerContext,
   ModulePageEnhancement,
+  ModulePageEnhancementActivationContext,
   ModulePageEnhancementRegistry,
   ModulePageEnhancementTarget,
   ModulePageRecordActionContext,

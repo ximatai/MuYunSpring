@@ -9,7 +9,6 @@ import FieldUiControlManagementView from '../views/FieldUiControlManagementView.
 import DictionaryManagementView from '../views/DictionaryManagementView.vue';
 import EmployeeManagementView from '../views/EmployeeManagementView.vue';
 import MenuManagementView from '../views/MenuManagementView.vue';
-import ModuleManagementView from '../views/ModuleManagementView.vue';
 import PasswordManagementView from '../views/PasswordManagementView.vue';
 import RoleManagementView from '../views/RoleManagementView.vue';
 import RoleAuthorizationView from '../views/RoleAuthorizationView.vue';
@@ -38,12 +37,6 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
     route: '/config/dictionaries',
     moduleAlias: 'platform.dictionary_category',
     component: DictionaryManagementView,
-    layout: 'workspace',
-  },
-  {
-    route: '/config/modules',
-    moduleAlias: 'platform.module',
-    component: ModuleManagementView,
     layout: 'workspace',
   },
   {
@@ -98,11 +91,12 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
 ];
 
 export const platformAdminRoutePrefixes = Array.from(
-  new Set(platformAdminRoutes.map((route) => route.route)),
+  new Set(['/_workspace', ...platformAdminRoutes.map((route) => route.route)]),
 );
 /**
- * Retains readable legacy menu URLs while delegating their content to the standard module runner.
- * These are deliberately separate from `platformAdminRoutes`: no business-owned Vue page exists.
+ * Readable legacy URLs that are intentionally delegated to the standard module runner.
+ * Module menus without a dedicated static page, including `platform.module`, use the
+ * canonical `/platform/dynamic/<moduleAlias>/list` URL directly.
  */
 export const platformAdminDynamicModuleRoutes: Record<string, string> = {
   '/iam/organizations': 'iam.organization',

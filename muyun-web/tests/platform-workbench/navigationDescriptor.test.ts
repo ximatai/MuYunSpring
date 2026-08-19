@@ -71,6 +71,16 @@ it('delegates a readable module route to the dynamic module host when the route 
   assert.equal(restored.menuId, 'organization');
 });
 
+it('restores the canonical module-management URL through the dynamic module host', () => {
+  const descriptor = pageDescriptorFromUrl('/platform/dynamic/platform.module/list');
+
+  assertPageType(descriptor, 'dynamic-module');
+  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.target.moduleAlias, 'platform.module');
+  assert.equal(descriptor.menuId, undefined);
+  assert.equal(tabKeyOf(descriptor), 'dynamic-module:platform.module:LIST');
+});
+
 it('getMenuNavigationTarget ignores disabled menus', () => {
   const target = getMenuNavigationTarget({
     id: 'disabled-runtime',
@@ -134,29 +144,22 @@ it('resolvePageDescriptor keeps path, routeName, and pageKey available for offli
   assert.equal(pageKeyDescriptor.target.pageKey, 'customerList');
 });
 
-it('resolvePageDescriptor carries a static business route layout without putting it into the URL', () => {
-  const descriptor = resolvePageDescriptor(
-    {
-      menuId: 'module-management',
-      menuType: 'route',
-      openMode: 'tab',
-      route: '/config/modules',
-      moduleAlias: 'platform.module',
-    },
-    {
-      businessRoutePrefixes: ['/config/modules'],
-      businessRouteLayouts: { '/config/modules': 'workspace' },
-    },
-  );
-
-  assertPageType(descriptor, 'business-route');
-  assert.equal(descriptor.layout, 'workspace');
-  assert.notMatch(pageDescriptorToUrl(descriptor), /workspace/);
-  const restored = pageDescriptorFromUrl(pageDescriptorToUrl(descriptor), {
-    businessRoutePrefixes: ['/config/modules'],
-    businessRouteLayouts: { '/config/modules': 'workspace' },
+it('resolves a module menu without a static page through the dynamic module host', () => {
+  const descriptor = resolvePageDescriptor({
+    menuId: 'module-management',
+    menuType: 'module',
+    openMode: 'tab',
+    moduleAlias: 'platform.module',
   });
-  assert.equal(restored.layout, 'workspace');
+
+  assertPageType(descriptor, 'dynamic-module');
+  assert.equal(descriptor.target.moduleAlias, 'platform.module');
+  assert.equal(
+    pageDescriptorToUrl(descriptor),
+    '/platform/dynamic/platform.module/list?_muyunMenuId=module-management',
+  );
+  const restored = pageDescriptorFromUrl(pageDescriptorToUrl(descriptor));
+  assert.equal(restored.pageType, 'dynamic-module');
 });
 
 it('every static business route explicitly classifies its page layout', () => {

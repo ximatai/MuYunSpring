@@ -130,6 +130,10 @@ const props = withDefaults(
     pageSize?: number;
     uiConfigId?: string;
     queryTemplateId?: string;
+    /** Read-only relation runners may deliberately suppress ad-hoc query controls. */
+    queryable?: boolean;
+    /** A relation query can intentionally be a bounded, non-pageable result. */
+    pageable?: boolean;
     ready?: boolean;
     externalQueryValues?: Record<string, unknown>;
     /** Descriptor-owned external criteria that must be exposed by the query schema. */
@@ -164,6 +168,8 @@ const props = withDefaults(
     pageSize: 20,
     uiConfigId: undefined,
     queryTemplateId: undefined,
+    queryable: true,
+    pageable: true,
     ready: true,
     externalQueryValues: undefined,
     requiredExternalCriteriaKeys: () => [],
@@ -188,6 +194,8 @@ const emit = defineEmits<{
   rowAction: [action: ResolvedRecordActionItem, record: QueryListRecord, event?: MouseEvent];
   rowExpand: [record: QueryListRecord, expanded: boolean];
   modeChange: [mode: RecordQueryListMode];
+  /** Lets a page runner persist this presentation preference without owning pagination state. */
+  pageSizeChange: [pageSize: number];
   restored: [];
 }>();
 const slots = defineSlots<{
@@ -233,10 +241,12 @@ const recycleBinHasRecords = computed<boolean | undefined>(() => {
 });
 const recycleBinEnabled = computed(() => hasRecycleBinAbility(props.context));
 const canQueryRecycleBinAvailable = computed(() => canQueryRecycleBin(props.context));
-const quickSearchEnabled = computed(() => schema.value?.quickSearch.enabled === true);
+const quickSearchEnabled = computed(() => props.queryable && schema.value?.quickSearch.enabled === true);
 const quickSearchDisabled = computed(() => !queryReady.value || !quickSearchEnabled.value);
 const queryActionsDisabled = computed(() => !queryReady.value);
-const conditionsDisabled = computed(() => !queryReady.value || queryFields.value.length === 0);
+const conditionsDisabled = computed(
+  () => !props.queryable || !queryReady.value || queryFields.value.length === 0,
+);
 const panelActions = computed<RecordActionItem[]>(() => {
   if (props.mode === 'recycleBin') {
     return [];
@@ -519,6 +529,9 @@ function buildQueryRequest(): WebQueryRequest {
     conditions: activeConditions.value,
     sorts: defaultSorts(),
   };
+  if (!props.pageable) {
+    delete request.page;
+  }
   if (props.uiConfigId) {
     request.uiConfigId = props.uiConfigId;
   }
@@ -1036,8 +1049,10 @@ function goPage(nextPage: number) {
 
 function handlePageSizeChange(value: OptionValue | OptionValueList | null) {
   const pageSizeValue = singleOptionValue(value);
-  pageSize.value =
+  const nextPageSize =
     typeof pageSizeValue === 'number' ? pageSizeValue : Number(pageSizeValue ?? props.pageSize);
+  pageSize.value = nextPageSize;
+  emit('pageSizeChange', nextPageSize);
   pageNum.value = 1;
   void loadRecords();
 }
@@ -1079,6 +1094,7 @@ defineExpose({ clearSelection, refresh });
         />
         <slot name="toolbarActions" :refresh="refresh" />
         <UiSearchInput
+          v-if="queryable"
           :value="quickSearchKeyword"
           class="record-query-list-search"
           :disabled="quickSearchDisabled"
@@ -1087,6 +1103,7 @@ defineExpose({ clearSelection, refresh });
           @search="submitQuickSearch"
         />
         <UiButton
+          v-if="queryable"
           class="record-query-list-advanced"
           :class="{ 'is-selected': conditionsExpanded }"
           type="text"
@@ -1316,7 +1333,7 @@ defineExpose({ clearSelection, refresh });
         :count="recycleBinState.summaryTotal.value"
         @click="emit('modeChange', mode === 'normal' ? 'recycleBin' : 'normal')"
       />
-      <div class="record-query-list-pagination-controls">
+      <div v-if="pageable" class="record-query-list-pagination-controls">
         <span>共 {{ total }} 条</span>
         <UiSelect
           class="record-query-list-page-size"

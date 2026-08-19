@@ -108,6 +108,39 @@ public class FormulaEngine {
         return FormulaExpressionSupport.referencedFields(parsed.ast());
     }
 
+    /**
+     * Compiles a FormulaEngine expression to the only profile that may execute in a Web form.
+     * The returned AST is signed by the server descriptor; Web clients must not parse {@code expression} again.
+     */
+    public FormulaProgram compileWebUiProgram(String expression) {
+        try {
+            return FormulaWebUiProfile.compile(parse("web-ui", expression));
+        } catch (FormulaEvaluationException exception) {
+            if ("FORMULA_WEB_UI_UNSUPPORTED".equals(exception.code())) {
+                throw exception;
+            }
+            throw new FormulaEvaluationException("FORMULA_WEB_UI_UNSUPPORTED",
+                    "formula is not supported by WEB_UI profile: " + expression);
+        }
+    }
+
+    /**
+     * Compiles one deterministic main-record assignment for a browser-local form calculation.
+     * This shares FormulaEngine parsing and AST semantics with server execution, but deliberately
+     * does not authorize persistence, scheduling, or user-value overwrite policy.
+     */
+    public FormulaProgram compileFormComputeProgram(String expression) {
+        try {
+            return FormulaFormComputeProfile.compile(parse("form-compute", expression));
+        } catch (FormulaEvaluationException exception) {
+            if ("FORMULA_FORM_COMPUTE_UNSUPPORTED".equals(exception.code())) {
+                throw exception;
+            }
+            throw new FormulaEvaluationException("FORMULA_FORM_COMPUTE_UNSUPPORTED",
+                    "formula is not supported by FORM_COMPUTE profile: " + expression);
+        }
+    }
+
     public boolean containsAssignment(String expression) {
         FormulaExpressionSupport.ParsedExpression parsed = parse("expression", expression);
         return parsed != null && FormulaExpressionSupport.containsAssignment(parsed.ast());
@@ -490,6 +523,10 @@ public class FormulaEngine {
             case "PRESENT" -> {
                 Object value = argNullable(args, 0);
                 yield value != null && !"".equals(value);
+            }
+            case "IN" -> {
+                Object candidate = arg(args, 0);
+                yield args.stream().skip(1).anyMatch(value -> equalsLoose(candidate, value));
             }
             case "WHERE", "FILTER" -> throw new FormulaEvaluationException(
                     "FORMULA_AGGREGATE_CONDITION_ONLY",

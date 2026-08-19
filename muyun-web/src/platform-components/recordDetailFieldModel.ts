@@ -1,3 +1,4 @@
+import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 import type { RecordFormFieldState, RecordFormRecord } from './recordFormFieldModel';
 
@@ -16,6 +17,7 @@ export function resolveRecordDetailDisplayValue(
   options: {
     displayOf?: RecordDetailDisplayResolver;
     emptyText?: string;
+    optionItems?: OptionItemDescriptor[];
   } = {},
 ) {
   const emptyText = options.emptyText ?? '-';
@@ -33,6 +35,17 @@ export function resolveRecordDetailDisplayValue(
     if (option?.label) {
       return option.label;
     }
+  }
+  if (field.hasOption && (field.optionItems || options.optionItems)) {
+    const option = (field.optionItems ?? options.optionItems ?? []).find(
+      (item) => item.code === String(value),
+    );
+    if (option) {
+      return option.title;
+    }
+  }
+  if (field.treeRootTitle && value === 'root') {
+    return field.treeRootTitle;
   }
   const referenceTitle = field.referenceTitleField ? record[field.referenceTitleField] : undefined;
   if (field.controlType === 'recordPicker' && isReferenceSummary(referenceTitle)) {

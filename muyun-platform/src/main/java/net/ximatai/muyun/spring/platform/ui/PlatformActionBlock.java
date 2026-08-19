@@ -13,7 +13,8 @@ public record PlatformActionBlock(
         String submitPath,
         DynamicActionRefreshStrategy refreshStrategy,
         Integer width,
-        Integer height
+        Integer height,
+        LocalEditFormDescriptor localEditForm
 ) {
     public PlatformActionBlock(String uiConfigId,
                                String type,
@@ -22,6 +23,22 @@ public record PlatformActionBlock(
                                String title,
                                String position) {
         this(uiConfigId, type, key, actionCode, title, position, null, null, null, null, null);
+    }
+
+    /** Source-compatible constructor for callers created before local edit form contracts were signed. */
+    public PlatformActionBlock(String uiConfigId,
+                               String type,
+                               String key,
+                               String actionCode,
+                               String title,
+                               String position,
+                               String targetUiConfigId,
+                               String submitPath,
+                               DynamicActionRefreshStrategy refreshStrategy,
+                               Integer width,
+                               Integer height) {
+        this(uiConfigId, type, key, actionCode, title, position, targetUiConfigId, submitPath, refreshStrategy,
+                width, height, null);
     }
 
     public PlatformActionBlock {
@@ -36,6 +53,9 @@ public record PlatformActionBlock(
         refreshStrategy = refreshStrategy == null ? DynamicActionRefreshStrategy.none() : refreshStrategy;
         width = positive(width, "action block width");
         height = positive(height, "action block height");
+        if (!"localEdit".equals(type) && localEditForm != null) {
+            throw new IllegalArgumentException("only local edit action blocks may declare a local edit form");
+        }
     }
 
     private static String requireText(String value, String name) {

@@ -49,6 +49,52 @@ describe('resolvePageContextTargetValues', () => {
     ).toBeUndefined();
   });
 
+  it('uses an application navigator as module-tree scope and root-form default without making it a tree node', () => {
+    const moduleTreeBindings = [
+      {
+        source: 'NAVIGATOR',
+        sourceKey: 'application',
+        target: 'NAVIGATOR_QUERY',
+        targetKey: 'applicationAlias',
+        targetNavigatorLevelKey: 'module',
+      },
+      {
+        source: 'NAVIGATOR',
+        sourceKey: 'application',
+        target: 'FORM_DEFAULT',
+        targetKey: 'applicationAlias',
+      },
+      {
+        source: 'NAVIGATOR',
+        sourceKey: 'application',
+        target: 'PICKER_QUERY',
+        targetKey: 'applicationAlias',
+        targetPickerFieldKey: 'parentId',
+      },
+    ] as const;
+
+    expect(
+      resolvePageContextTargetValues(
+        moduleTreeBindings,
+        'NAVIGATOR_QUERY',
+        {
+          NAVIGATOR: { application: 'platform' },
+        },
+        'module',
+      ),
+    ).toEqual({ applicationAlias: 'platform' });
+    expect(
+      resolvePageContextTargetValues(moduleTreeBindings, 'FORM_DEFAULT', {
+        NAVIGATOR: { application: 'platform' },
+      }),
+    ).toEqual({ applicationAlias: 'platform' });
+    expect(
+      resolvePageContextTargetValues(moduleTreeBindings, 'PICKER_QUERY', {
+        NAVIGATOR: { application: 'platform' },
+      }),
+    ).toEqual({ applicationAlias: 'platform' });
+  });
+
   it('does not expose server-resolved session values as browser query criteria', () => {
     expect(externalPageContextCriteriaKeys([...bindings], 'LIST_QUERY')).toEqual([]);
     expect(

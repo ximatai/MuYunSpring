@@ -10,7 +10,13 @@ public record ModuleUiDefinition(String moduleAlias,
                                  ModulePageDefinition page,
                                  ViewDefinition defaultEditor,
                                  List<EditorSurfaceDefinition> editorSurfaces,
-                                 List<PageDetailEditorContribution> editorContributions) {
+                                 List<PageDetailEditorContribution> editorContributions,
+                                 List<PageDetailRelationDefinition> detailRelations) {
+    public ModuleUiDefinition(String moduleAlias, List<UiActionDefinition> actions, ModulePageDefinition page,
+                              ViewDefinition defaultEditor, List<EditorSurfaceDefinition> editorSurfaces,
+                              List<PageDetailEditorContribution> editorContributions) {
+        this(moduleAlias, actions, page, defaultEditor, editorSurfaces, editorContributions, List.of());
+    }
     public ModuleUiDefinition {
         moduleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         actions = actions == null ? List.of() : List.copyOf(actions);
@@ -25,6 +31,11 @@ public record ModuleUiDefinition(String moduleAlias,
         if (editorContributions.stream().map(PageDetailEditorContribution::resource).distinct().count()
                 != editorContributions.size()) {
             throw new IllegalArgumentException("duplicate editor contribution resource");
+        }
+        detailRelations = detailRelations == null ? List.of() : List.copyOf(detailRelations);
+        if (detailRelations.stream().map(PageDetailRelationDefinition::code).distinct().count()
+                != detailRelations.size()) {
+            throw new IllegalArgumentException("duplicate detail relation code");
         }
     }
 
@@ -43,6 +54,7 @@ public record ModuleUiDefinition(String moduleAlias,
         private ViewDefinition defaultEditor;
         private final List<EditorSurfaceDefinition> editorSurfaces = new java.util.ArrayList<>();
         private final List<PageDetailEditorContribution> editorContributions = new java.util.ArrayList<>();
+        private final List<PageDetailRelationDefinition> detailRelations = new java.util.ArrayList<>();
 
         private Builder(String moduleAlias) {
             this.moduleAlias = moduleAlias;
@@ -58,6 +70,14 @@ public record ModuleUiDefinition(String moduleAlias,
             ViewDefinition.Builder builder = ViewDefinition.form(ModuleUiViewCodes.childResourceDefaultForm(resource));
             if (customizer != null) customizer.accept(builder);
             editorContributions.add(new PageDetailEditorContribution(resource, builder.build()));
+            return this;
+        }
+
+        /** Declares a static child/detail relation without guessing its list endpoint or projection. */
+        public Builder detailRelation(String code, String title, String targetEntityAlias, String parentBinding,
+                                      boolean readOnly) {
+            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
+                    readOnly, true));
             return this;
         }
 
@@ -81,7 +101,8 @@ public record ModuleUiDefinition(String moduleAlias,
         }
 
         public ModuleUiDefinition build() {
-            return new ModuleUiDefinition(moduleAlias, actions, page, defaultEditor, editorSurfaces, editorContributions);
+            return new ModuleUiDefinition(moduleAlias, actions, page, defaultEditor, editorSurfaces,
+                    editorContributions, detailRelations);
         }
     }
 

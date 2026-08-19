@@ -1,5 +1,6 @@
 import { assert, it } from 'vitest';
 import {
+  platformAdminDynamicModuleRoutes,
   platformAdminModuleRoutes,
   platformAdminRoutePrefixes,
   isPlatformAdminRoutePage,
@@ -10,9 +11,9 @@ import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 
 it('static business route registry exposes only pages still owned by static route hosts', () => {
   assert.deepEqual(platformAdminRoutePrefixes, [
+    '/_workspace',
     '/config/field-ui-controls',
     '/config/dictionaries',
-    '/config/modules',
     '/config/menus',
     '/platform/security/passwords',
     '/iam/tenants',
@@ -25,7 +26,6 @@ it('static business route registry exposes only pages still owned by static rout
   assert.deepEqual(platformAdminModuleRoutes, {
     'platform.field_ui_control': '/config/field-ui-controls',
     'platform.dictionary_category': '/config/dictionaries',
-    'platform.module': '/config/modules',
     'platform.menu_scheme': '/config/menus',
     'iam.password_policy_rule': '/platform/security/passwords',
     'iam.tenant': '/iam/tenants',
@@ -56,6 +56,18 @@ it('organization management is delegated to the dynamic page host', () => {
 
   assert.equal(resolvePlatformAdminRoute(descriptor), undefined);
   assert.equal(isPlatformAdminRoutePage(descriptor), false);
+});
+
+it('module management has no static route and resolves through the canonical dynamic host URL', () => {
+  assert.equal(platformAdminModuleRoutes['platform.module'], undefined);
+  assert.equal(platformAdminDynamicModuleRoutes['/config/modules'], undefined);
+
+  const descriptor = pageDescriptorFromUrl('/platform/dynamic/platform.module/list');
+
+  assert.equal(descriptor.pageType, 'dynamic-module');
+  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.target.moduleAlias, 'platform.module');
+  assert.equal(descriptor.menuId, undefined);
 });
 
 it('static business route registry resolves password management module route', () => {

@@ -237,7 +237,11 @@ public class PlatformModuleRuntimeContextService {
         PlatformResolvedPageConfig resolvedConfig = pageBootstrapService.resolveConfig(snapshot,
                 PlatformUiClientType.WEB);
         ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(snapshot,
-                resolvedConfig);
+                resolvedConfig, dynamicDescriptor.entities().stream()
+                        .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias()))
+                        .findFirst()
+                        .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor::formulaRules)
+                        .orElse(List.of()));
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, title,
                 dynamicOptionFields(dynamicDescriptor), dynamicReferenceFields(dynamicDescriptor),
                 dynamicRecordLabelField(dynamicDescriptor), dynamicFieldTypes(dynamicDescriptor, resolvedConfig))
@@ -285,7 +289,7 @@ public class PlatformModuleRuntimeContextService {
                 .filter(level -> visibleLevelKeys.contains(level.key()))
                 .map(level -> new ResolvedPageNavigatorLevelDescriptor(level.key(), level.kind(),
                         level.sourceModuleAlias(), level.title(), level.searchPlaceholder(), level.management(),
-                        level.singleResultPolicy(), level.sourceScope()))
+                        level.singleResultPolicy(), level.initialSelectionPolicy(), level.sourceScope()))
                 .toList();
         List<ResolvedPageContextBindingDescriptor> visibleBindings = navigator.contextBindings().stream()
                 .filter(binding -> binding.source() != PageContextSource.NAVIGATOR

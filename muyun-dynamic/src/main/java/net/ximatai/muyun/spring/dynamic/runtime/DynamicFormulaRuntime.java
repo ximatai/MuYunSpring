@@ -40,7 +40,7 @@ final class DynamicFormulaRuntime {
     }
 
     boolean hasBeforeUpdateRules(DynamicRecord record) {
-        return !runtimeRulesForUpdate(record, List.of(FormulaRulePhase.BEFORE_SAVE)).isEmpty();
+        return !runtimeRulesForUpdate(List.of(FormulaRulePhase.BEFORE_SAVE)).isEmpty();
     }
 
     boolean hasBeforeActionExecuteRules() {
@@ -51,12 +51,18 @@ final class DynamicFormulaRuntime {
         return execute(record, existing, List.of(FormulaRulePhase.ACTION_BEFORE_EXECUTE), true).report();
     }
 
-    DynamicFormulaPreviewResult preview(DynamicRecord record, DynamicRecord existing) {
+    DynamicFormulaPreviewResult preview(DynamicRecord record,
+                                        DynamicRecord existing,
+                                        Map<String, List<DynamicRecord>> existingChildren) {
         FormulaExecutionResult result = record.getId() == null || record.getId().isBlank()
                 ? execute(record, null, List.of(FormulaRulePhase.DEFAULT_VALUE, FormulaRulePhase.BEFORE_SAVE), true, false)
-                : execute(record, existing, List.of(FormulaRulePhase.BEFORE_SAVE), true, false);
+                : execute(record, existing, existingChildren, List.of(FormulaRulePhase.BEFORE_SAVE), false, true);
         List<String> changedFields = result.report().hasErrors() ? List.of() : result.changedFields();
         return new DynamicFormulaPreviewResult(record, result.report(), changedFields);
+    }
+
+    DynamicFormulaPreviewResult preview(DynamicRecord record, DynamicRecord existing) {
+        return preview(record, existing, Map.of());
     }
 
     boolean hasImportValidateRules() {
@@ -115,7 +121,16 @@ final class DynamicFormulaRuntime {
                                            DynamicRecord existing,
                                            Map<String, List<DynamicRecord>> existingChildren,
                                            List<FormulaRulePhase> phases) {
-        List<FormulaRule> rules = runtimeRulesForUpdate(record, phases);
+        return execute(record, existing, existingChildren, phases, true, true);
+    }
+
+    private FormulaExecutionResult execute(DynamicRecord record,
+                                           DynamicRecord existing,
+                                           Map<String, List<DynamicRecord>> existingChildren,
+                                           List<FormulaRulePhase> phases,
+                                           boolean failOnErrors,
+                                           boolean applyChanges) {
+        List<FormulaRule> rules = runtimeRulesForUpdate(phases);
         if (rules.isEmpty()) {
             return new FormulaExecutionResult();
         }
@@ -123,10 +138,12 @@ final class DynamicFormulaRuntime {
         Map<String, List<Map<String, Object>>> tables = DynamicFormulaDataSupport.childValues(record, existingChildren);
         FormulaExecutionResult result = engine.execute(rules, FormulaRuntimeData.typed(
                 main, tables, DynamicFormulaDataSupport.fieldDefinitions(entity, module)));
-        if (result.report().hasErrors()) {
+        if (failOnErrors && result.report().hasErrors()) {
             throw new DynamicFormulaException(moduleAlias, entity.alias(), result.report());
         }
-        applyChangedFields(record, main, tables, result.changedFields());
+        if (applyChanges && !result.report().hasErrors()) {
+            applyChangedFields(record, main, tables, result.changedFields());
+        }
         return result;
     }
 
@@ -139,12 +156,10 @@ final class DynamicFormulaRuntime {
                 .toList();
     }
 
-    private List<FormulaRule> runtimeRulesForUpdate(DynamicRecord record, List<FormulaRulePhase> phases) {
-        Set<String> submittedRelations = submittedRelations(record);
+    private List<FormulaRule> runtimeRulesForUpdate(List<FormulaRulePhase> phases) {
         return entity.orderedFormulaRules().stream()
                 .filter(EntityFormulaRuleDefinition::enabled)
                 .filter(rule -> phases.contains(rule.phase()))
-                .filter(rule -> relationDependencies(rule).stream().allMatch(submittedRelations::contains))
                 .map(EntityFormulaRuleDefinition::toRuntimeRule)
                 .toList();
     }
@@ -172,19 +187,6 @@ final class DynamicFormulaRuntime {
             }
         }
         return dependencies;
-    }
-
-    private Set<String> submittedRelations(DynamicRecord record) {
-        if (record == null) {
-            return Set.of();
-        }
-        Set<String> relations = new HashSet<>();
-        record.getChildren().forEach((relationCode, children) -> {
-            if (children != null) {
-                relations.add(relationCode);
-            }
-        });
-        return relations;
     }
 
     private void applyChangedFields(DynamicRecord record,

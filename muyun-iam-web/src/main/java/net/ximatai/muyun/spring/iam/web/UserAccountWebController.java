@@ -145,7 +145,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                         .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))
                         .field("passwordStatus", field -> field.label("密码状态").readOnly())
                         .field("lastLoginAt", field -> field.label("最后登录时间").readOnly())))
-                .traits(traits -> traits.standardCrud().enabledStatus().recycleBin().responsiveDetailSurface())))
+                .traits(traits -> traits.standardCrud().enabledStatus().responsiveDetailSurface())))
                 .build();
     }
 

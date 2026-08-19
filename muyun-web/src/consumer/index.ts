@@ -26,6 +26,7 @@ export {
 } from '../app/workbenchStartup';
 export { restoreLockedTabPreference, saveLockedTabPreference } from '../app/lockedTabPreference';
 export {
+  configureModulePageEnhancementContributions,
   configureModulePageEnhancements,
   createModulePageEnhancementRegistry,
   modulePageWorkspaceViews,

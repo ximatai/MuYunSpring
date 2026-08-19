@@ -12,7 +12,8 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
                                   String align,
                                   Boolean fixed,
                                   BooleanStatusPresentation booleanStatus,
-                                  Integer maxDisplayLines) {
+                                  Integer maxDisplayLines,
+                                  String treeRootTitle) {
     public ViewFieldDefinition {
         if (fieldRef == null) {
             throw new IllegalArgumentException("view field ref must not be null");
@@ -35,6 +36,7 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
         columnSpan = columnSpan == null ? 1 : requireColumnSpan(columnSpan);
         align = align == null || align.isBlank() ? null : align.trim();
         maxDisplayLines = maxDisplayLines == null ? null : requireMaxDisplayLines(maxDisplayLines);
+        treeRootTitle = treeRootTitle == null || treeRootTitle.isBlank() ? null : treeRootTitle.trim();
         if (booleanStatus != null && !"booleanStatus".equals(uiType)) {
             throw new IllegalArgumentException("boolean status presentation requires uiType booleanStatus");
         }
@@ -56,7 +58,7 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
                                Boolean fixed,
                                BooleanStatusPresentation booleanStatus) {
         this(fieldRef, label, visible, required, readOnly, uiType, null, width, columnSpan, align, fixed,
-                booleanStatus, null);
+                booleanStatus, null, null);
     }
 
     public static Builder field(String fieldName) {
@@ -81,6 +83,7 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
         private Boolean fixed;
         private BooleanStatusPresentation booleanStatus;
         private Integer maxDisplayLines;
+        private String treeRootTitle;
 
         private Builder(ViewFieldRef fieldRef) {
             this.fieldRef = fieldRef;
@@ -184,9 +187,19 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
             return this;
         }
 
+        /**
+         * Gives the standard {@code TreeAbility.ROOT_ID} sentinel a user-facing title in detail views.
+         * It is declarative presentation metadata; ordinary record values are never translated implicitly.
+         */
+        public Builder treeRootTitle(String treeRootTitle) {
+            this.treeRootTitle = treeRootTitle;
+            return this;
+        }
+
         public ViewFieldDefinition build() {
             return new ViewFieldDefinition(fieldRef, label, visible, required, readOnly,
-                    uiType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, maxDisplayLines);
+                    uiType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, maxDisplayLines,
+                    treeRootTitle);
         }
     }
 

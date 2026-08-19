@@ -66,8 +66,8 @@
 | 模块 | `POST` | `/platform.module/sort/{id}` | 在应用内调整模块树位置 |
 | 模块动作 | `GET` | `/platform.module/action-executors` | 查询已部署且显式允许配置绑定的二开执行器；不返回平台内部执行器 |
 | 租户应用配置 | `POST` | `/iam.tenant/{tenantId}/applications/query`、`/view/{id}`、`/insert`、`/update/{id}`、`/delete/{id}`、`/configure` | 租户的应用子资源；`configure` 接收勾选应用集合，在事务内按差异新增或删除子记录；租户侧不维护启停状态 |
-| 模块 | `GET` | `/platform.module/tree/{applicationAlias}` | 获取指定应用下的模块树 |
-| 模块 | `GET` | `/platform.module/tree/{applicationAlias}/{parentId}` | 获取指定父模块下的子树或扁平列表 |
+| 模块 | `GET` | `/platform.module/tree`、`/platform.module/tree/{moduleAlias}` | 标准模块树与指定模块子树；`moduleAlias` 是模块记录标识，不承载应用筛选 |
+| 模块 | `POST` | `/platform.module/tree/query` | 按标准树查询模块树；在请求 `externalQueryValues.applicationAlias` 传入应用别名即可获取该应用范围内的模块树 |
 | 模块 | `POST` | `/platform.module/{moduleAlias}/runtime/preview-refresh` | 预览把当前模块配置编译并同步到动态运行态的 schema 变更；dry-run，不更新运行态 registry |
 | 模块 | `POST` | `/platform.module/{moduleAlias}/runtime/refresh` | 按当前运行模式默认策略刷新动态运行态；开发态默认 execute，产品态默认 strict |
 | 模块 | `POST` | `/platform.module/{moduleAlias}/runtime/execute-refresh` | 显式 execute 刷新动态运行态；用于受控执行入口，后续审批和审计应挂在这里 |

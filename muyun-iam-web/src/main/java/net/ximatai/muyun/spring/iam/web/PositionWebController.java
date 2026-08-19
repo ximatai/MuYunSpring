@@ -97,7 +97,7 @@ public class PositionWebController extends WebSupport<PositionService> implement
                                 .field("title", field -> field.label("岗位名称").required())
                                 .field("description", field -> field.label("说明"))
                                 .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
-                        .traits(traits -> traits.standardCrud().enabledStatus().recycleBin().responsiveDetailSurface())))
+                        .traits(traits -> traits.standardCrud().enabledStatus().responsiveDetailSurface())))
                 .build();
     }
 }

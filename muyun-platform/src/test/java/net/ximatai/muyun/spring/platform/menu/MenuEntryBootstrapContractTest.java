@@ -6,6 +6,11 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.MenuVisibilityPolicyService;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
+import net.ximatai.muyun.spring.dynamic.metadata.AssociationViewDisplayMode;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldForm;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
@@ -49,6 +54,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -312,8 +318,10 @@ class MenuEntryBootstrapContractTest {
         MenuService mockedMenuService = mock(MenuService.class);
         PlatformPageConfigSnapshotService mockedSnapshotService = mock(PlatformPageConfigSnapshotService.class);
         ModuleMetadataFieldService mockedModuleFieldService = mock(ModuleMetadataFieldService.class);
+        DynamicRecordService mockedRecordService = mock(DynamicRecordService.class);
         PlatformPageBootstrapService service = new PlatformPageBootstrapService(
-                mockedMenuService, mockedSnapshotService, mockedModuleFieldService);
+                mockedMenuService, mockedSnapshotService, mockedModuleFieldService, null, null, null,
+                mockedRecordService);
         Menu menu = moduleMenu("scheme-1", "客户", "crm.customer");
         menu.setId("menu-1");
         menu.setPageMode(MenuPageMode.DETAIL);
@@ -345,7 +353,7 @@ class MenuEntryBootstrapContractTest {
                       "actionCode": "editBaseInfo",
                       "title": "编辑资料",
                       "position": "recordToolbar",
-                      "uiConfigId": "ui-detail-web",
+                      "targetUiConfigId": "ui-local-edit-web",
                       "width": 720,
                       "height": 520,
                       "refresh": {"list": false, "detail": true}
@@ -369,14 +377,46 @@ class MenuEntryBootstrapContractTest {
                   ]
                 }
                 """);
+        PlatformUiSet localEditSet = uiSetRecord("local-edit-set", "crm.customer", PlatformUiSetType.FORM);
+        localEditSet.setDefaultSet(false);
+        PlatformUiConfig localEditConfig = uiConfigRecord("ui-local-edit-web", "local-edit-set",
+                PlatformUiClientType.WEB);
+        localEditConfig.setLayoutJson("""
+                {"blocks":[{"type":"localEdit","actionCode":"editBaseInfo","targetUiConfigId":"ui-local-edit-web"}]}
+                """);
+        PlatformUiConfigField localEditField = uiField("ui-local-edit-web", "customer-base-field");
+        PlatformUiSet contractListSet = uiSetRecord("contract-list-set", "crm.contract", PlatformUiSetType.LIST);
+        PlatformUiConfig contractListConfig = uiConfigRecord("contract-list", "contract-list-set",
+                PlatformUiClientType.WEB);
+        PlatformUiConfigField contractSummaryField = uiField("contract-list", "contract-summary-field");
+        contractSummaryField.setVisible(true);
+        contractSummaryField.setWidth(240);
+        contractSummaryField.setMaxDisplayLines(2);
         when(mockedSnapshotService.snapshot("crm.customer")).thenReturn(new PlatformPageConfigSnapshot(
                 "crm.customer",
-                java.util.List.of(detailSet),
-                java.util.List.of(webConfig, appConfig),
-                java.util.List.of(),
+                java.util.List.of(detailSet, localEditSet),
+                java.util.List.of(webConfig, appConfig, localEditConfig),
+                java.util.List.of(localEditField),
                 java.util.List.of(),
                 java.util.List.of()
         ));
+        when(mockedSnapshotService.snapshot("crm.contract")).thenReturn(new PlatformPageConfigSnapshot(
+                "crm.contract",
+                java.util.List.of(contractListSet),
+                java.util.List.of(contractListConfig),
+                java.util.List.of(contractSummaryField),
+                java.util.List.of(),
+                java.util.List.of()
+        ));
+        when(mockedModuleFieldService.resolve("contract-summary-field"))
+                .thenReturn(resolvedContractField("contract-summary-field", "summary"));
+        when(mockedModuleFieldService.resolve("customer-base-field"))
+                .thenReturn(resolvedField("customer-base-field", "customerName"));
+        when(mockedRecordService.describe("crm.customer")).thenReturn(new DynamicModuleDescriptor(
+                "crm.customer", "客户", "customer", java.util.List.of(), java.util.List.of(), java.util.List.of(),
+                java.util.List.of(), java.util.List.of(new DynamicAssociationViewDescriptor("contracts", "customer",
+                "crm.contract", "contract", AssociationViewDisplayMode.INLINE_LIST, "contracts", null,
+                EntityViewType.LIST, true))));
 
         PlatformPageBootstrap bootstrap = service.bootstrapByMenu("menu-1", PlatformUiClientType.WEB);
 
@@ -389,6 +429,16 @@ class MenuEntryBootstrapContractTest {
         assertThat(block.targetUiConfigId()).isEqualTo("contract-list");
         assertThat(block.queryTemplateId()).isEqualTo("contract-default");
         assertThat(block.queryPath()).isEqualTo("/crm.customer/view/{id}/associations/contracts/query");
+        assertThat(block.relation()).isNotNull();
+        assertThat(block.relation().hasExecutableQueryContract()).isTrue();
+        assertThat(block.relation().targetModuleAlias()).isEqualTo("crm.contract");
+        assertThat(block.relation().parentBinding()).isEqualTo("contracts");
+        assertThat(block.relation().queryContract().targetUiConfigId()).isEqualTo("contract-list");
+        assertThat(block.relation().queryContract().listProjection().uiConfigId()).isEqualTo("contract-list");
+        assertThat(block.relation().queryContract().listProjection().fields())
+                .extracting(field -> field.fieldName(), field -> field.title(), field -> field.width(),
+                        field -> field.maxDisplayLines())
+                .containsExactly(tuple("summary", "摘要", 240, 2));
         assertThat(bootstrap.resolvedConfig().actionBlocks())
                 .extracting(PlatformActionBlock::actionCode)
                 .containsExactly("submitDialog", "editBaseInfo");
@@ -397,7 +447,15 @@ class MenuEntryBootstrapContractTest {
         assertThat(actionBlock.position()).isEqualTo("recordToolbar");
         PlatformActionBlock localEditBlock = bootstrap.resolvedConfig().actionBlocks().get(1);
         assertThat(localEditBlock.type()).isEqualTo("localEdit");
-        assertThat(localEditBlock.targetUiConfigId()).isEqualTo("ui-detail-web");
+        assertThat(localEditBlock.targetUiConfigId()).isEqualTo("ui-local-edit-web");
+        assertThat(localEditBlock.localEditForm()).isNotNull();
+        assertThat(localEditBlock.localEditForm().uiConfigId()).isEqualTo("ui-local-edit-web");
+        assertThat(localEditBlock.localEditForm().fields())
+                .extracting(PlatformResolvedUiField::fieldName)
+                .containsExactly("customerName");
+        assertThat(localEditBlock.localEditForm().submitContract().recordVersionRequired()).isTrue();
+        assertThat(localEditBlock.localEditForm().submitContract().fieldNamesRequired()).isTrue();
+        assertThat(localEditBlock.localEditForm().submitContract().uiConfigIdPayloadKey()).isEqualTo("uiConfigId");
         assertThat(localEditBlock.submitPath()).isEqualTo("/crm.customer/editBaseInfo/{recordId}");
         assertThat(localEditBlock.refreshStrategy().list()).isFalse();
         assertThat(localEditBlock.refreshStrategy().detail()).isTrue();
@@ -410,6 +468,42 @@ class MenuEntryBootstrapContractTest {
         assertThat(taskBlock.checkType()).isEqualTo(PlatformTaskCheckType.ASSOCIATION_VIEW);
         assertThat(taskBlock.associationViewCode()).isEqualTo("contracts");
         assertThat(taskBlock.diagnosticPath()).isEqualTo("/crm.customer/view/{id}/associations/contracts/query");
+    }
+
+    @Test
+    void shouldRejectAssociationRelationWhenTargetUiConfigIsNotList() {
+        MenuService mockedMenuService = mock(MenuService.class);
+        PlatformPageConfigSnapshotService mockedSnapshotService = mock(PlatformPageConfigSnapshotService.class);
+        DynamicRecordService mockedRecordService = mock(DynamicRecordService.class);
+        PlatformPageBootstrapService service = new PlatformPageBootstrapService(
+                mockedMenuService, mockedSnapshotService, mock(ModuleMetadataFieldService.class), null, null, null,
+                mockedRecordService);
+        Menu menu = moduleMenu("scheme-1", "客户", "crm.customer");
+        menu.setId("menu-1");
+        menu.setPageMode(MenuPageMode.DETAIL);
+        when(mockedMenuService.currentUserVisibleMenu("menu-1")).thenReturn(menu);
+        PlatformUiSet detailSet = uiSetRecord("detail-set", "crm.customer", PlatformUiSetType.DETAIL);
+        PlatformUiConfig detailConfig = uiConfigRecord("customer-detail", "detail-set", PlatformUiClientType.WEB);
+        detailConfig.setLayoutJson("""
+                {"blocks":[{"type":"associationView","viewCode":"contracts","uiConfigId":"contract-form"}]}
+                """);
+        when(mockedSnapshotService.snapshot("crm.customer")).thenReturn(new PlatformPageConfigSnapshot(
+                "crm.customer", java.util.List.of(detailSet), java.util.List.of(detailConfig), java.util.List.of(),
+                java.util.List.of(), java.util.List.of()));
+        PlatformUiSet formSet = uiSetRecord("contract-form-set", "crm.contract", PlatformUiSetType.FORM);
+        PlatformUiConfig formConfig = uiConfigRecord("contract-form", "contract-form-set", PlatformUiClientType.WEB);
+        when(mockedSnapshotService.snapshot("crm.contract")).thenReturn(new PlatformPageConfigSnapshot(
+                "crm.contract", java.util.List.of(formSet), java.util.List.of(formConfig), java.util.List.of(),
+                java.util.List.of(), java.util.List.of()));
+        when(mockedRecordService.describe("crm.customer")).thenReturn(new DynamicModuleDescriptor(
+                "crm.customer", "客户", "customer", java.util.List.of(), java.util.List.of(), java.util.List.of(),
+                java.util.List.of(), java.util.List.of(new DynamicAssociationViewDescriptor("contracts", "customer",
+                "crm.contract", "contract", AssociationViewDisplayMode.INLINE_LIST, "contracts", null,
+                EntityViewType.LIST, true))));
+
+        assertThatThrownBy(() -> service.bootstrapByMenu("menu-1", PlatformUiClientType.WEB))
+                .isInstanceOf(PlatformException.class)
+                .hasMessage("Default UI config type must match page mode: LIST");
     }
 
     @Test
@@ -602,6 +696,25 @@ class MenuEntryBootstrapContractTest {
                 fieldName,
                 fieldName,
                 fieldName,
+                "text",
+                MetadataFieldForm.PHYSICAL
+        );
+    }
+
+    private ResolvedModuleMetadataField resolvedContractField(String moduleFieldId, String fieldName) {
+        return new ResolvedModuleMetadataField(
+                moduleFieldId,
+                "crm.contract",
+                null,
+                null,
+                RelationRole.MAIN,
+                "metadata-contract",
+                "contract",
+                "合同",
+                "metadata-field-" + fieldName,
+                fieldName,
+                fieldName,
+                "摘要",
                 "text",
                 MetadataFieldForm.PHYSICAL
         );

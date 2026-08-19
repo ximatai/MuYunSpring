@@ -10,6 +10,7 @@ public record PlatformPageNavigatorLevel(String key,
                                          String searchPlaceholder,
                                          PlatformPageNavigatorManagement management,
                                          String singleResultPolicy,
+                                         String initialSelectionPolicy,
                                          String sourceScope) {
     public PlatformPageNavigatorLevel {
         key = PlatformNameRules.requireFieldName(key, "navigator level key");
@@ -21,6 +22,8 @@ public record PlatformPageNavigatorLevel(String key,
         searchPlaceholder = searchPlaceholder == null || searchPlaceholder.isBlank() ? null : searchPlaceholder.trim();
         singleResultPolicy = singleResultPolicy == null || singleResultPolicy.isBlank()
                 ? "NONE" : singleResultPolicy.trim();
+        initialSelectionPolicy = initialSelectionPolicy == null || initialSelectionPolicy.isBlank()
+                ? "NONE" : initialSelectionPolicy.trim();
         sourceScope = sourceScope == null || sourceScope.isBlank() ? "NONE" : sourceScope.trim();
     }
 }

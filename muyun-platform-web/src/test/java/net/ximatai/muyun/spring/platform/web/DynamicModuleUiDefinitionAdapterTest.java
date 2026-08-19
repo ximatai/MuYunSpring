@@ -8,6 +8,10 @@ import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiFixedPosition;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
+import net.ximatai.muyun.spring.common.formula.FormulaIssueLevel;
+import net.ximatai.muyun.spring.common.formula.FormulaRuleKind;
+import net.ximatai.muyun.spring.common.formula.FormulaRulePhase;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFormulaRuleDescriptor;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -16,6 +20,37 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DynamicModuleUiDefinitionAdapterTest {
+    @Test
+    void shouldCompileOnlyExistingSafeDynamicAssignmentsAsFormComputeRules() {
+        PlatformUiSet listSet = uiSet("set-list", "sales.order", "order_list", PlatformUiSetType.LIST);
+        PlatformUiSet formSet = uiSet("set-form", "sales.order", "order_form", PlatformUiSetType.FORM);
+        PlatformUiConfig listConfig = uiConfig("ui-list", "set-list", "订单", true, 10);
+        PlatformUiConfig formConfig = uiConfig("ui-form", "set-form", "订单", true, 10);
+        PlatformPageConfigSnapshot snapshot = new PlatformPageConfigSnapshot("sales.order", List.of(listSet, formSet),
+                List.of(listConfig, formConfig), List.of(), List.of(), List.of());
+        PlatformResolvedPageConfig resolved = new PlatformResolvedPageConfig(List.of(
+                resolvedField("ui-form", "quantity", null, "quantity", "数量", "number", true,
+                        false, null, null, null, null),
+                resolvedField("ui-form", "unit-price", null, "unitPrice", "单价", "number", true,
+                        false, null, null, null, null),
+                resolvedField("ui-form", "amount", null, "amount", "金额", "number", true,
+                        false, null, null, null, null)), List.of());
+        List<DynamicFormulaRuleDescriptor> sourceRules = List.of(
+                formulaRule("amountFromQuantity", "{amount} = {quantity} * {unitPrice}", null),
+                formulaRule("serverOnly", "{amount} = NOW()", null),
+                formulaRule("mismatchedTarget", "{amount} = {quantity}", "otherAmount"));
+
+        ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(snapshot, resolved,
+                sourceRules);
+        ResolvedFormComputeRuleDescriptor rule = ModuleUiDescriptorCompiler.compile(definition).page().detail()
+                .editor().formComputeRules().getFirst();
+
+        assertThat(rule.code()).isEqualTo("amountFromQuantity");
+        assertThat(rule.targetField()).isEqualTo("amount");
+        assertThat(rule.triggerFields()).containsExactly("quantity", "unitPrice");
+        assertThat(rule.program().profile().name()).isEqualTo("FORM_COMPUTE");
+    }
+
     @Test
     void shouldRejectDynamicBooleanStatusWithoutPresentationMetadata() {
         PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
@@ -148,7 +183,8 @@ class DynamicModuleUiDefinitionAdapterTest {
                   {"source":"NAVIGATOR","sourceKey":"organization","target":"LIST_QUERY","targetKey":"organizationId"}
                 ],"levels":[
                   {"key":"tenant","kind":"MICRO_LIST","sourceModuleAlias":"iam.tenant","title":"租户",
-                   "singleResultPolicy":"AUTO_SELECT_AND_HIDE","sourceScope":"CURRENT_TENANT"
+                   "singleResultPolicy":"AUTO_SELECT_AND_HIDE","initialSelectionPolicy":"FIRST_RECORD","sourceScope":"CURRENT_TENANT",
+                   "management":{"actions":["CREATE"]}
                    },
                   {"key":"organization","kind":"TREE","sourceModuleAlias":"iam.organization","title":"组织"
                    }
@@ -163,8 +199,12 @@ class DynamicModuleUiDefinitionAdapterTest {
         assertThat(navigator.levels()).hasSize(2);
         assertThat(navigator.levels().getFirst().singleResultPolicy())
                 .isEqualTo(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE);
+        assertThat(navigator.levels().getFirst().initialSelectionPolicy())
+                .isEqualTo(PageNavigatorInitialSelectionPolicy.FIRST_RECORD);
         assertThat(navigator.levels().getFirst().sourceScope())
                 .isEqualTo(PageNavigatorSourceScope.CURRENT_TENANT);
+        assertThat(navigator.levels().getFirst().management().actions())
+                .containsExactly(PageNavigatorManagementAction.CREATE);
         assertThat(navigator.contextBindings()).containsExactly(
                 new PageContextBindingDefinition(PageContextSource.NAVIGATOR, "tenant", PageContextTarget.LIST_QUERY,
                         "tenantId", null),
@@ -257,6 +297,31 @@ class DynamicModuleUiDefinitionAdapterTest {
         assertThat(((ListDetailCardPageDefinition) definition.page()).list().list())
                 .satisfies(view -> assertThat(view.fields()).singleElement()
                         .satisfies(resolved -> assertThat(resolved.maxDisplayLines()).isEqualTo(3)));
+    }
+
+    @Test
+    void shouldAdaptDynamicConditionalFieldsToTheSharedUiRuleDescriptor() {
+        PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
+        PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);
+        PlatformUiConfig listConfig = uiConfig("ui-list-web", "set-list", "客户列表", true, 10);
+        PlatformUiConfig formConfig = uiConfig("ui-form-web", "set-form", "客户", true, 20);
+        PlatformResolvedUiField field = new PlatformResolvedUiField(
+                "ui-form-web", "field-name", null, "customer", "externalUrl", "external_url", "外部链接", "string",
+                "NORMAL", "text", true, "{entryType} == 'link'", false, "{systemManaged} == true", null,
+                null, null, 1, 1, "left", null, null);
+
+        ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
+                new PlatformPageConfigSnapshot("crm.customer", List.of(listSet, formSet), List.of(listConfig, formConfig), List.of(), List.of(), List.of()),
+                new PlatformResolvedPageConfig(List.of(field), List.of()));
+
+        ViewFieldDefinition resolved = ((ListDetailCardPageDefinition) definition.page()).detail().editor().fields().getFirst();
+        assertThat(resolved.visible().formula().expression()).isEqualTo("{entryType} == 'link'");
+        assertThat(resolved.readOnly().formula().expression()).isEqualTo("{systemManaged} == true");
+    }
+
+    private DynamicFormulaRuleDescriptor formulaRule(String code, String expression, String targetField) {
+        return new DynamicFormulaRuleDescriptor(code, expression, FormulaRuleKind.CALCULATION,
+                FormulaRulePhase.BEFORE_SAVE, targetField, FormulaIssueLevel.ERROR, null, false, true, 0);
     }
 
     private PlatformUiSet uiSet(String id, String moduleAlias, String alias, PlatformUiSetType setType) {

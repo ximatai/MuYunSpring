@@ -6,6 +6,9 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefini
 import net.ximatai.muyun.spring.common.model.title.RecordLabelResolver;
 import net.ximatai.muyun.spring.common.option.OptionFieldDefinition;
 import net.ximatai.muyun.spring.common.option.OptionFieldResolver;
+import net.ximatai.muyun.spring.common.option.OptionItem;
+import net.ximatai.muyun.spring.common.option.OptionBinding;
+import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
 import net.ximatai.muyun.spring.common.option.OptionLoadResolver;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
@@ -14,7 +17,12 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceSummaryPlan;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.common.formula.FormulaEngine;
+import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
+import net.ximatai.muyun.spring.common.formula.FormulaNode;
+import net.ximatai.muyun.spring.common.formula.FormulaProgram;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -23,6 +31,7 @@ import java.util.Map;
 import java.util.Set;
 
 public final class ModuleUiDescriptorCompiler {
+    private static final FormulaEngine FORMULA_ENGINE = new FormulaEngine();
     private static final String ALIAS_FIELD = "alias";
     private static final Set<String> PLATFORM_FIELD_NAMES = platformFieldNames();
     private static final Map<String, FieldValueType> STANDARD_FIELD_TYPES = standardFieldTypes();
@@ -60,7 +69,8 @@ public final class ModuleUiDescriptorCompiler {
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
                         staticRecordLabelField(definition), fieldTypes(definition.entities()));
         return new ModuleUiCompilationResult(
-                descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition)),
+                descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
+                        .withDetailRelations(staticDetailRelations(definition, uiDefinition)),
                 readModel(definition, uiDefinition)
         );
     }
@@ -155,8 +165,31 @@ public final class ModuleUiDescriptorCompiler {
                                 referenceFields, referenceSummaryFields, fieldTypes))).toList(),
                 definition.editorContributions().stream().map(contribution ->
                         new ResolvedPageDetailEditorContribution(contribution.resource(), compileView(contribution.editor(),
-                                optionFields, referenceFields, referenceSummaryFields, fieldTypes))).toList()
+                                optionFields, referenceFields, referenceSummaryFields, fieldTypes))).toList(),
+                List.of()
         );
+    }
+
+    private static List<ResolvedDetailRelationDescriptor> staticDetailRelations(StaticModuleDefinition definition,
+                                                                                  ModuleUiDefinition uiDefinition) {
+        String sourceEntityAlias = definition.entities().isEmpty() ? null : definition.entities().getFirst().alias();
+        if (sourceEntityAlias == null) {
+            if (!uiDefinition.detailRelations().isEmpty()) {
+                throw new IllegalArgumentException("static detail relation requires a declared source entity");
+            }
+            return List.of();
+        }
+        return uiDefinition.detailRelations().stream().map(relation -> {
+            boolean targetExists = definition.entities().stream()
+                    .anyMatch(entity -> relation.targetEntityAlias().equals(entity.alias()));
+            if (!targetExists) {
+                throw new IllegalArgumentException("static detail relation target entity is not declared by model facts: "
+                        + relation.targetEntityAlias());
+            }
+            return new ResolvedDetailRelationDescriptor(relation.code(), relation.title(), relation.readOnly(),
+                    definition.moduleAlias(), sourceEntityAlias, definition.moduleAlias(), relation.targetEntityAlias(),
+                    relation.parentBinding(), null, relation.refreshOnDetailReload());
+        }).toList();
     }
 
     private static ResolvedModulePageDescriptor compilePage(ModulePageDefinition page,
@@ -300,20 +333,117 @@ public final class ModuleUiDescriptorCompiler {
                                                       Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                                       Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
                                                       Map<ViewFieldRef, FieldValueType> fieldTypes) {
+        List<ResolvedViewFieldDescriptor> fields = view.fields().stream()
+                .map(field -> compileField(view.viewKind(), field, optionFields, referenceFields,
+                        referenceSummaryFields, fieldTypes))
+                .toList();
         return new ResolvedViewDescriptor(
                 view.viewCode(),
                 view.viewKind(),
                 view.clientType(),
                 view.title(),
-                view.fields().stream()
-                        .map(field -> compileField(view.viewKind(), field, optionFields, referenceFields,
-                                referenceSummaryFields, fieldTypes))
-                        .toList(),
+                fields,
                 view.sourceUiConfigId(),
                 view.formGroups().stream().map(group -> new ResolvedFormGroupDescriptor(
                         group.groupCode(), group.title(), group.subtitle(),
-                        group.fields().stream().map(ViewFieldDefinition::fieldRef).toList())).toList()
+                        group.fields().stream().map(ViewFieldDefinition::fieldRef).toList())).toList(),
+                compileFormComputeRules(view, fields)
         );
+    }
+
+    /**
+     * Turns a source declaration into a signed program only after verifying that it can operate on
+     * this exact form. The browser therefore never receives a calculation for a hidden relation or
+     * an immutable field.
+     */
+    private static List<ResolvedFormComputeRuleDescriptor> compileFormComputeRules(
+            ViewDefinition view, List<ResolvedViewFieldDescriptor> fields) {
+        if (view.formComputeRules().isEmpty()) return List.of();
+        if (view.viewKind() != ModuleViewKind.FORM) {
+            throw new IllegalArgumentException("form compute rules require a FORM view: " + view.viewCode());
+        }
+        Map<String, ResolvedViewFieldDescriptor> mainFields = fields.stream()
+                .filter(field -> field.fieldRef().relationCode() == null)
+                .collect(java.util.stream.Collectors.toMap(field -> field.fieldRef().fieldName(), field -> field,
+                        (left, ignored) -> left, LinkedHashMap::new));
+        if (mainFields.size() != fields.size()) {
+            throw new IllegalArgumentException("form compute rules only support main-record fields: " + view.viewCode());
+        }
+        Set<String> codes = new LinkedHashSet<>();
+        java.util.ArrayList<ResolvedFormComputeRuleDescriptor> resolved = new java.util.ArrayList<>();
+        for (FormComputeRuleDefinition rule : view.formComputeRules()) {
+            if (!codes.add(rule.code())) {
+                throw new IllegalArgumentException("duplicate form compute rule code: " + view.viewCode() + "." + rule.code());
+            }
+            ResolvedViewFieldDescriptor target = mainFields.get(rule.targetField());
+            if (target == null) {
+                throw new IllegalArgumentException("form compute target field must be declared by the same form: "
+                        + view.viewCode() + "." + rule.targetField());
+            }
+            if (Boolean.TRUE.equals(target.readOnly().constant())) {
+                throw new IllegalArgumentException("form compute target field must be writable: "
+                        + view.viewCode() + "." + rule.targetField());
+            }
+            for (String trigger : rule.triggerFields()) {
+                if (!mainFields.containsKey(trigger)) {
+                    throw new IllegalArgumentException("form compute trigger field must be declared by the same form: "
+                            + view.viewCode() + "." + trigger);
+                }
+                if (rule.targetField().equals(trigger)) {
+                    throw new IllegalArgumentException("form compute target field cannot trigger itself: "
+                            + view.viewCode() + "." + rule.targetField());
+                }
+            }
+            FormulaProgram program;
+            try {
+                program = FORMULA_ENGINE.compileFormComputeProgram(rule.expression());
+            } catch (FormulaEvaluationException exception) {
+                throw new IllegalArgumentException("form compute rule must be a FormulaEngine FORM_COMPUTE expression: "
+                        + view.viewCode() + "." + rule.code() + ", " + exception.getMessage(), exception);
+            }
+            String assignedTarget = assignedTarget(program);
+            if (!rule.targetField().equals(assignedTarget)) {
+                throw new IllegalArgumentException("form compute rule target must match formula assignment: "
+                        + view.viewCode() + "." + rule.code());
+            }
+            Set<String> inputFields = valueSideFields(program);
+            for (String field : inputFields) {
+                if (!mainFields.containsKey(field)) {
+                    throw new IllegalArgumentException("form compute expression may only reference fields declared by the same form: "
+                            + view.viewCode() + "." + field);
+                }
+            }
+            if (inputFields.contains(rule.targetField())) {
+                throw new IllegalArgumentException("form compute target field cannot reference itself: "
+                        + view.viewCode() + "." + rule.targetField());
+            }
+            resolved.add(new ResolvedFormComputeRuleDescriptor(rule.code(), program, rule.targetField(),
+                    rule.triggerFields(), rule.writePolicy()));
+        }
+        return List.copyOf(resolved);
+    }
+
+    private static String assignedTarget(FormulaProgram program) {
+        FormulaNode root = program.root();
+        if (root.kind() != FormulaNode.Kind.ASSIGN || root.arguments().size() != 2
+                || root.arguments().getFirst().kind() != FormulaNode.Kind.FIELD) {
+            return null;
+        }
+        return root.arguments().getFirst().field();
+    }
+
+    private static Set<String> valueSideFields(FormulaProgram program) {
+        LinkedHashSet<String> fields = new LinkedHashSet<>();
+        collectFields(program.root().arguments().get(1), fields);
+        return Set.copyOf(fields);
+    }
+
+    private static void collectFields(FormulaNode node, Set<String> fields) {
+        if (node == null) return;
+        if (node.kind() == FormulaNode.Kind.FIELD && node.field() != null) {
+            fields.add(node.field());
+        }
+        node.arguments().forEach(argument -> collectFields(argument, fields));
     }
 
     private static ResolvedViewFieldDescriptor compileField(ModuleViewKind viewKind,
@@ -345,7 +475,8 @@ public final class ModuleUiDescriptorCompiler {
                 field.fieldRef().relationCode() == null ? optionFields.get(field.fieldRef().fieldName()) : null,
                 field.fieldRef().relationCode() == null ? referenceFields.get(field.fieldRef().fieldName()) : null,
                 referenceSummary,
-                field.maxDisplayLines()
+                field.maxDisplayLines(),
+                field.treeRootTitle()
         );
     }
 
@@ -543,9 +674,33 @@ public final class ModuleUiDescriptorCompiler {
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(
                         OptionFieldDefinition::fieldName,
                         definition -> new ResolvedOptionFieldDescriptor(definition.binding(), definition.selectionMode(),
-                                optionTitleField(modelClass, definition.fieldName())),
+                                optionTitleField(modelClass, definition.fieldName()), inlineOptionItems(definition.binding())),
                         (left, right) -> left
                 ));
+    }
+
+    /**
+     * Enum options are immutable module-definition facts, so deliver them with the descriptor.
+     * Dictionary options deliberately remain runtime reads because their contents are scope-sensitive.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static List<OptionItem> inlineOptionItems(OptionBinding binding) {
+        if (!OptionBinding.ENUM_SOURCE.equals(binding.sourceType())) {
+            return List.of();
+        }
+        try {
+            Class<?> type = Class.forName(binding.source());
+            if (!type.isEnum() || !CodeTitleEnum.class.isAssignableFrom(type)) {
+                throw new IllegalArgumentException("enum option binding requires CodeTitleEnum: " + binding.source());
+            }
+            return java.util.Arrays.stream(type.getEnumConstants())
+                    .map(value -> (CodeTitleEnum) value)
+                    .map(value -> new OptionItem(value.getCode(), value.getTitle(), true,
+                            ((Enum) value).ordinal() + 1, null))
+                    .toList();
+        } catch (ClassNotFoundException error) {
+            throw new IllegalArgumentException("enum option class is unavailable: " + binding.source(), error);
+        }
     }
 
     private static String optionTitleField(Class<?> modelClass, String sourceField) {

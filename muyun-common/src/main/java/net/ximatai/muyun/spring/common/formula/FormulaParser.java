@@ -169,11 +169,9 @@ final class FormulaParser {
         if ("null".equals(value) || "undefined".equals(value)) {
             return null;
         }
-        if (value.matches("^-?\\d+(\\.\\d+)?$")) {
-            try {
-                return Double.parseDouble(value);
-            } catch (NumberFormatException ignored) {
-            }
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException ignored) {
         }
         if (isStringLiteral(value)) {
             return value.substring(1, value.length() - 1);

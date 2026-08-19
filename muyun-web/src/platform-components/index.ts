@@ -2,6 +2,7 @@ export {};
 export { default as ApplicationScopeSwitcher } from './ApplicationScopeSwitcher.vue';
 export { default as BusinessNotificationPanel } from './BusinessNotificationPanel.vue';
 export { confirmAction } from '@muyun/vue-ui-antdv';
+export { UiModal } from '@muyun/vue-ui-antdv';
 export { default as CrudRecordListExplorer } from './CrudRecordListExplorer.vue';
 export { default as DrawerOperationBar } from './DrawerOperationBar.vue';
 export { default as DrawerTitleActions } from './DrawerTitleActions.vue';
@@ -28,6 +29,7 @@ export type { DrawerPromotion } from './drawerPromotion';
 export { default as RecordExternalChangeNotice } from './RecordExternalChangeNotice.vue';
 export { default as RecordDetailFields } from './RecordDetailFields.vue';
 export { default as RecordDetailExtensionSection } from './RecordDetailExtensionSection.vue';
+export { default as DetailRelationListPanel } from './DetailRelationListPanel.vue';
 export { default as RecordDetailPanel } from './RecordDetailPanel.vue';
 export { default as RecordPanelButton } from './RecordPanelButton.vue';
 export { default as RecordPanelState } from './RecordPanelState.vue';
@@ -140,6 +142,7 @@ export type {
 } from './platformDateTime';
 export {
   childResourceDefaultFormViewCode,
+  resolveRecordDetailFields,
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
   resolveRecordFormFields,

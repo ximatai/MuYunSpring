@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
@@ -192,6 +193,9 @@ class PlatformModuleRuntimeContextServiceTest {
                                                     .actions(List.of(
                         StaticModuleActionDefinition.platformAction(PlatformAction.MENU),
                         StaticModuleActionDefinition.platformAction(PlatformAction.VIEW),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.CREATE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.UPDATE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.DELETE),
                         StaticModuleActionDefinition.platformAction(PlatformAction.TREE),
                         StaticModuleActionDefinition.platformAction(PlatformAction.ENABLE),
                         StaticModuleActionDefinition.platformAction(PlatformAction.DISABLE),
@@ -244,7 +248,8 @@ class PlatformModuleRuntimeContextServiceTest {
                 "recycleBin"
         );
         assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
-                .containsExactly("menu", "view", "tree", "enable", "disable", "recycleBinQuery");
+                .containsExactly("menu", "view", "create", "update", "delete", "tree", "enable", "disable",
+                        "recycleBinQuery");
         assertThat(context.actions()).allSatisfy(action -> assertThat(action.authorized()).isTrue());
         assertThat(context.uiDescriptor()).isNotNull();
         assertThat(context.uiDescriptor().schemaVersion()).isEqualTo(ResolvedModuleUiDescriptor.SCHEMA_VERSION);
@@ -689,7 +694,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformRecordActionAvailabilityService service = new PlatformRecordActionAvailabilityService(
                 runtimeContextService,
                 dynamicRecordService,
-                new PlatformDynamicModuleScopeService(activeTenantVerifier),
+                new net.ximatai.muyun.spring.web.TenantRequestScope(activeTenantVerifier),
                 List.of(),
                 List.of()
         );
@@ -712,6 +717,58 @@ class PlatformModuleRuntimeContextServiceTest {
                 .singleElement()
                 .satisfies(action -> assertThat(action.available()).isTrue());
         verify(activeTenantVerifier).verifyActiveTenant("tenant-a");
+    }
+
+    @Test
+    void shouldProjectPlatformManagedProtectionIntoStaticRecordActionAvailability() {
+        PlatformModuleService moduleCatalog = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleCatalog.resolveVisibleModule("platform.module"))
+                .thenReturn(module("platform.module", "模块管理", ModuleKind.STATIC));
+        when(actionService.listByModuleAliases(List.of("platform.module"))).thenReturn(List.of());
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("platform", "platform.module", "模块管理")
+                .parentModuleAlias(null)
+                .actions(List.of(
+                        StaticModuleActionDefinition.platformAction(PlatformAction.UPDATE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.DELETE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.SORT)))
+                .build();
+        ManagedModuleAbility managedAbility = mock(ManagedModuleAbility.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        PlatformModule managed = module("platform.module", "模块管理", ModuleKind.STATIC);
+        managed.setSystemManaged(Boolean.TRUE);
+        when(managedAbility.getModuleAlias()).thenReturn("platform.module");
+        org.mockito.Mockito.doReturn(managed).when(managedAbility).select("platform.module");
+        PlatformModuleRuntimeContextService runtimeContextService = new PlatformModuleRuntimeContextService(
+                moduleCatalog,
+                actionService,
+                new StaticModuleDefinitionCatalog(List.of(definition)),
+                null,
+                null,
+                null,
+                allowAllPolicy());
+        PlatformRecordActionAvailabilityService service = new PlatformRecordActionAvailabilityService(
+                runtimeContextService, null, null, List.of(managedAbility), List.of());
+
+        PlatformRecordActionAvailability availability = service.recordActions("platform.module", "platform.module");
+
+        assertThat(availability.actions()).filteredOn(action -> "update".equals(action.actionCode()))
+                .singleElement()
+                .satisfies(action -> {
+                    assertThat(action.available()).isFalse();
+                    assertThat(action.reason()).isEqualTo("平台托管记录不可编辑");
+                });
+        assertThat(availability.actions()).filteredOn(action -> "delete".equals(action.actionCode()))
+                .singleElement()
+                .satisfies(action -> {
+                    assertThat(action.available()).isFalse();
+                    assertThat(action.reason()).isEqualTo("平台托管记录不可删除");
+                });
+        assertThat(availability.actions()).filteredOn(action -> "sort".equals(action.actionCode()))
+                .singleElement()
+                .satisfies(action -> {
+                    assertThat(action.available()).isTrue();
+                    assertThat(action.reason()).isNull();
+                });
     }
 
     @Test
@@ -745,7 +802,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformRecordActionAvailabilityService service = new PlatformRecordActionAvailabilityService(
                 runtimeContextService,
                 dynamicRecordService,
-                new PlatformDynamicModuleScopeService(activeTenantVerifier),
+                new net.ximatai.muyun.spring.web.TenantRequestScope(activeTenantVerifier),
                 List.of(),
                 List.of()
         );
@@ -807,7 +864,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformRecordActionAvailabilityService service = new PlatformRecordActionAvailabilityService(
                 runtimeContextService,
                 dynamicRecordService,
-                new PlatformDynamicModuleScopeService(activeTenantVerifier),
+                new net.ximatai.muyun.spring.web.TenantRequestScope(activeTenantVerifier),
                 List.of(),
                 List.of()
         );
@@ -859,7 +916,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformRecordActionAvailabilityService service = new PlatformRecordActionAvailabilityService(
                 runtimeContextService,
                 dynamicRecordService,
-                new PlatformDynamicModuleScopeService(activeTenantVerifier),
+                new net.ximatai.muyun.spring.web.TenantRequestScope(activeTenantVerifier),
                 List.of(),
                 List.of()
         );
@@ -884,6 +941,9 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     private interface ScopedModuleAbility extends CrudAbility<PlatformModule>, DataScopeAbility<PlatformModule> {
+    }
+
+    private interface ManagedModuleAbility extends PlatformManagedProtectionAbility<PlatformModule> {
     }
 
     private EntityDefinition entity(String alias, Set<EntityCapability> capabilities) {
