@@ -26,21 +26,15 @@ import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationRelationItem;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationRelationOverview;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceDescriptor;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceFilterDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicViewDescriptor;
-import net.ximatai.muyun.spring.dynamic.metadata.AssociationViewQueryMappingGroupOperator;
-import net.ximatai.muyun.spring.dynamic.metadata.AssociationViewQueryMappingSourceType;
-import net.ximatai.muyun.spring.dynamic.metadata.AssociationViewRootQueryMapping;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
-import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.openapi.DynamicOpenApiDocument;
@@ -48,9 +42,7 @@ import net.ximatai.muyun.spring.dynamic.openapi.DynamicOpenApiGenerator;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +62,8 @@ public class DynamicRecordService {
     private final DataScopeCriteriaService dataScopeCriteriaService;
     private final DynamicRecordQueryRuntime queryRuntime;
     private final DynamicRecordMutationRuntime mutationRuntime;
+    /** Owns relation/reference reads and association-view composition. */
+    private final DynamicRecordRelationRuntime relationRuntime;
     /** Owns action availability and execution; this facade keeps the long-standing public API stable. */
     private final DynamicRecordActionRuntime actionRuntime;
 
@@ -115,6 +109,7 @@ public class DynamicRecordService {
         Clock effectiveMutationClock = mutationClock == null ? Clock.systemDefaultZone() : mutationClock;
         this.mutationRuntime = new DynamicRecordMutationRuntime(runtime, eventPublisher, this.actionExecutionPolicyService,
                 this.dataScopeCriteriaService, effectiveMutationCoordinator, effectiveMutationClock);
+        this.relationRuntime = new DynamicRecordRelationRuntime(this);
         this.actionRuntime = new DynamicRecordActionRuntime(this, runtime, eventPublisher,
                 this.actionExecutionPolicyService);
     }
@@ -270,15 +265,15 @@ public class DynamicRecordService {
     }
 
     public List<DynamicAssociationViewDescriptor> associationViews(String moduleAlias) {
-        return describe(moduleAlias).associationViews();
+        return relationRuntime.associationViews(moduleAlias);
     }
 
     public List<DynamicAssociationViewDescriptor> associationViews(String moduleAlias, String entityAlias) {
-        return entityDescriptor(moduleAlias, entityAlias).associationViews();
+        return relationRuntime.associationViews(moduleAlias, entityAlias);
     }
 
     public DynamicAssociationViewDescriptor associationView(String moduleAlias, String entityAlias, String viewCode) {
-        return findAssociationView(moduleAlias, entityDescriptor(moduleAlias, entityAlias), viewCode);
+        return relationRuntime.associationView(moduleAlias, entityAlias, viewCode);
     }
 
     public PageResult<DynamicRecord> associationViewPage(String moduleAlias,
@@ -288,50 +283,12 @@ public class DynamicRecordService {
                                                          Criteria criteria,
                                                          PageRequest pageRequest,
                                                          Sort... sorts) {
-        DynamicAssociationViewDescriptor view = associationView(moduleAlias, entityAlias, viewCode);
-        if (!view.queryable()) {
-            throw new PlatformException("dynamic association view is not queryable: " + moduleAlias + "." + viewCode);
-        }
-        DynamicRecord source = select(moduleAlias, entityAlias, sourceRecordId);
-        if (source == null) {
-            throw new PlatformException("dynamic association source record does not exist: " + sourceRecordId);
-        }
-        Criteria associationCriteria = associationCriteria(moduleAlias, entityAlias, source, view);
-        Criteria targetCriteria = associationTargetCriteria(source, view, associationCriteria, criteria);
-        return page(view.targetModuleAlias(), view.targetEntityAlias(), targetCriteria, pageRequest, sorts);
+        return relationRuntime.associationViewPage(moduleAlias, entityAlias, sourceRecordId, viewCode, criteria,
+                pageRequest, sorts);
     }
 
     public DynamicAssociationRelationOverview associationRelationOverview(String moduleAlias) {
-        DynamicModuleDescriptor descriptor = describe(moduleAlias);
-        Map<String, String> viewByRelation = new LinkedHashMap<>();
-        Map<String, String> viewByReference = new LinkedHashMap<>();
-        for (DynamicAssociationViewDescriptor view : descriptor.associationViews()) {
-            if (view.relationCode() != null && !view.relationCode().isBlank()) {
-                viewByRelation.put(view.sourceEntityAlias() + "." + view.relationCode(), view.code());
-            }
-            if (view.referenceField() != null && !view.referenceField().isBlank()) {
-                viewByReference.put(view.sourceEntityAlias() + "." + view.referenceField(), view.code());
-            }
-        }
-        List<DynamicAssociationRelationItem> downstream = new ArrayList<>();
-        List<DynamicAssociationRelationItem> upstream = new ArrayList<>();
-        for (DynamicRelationDescriptor relation : descriptor.relations()) {
-            String viewCode = viewByRelation.get(relation.parentEntityAlias() + "." + relation.code());
-            downstream.add(new DynamicAssociationRelationItem("RELATION", relation.code(), moduleAlias,
-                    relation.parentEntityAlias(), moduleAlias, relation.childEntityAlias(), viewCode));
-            upstream.add(new DynamicAssociationRelationItem("RELATION", relation.code(), moduleAlias,
-                    relation.childEntityAlias(), moduleAlias, relation.parentEntityAlias(), viewCode));
-        }
-        for (DynamicReferenceDescriptor reference : descriptor.references()) {
-            String viewCode = viewByReference.get(reference.sourceEntityAlias() + "." + reference.sourceField());
-            downstream.add(new DynamicAssociationRelationItem("REFERENCE", reference.sourceField(), moduleAlias,
-                    reference.sourceEntityAlias(), reference.targetModuleAlias(), reference.targetEntityAlias(), viewCode));
-            if (moduleAlias.equals(reference.targetModuleAlias())) {
-                upstream.add(new DynamicAssociationRelationItem("REFERENCE", reference.sourceField(), moduleAlias,
-                        reference.targetEntityAlias(), moduleAlias, reference.sourceEntityAlias(), viewCode));
-            }
-        }
-        return new DynamicAssociationRelationOverview(moduleAlias, upstream, downstream);
+        return relationRuntime.associationRelationOverview(moduleAlias);
     }
 
     public List<DynamicAssociationViewDescriptor> associationViewDesignDescriptors(String moduleAlias) {
@@ -343,196 +300,23 @@ public class DynamicRecordService {
                                                                    String sourceRecordId,
                                                                    String viewCode,
                                                                    Criteria criteria) {
-        DynamicAssociationViewDescriptor view = associationView(moduleAlias, entityAlias, viewCode);
-        if (!view.queryable()) {
-            throw new PlatformException("dynamic association view is not queryable: " + moduleAlias + "." + viewCode);
-        }
-        DynamicRecord source = select(moduleAlias, entityAlias, sourceRecordId);
-        if (source == null) {
-            throw new PlatformException("dynamic association source record does not exist: " + sourceRecordId);
-        }
-        Criteria associationCriteria = associationCriteria(moduleAlias, entityAlias, source, view);
-        Criteria targetCriteria = associationTargetCriteria(source, view, associationCriteria, criteria);
-        long targetCount = count(view.targetModuleAlias(), view.targetEntityAlias(), targetCriteria);
-        DynamicAssociationViewDiagnosisStatus status = diagnosisStatus(view, targetCount);
-        return new DynamicAssociationViewDiagnosis(view, associationCriteria, criteria == null ? Criteria.of() : criteria,
-                targetCriteria, targetCount, status, diagnosisMessage(view, status, targetCount));
+        return relationRuntime.diagnoseAssociationView(moduleAlias, entityAlias, sourceRecordId, viewCode, criteria);
     }
 
     public List<DynamicRelationDescriptor> relations(String moduleAlias) {
-        return describe(moduleAlias).relations();
+        return relationRuntime.relations(moduleAlias);
     }
 
     public List<DynamicReferenceDescriptor> references(String moduleAlias) {
-        return describe(moduleAlias).references();
-    }
-
-    private Criteria associationCriteria(String moduleAlias,
-                                         String entityAlias,
-                                         DynamicRecord source,
-                                         DynamicAssociationViewDescriptor view) {
-        if (view.relationCode() != null && !view.relationCode().isBlank()) {
-            DynamicRelationDescriptor relation = relations(moduleAlias).stream()
-                    .filter(item -> item.code().equals(view.relationCode())
-                            && item.parentEntityAlias().equals(entityAlias)
-                            && item.childEntityAlias().equals(view.targetEntityAlias()))
-                    .findFirst()
-                    .orElseThrow(() -> new ModuleDefinitionException("unknown dynamic association relation: "
-                            + moduleAlias + "." + view.code()));
-            return Criteria.of().eq(relation.childForeignKeyField(), source.getId());
-        }
-        DynamicReferenceDescriptor reference = reference(moduleAlias, entityAlias, view.referenceField());
-        String keyField = reference.keyField() == null || reference.keyField().isBlank()
-                ? "id"
-                : reference.keyField();
-        Object value = source.getValue(reference.sourceField());
-        if (value == null) {
-            return falseCriteria();
-        }
-        if (value instanceof Collection<?> collection) {
-            List<?> values = collection.stream()
-                    .filter(item -> item != null && !String.valueOf(item).isBlank())
-                    .toList();
-            return values.isEmpty() ? falseCriteria() : Criteria.of().in(keyField, values);
-        }
-        if (String.valueOf(value).isBlank()) {
-            return falseCriteria();
-        }
-        return Criteria.of().eq(keyField, value);
-    }
-
-    private Criteria rootQueryMappingCriteria(DynamicRecord source, DynamicAssociationViewDescriptor view) {
-        AssociationViewRootQueryMapping mapping = view.rootQueryMapping();
-        if (mapping == null) {
-            return Criteria.of();
-        }
-        return mappingCriteria(source, view.targetModuleAlias(), view.targetEntityAlias(), mapping);
-    }
-
-    private Criteria associationTargetCriteria(DynamicRecord source,
-                                               DynamicAssociationViewDescriptor view,
-                                               Criteria associationCriteria,
-                                               Criteria requestCriteria) {
-        Criteria targetCriteria = andCriteria(associationCriteria, rootQueryMappingCriteria(source, view));
-        return andCriteria(targetCriteria, requestCriteria);
-    }
-
-    private Criteria mappingCriteria(DynamicRecord source,
-                                     String targetModuleAlias,
-                                     String targetEntityAlias,
-                                     AssociationViewRootQueryMapping mapping) {
-        if (mapping == null) {
-            return Criteria.of();
-        }
-        if (mapping.leaf()) {
-            Object value = mappingValue(source, mapping);
-            if (value == null && mapping.operator() != DynamicQueryOperator.NULL
-                    && mapping.operator() != DynamicQueryOperator.NOT_NULL) {
-                return falseCriteria();
-            }
-            return queryCriteria(targetModuleAlias, targetEntityAlias, List.of(
-                    new DynamicQueryCondition(mapping.targetField(), mapping.operator(), mappingValues(mapping, value))));
-        }
-        Criteria criteria = Criteria.of();
-        for (AssociationViewRootQueryMapping child : mapping.children()) {
-            Criteria childCriteria = mappingCriteria(source, targetModuleAlias, targetEntityAlias, child);
-            if (childCriteria.isEmpty()) {
-                continue;
-            }
-            if (mapping.groupOperator() == AssociationViewQueryMappingGroupOperator.OR) {
-                criteria.orGroup(childCriteria.getRoot());
-            } else {
-                criteria.andGroup(childCriteria.getRoot());
-            }
-        }
-        return criteria;
-    }
-
-    private List<?> mappingValues(AssociationViewRootQueryMapping mapping, Object value) {
-        return switch (mapping.operator()) {
-            case NULL, NOT_NULL -> List.of();
-            case IN, NOT_IN -> value instanceof Collection<?> collection ? List.copyOf(collection) : List.of(value);
-            case BETWEEN -> value instanceof Collection<?> collection ? List.copyOf(collection) : List.of(value);
-            default -> List.of(value);
-        };
-    }
-
-    private Object mappingValue(DynamicRecord source, AssociationViewRootQueryMapping mapping) {
-        AssociationViewQueryMappingSourceType sourceType = mapping.sourceType();
-        if (sourceType == null) {
-            throw new ModuleDefinitionException("association rootQueryMapping source type is required");
-        }
-        return switch (sourceType) {
-            case SOURCE_FIELD -> source.getValue(mapping.sourceField());
-            case SYSTEM_VARIABLE -> systemVariableValue(source, mapping.systemVariable());
-            case CONSTANT -> mapping.constantValue();
-        };
-    }
-
-    private Object systemVariableValue(DynamicRecord source, String systemVariable) {
-        if (systemVariable == null || systemVariable.isBlank()) {
-            throw new ModuleDefinitionException("association rootQueryMapping system variable is required");
-        }
-        return switch (systemVariable.trim()) {
-            case "source.id", "sourceId" -> source.getId();
-            default -> throw new ModuleDefinitionException("unsupported association rootQueryMapping system variable: "
-                    + systemVariable);
-        };
-    }
-
-    private DynamicAssociationViewDiagnosisStatus diagnosisStatus(DynamicAssociationViewDescriptor view, long targetCount) {
-        if (view.viewType() == EntityViewType.FORM) {
-            if (targetCount == 0) {
-                return DynamicAssociationViewDiagnosisStatus.FORM_NOT_FOUND;
-            }
-            if (targetCount > 1) {
-                return DynamicAssociationViewDiagnosisStatus.FORM_NOT_UNIQUE;
-            }
-            return DynamicAssociationViewDiagnosisStatus.OK;
-        }
-        return targetCount == 0 ? DynamicAssociationViewDiagnosisStatus.EMPTY : DynamicAssociationViewDiagnosisStatus.OK;
-    }
-
-    private String diagnosisMessage(DynamicAssociationViewDescriptor view,
-                                    DynamicAssociationViewDiagnosisStatus status,
-                                    long targetCount) {
-        return switch (status) {
-            case OK -> "association view target matched";
-            case EMPTY -> "association view target is empty";
-            case FORM_NOT_FOUND -> "association view FORM target not found";
-            case FORM_NOT_UNIQUE -> "association view FORM target must be unique, but matched " + targetCount;
-        };
-    }
-
-    private Criteria andCriteria(Criteria left, Criteria right) {
-        if (left == null || left.isEmpty()) {
-            return right == null ? Criteria.of() : right;
-        }
-        if (right == null || right.isEmpty()) {
-            return left;
-        }
-        Criteria criteria = Criteria.of();
-        criteria.andGroup(left.getRoot());
-        criteria.andGroup(right.getRoot());
-        return criteria;
-    }
-
-    private Criteria falseCriteria() {
-        return Criteria.of().raw(net.ximatai.muyun.database.core.orm.SqlRawCondition.of("1 = 0", Map.of()));
+        return relationRuntime.references(moduleAlias);
     }
 
     public List<DynamicReferenceDescriptor> references(String moduleAlias, String entityAlias) {
-        return describe(moduleAlias).references().stream()
-                .filter(reference -> reference.sourceEntityAlias().equals(entityAlias))
-                .toList();
+        return relationRuntime.references(moduleAlias, entityAlias);
     }
 
     public DynamicReferenceDescriptor reference(String moduleAlias, String entityAlias, String sourceField) {
-        return references(moduleAlias, entityAlias).stream()
-                .filter(reference -> reference.sourceField().equals(sourceField))
-                .findFirst()
-                .orElseThrow(() -> new ModuleDefinitionException("unknown dynamic reference: "
-                        + moduleAlias + "." + entityAlias + "." + sourceField));
+        return relationRuntime.reference(moduleAlias, entityAlias, sourceField);
     }
 
     @Transactional
@@ -978,41 +762,28 @@ public class DynamicRecordService {
     }
 
     public String title(String moduleAlias, String entityAlias, String id) {
-        requireCapability(moduleAlias, entityAlias, EntityCapability.REFERENCE);
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.VIEW, Criteria.of().eq("id", id));
-        if (!recordVisible(moduleAlias, entityAlias, scope, id)) {
-            return null;
-        }
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).title(id));
+        return relationRuntime.title(moduleAlias, entityAlias, id);
     }
 
     public Map<String, String> titles(String moduleAlias, String entityAlias, Collection<String> ids) {
-        requireCapability(moduleAlias, entityAlias, EntityCapability.REFERENCE);
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.VIEW, idsCriteria(ids));
-        Set<String> visibleIds = visibleRecordIds(moduleAlias, entityAlias, scope, ids);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).titles(visibleIds));
+        return relationRuntime.titles(moduleAlias, entityAlias, ids);
     }
 
     public Map<String, Map<String, Object>> projections(String moduleAlias,
                                                         String entityAlias,
                                                         Collection<String> ids,
                                                         Collection<String> fieldNames) {
-        requireCapability(moduleAlias, entityAlias, EntityCapability.REFERENCE);
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.VIEW, idsCriteria(ids));
-        Set<String> visibleIds = visibleRecordIds(moduleAlias, entityAlias, scope, ids);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).projections(visibleIds, fieldNames));
+        return relationRuntime.projections(moduleAlias, entityAlias, ids, fieldNames);
     }
 
     public PageResult<ReferenceOption> referenceOptions(String moduleAlias,
                                                         String entityAlias,
                                                         Criteria criteria,
                                                         PageRequest pageRequest) {
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.REFERENCE, criteria);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias)
-                .referenceOptions(scope.criteria(), pageRequest));
+        return relationRuntime.referenceOptions(moduleAlias, entityAlias, criteria, pageRequest);
     }
 
-    private DataScopeCriteriaResult readScope(String moduleAlias, PlatformAction action, Criteria criteria) {
+    DataScopeCriteriaResult readScope(String moduleAlias, PlatformAction action, Criteria criteria) {
         return readScope(moduleAlias, action.executionPolicy(), criteria);
     }
 
@@ -1035,7 +806,7 @@ public class DynamicRecordService {
                 CurrentUserContext.currentUser());
     }
 
-    private Criteria idsCriteria(Collection<String> ids) {
+    Criteria idsCriteria(Collection<String> ids) {
         Set<String> normalized = normalizeRecordIds(ids);
         if (normalized.isEmpty()) {
             return Criteria.of().raw(net.ximatai.muyun.database.core.orm.SqlRawCondition.of("1 = 0", Map.of()));
@@ -1045,7 +816,7 @@ public class DynamicRecordService {
                 : Criteria.of().in("id", List.copyOf(normalized));
     }
 
-    private boolean recordVisible(String moduleAlias, String entityAlias, DataScopeCriteriaResult scope, String id) {
+    boolean recordVisible(String moduleAlias, String entityAlias, DataScopeCriteriaResult scope, String id) {
         if (id == null || id.isBlank()) {
             return false;
         }
@@ -1053,7 +824,7 @@ public class DynamicRecordService {
                 .list(scope.criteria(), new PageRequest(0, 1))).isEmpty();
     }
 
-    private Set<String> visibleRecordIds(String moduleAlias,
+    Set<String> visibleRecordIds(String moduleAlias,
                                          String entityAlias,
                                          DataScopeCriteriaResult scope,
                                          Collection<String> ids) {
@@ -1074,7 +845,7 @@ public class DynamicRecordService {
         return ordered;
     }
 
-    private <R> R withTenantScope(DataScopeCriteriaResult scope, Supplier<R> supplier) {
+    <R> R withTenantScope(DataScopeCriteriaResult scope, Supplier<R> supplier) {
         if (scope.crossTenant()) {
             try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("data scope allows cross-tenant read")) {
                 return supplier.get();
@@ -1230,15 +1001,7 @@ public class DynamicRecordService {
                                                             String entityAlias,
                                                             String sourceField,
                                                             DynamicReferenceResolveRequest request) {
-        DynamicReferenceDescriptor reference = reference(moduleAlias, entityAlias, sourceField);
-        DynamicReferenceResolveRequest normalized = request == null
-                ? DynamicReferenceResolveRequest.query(null)
-                : request;
-        Criteria criteria = referenceCriteria(normalized.criteria(), reference, normalized.formValues());
-        DynamicReferenceResolveRequest effective = normalized.withCriteria(criteria);
-        DataScopeCriteriaResult scope = readScope(reference.targetModuleAlias(), PlatformAction.REFERENCE, criteria);
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias)
-                .resolveReference(sourceField, effective.withCriteria(scope.criteria())));
+        return relationRuntime.resolveReference(moduleAlias, entityAlias, sourceField, request);
     }
 
     public DynamicReferenceResolveResponse resolveFieldReference(String moduleAlias,
@@ -1246,69 +1009,6 @@ public class DynamicRecordService {
                                                                  String fieldName,
                                                                  DynamicReferenceResolveRequest request) {
         return resolveReference(moduleAlias, entityAlias, fieldName, request);
-    }
-
-    private Criteria referenceCriteria(Criteria base,
-                                       DynamicReferenceDescriptor reference,
-                                       Map<String, Object> formValues) {
-        Criteria criteria = Criteria.of();
-        if (base != null && !base.isEmpty()) {
-            criteria.andGroup(base.getRoot());
-        }
-        if (reference.filters().isEmpty() || formValues == null || formValues.isEmpty()) {
-            return criteria;
-        }
-        for (DynamicReferenceFilterDescriptor filter : reference.filters()) {
-            Object value = formValues.get(filter.formField());
-            if (isBlankReferenceFilterValue(value)) {
-                continue;
-            }
-            appendReferenceFilter(criteria, filter, value);
-        }
-        return criteria;
-    }
-
-    private boolean isBlankReferenceFilterValue(Object value) {
-        return value == null || (value instanceof String text && text.isBlank());
-    }
-
-    private void appendReferenceFilter(Criteria criteria,
-                                       DynamicReferenceFilterDescriptor filter,
-                                       Object value) {
-        String fieldName = filter.referenceField();
-        DynamicQueryOperator operator = filter.operator() == null ? DynamicQueryOperator.EQ : filter.operator();
-        switch (operator) {
-            case EQ -> criteria.eq(fieldName, value);
-            case LIKE -> criteria.like(fieldName, String.valueOf(value));
-            case IN -> criteria.in(fieldName, referenceFilterValues(value));
-            case BETWEEN -> {
-                List<?> values = referenceFilterValues(value);
-                if (values.size() != 2) {
-                    throw new ModuleDefinitionException("reference filter BETWEEN requires exactly two values: "
-                            + filter.formField() + " -> " + fieldName);
-                }
-                criteria.between(fieldName, values.get(0), values.get(1));
-            }
-            case GT -> criteria.gt(fieldName, value);
-            case GTE -> criteria.gte(fieldName, value);
-            case LT -> criteria.lt(fieldName, value);
-            case LTE -> criteria.lte(fieldName, value);
-        }
-    }
-
-    private List<?> referenceFilterValues(Object value) {
-        if (value instanceof Collection<?> collection) {
-            return List.copyOf(collection);
-        }
-        if (value != null && value.getClass().isArray()) {
-            int length = java.lang.reflect.Array.getLength(value);
-            List<Object> values = new ArrayList<>(length);
-            for (int i = 0; i < length; i++) {
-                values.add(java.lang.reflect.Array.get(value, i));
-            }
-            return values;
-        }
-        return List.of(value);
     }
 
     private Criteria actionExecutionCriteria(Criteria criteria, Collection<String> recordIds) {
@@ -1357,7 +1057,7 @@ public class DynamicRecordService {
         return findEntity(describe(moduleAlias), entityAlias).capabilities().contains(capability.name());
     }
 
-    private void requireCapability(String moduleAlias, String entityAlias, EntityCapability capability) {
+    void requireCapability(String moduleAlias, String entityAlias, EntityCapability capability) {
         if (!supportsCapability(moduleAlias, entityAlias, capability)) {
             throw new PlatformException("dynamic entity does not support capability: " + capability);
         }
@@ -1417,16 +1117,6 @@ public class DynamicRecordService {
                 .findFirst()
                 .orElseThrow(() -> new ModuleDefinitionException("unknown dynamic view: "
                         + moduleAlias + "." + entity.entityAlias() + "." + viewType));
-    }
-
-    private DynamicAssociationViewDescriptor findAssociationView(String moduleAlias,
-                                                                DynamicEntityDescriptor entity,
-                                                                String viewCode) {
-        return entity.associationViews().stream()
-                .filter(view -> view.code().equals(viewCode))
-                .findFirst()
-                .orElseThrow(() -> new ModuleDefinitionException("unknown dynamic association view: "
-                        + moduleAlias + "." + entity.entityAlias() + "." + viewCode));
     }
 
     public static final class ModuleOperations {
