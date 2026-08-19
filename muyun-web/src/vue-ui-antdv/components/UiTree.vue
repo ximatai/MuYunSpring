@@ -14,6 +14,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: [node: UiTreeNode];
+  deselect: [];
   action: [action: UiRecordInlineAction, node: UiTreeNode];
   'update:expandedKeys': [keys: string[]];
 }>();
@@ -21,6 +22,10 @@ const emit = defineEmits<{
 const selectedKeys = computed(() => (props.selectedKey ? [props.selectedKey] : []));
 
 function handleSelect(keys: unknown[]) {
+  if (keys.length === 0) {
+    emit('deselect');
+    return;
+  }
   const selected = keys[0];
   if (typeof selected !== 'string') {
     return;

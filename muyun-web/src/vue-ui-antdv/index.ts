@@ -10,6 +10,8 @@ export { default as UiInput } from './components/UiInput.vue';
 export { default as UiSearchInput } from './components/UiSearchInput.vue';
 export { default as UiTextArea } from './components/UiTextArea.vue';
 export { default as UiSelect } from './components/UiSelect.vue';
+export { default as UiRadioGroup } from './components/UiRadioGroup.vue';
+export type { UiRadioOption } from './components/UiRadioGroup.vue';
 export { default as UiTreeSelect } from './components/UiTreeSelect.vue';
 export type { UiTreeSelectNode } from './components/UiTreeSelect.vue';
 export { default as UiTooltip } from './components/UiTooltip.vue';

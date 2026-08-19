@@ -75,6 +75,7 @@ import {
   shouldCommitDynamicModuleDetailRequest,
 } from './dynamicModuleDetailStateModel';
 import {
+  createReadonlyCardRecordSnapshot,
   resolveModulePageEnhancement,
   type ModulePageActionContribution,
   type ModulePageActionContext,
@@ -86,6 +87,7 @@ import {
   type ModulePageDetailSectionContext,
   type ModulePageDrawer,
   type ModulePageDrawerContext,
+  type ModulePageCardAssistantContext,
   type ModulePageRecordActionContribution,
   type ModulePageWorkspaceView,
 } from './modulePageEnhancements';
@@ -146,6 +148,7 @@ const selectedTreeRecord = ref<QueryListRecord>();
 const treeSearchKeyword = ref('');
 const flatManagementSearchKeyword = ref('');
 const flatManagementReloadKey = ref(0);
+const cardAssistantRecords = ref<QueryListRecord[]>([]);
 const treeModule = ref(false);
 const navigatorLevels = ref<NavigatorLevelRuntime[]>([]);
 const pageContextBindings = ref<ResolvedPageContextBindingDescriptor[]>([]);
@@ -332,6 +335,7 @@ const activeListView = computed(() => {
   return runtimePage.value?.list?.fields;
 });
 const flatManagementPage = computed(() => runtimePage.value?.template === 'FLAT_MANAGEMENT');
+const showDetailSystemInfo = computed(() => runtimePage.value?.detail?.showSystemInfo !== false);
 // A tree domain owns the explorer; TREE_MANAGEMENT owns the matching detail surface.
 // Keep the capability fallback for older static modules that have not yet declared a page root.
 const treeManagementPage = computed(() => runtimePage.value?.template === 'TREE_MANAGEMENT');
@@ -362,6 +366,7 @@ const flatManagementContent = computed(() => {
         createTitle: detail.createTitle,
         recordLabel: explorer.recordLabel,
         fallbackTitle: explorer.fallbackTitle,
+        secondaryField: explorer.secondaryField,
       };
 });
 const recordLabel = computed(() =>
@@ -431,6 +436,29 @@ const enhancementDetailSections = computed<ModulePageDetailSection[]>(
 const enhancementDetailDrawer = computed<ModulePageDetailDrawer | undefined>(
   () => pageEnhancement.value?.recordView?.drawer,
 );
+const enhancementCardAssistant = computed(() => pageEnhancement.value?.card?.assistant);
+const cardAssistantContext = computed<ModulePageCardAssistantContext | undefined>(() => {
+  if (!enhancementCardAssistant.value) return undefined;
+  const record = editingRecord.value ?? selectedRecord.value;
+  return {
+    module: context,
+    mode: editorMode.value,
+    ...(record ? { record: createReadonlyCardRecordSnapshot(toRaw(record) as Record<string, unknown>) } : {}),
+    loadedRecords: cardAssistantRecords.value.map((item) =>
+      createReadonlyCardRecordSnapshot(toRaw(item) as Record<string, unknown>),
+    ),
+    formSessionKey: formSessionKey.value,
+    saving: saving.value,
+    loading: detailLoading.value,
+    loadFailed: detailLoadFailed.value,
+  };
+});
+function hasCardAssistantAt(boundary: 'inside' | 'outside', position: 'top' | 'bottom') {
+  const placement = enhancementCardAssistant.value?.placement;
+  return Boolean(
+    cardAssistantContext.value && placement?.boundary === boundary && placement.position === position,
+  );
+}
 const detailWorkspaceView = computed<ModulePageWorkspaceView | undefined>(() => {
   const type = runtimePage.value?.detail.workspaceView?.type;
   if (!type) return undefined;
@@ -825,6 +853,7 @@ async function loadRuntimeForm() {
 }
 
 function handleLoaded(records: QueryListRecord[]) {
+  if (listMode.value !== 'recycleBin') cardAssistantRecords.value = records;
   if (selectedRecord.value) {
     selectedRecord.value =
       records.find((record) => record.id === selectedRecord.value?.id) ?? selectedRecord.value;
@@ -837,19 +866,24 @@ function handleLoaded(records: QueryListRecord[]) {
 
 function resetFlatManagementSelection() {
   detailLoadSequence += 1;
-  detailLoading.value = false;
-  detailLoadFailed.value = false;
-  detailOpen.value = false;
-  editorMode.value = 'view';
+  detail.close();
   selectedRecord.value = undefined;
   editingRecord.value = undefined;
 }
 
 function handleFlatManagementLoaded(records: QueryListRecord[]) {
-  if (!flatManagementRecycleBin.active.value) handleLoaded(records);
+  // Card assistants receive the live, readable list projection. Recycle-bin
+  // records are intentionally excluded: they are not active business facts.
+  if (!flatManagementRecycleBin.active.value) {
+    cardAssistantRecords.value = records;
+    handleLoaded(records);
+  }
 }
 
 function flatManagementItemOf(record: CrudRecordListBase): RecordExplorerItemDescriptor {
+  const secondaryField = flatManagementContent.value?.secondaryField;
+  const secondaryValue =
+    secondaryField == null ? undefined : (record as unknown as Record<string, unknown>)[secondaryField];
   return {
     title:
       record.title ??
@@ -858,7 +892,11 @@ function flatManagementItemOf(record: CrudRecordListBase): RecordExplorerItemDes
       record.id ??
       flatManagementContent.value?.fallbackTitle ??
       '未命名记录',
-    secondary: record.alias ?? record.code ?? record.id,
+    // The descriptor deliberately controls whether a compact explorer has a
+    // subtitle. Do not fall back to the record ID: it turns an omitted
+    // secondary field into accidental technical noise for business pages.
+    secondary:
+      secondaryValue == null || String(secondaryValue).trim() === '' ? undefined : String(secondaryValue),
     muted: record.enabled === false,
   };
 }
@@ -956,6 +994,11 @@ function selectNavigatorRecord(levelKey: string, record: { id?: string }) {
   }
   selectedNavigatorRecords.value = next;
   clearSelectionForScopeChange();
+}
+
+function clearNavigatorRecord(levelKey: string) {
+  const selected = selectedNavigatorRecords.value[levelKey];
+  if (selected) selectNavigatorRecord(levelKey, selected);
 }
 
 function handleNavigatorLoaded(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
@@ -1253,7 +1296,17 @@ function selectTreeRecord(record: unknown) {
   void openRecord(selectedTreeRecord.value, 'view');
 }
 
+function clearTreeRecordSelection() {
+  if (saving.value) return;
+  detailLoadSequence += 1;
+  selectedTreeRecord.value = undefined;
+  detail.close();
+  selectedRecord.value = undefined;
+  editingRecord.value = undefined;
+}
+
 function handleTreeLoaded(records: unknown[]) {
+  cardAssistantRecords.value = records as QueryListRecord[];
   if (selectedTreeRecord.value || editorMode.value !== 'view') return;
   const firstRecord = records.at(0);
   if (firstRecord) selectTreeRecord(firstRecord);
@@ -1918,6 +1971,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :actions-of="(record) => navigatorInlineActions(visibleNavigatorLevels[index], record)"
             @loaded="handleNavigatorLoaded(visibleNavigatorLevels[index], $event)"
             @select="selectNavigatorRecord(visibleNavigatorLevels[index].descriptor.key, $event)"
+            @deselect="clearNavigatorRecord(visibleNavigatorLevels[index].descriptor.key)"
             @action="
               (action, record) => handleNavigatorInlineAction(visibleNavigatorLevels[index], action, record)
             "
@@ -1939,6 +1993,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :actions-of="(record) => navigatorInlineActions(visibleNavigatorLevels[index], record)"
             @loaded="handleNavigatorLoaded(visibleNavigatorLevels[index], $event)"
             @select="selectNavigatorRecord(visibleNavigatorLevels[index].descriptor.key, $event)"
+            @deselect="clearNavigatorRecord(visibleNavigatorLevels[index].descriptor.key)"
             @action="
               (action, record) => handleNavigatorInlineAction(visibleNavigatorLevels[index], action, record)
             "
@@ -2021,6 +2076,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           @loaded="(records) => handleFlatManagementLoaded(records as QueryListRecord[])"
           @restored="refreshList"
           @select="(record) => openFlatManagementRecord(record as QueryListRecord)"
+          @deselect="resetFlatManagementSelection"
         />
       </template>
       <template v-if="flatManagementRecycleBin.buttonVisible.value" #explorer-footer>
@@ -2030,6 +2086,16 @@ function recordTitle(record: QueryListRecord | undefined) {
           :count="flatManagementRecycleBin.total.value"
           @click="flatManagementRecycleBin.toggle"
         />
+      </template>
+      <template v-if="hasCardAssistantAt('outside', 'top')" #detail-outside-top>
+        <aside class="dynamic-card-assistant dynamic-card-assistant--outside">
+          <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+        </aside>
+      </template>
+      <template v-if="hasCardAssistantAt('inside', 'top')" #detail-content-top>
+        <aside class="dynamic-card-assistant">
+          <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+        </aside>
       </template>
       <template #detail-actions>
         <RecordPanelButton
@@ -2114,7 +2180,21 @@ function recordTitle(record: QueryListRecord | undefined) {
             />
           </RecordDetailExtensionSection>
         </template>
-        <RecordMetaSection v-if="editorMode !== 'create'" :record="editingRecord" show-sort-order />
+        <RecordMetaSection
+          v-if="editorMode !== 'create' && showDetailSystemInfo"
+          :record="editingRecord"
+          show-sort-order
+        />
+      </template>
+      <template v-if="hasCardAssistantAt('inside', 'bottom')" #detail-content-bottom>
+        <aside class="dynamic-card-assistant">
+          <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+        </aside>
+      </template>
+      <template v-if="hasCardAssistantAt('outside', 'bottom')" #detail-outside-bottom>
+        <aside class="dynamic-card-assistant dynamic-card-assistant--outside">
+          <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+        </aside>
       </template>
     </StaticManagementLayout>
 
@@ -2162,6 +2242,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :actions-of="(record) => navigatorInlineActions(level, record)"
             @loaded="handleNavigatorLoaded(level, $event)"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
+            @deselect="clearNavigatorRecord(level.descriptor.key)"
             @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
           />
           <CrudRecordListExplorer
@@ -2179,6 +2260,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :actions-of="(record) => navigatorInlineActions(level, record)"
             @loaded="handleNavigatorLoaded(level, $event)"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
+            @deselect="clearNavigatorRecord(level.descriptor.key)"
             @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
           />
           <template #editor>
@@ -2275,6 +2357,16 @@ function recordTitle(record: QueryListRecord | undefined) {
         class="dynamic-list-detail-card"
         :title="detailTitle"
       >
+        <template v-if="hasCardAssistantAt('outside', 'top')" #outside-top>
+          <aside class="dynamic-card-assistant dynamic-card-assistant--outside">
+            <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+          </aside>
+        </template>
+        <template v-if="hasCardAssistantAt('inside', 'top')" #content-top>
+          <aside class="dynamic-card-assistant">
+            <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+          </aside>
+        </template>
         <template #title-prefix>
           <RecordPanelButton
             class="detail-surface-mode-button"
@@ -2369,7 +2461,21 @@ function recordTitle(record: QueryListRecord | undefined) {
               @update:field="updateDraftField"
             />
           </div>
-          <RecordMetaSection v-if="editorMode !== 'create'" :record="editingRecord" show-sort-order />
+          <RecordMetaSection
+            v-if="editorMode !== 'create' && showDetailSystemInfo"
+            :record="editingRecord"
+            show-sort-order
+          />
+        </template>
+        <template v-if="hasCardAssistantAt('inside', 'bottom')" #content-bottom>
+          <aside class="dynamic-card-assistant">
+            <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+          </aside>
+        </template>
+        <template v-if="hasCardAssistantAt('outside', 'bottom')" #outside-bottom>
+          <aside class="dynamic-card-assistant dynamic-card-assistant--outside">
+            <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+          </aside>
         </template>
       </RecordDetailPanel>
     </ManagementWorkspace>
@@ -2396,6 +2502,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           @create="createNavigatorRecord(level)"
           @loaded="handleNavigatorLoaded(level, $event)"
           @select="selectNavigatorRecord(level.descriptor.key, $event)"
+          @deselect="clearNavigatorRecord(level.descriptor.key)"
           @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
         >
           <template #editor>
@@ -2451,6 +2558,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             search-trigger="external"
             empty-description="暂无记录"
             @select="selectTreeRecord"
+            @deselect="clearTreeRecordSelection"
             @loaded="handleTreeLoaded"
           />
           <RecordPanelState v-else description="请先选择导航范围" />
@@ -2458,6 +2566,16 @@ function recordTitle(record: QueryListRecord | undefined) {
       </ManagementExplorerColumn>
 
       <RecordDetailPanel class="dynamic-tree-card" :title="detailTitle">
+        <template v-if="hasCardAssistantAt('outside', 'top')" #outside-top>
+          <aside class="dynamic-card-assistant dynamic-card-assistant--outside">
+            <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+          </aside>
+        </template>
+        <template v-if="hasCardAssistantAt('inside', 'top')" #content-top>
+          <aside class="dynamic-card-assistant">
+            <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+          </aside>
+        </template>
         <template #actions>
           <template v-if="editorMode !== 'view'">
             <RecordPanelButton :disabled="saving" @click="closeTreeCardEditor">取消</RecordPanelButton>
@@ -2580,7 +2698,21 @@ function recordTitle(record: QueryListRecord | undefined) {
               @update:field="updateDraftField"
             />
           </div>
-          <RecordMetaSection v-if="editorMode !== 'create'" :record="editingRecord" show-sort-order />
+          <RecordMetaSection
+            v-if="editorMode !== 'create' && showDetailSystemInfo"
+            :record="editingRecord"
+            show-sort-order
+          />
+        </template>
+        <template v-if="hasCardAssistantAt('inside', 'bottom')" #content-bottom>
+          <aside class="dynamic-card-assistant">
+            <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+          </aside>
+        </template>
+        <template v-if="hasCardAssistantAt('outside', 'bottom')" #outside-bottom>
+          <aside class="dynamic-card-assistant dynamic-card-assistant--outside">
+            <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
+          </aside>
         </template>
       </RecordDetailPanel>
     </ManagementWorkspace>
@@ -2891,6 +3023,10 @@ function recordTitle(record: QueryListRecord | undefined) {
   column-gap: 12px;
   row-gap: 16px;
   --muyun-record-form-label-gap: 8px;
+}
+
+.dynamic-card-assistant {
+  min-width: 0;
 }
 
 .navigator-management-panel {

@@ -50,9 +50,29 @@ withDefaults(
       </header>
     </slot>
     <div v-if="scrollableContent" class="record-detail-layout-content">
+      <div v-if="$slots['content-top']" class="record-detail-layout-content-extension">
+        <slot name="content-top" />
+      </div>
       <slot />
+      <div
+        v-if="$slots['content-bottom']"
+        class="record-detail-layout-content-extension record-detail-layout-content-extension--bottom"
+      >
+        <slot name="content-bottom" />
+      </div>
     </div>
-    <slot v-else />
+    <template v-else>
+      <div v-if="$slots['content-top']" class="record-detail-layout-content-extension">
+        <slot name="content-top" />
+      </div>
+      <slot />
+      <div
+        v-if="$slots['content-bottom']"
+        class="record-detail-layout-content-extension record-detail-layout-content-extension--bottom"
+      >
+        <slot name="content-bottom" />
+      </div>
+    </template>
     <div v-if="$slots.operation" class="record-detail-layout-operation">
       <DrawerOperationBar>
         <slot name="operation" />
@@ -103,6 +123,14 @@ withDefaults(
 .record-detail-layout-content {
   min-height: 0;
   overflow: auto;
+}
+
+.record-detail-layout-content-extension--bottom {
+  margin-top: var(--muyun-detail-content-extension-gap, 16px);
+}
+
+.record-detail-layout-content-extension:not(.record-detail-layout-content-extension--bottom) {
+  margin-bottom: var(--muyun-detail-content-extension-gap, 16px);
 }
 
 .record-detail-layout-header {

@@ -59,6 +59,29 @@ it('passes upstream navigator criteria to the server-side tree query', async () 
   wrapper.unmount();
 });
 
+it('forwards the tree adapter deselect event to clear an externally owned selection', async () => {
+  const requests: Array<ReturnType<typeof deferredTreeResponse>> = [];
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context: createTreeContext(requests), selectedId: 'rule-1', searchMode: 'none' },
+    global: {
+      stubs: {
+        UiSpin: { template: '<div />' },
+        UiEmpty: { template: '<div />' },
+        UiTree: { name: 'UiTree', props: ['nodes'], template: '<div />' },
+      },
+    },
+  });
+
+  await flushPromises();
+  requests[0].resolve(treeResponse('rule-1'));
+  await flushPromises();
+  wrapper.findComponent({ name: 'UiTree' }).vm.$emit('deselect');
+
+  assert.deepEqual(wrapper.emitted('deselect'), [[]]);
+  assert.isUndefined(wrapper.emitted('select'));
+  wrapper.unmount();
+});
+
 function createTreeContext(
   requests: Array<ReturnType<typeof deferredTreeResponse>>,
   treeRequests: unknown[] = [],

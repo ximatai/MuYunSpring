@@ -53,6 +53,7 @@ const title = computed(() => {
 });
 const pageEnhancement = computed(() => resolveModulePageEnhancement(context.moduleAlias));
 const detailSections = computed(() => pageEnhancement.value?.detail?.sections ?? []);
+const showSystemInfo = ref(true);
 const detailActions = computed<ModulePageRecordActionContribution[]>(() => {
   const current = record.value;
   return (pageEnhancement.value?.detail?.actions ?? []).map(({ state, ...action }) => ({
@@ -105,6 +106,7 @@ async function loadRecord() {
     const resolved = await context.crud.view(props.recordId);
     if (revision !== loadRevision) return;
     fields.value = resolveRecordFormFields(runtime.uiDescriptor);
+    showSystemInfo.value = runtime.uiDescriptor?.page?.detail.showSystemInfo !== false;
     detail.resolveLoad(resolved);
   } catch (cause) {
     if (revision !== loadRevision) return;
@@ -337,7 +339,7 @@ async function toggleEnabled() {
           />
         </RecordDetailExtensionSection>
       </template>
-      <RecordMetaSection :record="draft" show-sort-order />
+      <RecordMetaSection v-if="showSystemInfo" :record="draft" show-sort-order />
     </template>
   </RecordDetailPanel>
   <RecordModeDrawer

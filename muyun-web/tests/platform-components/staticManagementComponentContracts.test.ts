@@ -736,9 +736,11 @@ it('three-column management pages use the platform detail panel', () => {
   );
 
   assert.match(indexSource, /RecordDetailPanel/);
-  assert.match(panelSource, /defineOptions\(\{ name: 'RecordDetailPanel' \}\)/);
+  assert.match(panelSource, /defineOptions\(\{ name: 'RecordDetailPanel', inheritAttrs: false \}\)/);
   assert.match(panelSource, /<slot name="status" \/>/);
   assert.match(panelSource, /<slot name="actions" \/>/);
+  assert.match(panelSource, /<slot name="outside-top" \/>/);
+  assert.match(panelSource, /<slot name="outside-bottom" \/>/);
   assert.match(layoutSource, /<RecordDetailPanel[\s\S]*:title="detailTitle"/);
   assert.match(layoutSource, /<slot name="detail-status" \/>/);
   assert.match(layoutSource, /explorerTitle: string/);
@@ -1599,30 +1601,27 @@ it('ordinary management pages do not infer their height from the workbench chrom
   }
 });
 
-it('password management is a dedicated security settings page', () => {
-  const passwordViewSource = readSource('src/views/PasswordManagementView.vue');
+it('password management uses the standard module runner with a source-owned card assistant', () => {
+  const passwordPreviewSource = readSource('src/views/PasswordPolicyPreview.vue');
+  const enhancementSource = readSource('src/platform-admin-runtime/passwordPolicyPageEnhancement.ts');
+  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
-  const startupSource = readSource('src/app/appWorkbenchStartup.ts');
   const contractsSource = readSource('src/web-contracts/index.ts');
 
-  assert.match(routesSource, /moduleAlias: 'iam\.password_policy_rule'/);
-  assert.match(routesSource, /route: '\/platform\/security\/passwords'/);
-  assert.match(startupSource, /platformAdminModuleRoutes/);
-  assert.match(startupSource, /platformAdminRoutePrefixes/);
-  assert.match(passwordViewSource, /defineOptions\(\{ name: 'PasswordManagementView' \}\)/);
-  assert.match(passwordViewSource, /moduleAlias: 'iam\.password_policy_rule'/);
-  assert.match(passwordViewSource, /<StaticManagementLayout/);
-  assert.match(passwordViewSource, /<CrudRecordListExplorer/);
-  assert.match(passwordViewSource, /<RecordActionBar/);
-  assert.match(passwordViewSource, /<RecordStatusSwitch/);
-  assert.match(passwordViewSource, /密码试算/);
-  assert.match(passwordViewSource, /new RegExp\(rule\.pattern/);
-  assert.match(passwordViewSource, /scopeType: 'global'/);
-  assert.notMatch(passwordViewSource, /ruleCode/);
-  assert.notMatch(passwordViewSource, /规则编码/);
-  assert.match(passwordViewSource, /pattern/);
-  assert.match(passwordViewSource, /message/);
-  assert.match(passwordViewSource, /description/);
+  assert.match(routesSource, /'\/platform\/security\/passwords': 'iam\.password_policy_rule'/);
+  assert.match(enhancementSource, /moduleAlias: 'iam\.password_policy_rule'/);
+  assert.match(enhancementSource, /card:\s*\{/);
+  assert.match(enhancementSource, /component: PasswordPolicyPreview/);
+  assert.match(enhancementSource, /boundary: 'outside'/);
+  assert.match(enhancementSource, /position: 'bottom'/);
+  assert.match(hostSource, /createReadonlyCardRecordSnapshot/);
+  assert.match(hostSource, /dynamic-card-assistant/);
+  assert.match(passwordPreviewSource, /defineOptions\(\{ name: 'PasswordPolicyPreview' \}\)/);
+  assert.match(passwordPreviewSource, /本规则/);
+  assert.match(passwordPreviewSource, /全规则/);
+  assert.match(passwordPreviewSource, /UiRadioGroup/);
+  assert.match(passwordPreviewSource, /new RegExp/);
+  assert.notMatch(passwordPreviewSource, /\/iam\.password_policy_rule\/preview/);
   assert.match(contractsSource, /export type PasswordPolicyScopeType = 'global' \| 'tenant'/);
   assert.match(contractsSource, /export interface PasswordPolicyRule extends StandardEnabledSortableEntity/);
   assert.notMatch(contractsSource, /ruleCode/);
@@ -1641,6 +1640,14 @@ it('workbench exposes own password change through auth boundary', () => {
   assert.match(workbenchSource, /\.workbench \{[\s\S]*height: 100dvh;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-main \{[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-content \{[\s\S]*position: relative;[\s\S]*overflow: hidden;/);
+  assert.match(
+    workbenchSource,
+    /@media \(max-width: 720px\) \{[\s\S]*\.workbench \{[\s\S]*height: auto;[\s\S]*overflow: visible;/,
+  );
+  assert.notMatch(
+    workbenchSource,
+    /@media \(max-width: 980px\) \{[\s\S]*\.workbench \{[\s\S]*overflow: visible;/,
+  );
   assert.match(appSource, /command === 'changePassword'[\s\S]*openChangeOwnPasswordDialog\(\)/);
   assert.match(appSource, /authClient\.changeOwnPassword/);
   assert.match(appSource, /onUserNotification: handleSecurityNotification/);
@@ -1786,11 +1793,11 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
     /function selectListDetailRecord\(record: QueryListRecord\)[\s\S]*openRecordView\(record\)/,
   );
   assert.match(hostSource, /<StaticManagementLayout\s+v-if="flatManagementPage"/);
-  assert.equal(matchCount(hostSource, /<div v-else class="dynamic-form">[\s\S]*?<RecordFormFields/g), 3);
-  assert.match(
-    hostSource,
-    /<div v-if="editingRecord" class="dynamic-form">[\s\S]*?<RecordFormFields[\s\S]*?@update:field="updateDraftField"/,
-  );
+  assert.equal(matchCount(hostSource, /class="dynamic-card-layout"/g), 0);
+  assert.equal(matchCount(hostSource, /class="dynamic-card-assistant"/g), 6);
+  assert.equal(matchCount(hostSource, /dynamic-card-assistant--outside/g), 6);
+  assert.match(hostSource, /hasCardAssistantAt\('inside', 'bottom'\)/);
+  assert.match(hostSource, /hasCardAssistantAt\('outside', 'bottom'\)/);
   assert.match(hostSource, /<div v-else class="dynamic-form">[\s\S]*<RecordFormFields/);
   assert.match(hostSource, /\.dynamic-form \{[\s\S]*column-gap: 12px;[\s\S]*row-gap: 16px;/);
   assert.match(hostSource, /\.dynamic-form \{[\s\S]*--muyun-record-form-label-gap: 8px;/);
@@ -2070,10 +2077,7 @@ it('public management and drawer contracts use business roles instead of layout 
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
   const recordDetailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
   const recordModeDrawerSource = readSource('src/platform-components/RecordModeDrawer.vue');
-  const managementPageSources = [
-    readSource('src/views/PasswordManagementView.vue'),
-    readSource('src/views/TenantManagementView.vue'),
-  ];
+  const managementPageSources = [readSource('src/views/TenantManagementView.vue')];
   const standardDrawerSources = [
     readSource('src/views/UserManagementView.vue'),
     readSource('src/views/RoleManagementView.vue'),

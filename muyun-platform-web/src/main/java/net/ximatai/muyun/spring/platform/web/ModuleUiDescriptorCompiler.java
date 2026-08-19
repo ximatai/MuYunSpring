@@ -244,7 +244,8 @@ public final class ModuleUiDescriptorCompiler {
                 detail.editor() == null ? null : compileView(detail.editor(), optionFields, referenceFields,
                         referenceSummaryFields, fieldTypes),
                 detail.workspaceView() == null ? null
-                        : new ResolvedPageDetailWorkspaceViewDescriptor(detail.workspaceView().type()));
+                        : new ResolvedPageDetailWorkspaceViewDescriptor(detail.workspaceView().type()),
+                detail.showSystemInfo());
     }
 
     private static void validateNavigator(PageNavigatorDefinition navigator,

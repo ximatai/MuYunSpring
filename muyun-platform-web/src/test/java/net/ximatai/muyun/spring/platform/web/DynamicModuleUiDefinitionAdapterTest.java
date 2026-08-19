@@ -37,6 +37,44 @@ class DynamicModuleUiDefinitionAdapterTest {
     }
 
     @Test
+    void shouldCarryDynamicDetailSystemInfoPresentationPolicy() {
+        PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
+        PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);
+        PlatformUiConfig listConfig = uiConfig("ui-list", "set-list", "客户列表", true, 10);
+        PlatformUiConfig formConfig = uiConfig("ui-form", "set-form", "客户表单", true, 10);
+        listConfig.setLayoutJson("""
+                {"template":"FLAT_MANAGEMENT","detail":{"showSystemInfo":false}}
+                """);
+        PlatformPageConfigSnapshot snapshot = new PlatformPageConfigSnapshot("crm.customer",
+                List.of(listSet, formSet), List.of(listConfig, formConfig), List.of(), List.of(), List.of());
+
+        ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
+                snapshot, new PlatformResolvedPageConfig(List.of(), List.of()));
+
+        assertThat(((FlatManagementPageDefinition) definition.page()).detail().showSystemInfo()).isFalse();
+    }
+
+    @Test
+    void shouldCarryDynamicDetailSystemInfoPresentationPolicyAcrossPageTemplates() {
+        PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
+        PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);
+        PlatformUiConfig listConfig = uiConfig("ui-list", "set-list", "客户列表", true, 10);
+        PlatformUiConfig formConfig = uiConfig("ui-form", "set-form", "客户表单", true, 10);
+        PlatformPageConfigSnapshot snapshot = new PlatformPageConfigSnapshot("crm.customer",
+                List.of(listSet, formSet), List.of(listConfig, formConfig), List.of(), List.of(), List.of());
+
+        listConfig.setLayoutJson("{\"template\":\"LIST_DETAIL_CARD\",\"detail\":{\"showSystemInfo\":false}}");
+        ModuleUiDefinition listDetail = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
+                snapshot, new PlatformResolvedPageConfig(List.of(), List.of()));
+        assertThat(((ListDetailCardPageDefinition) listDetail.page()).detail().showSystemInfo()).isFalse();
+
+        listConfig.setLayoutJson("{\"template\":\"TREE_MANAGEMENT\",\"detail\":{\"showSystemInfo\":false}}");
+        ModuleUiDefinition treeManagement = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
+                snapshot, new PlatformResolvedPageConfig(List.of(), List.of()));
+        assertThat(((TreeManagementPageDefinition) treeManagement.page()).detail().showSystemInfo()).isFalse();
+    }
+
+    @Test
     void shouldCompileOnlyExistingSafeDynamicAssignmentsAsFormComputeRules() {
         PlatformUiSet listSet = uiSet("set-list", "sales.order", "order_list", PlatformUiSetType.LIST);
         PlatformUiSet formSet = uiSet("set-form", "sales.order", "order_form", PlatformUiSetType.FORM);

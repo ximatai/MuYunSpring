@@ -939,6 +939,8 @@ export interface ResolvedPageListDescriptor {
 export interface ResolvedPageDetailDescriptor {
   emptyDescription: string;
   createTitle: string;
+  /** Whether the standard immutable system metadata section is displayed. */
+  showSystemInfo?: boolean;
   display?: ResolvedViewDescriptor;
   /** Omitted by an editorless page; standard mutation actions remain governed by the runtime action contract. */
   editor?: ResolvedViewDescriptor;

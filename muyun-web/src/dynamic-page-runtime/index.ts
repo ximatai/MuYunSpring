@@ -6,6 +6,7 @@ export {
   configureModulePageEnhancementContributions,
   configureModulePageEnhancements,
   createModulePageEnhancementRegistry,
+  createReadonlyCardRecordSnapshot,
   modulePageWorkspaceViews,
   resolveModulePageEnhancement,
 } from './modulePageEnhancements';
@@ -19,6 +20,7 @@ export type { ModulePageListRefreshRegistry } from './modulePageListRefresh';
 export type {
   ModuleListEnhancement,
   ModuleDetailEnhancement,
+  ModuleCardEnhancement,
   ModulePageActionContext,
   ModulePageActionContribution,
   ModulePageActionStateContext,
@@ -34,6 +36,9 @@ export type {
   ModulePageEnhancementActivationContext,
   ModulePageEnhancementRegistry,
   ModulePageEnhancementTarget,
+  ModulePageCardAssistant,
+  ModulePageCardAssistantContext,
+  ModulePageCardAssistantPlacement,
   ModulePageRecordActionContext,
   ModulePageRecordActionContribution,
   ModulePageScopeContext,

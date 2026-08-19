@@ -29,6 +29,21 @@ describe('CrudRecordListExplorer', () => {
     });
     expect(requests).toHaveLength(2);
   });
+
+  it('clears an externally owned selection when the same record is selected again', async () => {
+    const wrapper = shallowMount(CrudRecordListExplorer, {
+      props: {
+        context: createContext([]),
+        selectedId: 'rule-1',
+      },
+    });
+
+    await flushPromises();
+    wrapper.findComponent({ name: 'RecordListExplorer' }).vm.$emit('select', { id: 'rule-1' });
+
+    expect(wrapper.emitted('deselect')).toEqual([[]]);
+    expect(wrapper.emitted('select')).toBeUndefined();
+  });
 });
 
 function createContext(requests: Array<WebQueryRequest | undefined>): ModuleContext<{ id: string }> {

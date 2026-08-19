@@ -187,20 +187,24 @@ public final class DynamicModuleUiDefinitionAdapter {
                     explorer.path("mutedWhenDisabled").asBoolean(false)),
                     new PageDetailDefinition(detail.path("emptyDescription").asText(null),
                             detail.path("createTitle").asText(editor.title()), null, editor,
-                            workspaceView(detail)),
+                            workspaceView(detail), detail.path("showSystemInfo").asBoolean(true)),
                     traits(root));
         }
         if ("TREE_MANAGEMENT".equals(template)) {
+            JsonNode detail = root.path("detail");
             return new TreeManagementPageDefinition(navigator(listConfig),
-                    new PageDetailDefinition(null, editor.title(), null, editor, workspaceView(root.path("detail"))), traits(root));
+                    new PageDetailDefinition(null, editor.title(), null, editor, workspaceView(detail),
+                            detail.path("showSystemInfo").asBoolean(true)), traits(root));
         }
         if (!"LIST_DETAIL_CARD".equals(template)) {
             throw new IllegalArgumentException("dynamic page template must be FLAT_MANAGEMENT, LIST_DETAIL_CARD or TREE_MANAGEMENT: "
                     + listConfig.getId());
         }
         PageNavigatorDefinition navigator = navigator(listConfig);
+        JsonNode detail = root.path("detail");
         return new ListDetailCardPageDefinition(navigator, new PageListDefinition(list.title(), list),
-                new PageDetailDefinition(null, editor.title(), null, editor, workspaceView(root.path("detail"))),
+                new PageDetailDefinition(null, editor.title(), null, editor, workspaceView(detail),
+                        detail.path("showSystemInfo").asBoolean(true)),
                 traits(root));
     }
 
