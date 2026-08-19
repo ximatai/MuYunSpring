@@ -8,9 +8,17 @@ export type PageContextSourceValues = Partial<
 export function externalPageContextCriteriaKeys(
   bindings: readonly ResolvedPageContextBindingDescriptor[],
   target: ResolvedPageContextBindingDescriptor['target'],
+  targetNavigatorLevelKey?: string,
 ): string[] {
   return bindings
-    .filter((binding) => binding.target === target && binding.source !== 'SESSION')
+    .filter(
+      (binding) =>
+        binding.target === target &&
+        binding.source !== 'SESSION' &&
+        (target !== 'NAVIGATOR_QUERY' ||
+          targetNavigatorLevelKey == null ||
+          binding.targetNavigatorLevelKey === targetNavigatorLevelKey),
+    )
     .map((binding) => binding.targetKey);
 }
 

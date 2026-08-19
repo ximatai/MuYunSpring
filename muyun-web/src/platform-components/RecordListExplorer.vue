@@ -43,6 +43,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   select: [record: RecordListExplorerRecord];
+  deselect: [];
   action: [action: UiRecordInlineAction, record: RecordListExplorerRecord];
 }>();
 
@@ -107,6 +108,14 @@ function handleAction(action: UiRecordInlineAction, record: RecordListExplorerRe
   }
   emit('action', action, record);
 }
+
+function handleSelect(record: RecordListExplorerRecord) {
+  if (record.id != null && String(record.id) === props.selectedId) {
+    emit('deselect');
+    return;
+  }
+  emit('select', record);
+}
 </script>
 
 <template>
@@ -123,9 +132,9 @@ function handleAction(action: UiRecordInlineAction, record: RecordListExplorerRe
         :muted="recordMuted(record)"
         :selected="record.id === selectedId"
         :actions="recordActions(record)"
-        @click="emit('select', record)"
-        @keydown.enter.prevent="emit('select', record)"
-        @keydown.space.prevent="emit('select', record)"
+        @click="handleSelect(record)"
+        @keydown.enter.prevent="handleSelect(record)"
+        @keydown.space.prevent="handleSelect(record)"
         @action="handleAction($event, record)"
       />
     </li>

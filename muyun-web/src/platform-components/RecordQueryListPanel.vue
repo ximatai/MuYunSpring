@@ -343,7 +343,7 @@ watch(
 
 watch(
   () => [props.uiConfigId, props.queryTemplateId, props.querySchema, props.ready],
-  ([, , ready]) => {
+  ([, , , ready]) => {
     pageNum.value = 1;
     if (ready) {
       void loadSchemaAndRecords();

@@ -9,12 +9,17 @@ import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.ViewDefinition;
+import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.web.SystemScope;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.iam.user.PasswordPolicyRule;
 import net.ximatai.muyun.spring.iam.user.PasswordPolicyRuleService;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
@@ -26,6 +31,19 @@ public class PasswordPolicyRuleWebController extends WebSupport<PasswordPolicyRu
         CrudWeb<PasswordPolicyRule, PasswordPolicyRuleService>,
         SystemScope<PasswordPolicyRuleService>,
         StaticModuleUiContributor {
+
+    /**
+     * Supplies an authoritative, compact snapshot for the IAM password-preview
+     * assistant. Typing remains entirely browser-local; this endpoint is only
+     * used to refresh the rule set when that assistant enters all-rules mode.
+     */
+    @GetMapping("/active-global-rules")
+    @ActionEndpoint(PlatformAction.QUERY)
+    public List<PasswordPolicyPreviewRuleSnapshot> activeGlobalRuleSnapshots() {
+        return webScope(() -> service().activeGlobalRules().stream()
+                .map(PasswordPolicyPreviewRuleSnapshot::from)
+                .toList());
+    }
 
     @Override
     public ModuleUiDefinition moduleUiDefinition() {

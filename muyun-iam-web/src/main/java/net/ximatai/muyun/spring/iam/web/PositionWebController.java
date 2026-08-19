@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.iam.web;
 
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageNavigatorInitialSelectionPolicy;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
@@ -80,7 +81,8 @@ public class PositionWebController extends WebSupport<PositionService> implement
                                         .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
                                 .level("category", level -> level
                                         .tree(PositionCategoryService.MODULE_ALIAS, "岗位分类", "搜索岗位分类")
-                                        .manageable())
+                                        .manageable()
+                                        .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
                                 .bindNavigatorToNavigator("tenant", "category", "tenantId")
                                 .bindNavigatorToList("category", "categoryId"))
                         .list(list -> list.fields(fields -> fields

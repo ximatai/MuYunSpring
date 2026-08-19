@@ -30,7 +30,7 @@ describe('CrudRecordListExplorer', () => {
     expect(requests).toHaveLength(2);
   });
 
-  it('clears an externally owned selection when the same record is selected again', async () => {
+  it('forwards an explorer deselect event for an externally owned selection', async () => {
     const wrapper = shallowMount(CrudRecordListExplorer, {
       props: {
         context: createContext([]),
@@ -39,7 +39,7 @@ describe('CrudRecordListExplorer', () => {
     });
 
     await flushPromises();
-    wrapper.findComponent({ name: 'RecordListExplorer' }).vm.$emit('select', { id: 'rule-1' });
+    wrapper.findComponent({ name: 'RecordListExplorer' }).vm.$emit('deselect');
 
     expect(wrapper.emitted('deselect')).toEqual([[]]);
     expect(wrapper.emitted('select')).toBeUndefined();

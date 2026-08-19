@@ -389,6 +389,11 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().levels())
                         .extracting(ResolvedPageNavigatorLevelDescriptor::key)
                         .containsExactly("tenant", "category");
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().levels())
+                        .filteredOn(level -> level.key().equals("category"))
+                        .singleElement()
+                        .satisfies(level -> assertThat(level.initialSelectionPolicy()).isEqualTo(
+                                net.ximatai.muyun.spring.platform.web.PageNavigatorInitialSelectionPolicy.FIRST_RECORD));
                 assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor().fields())
                         .extracting(field -> field.fieldRef().fieldName())
                         .containsExactly("categoryId", "code", "title", "description", "enabled");

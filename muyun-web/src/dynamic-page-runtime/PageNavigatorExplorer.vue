@@ -23,6 +23,9 @@ defineProps<{
   reloadKey: number;
   keyword: string;
   externalQueryValues?: Record<string, unknown>;
+  /** The navigator's declared upstream query scope is not settled yet. */
+  createDisabled?: boolean;
+  createDisabledReason?: string;
   actionsOf?: (record: { id?: string }) => RecordInlineAction[];
 }>();
 
@@ -58,7 +61,8 @@ function managementAllows(level: NavigatorLevelRuntime, action: 'CREATE' | 'UPDA
         :context="level.context"
         action-code="create"
         icon-only
-        :title="`新建${level.descriptor.title}`"
+        :disabled="createDisabled"
+        :title="createDisabled ? createDisabledReason : `新建${level.descriptor.title}`"
         @click="emit('create')"
       />
     </template>
