@@ -31,19 +31,31 @@ public final class ReferenceLoadReader {
     public static Map<String, Object> readAll(ReferenceLoadPath path,
                                               List<String> sourceIds,
                                               Function<ReferenceTarget, ReferenceAbility<?>> abilities) {
+        return readAll(path, sourceIds, abilities, ReferenceReadObserver.NONE);
+    }
+
+    public static Map<String, Object> readAll(ReferenceLoadPath path,
+                                              List<String> sourceIds,
+                                              Function<ReferenceTarget, ReferenceAbility<?>> abilities,
+                                              ReferenceReadObserver observer) {
         if (sourceIds == null || sourceIds.isEmpty()) {
             return Map.of();
         }
+        ReferenceReadObserver readObserver = observer == null ? ReferenceReadObserver.NONE : observer;
         Map<String, String> currentIds = new LinkedHashMap<>();
         sourceIds.stream().filter(Objects::nonNull).filter(id -> !id.isBlank())
                 .forEach(id -> currentIds.putIfAbsent(id, id));
         ReferenceTarget current = path.sourceTarget();
-        for (ReferenceLoadPath.Hop hop : path.hops()) {
+        for (int hopIndex = 0; hopIndex < path.hops().size(); hopIndex++) {
+            ReferenceLoadPath.Hop hop = path.hops().get(hopIndex);
             if (hop.viaField() == null) {
                 throw new IllegalArgumentException("ReferenceLoad path hop must resolve via field: " + current);
             }
+            List<String> ids = currentIds.values().stream().distinct().toList();
+            readObserver.onProjection(new ReferenceReadObserver.ProjectionRequest(current, List.of(hop.viaField()),
+                    ids.size(), ReferenceReadObserver.Kind.PATH, path.sourceField(), path.outputField(), hopIndex));
             Map<String, Map<String, Object>> values = require(abilities, current).projections(
-                    currentIds.values().stream().distinct().toList(), List.of(hop.viaField()));
+                    ids, List.of(hop.viaField()));
             currentIds.replaceAll((sourceId, currentId) -> nextId(values, currentId, hop.viaField()));
             currentIds.entrySet().removeIf(entry -> entry.getValue() == null);
             if (currentIds.isEmpty()) {
@@ -51,8 +63,12 @@ public final class ReferenceLoadReader {
             }
             current = hop.target();
         }
+        List<String> terminalIds = currentIds.values().stream().distinct().toList();
+        readObserver.onProjection(new ReferenceReadObserver.ProjectionRequest(current, List.of(path.terminalField()),
+                terminalIds.size(), ReferenceReadObserver.Kind.PATH, path.sourceField(), path.outputField(),
+                path.hops().size()));
         Map<String, Map<String, Object>> values = require(abilities, current).projections(
-                currentIds.values().stream().distinct().toList(), List.of(path.terminalField()));
+                terminalIds, List.of(path.terminalField()));
         Map<String, Object> result = new LinkedHashMap<>();
         currentIds.forEach((sourceId, terminalId) -> result.put(sourceId,
                 values.getOrDefault(terminalId, Map.of()).get(path.terminalField())));

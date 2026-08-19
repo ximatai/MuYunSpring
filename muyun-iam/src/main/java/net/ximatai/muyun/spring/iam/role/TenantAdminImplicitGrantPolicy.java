@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.iam.role;
 
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
@@ -35,7 +37,7 @@ public class TenantAdminImplicitGrantPolicy {
                 "grantableActionResolver must not be null");
     }
 
-    public boolean grants(CurrentUser user, String moduleAlias, String actionCode) {
+    public boolean grants(CurrentUser user, String moduleAlias, String actionCode, String permissionActionCode) {
         if (user == null || user.system() || user.tenantId() == null || user.tenantId().isBlank()
                 || moduleAlias == null || moduleAlias.isBlank() || actionCode == null || actionCode.isBlank()) {
             return false;
@@ -49,12 +51,32 @@ public class TenantAdminImplicitGrantPolicy {
         } catch (IllegalArgumentException exception) {
             return false;
         }
+        boolean currentTenantReference = TenantService.MODULE_ALIAS.equals(moduleAlias)
+                && PlatformAction.REFERENCE.code().equals(actionCode);
         if (!tenantApplicationService.isApplicationAvailable(user.tenantId(), applicationAlias)
-                || SYSTEM_TENANT_MODULES.contains(moduleAlias)) {
+                || (SYSTEM_TENANT_MODULES.contains(moduleAlias) && !currentTenantReference)) {
             return false;
         }
         return grantableActionResolver.resolve(List.of(moduleAlias)).stream()
                 .anyMatch(action -> actionCode.equals(action.actionCode())
-                        || actionCode.equals(action.permissionActionCode()));
+                        || (permissionActionCode != null && permissionActionCode.equals(action.permissionActionCode())));
+    }
+
+    /**
+     * Resolves the grantable action from the execution policy. Reference remains
+     * an explicit platform action; all other actions retain the established
+     * inherited-view permission compatibility.
+     */
+    public boolean grants(CurrentUser user, String moduleAlias, ActionExecutionPolicy policy) {
+        if (policy == null) return false;
+        if (!PlatformAction.REFERENCE.code().equals(policy.actionCode())) {
+            return grants(user, moduleAlias, policy.permissionActionCode());
+        }
+        return grants(user, moduleAlias, policy.actionCode(), policy.permissionActionCode());
+    }
+
+    /** Compatibility entry point for callers that do not need inherited-action distinction. */
+    public boolean grants(CurrentUser user, String moduleAlias, String actionCode) {
+        return grants(user, moduleAlias, actionCode, actionCode);
     }
 }

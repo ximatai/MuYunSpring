@@ -45,6 +45,39 @@ it('resolvePageDescriptor resolves ROUTE targets as platform routes by default',
   assert.equal(roundTrip.tabPolicy.identity, 'by-menu');
 });
 
+it('delegates a readable module route to the dynamic module host when the route is declared as standard runtime content', () => {
+  const options = { dynamicModuleRoutes: { '/iam/organizations': 'iam.organization' } };
+  const descriptor = resolvePageDescriptor(
+    {
+      menuId: 'organization',
+      menuType: 'route',
+      openMode: 'tab',
+      route: '/iam/organizations',
+      moduleAlias: 'iam.organization',
+    },
+    options,
+  );
+
+  assertPageType(descriptor, 'dynamic-module');
+  assert.equal(descriptor.target.moduleAlias, 'iam.organization');
+  assert.equal(descriptor.target.pageMode, 'LIST');
+
+  const restored = pageDescriptorFromUrl('/iam/organizations?_muyunMenuId=organization', options);
+  assertPageType(restored, 'dynamic-module');
+  assert.equal(restored.target.moduleAlias, 'iam.organization');
+  assert.equal(restored.menuId, 'organization');
+});
+
+it('restores the canonical module-management URL through the dynamic module host', () => {
+  const descriptor = pageDescriptorFromUrl('/platform/dynamic/platform.module/list');
+
+  assertPageType(descriptor, 'dynamic-module');
+  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.target.moduleAlias, 'platform.module');
+  assert.equal(descriptor.menuId, undefined);
+  assert.equal(tabKeyOf(descriptor), 'dynamic-module:platform.module:LIST');
+});
+
 it('getMenuNavigationTarget ignores disabled menus', () => {
   const target = getMenuNavigationTarget({
     id: 'disabled-runtime',
@@ -109,29 +142,22 @@ it('resolvePageDescriptor keeps path, routeName, and pageKey available for offli
   assert.equal(pageKeyDescriptor.target.pageKey, 'customerList');
 });
 
-it('resolvePageDescriptor carries a static business route layout without putting it into the URL', () => {
-  const descriptor = resolvePageDescriptor(
-    {
-      menuId: 'module-management',
-      menuType: 'route',
-      openMode: 'tab',
-      route: '/config/modules',
-      moduleAlias: 'platform.module',
-    },
-    {
-      businessRoutePrefixes: ['/config/modules'],
-      businessRouteLayouts: { '/config/modules': 'workspace' },
-    },
-  );
-
-  assertPageType(descriptor, 'business-route');
-  assert.equal(descriptor.layout, 'workspace');
-  assert.notMatch(pageDescriptorToUrl(descriptor), /workspace/);
-  const restored = pageDescriptorFromUrl(pageDescriptorToUrl(descriptor), {
-    businessRoutePrefixes: ['/config/modules'],
-    businessRouteLayouts: { '/config/modules': 'workspace' },
+it('resolves a module menu without a static page through the dynamic module host', () => {
+  const descriptor = resolvePageDescriptor({
+    menuId: 'module-management',
+    menuType: 'module',
+    openMode: 'tab',
+    moduleAlias: 'platform.module',
   });
-  assert.equal(restored.layout, 'workspace');
+
+  assertPageType(descriptor, 'dynamic-module');
+  assert.equal(descriptor.target.moduleAlias, 'platform.module');
+  assert.equal(
+    pageDescriptorToUrl(descriptor),
+    '/platform/dynamic/platform.module/list?_muyunMenuId=module-management',
+  );
+  const restored = pageDescriptorFromUrl(pageDescriptorToUrl(descriptor));
+  assert.equal(restored.pageType, 'dynamic-module');
 });
 
 it('every static business route explicitly classifies its page layout', () => {
@@ -263,7 +289,7 @@ it('resolvePageDescriptor resolves MODULE targets as dynamic module descriptors'
   assert.equal(roundTrip.tabPolicy.identity, 'by-menu');
 });
 
-it('resolvePageDescriptor resolves configured MODULE targets as business routes', () => {
+it('resolvePageDescriptor resolves unconfigured MODULE targets through the standard runner', () => {
   const descriptor = resolvePageDescriptor(
     {
       menuId: 'platform.menu.module.platform.application',
@@ -274,16 +300,14 @@ it('resolvePageDescriptor resolves configured MODULE targets as business routes'
     {
       title: '应用管理',
       businessModuleRoutes: {
-        'platform.application': '/config/applications',
         'iam.tenant': '/iam/tenants',
       },
     },
   );
 
-  assertPageType(descriptor, 'business-route');
-  assert.equal(descriptor.hostType, 'business-route-host');
+  assertPageType(descriptor, 'dynamic-module');
+  assert.equal(descriptor.hostType, 'dynamic-module-host');
   assert.equal(descriptor.title, '应用管理');
-  assert.equal(descriptor.target.route, '/config/applications');
   assert.equal(descriptor.target.moduleAlias, 'platform.application');
   assert.equal(tabKeyOf(descriptor), 'menu:platform.menu.module.platform.application');
 });

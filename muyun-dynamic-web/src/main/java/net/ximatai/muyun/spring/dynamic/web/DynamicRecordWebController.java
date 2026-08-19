@@ -11,20 +11,27 @@ import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
+import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.ActionWeb;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
+import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
+import net.ximatai.muyun.spring.platform.web.PageContextServerValueResolver;
+import net.ximatai.muyun.spring.platform.web.PageContextSource;
+import net.ximatai.muyun.spring.platform.web.PageContextTarget;
 import net.ximatai.muyun.spring.web.EnableWeb;
 import net.ximatai.muyun.spring.web.ReferenceWeb;
 import net.ximatai.muyun.spring.web.TreeSortWebRequest;
 import net.ximatai.muyun.spring.web.TreeWeb;
+import net.ximatai.muyun.spring.web.WebListResponse;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebQueryCondition;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
+import net.ximatai.muyun.spring.web.WebTreeNode;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
-import net.ximatai.muyun.spring.platform.web.PlatformDynamicModuleScopeService;
+import net.ximatai.muyun.spring.web.TenantRequestScope;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryDescriptor;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryFallbackReason;
 import net.ximatai.muyun.spring.common.exception.ErrorScope;
@@ -37,7 +44,6 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
-import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.web.PlatformWebPathRules;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -96,6 +102,8 @@ import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationContext;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationMove;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationService;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageContextBinding;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigField;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
@@ -151,14 +159,14 @@ public class DynamicRecordWebController implements
     private final RecordDuplicateCheckService duplicateCheckService;
     private final PlatformRecordNavigationService navigationService;
     private final DynamicRelationProjectionReadService dynamicRelationProjectionReadService;
-    private final PlatformDynamicModuleScopeService dynamicModuleScopeService;
+    private final TenantRequestScope tenantRequestScope;
     private final DynamicOpenApiGenerator openApiGenerator = new DynamicOpenApiGenerator();
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int SUMMARY_MAX_RECORDS = 10_000;
 
     @Autowired
     public DynamicRecordWebController(DynamicRecordService recordService,
-                                      ActiveTenantVerifier activeTenantVerifier,
+                                      TenantRequestScope tenantRequestScope,
                                       DynamicRecordQueryServices queryServices,
                                       DynamicRecordAttachmentServices attachmentServices,
                                       DynamicRecordActionServices actionServices) {
@@ -175,7 +183,7 @@ public class DynamicRecordWebController implements
         this.duplicateCheckService = actionServices.duplicateCheckService();
         this.navigationService = actionServices.navigationService();
         this.dynamicRelationProjectionReadService = queryServices.relationProjectionReadService();
-        this.dynamicModuleScopeService = new PlatformDynamicModuleScopeService(activeTenantVerifier);
+        this.tenantRequestScope = tenantRequestScope;
     }
 
     @Override
@@ -221,50 +229,52 @@ public class DynamicRecordWebController implements
                 request, pageConfigSnapshotService, moduleMetadataFieldService, fieldUiControlService,
                 fieldUiControlBindingService, service()::queryCriteria);
         Criteria quickCriteria = quickSearchCriteria(DynamicWebRequest.moduleAlias(), request);
-        Criteria workspaceCriteria = scopedListWorkspaceCriteria(DynamicWebRequest.moduleAlias(), request);
-        return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria, quickCriteria, workspaceCriteria);
+        Criteria navigatorCriteria = navigatorCriteria(DynamicWebRequest.moduleAlias(), request);
+        return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria, quickCriteria, navigatorCriteria);
     }
 
     private List<String> querySchemaExternalCriteriaKeys(String moduleAlias, String uiConfigId,
                                                           String queryTemplateId) {
         java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>();
-        scopedListWorkspaceCriteriaKey(moduleAlias, uiConfigId).ifPresent(keys::add);
+        navigatorQueryBindings(moduleAlias, uiConfigId).stream()
+                .filter(binding -> !"SESSION".equals(binding.source()))
+                .map(PlatformPageContextBinding::targetKey)
+                .forEach(keys::add);
         if (queryItemService != null && hasText(queryTemplateId)) {
             keys.addAll(queryItemService.externalValueKeys(queryTemplateId));
         }
         return List.copyOf(keys);
     }
 
-    private Criteria scopedListWorkspaceCriteria(String moduleAlias, WebQueryRequest request) {
-        if (request == null || !hasText(request.uiConfigId()) || request.externalQueryValues() == null) {
+    private Criteria navigatorCriteria(String moduleAlias, WebQueryRequest request) {
+        if (request == null || !hasText(request.uiConfigId())) {
             return Criteria.of();
         }
-        PlatformPageConfigSnapshot snapshot = pageConfigSnapshotService.snapshot(moduleAlias);
-        PlatformUiConfig uiConfig = publishedUiConfig(snapshot, request.uiConfigId());
-        String criteriaKey = scopedListWorkspaceCriteriaKey(uiConfig);
-        if (criteriaKey == null || !request.externalQueryValues().containsKey(criteriaKey)) {
-            return Criteria.of();
+        Criteria criteria = Criteria.of();
+        for (PlatformPageContextBinding binding : navigatorQueryBindings(moduleAlias, request.uiConfigId())) {
+            Object selectedValue = PageContextServerValueResolver.resolve(toWebBinding(binding)).orElseGet(() ->
+                    request.externalQueryValues() == null ? null : request.externalQueryValues().get(binding.targetKey()));
+            if (selectedValue != null) {
+                criteria.eq(binding.targetKey(), selectedValue);
+            }
         }
-        Object scopeValue = request.externalQueryValues().get(criteriaKey);
-        return scopeValue == null ? Criteria.of() : Criteria.of().eq(uiConfig.getScopeField(), scopeValue);
+        return criteria;
     }
 
-    private java.util.Optional<String> scopedListWorkspaceCriteriaKey(String moduleAlias, String uiConfigId) {
+    private List<PlatformPageContextBinding> navigatorQueryBindings(String moduleAlias, String uiConfigId) {
         if (!hasText(uiConfigId) || pageConfigSnapshotService == null) {
-            return java.util.Optional.empty();
+            return List.of();
         }
         PlatformUiConfig uiConfig = publishedUiConfig(pageConfigSnapshotService.snapshot(moduleAlias), uiConfigId);
-        return java.util.Optional.ofNullable(scopedListWorkspaceCriteriaKey(uiConfig));
+        return PlatformPageLayoutNavigator.contextBindings(uiConfig).stream()
+                .filter(binding -> "LIST_QUERY".equals(binding.target()))
+                .toList();
     }
 
-    private String scopedListWorkspaceCriteriaKey(PlatformUiConfig uiConfig) {
-        if (uiConfig.getScopeModuleAlias() == null || uiConfig.getScopeModuleAlias().isBlank()
-                || uiConfig.getScopeField() == null || uiConfig.getScopeField().isBlank()) {
-            return null;
-        }
-        return hasText(uiConfig.getScopeQueryCriteriaKey())
-                ? uiConfig.getScopeQueryCriteriaKey()
-                : uiConfig.getScopeField();
+    private PageContextBindingDefinition toWebBinding(PlatformPageContextBinding binding) {
+        return new PageContextBindingDefinition(PageContextSource.valueOf(binding.source()), binding.sourceKey(),
+                PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey(),
+                binding.targetPickerFieldKey());
     }
 
     private Criteria andCriteria(Criteria... criteriaList) {
@@ -385,6 +395,49 @@ public class DynamicRecordWebController implements
             PageResult<DynamicRecord> output = WebOutputSupport.page(service(), page, FieldOutputContext.LIST);
             return WebPageResponse.from(output, navigationContext(request, output));
         });
+    }
+
+    /**
+     * Read-only page-navigator projection.  It deliberately does not reuse the normal query
+     * endpoint: the caller is authorized and data-scoped as {@link PlatformAction#REFERENCE}.
+     */
+    @PostMapping("/navigator/reference/query")
+    @ActionEndpoint(PlatformAction.REFERENCE)
+    public WebPageResponse<DynamicRecord> navigatorReferenceQuery(@RequestBody(required = false) WebQueryRequest request) {
+        return webScope(() -> {
+            WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
+            PageResult<DynamicRecord> result = recordService.pageForAction(
+                    DynamicWebRequest.moduleAlias(),
+                    mainEntityAlias(DynamicWebRequest.moduleAlias()),
+                    PlatformAction.REFERENCE.code(),
+                    queryCriteria(request),
+                    PageRequest.of(page.pageNum(), page.pageSize()),
+                    querySorts(request));
+            return WebPageResponse.from(WebOutputSupport.page(service(), result, FieldOutputContext.LIST));
+        });
+    }
+
+    /** Tree variant of the navigator reference surface, governed by the same REFERENCE action. */
+    @PostMapping("/navigator/reference/tree/query")
+    @ActionEndpoint(PlatformAction.REFERENCE)
+    public WebListResponse<WebTreeNode<DynamicRecord>> navigatorReferenceTreeQuery(
+            @RequestBody(required = false) WebQueryRequest request) {
+        return webScope(() -> new WebListResponse<>(navigatorReferenceChildren(request, TreeAbility.ROOT_ID).stream()
+                .map(record -> navigatorReferenceTreeNode(request, record))
+                .toList()));
+    }
+
+    private List<DynamicRecord> navigatorReferenceChildren(WebQueryRequest request, String parentId) {
+        String moduleAlias = DynamicWebRequest.moduleAlias();
+        return recordService.childrenForAction(moduleAlias, mainEntityAlias(moduleAlias), PlatformAction.REFERENCE.code(),
+                queryCriteria(request), parentId);
+    }
+
+    private WebTreeNode<DynamicRecord> navigatorReferenceTreeNode(WebQueryRequest request, DynamicRecord record) {
+        return new WebTreeNode<>(WebOutputSupport.record(service(), record, FieldOutputContext.VIEW),
+                navigatorReferenceChildren(request, record.getId()).stream()
+                        .map(child -> navigatorReferenceTreeNode(request, child))
+                        .toList());
     }
 
     @PostMapping("/query/summary")
@@ -1254,7 +1307,6 @@ public class DynamicRecordWebController implements
     }
 
     @PostMapping("/formula/preview")
-    @ActionEndpoint(PlatformAction.CREATE)
     public DynamicFormulaPreviewResponse previewFormula(@PathVariable String moduleAlias,
                                                         @RequestBody(required = false) DynamicFormulaPreviewRequest request) {
         return tenantScope(moduleAlias, () -> {
@@ -1608,7 +1660,7 @@ public class DynamicRecordWebController implements
     }
 
     private <T> T tenantScope(String moduleAlias, Supplier<T> action) {
-        dynamicModuleScopeService.requireTenantScope(moduleAlias);
+        tenantRequestScope.requireActiveTenant(moduleAlias);
         return action.get();
     }
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { UiButton, UiInput } from '@muyun/vue-ui-antdv';
+import ManagementPanelHeader from './ManagementPanelHeader.vue';
 
 defineOptions({ name: 'RecordExplorerPanel' });
 
@@ -59,33 +60,29 @@ async function focusSearchInput() {
 
 <template>
   <section class="record-explorer-panel">
-    <header class="record-explorer-panel-header">
-      <UiButton
-        class="record-explorer-panel-title"
-        icon-name="reload"
-        icon-position="end"
-        type="text"
-        :title="refreshTitle ?? `刷新${title}`"
-        @click="emit('refresh')"
-      >
-        <span class="record-explorer-panel-title-text">
-          <span>{{ title }}</span>
-        </span>
-      </UiButton>
-      <div v-if="$slots['title-extra']" class="record-explorer-panel-title-extra">
+    <ManagementPanelHeader
+      class="record-explorer-panel-header"
+      :title="title"
+      title-action-icon="reload"
+      :title-action-title="refreshTitle ?? `刷新${title}`"
+      @title-action="emit('refresh')"
+    >
+      <template v-if="$slots['title-extra']" #status>
         <slot name="title-extra" />
-      </div>
-      <div class="record-explorer-panel-actions">
-        <UiButton
-          v-if="searchable"
-          icon-name="search"
-          type="text"
-          :title="`搜索${title}`"
-          @click="toggleSearch"
-        />
-        <slot name="actions" />
-      </div>
-    </header>
+      </template>
+      <template #actions>
+        <div class="record-explorer-panel-actions">
+          <UiButton
+            v-if="searchable"
+            icon-name="search"
+            type="text"
+            :title="`搜索${title}`"
+            @click="toggleSearch"
+          />
+          <slot name="actions" />
+        </div>
+      </template>
+    </ManagementPanelHeader>
 
     <Transition name="record-explorer-search">
       <div v-if="searchVisible" ref="searchRoot" class="record-explorer-search">
@@ -119,7 +116,8 @@ async function focusSearchInput() {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: 12px;
+  padding: var(--muyun-management-panel-padding-block, 10px)
+    var(--muyun-management-panel-padding-inline, 12px);
   border: 1px solid var(--muyun-border);
   border-radius: 8px;
   background: var(--muyun-surface);
@@ -127,53 +125,8 @@ async function focusSearchInput() {
 }
 
 .record-explorer-panel-header {
-  display: flex;
   flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.record-explorer-panel-title {
-  margin: -4px 0 -4px -6px;
-  padding: 4px 6px;
-  color: var(--muyun-text);
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.record-explorer-panel-title-text {
-  display: inline-grid;
-  justify-items: start;
-  gap: 2px;
-}
-
-.record-explorer-panel-title-extra {
-  display: inline-flex;
-  flex: 1 1 auto;
-  align-items: center;
-  min-width: 0;
-}
-
-.record-explorer-panel-title :deep(.ui-button-trailing-icon) {
-  width: 0;
-  margin-inline-start: 0;
-  margin-inline-end: 0;
-  color: var(--muyun-text-muted);
-  opacity: 0;
-  overflow: hidden;
-  transition:
-    width 0.12s ease,
-    margin-inline-start 0.12s ease,
-    opacity 0.12s ease;
-}
-
-.record-explorer-panel-title:hover :deep(.ui-button-trailing-icon),
-.record-explorer-panel-title:focus-visible :deep(.ui-button-trailing-icon) {
-  width: 1em;
-  margin-inline-start: 6px;
-  opacity: 1;
+  margin-bottom: var(--muyun-management-panel-content-gap, 8px);
 }
 
 .record-explorer-panel-actions {
@@ -187,7 +140,7 @@ async function focusSearchInput() {
   display: flex;
   flex: 0 0 auto;
   min-width: 0;
-  margin-bottom: 10px;
+  margin-bottom: var(--muyun-management-panel-content-gap, 8px);
   overflow: hidden;
 }
 
@@ -212,7 +165,7 @@ async function focusSearchInput() {
 .record-explorer-search-enter-to,
 .record-explorer-search-leave-from {
   max-height: 40px;
-  margin-bottom: 10px;
+  margin-bottom: var(--muyun-management-panel-content-gap, 8px);
   opacity: 1;
   transform: translateY(0);
 }
@@ -239,7 +192,7 @@ async function focusSearchInput() {
   flex: 0 0 auto;
   align-items: center;
   min-height: 32px;
-  margin-top: 10px;
+  margin-top: var(--muyun-management-panel-content-gap, 8px);
   padding-top: 8px;
   border-top: 1px solid var(--muyun-border-subtle);
 }

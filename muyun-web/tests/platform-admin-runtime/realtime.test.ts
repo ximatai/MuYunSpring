@@ -14,6 +14,7 @@ vi.mock('@muyun/web-core', () => ({
   createDataChangeDispatcher: () => ({ subscribe: vi.fn(), dispatch: vi.fn() }),
   createRealtimeClient,
   connectRealtimeBusinessEvents: () => ({ unsubscribe }),
+  connectRealtimeBusinessNotifications: () => ({ unsubscribe }),
   connectRealtimeDataChanges: () => ({ unsubscribe }),
   connectRealtimeUserNotifications: () => ({ unsubscribe }),
   moduleDataChangeChannel: (moduleAlias: string) => moduleAlias,
@@ -45,6 +46,6 @@ it('owns one realtime connection, forwards consumer runtime configuration, and r
   await connection.disconnect();
 
   expect(realtimeClient.disconnect).toHaveBeenCalledTimes(1);
-  expect(unsubscribe).toHaveBeenCalledTimes(3);
+  expect(unsubscribe).toHaveBeenCalledTimes(4);
   expect(() => connectAppRealtime()).not.toThrow();
 });

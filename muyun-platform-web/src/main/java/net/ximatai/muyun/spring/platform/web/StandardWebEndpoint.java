@@ -9,7 +9,7 @@ import java.util.Set;
 public final class StandardWebEndpoint {
     private static final Set<Class<?>> DECLARING_TYPES = Set.of(
             CrudWeb.class,
-            ReadOnlyWeb.class,
+            QueryViewWeb.class,
             ReferenceWeb.class,
             EnableWeb.class,
             SortWeb.class,

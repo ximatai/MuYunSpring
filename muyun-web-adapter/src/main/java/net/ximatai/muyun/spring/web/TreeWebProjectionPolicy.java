@@ -32,10 +32,19 @@ public interface TreeWebProjectionPolicy<T extends EntityContract & TreeCapable,
     }
 
     default List<T> treeChildren(HttpServletRequest request, String parentId) {
+        return treeChildrenForAction(request, PlatformAction.TREE, parentId);
+    }
+
+    /**
+     * Reads tree children under the supplied action while preserving the controller's
+     * tree projection policy. Navigator references use this with REFERENCE rather
+     * than bypassing scoped tree implementations.
+     */
+    default List<T> treeChildrenForAction(HttpServletRequest request, PlatformAction action, String parentId) {
         if (service() instanceof DataScopeAbility<?>) {
             DataScopeAbility<?> dataScopeAbility = DataScopeAbility.cast(service());
             @SuppressWarnings("unchecked")
-            List<T> records = (List<T>) dataScopeAbility.childrenForAction(PlatformAction.TREE, parentId);
+            List<T> records = (List<T>) dataScopeAbility.childrenForAction(action, parentId);
             return records;
         }
         return service().children(parentId);

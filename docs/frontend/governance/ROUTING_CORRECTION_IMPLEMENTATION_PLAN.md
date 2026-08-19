@@ -2,7 +2,7 @@
 
 ## 目标
 
-前端页面、浏览器地址和工作台页签使用同一份事实：当前 Vue Router 地址。页签只保存可恢复的完整地址和展示信息；页面只由 `RouterView` 渲染；同一路由的多个独立页面由 URL 中的 `InstanceKey` 区分。
+前端页面、浏览器地址和工作台页签使用同一份事实：工作台 `PageDescriptor` 对应的完整浏览器地址。Vue Router 负责浏览器历史；工作台按该地址恢复页签和页面承载。同一路由的多个独立页面由 URL 中的 `InstanceKey` 区分。
 
 本规范只约束前端路由、菜单入口和页签协作，不改变后端菜单、模块、保存或权限接口。
 
@@ -20,7 +20,7 @@
 
 ## 新模式带来的收益
 
-- Vue Router 地址成为页面和页签的唯一事实；工作台只保存可恢复的完整地址和展示信息。
+- 完整浏览器地址会被解析为工作台 `PageDescriptor`；工作台只保存可恢复的地址和展示信息，不再维护独立的业务状态。
 - 列表、表单和详情使用不同路径；资源编号、页面动作和页签实例分别由路径参数、`action` 和 `InstanceKey` 表达。
 - 菜单按显式入口类型和精确路径编译；错误菜单能显示原因和修正建议，不会误落入其他页面。
 - `InstanceKey` 隔离同一路由的多个页签和缓存；`replaceRoute` 保留当前实例，保存不会新增页签或覆盖列表页签。
@@ -31,20 +31,20 @@
 
 ### 静态页面注册
 
-前端自带页面必须在 `src/app/staticRouteDefinitions.ts` 以 `StaticRouteDefinition` 声明：
+前端自带页面必须在 `src/platform-admin-runtime/platformAdminRoutes.ts` 声明；它是工作台静态业务页的实际注册表：
 
 ```ts
 {
   route: '/iam/users',
   moduleAlias: 'iam.user',
-  componentPath: '/src/views/UserManagementView.vue',
+  component: UserManagementView,
   layout: 'workspace',
 }
 ```
 
 - `route` 是稳定的内部绝对地址，必须全局唯一。
 - `moduleAlias` 只用于模块上下文、权限和菜单一致性校验，不用于推断页面组件。
-- `componentPath` 必须精确匹配 `import.meta.glob('/src/views/**/*View.vue')` 的懒加载结果；禁止顶层同步导入页面或使用 eager glob。
+- `component` 必须是明确导入的页面组件；动态模块页面不得伪装成静态组件。
 - `menuEntry: false` 表示该地址只能由业务流程直接打开，不能配置为菜单入口。详情、表单、授权等辅助页面必须使用该标记。
 
 ### 路由分类
@@ -52,8 +52,8 @@
 | 类型 | 来源与规则 |
 | --- | --- |
 | 基础路由 | 登录、首页和诊断页在 Router 创建时直接登记。 |
-| 静态菜单路由 | 菜单 `ROUTE` 的 `route` 与静态定义精确匹配后动态登记。 |
-| 非菜单业务分支 | 在静态定义中以 `menuEntry: false` 声明，并随所属模块菜单一并登记。 |
+| 静态菜单路由 | 菜单 `ROUTE` 的 `route` 与静态注册表精确匹配后交给业务页面承载。 |
+| 非菜单业务分支 | 在静态注册表中以 `menuEntry: false` 声明；例如用户表单路由。 |
 | 动态模块路由 | 菜单 `MODULE` 编译为标准模块运行器地址，不映射到业务 Vue 页面。 |
 | 外链 | `LINK + TAB` 进入工作台外链承载页；`LINK + WINDOW` 只打开浏览器窗口，不登记内部页面。 |
 | 诊断路由 | 通配地址保留原 URL；有菜单配置问题时显示配置诊断，否则显示 404。 |
@@ -64,7 +64,7 @@
 - `ROUTE` 菜单只可按 `route` 精确查找 `StaticRouteDefinition`，并校验菜单与定义的 `moduleAlias` 相同。
 - `MODULE`、`ROUTE`、`LINK` 的字段组合不完整或互相冲突时，生成结构化诊断，不注册该菜单路由；其他正确菜单继续可用。
 - 同一路径只能被完全相同的菜单定义复用。入口类型、模块或页面文件不同即为冲突，整体拒绝该路径。
-- 菜单首次加载后，路由校验和动态登记对当前身份只执行一次。退出、切换身份、租户、菜单方案或刷新菜单时必须调用 `resetMenuRoutes()`，移除旧 RouteRecord 并清空诊断状态。
+- 菜单刷新、身份切换、租户切换或菜单方案切换后，必须重新解析当前菜单并丢弃旧页签恢复结果，不能让旧菜单继续打开已失效页面。
 
 ## URL 与页签实例
 
@@ -81,7 +81,7 @@
 - `openRoute` 的目标地址没有 `InstanceKey` 时，工作台生成 UUID；`newInstance: true` 即使已有实例键也强制生成新的 UUID。
 - 刷新、复制地址、浏览器前进后退直接使用 URL 原有的 `InstanceKey`，不生成新值。
 - `replaceRoute` 变更当前页签的业务地址时保留当前 `InstanceKey` 和页签 key，不产生新页签，也不增加浏览器历史记录。
-- KeepAlive 的页面缓存键使用路由名称和 `InstanceKey`；不能用业务 ID、菜单 ID 或组件对象代替实例键。
+- 页签和缓存键以页面目标和 `InstanceKey` 组成；不能用业务 ID、菜单 ID 或组件对象代替实例键。
 
 ### 页签标题
 
@@ -92,7 +92,7 @@
 
 ## 新页面接入步骤
 
-1. 在静态注册表声明菜单地址；如有表单、详情或辅助分支，同时声明 `menuEntry: false` 地址。
+1. 在静态业务页注册表声明菜单地址；如有表单、详情或辅助分支，同时声明 `menuEntry: false` 地址。
 2. 使用路径参数表达资源身份，用显式 query 表达动作或可恢复页面状态；为每种组合写独立解析和校验规则。
 3. 从列表或动作区使用 `openRoute` 打开独立页面，并传入业务可确定的 `tabTitle`。
 4. 保存、取消或状态切换需要复用当前页签时使用 `replaceRoute`，传入目标地址、必要 query 和新的 `tabTitle`。

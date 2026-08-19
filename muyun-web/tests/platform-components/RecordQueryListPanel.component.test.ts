@@ -1,10 +1,11 @@
 import { flushPromises, shallowMount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import RecordQueryListPanel, {
   type QueryListRecord,
   type RecordQueryListColumn,
 } from '@/platform-components/RecordQueryListPanel.vue';
 import type { ModuleContext } from '@muyun/web-core';
+import type { WebQueryRequest } from '@muyun/web-contracts';
 
 describe('RecordQueryListPanel', () => {
   it('uses one display line by default and preserves configured multiline limits with the full text tooltip', async () => {
@@ -49,11 +50,148 @@ describe('RecordQueryListPanel', () => {
     expect(cells[1].attributes('style')).toContain('--record-query-list-max-lines: 3');
     expect(cells[1].attributes('title')).toBe('显示三行以内，全文仍可通过提示查看');
   });
+
+  it('keeps icon-only pagination controls accessible', async () => {
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1' }),
+        title: '备注',
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.find('[aria-label="上一页"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="下一页"]').exists()).toBe(true);
+  });
+
+  it('reloads the central list when an upstream navigator changes its criteria', async () => {
+    const requests: WebQueryRequest[] = [];
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1' }, requests),
+        title: '备注',
+        externalQueryValues: { tenantId: 'tenant-a' },
+      },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await wrapper.setProps({ externalQueryValues: { tenantId: 'tenant-b' } });
+    await flushPromises();
+
+    expect(requests).toHaveLength(2);
+    expect(requests.at(-1)?.externalQueryValues).toEqual({ tenantId: 'tenant-b' });
+  });
+
+  it('loads the signed list projection when a required navigator scope becomes ready', async () => {
+    const requests: WebQueryRequest[] = [];
+    const context = createContext({ id: 'position-1', code: '001', title: 'Java' }, requests);
+    Object.assign(context.runtime, {
+      ready: Promise.resolve({
+        uiDescriptor: {
+          page: {
+            list: {
+              fields: {
+                fields: [
+                  { fieldRef: { fieldName: 'code' }, label: '岗位编码', visible: { constant: true } },
+                  { fieldRef: { fieldName: 'title' }, label: '岗位名称', visible: { constant: true } },
+                ],
+              },
+            },
+          },
+        },
+      }),
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '岗位管理',
+        ready: false,
+        externalQueryValues: { categoryId: 'category-1' },
+      },
+      global: {
+        stubs: { UiDataTable: { name: 'UiDataTable', props: ['columns'], template: '<div />' } },
+      },
+    });
+
+    await flushPromises();
+    expect(requests).toHaveLength(0);
+
+    await wrapper.setProps({ ready: true });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+
+    expect(wrapper.findComponent({ name: 'UiDataTable' }).props('columns')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'code', title: '岗位编码' }),
+        expect.objectContaining({ key: 'title', title: '岗位名称' }),
+      ]),
+    );
+  });
+
+  it('does not render standard mutation actions that the module does not publish', async () => {
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1' }),
+        title: '只读记录',
+        standardCrudActions: true,
+        standardCrudRowActions: true,
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain('新建');
+  });
+
+  it('preloads record availability and fails closed for row mutations until it is resolved', async () => {
+    const recordActionsBatch = vi.fn().mockResolvedValue([]);
+    const context = createContext({
+      id: 'managed-note',
+      title: '平台托管记录',
+    }) as ModuleContext<QueryListRecord>;
+    Object.assign(context, {
+      runtime: { ready: Promise.resolve({}), snapshot: () => ({}) },
+      can: () => true,
+      action: (_actionCode: string, recordId?: string) =>
+        recordId ? undefined : { actionCode: 'update', available: true },
+      recordActionsSnapshot: () => undefined,
+      recordActionsBatch,
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '记录',
+        standardCrudRowActions: true,
+      },
+      global: {
+        stubs: {
+          UiDataTable: { name: 'UiDataTable', props: ['rows'], template: '<div />' },
+        },
+      },
+    });
+
+    await flushPromises();
+
+    expect(recordActionsBatch).toHaveBeenCalledWith(['managed-note']);
+    const rows = wrapper.findComponent({ name: 'UiDataTable' }).props('rows') as Array<{
+      secondaryActions: Array<{ key: string; disabled: boolean; disabledReason?: string }>;
+    }>;
+    expect(rows[0].secondaryActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'edit', disabled: true, disabledReason: '正在校验操作可用性' }),
+        expect.objectContaining({ key: 'delete', disabled: true, disabledReason: '正在校验操作可用性' }),
+      ]),
+    );
+  });
 });
 
-function createContext(record: QueryListRecord): ModuleContext<QueryListRecord> {
+function createContext(
+  record: QueryListRecord,
+  queryRequests?: WebQueryRequest[],
+): ModuleContext<QueryListRecord> {
   return {
     moduleAlias: 'demo.note',
+    runtime: { ready: Promise.resolve({}) },
     abilities: { has: () => false },
     can: () => false,
     crud: {
@@ -64,7 +202,10 @@ function createContext(record: QueryListRecord): ModuleContext<QueryListRecord> 
         externalCriteria: [],
         defaultSorts: [],
       }),
-      query: async () => ({ records: [record], total: 1, pageNum: 1, pageSize: 20 }),
+      query: async (request?: WebQueryRequest) => {
+        queryRequests?.push(request ?? {});
+        return { records: [record], total: 1, pageNum: 1, pageSize: 20 };
+      },
     },
   } as unknown as ModuleContext<QueryListRecord>;
 }

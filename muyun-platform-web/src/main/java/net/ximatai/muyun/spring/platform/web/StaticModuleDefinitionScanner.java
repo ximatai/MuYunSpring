@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefini
 import net.ximatai.muyun.spring.platform.application.PlatformStaticApplication;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
+import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.module.StaticModuleRegistrationSource;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceCompiler;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
@@ -12,13 +13,18 @@ import net.ximatai.muyun.spring.platform.module.StaticServiceAbilityCompiler;
 import net.ximatai.muyun.spring.platform.module.StaticModuleServiceDeclaration;
 import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.spring.web.EnableWeb;
-import net.ximatai.muyun.spring.web.ReadOnlyWeb;
+import net.ximatai.muyun.spring.web.QueryViewWeb;
 import net.ximatai.muyun.spring.web.ReferenceWeb;
+import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
+import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
 import net.ximatai.muyun.spring.web.ScopedWeb;
 import net.ximatai.muyun.spring.web.SortWeb;
 import net.ximatai.muyun.spring.web.TreeWeb;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.reference.ModuleReadProjectionContributor;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
+import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
+import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
@@ -27,6 +33,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
+import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.annotation.AnnotationUtils;
@@ -34,9 +41,12 @@ import org.springframework.core.ResolvableType;
 import org.springframework.util.ReflectionUtils;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSource {
     private final ApplicationContext applicationContext;
@@ -46,6 +56,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
     }
 
     public List<StaticModuleDefinition> scan() {
+        validateActionEndpointOrigins();
         LinkedHashMap<String, StaticModuleDefinition> definitions = new LinkedHashMap<>();
         for (String beanName : applicationContext.getBeanNamesForAnnotation(PlatformStaticModule.class)) {
             Object bean = applicationContext.getBean(beanName);
@@ -58,8 +69,46 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             definitions.put(definition.moduleAlias(), definition);
         }
         addActionContributions(definitions);
+        addActionDeclarations(definitions);
         addActionScopes(definitions);
         return List.copyOf(definitions.values());
+    }
+
+    private void validateActionEndpointOrigins() {
+        for (String beanName : actionEndpointOriginBeanNames()) {
+            Object bean = applicationContext.getBean(beanName);
+            Class<?> beanClass = AopUtils.getTargetClass(bean);
+            List<String> origins = new ArrayList<>();
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticModule.class) != null) {
+                origins.add("@PlatformStaticModule");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionContribution.class) != null) {
+                origins.add("@PlatformStaticActionContribution");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionDeclaration.class) != null) {
+                origins.add("@PlatformStaticActionDeclaration");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionScope.class) != null) {
+                origins.add("@PlatformStaticActionScope");
+            }
+            if (AnnotationUtils.findAnnotation(beanClass, PlatformStaticWebProjection.class) != null) {
+                origins.add("@PlatformStaticWebProjection");
+            }
+            if (origins.size() > 1) {
+                throw new IllegalStateException("static action endpoint origin annotations are mutually exclusive: "
+                        + beanClass.getName() + " -> " + origins);
+            }
+        }
+    }
+
+    private Set<String> actionEndpointOriginBeanNames() {
+        Set<String> beanNames = new LinkedHashSet<>();
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticModule.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticActionContribution.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticActionDeclaration.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticActionScope.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformStaticWebProjection.class)));
+        return beanNames;
     }
 
     @Override
@@ -77,11 +126,12 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .parentModuleAlias(module.parent().isBlank() ? null : module.parent())
                 .entry(entryType(module), module.route(), module.externalUrl())
                 .capabilities(capabilities)
+                .navigatorSourceCapabilities(navigatorSourceCapabilities(beanClass))
                 .actions(actions(bean, beanClass, capabilities))
                 .entities(entities(bean, module, projectionJoins))
                 .uiDefinition(uiDefinition(bean, module))
                 .references(references(bean))
-                .readProjections(readProjections(bean))
+                .readProjections(readProjections(bean, module.alias()))
                 .modelClass(modelClass(bean))
                 .projectionJoins(projectionJoins)
                 .openApiAvailable(AnnotationUtils.findAnnotation(beanClass, StaticModuleOpenApi.class) != null)
@@ -99,6 +149,18 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
         capabilities.addAll(StaticServiceAbilityCompiler.compile(service(bean)));
         return java.util.Set.copyOf(capabilities);
+    }
+
+    private Set<NavigatorSourceCapability> navigatorSourceCapabilities(Class<?> beanClass) {
+        java.util.EnumSet<NavigatorSourceCapability> capabilities =
+                java.util.EnumSet.noneOf(NavigatorSourceCapability.class);
+        if (NavigatorReferenceWeb.class.isAssignableFrom(beanClass)) {
+            capabilities.add(NavigatorSourceCapability.REFERENCE_QUERY);
+        }
+        if (NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
+            capabilities.add(NavigatorSourceCapability.REFERENCE_TREE);
+        }
+        return Set.copyOf(capabilities);
     }
 
     private Class<?> modelClass(Object bean) {
@@ -127,7 +189,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         return StaticReferenceCompiler.compile(modelClass);
     }
 
-    private List<StaticModuleReadProjectionDefinition> readProjections(Object bean) {
+    private List<StaticModuleReadProjectionDefinition> readProjections(Object bean, String moduleAlias) {
         Object service = service(bean);
         if (!(service instanceof ModuleReadProjectionContributor contributor)) {
             return List.of();
@@ -139,7 +201,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
         return projections.stream()
                 .map(projection -> new StaticModuleReadProjectionDefinition(
-                        projection.path(),
+                        declaredPath(modelClass(bean), moduleAlias, projection),
                         projection.referencePath(),
                         projection.outputField(),
                         projection.projectionType(),
@@ -147,6 +209,35 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                         projection.sortable()
                 ))
                 .toList();
+    }
+
+    private String declaredPath(Class<?> modelClass,
+                                String moduleAlias,
+                                net.ximatai.muyun.spring.ability.reference.ModuleReadProjection projection) {
+        if (projection.path() != null || projection.referencePath() != null) return projection.path();
+        if (modelClass == null) {
+            throw new IllegalArgumentException("declared read projection requires a static entity model: "
+                    + projection.outputField());
+        }
+        List<ReferencePlan> plans = StaticReferenceResolver.plans(modelClass).stream()
+                .filter(plan -> plan.cardinality() == net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE)
+                .filter(plan -> plan.projections().stream().anyMatch(item -> item.outputField().equals(projection.outputField())))
+                .toList();
+        if (plans.size() != 1) {
+            throw new IllegalArgumentException("declared read projection requires exactly one direct @ReferenceLoad: "
+                    + moduleAlias + "." + projection.outputField());
+        }
+        ReferencePlan plan = plans.getFirst();
+        ReferenceProjection output = plan.projections().stream()
+                .filter(item -> item.outputField().equals(projection.outputField())).findFirst().orElseThrow();
+        String referenceCode = StaticReferenceCompiler.compile(modelClass).stream()
+                .filter(reference -> reference.sourceField().equals(plan.sourceField()))
+                .map(StaticReferenceDefinition::code)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "declared read projection source is not a static reference: "
+                                + moduleAlias + "." + plan.sourceField()));
+        return referenceCode + "." + output.targetField();
     }
 
     private List<RelationProjectionJoinDefinition> projectionJoins(Object bean) {
@@ -321,7 +412,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             LinkedHashMap<String, StaticModuleActionDefinition> merged = new LinkedHashMap<>();
             target.actions().forEach(action -> merged.put(action.actionCode(), action));
             contributionActions(bean, beanClass, contribution)
-                    .forEach(action -> mergeContributionAction(target.moduleAlias(), beanClass, merged, action));
+                    .forEach(action -> mergeDeclaredAction("@PlatformStaticActionContribution", target.moduleAlias(),
+                            beanClass, merged, action));
             List<EntityDefinition> entities = mergeContributionEntities(
                     target.moduleAlias(), beanClass, target.entities(), contributionEntities(bean, contribution));
             ModuleUiDefinition uiDefinition = mergeContributionUiDefinition(
@@ -338,6 +430,32 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
     }
 
+    private void addActionDeclarations(LinkedHashMap<String, StaticModuleDefinition> definitions) {
+        for (String beanName : applicationContext.getBeanNamesForAnnotation(PlatformStaticActionDeclaration.class)) {
+            Object bean = applicationContext.getBean(beanName);
+            Class<?> beanClass = AopUtils.getTargetClass(bean);
+            PlatformStaticActionDeclaration declaration =
+                    AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionDeclaration.class);
+            if (declaration == null) {
+                continue;
+            }
+            String targetModule = PlatformNameRules.requireModuleAlias(declaration.module());
+            StaticModuleDefinition target = definitions.get(targetModule);
+            if (target == null) {
+                throw new IllegalStateException("@PlatformStaticActionDeclaration target module is not scanned: "
+                        + targetModule + " <- " + beanClass.getName());
+            }
+            LinkedHashMap<String, StaticModuleActionDefinition> merged = new LinkedHashMap<>();
+            target.actions().forEach(action -> merged.put(action.actionCode(), action));
+            LinkedHashMap<String, StaticModuleActionDefinition> declaredActions = new LinkedHashMap<>();
+            ReflectionUtils.doWithMethods(beanClass,
+                    method -> addAnnotatedAction(declaredActions, method, java.util.Set.of()));
+            declaredActions.values().forEach(action -> mergeDeclaredAction("@PlatformStaticActionDeclaration",
+                    target.moduleAlias(), beanClass, merged, action));
+            definitions.put(target.moduleAlias(), target.toBuilder().actions(List.copyOf(merged.values())).build());
+        }
+    }
+
     private void addActionScopes(LinkedHashMap<String, StaticModuleDefinition> definitions) {
         for (String beanName : applicationContext.getBeanNamesForAnnotation(PlatformStaticActionScope.class)) {
             Object bean = applicationContext.getBean(beanName);
@@ -351,13 +469,13 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 throw new IllegalStateException("@PlatformStaticActionScope target module is not scanned: "
                         + scope.module() + " <- " + beanClass.getName());
             }
-            LinkedHashMap<String, StaticModuleActionDefinition> merged = new LinkedHashMap<>();
-            target.actions().forEach(action -> merged.put(action.actionCode(), action));
+            LinkedHashMap<String, StaticModuleActionDefinition> targetActions = new LinkedHashMap<>();
+            target.actions().forEach(action -> targetActions.put(action.actionCode(), action));
             LinkedHashMap<String, StaticModuleActionDefinition> scopedActions = new LinkedHashMap<>();
             ReflectionUtils.doWithMethods(beanClass,
                     method -> addAnnotatedAction(scopedActions, method, java.util.Set.of()));
-            scopedActions.values().forEach(action -> mergeContributionAction(target.moduleAlias(), beanClass, merged, action));
-            definitions.put(target.moduleAlias(), target.toBuilder().actions(List.copyOf(merged.values())).build());
+            scopedActions.values().forEach(action -> validateScopedAction(target.moduleAlias(), beanClass,
+                    targetActions, action));
         }
     }
 
@@ -418,16 +536,11 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         if (contributionUiDefinition == null) {
             return targetUiDefinition;
         }
-        LinkedHashMap<String, ViewDefinition> views = new LinkedHashMap<>();
-        if (targetUiDefinition != null) {
-            targetUiDefinition.views().forEach(view -> views.put(view.viewCode(), view));
-        }
-        for (ViewDefinition view : contributionUiDefinition.views()) {
-            if (views.containsKey(view.viewCode())) {
-                throw new IllegalStateException("@PlatformStaticActionContribution UI view conflicts with target module: "
-                        + targetModule + "." + view.viewCode() + " <- " + contributor.getName());
-            }
-            views.put(view.viewCode(), view);
+        if (targetUiDefinition != null
+                && targetUiDefinition.page() != null
+                && contributionUiDefinition.page() != null) {
+            throw new IllegalStateException("@PlatformStaticActionContribution page conflicts with target module: "
+                    + targetModule + " <- " + contributor.getName());
         }
         LinkedHashMap<String, UiActionDefinition> actions = new LinkedHashMap<>();
         if (targetUiDefinition != null) {
@@ -440,18 +553,72 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             }
             actions.put(action.actionCode(), action);
         }
-        return new ModuleUiDefinition(targetModule, List.copyOf(views.values()), List.copyOf(actions.values()));
+        List<PageDetailEditorContribution> editorContributions = new ArrayList<>();
+        if (targetUiDefinition != null) editorContributions.addAll(targetUiDefinition.editorContributions());
+        for (PageDetailEditorContribution contribution : contributionUiDefinition.editorContributions()) {
+            if (editorContributions.stream().anyMatch(existing -> existing.resource().equals(contribution.resource()))) {
+                throw new IllegalStateException("@PlatformStaticActionContribution detail editor conflicts with target module: "
+                        + targetModule + "." + contribution.resource() + " <- " + contributor.getName());
+            }
+            editorContributions.add(contribution);
+        }
+        List<PageDetailRelationDefinition> detailRelations = new ArrayList<>();
+        if (targetUiDefinition != null) detailRelations.addAll(targetUiDefinition.detailRelations());
+        for (PageDetailRelationDefinition relation : contributionUiDefinition.detailRelations()) {
+            if (detailRelations.stream().anyMatch(existing -> existing.code().equals(relation.code()))) {
+                throw new IllegalStateException("@PlatformStaticActionContribution detail relation conflicts with target module: "
+                        + targetModule + "." + relation.code() + " <- " + contributor.getName());
+            }
+            detailRelations.add(relation);
+        }
+        ViewDefinition defaultEditor = targetUiDefinition == null ? null : targetUiDefinition.defaultEditor();
+        if (contributionUiDefinition.defaultEditor() != null) {
+            if (defaultEditor != null) {
+                throw new IllegalStateException("@PlatformStaticActionContribution default editor conflicts with target module: "
+                        + targetModule + " <- " + contributor.getName());
+            }
+            defaultEditor = contributionUiDefinition.defaultEditor();
+        }
+        List<EditorSurfaceDefinition> editorSurfaces = new ArrayList<>();
+        if (targetUiDefinition != null) editorSurfaces.addAll(targetUiDefinition.editorSurfaces());
+        for (EditorSurfaceDefinition surface : contributionUiDefinition.editorSurfaces()) {
+            if (editorSurfaces.stream().anyMatch(existing -> existing.key().equals(surface.key()))) {
+                throw new IllegalStateException("@PlatformStaticActionContribution editor surface conflicts with target module: "
+                        + targetModule + "." + surface.key() + " <- " + contributor.getName());
+            }
+            editorSurfaces.add(surface);
+        }
+        return new ModuleUiDefinition(targetModule, List.copyOf(actions.values()),
+                targetUiDefinition != null && targetUiDefinition.page() != null
+                        ? targetUiDefinition.page() : contributionUiDefinition.page(), defaultEditor,
+                editorSurfaces, editorContributions, detailRelations);
     }
 
-    private void mergeContributionAction(String targetModule,
-                                         Class<?> contributor,
-                                         LinkedHashMap<String, StaticModuleActionDefinition> actions,
-                                         StaticModuleActionDefinition action) {
+    private void mergeDeclaredAction(String sourceAnnotation,
+                                     String targetModule,
+                                     Class<?> contributor,
+                                     LinkedHashMap<String, StaticModuleActionDefinition> actions,
+                                     StaticModuleActionDefinition action) {
         if (actions.containsKey(action.actionCode())) {
-            throw new IllegalStateException("@PlatformStaticActionContribution action conflicts with target module: "
+            throw new IllegalStateException(sourceAnnotation + " action conflicts with target module: "
                     + targetModule + "." + action.actionCode() + " <- " + contributor.getName());
         }
         actions.put(action.actionCode(), action);
+    }
+
+    private void validateScopedAction(String targetModule,
+                                      Class<?> scope,
+                                      Map<String, StaticModuleActionDefinition> targetActions,
+                                      StaticModuleActionDefinition action) {
+        StaticModuleActionDefinition targetAction = targetActions.get(action.actionCode());
+        if (targetAction == null) {
+            throw new IllegalStateException("@PlatformStaticActionScope action is not declared by target module: "
+                    + targetModule + "." + action.actionCode() + " <- " + scope.getName());
+        }
+        if (!targetAction.equals(action)) {
+            throw new IllegalStateException("@PlatformStaticActionScope action conflicts with target module: "
+                    + targetModule + "." + action.actionCode() + " <- " + scope.getName());
+        }
     }
 
     private List<StaticModuleActionDefinition> contributionActions(Object bean,
@@ -483,7 +650,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addPlatformUnlessDisabled(actions, PlatformAction.UPDATE, disabledActions);
             addPlatformUnlessDisabled(actions, PlatformAction.DELETE, disabledActions);
             addPlatformUnlessDisabled(actions, PlatformAction.QUERY, disabledActions);
-        } else if (ReadOnlyWeb.class.isAssignableFrom(beanClass)) {
+        } else if (QueryViewWeb.class.isAssignableFrom(beanClass)) {
             addPlatformUnlessDisabled(actions, PlatformAction.MENU, disabledActions);
             addPlatformUnlessDisabled(actions, PlatformAction.VIEW, disabledActions);
             addPlatformUnlessDisabled(actions, PlatformAction.QUERY, disabledActions);
@@ -498,7 +665,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         if (service == null) {
             addUnwiredLegacyAbilityActions(actions, beanClass);
         }
-        if (ReferenceWeb.class.isAssignableFrom(beanClass)) {
+        if (ReferenceWeb.class.isAssignableFrom(beanClass)
+                || NavigatorReferenceWeb.class.isAssignableFrom(beanClass)
+                || NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
             addPlatformUnlessDisabled(actions, PlatformAction.REFERENCE, disabledActions);
         }
     }
@@ -544,7 +713,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addContributionUnlessDisabled(actions, contribution, PlatformAction.UPDATE, disabledActions);
             addContributionUnlessDisabled(actions, contribution, PlatformAction.DELETE, disabledActions);
             addContributionUnlessDisabled(actions, contribution, PlatformAction.QUERY, disabledActions);
-        } else if (ReadOnlyWeb.class.isAssignableFrom(beanClass)) {
+        } else if (QueryViewWeb.class.isAssignableFrom(beanClass)) {
             addContributionUnlessDisabled(actions, contribution, PlatformAction.VIEW, disabledActions);
             addContributionUnlessDisabled(actions, contribution, PlatformAction.QUERY, disabledActions);
         }
@@ -569,7 +738,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 addContributionPlatform(actions, contribution, PlatformAction.RECYCLE_BIN_PURGE);
             }
         }
-        if (ReferenceWeb.class.isAssignableFrom(beanClass)) {
+        if (ReferenceWeb.class.isAssignableFrom(beanClass)
+                || NavigatorReferenceWeb.class.isAssignableFrom(beanClass)
+                || NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
             addContributionPlatform(actions, contribution, PlatformAction.REFERENCE);
         }
     }
@@ -604,7 +775,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
         CustomActionEndpoint custom = AnnotationUtils.findAnnotation(method, CustomActionEndpoint.class);
         if (custom != null) {
-            actions.put(custom.value(), new StaticModuleActionDefinition(
+            addAnnotatedCustomAction(actions, method, custom.value(), new StaticModuleActionDefinition(
                     custom.value(),
                     custom.value(),
                     custom.title().isBlank() ? custom.value() : custom.title(),
@@ -629,7 +800,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         CustomActionEndpoint custom = AnnotationUtils.findAnnotation(method, CustomActionEndpoint.class);
         if (custom != null) {
             String actionCode = PlatformStaticActionContributionSupport.actionCode(contribution, custom.value());
-            actions.put(actionCode, new StaticModuleActionDefinition(
+            addAnnotatedCustomAction(actions, method, actionCode, new StaticModuleActionDefinition(
                     actionCode,
                     actionCode,
                     PlatformStaticActionContributionSupport.title(contribution,
@@ -640,6 +811,17 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                     custom.dataAuth(),
                     net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy.NONE
             ));
+        }
+    }
+
+    private void addAnnotatedCustomAction(Map<String, StaticModuleActionDefinition> actions,
+                                          Method method,
+                                          String actionCode,
+                                          StaticModuleActionDefinition action) {
+        StaticModuleActionDefinition existing = actions.putIfAbsent(actionCode, action);
+        if (existing != null && !existing.equals(action)) {
+            throw new IllegalStateException("@CustomActionEndpoint action conflicts within controller: "
+                    + method.getDeclaringClass().getName() + "." + actionCode + " <- " + method.getName());
         }
     }
 

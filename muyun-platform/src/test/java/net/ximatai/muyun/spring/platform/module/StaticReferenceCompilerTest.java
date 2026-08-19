@@ -19,7 +19,8 @@ class StaticReferenceCompilerTest {
         assertThat(references)
                 .containsExactly(
                         new StaticReferenceDefinition("employee", "employeeId", "iam.employee"),
-                        new StaticReferenceDefinition("owner_user", "ownerUserId", "iam.user")
+                        new StaticReferenceDefinition("owner_user", "ownerUserId", "iam.user"),
+                        new StaticReferenceDefinition("default_ui_control", "defaultUiControlAlias", "iam.user")
                 );
     }
 
@@ -47,6 +48,9 @@ class StaticReferenceCompilerTest {
 
         @ReferenceTo(target = UserService.class)
         private String ownerUserId;
+
+        @ReferenceTo(target = UserService.class)
+        private String defaultUiControlAlias;
     }
 
     private static class MissingTargetModel {

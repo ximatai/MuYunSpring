@@ -5,8 +5,11 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
@@ -32,6 +35,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
@@ -49,6 +53,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,6 +65,120 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PlatformModuleRuntimeContextServiceTest {
+    @Test
+    void shouldResolveStaticPageNavigatorWithCurrentRequestFacts() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleService.resolveVisibleModule("iam.organization"))
+                .thenReturn(module("iam.organization", "组织管理", ModuleKind.STATIC));
+        when(actionService.listByModuleAliases(List.of("iam.organization"))).thenReturn(List.of());
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.organization", "组织管理")
+                .parentModuleAlias(null)
+                .navigatorSourceCapabilities(Set.of(NavigatorSourceCapability.REFERENCE_TREE))
+                .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.VIEW)))
+                .uiDefinition(ModuleUiDefinition.builder("iam.organization")
+                        .page(PageTemplates.listDetailCard(page -> page
+                                .navigator(navigator -> navigator.level("organization", level -> level
+                                        .tree("iam.organization", "所属组织", "搜索组织")))
+                                .list(list -> list.fields(fields -> fields.field("title")))
+                                .detail(detail -> detail.editor(fields -> fields.field("title")))))
+                        .build())
+                .build();
+        AtomicReference<PageNavigatorResolutionContext> resolved = new AtomicReference<>();
+        PageNavigatorResolver resolver = context -> {
+            resolved.set(context);
+            return Set.of();
+        };
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, new StaticModuleDefinitionCatalog(List.of(definition)), null,
+                null, null, allowAllPolicy(), List.of(), resolver,
+                moduleAlias -> Set.of(NavigatorSourceCapability.REFERENCE_TREE));
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
+                CurrentUser.tenantUser("user-1", "tenant-admin", "tenant-1", "organization-1"))) {
+            PlatformModuleRuntimeContext runtimeContext = service.context("iam.organization");
+
+            assertThat(runtimeContext.navigatorSourceCapabilities())
+                    .containsExactly(NavigatorSourceCapability.REFERENCE_TREE);
+
+            assertThat(runtimeContext.uiDescriptor().page()).satisfies(page -> {
+                assertThat(page.navigator()).isNull();
+                assertThat(page.list().fields().fields()).singleElement()
+                        .satisfies(field -> assertThat(field.fieldRef().fieldName()).isEqualTo("title"));
+            });
+        }
+
+        assertThat(resolved.get()).satisfies(context -> {
+            assertThat(context.moduleAlias()).isEqualTo("iam.organization");
+            assertThat(context.moduleKind()).isEqualTo(ModuleKind.STATIC);
+            assertThat(context.currentUser()).satisfies(user -> {
+                assertThat(user.tenantId()).isEqualTo("tenant-1");
+                assertThat(user.organizationId()).isEqualTo("organization-1");
+            });
+            assertThat(context.candidate().template()).isEqualTo(ModulePageTemplate.LIST_DETAIL_CARD);
+            assertThat(context.candidate().navigator().levels()).singleElement()
+                    .satisfies(level -> assertThat(level.key()).isEqualTo("organization"));
+        });
+    }
+
+    @Test
+    void shouldResolveStaticPageNavigatorBackedByPublishedDynamicReferenceModule() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
+        when(moduleService.resolveVisibleModule("sales.contract"))
+                .thenReturn(module("sales.contract", "合同", ModuleKind.STATIC));
+        when(actionService.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+        when(dynamicRecordService.describe("crm.customer")).thenReturn(new DynamicModuleDescriptor(
+                "crm.customer", "客户", "customer", List.of(),
+                List.of(dynamicEntity("customer", "CRUD", "REFERENCE")), List.of(), List.of(), List.of()));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.contract", "合同")
+                .parentModuleAlias(null)
+                .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.VIEW)))
+                .uiDefinition(ModuleUiDefinition.builder("sales.contract")
+                        .page(PageTemplates.listDetailCard(page -> page
+                                .navigator(navigator -> navigator.level("customer", level -> level
+                                        .microList("crm.customer", "客户", "搜索客户")))
+                                .list(list -> list.fields(fields -> fields.field("title")))
+                                .detail(detail -> detail.editor(fields -> fields.field("title")))))
+                        .build())
+                .build();
+        StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(definition));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, catalog, null, null, null, allowAllPolicy(), List.of(),
+                new DeclaredPageNavigatorResolver(),
+                new PlatformPageNavigatorSourceCapabilityResolver(catalog, dynamicRecordService));
+
+        PlatformModuleRuntimeContext context = service.context("sales.contract");
+
+        assertThat(context.uiDescriptor().page().navigator().levels()).singleElement()
+                .satisfies(level -> assertThat(level.sourceModuleAlias()).isEqualTo("crm.customer"));
+    }
+
+    @Test
+    void shouldNotResolveNavigatorWhenModuleDoesNotDeclareAPage() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleService.resolveVisibleModule("iam.organization"))
+                .thenReturn(module("iam.organization", "组织管理", ModuleKind.STATIC));
+        when(actionService.listByModuleAliases(List.of("iam.organization"))).thenReturn(List.of());
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.organization", "组织管理")
+                .parentModuleAlias(null)
+                .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.VIEW)))
+                .build();
+        PageNavigatorResolver resolver = context -> {
+            throw new AssertionError("navigator resolver must not be called without a page candidate");
+        };
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, new StaticModuleDefinitionCatalog(List.of(definition)), null,
+                null, null, allowAllPolicy(), List.of(), resolver);
+
+        PlatformModuleRuntimeContext runtimeContext = service.context("iam.organization");
+
+        assertThat(runtimeContext.uiDescriptor()).isNotNull();
+        assertThat(runtimeContext.uiDescriptor().page()).isNull();
+    }
+
     @Test
     void shouldComposeStaticCapabilitiesFromActionsAndEntities() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
@@ -74,6 +193,9 @@ class PlatformModuleRuntimeContextServiceTest {
                                                     .actions(List.of(
                         StaticModuleActionDefinition.platformAction(PlatformAction.MENU),
                         StaticModuleActionDefinition.platformAction(PlatformAction.VIEW),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.CREATE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.UPDATE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.DELETE),
                         StaticModuleActionDefinition.platformAction(PlatformAction.TREE),
                         StaticModuleActionDefinition.platformAction(PlatformAction.ENABLE),
                         StaticModuleActionDefinition.platformAction(PlatformAction.DISABLE),
@@ -81,9 +203,12 @@ class PlatformModuleRuntimeContextServiceTest {
                 ))
                                                     .entities(List.of())
                                                     .uiDefinition(ModuleUiDefinition.builder("iam.organization")
-                        .listView(list -> list
-                                .title("组织列表")
-                                .field("title", field -> field.label("组织名称")))
+                        .page(PageTemplates.listDetailCard(page -> page
+                                .list(list -> list.fields(fields -> fields
+                                        .title("组织列表")
+                                        .field("title", field -> field.label("组织名称"))))
+                                .detail(detail -> detail.editor(fields -> fields.field("title")))
+                                .traits(traits -> traits.standardCrud())))
                         .typedTextConfirmation("delete", "title")
                         .build())
                                                     .build();
@@ -123,20 +248,17 @@ class PlatformModuleRuntimeContextServiceTest {
                 "recycleBin"
         );
         assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
-                .containsExactly("menu", "view", "tree", "enable", "disable", "recycleBinQuery");
+                .containsExactly("menu", "view", "create", "update", "delete", "tree", "enable", "disable",
+                        "recycleBinQuery");
         assertThat(context.actions()).allSatisfy(action -> assertThat(action.authorized()).isTrue());
         assertThat(context.uiDescriptor()).isNotNull();
         assertThat(context.uiDescriptor().schemaVersion()).isEqualTo(ResolvedModuleUiDescriptor.SCHEMA_VERSION);
         assertThat(context.uiDescriptor().moduleKind()).isEqualTo(ModuleKind.STATIC);
         assertThat(context.uiDescriptor().title()).isEqualTo("组织管理");
-        assertThat(context.uiDescriptor().views()).singleElement()
-                .satisfies(view -> {
-                    assertThat(view.viewCode()).isEqualTo("default_list");
-                    assertThat(view.fields()).singleElement()
-                            .satisfies(field -> {
-                                assertThat(field.fieldRef().fieldName()).isEqualTo("title");
-                                assertThat(field.label()).isEqualTo("组织名称");
-                            });
+        assertThat(context.uiDescriptor().page().list().fields().fields()).singleElement()
+                .satisfies(field -> {
+                    assertThat(field.fieldRef().fieldName()).isEqualTo("title");
+                    assertThat(field.label()).isEqualTo("组织名称");
                 });
         assertThat(context.uiDescriptor().actions()).singleElement()
                 .satisfies(action -> {
@@ -345,9 +467,12 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
         PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);
         PlatformUiConfig listConfig = uiConfig("ui-list-web", "set-list", "客户列表");
-        listConfig.setScopeModuleAlias("base.product");
-        listConfig.setScopeField("organizationId");
-        listConfig.setScopeQueryCriteriaKey("organizationId");
+        listConfig.setLayoutJson("""
+                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"contextBindings":[{
+                  "source":"NAVIGATOR","sourceKey":"organization","target":"LIST_QUERY","targetKey":"organizationId"
+                }],"levels":[{
+                  "key":"organization","kind":"TREE","sourceModuleAlias":"base.product"
+                }]}}""");
         PlatformUiConfig formConfig = uiConfig("ui-form-web", "set-form", "客户表单");
         PlatformPageConfigSnapshot snapshot = new PlatformPageConfigSnapshot(
                 "crm.customer",
@@ -368,6 +493,7 @@ class PlatformModuleRuntimeContextServiceTest {
         ), List.of());
         when(snapshotService.snapshot("crm.customer")).thenReturn(snapshot);
         when(bootstrapService.resolveConfig(snapshot, PlatformUiClientType.WEB)).thenReturn(resolvedConfig);
+        AtomicReference<PageNavigatorResolutionContext> resolvedNavigator = new AtomicReference<>();
         PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
                 moduleService,
                 actionService,
@@ -375,7 +501,14 @@ class PlatformModuleRuntimeContextServiceTest {
                 dynamicRecordService,
                 snapshotService,
                 bootstrapService,
-                allowAllPolicy()
+                allowAllPolicy(),
+                List.of(),
+                navigatorContext -> {
+                    resolvedNavigator.set(navigatorContext);
+                    return navigatorContext.candidate().navigator().levels().stream()
+                            .map(ResolvedPageNavigatorLevelDescriptor::key)
+                            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+                }
         );
 
         PlatformModuleRuntimeContext context = service.context("crm.customer");
@@ -383,18 +516,20 @@ class PlatformModuleRuntimeContextServiceTest {
         assertThat(context.uiDescriptor()).isNotNull();
         assertThat(context.uiDescriptor().moduleKind()).isEqualTo(ModuleKind.DYNAMIC);
         assertThat(context.uiDescriptor().moduleAlias()).isEqualTo("crm.customer");
-        assertThat(context.uiDescriptor().views()).filteredOn(view -> view.viewCode().equals("customer_list"))
-                .singleElement().satisfies(view -> {
-            ResolvedScopedListWorkspaceDescriptor workspace = view.scopedListWorkspace();
-            assertThat(workspace.scopeModuleAlias()).isEqualTo("base.product");
-            assertThat(workspace.scopeField()).isEqualTo("organizationId");
-            assertThat(workspace.createPolicy()).isEqualTo(ScopedListWorkspaceCreatePolicy.ALLOW_UNSCOPED);
+        assertThat(context.uiDescriptor().page()).isNotNull();
+        assertThat(resolvedNavigator.get()).satisfies(navigatorContext -> {
+            assertThat(navigatorContext.moduleAlias()).isEqualTo("crm.customer");
+            assertThat(navigatorContext.moduleKind()).isEqualTo(ModuleKind.DYNAMIC);
+            assertThat(navigatorContext.candidate()).isEqualTo(context.uiDescriptor().page());
         });
-        assertThat(context.uiDescriptor().views()).extracting(ResolvedViewDescriptor::viewCode)
-                .containsExactly("customer_list", "customer_form");
-        assertThat(context.uiDescriptor().views()).filteredOn(view -> view.viewCode().equals("customer_list"))
-                .singleElement()
-                .satisfies(view -> {
+        ResolvedViewDescriptor pageList = context.uiDescriptor().page().list().fields();
+        assertThat(context.uiDescriptor().page().navigator().levels()).singleElement().satisfies(level -> {
+            assertThat(level.sourceModuleAlias()).isEqualTo("base.product");
+        });
+        assertThat(context.uiDescriptor().page().navigator().contextBindings()).containsExactly(
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "organization",
+                        PageContextTarget.LIST_QUERY, "organizationId", null));
+        assertThat(pageList).satisfies(view -> {
                     assertThat(view.viewKind()).isEqualTo(ModuleViewKind.LIST);
                     assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
                             .containsExactly("name", "enabled", "createdAt", "storageBytes");
@@ -406,8 +541,7 @@ class PlatformModuleRuntimeContextServiceTest {
                         assertThat(field.uiType()).isNull();
                     });
                 });
-        assertThat(context.uiDescriptor().views()).filteredOn(view -> view.viewCode().equals("customer_form"))
-                .singleElement()
+        assertThat(context.uiDescriptor().page().detail().editor())
                 .satisfies(view -> {
                     assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                     assertThat(view.fields()).extracting(field -> field.fieldRef().fieldId())
@@ -560,7 +694,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformRecordActionAvailabilityService service = new PlatformRecordActionAvailabilityService(
                 runtimeContextService,
                 dynamicRecordService,
-                new PlatformDynamicModuleScopeService(activeTenantVerifier),
+                new net.ximatai.muyun.spring.web.TenantRequestScope(activeTenantVerifier),
                 List.of(),
                 List.of()
         );
@@ -583,6 +717,58 @@ class PlatformModuleRuntimeContextServiceTest {
                 .singleElement()
                 .satisfies(action -> assertThat(action.available()).isTrue());
         verify(activeTenantVerifier).verifyActiveTenant("tenant-a");
+    }
+
+    @Test
+    void shouldProjectPlatformManagedProtectionIntoStaticRecordActionAvailability() {
+        PlatformModuleService moduleCatalog = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleCatalog.resolveVisibleModule("platform.module"))
+                .thenReturn(module("platform.module", "模块管理", ModuleKind.STATIC));
+        when(actionService.listByModuleAliases(List.of("platform.module"))).thenReturn(List.of());
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("platform", "platform.module", "模块管理")
+                .parentModuleAlias(null)
+                .actions(List.of(
+                        StaticModuleActionDefinition.platformAction(PlatformAction.UPDATE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.DELETE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.SORT)))
+                .build();
+        ManagedModuleAbility managedAbility = mock(ManagedModuleAbility.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        PlatformModule managed = module("platform.module", "模块管理", ModuleKind.STATIC);
+        managed.setSystemManaged(Boolean.TRUE);
+        when(managedAbility.getModuleAlias()).thenReturn("platform.module");
+        org.mockito.Mockito.doReturn(managed).when(managedAbility).select("platform.module");
+        PlatformModuleRuntimeContextService runtimeContextService = new PlatformModuleRuntimeContextService(
+                moduleCatalog,
+                actionService,
+                new StaticModuleDefinitionCatalog(List.of(definition)),
+                null,
+                null,
+                null,
+                allowAllPolicy());
+        PlatformRecordActionAvailabilityService service = new PlatformRecordActionAvailabilityService(
+                runtimeContextService, null, null, List.of(managedAbility), List.of());
+
+        PlatformRecordActionAvailability availability = service.recordActions("platform.module", "platform.module");
+
+        assertThat(availability.actions()).filteredOn(action -> "update".equals(action.actionCode()))
+                .singleElement()
+                .satisfies(action -> {
+                    assertThat(action.available()).isFalse();
+                    assertThat(action.reason()).isEqualTo("平台托管记录不可编辑");
+                });
+        assertThat(availability.actions()).filteredOn(action -> "delete".equals(action.actionCode()))
+                .singleElement()
+                .satisfies(action -> {
+                    assertThat(action.available()).isFalse();
+                    assertThat(action.reason()).isEqualTo("平台托管记录不可删除");
+                });
+        assertThat(availability.actions()).filteredOn(action -> "sort".equals(action.actionCode()))
+                .singleElement()
+                .satisfies(action -> {
+                    assertThat(action.available()).isTrue();
+                    assertThat(action.reason()).isNull();
+                });
     }
 
     @Test
@@ -616,7 +802,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformRecordActionAvailabilityService service = new PlatformRecordActionAvailabilityService(
                 runtimeContextService,
                 dynamicRecordService,
-                new PlatformDynamicModuleScopeService(activeTenantVerifier),
+                new net.ximatai.muyun.spring.web.TenantRequestScope(activeTenantVerifier),
                 List.of(),
                 List.of()
         );
@@ -678,7 +864,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformRecordActionAvailabilityService service = new PlatformRecordActionAvailabilityService(
                 runtimeContextService,
                 dynamicRecordService,
-                new PlatformDynamicModuleScopeService(activeTenantVerifier),
+                new net.ximatai.muyun.spring.web.TenantRequestScope(activeTenantVerifier),
                 List.of(),
                 List.of()
         );
@@ -730,7 +916,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformRecordActionAvailabilityService service = new PlatformRecordActionAvailabilityService(
                 runtimeContextService,
                 dynamicRecordService,
-                new PlatformDynamicModuleScopeService(activeTenantVerifier),
+                new net.ximatai.muyun.spring.web.TenantRequestScope(activeTenantVerifier),
                 List.of(),
                 List.of()
         );
@@ -755,6 +941,9 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     private interface ScopedModuleAbility extends CrudAbility<PlatformModule>, DataScopeAbility<PlatformModule> {
+    }
+
+    private interface ManagedModuleAbility extends PlatformManagedProtectionAbility<PlatformModule> {
     }
 
     private EntityDefinition entity(String alias, Set<EntityCapability> capabilities) {
@@ -861,6 +1050,7 @@ class PlatformModuleRuntimeContextServiceTest {
         config.setId(id);
         config.setUiSetId(uiSetId);
         config.setTitle(title);
+        config.setLayoutJson("{\"template\":\"LIST_DETAIL_CARD\",\"traits\":[]}");
         config.setClientType(PlatformUiClientType.WEB);
         config.setPublished(Boolean.TRUE);
         config.setEnabled(Boolean.TRUE);

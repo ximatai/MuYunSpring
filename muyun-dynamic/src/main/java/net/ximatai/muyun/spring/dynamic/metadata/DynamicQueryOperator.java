@@ -1,12 +1,14 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
+import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
+
 import java.util.EnumSet;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-public enum DynamicQueryOperator {
+public enum DynamicQueryOperator implements CodeTitleEnum {
     EQ,
     NOT_EQUAL,
     LIKE,
@@ -24,6 +26,16 @@ public enum DynamicQueryOperator {
     CONTAINS_ALL,
     EMPTY,
     NOT_EMPTY;
+
+    @Override
+    public String getCode() {
+        return name();
+    }
+
+    @Override
+    public String getTitle() {
+        return name();
+    }
 
     public static Set<DynamicQueryOperator> defaultOperators(FieldType fieldType) {
         return switch (fieldType) {

@@ -1,11 +1,13 @@
 import { assert, it } from 'vitest';
 import {
   childResourceDefaultFormViewCode,
+  resolveRecordDetailFields,
   resolveRecordFormFields,
   resolveRecordFormGroups,
   resolveRecordBooleanStatusValue,
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
+  evaluateUiFormula,
   type RecordFormFieldDescriptor,
   type RecordFormFieldFallback,
 } from '@/platform-components/recordFormFieldModel.ts';
@@ -104,26 +106,33 @@ it('record form groups preserve fields nested by the UI descriptor and attach th
   const uiDescriptor = {
     schemaVersion: '1',
     moduleAlias: 'iam.tenant',
-    views: [
-      {
-        viewCode: 'default_form',
-        viewKind: 'FORM',
-        fields: [
-          {
-            fieldRef: { fieldName: 'workbenchTitle' },
-            label: '主标题',
-          },
-        ],
-        formGroups: [
-          {
-            groupCode: 'workbench_branding',
-            title: '主标题UI个性化配置',
-            subtitle: '控制工作台标题和 Logo。',
-            fields: [{ fieldName: 'workbenchTitle' }],
-          },
-        ],
+    page: {
+      template: 'LIST_DETAIL_CARD',
+      list: { searchPlaceholder: '', fields: { viewCode: 'page_list', viewKind: 'LIST', fields: [] } },
+      detail: {
+        emptyDescription: '',
+        createTitle: '',
+        editor: {
+          viewCode: 'page_detail_editor',
+          viewKind: 'FORM',
+          fields: [
+            {
+              fieldRef: { fieldName: 'workbenchTitle' },
+              label: '主标题',
+            },
+          ],
+          formGroups: [
+            {
+              groupCode: 'workbench_branding',
+              title: '主标题UI个性化配置',
+              subtitle: '控制工作台标题和 Logo。',
+              fields: [{ fieldName: 'workbenchTitle' }],
+            },
+          ],
+        },
       },
-    ],
+      traits: [],
+    },
   } satisfies ResolvedModuleUiDescriptor;
   const groups = resolveRecordFormGroups(uiDescriptor);
 
@@ -164,6 +173,15 @@ it('record form field state renders a textarea descriptor as a text area', () =>
 
   assert.equal(resolveRecordFormFieldState('remark', { fields }).controlType, 'textarea');
 });
+
+it.each(['number', 'integer', 'amount', 'percentage'])(
+  'record form field state renders the %s descriptor as a numeric input',
+  (uiType) => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([['quantity', field('数量', { uiType })]]);
+
+    assert.equal(resolveRecordFormFieldState('quantity', { fields }).controlType, 'numberInput');
+  },
+);
 
 it('record form field state renders a color picker descriptor with the shared color control', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
@@ -250,6 +268,26 @@ it('record form field state makes resolved option fields into selects without pa
   });
 });
 
+it('record form field state preserves descriptor-inline enum items for display without a runtime request', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'moduleKind',
+      {
+        ...field('模块类型'),
+        option: {
+          binding: { sourceType: 'enum', source: 'example.ModuleKind' },
+          selectionMode: 'SINGLE',
+          inlineItems: [{ code: 'static', title: '静态模块', enabled: true }],
+        },
+      },
+    ],
+  ]);
+
+  assert.deepEqual(resolveRecordFormFieldState('moduleKind', { fields }).optionItems, [
+    { code: 'static', title: '静态模块', enabled: true },
+  ]);
+});
+
 it('option items preserve tree hierarchy while exposing flat select options', () => {
   const items = [
     { code: 'root', title: '根节点', enabled: true, sortOrder: 10 },
@@ -281,32 +319,78 @@ it('record form fields resolve form view descriptors by view code', () => {
   const uiDescriptor = {
     schemaVersion: '1',
     moduleAlias: 'platform.dictionary_category',
-    views: [
-      {
-        viewCode: 'default_list',
-        viewKind: 'LIST',
-        fields: [descriptorField('title', '列表标题')],
+    page: {
+      template: 'LIST_DETAIL_CARD',
+      list: {
+        searchPlaceholder: '',
+        fields: { viewCode: 'page_list', viewKind: 'LIST', fields: [descriptorField('title', '列表标题')] },
       },
-      {
-        viewCode: 'default_form',
-        viewKind: 'FORM',
-        fields: [descriptorField('alias', '类目 alias'), descriptorField('title', '类目名称')],
+      detail: {
+        emptyDescription: '',
+        createTitle: '',
+        editor: {
+          viewCode: 'page_detail_editor',
+          viewKind: 'FORM',
+          fields: [descriptorField('alias', '类目 alias'), descriptorField('title', '类目名称')],
+        },
       },
+      traits: [],
+    },
+    editorContributions: [
       {
-        viewCode: 'item_default_form',
-        viewKind: 'FORM',
-        fields: [descriptorField('code', '字典项编码'), descriptorField('parentId', '上级字典项')],
+        resource: 'item',
+        editor: {
+          viewCode: 'item_editor',
+          viewKind: 'FORM',
+          fields: [descriptorField('code', '字典项编码'), descriptorField('parentId', '上级字典项')],
+        },
+      },
+    ],
+    editorSurfaces: [
+      {
+        key: 'quick_rename',
+        editor: {
+          viewCode: 'quick_rename_editor',
+          viewKind: 'FORM',
+          fields: [descriptorField('title', '名称')],
+        },
       },
     ],
   } satisfies ResolvedModuleUiDescriptor;
 
   assert.deepEqual([...resolveRecordFormFields(uiDescriptor).keys()], ['alias', 'title']);
-  assert.deepEqual(
-    [...resolveRecordFormFields(uiDescriptor, childResourceDefaultFormViewCode('item')).keys()],
-    ['code', 'parentId'],
-  );
+  assert.deepEqual([...resolveRecordFormFields(uiDescriptor, 'item').keys()], ['code', 'parentId']);
+  assert.deepEqual([...resolveRecordFormFields(uiDescriptor, undefined, 'quick_rename').keys()], ['title']);
   assert.deepEqual([...resolveRecordFormFields(uiDescriptor, 'missing_form').keys()], []);
   assert.deepEqual([...resolveRecordFormFields(undefined).keys()], []);
+});
+
+it('record detail fields prefer the declared display projection over the editor', () => {
+  const uiDescriptor = {
+    schemaVersion: '1',
+    moduleAlias: 'platform.module',
+    page: {
+      template: 'TREE_MANAGEMENT',
+      detail: {
+        emptyDescription: '',
+        createTitle: '',
+        display: {
+          viewCode: 'page_detail_display',
+          viewKind: 'FORM',
+          fields: [descriptorField('applicationAlias', '所属应用'), descriptorField('alias', '模块 alias')],
+        },
+        editor: {
+          viewCode: 'page_detail_editor',
+          viewKind: 'FORM',
+          fields: [descriptorField('alias', '模块 alias'), descriptorField('title', '模块名称')],
+        },
+      },
+      traits: [],
+    },
+  } satisfies ResolvedModuleUiDescriptor;
+
+  assert.deepEqual([...resolveRecordDetailFields(uiDescriptor).keys()], ['applicationAlias', 'alias']);
+  assert.deepEqual([...resolveRecordFormFields(uiDescriptor).keys()], ['alias', 'title']);
 });
 
 it('record form fields attach declared file-reference constraints and infer the transfer control', () => {
@@ -324,13 +408,20 @@ it('record form fields attach declared file-reference constraints and infer the 
         readAvailable: true,
       },
     ],
-    views: [
-      {
-        viewCode: 'default_form',
-        viewKind: 'FORM',
-        fields: [descriptorField('fileId', '上传文件')],
+    page: {
+      template: 'LIST_DETAIL_CARD',
+      list: { searchPlaceholder: '', fields: { viewCode: 'page_list', viewKind: 'LIST', fields: [] } },
+      detail: {
+        emptyDescription: '',
+        createTitle: '',
+        editor: {
+          viewCode: 'page_detail_editor',
+          viewKind: 'FORM',
+          fields: [descriptorField('fileId', '上传文件')],
+        },
       },
-    ],
+      traits: [],
+    },
   } satisfies ResolvedModuleUiDescriptor;
 
   const fields = resolveRecordFormFields(uiDescriptor);
@@ -352,7 +443,7 @@ it('record form field state evaluates platform Boolean formulas against the curr
       {
         ...field('文件标识'),
         readOnly: {
-          formula: { expression: '!(PRESENT({directoryId}))' },
+          formula: uiFormula('!(PRESENT({directoryId}))', unary('!', present('directoryId'))),
         },
       },
     ],
@@ -365,13 +456,64 @@ it('record form field state evaluates platform Boolean formulas against the curr
   );
 });
 
+it('record form field state immediately switches module entry fields from their signed UI programs', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'entryRoute',
+      {
+        ...field('内部路由'),
+        visible: {
+          formula: uiFormula(
+            "{entryType} == 'route'",
+            binary('==', fieldNode('entryType'), valueNode('route')),
+          ),
+        },
+      },
+    ],
+    [
+      'entryExternalUrl',
+      {
+        ...field('外部链接'),
+        visible: {
+          formula: uiFormula(
+            "{entryType} == 'link'",
+            binary('==', fieldNode('entryType'), valueNode('link')),
+          ),
+        },
+      },
+    ],
+  ]);
+
+  assert.equal(
+    resolveRecordFormFieldState('entryRoute', { fields, record: { entryType: 'route' } }).visible,
+    true,
+  );
+  assert.equal(
+    resolveRecordFormFieldState('entryExternalUrl', { fields, record: { entryType: 'route' } }).visible,
+    false,
+  );
+  assert.equal(
+    resolveRecordFormFieldState('entryRoute', { fields, record: { entryType: 'link' } }).visible,
+    false,
+  );
+  assert.equal(
+    resolveRecordFormFieldState('entryExternalUrl', { fields, record: { entryType: 'link' } }).visible,
+    true,
+  );
+});
+
 it('record form field state evaluates portable formula conjunctions for create-only editors', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
     [
       'fileId',
       {
         ...field('文件标识'),
-        readOnly: { formula: { expression: '!(PRESENT({directoryId}) && !(PRESENT({id})))' } },
+        readOnly: {
+          formula: uiFormula(
+            '!(PRESENT({directoryId}) && !(PRESENT({id})))',
+            unary('!', binary('&&', present('directoryId'), unary('!', present('id')))),
+          ),
+        },
       },
     ],
   ]);
@@ -388,13 +530,110 @@ it('record form field state evaluates portable formula conjunctions for create-o
   );
 });
 
+it('record form field state evaluates whitelisted literal predicates without JavaScript execution', () => {
+  assert.equal(
+    evaluateUiFormula(
+      uiFormula(
+        "{entryType} == 'link' && IN({moduleKind}, 'standard', 'system')",
+        binary(
+          '&&',
+          binary('==', fieldNode('entryType'), valueNode('link')),
+          inValues('moduleKind', 'standard', 'system'),
+        ),
+      ),
+      { entryType: 'link', moduleKind: 'standard' },
+    ),
+    true,
+  );
+  assert.equal(
+    evaluateUiFormula(
+      uiFormula('{systemManaged} != true', binary('!=', fieldNode('systemManaged'), valueNode(true))),
+      { systemManaged: true },
+    ),
+    false,
+  );
+  assert.equal(
+    evaluateUiFormula(
+      uiFormula(
+        "{timestamp} == '2026-03-02T00:00:00Z'",
+        binary('==', fieldNode('timestamp'), valueNode('2026-03-02T00:00:00Z')),
+      ),
+      { timestamp: '2026-03-02T00:00:00' },
+    ),
+    false,
+  );
+  assert.equal(
+    evaluateUiFormula(uiFormula('{priority} == 2', binary('==', fieldNode('priority'), valueNode(2))), {
+      priority: 2,
+    }),
+    true,
+  );
+  assert.equal(
+    evaluateUiFormula(uiFormula('{priority} == 2', binary('==', fieldNode('priority'), valueNode(2))), {
+      priority: '2',
+    }),
+    true,
+  );
+  assert.equal(
+    evaluateUiFormula(uiFormula("IN({priority}, 2, '3')", inValues('priority', 2, '3')), { priority: '2' }),
+    true,
+  );
+  assert.equal(
+    evaluateUiFormula(
+      uiFormula(
+        "{timestamp} == '2026-03-02T00:00:00Z'",
+        binary('==', fieldNode('timestamp'), valueNode('2026-03-02T00:00:00Z')),
+      ),
+      { timestamp: '2026-02-30T00:00:00Z' },
+    ),
+    false,
+  );
+  assert.equal(
+    evaluateUiFormula(
+      uiFormula(
+        "PRESENT({missing}) && {priority} == 'not evaluated'",
+        binary('&&', present('missing'), binary('==', fieldNode('priority'), valueNode('not evaluated'))),
+      ),
+      { priority: 2 },
+    ),
+    false,
+  );
+  assert.equal(evaluateUiFormula(uiFormula('PRESENT({name})', present('name')), { name: '' }), false);
+  assert.equal(evaluateUiFormula({ expression: "window.alert('no')" }, {}), false);
+  assert.equal(
+    evaluateUiFormula(
+      {
+        expression: 'ignored',
+        program: { schemaVersion: 2, profile: 'WEB_UI', root: present('name'), referencedFields: ['name'] },
+      },
+      { name: 'value' },
+    ),
+    false,
+  );
+  assert.equal(
+    evaluateUiFormula(
+      {
+        expression: 'ignored',
+        program: {
+          schemaVersion: 1,
+          profile: 'WEB_UI',
+          root: { kind: 'ASSIGN', arguments: [] },
+          referencedFields: [],
+        },
+      },
+      { name: 'value' },
+    ),
+    false,
+  );
+});
+
 it('record form field state retains a fallback disabled hint when its descriptor has none', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
     [
       'fileId',
       {
         ...field('文件标识'),
-        readOnly: { formula: { expression: '!(PRESENT({directoryId}))' } },
+        readOnly: { formula: uiFormula('!(PRESENT({directoryId}))', unary('!', present('directoryId'))) },
       },
     ],
   ]);
@@ -420,6 +659,45 @@ function field(
     readOnly: { constant: options.readOnly ?? false },
     visible: { constant: options.visible ?? true },
   } as RecordFormFieldDescriptor;
+}
+
+function uiFormula(expression: string, root: import('@muyun/web-contracts').FormulaNode) {
+  return {
+    expression,
+    program: { schemaVersion: 1, profile: 'WEB_UI' as const, root, referencedFields: [] },
+  };
+}
+
+function fieldNode(field: string): import('@muyun/web-contracts').FormulaNode {
+  return { kind: 'FIELD', field, arguments: [] };
+}
+
+function valueNode(value: string | number | boolean): import('@muyun/web-contracts').FormulaNode {
+  return { kind: 'VALUE', value, arguments: [] };
+}
+
+function unary(operator: string, argument: import('@muyun/web-contracts').FormulaNode) {
+  return { kind: 'UNARY' as const, operator, arguments: [argument] };
+}
+
+function binary(
+  operator: string,
+  left: import('@muyun/web-contracts').FormulaNode,
+  right: import('@muyun/web-contracts').FormulaNode,
+) {
+  return { kind: 'BINARY' as const, operator, arguments: [left, right] };
+}
+
+function present(field: string) {
+  return { kind: 'FUNCTION' as const, operator: 'PRESENT', arguments: [fieldNode(field)] };
+}
+
+function inValues(field: string, ...values: Array<string | number | boolean>) {
+  return {
+    kind: 'FUNCTION' as const,
+    operator: 'IN',
+    arguments: [fieldNode(field), ...values.map(valueNode)],
+  };
 }
 
 function descriptorField(fieldName: string, label: string): RecordFormFieldDescriptor {

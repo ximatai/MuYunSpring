@@ -1,12 +1,14 @@
 package net.ximatai.muyun.spring.platform.web;
 
-import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
-
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
+import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
 import net.ximatai.muyun.spring.common.model.title.RecordLabelResolver;
 import net.ximatai.muyun.spring.common.option.OptionFieldDefinition;
 import net.ximatai.muyun.spring.common.option.OptionFieldResolver;
+import net.ximatai.muyun.spring.common.option.OptionItem;
+import net.ximatai.muyun.spring.common.option.OptionBinding;
+import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
 import net.ximatai.muyun.spring.common.option.OptionLoadResolver;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
@@ -15,7 +17,12 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceSummaryPlan;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.common.formula.FormulaEngine;
+import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
+import net.ximatai.muyun.spring.common.formula.FormulaNode;
+import net.ximatai.muyun.spring.common.formula.FormulaProgram;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -24,6 +31,7 @@ import java.util.Map;
 import java.util.Set;
 
 public final class ModuleUiDescriptorCompiler {
+    private static final FormulaEngine FORMULA_ENGINE = new FormulaEngine();
     private static final String ALIAS_FIELD = "alias";
     private static final Set<String> PLATFORM_FIELD_NAMES = platformFieldNames();
     private static final Map<String, FieldValueType> STANDARD_FIELD_TYPES = standardFieldTypes();
@@ -51,7 +59,7 @@ public final class ModuleUiDescriptorCompiler {
             return null;
         }
         ModuleUiDefinition uiDefinition = definition.uiDefinition() == null
-                ? new ModuleUiDefinition(definition.moduleAlias(), List.of(), List.of())
+                ? ModuleUiDefinition.builder(definition.moduleAlias()).build()
                 : definition.uiDefinition();
         validateFields(uiDefinition, definition.entities(), definition.moduleAlias(), readOutputFields(definition));
         Map<String, ResolvedReferenceFieldDescriptor> referenceFields = staticReferenceFields(definition.modelClass());
@@ -61,7 +69,8 @@ public final class ModuleUiDescriptorCompiler {
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
                         staticRecordLabelField(definition), fieldTypes(definition.entities()));
         return new ModuleUiCompilationResult(
-                descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition)),
+                descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
+                        .withDetailRelations(staticDetailRelations(definition, uiDefinition)),
                 readModel(definition, uiDefinition)
         );
     }
@@ -143,33 +152,164 @@ public final class ModuleUiDescriptorCompiler {
                 definition.moduleAlias(),
                 moduleKind,
                 title,
-                definition.views().stream()
-                        .map(view -> compileView(view, optionFields, referenceFields, referenceSummaryFields, fieldTypes))
-                        .toList(),
                 definition.actions().stream()
                         .map(ModuleUiDescriptorCompiler::compileAction)
                         .toList(),
-                defaultRecordLabelField
+                defaultRecordLabelField,
+                List.of(),
+                compilePage(definition.page(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
+                definition.defaultEditor() == null ? null : compileView(definition.defaultEditor(), optionFields,
+                        referenceFields, referenceSummaryFields, fieldTypes),
+                definition.editorSurfaces().stream().map(surface ->
+                        new ResolvedEditorSurfaceDescriptor(surface.key(), compileView(surface.editor(), optionFields,
+                                referenceFields, referenceSummaryFields, fieldTypes))).toList(),
+                definition.editorContributions().stream().map(contribution ->
+                        new ResolvedPageDetailEditorContribution(contribution.resource(), compileView(contribution.editor(),
+                                optionFields, referenceFields, referenceSummaryFields, fieldTypes))).toList(),
+                List.of()
         );
     }
 
-    private static void validateScopedListWorkspace(ScopedListWorkspaceDefinition workspace,
-                                                    Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
-                                                    String moduleAlias) {
-        if (workspace == null) return;
-        ResolvedReferenceFieldDescriptor reference = referenceFields.get(workspace.scopeField());
-        if (reference == null) {
-            throw new IllegalArgumentException("scoped list workspace field must be a reference: "
-                    + moduleAlias + "." + workspace.scopeField());
+    private static List<ResolvedDetailRelationDescriptor> staticDetailRelations(StaticModuleDefinition definition,
+                                                                                  ModuleUiDefinition uiDefinition) {
+        String sourceEntityAlias = definition.entities().isEmpty() ? null : definition.entities().getFirst().alias();
+        if (sourceEntityAlias == null) {
+            if (!uiDefinition.detailRelations().isEmpty()) {
+                throw new IllegalArgumentException("static detail relation requires a declared source entity");
+            }
+            return List.of();
         }
-        if (reference.cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
-            throw new IllegalArgumentException("scoped list workspace field must be a single reference: "
-                    + moduleAlias + "." + workspace.scopeField());
+        return uiDefinition.detailRelations().stream().map(relation -> {
+            boolean targetExists = definition.entities().stream()
+                    .anyMatch(entity -> relation.targetEntityAlias().equals(entity.alias()));
+            if (!targetExists) {
+                throw new IllegalArgumentException("static detail relation target entity is not declared by model facts: "
+                        + relation.targetEntityAlias());
+            }
+            return new ResolvedDetailRelationDescriptor(relation.code(), relation.title(), relation.readOnly(),
+                    definition.moduleAlias(), sourceEntityAlias, definition.moduleAlias(), relation.targetEntityAlias(),
+                    relation.parentBinding(), null, relation.refreshOnDetailReload());
+        }).toList();
+    }
+
+    private static ResolvedModulePageDescriptor compilePage(ModulePageDefinition page,
+                                                            Map<String, ResolvedOptionFieldDescriptor> optionFields,
+                                                            Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
+                                                            Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
+                                                            Map<ViewFieldRef, FieldValueType> fieldTypes) {
+        if (page == null) return null;
+        return switch (page) {
+            case FlatManagementPageDefinition flat -> {
+                if (flat.navigator() != null) {
+                    validateNavigator(flat.navigator(), referenceFields, "page navigator", editorFieldNames(flat.detail()), false);
+                }
+                yield new ResolvedModulePageDescriptor(
+                    flat.template(), ResolvedPageExplorerDescriptor.from(flat.explorer()),
+                    ResolvedPageNavigatorDescriptor.from(flat.navigator()), null,
+                    detail(flat.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
+                    List.copyOf(flat.traits().values()));
+            }
+            case ListDetailCardPageDefinition card -> {
+                if (card.navigator() != null) {
+                    validateNavigator(card.navigator(), referenceFields, "page navigator", editorFieldNames(card.detail()), false);
+                }
+                yield new ResolvedModulePageDescriptor(card.template(), null,
+                        ResolvedPageNavigatorDescriptor.from(card.navigator()),
+                        new ResolvedPageListDescriptor(card.list().searchPlaceholder(),
+                                compileView(card.list().list(), optionFields, referenceFields,
+                                        referenceSummaryFields, fieldTypes)),
+                        detail(card.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
+                        List.copyOf(card.traits().values()));
+            }
+            case TreeManagementPageDefinition tree -> {
+                if (tree.navigator() != null) {
+                    validateNavigator(tree.navigator(), referenceFields, "page navigator", editorFieldNames(tree.detail()), true);
+                }
+                yield new ResolvedModulePageDescriptor(tree.template(), null,
+                        ResolvedPageNavigatorDescriptor.from(tree.navigator()), null,
+                        detail(tree.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
+                        List.copyOf(tree.traits().values()));
+            }
+        };
+    }
+
+    private static ResolvedPageDetailDescriptor detail(PageDetailDefinition detail,
+                                                       Map<String, ResolvedOptionFieldDescriptor> optionFields,
+                                                       Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
+                                                       Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
+                                                       Map<ViewFieldRef, FieldValueType> fieldTypes) {
+        return new ResolvedPageDetailDescriptor(detail.emptyDescription(), detail.createTitle(),
+                detail.display() == null ? null : compileView(detail.display(), optionFields, referenceFields,
+                        referenceSummaryFields, fieldTypes),
+                detail.editor() == null ? null : compileView(detail.editor(), optionFields, referenceFields,
+                        referenceSummaryFields, fieldTypes),
+                detail.workspaceView() == null ? null
+                        : new ResolvedPageDetailWorkspaceViewDescriptor(detail.workspaceView().type()),
+                detail.showSystemInfo());
+    }
+
+    private static void validateNavigator(PageNavigatorDefinition navigator,
+                                          Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
+                                          String moduleAlias,
+                                          Set<String> editorFieldNames,
+                                          boolean treeParentPickerAllowed) {
+        for (PageContextBindingDefinition binding : navigator.contextBindings()) {
+            if (binding.source() != PageContextSource.NAVIGATOR
+                    || (binding.target() != PageContextTarget.LIST_QUERY
+                    && binding.target() != PageContextTarget.PICKER_QUERY)) continue;
+            PageNavigatorLevelDefinition level = navigator.levels().stream()
+                    .filter(candidate -> candidate.key().equals(binding.sourceKey())).findFirst().orElseThrow();
+            ResolvedReferenceFieldDescriptor reference = referenceFields.get(binding.targetKey());
+            if (binding.target() == PageContextTarget.PICKER_QUERY) {
+                if (!editorFieldNames.contains(binding.targetPickerFieldKey())) {
+                    throw new IllegalArgumentException("picker-query target must be declared by the page editor: "
+                            + moduleAlias + "." + binding.targetPickerFieldKey());
+                }
+                ResolvedReferenceFieldDescriptor picker = referenceFields.get(binding.targetPickerFieldKey());
+                if (!(treeParentPickerAllowed
+                        && PlatformAbilityFields.TREE_PARENT_FIELD.equals(binding.targetPickerFieldKey()))
+                        && (picker == null || picker.cardinality()
+                        != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE)) {
+                    throw new IllegalArgumentException("picker-query target must be a single record reference: "
+                            + moduleAlias + "." + binding.targetPickerFieldKey());
+                }
+            }
+            if (isTenantScopeNavigator(level, binding)) {
+                continue;
+            }
+            if (reference == null) {
+                throw new IllegalArgumentException("navigator query field must be a reference: "
+                        + moduleAlias + "." + binding.targetKey());
+            }
+            if (reference.cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
+                throw new IllegalArgumentException("navigator query field must be a single reference: "
+                        + moduleAlias + "." + binding.targetKey());
+            }
+            if (!level.sourceModuleAlias().equals(reference.targetModuleAlias())) {
+                throw new IllegalArgumentException("navigator query reference target must match level source: "
+                        + moduleAlias + "." + binding.targetKey());
+            }
         }
-        if (!workspace.scopeModuleAlias().equals(reference.targetModuleAlias())) {
-            throw new IllegalArgumentException("scoped list workspace reference target must match scope module: "
-                    + moduleAlias + "." + workspace.scopeField());
+    }
+
+    private static Set<String> editorFieldNames(PageDetailDefinition detail) {
+        if (detail == null || detail.editor() == null) {
+            return Set.of();
         }
+        return detail.editor().fields().stream()
+                .map(field -> field.fieldRef().fieldName())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * {@code tenantId} is a standard scope field rather than a model-declared reference. A tenant
+     * navigator is therefore the one platform-owned navigator binding that does not require an
+     * {@code @ReferenceTo} declaration on every tenant-scoped entity.
+     */
+    private static boolean isTenantScopeNavigator(PageNavigatorLevelDefinition level,
+                                                  PageContextBindingDefinition binding) {
+        return StandardEntitySchema.TENANT_ID_FIELD.equals(binding.targetKey())
+                && "iam.tenant".equals(level.sourceModuleAlias());
     }
 
     private static ResolvedUiActionDescriptor compileAction(UiActionDefinition action) {
@@ -194,22 +334,131 @@ public final class ModuleUiDescriptorCompiler {
                                                       Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                                       Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
                                                       Map<ViewFieldRef, FieldValueType> fieldTypes) {
-        validateScopedListWorkspace(view.scopedListWorkspace(), referenceFields, view.viewCode());
+        List<ResolvedViewFieldDescriptor> fields = view.fields().stream()
+                .map(field -> compileField(view.viewKind(), field, optionFields, referenceFields,
+                        referenceSummaryFields, fieldTypes))
+                .toList();
         return new ResolvedViewDescriptor(
                 view.viewCode(),
                 view.viewKind(),
                 view.clientType(),
                 view.title(),
-                view.fields().stream()
-                        .map(field -> compileField(view.viewKind(), field, optionFields, referenceFields,
-                                referenceSummaryFields, fieldTypes))
-                        .toList(),
+                fields,
                 view.sourceUiConfigId(),
-                ResolvedScopedListWorkspaceDescriptor.from(view.scopedListWorkspace()),
                 view.formGroups().stream().map(group -> new ResolvedFormGroupDescriptor(
                         group.groupCode(), group.title(), group.subtitle(),
-                        group.fields().stream().map(ViewFieldDefinition::fieldRef).toList())).toList()
+                        group.fields().stream().map(ViewFieldDefinition::fieldRef).toList())).toList(),
+                compileFormComputeRules(view, fields)
         );
+    }
+
+    /**
+     * Turns a source declaration into a signed program only after verifying that it can operate on
+     * this exact form. The browser therefore never receives a calculation for a hidden relation or
+     * an immutable field.
+     */
+    private static List<ResolvedFormComputeRuleDescriptor> compileFormComputeRules(
+            ViewDefinition view, List<ResolvedViewFieldDescriptor> fields) {
+        if (view.formComputeRules().isEmpty()) return List.of();
+        if (view.viewKind() != ModuleViewKind.FORM) {
+            throw new IllegalArgumentException("form compute rules require a FORM view: " + view.viewCode());
+        }
+        Map<String, ResolvedViewFieldDescriptor> mainFields = fields.stream()
+                .filter(field -> field.fieldRef().relationCode() == null)
+                .collect(java.util.stream.Collectors.toMap(field -> field.fieldRef().fieldName(), field -> field,
+                        (left, ignored) -> left, LinkedHashMap::new));
+        if (mainFields.size() != fields.size()) {
+            throw new IllegalArgumentException("form compute rules only support main-record fields: " + view.viewCode());
+        }
+        Set<String> codes = new LinkedHashSet<>();
+        java.util.ArrayList<ResolvedFormComputeRuleDescriptor> resolved = new java.util.ArrayList<>();
+        for (FormComputeRuleDefinition rule : view.formComputeRules()) {
+            if (!codes.add(rule.code())) {
+                throw new IllegalArgumentException("duplicate form compute rule code: " + view.viewCode() + "." + rule.code());
+            }
+            ResolvedViewFieldDescriptor target = mainFields.get(rule.targetField());
+            if (target == null) {
+                throw new IllegalArgumentException("form compute target field must be declared by the same form: "
+                        + view.viewCode() + "." + rule.targetField());
+            }
+            if (Boolean.TRUE.equals(target.readOnly().constant())) {
+                throw new IllegalArgumentException("form compute target field must be writable: "
+                        + view.viewCode() + "." + rule.targetField());
+            }
+            requirePortableFormComputeType(target, "target", view, rule);
+            for (String trigger : rule.triggerFields()) {
+                if (!mainFields.containsKey(trigger)) {
+                    throw new IllegalArgumentException("form compute trigger field must be declared by the same form: "
+                            + view.viewCode() + "." + trigger);
+                }
+                if (rule.targetField().equals(trigger)) {
+                    throw new IllegalArgumentException("form compute target field cannot trigger itself: "
+                            + view.viewCode() + "." + rule.targetField());
+                }
+            }
+            FormulaProgram program;
+            try {
+                program = FORMULA_ENGINE.compileFormComputeProgram(rule.expression());
+            } catch (FormulaEvaluationException exception) {
+                throw new IllegalArgumentException("form compute rule must be a FormulaEngine FORM_COMPUTE expression: "
+                        + view.viewCode() + "." + rule.code() + ", " + exception.getMessage(), exception);
+            }
+            String assignedTarget = assignedTarget(program);
+            if (!rule.targetField().equals(assignedTarget)) {
+                throw new IllegalArgumentException("form compute rule target must match formula assignment: "
+                        + view.viewCode() + "." + rule.code());
+            }
+            Set<String> inputFields = valueSideFields(program);
+            for (String field : inputFields) {
+                ResolvedViewFieldDescriptor input = mainFields.get(field);
+                if (input == null) {
+                    throw new IllegalArgumentException("form compute expression may only reference fields declared by the same form: "
+                            + view.viewCode() + "." + field);
+                }
+                requirePortableFormComputeType(input, "input", view, rule);
+            }
+            if (inputFields.contains(rule.targetField())) {
+                throw new IllegalArgumentException("form compute target field cannot reference itself: "
+                        + view.viewCode() + "." + rule.targetField());
+            }
+            resolved.add(new ResolvedFormComputeRuleDescriptor(rule.code(), program, rule.targetField(),
+                    target.valueType(), rule.triggerFields(), rule.writePolicy()));
+        }
+        return List.copyOf(resolved);
+    }
+
+    private static void requirePortableFormComputeType(ResolvedViewFieldDescriptor field,
+                                                       String role,
+                                                       ViewDefinition view,
+                                                       FormComputeRuleDefinition rule) {
+        if (field.valueType() == null || field.valueType() == FieldValueType.JSON) {
+            throw new IllegalArgumentException("form compute " + role
+                    + " field requires a portable non-JSON value type: " + view.viewCode() + "." + rule.code()
+                    + "." + field.fieldRef().fieldName());
+        }
+    }
+
+    private static String assignedTarget(FormulaProgram program) {
+        FormulaNode root = program.root();
+        if (root.kind() != FormulaNode.Kind.ASSIGN || root.arguments().size() != 2
+                || root.arguments().getFirst().kind() != FormulaNode.Kind.FIELD) {
+            return null;
+        }
+        return root.arguments().getFirst().field();
+    }
+
+    private static Set<String> valueSideFields(FormulaProgram program) {
+        LinkedHashSet<String> fields = new LinkedHashSet<>();
+        collectFields(program.root().arguments().get(1), fields);
+        return Set.copyOf(fields);
+    }
+
+    private static void collectFields(FormulaNode node, Set<String> fields) {
+        if (node == null) return;
+        if (node.kind() == FormulaNode.Kind.FIELD && node.field() != null) {
+            fields.add(node.field());
+        }
+        node.arguments().forEach(argument -> collectFields(argument, fields));
     }
 
     private static ResolvedViewFieldDescriptor compileField(ModuleViewKind viewKind,
@@ -241,7 +490,8 @@ public final class ModuleUiDescriptorCompiler {
                 field.fieldRef().relationCode() == null ? optionFields.get(field.fieldRef().fieldName()) : null,
                 field.fieldRef().relationCode() == null ? referenceFields.get(field.fieldRef().fieldName()) : null,
                 referenceSummary,
-                field.maxDisplayLines()
+                field.maxDisplayLines(),
+                field.treeRootTitle()
         );
     }
 
@@ -318,7 +568,7 @@ public final class ModuleUiDescriptorCompiler {
             return List.of();
         }
         java.util.ArrayList<ResolvedFileReferenceFieldDescriptor> resolved = new java.util.ArrayList<>();
-        Set<ViewFieldRef> exposedFields = uiDefinition == null ? Set.of() : uiDefinition.views().stream()
+        Set<ViewFieldRef> exposedFields = uiDefinition == null ? Set.of() : declaredViews(uiDefinition).stream()
                 .flatMap(view -> view.fields().stream()).map(ViewFieldDefinition::fieldRef).collect(java.util.stream.Collectors.toSet());
         for (int index = 0; index < entities.size(); index++) {
             EntityDefinition entity = entities.get(index);
@@ -401,11 +651,19 @@ public final class ModuleUiDescriptorCompiler {
      * can render the resolved label without a second client request.
      */
     private static String referenceTitleField(Class<?> modelClass, String sourceField) {
-        return StaticReferenceResolver.rules(modelClass).stream()
+        String directTitle = StaticReferenceResolver.rules(modelClass).stream()
                 .filter(rule -> rule.plan().sourceField().equals(sourceField))
                 .flatMap(rule -> rule.plan().projections().stream())
                 .filter(projection -> "title".equals(projection.targetField()))
                 .map(ReferenceProjection::outputField)
+                .findFirst()
+                .orElse(null);
+        if (directTitle != null) {
+            return directTitle;
+        }
+        return StaticReferenceResolver.summaryPlans(modelClass).stream()
+                .filter(summary -> summary.sourceField().equals(sourceField) && summary.fields().contains("title"))
+                .map(ReferenceSummaryPlan::outputField)
                 .findFirst()
                 .orElse(null);
     }
@@ -431,9 +689,33 @@ public final class ModuleUiDescriptorCompiler {
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(
                         OptionFieldDefinition::fieldName,
                         definition -> new ResolvedOptionFieldDescriptor(definition.binding(), definition.selectionMode(),
-                                optionTitleField(modelClass, definition.fieldName())),
+                                optionTitleField(modelClass, definition.fieldName()), inlineOptionItems(definition.binding())),
                         (left, right) -> left
                 ));
+    }
+
+    /**
+     * Enum options are immutable module-definition facts, so deliver them with the descriptor.
+     * Dictionary options deliberately remain runtime reads because their contents are scope-sensitive.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static List<OptionItem> inlineOptionItems(OptionBinding binding) {
+        if (!OptionBinding.ENUM_SOURCE.equals(binding.sourceType())) {
+            return List.of();
+        }
+        try {
+            Class<?> type = Class.forName(binding.source());
+            if (!type.isEnum() || !CodeTitleEnum.class.isAssignableFrom(type)) {
+                throw new IllegalArgumentException("enum option binding requires CodeTitleEnum: " + binding.source());
+            }
+            return java.util.Arrays.stream(type.getEnumConstants())
+                    .map(value -> (CodeTitleEnum) value)
+                    .map(value -> new OptionItem(value.getCode(), value.getTitle(), true,
+                            ((Enum) value).ordinal() + 1, null))
+                    .toList();
+        } catch (ClassNotFoundException error) {
+            throw new IllegalArgumentException("enum option class is unavailable: " + binding.source(), error);
+        }
     }
 
     private static String optionTitleField(Class<?> modelClass, String sourceField) {
@@ -462,10 +744,19 @@ public final class ModuleUiDescriptorCompiler {
             return;
         }
         EntityDefinition mainEntity = entityDefinitions.getFirst();
-        for (ViewDefinition view : definition.views()) {
+        for (ViewDefinition view : declaredViews(definition)) {
             for (ViewFieldDefinition field : view.fields()) {
                 validateField(moduleAlias, view, field, entities, mainEntity, readProjectionOutputFields);
             }
+        }
+        for (ViewFieldRef field : pagePresentationFields(definition)) {
+            if (readProjectionOutputFields.contains(field.fieldName())
+                    || hasField(mainEntity, field.fieldName())
+                    || PLATFORM_FIELD_NAMES.contains(field.fieldName())) {
+                continue;
+            }
+            throw new IllegalArgumentException("page explorer field is not declared by model facts: "
+                    + moduleAlias + ".explorer." + field.fieldName());
         }
     }
 
@@ -578,7 +869,7 @@ public final class ModuleUiDescriptorCompiler {
         for (String outputField : referenceOutputFields(definition)) {
             putReadField(fields, new ResolvedModuleReadField(mainEntity.alias(), null, outputField, true));
         }
-        for (ViewDefinition view : uiDefinition.views()) {
+        for (ViewDefinition view : declaredViews(uiDefinition)) {
             for (ViewFieldDefinition field : view.fields()) {
                 ViewFieldRef fieldRef = field.fieldRef();
                 if (fieldRef.relationCode() != null) {
@@ -602,11 +893,50 @@ public final class ModuleUiDescriptorCompiler {
                 ));
             }
         }
+        for (ViewFieldRef fieldRef : pagePresentationFields(uiDefinition)) {
+            EntityDefinition entity = entity(fieldRef, entitiesByAlias(definition), mainEntity);
+            putReadField(fields, new ResolvedModuleReadField(
+                    entity == null ? mainEntity.alias() : entity.alias(),
+                    fieldRef.relationCode(), fieldRef.fieldName(), true));
+        }
         return new ResolvedModuleReadModel(
                 definition.moduleAlias(),
                 mainEntity.alias(),
                 List.copyOf(fields.values())
         );
+    }
+
+    private static List<ViewDefinition> declaredViews(ModuleUiDefinition definition) {
+        java.util.ArrayList<ViewDefinition> values = new java.util.ArrayList<>();
+        if (definition.defaultEditor() != null) values.add(definition.defaultEditor());
+        definition.editorSurfaces().stream().map(EditorSurfaceDefinition::editor).forEach(values::add);
+        if (definition.page() instanceof FlatManagementPageDefinition flat) {
+            if (flat.detail().display() != null) values.add(flat.detail().display());
+            if (flat.detail().editor() != null) values.add(flat.detail().editor());
+        } else if (definition.page() instanceof ListDetailCardPageDefinition card) {
+            values.add(card.list().list());
+            if (card.detail().display() != null) values.add(card.detail().display());
+            if (card.detail().editor() != null) values.add(card.detail().editor());
+        }
+        definition.editorContributions().stream()
+                .map(PageDetailEditorContribution::editor)
+                .forEach(values::add);
+        return List.copyOf(values);
+    }
+
+    private static List<ViewFieldRef> pagePresentationFields(ModuleUiDefinition definition) {
+        if (!(definition.page() instanceof FlatManagementPageDefinition flat)) {
+            return List.of();
+        }
+        java.util.ArrayList<ViewFieldRef> fields = new java.util.ArrayList<>();
+        fields.add(new ViewFieldRef(null, flat.explorer().titleField(), null));
+        if (flat.explorer().secondaryField() != null) {
+            fields.add(new ViewFieldRef(null, flat.explorer().secondaryField(), null));
+        }
+        if (flat.explorer().mutedWhenDisabled()) {
+            fields.add(new ViewFieldRef(null, PlatformAbilityFields.ENABLED_FIELD, null));
+        }
+        return List.copyOf(fields);
     }
 
     private static void putReadField(Map<String, ResolvedModuleReadField> fields,

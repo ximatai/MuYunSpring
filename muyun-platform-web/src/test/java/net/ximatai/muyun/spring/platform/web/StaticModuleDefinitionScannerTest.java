@@ -31,6 +31,7 @@ import net.ximatai.muyun.spring.platform.web.workflow.WorkflowRuntimeAdminWebCon
 import net.ximatai.muyun.spring.platform.web.workflow.WorkflowDefinitionWebController;
 import net.ximatai.muyun.spring.platform.web.workflow.WorkflowVersionWebController;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
+import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
@@ -59,6 +60,7 @@ import net.ximatai.muyun.spring.iam.user.UserAccountDao;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowActionPolicyService;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowDefinitionService;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowPublishFacade;
@@ -83,6 +85,8 @@ import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.reference.ModuleReadProjection;
+import net.ximatai.muyun.spring.ability.reference.ModuleReadProjectionContributor;
 import net.ximatai.muyun.spring.common.measure.MeasureUnitField;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
@@ -112,6 +116,109 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @Test
+    void shouldCompilePlatformApplicationAsDescriptorDrivenModuleEntry() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ApplicationWebController.class);
+            context.refresh();
+
+            StaticModuleDefinition definition = new StaticModuleDefinitionScanner(context).scan().stream()
+                    .filter(candidate -> ApplicationService.MODULE_ALIAS.equals(candidate.moduleAlias()))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+            assertThat(definition.uiDefinition().page()).isInstanceOf(FlatManagementPageDefinition.class);
+            assertThat(((FlatManagementPageDefinition) definition.uiDefinition().page()).detail().editor())
+                    .satisfies(view -> assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("alias"))
+                            .singleElement()
+                            .satisfies(field -> assertThat(field.readOnly().formula().expression())
+                                    .isEqualTo("PRESENT({id})")));
+            assertThat(ModuleUiDescriptorCompiler.compile(definition).page()).satisfies(page -> {
+                assertThat(page.template()).isEqualTo(ModulePageTemplate.FLAT_MANAGEMENT);
+                assertThat(page.explorer().title()).isEqualTo("应用列表");
+                assertThat(page.explorer().searchPlaceholder()).isEqualTo("搜索应用名称、alias 或 ID");
+                assertThat(page.explorer().emptyDescription()).isEqualTo("暂无应用");
+                assertThat(page.detail().emptyDescription()).isEqualTo("请选择应用，或新建应用");
+                assertThat(page.detail().createTitle()).isEqualTo("新建应用");
+                assertThat(page.explorer().recordLabel()).isEqualTo("应用");
+            });
+        }
+    }
+
+    @Test
+    void shouldCompilePlatformModuleAsApplicationScopedTreeManagementPage() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ApplicationWebController.class);
+            context.registerBean(PlatformModuleWebController.class,
+                    () -> withService(new PlatformModuleWebController(),
+                            new PlatformModuleService(mock(BaseDao.class))));
+            context.refresh();
+
+            List<StaticModuleDefinition> definitions = new StaticModuleDefinitionScanner(context).scan();
+            StaticModuleDefinition definition = definitions.stream()
+                    .filter(candidate -> PlatformModuleService.MODULE_ALIAS.equals(candidate.moduleAlias()))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertThat(definition.navigatorSourceCapabilities()).containsExactlyInAnyOrder(
+                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY,
+                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE);
+            assertThat(definition.uiDefinition().page()).isInstanceOf(TreeManagementPageDefinition.class);
+
+            ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition).page();
+            assertThat(page.template()).isEqualTo(ModulePageTemplate.TREE_MANAGEMENT);
+            assertThat(page.navigator().levels()).extracting(ResolvedPageNavigatorLevelDescriptor::key)
+                    .containsExactly("application");
+            assertThat(page.navigator().levels()).extracting(ResolvedPageNavigatorLevelDescriptor::kind)
+                    .containsExactly(PageNavigatorKind.MICRO_LIST);
+            assertThat(page.navigator().contextBindings()).containsExactlyInAnyOrder(
+                    new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "application",
+                            PageContextTarget.LIST_QUERY, "applicationAlias", null),
+                    new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "application",
+                            PageContextTarget.FORM_DEFAULT, "applicationAlias", null),
+                    new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "application",
+                            PageContextTarget.PICKER_QUERY, "applicationAlias", null, "parentId"));
+            assertThat(page.detail().display().fields()).extracting(field -> field.fieldRef().fieldName())
+                    .containsExactly("applicationAlias", "alias", "title", "parentId", "moduleKind", "entryType",
+                            "entryRoute", "entryExternalUrl");
+            assertThat(page.detail().display().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("parentId")).singleElement().satisfies(field -> assertThat(field.treeRootTitle())
+                    .isEqualTo("根模块"));
+            assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
+                    .containsExactly("alias", "title", "applicationAlias", "parentId", "moduleKind", "entryType",
+                            "entryRoute", "entryExternalUrl", "enabled");
+            assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("moduleKind")).singleElement().satisfies(field -> assertThat(field.option().binding()
+                    .sourceType()).isEqualTo("enum"));
+            assertThat(page.detail().display().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("moduleKind")).singleElement().satisfies(field -> assertThat(field.option().inlineItems())
+                    .extracting(net.ximatai.muyun.spring.common.option.OptionItem::code)
+                    .containsExactly("static", "dynamic"));
+            assertThat(page.detail().display().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("moduleKind")).singleElement().satisfies(field -> assertThat(field.option().inlineItems())
+                    .extracting(net.ximatai.muyun.spring.common.option.OptionItem::title)
+                    .containsExactly("静态模块", "动态模块"));
+            assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("entryType")).singleElement().satisfies(field -> assertThat(field.option().binding()
+                    .sourceType()).isEqualTo("enum"));
+            assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("entryRoute")).singleElement().satisfies(field -> {
+                assertThat(field.visible().formula()).isNotNull();
+                assertThat(field.visible().formula().expression()).isEqualTo("{entryType} == 'route'");
+                assertThat(field.visible().formula().program().profile().name()).isEqualTo("WEB_UI");
+                assertThat(field.visible().formula().program().referencedFields()).containsExactly("entryType");
+            });
+            assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName()
+                    .equals("entryExternalUrl")).singleElement().satisfies(field -> {
+                assertThat(field.visible().formula()).isNotNull();
+                assertThat(field.visible().formula().expression()).isEqualTo("{entryType} == 'link'");
+                assertThat(field.visible().formula().program().profile().name()).isEqualTo("WEB_UI");
+                assertThat(field.visible().formula().program().referencedFields()).containsExactly("entryType");
+            });
+        }
+    }
+
+    @Test
     void shouldScanIamStaticModulesAndActionsFromControllerAnnotations() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(TenantWebController.class,
@@ -133,7 +240,11 @@ class StaticModuleDefinitionScannerTest {
             });
             context.registerBean(PositionWebController.class,
                     () -> withService(new PositionWebController(),
-                            mock(net.ximatai.muyun.spring.iam.position.PositionService.class)));
+                            new net.ximatai.muyun.spring.iam.position.PositionService(
+                                    mock(net.ximatai.muyun.spring.iam.position.PositionDao.class),
+                                    mock(net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier.class),
+                                    mock(PositionCategoryService.class),
+                                    mock(net.ximatai.muyun.spring.iam.employee.EmployeePositionDao.class))));
             context.registerBean(PositionCategoryWebController.class,
                     () -> withService(new PositionCategoryWebController(), mock(PositionCategoryService.class)));
             context.registerBean(RoleWebController.class,
@@ -161,31 +272,39 @@ class StaticModuleDefinitionScannerTest {
 
             assertThat(byAlias.keySet()).containsExactlyInAnyOrder(
                     "iam.tenant", "iam.organization", "iam.department", "iam.employee",
-                    "iam.position_category", "iam.role", "iam.user", "iam.system_user",
+                    "iam.position_category", "iam.position", "iam.role", "iam.user", "iam.system_user",
                     "iam.password_policy_rule");
             assertThat(byAlias.get("iam.tenant")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("租户管理");
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactly("menu", "create", "view", "update", "delete", "query",
-                                "sort", "enable", "disable", "recycleBinQuery", "recycleBinRestore");
+                                "sort", "enable", "disable", "recycleBinQuery", "recycleBinRestore", "reference");
+                assertThat(definition.navigatorSourceCapabilities())
+                        .containsExactly(net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY);
             });
             assertThat(byAlias.get("iam.organization")).satisfies(definition -> {
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .doesNotContain("recycleBinQuery", "recycleBinRestore");
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("机构管理");
-                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.ROUTE);
-                assertThat(definition.entryRoute()).isEqualTo("/iam/organizations");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.entryRoute()).isBlank();
+                assertThat(definition.navigatorSourceCapabilities()).containsExactlyInAnyOrder(
+                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY,
+                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE);
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactly("menu", "create", "view", "update", "delete", "query",
-                                "tree", "sort", "enable", "disable");
+                                "tree", "sort", "enable", "disable", "reference");
             });
+            assertThat(byAlias.get("iam.position_category").navigatorSourceCapabilities()).containsExactlyInAnyOrder(
+                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY,
+                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE);
             assertThat(byAlias.get("iam.department")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("部门管理");
-                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.ROUTE);
-                assertThat(definition.entryRoute()).isEqualTo("/iam/departments");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.entryRoute()).isBlank();
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                                 "tree", "sort", "enable", "disable");
@@ -219,27 +338,26 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.references()).extracting(StaticReferenceDefinition::targetModuleAlias)
                         .containsExactly("iam.organization", "iam.department");
                 assertThat(definition.readProjections()).extracting(StaticModuleReadProjectionDefinition::path)
-                        .containsOnlyNulls();
-                assertThat(definition.readProjections()).extracting(projection ->
+                        .containsExactly("organization.title", null, null);
+                assertThat(definition.readProjections()).filteredOn(projection -> projection.referencePath() != null)
+                        .extracting(projection ->
                         projection.referencePath().steps().getFirst().referenceField().fieldName())
-                        .containsExactly("organizationId", "employeeId", "employeeId");
-                assertThat(definition.readProjections()).extracting(projection ->
+                        .containsExactly("employeeId", "employeeId");
+                assertThat(definition.readProjections()).filteredOn(projection -> projection.referencePath() != null)
+                        .extracting(projection ->
                         projection.referencePath().targetField().fieldName())
-                        .containsExactly("title", "username", "id");
+                        .containsExactly("username", "id");
                 assertThat(definition.readProjections()).extracting(StaticModuleReadProjectionDefinition::outputField)
                         .containsExactly("organizationTitle", "username", "accountBound");
                 assertThat(definition.uiDefinition()).isNotNull();
-                assertThat(definition.uiDefinition().views()).hasSize(2);
-                assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_list"))
-                        .singleElement()
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().list().fields())
                         .satisfies(view -> {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.LIST);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
                                     .containsExactly("employeeNo", "organizationTitle", "title", "username",
                                             "mobile", "email", "enabled", "avatarAssetId", "accountBound");
                         });
-                assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_form"))
-                        .singleElement()
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor())
                         .satisfies(view -> {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
@@ -252,42 +370,33 @@ class StaticModuleDefinitionScannerTest {
             });
             assertThat(byAlias.get("iam.position_category")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
-                assertThat(definition.title()).isEqualTo("岗位管理");
-                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.ROUTE);
-                assertThat(definition.entryRoute()).isEqualTo("/iam/positions");
+                assertThat(definition.title()).isEqualTo("岗位分类");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.entryRoute()).isEmpty();
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
-                                "tree", "sort", "enable", "disable",
-                                "position_create", "position_view", "position_update", "position_delete",
-                                "position_query", "position_sort", "position_enable", "position_disable");
-                assertThat(definition.actions())
-                        .filteredOn(action -> action.actionCode().equals("position_query"))
-                        .singleElement()
-                        .satisfies(action -> {
-                            assertThat(action.permissionActionCode()).isEqualTo("position_view");
-                            assertThat(action.title()).isEqualTo("查询岗位");
-                        });
+                                "tree", "sort", "enable", "disable", "reference");
+            });
+            assertThat(byAlias.get("iam.position")).satisfies(definition -> {
+                assertThat(definition.applicationAlias()).isEqualTo("iam");
+                assertThat(definition.title()).isEqualTo("岗位管理");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.entryRoute()).isEmpty();
+                assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
+                        .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
+                                "sort", "enable", "disable");
                 assertThat(definition.uiDefinition()).isNotNull();
-                assertThat(definition.uiDefinition().views())
-                        .filteredOn(view -> view.viewCode()
-                                .equals(ModuleUiViewCodes.childResourceDefaultForm("position")))
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().levels())
+                        .extracting(ResolvedPageNavigatorLevelDescriptor::key)
+                        .containsExactly("tenant", "category");
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().levels())
+                        .filteredOn(level -> level.key().equals("category"))
                         .singleElement()
-                        .satisfies(view -> {
-                            assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
-                            assertThat(view.fields()).extracting(field -> field.fieldRef().relationCode())
-                                    .containsExactly("position", "position", "position", "position", "position");
-                            assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
-                                    .containsExactly("categoryId", "code", "title", "description", "enabled");
-                            assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("categoryId"))
-                                    .singleElement()
-                                    .satisfies(field -> {
-                                        assertThat(field.label()).isEqualTo("所属分类");
-                                        assertThat(field.required().constant()).isTrue();
-                                    });
-                            assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("enabled"))
-                                    .singleElement()
-                                    .satisfies(field -> assertThat(field.uiType()).isEqualTo("enabledStatus"));
-                        });
+                        .satisfies(level -> assertThat(level.initialSelectionPolicy()).isEqualTo(
+                                net.ximatai.muyun.spring.platform.web.PageNavigatorInitialSelectionPolicy.FIRST_RECORD));
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor().fields())
+                        .extracting(field -> field.fieldRef().fieldName())
+                        .containsExactly("categoryId", "code", "title", "description", "enabled");
             });
             assertThat(byAlias.get("iam.role")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
@@ -306,9 +415,7 @@ class StaticModuleDefinitionScannerTest {
                         .singleElement()
                         .satisfies(action -> assertCustomRecordAction(action, "rolePermissions", "角色授权"));
                 assertThat(definition.uiDefinition()).isNotNull();
-                assertThat(definition.uiDefinition().views()).hasSize(2);
-                assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_list"))
-                        .singleElement()
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().list().fields())
                         .satisfies(view -> {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.LIST);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
@@ -318,8 +425,7 @@ class StaticModuleDefinitionScannerTest {
                                     .singleElement()
                                     .satisfies(field -> assertThat(field.uiType()).isEqualTo("enabledStatus"));
                         });
-                assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_form"))
-                        .singleElement()
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor())
                         .satisfies(view -> {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
@@ -343,12 +449,19 @@ class StaticModuleDefinitionScannerTest {
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                                 "enable", "disable", "userSelector", "changePassword", "resetPassword",
                                 "forceLogout", "sessions", "sessionStatuses", "revokeSession", "revokeSessions",
-                                "employeeBinding", "selfProfile");
+                                "employeeBinding", "selfProfile", "loginContext");
                 assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("selfProfile"))
                         .singleElement()
                         .satisfies(action -> {
                             assertThat(action.accessMode()).isEqualTo(EntityActionAccessMode.LOGIN_REQUIRED);
                             assertThat(action.actionAuth()).isFalse();
+                        });
+                assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("loginContext"))
+                        .singleElement()
+                        .satisfies(action -> {
+                            assertThat(action.accessMode()).isEqualTo(EntityActionAccessMode.ANONYMOUS_ALLOWED);
+                            assertThat(action.actionAuth()).isFalse();
+                            assertThat(action.dataAuth()).isFalse();
                         });
                 assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("userSelector"))
                         .singleElement()
@@ -436,8 +549,7 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.readProjections()).extracting(StaticModuleReadProjectionDefinition::sortable)
                         .containsExactly(true, true, true, true, true, true, true);
                 assertThat(definition.uiDefinition()).isNotNull();
-                assertThat(definition.uiDefinition().views()).filteredOn(view -> view.viewCode().equals("default_list"))
-                        .singleElement()
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().list().fields())
                         .satisfies(view -> {
                             assertThat(view.fields()).extracting(field -> field.fieldRef().relationCode())
                                     .containsOnlyNulls();
@@ -459,6 +571,21 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.moduleAlias()).isEqualTo("iam.password_policy_rule");
                 assertThat(definition.title()).isEqualTo("密码策略规则");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.uiDefinition().page()).isInstanceOf(FlatManagementPageDefinition.class);
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page()).satisfies(page -> {
+                    assertThat(page.template()).isEqualTo(ModulePageTemplate.FLAT_MANAGEMENT);
+                    assertThat(page.explorer().title()).isEqualTo("密码规则");
+                    assertThat(page.explorer().secondaryField()).isNull();
+                    assertThat(page.detail().createTitle()).isEqualTo("新建密码规则");
+                    assertThat(page.detail().showSystemInfo()).isFalse();
+                    assertThat(page.detail().editor().fields())
+                            .extracting(field -> field.fieldRef().fieldName())
+                            .containsExactly("title", "pattern", "message", "sortOrder", "description");
+                    assertThat(page.detail().display().fields())
+                            .extracting(field -> field.fieldRef().fieldName())
+                            .contains("scopeTypeTitle");
+                });
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactly("menu", "create", "view", "update", "delete", "query",
                                 "sort", "enable", "disable");
@@ -467,7 +594,7 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @Test
-    void shouldScanCodeRuleAndReadOnlyLifecycleModules() {
+    void shouldScanCodeRuleAndQueryViewLifecycleModules() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(CodeRuleWebController.class,
                     () -> withService(
@@ -492,7 +619,8 @@ class StaticModuleDefinitionScannerTest {
                     "platform.code_issue_log");
             assertThat(byAlias.get("platform.code_rule").actions()).extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("menu", "view", "query",
-                            "sort", "enable", "disable", "viewTree", "saveTree", "preview", "opsQuery", "opsManage");
+                            "sort", "enable", "disable", "viewTree", "saveTree", "preview", "opsQuery", "opsManage",
+                            "opsRecordQuery", "opsRecordManage");
             assertThat(byAlias.get("platform.code_sequence_state").actions()).extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("menu", "view", "query", "adjustBaseline");
             assertThat(byAlias.get("platform.code_sequence_state").actions())
@@ -568,13 +696,10 @@ class StaticModuleDefinitionScannerTest {
                     .extracting(EntityDefinition::alias)
                     .containsExactly("dictionary_category", "item");
             assertThat(byAlias.get("platform.dictionary_category").uiDefinition()).isNotNull();
-            assertThat(byAlias.get("platform.dictionary_category").uiDefinition().views())
-                    .extracting(ViewDefinition::viewCode)
-                    .containsExactly(ModuleUiViewCodes.DEFAULT_FORM,
-                            ModuleUiViewCodes.childResourceDefaultForm("item"));
-            assertThat(byAlias.get("platform.dictionary_category").uiDefinition().views())
-                    .filteredOn(view -> view.viewCode().equals("default_form"))
-                    .singleElement()
+            ResolvedModuleUiDescriptor dictionaryDescriptor =
+                    ModuleUiDescriptorCompiler.compile(byAlias.get("platform.dictionary_category"));
+            assertThat(dictionaryDescriptor.page()).isNull();
+            assertThat(dictionaryDescriptor.defaultEditor())
                     .satisfies(view -> {
                         assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                         assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
@@ -583,10 +708,12 @@ class StaticModuleDefinitionScannerTest {
                                 .singleElement()
                                 .satisfies(field -> assertThat(field.uiType()).isEqualTo("select"));
                     });
-            assertThat(byAlias.get("platform.dictionary_category").uiDefinition().views())
-                    .filteredOn(view -> view.viewCode().equals(ModuleUiViewCodes.childResourceDefaultForm("item")))
+            assertThat(ModuleUiDescriptorCompiler.compile(byAlias.get("platform.dictionary_category"))
+                    .editorContributions())
                     .singleElement()
-                    .satisfies(view -> {
+                    .satisfies(contribution -> {
+                        assertThat(contribution.resource()).isEqualTo("item");
+                        ResolvedViewDescriptor view = contribution.editor();
                         assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                         assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
                                 .containsExactly("categoryId", "code", "title", "parentId", "enabled");
@@ -614,6 +741,91 @@ class StaticModuleDefinitionScannerTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("action conflicts with target module")
                     .hasMessageContaining("platform.dictionary_category.item_query");
+        }
+    }
+
+    @Test
+    void shouldAllowActionScopeToReuseIdenticalTargetModuleAction() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ScopedActionTargetWeb.class);
+            context.registerBean(ScopedCreateActionWeb.class);
+            context.refresh();
+
+            StaticModuleDefinition definition = new StaticModuleDefinitionScanner(context).scan().getFirst();
+
+            assertThat(definition.moduleAlias()).isEqualTo("demo.scoped_action");
+            assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
+                    .containsExactly("create");
+        }
+    }
+
+    @Test
+    void shouldRejectActionScopeWhenSameActionCodeHasDifferentPolicy() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ScopedActionTargetWeb.class);
+            context.registerBean(ScopedCreateActionWithConflictingPolicyWeb.class);
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("action conflicts with target module")
+                    .hasMessageContaining("demo.scoped_action.create");
+        }
+    }
+
+    @Test
+    void shouldRejectActionScopeWhenTargetModuleDoesNotDeclareAction() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ScopedActionTargetWithoutCreateWeb.class);
+            context.registerBean(ScopedCreateActionWithoutTargetActionWeb.class);
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("@PlatformStaticActionScope action is not declared by target module")
+                    .hasMessageContaining("demo.scoped_action_without_create.create");
+        }
+    }
+
+    @Test
+    void shouldRejectControllerWithMultipleStaticActionEndpointOrigins() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ConflictingActionEndpointOriginsWeb.class);
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("static action endpoint origin annotations are mutually exclusive")
+                    .hasMessageContaining("@PlatformStaticActionDeclaration")
+                    .hasMessageContaining("@PlatformStaticActionScope");
+        }
+    }
+
+    @Test
+    void shouldRejectIdenticalActionDefinitionsFromMultipleContributions() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ContributedActionTargetWeb.class);
+            context.registerBean(FirstContributedActionWeb.class);
+            context.registerBean(SecondContributedActionWeb.class);
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("@PlatformStaticActionContribution action conflicts with target module")
+                    .hasMessageContaining("demo.contributed_action.child_run");
+        }
+    }
+
+    @Test
+    void shouldRejectConflictingCustomActionDefinitionsWithinStaticModuleController() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ConflictingCustomActionDefinitionsWeb.class);
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("@CustomActionEndpoint action conflicts within controller")
+                    .hasMessageContaining(".run <- execute");
         }
     }
 
@@ -740,6 +952,20 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @Test
+    void shouldRejectDeclaredReadProjectionWithoutModelReadFact() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(DeclaredProjectionWithoutReferenceWeb.class,
+                    () -> new DeclaredProjectionWithoutReferenceWeb(new DeclaredProjectionWithoutReferenceService()));
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("declared read projection requires exactly one direct @ReferenceLoad")
+                    .hasMessageContaining("demo.declared_projection_without_reference.organizationTitle");
+        }
+    }
+
+    @Test
     void shouldScanSnakeCaseWebScopeForCamelCaseStaticAlias() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(FieldSpecWebController.class,
@@ -749,9 +975,39 @@ class StaticModuleDefinitionScannerTest {
             StaticModuleDefinition definition = new StaticModuleDefinitionScanner(context).scan().getFirst();
 
             assertThat(definition.moduleAlias()).isEqualTo("platform.field_spec");
+            assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
             assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactly("menu", "create", "view", "update", "delete", "query",
                             "sort", "enable", "disable");
+            assertThat(definition.uiDefinition()).isNotNull();
+            assertThat(((FlatManagementPageDefinition) definition.uiDefinition().page()).detail().editor())
+                    .satisfies(view -> {
+                assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
+                        .containsExactly("alias", "title", "fieldType", "defaultLength", "defaultPrecision",
+                                "defaultScale", "defaultQueryOperator", "queryOperators", "defaultUiControlAlias",
+                                "uiControlAliases", "enabled");
+                assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("alias"))
+                        .singleElement().satisfies(field -> assertThat(field.readOnly().formula().expression())
+                                .isEqualTo("PRESENT({id})"));
+            });
+            assertThat(ModuleUiDescriptorCompiler.compile(definition).page()).satisfies(page -> {
+                assertThat(page.template()).isEqualTo(ModulePageTemplate.FLAT_MANAGEMENT);
+                assertThat(page.explorer().title()).isEqualTo("字段规格列表");
+                assertThat(page.explorer().emptyDescription()).isEqualTo("暂无字段规格");
+                assertThat(page.explorer().recordLabel()).isEqualTo("字段规格");
+            });
+            assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor())
+                    .satisfies(view -> {
+                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("fieldType"))
+                                .singleElement().satisfies(field -> assertThat(field.option().binding().sourceType())
+                                        .isEqualTo("enum"));
+                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("queryOperators"))
+                                .singleElement().satisfies(field -> assertThat(field.option().selectionMode().name())
+                                        .isEqualTo("MULTIPLE"));
+                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("uiControlAliases"))
+                                .singleElement().satisfies(field -> assertThat(field.reference().cardinality().name())
+                                        .isEqualTo("MANY"));
+                    });
         }
     }
 
@@ -1138,6 +1394,86 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.scoped_action", title = "Scoped action")
+    static class ScopedActionTargetWeb {
+        @ActionEndpoint(PlatformAction.CREATE)
+        public void create() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticActionScope(module = "demo.scoped_action")
+    static class ScopedCreateActionWeb {
+        @ActionEndpoint(PlatformAction.CREATE)
+        public void create() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticActionScope(module = "demo.scoped_action")
+    static class ScopedCreateActionWithConflictingPolicyWeb {
+        @CustomActionEndpoint(value = "create", title = "Scoped create", actionAuth = false)
+        public void create() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.scoped_action_without_create", title = "Scoped action without create")
+    static class ScopedActionTargetWithoutCreateWeb {
+    }
+
+    @RestController
+    @PlatformStaticActionScope(module = "demo.scoped_action_without_create")
+    static class ScopedCreateActionWithoutTargetActionWeb {
+        @ActionEndpoint(PlatformAction.CREATE)
+        public void create() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticActionDeclaration(module = "demo.conflicting_action_origin")
+    @PlatformStaticActionScope(module = "demo.conflicting_action_origin")
+    static class ConflictingActionEndpointOriginsWeb {
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.contributed_action", title = "Contributed action")
+    static class ContributedActionTargetWeb {
+    }
+
+    @RestController
+    @PlatformStaticActionContribution(targetModule = "demo.contributed_action", resource = "child", resourceTitle = "Child")
+    static class FirstContributedActionWeb {
+        @CustomActionEndpoint("run")
+        public void run() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticActionContribution(targetModule = "demo.contributed_action", resource = "child", resourceTitle = "Child")
+    static class SecondContributedActionWeb {
+        @CustomActionEndpoint("run")
+        public void run() {
+        }
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.conflicting_custom_action", title = "Conflicting custom action")
+    static class ConflictingCustomActionDefinitionsWeb {
+        @CustomActionEndpoint(value = "run", title = "Run")
+        public void run() {
+        }
+
+        @CustomActionEndpoint(value = "run", title = "Execute")
+        public void execute() {
+        }
+    }
+
+    @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.SalesApplication.class, alias = "sales.order_line", title = "订单明细")
     static class StaticMeasureOrderWeb extends net.ximatai.muyun.spring.web.WebSupport<StaticMeasureOrderService> {
         StaticMeasureOrderWeb(StaticMeasureOrderService service) {
@@ -1215,6 +1551,29 @@ class StaticModuleDefinitionScannerTest {
         @SuppressWarnings("unchecked")
         MultiSegmentModuleService() {
             super("platform.workflow.definition", StaticMeasureOrderLine.class, mock(BaseDao.class));
+        }
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.declared_projection_without_reference", title = "Declared projection without reference")
+    static class DeclaredProjectionWithoutReferenceWeb
+            extends net.ximatai.muyun.spring.web.WebSupport<DeclaredProjectionWithoutReferenceService> {
+        DeclaredProjectionWithoutReferenceWeb(DeclaredProjectionWithoutReferenceService service) {
+            this.service = service;
+        }
+    }
+
+    private static class DeclaredProjectionWithoutReferenceService extends AbstractAbilityService<StaticMeasureOrderLine>
+            implements ModuleReadProjectionContributor {
+        @SuppressWarnings("unchecked")
+        DeclaredProjectionWithoutReferenceService() {
+            super("demo.declared_projection_without_reference", StaticMeasureOrderLine.class, mock(BaseDao.class));
+        }
+
+        @Override
+        public List<ModuleReadProjection> moduleReadProjections() {
+            return List.of(ModuleReadProjection.declared("organizationTitle", false, true));
         }
     }
 

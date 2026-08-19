@@ -10,7 +10,7 @@ import {
   type CrudRecordListBase,
 } from './crudRecordListModel';
 import { presentPlatformError } from './platformErrorFeedback';
-import { useRecycleBinState } from './recycleBinState';
+import { recycleBinRestoreUnavailableReason, useRecycleBinState } from './recycleBinState';
 
 defineOptions({ name: 'CrudRecordListExplorer' });
 
@@ -21,6 +21,11 @@ const props = withDefaults(
     context: ModuleContext<CrudRecordListBase>;
     selectedId?: string;
     reloadKey?: number;
+    /**
+     * Descriptor-owned criteria from an upstream navigator selection.
+     * They are forwarded as standard query values rather than filtered in the browser.
+     */
+    externalQueryValues?: Record<string, unknown>;
     keyword?: string;
     emptyDescription?: string;
     loadingTip?: string;
@@ -37,6 +42,7 @@ const props = withDefaults(
   {
     selectedId: undefined,
     reloadKey: undefined,
+    externalQueryValues: undefined,
     keyword: '',
     emptyDescription: '暂无记录',
     loadingTip: '加载记录列表',
@@ -54,6 +60,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   select: [record: CrudRecordListBase];
+  deselect: [];
   action: [action: UiRecordInlineAction, record: CrudRecordListBase];
   loaded: [records: CrudRecordListBase[]];
   restored: [];
@@ -100,6 +107,12 @@ watch(
 );
 
 watch(
+  () => props.externalQueryValues,
+  () => loadRecords(),
+  { deep: true },
+);
+
+watch(
   () => props.mode,
   () => loadRecords(),
 );
@@ -116,7 +129,12 @@ async function loadRecords() {
       emit('loaded', records.value);
       return;
     }
-    const response = await props.context.abilities.crud().query({ page: { pageNum: 1, pageSize: 200 } });
+    const response = await props.context.abilities.crud().query({
+      page: { pageNum: 1, pageSize: 200 },
+      ...(props.externalQueryValues && Object.keys(props.externalQueryValues).length > 0
+        ? { externalQueryValues: props.externalQueryValues }
+        : {}),
+    });
     if (requestSeq !== recordsRequestSeq) return;
     records.value = response.records;
     emit('loaded', response.records);
@@ -152,10 +170,6 @@ function matchesKeyword(record: CrudRecordListBase, normalized: string) {
   );
 }
 
-function handleSelect(record: CrudRecordListBase) {
-  emit('select', record);
-}
-
 function recordActions(record: CrudRecordListBase): UiRecordInlineAction[] {
   if (props.mode !== 'recycleBin') {
     return props.actionsOf?.(record) ?? [];
@@ -171,6 +185,7 @@ function recordActions(record: CrudRecordListBase): UiRecordInlineAction[] {
             iconName: 'reload' as const,
             showLabel: true,
             disabled: !item.restorable || recycleBinState.acting.value,
+            disabledReason: recycleBinRestoreUnavailableReason(item),
           },
         ]
       : []),
@@ -243,7 +258,8 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       :actions-of="(record) => recordActions(record as CrudRecordListBase)"
       :tag-of="(record) => tagOf?.(record as CrudRecordListBase)"
       :muted-of="(record) => mutedOf?.(record as CrudRecordListBase) ?? record.enabled === false"
-      @select="handleSelect($event as CrudRecordListBase)"
+      @select="emit('select', $event as CrudRecordListBase)"
+      @deselect="emit('deselect')"
       @action="(action, record) => handleAction(action, record as CrudRecordListBase)"
     />
   </div>

@@ -10,6 +10,8 @@ import {
 } from './runtimeContext';
 import {
   createStaticModuleCrudClient,
+  createNavigatorReferenceCrudClient,
+  createNavigatorReferenceTreeClient,
   createStaticModuleTreeClient,
   type ModuleEnableClient,
   type StaticModuleCrudClient,
@@ -26,7 +28,9 @@ export interface ModuleContext<TRecord> {
   runtimeAction(actionCode: string): ModuleRuntimeAction | undefined;
   can(actionCode: string, recordId?: string): boolean | undefined;
   recordActions(recordId: string): Promise<ModuleRecordActionAvailability>;
+  recordActionsBatch?(recordIds: string[]): Promise<ModuleRecordActionAvailability[]>;
   recordActionsSnapshot(recordId: string): ModuleRecordActionAvailability | undefined;
+  invalidateRecordActions?(recordIds?: string[]): void;
 }
 
 export interface ModuleTreeContext<TRecord> extends ModuleContext<TRecord> {
@@ -40,6 +44,7 @@ export interface ModuleContextConfig {
 
 export interface ModuleContextOptions extends ModuleContextConfig {
   moduleAlias: string;
+  runtimeAccess?: 'MENU' | 'REFERENCE';
 }
 
 const moduleContextConfigKey: InjectionKey<ModuleContextConfig> = Symbol('muyun.module-context-config');
@@ -58,12 +63,12 @@ export function provideModuleContextConfig(config: ModuleContextConfig) {
 
 export function createModuleContext<TRecord>(options: ModuleContextOptions): ModuleContext<TRecord> {
   const http = resolveModuleHttpClient(options);
-  return moduleContextOf<TRecord>(http, options.moduleAlias);
+  return moduleContextOf<TRecord>(http, options.moduleAlias, options.runtimeAccess);
 }
 
 export function createModuleTreeContext<TRecord>(options: ModuleContextOptions): ModuleTreeContext<TRecord> {
   const http = resolveModuleHttpClient(options);
-  return moduleTreeContextOf<TRecord>(http, options.moduleAlias);
+  return moduleTreeContextOf<TRecord>(http, options.moduleAlias, options.runtimeAccess);
 }
 
 export function useModuleContext<TRecord>(
@@ -123,14 +128,17 @@ export const ModuleContextProvider = defineComponent({
   },
 });
 
-function moduleContextOf<TRecord>(http: HttpClient, moduleAlias: string): ModuleContext<TRecord> {
-  const crud = createStaticModuleCrudClient<TRecord>(http, { moduleAlias });
-  const tree = createStaticModuleTreeClient<TRecord>(http, { moduleAlias });
+function moduleContextOf<TRecord>(
+  http: HttpClient,
+  moduleAlias: string,
+  runtimeAccess: 'MENU' | 'REFERENCE' = 'MENU',
+): ModuleContext<TRecord> {
+  const { crud, tree } = moduleClientsFor<TRecord>(http, moduleAlias, runtimeAccess);
   const enable: ModuleEnableClient = {
     enable: crud.enable,
     disable: crud.disable,
   };
-  const runtime = createModuleRuntimeContextState(http, moduleAlias);
+  const runtime = createModuleRuntimeContextState(http, moduleAlias, runtimeAccess);
   return {
     moduleAlias,
     http,
@@ -141,12 +149,35 @@ function moduleContextOf<TRecord>(http: HttpClient, moduleAlias: string): Module
     runtimeAction: runtime.runtimeAction,
     can: runtime.can,
     recordActions: runtime.recordActions,
+    recordActionsBatch: runtime.recordActionsBatch,
     recordActionsSnapshot: runtime.recordActionsSnapshot,
+    invalidateRecordActions: runtime.invalidateRecordActions,
   };
 }
 
-function moduleTreeContextOf<TRecord>(http: HttpClient, moduleAlias: string): ModuleTreeContext<TRecord> {
-  const context = moduleContextOf<TRecord>(http, moduleAlias);
+function moduleClientsFor<TRecord>(
+  http: HttpClient,
+  moduleAlias: string,
+  runtimeAccess: 'MENU' | 'REFERENCE',
+) {
+  if (runtimeAccess === 'REFERENCE') {
+    return {
+      crud: createNavigatorReferenceCrudClient<TRecord>(http, { moduleAlias }),
+      tree: createNavigatorReferenceTreeClient<TRecord>(http, { moduleAlias }),
+    };
+  }
+  return {
+    crud: createStaticModuleCrudClient<TRecord>(http, { moduleAlias }),
+    tree: createStaticModuleTreeClient<TRecord>(http, { moduleAlias }),
+  };
+}
+
+function moduleTreeContextOf<TRecord>(
+  http: HttpClient,
+  moduleAlias: string,
+  runtimeAccess: 'MENU' | 'REFERENCE' = 'MENU',
+): ModuleTreeContext<TRecord> {
+  const context = moduleContextOf<TRecord>(http, moduleAlias, runtimeAccess);
   return {
     ...context,
     tree: runtimeCheckedTreeClient(context),
@@ -167,7 +198,7 @@ function runtimeCheckedTreeClient<TRecord>(context: ModuleContext<TRecord>): Sta
     delete: async (id, request) => (await tree()).delete(id, request),
     enable: async (id, request) => (await tree()).enable(id, request),
     disable: async (id, request) => (await tree()).disable(id, request),
-    tree: async () => (await tree()).tree(),
+    tree: async (request) => (await tree()).tree(request),
     treeFlat: async (options) => (await tree()).treeFlat(options),
     subtree: async (id, options) => (await tree()).subtree(id, options),
     sort: async (id, request) => (await tree()).sort(id, request),

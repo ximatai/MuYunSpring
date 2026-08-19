@@ -31,15 +31,24 @@ import static org.mockito.Mockito.when;
 
 class RecordReadProjectionPlannerTest {
     @Test
+    void shouldNotTreatTreeManagementAsADefaultListProjection() {
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
+                ModuleUiDefinition.builder("mr.tag")
+                        .page(PageTemplates.treeManagement(page -> page
+                                .detail(detail -> detail.editor(editor -> editor.field("title")))))
+                        .build());
+
+        assertThat(RecordReadProjectionPlanner.supportsDefaultListProjection(descriptor)).isFalse();
+    }
+
+    @Test
     void shouldPlanDefaultListProjectionFromResolvedDescriptor() {
         ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(staticDefinition(
-                ModuleUiDefinition.builder("iam.employee")
-                        .listView(list -> list
+                TestModulePages.listDetail("iam.employee", list -> list
                                 .field("employeeNo")
                                 .field("title")
                                 .field("mobile", field -> field.visible(UiRule.constant(false)))
                                 .field("enabled"))
-                        .build()
         ));
 
         RecordReadProjection projection = RecordReadProjectionPlanner.defaultList(
@@ -59,26 +68,8 @@ class RecordReadProjectionPlannerTest {
 
     @Test
     void shouldRejectProjectionFieldOutsideReadModel() {
-        ResolvedModuleUiDescriptor descriptor = new ResolvedModuleUiDescriptor(
-                "iam.employee",
-                List.of(new ResolvedViewDescriptor(
-                        "default_list",
-                        ModuleViewKind.LIST,
-                        ModuleUiClientType.WEB,
-                        null,
-                        List.of(new ResolvedViewFieldDescriptor(
-                                ViewFieldRef.main("ghostField"),
-                                "Ghost",
-                                UiRule.constant(true),
-                                UiRule.constant(false),
-                                UiRule.constant(false),
-                                null,
-                                null,
-                                null,
-                                null
-                        ))
-                ))
-        );
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
+                TestModulePages.listDetail("iam.employee", list -> list.field("ghostField")));
         ResolvedModuleReadModel readModel = new ResolvedModuleReadModel(
                 "iam.employee",
                 "employee",
@@ -93,12 +84,10 @@ class RecordReadProjectionPlannerTest {
     @Test
     void shouldKeepPlatformFieldsAndOnlyProjectDeclaredBusinessFields() {
         ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(staticDefinition(
-                ModuleUiDefinition.builder("iam.employee")
-                        .listView(list -> list
+                TestModulePages.listDetail("iam.employee", list -> list
                                 .field("employeeNo")
                                 .field("title")
                                 .field("enabled"))
-                        .build()
         ));
         RecordReadProjection projection = RecordReadProjectionPlanner.defaultList(
                 compilation.uiDescriptor(),
@@ -131,11 +120,9 @@ class RecordReadProjectionPlannerTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     void shouldRecordFieldProtectionPostReadTransformsForProjectedFields() {
         ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(staticDefinition(
-                ModuleUiDefinition.builder("iam.employee")
-                        .listView(list -> list
+                TestModulePages.listDetail("iam.employee", list -> list
                                 .field("employeeNo")
                                 .field("mobile"))
-                        .build()
         ));
         FieldProtectionAbility protectedService = mock(FieldProtectionAbility.class);
         ProtectedFieldAccessor mobile = protectedField("mobile", FieldMaskingPolicy.PHONE);
@@ -187,11 +174,10 @@ class RecordReadProjectionPlannerTest {
                                 FieldDefinition.string("passwordStatus", "密码状态")
                         )
                 )))
-                                                                                                 .uiDefinition(ModuleUiDefinition.builder("iam.user")
-                        .listView(list -> list
+                                                                                                 .uiDefinition(TestModulePages.listDetail("iam.user", list -> list
                                 .field("username")
                                 .field("passwordStatus"))
-                        .build())
+                        )
                                                                                                  .references(List.of())
                                                                                                  .readProjections(List.of())
                                                                                                  .modelClass(UserAccount.class)
@@ -212,11 +198,9 @@ class RecordReadProjectionPlannerTest {
     @Test
     void shouldApplyFieldReadPolicyBeforeOutputProjection() {
         ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(staticDefinition(
-                ModuleUiDefinition.builder("iam.employee")
-                        .listView(list -> list
+                TestModulePages.listDetail("iam.employee", list -> list
                                 .field("employeeNo")
                                 .field("mobile"))
-                        .build()
         ));
         FieldReadAbility readableService = new FieldReadAbility() {
             @Override
@@ -240,9 +224,7 @@ class RecordReadProjectionPlannerTest {
     @Test
     void shouldAttachQueryPermissionContextToReadProjection() {
         ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(staticDefinition(
-                ModuleUiDefinition.builder("iam.employee")
-                        .listView(list -> list.field("employeeNo"))
-                        .build()
+                TestModulePages.listDetail("iam.employee", list -> list.field("employeeNo"))
         ));
         ActionExecutionContext actionContext = ActionExecutionContext.ofPlatformAction(
                 "iam.employee",
@@ -266,9 +248,7 @@ class RecordReadProjectionPlannerTest {
     @Test
     void shouldAttachRecycleBinQueryContextToTheSameListProjection() {
         ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(staticDefinition(
-                ModuleUiDefinition.builder("iam.employee")
-                        .listView(list -> list.field("employeeNo"))
-                        .build()
+                TestModulePages.listDetail("iam.employee", list -> list.field("employeeNo"))
         ));
         ActionExecutionContext actionContext = ActionExecutionContext.ofPlatformAction(
                 "iam.employee",
@@ -288,9 +268,7 @@ class RecordReadProjectionPlannerTest {
     @Test
     void shouldRejectProjectionWhenActionContextIsNotQuery() {
         ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(staticDefinition(
-                ModuleUiDefinition.builder("iam.employee")
-                        .listView(list -> list.field("employeeNo"))
-                        .build()
+                TestModulePages.listDetail("iam.employee", list -> list.field("employeeNo"))
         ));
         ActionExecutionContext actionContext = ActionExecutionContext.ofPlatformAction(
                 "iam.employee",
@@ -312,9 +290,7 @@ class RecordReadProjectionPlannerTest {
     @Test
     void shouldRejectProjectionWhenActionContextModuleDiffers() {
         ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(staticDefinition(
-                ModuleUiDefinition.builder("iam.employee")
-                        .listView(list -> list.field("employeeNo"))
-                        .build()
+                TestModulePages.listDetail("iam.employee", list -> list.field("employeeNo"))
         ));
         ActionExecutionContext actionContext = ActionExecutionContext.ofPlatformAction(
                 "iam.department",
@@ -336,9 +312,7 @@ class RecordReadProjectionPlannerTest {
     @Test
     void shouldKeepNullValuesWhenProjectingRecordOutput() {
         ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(staticDefinition(
-                ModuleUiDefinition.builder("iam.employee")
-                        .listView(list -> list.field("employeeNo"))
-                        .build()
+                TestModulePages.listDetail("iam.employee", list -> list.field("employeeNo"))
         ));
         RecordReadProjection projection = RecordReadProjectionPlanner.defaultList(
                 compilation.uiDescriptor(),

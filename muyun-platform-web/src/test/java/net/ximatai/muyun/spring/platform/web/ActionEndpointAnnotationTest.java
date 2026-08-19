@@ -22,12 +22,19 @@ class ActionEndpointAnnotationTest {
     void shouldDescribeStandardCrudEndpointActionSemantics() throws Exception {
         assertThat(endpoint(CrudWeb.class, "query", WebQueryRequest.class).value()).isEqualTo(PlatformAction.QUERY);
         assertThat(endpoint(CrudWeb.class, "querySchema", String.class).value()).isEqualTo(PlatformAction.QUERY);
-        assertThat(endpoint(CrudWeb.class, "formSchema", String.class).value()).isEqualTo(PlatformAction.VIEW);
+        assertThat(endpoint(CrudWeb.class, "formSchema", String.class, String.class).value())
+                .isEqualTo(PlatformAction.VIEW);
         assertThat(endpoint(CrudWeb.class, "view", String.class).value()).isEqualTo(PlatformAction.VIEW);
         assertThat(endpoint(CrudWeb.class, "insert", EntityContract.class).value()).isEqualTo(PlatformAction.CREATE);
         assertThat(endpoint(CrudWeb.class, "update", String.class, EntityContract.class).value()).isEqualTo(PlatformAction.UPDATE);
         assertThat(endpoint(CrudWeb.class, "delete", String.class, RecordActionWebRequest.class).value())
                 .isEqualTo(PlatformAction.DELETE);
+    }
+
+    @Test
+    void shouldDescribeQueryViewProtocolEndpointActionSemantics() throws Exception {
+        assertThat(endpoint(QueryViewWeb.class, "query", WebQueryRequest.class).value()).isEqualTo(PlatformAction.QUERY);
+        assertThat(endpoint(QueryViewWeb.class, "view", String.class).value()).isEqualTo(PlatformAction.VIEW);
     }
 
     @Test
@@ -107,6 +114,8 @@ class ActionEndpointAnnotationTest {
     @Test
     void shouldDescribeRecycleBinLifecycleActionsAsIndependentPlatformActions() throws Exception {
         assertThat(endpoint(RecycleBinWeb.class, "recycleBin", WebQueryRequest.class).value())
+                .isEqualTo(PlatformAction.RECYCLE_BIN_QUERY);
+        assertThat(endpoint(RecycleBinWeb.class, "viewRecycleBinRecord", String.class).value())
                 .isEqualTo(PlatformAction.RECYCLE_BIN_QUERY);
         assertThat(endpoint(RecycleBinWeb.class, "restoreFromRecycleBin", String.class).value())
                 .isEqualTo(PlatformAction.RECYCLE_BIN_RESTORE);

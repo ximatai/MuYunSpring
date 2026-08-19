@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
@@ -109,7 +110,8 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(EmployeeService.MODULE_ALIAS)
-                .listView(list -> list
+                .page(PageTemplates.listDetailCard(page -> page
+                .list(list -> list.fields(fields -> fields
                         .title("职员列表")
                         .field("employeeNo", field -> field.label("职员编号").width("150px"))
                         .field("organizationTitle", field -> field.label("所属机构").width("160px"))
@@ -122,8 +124,8 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
                         // Declares the self-service avatar reference for the shared file-transfer runtime
                         // without exposing it to organization administrators in the employee management UI.
                         .field("avatarAssetId", field -> field.hidden())
-                        .field("accountBound", field -> field.hidden()))
-                .formView(form -> form
+                        .field("accountBound", field -> field.hidden())))
+                .detail(detail -> detail.editor(form -> form
                         .title("职员档案")
                         .field("organizationId", field -> field.label("所属机构").required().readOnly())
                         .field("departmentId", field -> field.label("所属部门").required().uiType("recordPicker"))
@@ -132,7 +134,8 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
                         .field("gender", field -> field.label("性别"))
                         .field("mobile", field -> field.label("手机号"))
                         .field("email", field -> field.label("邮箱"))
-                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus")))
+                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
+                .traits(traits -> traits.standardCrud().enabledStatus().recycleBin().responsiveDetailSurface())))
                 .build();
     }
 

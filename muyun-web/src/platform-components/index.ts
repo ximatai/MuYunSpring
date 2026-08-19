@@ -1,8 +1,12 @@
 export {};
 export { default as ApplicationScopeSwitcher } from './ApplicationScopeSwitcher.vue';
+export { default as BusinessNotificationPanel } from './BusinessNotificationPanel.vue';
 export { confirmAction } from '@muyun/vue-ui-antdv';
+export { UiModal } from '@muyun/vue-ui-antdv';
 export { default as CrudRecordListExplorer } from './CrudRecordListExplorer.vue';
 export { default as DrawerOperationBar } from './DrawerOperationBar.vue';
+export { default as DrawerTitleActions } from './DrawerTitleActions.vue';
+export type { DrawerTitleAction } from './drawerTitleActions';
 export { default as DateTimeText } from './DateTimeText.vue';
 export { default as FileSizeText } from './FileSizeText.vue';
 export { default as FileTransferUploader } from './FileTransferUploader.vue';
@@ -17,6 +21,7 @@ export { default as EnabledSelect } from './EnabledSelect.vue';
 export { default as ModuleActionButton } from './ModuleActionButton.vue';
 export { default as ManagementWorkspace } from './ManagementWorkspace.vue';
 export { default as ManagementExplorerColumn } from './ManagementExplorerColumn.vue';
+export { MANAGEMENT_WORKSPACE_LAYOUT, listDetailWorkspaceMinWidth } from './managementWorkspaceLayout';
 export { providePageLayout, usePageLayout } from './pageLayoutContext';
 export { default as RecordActionBar } from './RecordActionBar.vue';
 export { default as RecordDetailDrawer } from './RecordDetailDrawer.vue';
@@ -24,6 +29,7 @@ export type { DrawerPromotion } from './drawerPromotion';
 export { default as RecordExternalChangeNotice } from './RecordExternalChangeNotice.vue';
 export { default as RecordDetailFields } from './RecordDetailFields.vue';
 export { default as RecordDetailExtensionSection } from './RecordDetailExtensionSection.vue';
+export { default as DetailRelationListPanel } from './DetailRelationListPanel.vue';
 export { default as RecordDetailPanel } from './RecordDetailPanel.vue';
 export { default as RecordPanelButton } from './RecordPanelButton.vue';
 export { default as RecordPanelState } from './RecordPanelState.vue';
@@ -99,6 +105,7 @@ export type {
   RecordQueryListCellComponent,
   RecordQueryListColumn,
   RecordQueryListMode,
+  StandardCrudRowActionKey,
 } from './RecordQueryListPanel.vue';
 export type {
   RecordFormFieldDescriptor,
@@ -135,11 +142,16 @@ export type {
 } from './platformDateTime';
 export {
   childResourceDefaultFormViewCode,
+  resolveRecordDetailFields,
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
   resolveRecordFormFields,
 } from './recordFormFieldModel';
-export { createScopedTreeClient, createScopedTreeModuleContext } from './scopedTreeModuleContext';
+export {
+  createQueryScopedTreeModuleContext,
+  createScopedTreeClient,
+  createScopedTreeModuleContext,
+} from './scopedTreeModuleContext';
 export {
   createEmptyStaticTreeClient,
   createStaticTreeResourceModuleContext,

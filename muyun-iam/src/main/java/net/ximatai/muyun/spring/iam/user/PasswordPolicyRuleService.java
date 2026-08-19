@@ -73,14 +73,18 @@ public class PasswordPolicyRuleService extends AbstractAbilityService<PasswordPo
 
 
     public List<PasswordPolicyRule> activeGlobalRules() {
-        List<PasswordPolicyRule> rules = list(Criteria.of()
+        List<PasswordPolicyRule> rules = configuredActiveGlobalRules();
+        return rules.isEmpty() ? List.of(DEFAULT_MIN_LENGTH_RULE) : rules;
+    }
+
+    private List<PasswordPolicyRule> configuredActiveGlobalRules() {
+        return list(Criteria.of()
                         .eq("scopeType", PasswordPolicyScopeType.GLOBAL)
                         .eq("scopeKey", GLOBAL_SCOPE_KEY)
                         .eq("enabled", Boolean.TRUE),
                 ALL,
                 Sort.asc(PlatformAbilityFields.SORT_FIELD),
                 Sort.asc("title"));
-        return rules.isEmpty() ? List.of(DEFAULT_MIN_LENGTH_RULE) : rules;
     }
 
     public void validatePassword(String password) {

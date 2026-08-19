@@ -25,25 +25,54 @@ withDefaults(
 <template>
   <main
     class="record-detail-layout"
-    :class="[`record-detail-layout--${surface}`, { 'record-detail-layout--scrollable': scrollableContent }]"
+    :class="[
+      `record-detail-layout--${surface}`,
+      {
+        'record-detail-layout--scrollable': scrollableContent,
+        'record-detail-layout--scrollable-with-operation': scrollableContent && Boolean($slots.operation),
+      },
+    ]"
   >
-    <header class="record-detail-layout-header">
-      <div class="record-detail-layout-title-group">
-        <div class="record-detail-layout-title-copy">
-          <h2>{{ title }}</h2>
-          <p v-if="subtitle">{{ subtitle }}</p>
+    <slot name="header">
+      <header class="record-detail-layout-header">
+        <div class="record-detail-layout-title-group">
+          <slot name="title-prefix" />
+          <div class="record-detail-layout-title-copy">
+            <h2>{{ title }}</h2>
+            <p v-if="subtitle">{{ subtitle }}</p>
+          </div>
+          <slot name="status" />
+          <slot name="title-actions" />
         </div>
-        <slot name="status" />
-        <slot name="title-actions" />
-      </div>
-      <div v-if="$slots.actions" class="record-detail-layout-actions">
-        <slot name="actions" />
-      </div>
-    </header>
+        <div v-if="$slots.actions" class="record-detail-layout-actions">
+          <slot name="actions" />
+        </div>
+      </header>
+    </slot>
     <div v-if="scrollableContent" class="record-detail-layout-content">
+      <div v-if="$slots['content-top']" class="record-detail-layout-content-extension">
+        <slot name="content-top" />
+      </div>
       <slot />
+      <div
+        v-if="$slots['content-bottom']"
+        class="record-detail-layout-content-extension record-detail-layout-content-extension--bottom"
+      >
+        <slot name="content-bottom" />
+      </div>
     </div>
-    <slot v-else />
+    <template v-else>
+      <div v-if="$slots['content-top']" class="record-detail-layout-content-extension">
+        <slot name="content-top" />
+      </div>
+      <slot />
+      <div
+        v-if="$slots['content-bottom']"
+        class="record-detail-layout-content-extension record-detail-layout-content-extension--bottom"
+      >
+        <slot name="content-bottom" />
+      </div>
+    </template>
     <div v-if="$slots.operation" class="record-detail-layout-operation">
       <DrawerOperationBar>
         <slot name="operation" />
@@ -64,6 +93,9 @@ withDefaults(
 }
 
 .record-detail-layout--workspace {
+  gap: var(--muyun-management-panel-content-gap, 8px);
+  padding: var(--muyun-management-panel-padding-block, 10px)
+    var(--muyun-management-panel-padding-inline, 12px);
   border: 1px solid var(--muyun-border);
   border-radius: 8px;
 }
@@ -80,13 +112,25 @@ withDefaults(
 }
 
 .record-detail-layout--scrollable {
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
+}
+
+.record-detail-layout--scrollable-with-operation {
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .record-detail-layout-content {
   min-height: 0;
   overflow: auto;
+}
+
+.record-detail-layout-content-extension--bottom {
+  margin-top: var(--muyun-detail-content-extension-gap, 16px);
+}
+
+.record-detail-layout-content-extension:not(.record-detail-layout-content-extension--bottom) {
+  margin-bottom: var(--muyun-detail-content-extension-gap, 16px);
 }
 
 .record-detail-layout-header {
@@ -95,14 +139,16 @@ withDefaults(
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
+  min-height: 32px;
 }
 
 .record-detail-layout-title-group {
   display: inline-flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
+  min-height: 32px;
 }
 
 .record-detail-layout-title-copy {
@@ -134,6 +180,7 @@ withDefaults(
   justify-content: flex-end;
   gap: 10px;
   min-width: 0;
+  min-height: 32px;
   max-width: 100%;
 }
 
@@ -146,6 +193,12 @@ withDefaults(
   padding: 12px 14px;
   border-top: 1px solid var(--muyun-border);
   background: var(--muyun-surface);
+}
+
+.record-detail-layout--workspace .record-detail-layout-operation {
+  margin: 0 calc(-1 * var(--muyun-management-panel-padding-inline, 12px))
+    calc(-1 * var(--muyun-management-panel-padding-block, 10px));
+  padding-inline: var(--muyun-management-panel-padding-inline, 12px);
 }
 
 @media (max-width: 720px) {

@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.web;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 
 import java.util.List;
 import java.util.Set;
@@ -18,6 +19,7 @@ public record PlatformModuleRuntimeContext(
         Set<EntityCapability> capabilities,
         Set<String> abilities,
         List<PlatformModuleRuntimeAction> actions,
+        Set<NavigatorSourceCapability> navigatorSourceCapabilities,
         ResolvedModuleUiDescriptor uiDescriptor
 ) {
     public PlatformModuleRuntimeContext(String moduleAlias,
@@ -31,7 +33,7 @@ public record PlatformModuleRuntimeContext(
                                         Set<String> abilities,
         List<PlatformModuleRuntimeAction> actions) {
         this(moduleAlias, title, moduleKind, entryType, entryRoute, entryExternalUrl, mainEntityAlias,
-                capabilities, abilities, actions, (ResolvedModuleUiDescriptor) null);
+                capabilities, abilities, actions, Set.of(), (ResolvedModuleUiDescriptor) null);
     }
 
     public PlatformModuleRuntimeContext(String moduleAlias,
@@ -46,6 +48,6 @@ public record PlatformModuleRuntimeContext(
                                         List<PlatformModuleRuntimeAction> actions,
                                         ModuleUiDefinition uiDefinition) {
         this(moduleAlias, title, moduleKind, entryType, entryRoute, entryExternalUrl, mainEntityAlias,
-                capabilities, abilities, actions, ModuleUiDescriptorCompiler.compile(uiDefinition));
+                capabilities, abilities, actions, Set.of(), ModuleUiDescriptorCompiler.compile(uiDefinition));
     }
 }

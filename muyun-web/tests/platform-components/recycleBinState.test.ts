@@ -1,7 +1,10 @@
 import { assert, it } from 'vitest';
 import type { RecycleBinItem, RestoreReport, PurgeReport } from '@/web-contracts/index.ts';
 import type { ModuleContext, ModuleRuntimeContextState } from '@/web-core/index.ts';
-import { useRecycleBinState } from '@/platform-components/recycleBinState.ts';
+import {
+  recycleBinRestoreUnavailableReason,
+  useRecycleBinState,
+} from '@/platform-components/recycleBinState.ts';
 import { useRecycleBinExplorerMode } from '@/platform-components/useRecycleBinExplorerMode.ts';
 import { ref } from 'vue';
 
@@ -11,6 +14,20 @@ interface Tenant {
   title?: string;
   enabled?: boolean;
 }
+
+it('turns retained lifecycle facts into an operator-facing restore explanation', () => {
+  assert.equal(
+    recycleBinRestoreUnavailableReason({
+      record: {},
+      sourceDeleteOperationId: null,
+      deletedAt: '2024-01-15T10:30:00Z',
+      restorable: false,
+      purgeable: false,
+      unavailableReason: 'resource lifecycle changed after deletion',
+    }),
+    '无法恢复：删除后资源生命周期已变化',
+  );
+});
 
 it('recycle bin explorer mode centralizes capability, switching and reload state', () => {
   const context = createContext({ request: async () => undefined });

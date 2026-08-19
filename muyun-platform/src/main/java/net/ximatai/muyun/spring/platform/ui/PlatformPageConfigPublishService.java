@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
@@ -15,9 +16,14 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class PlatformPageConfigPublishService {
@@ -31,13 +37,15 @@ public class PlatformPageConfigPublishService {
     private final PlatformQueryTemplateService queryTemplateService;
     private final PlatformQueryItemService queryItemService;
     private final DynamicRecordService recordService;
+    private final PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver;
 
     public PlatformPageConfigPublishService(PlatformUiSetService uiSetService,
                                             PlatformUiConfigService uiConfigService,
                                             PlatformUiConfigFieldService uiConfigFieldService,
                                             PlatformQueryTemplateService queryTemplateService,
                                             PlatformQueryItemService queryItemService) {
-        this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, null);
+        this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, null,
+                (PageNavigatorSourceCapabilityResolver) null);
     }
 
     @Autowired
@@ -46,13 +54,36 @@ public class PlatformPageConfigPublishService {
                                             PlatformUiConfigFieldService uiConfigFieldService,
                                             PlatformQueryTemplateService queryTemplateService,
                                             PlatformQueryItemService queryItemService,
+                                            DynamicRecordService recordService,
+                                            ObjectProvider<PageNavigatorSourceCapabilityResolver> navigatorSourceCapabilityResolver) {
+        this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, recordService,
+                navigatorSourceCapabilityResolver == null ? null : navigatorSourceCapabilityResolver.getIfAvailable());
+    }
+
+    public PlatformPageConfigPublishService(PlatformUiSetService uiSetService,
+                                            PlatformUiConfigService uiConfigService,
+                                            PlatformUiConfigFieldService uiConfigFieldService,
+                                            PlatformQueryTemplateService queryTemplateService,
+                                            PlatformQueryItemService queryItemService,
                                             DynamicRecordService recordService) {
+        this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, recordService,
+                (PageNavigatorSourceCapabilityResolver) null);
+    }
+
+    public PlatformPageConfigPublishService(PlatformUiSetService uiSetService,
+                                            PlatformUiConfigService uiConfigService,
+                                            PlatformUiConfigFieldService uiConfigFieldService,
+                                            PlatformQueryTemplateService queryTemplateService,
+                                            PlatformQueryItemService queryItemService,
+                                            DynamicRecordService recordService,
+                                            PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver) {
         this.uiSetService = uiSetService;
         this.uiConfigService = uiConfigService;
         this.uiConfigFieldService = uiConfigFieldService;
         this.queryTemplateService = queryTemplateService;
         this.queryItemService = queryItemService;
         this.recordService = recordService;
+        this.navigatorSourceCapabilityResolver = navigatorSourceCapabilityResolver;
     }
 
     public void publishUiConfig(String uiConfigId) {
@@ -83,35 +114,139 @@ public class PlatformPageConfigPublishService {
             throw BusinessExceptions.warning("platform.ui-config.publish-no-visible-field",
                     "UI config publish requires at least one visible field: " + uiConfigId);
         }
-        validateLayoutJson(uiSet.getModuleAlias(), uiConfig);
-        validateScopedListWorkspace(uiSet, uiConfig);
+        JsonNode layout = validateLayoutJson(uiSet.getModuleAlias(), uiConfig);
+        validatePageNavigator(uiSet, uiConfig);
+        validatePageCapabilityContract(uiSet, uiConfig, layout);
         return uiConfig;
     }
 
-    private void validateScopedListWorkspace(PlatformUiSet uiSet, PlatformUiConfig uiConfig) {
-        if (uiConfig.getScopeModuleAlias() == null || uiConfig.getScopeModuleAlias().isBlank()
-                || recordService == null) {
-            return;
+    private void validatePageNavigator(PlatformUiSet uiSet, PlatformUiConfig uiConfig) {
+        try {
+            // Decode the navigator even when the optional dynamic runtime is absent: unsupported
+            // source/target combinations are configuration facts, not runtime-only validation.
+            PlatformPageLayoutNavigator.navigator(uiConfig);
+            if (recordService == null) return;
+            PlatformPublishedPageComposition composition = publishedCompositionIncluding(uiSet, uiConfig);
+            validatePageNavigator(uiSet, uiConfig, composition);
+            if ((uiSet.getSetType() == PlatformUiSetType.LIST || uiSet.getSetType() == PlatformUiSetType.FORM)
+                    && composition.listConfig() != null && !composition.listConfig().getId().equals(uiConfig.getId())) {
+                PlatformUiSet listSet = publishedUiSets(uiSet.getModuleAlias()).stream()
+                        .filter(candidate -> candidate.getId().equals(composition.listConfig().getUiSetId()))
+                        .findFirst()
+                        .orElseThrow(() -> new PlatformException("Published list UI set is unavailable: "
+                                + composition.listConfig().getUiSetId()));
+                validatePageNavigator(listSet, composition.listConfig(), composition);
+            }
+        } catch (IllegalArgumentException exception) {
+            throw new PlatformException("UI config navigator layout is invalid: " + uiConfig.getId(), exception);
         }
-        DynamicModuleDescriptor module = recordService.describe(uiSet.getModuleAlias());
-        DynamicEntityDescriptor entity = module.entities().stream()
-                .filter(candidate -> candidate.entityAlias().equals(module.mainEntityAlias()))
-                .findFirst()
-                .orElseThrow(() -> new PlatformException("Scoped list workspace main entity is unavailable: "
-                        + uiSet.getModuleAlias()));
-        DynamicFieldDescriptor field = entity.fields().stream()
-                .filter(candidate -> candidate.fieldName().equals(uiConfig.getScopeField()))
-                .findFirst()
-                .orElseThrow(() -> new PlatformException("Scoped list workspace field must be a reference: "
-                        + uiSet.getModuleAlias() + "." + uiConfig.getScopeField()));
-        DynamicReferenceDescriptor reference = field.reference();
-        if (reference == null || reference.cardinality() != ReferenceCardinality.ONE) {
-            throw new PlatformException("Scoped list workspace field must be a single reference: "
-                    + uiSet.getModuleAlias() + "." + uiConfig.getScopeField());
-        }
-        if (!uiConfig.getScopeModuleAlias().equals(reference.targetModuleAlias())) {
-            throw new PlatformException("Scoped list workspace reference target must match scope module: "
-                    + uiSet.getModuleAlias() + "." + uiConfig.getScopeField());
+    }
+
+    private void validatePageNavigator(PlatformUiSet uiSet,
+                                       PlatformUiConfig uiConfig,
+                                       PlatformPublishedPageComposition composition) {
+        PlatformPageNavigatorLayout navigator = PlatformPageLayoutNavigator.navigator(uiConfig);
+        if (navigator == null) return;
+        validateNavigatorSourceCapabilities(uiSet, uiConfig, navigator);
+            DynamicModuleDescriptor module = recordService.describe(uiSet.getModuleAlias());
+            DynamicEntityDescriptor entity = module.entities().stream()
+                    .filter(candidate -> candidate.entityAlias().equals(module.mainEntityAlias()))
+                    .findFirst()
+                    .orElseThrow(() -> new PlatformException("Navigator main entity is unavailable: " + uiSet.getModuleAlias()));
+            Set<String> editorFieldNames = publishedFormEditorFieldNames(composition);
+            for (PlatformPageContextBinding binding : navigator.contextBindings()) {
+                if (!"NAVIGATOR".equals(binding.source()) || (!"LIST_QUERY".equals(binding.target())
+                        && !"PICKER_QUERY".equals(binding.target()))) {
+                    continue;
+                }
+                PlatformPageNavigatorLevel level = navigator.levels().stream()
+                        .filter(candidate -> candidate.key().equals(binding.sourceKey()))
+                        .findFirst().orElseThrow();
+                DynamicFieldDescriptor field = entity.fields().stream()
+                            .filter(candidate -> candidate.fieldName().equals(binding.targetKey()))
+                            .findFirst().orElseThrow(() -> new PlatformException("Navigator query field is unavailable: "
+                                    + uiSet.getModuleAlias() + "." + binding.targetKey()));
+                DynamicReferenceDescriptor reference = field.reference();
+                if ("PICKER_QUERY".equals(binding.target())) {
+                    if (!editorFieldNames.contains(binding.targetPickerFieldKey())) {
+                        throw new PlatformException("Picker query target must be declared by a published form editor: "
+                                + uiSet.getModuleAlias() + "." + binding.targetPickerFieldKey());
+                    }
+                    DynamicFieldDescriptor pickerField = entity.fields().stream()
+                            .filter(candidate -> candidate.fieldName().equals(binding.targetPickerFieldKey()))
+                            .findFirst().orElseThrow(() -> new PlatformException("Picker query target is unavailable: "
+                                    + uiSet.getModuleAlias() + "." + binding.targetPickerFieldKey()));
+                    if (!isTreeParentPicker(module, binding)
+                            && (pickerField.reference() == null
+                            || pickerField.reference().cardinality() != ReferenceCardinality.ONE)) {
+                        throw new PlatformException("Picker query target must be a single record reference: "
+                                + uiSet.getModuleAlias() + "." + binding.targetPickerFieldKey());
+                    }
+                }
+                if (reference == null || reference.cardinality() != ReferenceCardinality.ONE
+                        || !level.sourceModuleAlias().equals(reference.targetModuleAlias())) {
+                    throw new PlatformException("Navigator query field must be a single reference to "
+                            + level.sourceModuleAlias() + ": " + uiSet.getModuleAlias() + "." + binding.targetKey());
+                }
+            }
+    }
+
+    private PlatformPublishedPageComposition publishedCompositionIncluding(PlatformUiSet uiSet,
+                                                                            PlatformUiConfig candidate) {
+        List<PlatformUiSet> uiSets = publishedUiSets(uiSet.getModuleAlias());
+        List<String> uiSetIds = uiSets.stream().map(PlatformUiSet::getId).toList();
+        Map<String, PlatformUiConfig> configsById = uiConfigService.listPublishedByUiSetIds(uiSetIds).stream()
+                .collect(Collectors.toMap(PlatformUiConfig::getId, Function.identity()));
+        PlatformUiConfig publishCandidate = copyForPublish(candidate, Boolean.TRUE);
+        configsById.put(publishCandidate.getId(), publishCandidate);
+        return PlatformPublishedPageComposition.resolve(uiSets, List.copyOf(configsById.values()),
+                PlatformUiClientType.WEB);
+    }
+
+    private List<PlatformUiSet> publishedUiSets(String moduleAlias) {
+        return uiSetService.listByModuleAlias(moduleAlias);
+    }
+
+    private Set<String> publishedFormEditorFieldNames(PlatformPublishedPageComposition composition) {
+        PlatformUiConfig formConfig = composition.formConfig();
+        return formConfig == null ? Set.of()
+                : uiConfigFieldService.visibleFieldNamesByUiConfigIds(List.of(formConfig.getId()));
+    }
+
+    private boolean isTreeParentPicker(DynamicModuleDescriptor module, PlatformPageContextBinding binding) {
+        return PlatformAbilityFields.TREE_PARENT_FIELD.equals(binding.targetPickerFieldKey())
+                && module.entities().stream()
+                .filter(entity -> entity.entityAlias().equals(module.mainEntityAlias()))
+                .anyMatch(entity -> entity.capabilities().contains("TREE"));
+    }
+
+    private void validateNavigatorSourceCapabilities(PlatformUiSet uiSet,
+                                                     PlatformUiConfig uiConfig,
+                                                     PlatformPageNavigatorLayout navigator) {
+        // Platform core can be used without the Web delivery module. In that case no runnable
+        // page host exists, so source-projection validation belongs to the optional delivery adapter.
+        if (navigatorSourceCapabilityResolver == null) return;
+        for (PlatformPageNavigatorLevel level : navigator.levels()) {
+            NavigatorSourceCapability required = "TREE".equals(level.kind())
+                    ? NavigatorSourceCapability.REFERENCE_TREE
+                    : NavigatorSourceCapability.REFERENCE_QUERY;
+            if (!navigatorSourceCapabilityResolver.supports(level.sourceModuleAlias(), required)) {
+                throw new PlatformException("Navigator source capability is unavailable: page="
+                        + uiSet.getModuleAlias() + ", uiConfig=" + uiConfig.getId() + ", level=" + level.key()
+                        + ", source=" + level.sourceModuleAlias() + ", required=" + required);
+            }
+            PlatformPageNavigatorManagement management = level.management();
+            if (management != null) {
+                Set<String> actions = management.actions() == null
+                        ? Set.of("CREATE", "UPDATE", "DELETE")
+                        : management.actions();
+                if (!actions.isEmpty() && !navigatorSourceCapabilityResolver.supportsManagement(
+                        level.sourceModuleAlias(), actions, management.editorSurface())) {
+                    throw new PlatformException("Navigator source management contract is unavailable: page="
+                            + uiSet.getModuleAlias() + ", uiConfig=" + uiConfig.getId() + ", level=" + level.key()
+                            + ", source=" + level.sourceModuleAlias());
+                }
+            }
         }
     }
 
@@ -139,14 +274,46 @@ public class PlatformPageConfigPublishService {
         return template;
     }
 
-    private void validateLayoutJson(String moduleAlias, PlatformUiConfig uiConfig) {
+    private void validatePageCapabilityContract(PlatformUiSet uiSet, PlatformUiConfig uiConfig, JsonNode layout) {
+        if (recordService == null || layout == null) return;
+        Set<String> traits = new java.util.LinkedHashSet<>();
+        JsonNode traitValues = layout.path("traits");
+        if (traitValues.isArray()) {
+            traitValues.forEach(value -> traits.add(value.asText()));
+        }
+        String template = layout.path("template").asText(null);
+        if (!PageCapabilityContractValidator.TREE_MANAGEMENT.equals(template)
+                && !traits.contains(PageCapabilityContractValidator.STANDARD_CRUD)
+                && !traits.contains(PageCapabilityContractValidator.ENABLED_STATUS)
+                && !traits.contains(PageCapabilityContractValidator.RECYCLE_BIN)) {
+            return;
+        }
+        DynamicModuleDescriptor module = recordService.describe(uiSet.getModuleAlias());
+        if (module == null) return;
+        DynamicEntityDescriptor mainEntity = module.entities().stream()
+                .filter(entity -> entity.entityAlias().equals(module.mainEntityAlias()))
+                .findFirst()
+                .orElse(null);
+        if (mainEntity == null) return;
+        try {
+            PageCapabilityContractValidator.validate(uiSet.getModuleAlias(), template,
+                    traits, mainEntity.capabilities(), module.actions().stream()
+                            .map(DynamicActionDescriptor::code)
+                            .collect(Collectors.toUnmodifiableSet()));
+        } catch (IllegalArgumentException exception) {
+            throw new PlatformException("UI config page capability is invalid: " + uiConfig.getId(), exception);
+        }
+    }
+
+    private JsonNode validateLayoutJson(String moduleAlias, PlatformUiConfig uiConfig) {
         String layoutJson = uiConfig.getLayoutJson();
         if (layoutJson == null || layoutJson.isBlank()) {
-            return;
+            return null;
         }
         try {
             JsonNode root = OBJECT_MAPPER.readTree(layoutJson);
             validateLayoutRoot(moduleAlias, root, uiConfig.getId());
+            return root;
         } catch (JsonProcessingException exception) {
             throw new PlatformException("UI config layout JSON cannot be decoded: " + uiConfig.getId());
         }
@@ -156,12 +323,35 @@ public class PlatformPageConfigPublishService {
         if (root == null || !root.isObject()) {
             throw new PlatformException("UI config layout JSON root must be object: " + uiConfigId);
         }
+        validatePageRootContract(root, uiConfigId);
         validateSummaryPanel(root.get("summaryPanel"), uiConfigId);
         validateReferenceCandidate(root.get("referenceCandidate"), "referenceCandidate", uiConfigId);
         validateReferenceCandidateArray(root.get("referenceCandidates"), "referenceCandidates", uiConfigId);
         validateChildSections(root.get("children"), "children", uiConfigId);
         validateChildSections(root.get("childSections"), "childSections", uiConfigId);
         validateKnownBlocks(moduleAlias, root.get("blocks"), uiConfigId);
+    }
+
+    private void validatePageRootContract(JsonNode root, String uiConfigId) {
+        JsonNode template = root.get("template");
+        if (template != null && !template.isNull()) {
+            if (!template.isTextual() || !Set.of("FLAT_MANAGEMENT", "LIST_DETAIL_CARD", "TREE_MANAGEMENT")
+                    .contains(template.asText())) {
+                throw layoutException(uiConfigId, "template is unsupported");
+            }
+        }
+        JsonNode traits = root.get("traits");
+        if (traits == null || traits.isNull()) return;
+        if (!traits.isArray()) {
+            throw layoutException(uiConfigId, "traits must be array");
+        }
+        Set<String> supported = Set.of(
+                "STANDARD_CRUD", "ENABLED_STATUS", "RECYCLE_BIN", "RESPONSIVE_DETAIL_SURFACE");
+        for (JsonNode trait : traits) {
+            if (!trait.isTextual() || !supported.contains(trait.asText())) {
+                throw layoutException(uiConfigId, "traits contains unsupported value");
+            }
+        }
     }
 
     private void validateSummaryPanel(JsonNode summaryPanel, String uiConfigId) {
@@ -304,7 +494,6 @@ public class PlatformPageConfigPublishService {
         }
         validateOptionalText(block, "title", path, uiConfigId);
         validateOptionalText(block, "position", path, uiConfigId);
-        validateOptionalText(block, "uiConfigId", path, uiConfigId);
         validateOptionalText(block, "targetUiConfigId", path, uiConfigId);
         validateOptionalPositiveInt(block, "width", path, uiConfigId);
         validateOptionalPositiveInt(block, "height", path, uiConfigId);
@@ -322,6 +511,9 @@ public class PlatformPageConfigPublishService {
         DynamicActionDescriptor action = validateActionCode(moduleAlias, actionCode, path, uiConfigId);
         if (action != null && "dialog".equals(type.asText()) && action.executorType() != EntityActionExecutorType.DIALOG) {
             throw layoutException(uiConfigId, path + ".actionCode must be DIALOG action");
+        }
+        if (action != null && "action".equals(type.asText()) && action.executorType() == EntityActionExecutorType.DIALOG) {
+            throw layoutException(uiConfigId, path + ".actionCode must not be DIALOG action");
         }
         validateOptionalText(block, "title", path, uiConfigId);
         validateOptionalText(block, "position", path, uiConfigId);
@@ -449,9 +641,9 @@ public class PlatformPageConfigPublishService {
                                                JsonNode block,
                                                String path,
                                                String uiConfigId) {
-        String targetUiConfigId = firstText(text(block, "targetUiConfigId"), text(block, "uiConfigId"));
-        if (targetUiConfigId == null || targetUiConfigId.equals(uiConfigId)) {
-            return;
+        String targetUiConfigId = text(block, "targetUiConfigId");
+        if (targetUiConfigId == null) {
+            throw layoutException(uiConfigId, path + ".targetUiConfigId is required");
         }
         PlatformUiConfig sourceConfig = uiConfigService.requireUiConfig(uiConfigId);
         PlatformUiConfig targetConfig = uiConfigService.requireUiConfig(targetUiConfigId);
@@ -459,13 +651,18 @@ public class PlatformPageConfigPublishService {
         if (!moduleAlias.equals(targetSet.getModuleAlias())) {
             throw layoutException(uiConfigId, path + ".targetUiConfigId must belong to module");
         }
+        if (targetSet.getSetType() != PlatformUiSetType.FORM) {
+            throw layoutException(uiConfigId, path + ".targetUiConfigId must use FORM UI set");
+        }
         if (sourceConfig.getClientType() != targetConfig.getClientType()) {
             throw layoutException(uiConfigId, path + ".targetUiConfigId must use same client type");
         }
         if (!Boolean.TRUE.equals(targetSet.getEnabled())) {
             throw layoutException(uiConfigId, path + ".targetUiConfigId must use enabled UI set");
         }
-        if (!Boolean.TRUE.equals(targetConfig.getEnabled()) || !Boolean.TRUE.equals(targetConfig.getPublished())) {
+        boolean publishingTargetItself = targetUiConfigId.equals(uiConfigId);
+        if (!Boolean.TRUE.equals(targetConfig.getEnabled())
+                || (!publishingTargetItself && !Boolean.TRUE.equals(targetConfig.getPublished()))) {
             throw layoutException(uiConfigId, path + ".targetUiConfigId must be published and enabled");
         }
         if (!hasLocalEditBinding(targetConfig, actionCode)) {
@@ -578,13 +775,6 @@ public class PlatformPageConfigPublishService {
         target.setUiSetId(source.getUiSetId());
         target.setClientType(source.getClientType());
         target.setLayoutJson(source.getLayoutJson());
-        target.setScopeModuleAlias(source.getScopeModuleAlias());
-        target.setScopeField(source.getScopeField());
-        target.setScopeQueryCriteriaKey(source.getScopeQueryCriteriaKey());
-        target.setScopeTitle(source.getScopeTitle());
-        target.setScopeSearchPlaceholder(source.getScopeSearchPlaceholder());
-        target.setScopeShowItemSubtitle(source.getScopeShowItemSubtitle());
-        target.setScopeCreatePolicy(source.getScopeCreatePolicy());
         target.setTitle(source.getTitle());
         target.setEnabled(source.getEnabled());
         target.setSortOrder(source.getSortOrder());

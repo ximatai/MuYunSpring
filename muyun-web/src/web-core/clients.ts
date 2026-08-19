@@ -10,6 +10,7 @@ import type {
   MenuTreeNode,
   PageBootstrap,
   TenantBranding,
+  TenantLoginContext,
 } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
 
@@ -35,10 +36,22 @@ export interface AuthClient {
   logout(token?: string): Promise<void>;
 }
 
+/** Resolves the public context used by a tenant-locked login entry. */
+export interface LoginContextClient {
+  loginContext(tenantId: string): Promise<TenantLoginContext>;
+}
+
 export function createSessionClient(http: HttpClient): SessionClient {
   return {
     current: () => http.request<CurrentUser>({ path: '/iam.auth/context' }),
     tenantBranding: () => http.request<TenantBranding>({ path: '/iam.auth/tenant-branding' }),
+  };
+}
+
+export function createLoginContextClient(http: HttpClient): LoginContextClient {
+  return {
+    loginContext: (tenantId) =>
+      http.request<TenantLoginContext>({ path: '/iam.auth/login-context', query: { tenantId } }),
   };
 }
 

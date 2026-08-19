@@ -18,21 +18,20 @@ import { pageDescriptorToUrl, type PageDescriptorResolveOptions } from '../platf
 import type { WorkbenchRealtimeStatus } from '../platform-workbench/realtimeStatus';
 import {
   arrangeLockedMenuTabs,
-  activeTabUrlOf,
-  findTabByRoute,
   closeMenuTab,
   closeMenuTabs,
   menuTargetUrl,
-  openMenuTab,
   openDirectTab,
+  openMenuTab,
   reorderMenuTabs,
   removeLockedMenuTabs,
-  restoreLockedMenuTabs,
+  restoreLockedWorkbenchTabs,
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
 } from '../app/workbenchStartup';
 import { restoreLockedTabPreference, saveLockedTabPreference } from '../app/lockedTabPreference';
 import { workbenchRouteWriteFor } from '../app/workbenchRouteSync';
+import { syncModulePageWorkspaceViewContributions } from '../platform-workbench/modulePageWorkspaceViews';
 import type { AppWorkbenchNavigation } from './workbenchNavigation';
 
 defineOptions({ name: 'AppWorkbenchShell' });
@@ -69,10 +68,19 @@ let lockedTabPreferenceRevision = 0;
 let lockedTabPreferenceWrite = Promise.resolve();
 let isMounted = false;
 
-provideWorkbenchNavigation({ openRoute, replaceRoute, closeCurrentTab, openPage, replacePage, setTabName });
+provideWorkbenchNavigation({
+  openRoute,
+  replaceRoute,
+  closeCurrentTab,
+  openPage,
+  replacePage,
+  closePage: closeTab,
+  setTabName,
+});
 
 onMounted(() => {
   isMounted = true;
+  syncModulePageWorkspaceViewContributions();
   void restoreLockedTabs();
   restoreFromLocation(props.location);
 });
@@ -181,25 +189,22 @@ function openPage(descriptor: PageDescriptor) {
 }
 
 function openRoute(path: string, options: OpenRouteOptions = {}) {
-  return navigateRoute(path, options, 'push', props.startup, options.tabTitle);
+  return navigateRoute(routeUrlWithOpenOptions(path, options), 'push', props.startup, options.tabTitle);
 }
 
 function replaceRoute(path: string, options: OpenRouteOptions = {}) {
   const currentTabKey = props.startup.activeTabKey;
   const currentTab = props.startup.tabs?.find((tab) => tab.key === currentTabKey);
-  const currentInstanceKey = currentTab?.fullPath
+  const url = new URL(routeUrlWithOpenOptions(path, options), 'http://muyun.local');
+  const instanceKey = currentTab?.fullPath
     ? new URL(currentTab.fullPath, 'http://muyun.local').searchParams.get('InstanceKey')
     : undefined;
-  const url = routeUrlWithOpenOptions(path, options);
-  const parsed = new URL(url, 'http://muyun.local');
-  if (currentInstanceKey) parsed.searchParams.set('InstanceKey', currentInstanceKey);
-  const fullPath = `${parsed.pathname}${parsed.search}${parsed.hash}`;
-  if (!currentTab || !currentTabKey)
-    return navigateRoute(fullPath, {}, 'replace', props.startup, options.tabTitle);
-
+  if (instanceKey) url.searchParams.set('InstanceKey', instanceKey);
+  const fullPath = `${url.pathname}${url.search}${url.hash}`;
+  if (!currentTabKey || !currentTab) return navigateRoute(fullPath, 'replace', props.startup, options.tabTitle);
   const restored = restoreWorkbenchStartupStateFromUrl(props.startup, fullPath, props.resolveOptions);
   const replacement = restored.tabs?.find((tab) => tab.key === restored.activeTabKey);
-  if (!replacement) return navigateRoute(fullPath, {}, 'replace');
+  if (!replacement) return { created: false };
   const tabs = (restored.tabs ?? [])
     .filter((tab) => tab.key !== replacement.key)
     .map((tab) =>
@@ -219,12 +224,15 @@ function closeCurrentTab(fallbackPath: string) {
   if (currentTabKey && lockedTabs.value.some((tab) => tab.key === currentTabKey)) {
     persistLockedTabs(removeLockedMenuTabs(lockedTabs.value, [currentTabKey]));
   }
-  const fallbackTab = findTabByRoute(result.tabs, fallbackPath);
-  if (fallbackTab) {
-    update({ ...props.startup, tabs: result.tabs, activeTabKey: fallbackTab.key }, 'replace');
+  const fallback = result.tabs.find((tab) => {
+    const url = tab.fullPath ?? (tab.pageDescriptor ? pageDescriptorToUrl(tab.pageDescriptor) : undefined);
+    return url && new URL(url, 'http://muyun.local').pathname === fallbackPath;
+  });
+  if (fallback) {
+    update({ ...props.startup, tabs: result.tabs, activeTabKey: fallback.key }, 'replace');
     return { created: false };
   }
-  return navigateRoute(fallbackPath, {}, 'replace', {
+  return navigateRoute(routeUrlWithOpenOptions(fallbackPath), 'replace', {
     ...props.startup,
     tabs: result.tabs,
     activeTabKey: result.activeTabKey,
@@ -232,39 +240,35 @@ function closeCurrentTab(fallbackPath: string) {
 }
 
 function navigateRoute(
-  path: string,
-  options: OpenRouteOptions,
+  url: string,
   mode: 'push' | 'replace',
-  state: WorkbenchStartupState = props.startup,
+  state: WorkbenchStartupState,
   tabTitle?: string,
 ) {
-  const fullPath = routeUrlWithOpenOptions(path, options);
-  const previousTabKeys = new Set((state.tabs ?? []).map((tab) => tab.key));
-  const restored = restoreWorkbenchStartupStateFromUrl(state, fullPath, {
+  const previousKeys = new Set((state.tabs ?? []).map((tab) => tab.key));
+  let restored = restoreWorkbenchStartupStateFromUrl(state, url, {
     ...props.resolveOptions,
     title: tabTitle ?? props.resolveOptions.title,
   });
-  const titled =
-    tabTitle && restored.activeTabKey
-      ? {
-          ...restored,
-          tabs: (restored.tabs ?? []).map((tab) =>
-            tab.key === restored.activeTabKey ? { ...tab, title: tabTitle } : tab,
-          ),
-        }
-      : restored;
-  update(titled, mode);
-  return { created: !!titled.activeTabKey && !previousTabKeys.has(titled.activeTabKey) };
+  if (tabTitle && restored.activeTabKey) {
+    restored = {
+      ...restored,
+      tabs: (restored.tabs ?? []).map((tab) =>
+        tab.key === restored.activeTabKey ? { ...tab, title: tabTitle } : tab,
+      ),
+    };
+  }
+  update(restored, mode);
+  return { created: Boolean(restored.activeTabKey && !previousKeys.has(restored.activeTabKey)) };
 }
 
-/** 页面数据加载完成后，仅更新当前页签显示名称，不污染浏览器地址。 */
 function setTabName(instanceKey: string, name: string) {
-  const normalized = name.trim();
-  if (!normalized || !instanceKey) return;
-  const tabs = (props.startup.tabs ?? []).map((tab) =>
-    tab.instanceKey === instanceKey ? { ...tab, title: normalized } : tab,
-  );
-  update({ ...props.startup, tabs });
+  const title = name.trim();
+  if (!instanceKey || !title) return;
+  update({
+    ...props.startup,
+    tabs: (props.startup.tabs ?? []).map((tab) => (tab.instanceKey === instanceKey ? { ...tab, title } : tab)),
+  });
 }
 
 function replacePage(pageKey: string, descriptor: PageDescriptor) {
@@ -273,7 +277,6 @@ function replacePage(pageKey: string, descriptor: PageDescriptor) {
       ? {
           ...tab,
           title: descriptor.title ?? tab.title,
-          fullPath: pageDescriptorToUrl(descriptor),
           pageDescriptor: descriptor,
           restoreState: { url: pageDescriptorToUrl(descriptor) },
         }
@@ -298,14 +301,13 @@ function syncBrowserUrl(state: WorkbenchStartupState, mode: 'push' | 'replace') 
 }
 
 function restoreFromLocation(location: string) {
-  const restored = restoreWorkbenchStartupStateFromUrl(props.startup, location, props.resolveOptions);
-  update(restored, activeTabUrlOf(restored) === location ? undefined : 'replace');
+  update(restoreWorkbenchStartupStateFromUrl(props.startup, location, props.resolveOptions));
 }
 
 async function restoreLockedTabs() {
   const restoreRevision = lockedTabPreferenceRevision;
   try {
-    const restoredLockedTabs = restoreLockedMenuTabs(
+    const restoredLockedTabs = restoreLockedWorkbenchTabs(
       await restoreLockedTabPreference(userPreferences),
       props.startup.menus,
       props.resolveOptions,

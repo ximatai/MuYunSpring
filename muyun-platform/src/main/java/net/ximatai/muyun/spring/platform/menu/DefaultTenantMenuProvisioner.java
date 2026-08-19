@@ -32,6 +32,14 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
 
     @Override
     public void afterTenantCreated(String tenantId) {
+        reconcileTenantAdminMenus(tenantId);
+    }
+
+    /**
+     * Reconciles the system-provided default menu copy for an existing tenant.
+     * Tenant-specific business menus are outside this method's scope.
+     */
+    public void reconcileTenantAdminMenus(String tenantId) {
         String validTenantId = requireText(tenantId, "tenantId");
         try (TenantContext.Scope ignored = TenantContext.use(validTenantId)) {
             MenuScheme scheme = ensureTenantAdminScheme(validTenantId);
@@ -123,23 +131,65 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
         target.setEntryParamsJson(source.getEntryParamsJson());
         target.setEnabled(source.getEnabled());
         target.setSortOrder(source.getSortOrder());
+        target.setPlatformManaged(Boolean.TRUE);
+        target.setPlatformManagedRevision(sourceRevision(source));
         menuService.insert(target);
     }
 
     private void updateExistingMenuCopy(Menu existing, String targetSchemeId, String targetParentId, Menu source) {
-        if (!Objects.equals(existing.getSchemeId(), targetSchemeId)
-                || !Objects.equals(existing.getModuleAlias(), source.getModuleAlias())) {
+        if (!Objects.equals(existing.getSchemeId(), targetSchemeId)) {
             throw new PlatformException("Default tenant menu identity drift: " + existing.getId());
         }
+        if (Boolean.FALSE.equals(existing.getPlatformManaged())) {
+            return;
+        }
+        // Deterministic legacy copies are adopted once. An operator may subsequently set this
+        // flag to false to take the menu over without startup reconciliation overwriting it.
+        String revision = sourceRevision(source);
+        if (sameManagedCopy(existing, targetParentId, source, revision)) {
+            return;
+        }
+        existing.setPlatformManaged(Boolean.TRUE);
         existing.setParentId(targetParentId);
+        existing.setTitle(source.getTitle());
         existing.setOpenMode(source.getOpenMode());
+        existing.setModuleAlias(source.getModuleAlias());
         existing.setRoute(source.getRoute());
         existing.setExternalUrl(source.getExternalUrl());
         existing.setPageMode(source.getPageMode());
         existing.setDefaultUiConfigId(source.getDefaultUiConfigId());
         existing.setDefaultQueryTemplateId(source.getDefaultQueryTemplateId());
         existing.setEntryParamsJson(source.getEntryParamsJson());
+        existing.setEnabled(source.getEnabled());
+        existing.setSortOrder(source.getSortOrder());
+        existing.setPlatformManagedRevision(revision);
         menuService.update(existing);
+    }
+
+    private static boolean sameManagedCopy(Menu existing, String targetParentId, Menu source, String revision) {
+        return Boolean.TRUE.equals(existing.getPlatformManaged())
+                && Objects.equals(existing.getParentId(), targetParentId)
+                && Objects.equals(existing.getTitle(), source.getTitle())
+                && Objects.equals(existing.getOpenMode(), source.getOpenMode())
+                && Objects.equals(existing.getModuleAlias(), source.getModuleAlias())
+                && Objects.equals(existing.getRoute(), source.getRoute())
+                && Objects.equals(existing.getExternalUrl(), source.getExternalUrl())
+                && Objects.equals(existing.getPageMode(), source.getPageMode())
+                && Objects.equals(existing.getDefaultUiConfigId(), source.getDefaultUiConfigId())
+                && Objects.equals(existing.getDefaultQueryTemplateId(), source.getDefaultQueryTemplateId())
+                && Objects.equals(existing.getEntryParamsJson(), source.getEntryParamsJson())
+                && Objects.equals(existing.getEnabled(), source.getEnabled())
+                && Objects.equals(existing.getSortOrder(), source.getSortOrder())
+                && Objects.equals(existing.getPlatformManagedRevision(), revision);
+    }
+
+    private static String sourceRevision(Menu source) {
+        return shortHash(String.join("|", String.valueOf(source.getParentId()), String.valueOf(source.getTitle()),
+                String.valueOf(source.getOpenMode()), String.valueOf(source.getModuleAlias()), String.valueOf(source.getRoute()),
+                String.valueOf(source.getExternalUrl()), String.valueOf(source.getPageMode()),
+                String.valueOf(source.getDefaultUiConfigId()), String.valueOf(source.getDefaultQueryTemplateId()),
+                String.valueOf(source.getEntryParamsJson()), String.valueOf(source.getEnabled()),
+                String.valueOf(source.getSortOrder())));
     }
 
     private static String tenantMenuId(String tenantId, String sourceMenuId) {

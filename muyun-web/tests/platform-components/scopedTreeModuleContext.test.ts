@@ -1,6 +1,9 @@
 import { assert, it } from 'vitest';
-import { createScopedTreeModuleContext } from '@/platform-components/scopedTreeModuleContext.ts';
-import type { WebQueryRequest } from '@/web-contracts/index.ts';
+import {
+  createQueryScopedTreeModuleContext,
+  createScopedTreeModuleContext,
+} from '@/platform-components/scopedTreeModuleContext.ts';
+import type { RouteQueryValue, WebQueryRequest } from '@/web-contracts/index.ts';
 import type { HttpRequestOptions } from '@/web-core/http.ts';
 import type { ModuleContext } from '@/web-core/module/moduleContext.ts';
 
@@ -41,7 +44,34 @@ it('scoped tree context returns empty tree data before scope is selected', async
 
   assert.deepEqual(await scopedContext.abilities.tree().tree(), { records: [] });
   assert.deepEqual(await scopedContext.abilities.tree().treeFlat(), { records: [] });
+  assert.deepEqual(await scopedContext.abilities.tree().query(), {
+    records: [],
+    total: 0,
+    pageNum: 1,
+    pageSize: 20,
+    pages: 0,
+    totalKnown: true,
+  });
+  assert.deepEqual(await scopedContext.abilities.tree().subtree('department-1'), { records: [] });
+  assert.equal(await scopedContext.abilities.tree().sort('department-1', {}), 0);
+  assert.deepEqual(context.queries, []);
   assert.deepEqual(context.requests, []);
+});
+
+it('scoped tree context resolves scope values lazily', async () => {
+  const context = createFakeModuleContext();
+  const selectedOrganization = { id: undefined as string | undefined };
+  const scopedContext = createScopedTreeModuleContext(context, {
+    scopeFieldName: 'organizationId',
+    scopeValue: () => selectedOrganization.id,
+    treePath: '/iam.department/tree',
+  });
+
+  assert.deepEqual(await scopedContext.abilities.tree().tree(), { records: [] });
+  selectedOrganization.id = 'org-2';
+  await scopedContext.abilities.tree().tree();
+
+  assert.deepEqual(context.requests, [{ path: '/iam.department/tree', query: { organizationId: 'org-2' } }]);
 });
 
 it('scoped tree context sends scoped tree flat and sort requests through platform paths', async () => {
@@ -85,6 +115,34 @@ it('scoped tree context preserves runtime tree ability availability', () => {
 
   assert.equal(scopedContext.abilities.hasTree(), false);
   assert.equal(scopedContext.abilities.tryTree(), undefined);
+});
+
+it('picker query context scopes tree requests and stays empty before its navigator value exists', async () => {
+  const context = createFakeModuleContext();
+  const queryValues = { value: undefined as Record<string, RouteQueryValue> | undefined };
+  const scopedContext = createQueryScopedTreeModuleContext(context, {
+    queryValues: () => queryValues.value,
+    treePath: '/iam.department/tree',
+  });
+
+  assert.deepEqual(await scopedContext.abilities.tree().tree(), { records: [] });
+  assert.deepEqual(await scopedContext.crud.query(), {
+    records: [],
+    total: 0,
+    pageNum: 1,
+    pageSize: 20,
+    pages: 0,
+    totalKnown: true,
+  });
+  assert.deepEqual(context.queries, []);
+  queryValues.value = { organizationId: 'org-1' };
+  await scopedContext.abilities.tree().tree();
+  await scopedContext.crud.query();
+
+  assert.deepEqual(context.requests, [{ path: '/iam.department/tree', query: { organizationId: 'org-1' } }]);
+  assert.deepEqual(context.queries, [
+    { conditions: [{ fieldName: 'organizationId', operator: 'EQ', values: ['org-1'] }] },
+  ]);
 });
 
 function createFakeModuleContext(options: { hasTree?: boolean } = {}) {

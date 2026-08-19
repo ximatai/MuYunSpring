@@ -30,11 +30,19 @@ export interface UiSupportTheme {
   disabledText: string;
 }
 
+/** Visual treatment for the global theme-skin entry point. */
+export interface UiSkinPickerTheme {
+  borderGradient: string;
+  glow: string;
+  focusRing: string;
+}
+
 export interface UiTheme {
   appearance: 'light' | 'dark';
   theme: UiThemeTone;
   brandAccent: UiThemeTone;
   support: UiSupportTheme;
+  skinPicker: UiSkinPickerTheme;
   positive: UiThemeTone;
   warning: UiThemeTone;
   danger: UiThemeTone;
@@ -90,6 +98,11 @@ export const defaultUiTheme: UiTheme = {
     icon: '#425266',
     disabled: '#EEF1F5',
     disabledText: '#8A96A6',
+  },
+  skinPicker: {
+    borderGradient: 'linear-gradient(120deg, #2B82E8, #7367F0 34%, #CF5CA7 66%, #E6AD42)',
+    glow: 'conic-gradient(from 210deg, transparent 0deg, rgb(43 130 232 / 12%) 80deg, rgb(115 103 240 / 14%) 145deg, rgb(207 92 167 / 10%) 205deg, transparent 275deg)',
+    focusRing: 'rgb(115 103 240 / 20%)',
   },
   positive: {
     base: '#00A870',
@@ -182,6 +195,11 @@ const lightAmberTheme: UiTheme = {
     disabled: '#F3EFE8',
     disabledText: '#968B7C',
   },
+  skinPicker: {
+    borderGradient: 'linear-gradient(120deg, #C07A00, #E0A11C 34%, #0062B0 66%, #58A8E2)',
+    glow: 'conic-gradient(from 210deg, transparent 0deg, rgb(192 122 0 / 12%) 80deg, rgb(224 161 28 / 14%) 145deg, rgb(0 98 176 / 10%) 205deg, transparent 275deg)',
+    focusRing: 'rgb(0 98 176 / 20%)',
+  },
 };
 
 const darkNavyTheme: UiTheme = {
@@ -224,6 +242,11 @@ const darkNavyTheme: UiTheme = {
     icon: '#94A3B8',
     disabled: '#202A3A',
     disabledText: '#748399',
+  },
+  skinPicker: {
+    borderGradient: 'linear-gradient(120deg, #5B8CFF, #7BA3FF 34%, #F5C542 66%, #FFD76A)',
+    glow: 'conic-gradient(from 210deg, transparent 0deg, rgb(91 140 255 / 18%) 80deg, rgb(123 163 255 / 20%) 145deg, rgb(245 197 66 / 14%) 205deg, transparent 275deg)',
+    focusRing: 'rgb(123 163 255 / 24%)',
   },
   positive: {
     base: '#42C998',
@@ -317,6 +340,11 @@ const darkGraphiteTheme: UiTheme = {
     disabled: '#2A2E34',
     disabledText: '#7E8792',
   },
+  skinPicker: {
+    borderGradient: 'linear-gradient(120deg, #6EA8FF, #91BEFF 34%, #E8B949 66%, #F4CD6C)',
+    glow: 'conic-gradient(from 210deg, transparent 0deg, rgb(110 168 255 / 18%) 80deg, rgb(145 190 255 / 20%) 145deg, rgb(232 185 73 / 14%) 205deg, transparent 275deg)',
+    focusRing: 'rgb(145 190 255 / 24%)',
+  },
 };
 
 export const uiThemeSkins: readonly UiThemeSkin[] = [
@@ -349,10 +377,11 @@ export function uiThemeSkinById(value: unknown): UiThemeSkin {
 
 export function cssVariablesOf(theme: UiTheme): Record<`--muyun-${string}`, string> {
   const variables: Record<`--muyun-${string}`, string> = {};
-  const roles: Record<string, UiThemeTone | UiSupportTheme> = {
+  const roles: Record<string, UiThemeTone | UiSupportTheme | UiSkinPickerTheme> = {
     theme: theme.theme,
     brandAccent: theme.brandAccent,
     support: theme.support,
+    skinPicker: theme.skinPicker,
     positive: theme.positive,
     warning: theme.warning,
     danger: theme.danger,
@@ -395,6 +424,10 @@ export function antDesignThemeOf(theme: UiTheme): ThemeConfig {
       controlItemBgActiveHover: theme.theme.focus,
       controlItemBgActiveDisabled: theme.support.disabled,
       borderRadius: 4,
+      fontSize: 13,
+      controlHeight: 30,
+      controlHeightSM: 22,
+      controlHeightLG: 38,
     },
   };
 }

@@ -11,6 +11,9 @@ import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.common.formula.FormulaEngine;
+import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
+import net.ximatai.muyun.spring.common.formula.FormulaProgram;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
@@ -22,7 +25,9 @@ import net.ximatai.muyun.spring.platform.metadata.ResolvedModuleMetadataField;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -35,6 +40,7 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
         QueryAbility<PlatformUiConfigField> {
     public static final String MODULE_ALIAS = "platform.ui_config_field";
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
+    private static final FormulaEngine FORMULA_ENGINE = new FormulaEngine();
 
     private final PlatformUiConfigService uiConfigService;
     private final PlatformUiSetService uiSetService;
@@ -61,7 +67,7 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, PlatformUiConfigField.class, java.util.List.of("title", "moduleMetadataFieldId", "fieldUiControlAlias", "visible", "readOnly", "requiredOverride", "maxDisplayLines", "columnSpan", "enabled"),
+        return QueryDescriptors.fromModel(MODULE_ALIAS, PlatformUiConfigField.class, java.util.List.of("title", "moduleMetadataFieldId", "fieldUiControlAlias", "visible", "visibleWhen", "readOnly", "readOnlyWhen", "requiredOverride", "maxDisplayLines", "columnSpan", "enabled"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("title"));
     }
@@ -105,6 +111,15 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
         }
     }
 
+    /** Resolves fields that are visible in a published form editor. */
+    public Set<String> visibleFieldNamesByUiConfigIds(List<String> uiConfigIds) {
+        return listByUiConfigIds(uiConfigIds).stream()
+                .filter(field -> !Boolean.FALSE.equals(field.getVisible()))
+                .map(field -> moduleFieldService.resolve(field.getModuleMetadataFieldId()).fieldName())
+                .filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
     private void normalizeAndValidate(PlatformUiConfigField field) {
         PlatformUiConfig uiConfig = uiConfigService.requireUiConfig(field.getUiConfigId());
         PlatformUiSet uiSet = uiSetService.requireUiSet(uiConfig.getUiSetId());
@@ -121,6 +136,8 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
         if (field.getReadOnly() == null) {
             field.setReadOnly(Boolean.FALSE);
         }
+        field.setVisibleWhen(normalizePredicate(field.getVisibleWhen(), "visibleWhen", uiConfig, moduleField));
+        field.setReadOnlyWhen(normalizePredicate(field.getReadOnlyWhen(), "readOnlyWhen", uiConfig, moduleField));
         if (field.getColumnSpan() == null) {
             field.setColumnSpan(1);
         }
@@ -182,6 +199,31 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
         if (metadataField != null && Boolean.TRUE.equals(metadataField.getRequired())) {
             throw new PlatformException("UI config field cannot weaken required metadata field: "
                     + moduleField.fieldName());
+        }
+    }
+
+    private String normalizePredicate(String predicate, String fieldName, PlatformUiConfig uiConfig,
+                                      ResolvedModuleMetadataField targetField) {
+        if (predicate == null || predicate.isBlank()) return null;
+        try {
+            FormulaProgram compiled = FORMULA_ENGINE.compileWebUiProgram(predicate);
+            Set<String> availableFields = new HashSet<>(listByUiConfigIds(List.of(uiConfig.getId())).stream()
+                    .map(configured -> moduleFieldService.resolve(configured.getModuleMetadataFieldId()))
+                    .filter(resolved -> Objects.equals(resolved.relationAlias(), targetField.relationAlias()))
+                    .map(ResolvedModuleMetadataField::fieldName)
+                    .toList());
+            availableFields.add(targetField.fieldName());
+            Set<String> unavailable = compiled.referencedFields().stream()
+                    .filter(reference -> !availableFields.contains(reference))
+                    .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new));
+            if (!unavailable.isEmpty()) {
+                throw new PlatformException("UI config field " + fieldName
+                        + " may only reference fields available in the same UI config and relation: " + unavailable);
+            }
+            return predicate.trim();
+        } catch (FormulaEvaluationException exception) {
+            throw new PlatformException("UI config field " + fieldName + " must be a FormulaEngine WEB_UI predicate: "
+                    + exception.getMessage());
         }
     }
 

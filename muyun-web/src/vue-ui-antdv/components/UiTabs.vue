@@ -3,7 +3,6 @@ import { Tabs as ATabs, TabPane as ATabPane } from 'ant-design-vue';
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { UiTabItem } from '../types';
 import UiIcon from './UiIcon.vue';
-import UiTooltip from './UiTooltip.vue';
 
 defineOptions({ name: 'UiTabs', inheritAttrs: false });
 
@@ -414,17 +413,16 @@ onUnmounted(() => {
             }"
             :data-tab-key="tab.key"
           >
-            <UiTooltip v-if="tab.pinned" title="取消锁定标签">
-              <button
-                class="ui-tabs-pin-button"
-                type="button"
-                aria-label="取消锁定标签"
-                @pointerdown.stop
-                @click.stop="emit('togglePin', tab.key)"
-              >
-                <UiIcon name="pin" />
-              </button>
-            </UiTooltip>
+            <button
+              v-if="tab.pinned"
+              class="ui-tabs-pin-button"
+              type="button"
+              aria-label="取消锁定标签"
+              @pointerdown.stop
+              @click.stop="emit('togglePin', tab.key)"
+            >
+              <UiIcon name="pin" />
+            </button>
             {{ tab.title }}
           </span>
         </template>
@@ -505,7 +503,7 @@ onUnmounted(() => {
 .ui-tabs-label {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   cursor: grab;
   touch-action: pan-x;
   user-select: none;
@@ -518,16 +516,23 @@ onUnmounted(() => {
   height: 15px;
   padding: 0;
   border: 0;
+  border-radius: 4px;
   background: transparent;
   color: var(--muyun-theme-base);
   cursor: pointer;
   font-size: 11px;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
 }
 
 .ui-tabs-pin-button:hover,
 .ui-tabs-pin-button:focus-visible {
+  background: var(--muyun-theme-soft);
   color: var(--muyun-theme-active);
   outline: 0;
+  transform: scale(1.08);
 }
 
 .ui-tabs :deep(.ant-tabs-tab .ant-tabs-tab-remove) {

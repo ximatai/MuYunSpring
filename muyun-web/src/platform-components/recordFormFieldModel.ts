@@ -15,6 +15,7 @@ import type {
 } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import type { PickerConstraint, RecordPickerRecord } from './recordPickerConstraints';
+import { FormulaRuntime } from '../formula/FormulaRuntime';
 
 export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewFieldDescriptor) & {
   option?: ResolvedOptionFieldDescriptor;
@@ -28,6 +29,7 @@ export type RecordFormFieldValue = string | number | boolean | OptionValueList |
 export type RecordBooleanStatusValue = boolean | undefined;
 export type RecordFormFieldControlType =
   | 'input'
+  | 'numberInput'
   | 'textarea'
   | 'colorPicker'
   | 'select'
@@ -74,7 +76,10 @@ export interface RecordFormFieldState {
   hasOption: boolean;
   optionSelectionMode?: 'SINGLE' | 'MULTIPLE';
   optionTitleField?: string;
+  optionItems?: import('@muyun/web-contracts').OptionItemDescriptor[];
   referenceTitleField?: string;
+  /** Title for the standard TreeAbility root sentinel when this field is a tree parent reference. */
+  treeRootTitle?: string;
   fileReference?: ResolvedFileReferenceFieldDescriptor;
   pickerConfig?: RecordFormFieldPickerConfig;
   booleanStatus?: BooleanStatusPresentation;
@@ -114,11 +119,16 @@ export function resolveRecordFormFieldNames(
 
 export function resolveRecordFormFields(
   uiDescriptor: ResolvedModuleUiDescriptor | undefined,
-  viewCode = 'default_form',
+  resource?: string,
+  editorSurface?: string,
 ): Map<string, RecordFormFieldDescriptor> {
-  const formView = uiDescriptor?.views?.find(
-    (view) => view.viewKind === 'FORM' && view.viewCode === viewCode,
-  );
+  const formView = resource
+    ? uiDescriptor?.editorContributions?.find((contribution) => contribution.resource === resource)?.editor
+    : editorSurface
+      ? uiDescriptor?.editorSurfaces?.find((surface) => surface.key === editorSurface)?.editor
+      : (uiDescriptor?.page?.detail.editor ??
+        uiDescriptor?.page?.detail.display ??
+        uiDescriptor?.defaultEditor);
   const references = new Map(
     (uiDescriptor?.fileReferences ?? []).map((reference) => [fieldRefKey(reference.fieldRef), reference]),
   );
@@ -142,14 +152,46 @@ export function resolveRecordFormFields(
   );
 }
 
+/**
+ * Resolves the read-only page-detail projection.  A detail display is deliberately a separate
+ * view from the editor: it may expose contextual fields which are write-hidden (for example a
+ * navigator-provided scope), while avoiding editor-only controls in the standard detail grid.
+ * Pages without an explicit display retain the existing editor-as-display fallback.
+ */
+export function resolveRecordDetailFields(
+  uiDescriptor: ResolvedModuleUiDescriptor | undefined,
+): Map<string, RecordFormFieldDescriptor> {
+  const detailView =
+    uiDescriptor?.page?.detail.display ?? uiDescriptor?.page?.detail.editor ?? uiDescriptor?.defaultEditor;
+  const references = new Map(
+    (uiDescriptor?.fileReferences ?? []).map((reference) => [fieldRefKey(reference.fieldRef), reference]),
+  );
+  return new Map(
+    detailView?.fields.map((field) => [
+      field.fieldRef.fieldName,
+      {
+        ...field,
+        ...(references.has(fieldRefKey(field.fieldRef))
+          ? { fileReference: references.get(fieldRefKey(field.fieldRef)) }
+          : {}),
+      },
+    ]) ?? [],
+  );
+}
+
 export function resolveRecordFormGroups(
   uiDescriptor: ResolvedModuleUiDescriptor | undefined,
-  viewCode = 'default_form',
+  resource?: string,
+  editorSurface?: string,
 ): FormGroupDescriptor[] {
-  return (
-    uiDescriptor?.views?.find((view) => view.viewKind === 'FORM' && view.viewCode === viewCode)?.formGroups ??
-    []
-  );
+  const editor = resource
+    ? uiDescriptor?.editorContributions?.find((contribution) => contribution.resource === resource)?.editor
+    : editorSurface
+      ? uiDescriptor?.editorSurfaces?.find((surface) => surface.key === editorSurface)?.editor
+      : (uiDescriptor?.page?.detail.editor ??
+        uiDescriptor?.page?.detail.display ??
+        uiDescriptor?.defaultEditor);
+  return editor?.formGroups ?? [];
 }
 
 export function childResourceDefaultFormViewCode(resource: string): string {
@@ -205,10 +247,12 @@ export function resolveRecordFormFieldState(
     ...(field?.option
       ? {
           optionSelectionMode: field.option.selectionMode,
+          ...(field.option.inlineItems?.length ? { optionItems: field.option.inlineItems } : {}),
           ...(field.option.titleField ? { optionTitleField: field.option.titleField } : {}),
         }
       : {}),
     ...(field?.reference?.titleField ? { referenceTitleField: field.reference.titleField } : {}),
+    ...(field?.treeRootTitle ? { treeRootTitle: field.treeRootTitle } : {}),
     ...(fallback?.options ? { options: fallback.options } : {}),
     placeholder:
       options.placeholderOf?.(fieldName, baseState) ?? fallback?.placeholder ?? pickerConfig?.placeholder,
@@ -226,23 +270,7 @@ function evaluateUiRule(
 }
 
 export function evaluateUiFormula(formula: UiFormula, record: RecordFormRecord): boolean {
-  const expression = formula.expression.replaceAll(/\s/g, '');
-  if (expression.startsWith('!(') && expression.endsWith(')')) {
-    return !evaluateUiFormula({ expression: expression.slice(2, -1) }, record);
-  }
-  const conjunction = expression.split('&&');
-  if (conjunction.length > 1) {
-    return conjunction.every((term) => evaluateUiFormula({ expression: term }, record));
-  }
-  const present = /^PRESENT\(\{([A-Za-z][A-Za-z0-9_]*)\}\)$/i.exec(expression);
-  if (present) {
-    const value = record[present[1]];
-    return value !== null && value !== undefined && value !== '';
-  }
-  // Descriptors produced by the platform are validated against the portable UI grammar.  Keep this safe fallback
-  // for hand-written or stale remote descriptors instead of silently treating an unsupported server formula as
-  // a browser capability.
-  return false;
+  return new FormulaRuntime().evaluateWebUi(formula.program, record);
 }
 
 /**
@@ -276,6 +304,9 @@ function controlTypeOf(
   if (field?.uiType === 'textarea') {
     return 'textarea';
   }
+  if (isNumericUiType(field?.uiType)) {
+    return 'numberInput';
+  }
   if (field?.uiType === 'colorPicker') {
     return 'colorPicker';
   }
@@ -292,6 +323,15 @@ function controlTypeOf(
     return 'select';
   }
   return fallback?.controlType ?? 'input';
+}
+
+/**
+ * These stable platform control aliases are scalar number editors.  Their precision, range and
+ * presentation properties remain renderer work; this mapping deliberately only provides the
+ * safe browser numeric-input affordance that every source-independent standard form can use.
+ */
+function isNumericUiType(uiType: string | undefined) {
+  return uiType === 'number' || uiType === 'integer' || uiType === 'amount' || uiType === 'percentage';
 }
 
 function isSingleImageFileReference(reference: ResolvedFileReferenceFieldDescriptor) {

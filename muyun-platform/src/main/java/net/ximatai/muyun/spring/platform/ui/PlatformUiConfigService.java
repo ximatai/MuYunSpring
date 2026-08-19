@@ -9,9 +9,7 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
-import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -39,7 +37,7 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, PlatformUiConfig.class, java.util.List.of("title", "clientType", "scopeModuleAlias", "scopeField", "scopeQueryCriteriaKey", "scopeCreatePolicy", "published", "enabled"),
+        return QueryDescriptors.fromModel(MODULE_ALIAS, PlatformUiConfig.class, java.util.List.of("title", "clientType", "published", "enabled"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("clientType"));
     }
@@ -115,7 +113,6 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
         if (uiConfig.getTitle() == null || uiConfig.getTitle().isBlank()) {
             uiConfig.setTitle(uiSet.getTitle() + "-" + uiConfig.getClientType().name());
         }
-        normalizeScopedListWorkspace(uiConfig, uiSet);
         rejectDuplicate(uiConfig, Criteria.of()
                         .eq("uiSetId", uiSet.getId())
                         .eq("clientType", uiConfig.getClientType()),
@@ -131,13 +128,6 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
                 && Objects.equals(existing.getUiSetId(), updated.getUiSetId())
                 && Objects.equals(existing.getClientType(), updated.getClientType())
                 && Objects.equals(existing.getLayoutJson(), updated.getLayoutJson())
-                && Objects.equals(existing.getScopeModuleAlias(), updated.getScopeModuleAlias())
-                && Objects.equals(existing.getScopeField(), updated.getScopeField())
-                && Objects.equals(existing.getScopeQueryCriteriaKey(), updated.getScopeQueryCriteriaKey())
-                && Objects.equals(existing.getScopeTitle(), updated.getScopeTitle())
-                && Objects.equals(existing.getScopeSearchPlaceholder(), updated.getScopeSearchPlaceholder())
-                && Objects.equals(existing.getScopeShowItemSubtitle(), updated.getScopeShowItemSubtitle())
-                && Objects.equals(existing.getScopeCreatePolicy(), updated.getScopeCreatePolicy())
                 && Objects.equals(existing.getTitle(), updated.getTitle())
                 && Objects.equals(existing.getEnabled(), updated.getEnabled())
                 && Objects.equals(existing.getSortOrder(), updated.getSortOrder())) {
@@ -147,43 +137,6 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
                 "Published UI config cannot be edited; unpublish first: " + existing.getId());
     }
 
-    private void normalizeScopedListWorkspace(PlatformUiConfig uiConfig, PlatformUiSet uiSet) {
-        String scopeModuleAlias = normalize(uiConfig.getScopeModuleAlias());
-        String scopeField = normalize(uiConfig.getScopeField());
-        if (scopeModuleAlias == null && scopeField == null) {
-            uiConfig.setScopeModuleAlias(null);
-            uiConfig.setScopeField(null);
-            uiConfig.setScopeQueryCriteriaKey(null);
-            uiConfig.setScopeTitle(null);
-            uiConfig.setScopeSearchPlaceholder(null);
-            uiConfig.setScopeShowItemSubtitle(Boolean.FALSE);
-            uiConfig.setScopeCreatePolicy(null);
-            return;
-        }
-        if (scopeModuleAlias == null || scopeField == null) {
-            throw new PlatformException("Scoped list workspace requires both scopeModuleAlias and scopeField");
-        }
-        if (uiSet.getSetType() != PlatformUiSetType.LIST) {
-            throw new PlatformException("Scoped list workspace is only supported by LIST UI configs: " + uiSet.getId());
-        }
-        uiConfig.setScopeModuleAlias(PlatformNameRules.requireModuleAlias(scopeModuleAlias));
-        uiConfig.setScopeField(PlatformNameRules.requireFieldName(scopeField, "scopeField"));
-        String criteriaKey = normalize(uiConfig.getScopeQueryCriteriaKey());
-        uiConfig.setScopeQueryCriteriaKey(PlatformNameRules.requireFieldName(
-                criteriaKey == null ? scopeField : criteriaKey, "scopeQueryCriteriaKey"));
-        uiConfig.setScopeTitle(normalize(uiConfig.getScopeTitle()));
-        uiConfig.setScopeSearchPlaceholder(normalize(uiConfig.getScopeSearchPlaceholder()));
-        uiConfig.setScopeShowItemSubtitle(Boolean.TRUE.equals(uiConfig.getScopeShowItemSubtitle()));
-        String createPolicy = normalize(uiConfig.getScopeCreatePolicy());
-        if (createPolicy != null && !"REQUIRE_SCOPE".equals(createPolicy) && !"ALLOW_UNSCOPED".equals(createPolicy)) {
-            throw new PlatformException("Scoped list workspace create policy is unsupported: " + createPolicy);
-        }
-        uiConfig.setScopeCreatePolicy(createPolicy == null ? "ALLOW_UNSCOPED" : createPolicy);
-    }
-
-    private String normalize(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
 
     private void rejectDirectPublish(PlatformUiConfig uiConfig) {
         if (Boolean.TRUE.equals(uiConfig.getPublished()) && !PlatformPageConfigPublishContext.active()) {

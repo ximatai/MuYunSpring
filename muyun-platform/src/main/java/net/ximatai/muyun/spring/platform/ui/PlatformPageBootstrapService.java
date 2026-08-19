@@ -6,6 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionRefreshStrategy;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicQuerySchemas;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.menu.MenuPageMode;
 import net.ximatai.muyun.spring.platform.menu.MenuService;
@@ -36,6 +40,7 @@ public class PlatformPageBootstrapService {
     private final FieldUiControlService fieldUiTypeService;
     private final FieldUiControlPropertyService fieldUiTypeAttributeService;
     private final FieldUiControlBindingService fieldUiTypeFieldMappingService;
+    private final DynamicRecordService recordService;
 
     public PlatformPageBootstrapService(MenuService menuService,
                                         PlatformPageConfigSnapshotService snapshotService) {
@@ -45,7 +50,17 @@ public class PlatformPageBootstrapService {
     public PlatformPageBootstrapService(MenuService menuService,
                                         PlatformPageConfigSnapshotService snapshotService,
                                         ModuleMetadataFieldService moduleFieldService) {
-        this(menuService, snapshotService, moduleFieldService, null, null, null);
+        this(menuService, snapshotService, moduleFieldService, null, null, null, null);
+    }
+
+    public PlatformPageBootstrapService(MenuService menuService,
+                                        PlatformPageConfigSnapshotService snapshotService,
+                                        ModuleMetadataFieldService moduleFieldService,
+                                        FieldUiControlService fieldUiTypeService,
+                                        FieldUiControlPropertyService fieldUiTypeAttributeService,
+                                        FieldUiControlBindingService fieldUiTypeFieldMappingService) {
+        this(menuService, snapshotService, moduleFieldService, fieldUiTypeService, fieldUiTypeAttributeService,
+                fieldUiTypeFieldMappingService, null);
     }
 
     @Autowired
@@ -54,13 +69,15 @@ public class PlatformPageBootstrapService {
                                         ModuleMetadataFieldService moduleFieldService,
                                         FieldUiControlService fieldUiTypeService,
                                         FieldUiControlPropertyService fieldUiTypeAttributeService,
-                                        FieldUiControlBindingService fieldUiTypeFieldMappingService) {
+                                        FieldUiControlBindingService fieldUiTypeFieldMappingService,
+                                        DynamicRecordService recordService) {
         this.menuService = menuService;
         this.snapshotService = snapshotService;
         this.moduleFieldService = moduleFieldService;
         this.fieldUiTypeService = fieldUiTypeService;
         this.fieldUiTypeAttributeService = fieldUiTypeAttributeService;
         this.fieldUiTypeFieldMappingService = fieldUiTypeFieldMappingService;
+        this.recordService = recordService;
     }
 
     public PlatformPageBootstrap bootstrapByMenu(String menuId) {
@@ -203,7 +220,7 @@ public class PlatformPageBootstrapService {
                 .toList();
         return new PlatformResolvedPageConfig(uiFields, queryItems, resolvedFieldUiControls(uiFields),
                 associationBlocks(snapshot.moduleAlias(), selectedUiConfig),
-                actionBlocks(snapshot.moduleAlias(), selectedUiConfig),
+                actionBlocks(snapshot, clientType, selectedUiConfig),
                 taskBlocks(selectedUiConfig));
     }
 
@@ -244,6 +261,8 @@ public class PlatformPageBootstrapService {
             if (viewCode == null) {
                 continue;
             }
+            ResolvedDetailRelationDescriptor relation = resolveDetailRelation(moduleAlias, viewCode,
+                    text(block, "title"), text(block, "uiConfigId"), text(block, "queryTemplateId"));
             resolved.add(new PlatformAssociationBlock(
                     config.getId(),
                     text(block, "key"),
@@ -251,13 +270,81 @@ public class PlatformPageBootstrapService {
                     text(block, "title"),
                     text(block, "uiConfigId"),
                     text(block, "queryTemplateId"),
-                    "/" + moduleAlias + "/view/{id}/associations/" + viewCode + "/query"
+                    "/" + moduleAlias + "/view/{id}/associations/" + viewCode + "/query",
+                    relation
             ));
         }
         return resolved;
     }
 
-    private List<PlatformActionBlock> actionBlocks(String moduleAlias, PlatformUiConfig config) {
+    private ResolvedDetailRelationDescriptor resolveDetailRelation(String moduleAlias, String viewCode,
+                                                                   String title, String targetUiConfigId,
+                                                                   String queryTemplateId) {
+        if (recordService == null) return null;
+        DynamicAssociationViewDescriptor view = recordService.describe(moduleAlias).associationViews().stream()
+                .filter(candidate -> viewCode.equals(candidate.code()))
+                .findFirst()
+                .orElseThrow(() -> new PlatformException("association view is not available: " + viewCode));
+        String parentBinding = view.relationCode() != null ? view.relationCode() : view.referenceField();
+        if (parentBinding == null) {
+            throw new PlatformException("association view has no stable parent binding: " + viewCode);
+        }
+        String requestedTargetUiConfigId = targetUiConfigId == null ? view.targetUiConfigId() : targetUiConfigId;
+        PlatformPageConfigSnapshot targetSnapshot = snapshotService.snapshot(view.targetModuleAlias());
+        String resolvedTargetUiConfigId = resolveDetailRelationTargetListUiConfig(targetSnapshot,
+                requestedTargetUiConfigId);
+        String resolvedQueryTemplateId = queryTemplateId == null ? view.targetQueryTemplateId() : queryTemplateId;
+        ResolvedDetailRelationListProjection listProjection = detailRelationListProjection(targetSnapshot,
+                resolvedTargetUiConfigId, view.targetEntityAlias());
+        DynamicEntityDescriptor targetEntity = recordService.describe(view.targetModuleAlias()).entities().stream()
+                .filter(candidate -> view.targetEntityAlias().equals(candidate.entityAlias()))
+                .findFirst()
+                .orElseThrow(() -> new PlatformException("association target entity is not available: "
+                        + view.targetModuleAlias() + "." + view.targetEntityAlias()));
+        return new ResolvedDetailRelationDescriptor(view.code(), title, true, moduleAlias, view.sourceEntityAlias(),
+                view.targetModuleAlias(), view.targetEntityAlias(), parentBinding,
+                new ResolvedDetailRelationQueryContract("/" + moduleAlias + "/view/{id}/associations/"
+                        + viewCode + "/query", resolvedTargetUiConfigId, resolvedQueryTemplateId, true,
+                        view.queryable(), listProjection,
+                        DynamicQuerySchemas.from(view.targetModuleAlias(), targetEntity, List.of())), true);
+    }
+
+    /**
+     * Association queries must name a published target LIST config.  A missing explicit config
+     * resolves only through the target module's declared default LIST set; there is no client
+     * fallback to an arbitrary module view.
+     */
+    private String resolveDetailRelationTargetListUiConfig(PlatformPageConfigSnapshot targetSnapshot,
+                                                           String requestedUiConfigId) {
+        String resolved = resolveDefaultUiConfigId(targetSnapshot, requestedUiConfigId, MenuPageMode.LIST,
+                PlatformUiClientType.WEB);
+        if (resolved == null) {
+            throw new PlatformException("Detail relation target LIST UI config is not published: "
+                    + targetSnapshot.moduleAlias());
+        }
+        return resolved;
+    }
+
+    private ResolvedDetailRelationListProjection detailRelationListProjection(
+            PlatformPageConfigSnapshot targetSnapshot,
+            String targetUiConfigId,
+            String targetEntityAlias) {
+        List<ResolvedDetailRelationListField> fields = targetSnapshot.uiFields().stream()
+                .filter(field -> Objects.equals(field.getUiConfigId(), targetUiConfigId))
+                .map(this::resolvedUiField)
+                .filter(field -> Objects.equals(field.metadataAlias(), targetEntityAlias))
+                .filter(field -> field.relationAlias() == null || field.relationAlias().isBlank())
+                .filter(field -> !Boolean.FALSE.equals(field.visible()))
+                .map(field -> new ResolvedDetailRelationListField(field.fieldName(), field.fieldTitle(),
+                        field.fieldForm(), field.fieldUiControlAlias(), field.width(), field.align(),
+                        field.maxDisplayLines()))
+                .toList();
+        return new ResolvedDetailRelationListProjection(targetUiConfigId, fields);
+    }
+
+    private List<PlatformActionBlock> actionBlocks(PlatformPageConfigSnapshot snapshot,
+                                                   PlatformUiClientType clientType,
+                                                   PlatformUiConfig config) {
         if (config == null) return List.of();
         String layoutJson = config.getLayoutJson();
         if (layoutJson == null || layoutJson.isBlank()) {
@@ -293,26 +380,55 @@ public class PlatformPageBootstrapService {
                     actionCode,
                     text(block, "title"),
                     text(block, "position"),
-                    localEditTargetUiConfigId(config, block, type),
-                    localEditSubmitPath(moduleAlias, actionCode, type),
+                    localEditTargetUiConfigId(block, type),
+                    localEditSubmitPath(snapshot.moduleAlias(), actionCode, type),
                     localEditRefreshStrategy(block, type),
                     positiveInteger(block, "width"),
-                    positiveInteger(block, "height")
+                    positiveInteger(block, "height"),
+                    localEditForm(snapshot, clientType, localEditTargetUiConfigId(block, type), type)
             ));
         }
         return resolved;
     }
 
-    private String localEditTargetUiConfigId(PlatformUiConfig config, JsonNode block, String type) {
+    private String localEditTargetUiConfigId(JsonNode block, String type) {
         if (!"localEdit".equals(type)) {
             return null;
         }
         String targetUiConfigId = text(block, "targetUiConfigId");
-        if (targetUiConfigId != null) {
-            return targetUiConfigId;
+        return targetUiConfigId;
+    }
+
+    private LocalEditFormDescriptor localEditForm(PlatformPageConfigSnapshot snapshot,
+                                                  PlatformUiClientType clientType,
+                                                  String targetUiConfigId,
+                                                  String type) {
+        if (!"localEdit".equals(type)) {
+            return null;
         }
-        targetUiConfigId = text(block, "uiConfigId");
-        return targetUiConfigId == null ? config.getId() : targetUiConfigId;
+        if (targetUiConfigId == null) {
+            throw new PlatformException("Local edit action block requires targetUiConfigId");
+        }
+        PlatformUiConfig targetConfig = snapshot.uiConfigs().stream()
+                .filter(candidate -> targetUiConfigId.equals(candidate.getId()))
+                .findFirst()
+                .orElseThrow(() -> new PlatformException("Local edit target UI config is not published: "
+                        + targetUiConfigId));
+        PlatformUiSet targetSet = snapshot.uiSets().stream()
+                .filter(candidate -> Objects.equals(candidate.getId(), targetConfig.getUiSetId()))
+                .findFirst()
+                .orElseThrow(() -> new PlatformException("Local edit target UI set is unavailable: "
+                        + targetConfig.getUiSetId()));
+        if (targetConfig.getClientType() != clientType || targetSet.getSetType() != PlatformUiSetType.FORM) {
+            throw new PlatformException("Local edit target UI config must be a published " + clientType
+                    + " FORM config: " + targetUiConfigId);
+        }
+        List<PlatformResolvedUiField> fields = snapshot.uiFields().stream()
+                .filter(field -> targetUiConfigId.equals(field.getUiConfigId()))
+                .map(this::resolvedUiField)
+                .toList();
+        return new LocalEditFormDescriptor(targetUiConfigId, fields, resolvedFieldUiControls(fields),
+                LocalEditSubmitContract.standard());
     }
 
     private String localEditSubmitPath(String moduleAlias, String actionCode, String type) {
@@ -390,7 +506,9 @@ public class PlatformPageBootstrapService {
                 resolved.fieldForm() == null ? null : resolved.fieldForm().name(),
                 field.getFieldUiControlAlias(),
                 field.getVisible(),
+                field.getVisibleWhen(),
                 field.getReadOnly(),
+                field.getReadOnlyWhen(),
                 field.getRequiredOverride(),
                 field.getPlaceholder(),
                 field.getDefaultValue(),

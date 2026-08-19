@@ -1,7 +1,7 @@
 {
   "name": "muyun-web",
   "private": true,
-  "version": "0.26.7",
+  "version": "0.26.9",
   "type": "module",
   "engines": {
     "node": ">=22.23.0"
@@ -31,6 +31,7 @@
     "@stomp/stompjs": "^7.3.0",
     "@tanstack/vue-query": "^5.101.0",
     "ant-design-vue": "^4.2.6",
+    "lucide-vue-next": "^0.577.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.38",
     "vue-router": "^5.1.0"

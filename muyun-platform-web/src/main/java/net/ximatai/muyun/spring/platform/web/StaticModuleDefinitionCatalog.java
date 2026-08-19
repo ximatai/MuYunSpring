@@ -61,6 +61,7 @@ public class StaticModuleDefinitionCatalog implements StaticModuleRegistrationSo
     private List<StaticModuleDefinition> loadDefinitions() {
         if (scanners.isEmpty()) {
             StaticModuleRegistrationValidator.validate(definitions);
+            StaticPageNavigatorSourceValidator.validate(definitions);
             return definitions;
         }
         ArrayList<StaticModuleDefinition> all = new ArrayList<>(definitions);
@@ -68,6 +69,7 @@ public class StaticModuleDefinitionCatalog implements StaticModuleRegistrationSo
             all.addAll(scanner.scan());
         }
         StaticModuleRegistrationValidator.validate(all);
+        StaticPageNavigatorSourceValidator.validate(all);
         return List.copyOf(all);
     }
 }

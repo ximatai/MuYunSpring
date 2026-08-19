@@ -27,7 +27,7 @@ it('writes user tab navigation as a browser history entry', () => {
 });
 
 it('does not create a duplicate history entry for the active tab URL', () => {
-  assert.equal(workbenchRouteWriteFor(state, tab.fullPath, 'push'), undefined);
+  assert.equal(workbenchRouteWriteFor(state, tab.fullPath!, 'push'), undefined);
 });
 
 it('restores workbench state for browser navigation but not self-written or special routes', () => {

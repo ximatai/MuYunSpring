@@ -177,7 +177,7 @@ class PlatformModelSchemaTest {
                 .contains(List.of("tenant_id", "ui_set_id", "client_type"));
         assertThat(columnNames(mapper.toTable(PlatformUiConfigField.class)))
                 .contains("id", "ui_config_id", "module_metadata_field_id", "field_ui_control_alias", "visible",
-                        "read_only", "required_override", "placeholder", "default_value", "width", "align",
+                        "visible_when", "read_only", "read_only_when", "required_override", "placeholder", "default_value", "width", "align",
                         "fixed_position", "max_display_lines", "title", "enabled", "sort_order");
         assertThat(uniqueIndexes(mapper.toTable(PlatformUiConfigField.class)))
                 .contains(List.of("tenant_id", "ui_config_id", "module_metadata_field_id"));

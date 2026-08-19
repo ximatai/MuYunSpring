@@ -53,6 +53,8 @@ export interface ModuleRuntimeContext {
   capabilities: string[];
   abilities?: string[];
   actions: ModuleRuntimeAction[];
+  /** Read-only projections this module deliberately exposes for page navigation. */
+  navigatorSourceCapabilities?: Array<'REFERENCE_QUERY' | 'REFERENCE_TREE'>;
   uiDescriptor?: ResolvedModuleUiDescriptor;
 }
 
@@ -66,22 +68,26 @@ export interface ModuleRuntimeContextState {
   runtimeAction(actionCode: string): ModuleRuntimeAction | undefined;
   can(actionCode: string, recordId?: string): boolean | undefined;
   recordActions(recordId: string): Promise<ModuleRecordActionAvailability>;
+  recordActionsBatch?(recordIds: string[]): Promise<ModuleRecordActionAvailability[]>;
   recordActionsSnapshot(recordId: string): ModuleRecordActionAvailability | undefined;
+  invalidateRecordActions?(recordIds?: string[]): void;
 }
 
 export function createModuleRuntimeContextState(
   http: HttpClient,
   moduleAlias: string,
+  access: 'MENU' | 'REFERENCE' = 'MENU',
 ): ModuleRuntimeContextState {
   const current = shallowRef<ModuleRuntimeContext>();
   const currentError = shallowRef<AppError>();
   const recordActionSnapshots = shallowRef(new Map<string, ModuleRecordActionAvailability>());
   const recordActionLoading = new Map<string, Promise<ModuleRecordActionAvailability>>();
+  const recordActionRevisions = new Map<string, number>();
   let loading: Promise<ModuleRuntimeContext> | undefined;
   const load = () => {
     loading ??= http
       .request<ModuleRuntimeContext>({
-        path: `/platform.module/${encodeURIComponent(moduleAlias)}/context`,
+        path: `/platform.module/${encodeURIComponent(moduleAlias)}/${access === 'REFERENCE' ? 'reference-context' : 'context'}`,
       })
       .then((context) => {
         current.value = context;
@@ -101,23 +107,116 @@ export function createModuleRuntimeContextState(
     if (existing) {
       return existing;
     }
+    const revision = recordActionRevisions.get(normalizedRecordId) ?? 0;
     const request = http
       .request<ModuleRecordActionAvailability>({
         path: `/${encodeURIComponent(moduleAlias)}/actions/${encodeURIComponent(normalizedRecordId)}`,
       })
       .then((availability) => {
-        const next = new Map(recordActionSnapshots.value);
-        next.set(normalizedRecordId, availability);
-        recordActionSnapshots.value = next;
-        recordActionLoading.delete(normalizedRecordId);
+        if ((recordActionRevisions.get(normalizedRecordId) ?? 0) === revision) {
+          const next = new Map(recordActionSnapshots.value);
+          next.set(normalizedRecordId, availability);
+          recordActionSnapshots.value = next;
+        }
+        if (recordActionLoading.get(normalizedRecordId) === request) {
+          recordActionLoading.delete(normalizedRecordId);
+        }
         return availability;
       })
       .catch((cause) => {
-        recordActionLoading.delete(normalizedRecordId);
+        if (recordActionLoading.get(normalizedRecordId) === request) {
+          recordActionLoading.delete(normalizedRecordId);
+        }
         throw cause;
       });
     recordActionLoading.set(normalizedRecordId, request);
     return request;
+  };
+  const recordActionsBatch = async (recordIds: string[]) => {
+    const normalizedRecordIds = [...new Set(recordIds.map(requireRecordId))];
+    if (normalizedRecordIds.length === 0) {
+      return [];
+    }
+    const resolved = new Map<string, ModuleRecordActionAvailability>();
+    const pending = new Map<string, Promise<ModuleRecordActionAvailability>>();
+    const missing: string[] = [];
+    for (const recordId of normalizedRecordIds) {
+      const snapshot = recordActionSnapshots.value.get(recordId);
+      if (snapshot) {
+        resolved.set(recordId, snapshot);
+        continue;
+      }
+      const loading = recordActionLoading.get(recordId);
+      if (loading) {
+        pending.set(recordId, loading);
+        continue;
+      }
+      missing.push(recordId);
+    }
+    for (const recordIdsChunk of chunks(missing, 100)) {
+      const revisions = new Map(
+        recordIdsChunk.map((recordId) => [recordId, recordActionRevisions.get(recordId) ?? 0]),
+      );
+      const request = http
+        .request<ModuleRecordActionAvailability[]>({
+          method: 'POST',
+          path: `/${encodeURIComponent(moduleAlias)}/actions/availability`,
+          body: { recordIds: recordIdsChunk },
+        })
+        .then((availability) => {
+          const byRecordId = new Map(availability.map((item) => [item.recordId, item]));
+          if (byRecordId.size !== recordIdsChunk.length || recordIdsChunk.some((id) => !byRecordId.has(id))) {
+            throw new Error('Record action availability response is incomplete');
+          }
+          const next = new Map(recordActionSnapshots.value);
+          for (const item of availability) {
+            if ((recordActionRevisions.get(item.recordId) ?? 0) === revisions.get(item.recordId)) {
+              next.set(item.recordId, item);
+            }
+          }
+          recordActionSnapshots.value = next;
+          return byRecordId;
+        });
+      for (const recordId of recordIdsChunk) {
+        const itemRequest = request.then((availability) => availability.get(recordId)!);
+        recordActionLoading.set(recordId, itemRequest);
+        pending.set(recordId, itemRequest);
+        itemRequest
+          .finally(() => {
+            if (recordActionLoading.get(recordId) === itemRequest) {
+              recordActionLoading.delete(recordId);
+            }
+          })
+          .catch(() => {
+            // The requesting explorer receives the failure through its own promise.
+          });
+      }
+    }
+    for (const [recordId, request] of pending) {
+      resolved.set(recordId, await request);
+    }
+    return normalizedRecordIds.map((recordId) => resolved.get(recordId)!);
+  };
+  const invalidateRecordActions = (recordIds?: string[]) => {
+    if (!recordIds) {
+      for (const recordId of new Set([
+        ...recordActionSnapshots.value.keys(),
+        ...recordActionLoading.keys(),
+      ])) {
+        recordActionRevisions.set(recordId, (recordActionRevisions.get(recordId) ?? 0) + 1);
+      }
+      recordActionLoading.clear();
+      recordActionSnapshots.value = new Map();
+      return;
+    }
+    const next = new Map(recordActionSnapshots.value);
+    for (const recordId of recordIds) {
+      const normalizedRecordId = requireRecordId(recordId);
+      recordActionRevisions.set(normalizedRecordId, (recordActionRevisions.get(normalizedRecordId) ?? 0) + 1);
+      recordActionLoading.delete(normalizedRecordId);
+      next.delete(normalizedRecordId);
+    }
+    recordActionSnapshots.value = next;
   };
   const ready = load();
   ready.catch(() => {
@@ -142,8 +241,10 @@ export function createModuleRuntimeContextState(
       return actionState(current.value, recordActionSnapshots.value, actionCode, recordId)?.available;
     },
     recordActions,
+    recordActionsBatch,
     recordActionsSnapshot: (recordId) =>
       recordId == null || !recordId.trim() ? undefined : recordActionSnapshots.value.get(recordId.trim()),
+    invalidateRecordActions,
   };
 }
 
@@ -159,6 +260,14 @@ export function isRuntimeAbilityAvailable(
 
 function runtimeAbilityCodes(context: ModuleRuntimeContext): string[] {
   return context.abilities ?? context.capabilities.map(abilityCodeOfCapability);
+}
+
+function chunks<T>(items: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size));
+  }
+  return result;
 }
 
 function actionState(

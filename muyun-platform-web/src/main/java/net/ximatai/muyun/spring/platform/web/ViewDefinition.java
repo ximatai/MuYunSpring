@@ -10,8 +10,8 @@ public record ViewDefinition(String viewCode,
                              String title,
                              List<ViewFieldDefinition> fields,
                              String sourceUiConfigId,
-                             ScopedListWorkspaceDefinition scopedListWorkspace,
-                             List<FormGroupDefinition> formGroups) {
+                             List<FormGroupDefinition> formGroups,
+                             List<FormComputeRuleDefinition> formComputeRules) {
     public ViewDefinition {
         if (viewCode == null || viewCode.isBlank()) {
             throw new IllegalArgumentException("view code must not be blank");
@@ -24,24 +24,26 @@ public record ViewDefinition(String viewCode,
         title = title == null || title.isBlank() ? null : title.trim();
         fields = fields == null ? List.of() : List.copyOf(fields);
         sourceUiConfigId = sourceUiConfigId == null || sourceUiConfigId.isBlank() ? null : sourceUiConfigId.trim();
-        if (scopedListWorkspace != null && viewKind != ModuleViewKind.LIST) {
-            throw new IllegalArgumentException("scoped list workspace is only supported by list views: " + viewCode);
-        }
         formGroups = formGroups == null ? List.of() : List.copyOf(formGroups);
         if (!formGroups.isEmpty() && viewKind != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("form groups are only supported by form views: " + viewCode);
         }
+        formComputeRules = formComputeRules == null ? List.of() : List.copyOf(formComputeRules);
+        if (!formComputeRules.isEmpty() && viewKind != ModuleViewKind.FORM) {
+            throw new IllegalArgumentException("form compute rules are only supported by form views: " + viewCode);
+        }
+    }
+
+    /** Source-compatible constructor for views declared before form computations were introduced. */
+    public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
+                          List<ViewFieldDefinition> fields, String sourceUiConfigId,
+                          List<FormGroupDefinition> formGroups) {
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups, List.of());
     }
 
     public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                           List<ViewFieldDefinition> fields) {
-        this(viewCode, viewKind, clientType, title, fields, null, null, null);
-    }
-
-    public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
-                          List<ViewFieldDefinition> fields, String sourceUiConfigId,
-                          ScopedListWorkspaceDefinition scopedListWorkspace) {
-        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, scopedListWorkspace, null);
+        this(viewCode, viewKind, clientType, title, fields, null, null, List.of());
     }
 
     public static Builder list() {
@@ -66,9 +68,9 @@ public record ViewDefinition(String viewCode,
         private ModuleUiClientType clientType = ModuleUiClientType.WEB;
         private String title;
         private String sourceUiConfigId;
-        private ScopedListWorkspaceDefinition scopedListWorkspace;
         private final List<ViewFieldDefinition> fields = new ArrayList<>();
         private final List<FormGroupDefinition> formGroups = new ArrayList<>();
+        private final List<FormComputeRuleDefinition> formComputeRules = new ArrayList<>();
 
         private Builder(String viewCode, ModuleViewKind viewKind) {
             this.viewCode = viewCode;
@@ -82,34 +84,6 @@ public record ViewDefinition(String viewCode,
 
         Builder sourceUiConfigId(String sourceUiConfigId) {
             this.sourceUiConfigId = sourceUiConfigId;
-            return this;
-        }
-
-        /** Uses {@code scopeField} as the standard external-query key. */
-        public Builder scopedListWorkspace(String scopeModuleAlias, String scopeField,
-                                           String scopeTitle, String scopeSearchPlaceholder) {
-            return scopedListWorkspace(scopeModuleAlias, scopeField, scopeField, scopeTitle, scopeSearchPlaceholder,
-                    false, ScopedListWorkspaceCreatePolicy.ALLOW_UNSCOPED);
-        }
-
-        public Builder scopedListWorkspace(String scopeModuleAlias, String scopeField, String queryCriteriaKey,
-                                           String scopeTitle, String scopeSearchPlaceholder,
-                                           boolean showScopeItemSubtitle,
-                                           ScopedListWorkspaceCreatePolicy createPolicy) {
-            scopedListWorkspace = new ScopedListWorkspaceDefinition(scopeModuleAlias, scopeField, queryCriteriaKey,
-                    scopeTitle, scopeSearchPlaceholder, showScopeItemSubtitle, createPolicy);
-            return this;
-        }
-
-        /** Enables standard CRUD management for a tree-shaped scope in this workspace. */
-        public Builder manageableScopedTree() {
-            if (scopedListWorkspace == null) {
-                throw new IllegalStateException("scopedListWorkspace must be configured before manageableScopedTree");
-            }
-            scopedListWorkspace = new ScopedListWorkspaceDefinition(scopedListWorkspace.scopeModuleAlias(),
-                    scopedListWorkspace.scopeField(), scopedListWorkspace.queryCriteriaKey(),
-                    scopedListWorkspace.scopeTitle(), scopedListWorkspace.scopeSearchPlaceholder(),
-                    scopedListWorkspace.showScopeItemSubtitle(), scopedListWorkspace.createPolicy(), true);
             return this;
         }
 
@@ -152,9 +126,18 @@ public record ViewDefinition(String viewCode,
             return this;
         }
 
+        /** Declares one deterministic main-record calculation for this form. */
+        public Builder formCompute(String code, String targetField, List<String> triggerFields, String expression) {
+            if (viewKind != ModuleViewKind.FORM) {
+                throw new IllegalStateException("form compute rules are only supported by form views");
+            }
+            formComputeRules.add(new FormComputeRuleDefinition(code, targetField, triggerFields, expression));
+            return this;
+        }
+
         public ViewDefinition build() {
-            return new ViewDefinition(viewCode, viewKind, clientType, title, fields, sourceUiConfigId,
-                    scopedListWorkspace, formGroups);
+            return new ViewDefinition(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups,
+                    formComputeRules);
         }
     }
 }

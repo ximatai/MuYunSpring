@@ -8,17 +8,18 @@ import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.standard.StandardEnabledTreeEntity;
 import net.ximatai.muyun.spring.common.initialdata.InitialDataFields;
+import net.ximatai.muyun.spring.common.model.capability.PlatformManagedCapable;
 
 @Getter
 @Setter
 @Table(name = "platform_menu", comment = "Platform menu")
 @InitialDataFields(
         identity = {"schemeId"},
-        managed = {"parentId", "openMode", "moduleAlias", "route", "externalUrl", "pageMode",
+        managed = {"parentId", "openMode", "moduleAlias", "route", "externalUrl", "pageMode", "systemManaged",
                 "defaultUiConfigId", "defaultQueryTemplateId", "entryParamsJson"},
         operator = {"title", "enabled", "sortOrder"}
 )
-public class Menu extends StandardEnabledTreeEntity {
+public class Menu extends StandardEnabledTreeEntity implements PlatformManagedCapable {
     @Id
     @Column(name = "id", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "Menu id")
     private String id;
@@ -50,4 +51,17 @@ public class Menu extends StandardEnabledTreeEntity {
 
     @Column(name = "entry_params_json", type = ColumnType.TEXT, comment = "Entry params JSON")
     private String entryParamsJson;
+
+    /** Whether this system-scope menu is a code-declared platform baseline. */
+    @Column(name = "system_managed", type = ColumnType.BOOLEAN, comment = "System managed menu baseline")
+    private Boolean systemManaged;
+
+    /** Whether platform startup reconciliation owns the managed routing fields of this copy. */
+    @Column(name = "platform_managed", type = ColumnType.BOOLEAN, comment = "Platform managed menu copy")
+    private Boolean platformManaged;
+
+    /** Source fingerprint last applied by platform reconciliation; useful for audit and diagnostics. */
+    @Column(name = "platform_managed_revision", type = ColumnType.VARCHAR, length = 64,
+            comment = "Platform managed revision")
+    private String platformManagedRevision;
 }

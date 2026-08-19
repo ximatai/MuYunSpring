@@ -29,18 +29,6 @@ export const routePageLoaders = import.meta.glob('/src/views/**/*View.vue', {
  */
 export const staticRouteDefinitions: StaticRouteDefinition[] = [
   {
-    route: '/config/applications',
-    moduleAlias: 'platform.application',
-    componentPath: '/src/views/ApplicationManagementView.vue',
-    layout: 'workspace',
-  },
-  {
-    route: '/config/field-specs',
-    moduleAlias: 'platform.field_spec',
-    componentPath: '/src/views/FieldSpecManagementView.vue',
-    layout: 'workspace',
-  },
-  {
     route: '/config/field-ui-controls',
     moduleAlias: 'platform.field_ui_control',
     componentPath: '/src/views/FieldUiControlManagementView.vue',
@@ -53,39 +41,15 @@ export const staticRouteDefinitions: StaticRouteDefinition[] = [
     layout: 'workspace',
   },
   {
-    route: '/config/modules',
-    moduleAlias: 'platform.module',
-    componentPath: '/src/views/ModuleManagementView.vue',
-    layout: 'workspace',
-  },
-  {
     route: '/config/menus',
     moduleAlias: 'platform.menu_scheme',
     componentPath: '/src/views/MenuManagementView.vue',
     layout: 'workspace',
   },
   {
-    route: '/platform/security/passwords',
-    moduleAlias: 'iam.password_policy_rule',
-    componentPath: '/src/views/PasswordManagementView.vue',
-    layout: 'flow',
-  },
-  {
     route: '/iam/tenants',
     moduleAlias: 'iam.tenant',
     componentPath: '/src/views/TenantManagementView.vue',
-    layout: 'workspace',
-  },
-  {
-    route: '/iam/organizations',
-    moduleAlias: 'iam.organization',
-    componentPath: '/src/views/OrganizationManagementView.vue',
-    layout: 'workspace',
-  },
-  {
-    route: '/iam/departments',
-    moduleAlias: 'iam.department',
-    componentPath: '/src/views/DepartmentManagementView.vue',
     layout: 'workspace',
   },
   {
@@ -132,12 +96,6 @@ export const staticRouteDefinitions: StaticRouteDefinition[] = [
     componentPath: '/src/views/RoleAuthorizationView.vue',
     layout: 'workspace',
     menuEntry: false,
-  },
-  {
-    route: '/iam/positions',
-    moduleAlias: 'iam.position_category',
-    componentPath: '/src/views/PositionManagementView.vue',
-    layout: 'workspace',
   },
 ];
 

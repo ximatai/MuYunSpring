@@ -37,6 +37,13 @@
 | --- | --- | --- | --- |
 | DD-004 | 平台错误响应的真实 UI 出口和特殊业务链路尚未接入 | 后端统一错误 envelope、traceId、基础错误码、前端 `AppError`、全局展示槽位判定、登录特殊链路和静态业务失败 `ActionMessage` 基础契约已落地；动态表单保存已将必填和只读字段收敛为带字段/子表 target 的 `422`，已发布快照缺少 UI 配置收敛为带模块 scope 的 `409 CONFIG_MISSING`。但当前前端尚未进入真实动态表单、查重、导入面板或工作流动作区开发，也没有实际 toast/modal/page-error UI adapter；其余动态 local edit、页面 bootstrap、查询、导入和运行态配置解析仍保留历史默认异常，避免在缺少真实 UI 出口前过早固化错误展示和定位契约 | 进入 shell 全局通知、查重确认、导入行级错误、工作流动作反馈或 online 子应用错误治理时，按 `docs/frontend/governance/ERROR_HANDLING_GOVERNANCE.md` 接入对应 UI 出口和特殊 handler；正式推进对应动态链路时，再按专题统一评估异常 code、HTTP 状态、字段/子表定位、`ActionMessage` 和前端局部展示契约 |
 
+## 页面交付关注
+
+| 编号 | 问题 | 风险 | 回收条件 |
+| --- | --- | --- | --- |
+| TD-042 | 表单型自定义动作尚无统一输入与提交协议 | 当前 editor surface 已可声明默认或具名编辑字段，并可由页面承载面选择；但 `CustomActionEndpoint` 的请求 DTO、记录上下文、提交 URL/方法和成功后的数据变化语义仍由各业务接口自行定义。若仅增加 `actionEditor(actionCode, ...)`，会形成能展示字段却无法可靠提交或刷新的一半能力 | 出现第二个需要“独立动作仅编辑少数字段”的标准页面场景时，定义动作输入 descriptor、actionEditor 与已发布动作的编译校验、前端提交/权限/记录上下文和统一数据变化回执，再开放 DSL |
+| TD-043 | 静态读 transport 的投影与 navigator 适配尚未形成专用门面 | 当前 `CrudWeb` 与 `StaticQueryViewWeb` 都要将静态 descriptor 的查询投影、navigator 条件和 `DataScopeAbility` 接入标准查询；二者已共用 `QueryViewWeb.queryRecords`，避免数据范围漂移，但其余适配逻辑仍各自表达。现在仅有两种 transport，提前抽成万能基类会抹平 schema、投影与 mutation surface 的真实差异 | 出现第三种需要静态 descriptor 驱动读投影的 transport 时，提炼仅负责 projection、navigator 和 action-aware query 的静态读投影门面；各 transport 继续独立决定 endpoint 与 mutation surface，禁止复制新的查询链路 |
+
 ## 前端工作台关注
 
 | 编号 | 问题 | 风险 | 回收条件 |
@@ -80,3 +87,5 @@
 | TD-005 | 引用依赖缓存失效已有本地进程内索引和动静态路径闭环，但还不是跨节点治理能力 | 多实例部署和复杂批量刷新仍需要更完整的依赖生命周期管理 | 进入缓存治理或动态发布中心时，补跨节点事件和批量重建策略 |
 | TD-006 | `CacheAbility` 仍使用进程内 Caffeine 本地缓存 | 当前已有默认容量、全量列表 TTL 和 runtime namespace 清理，但还不是可观测、可替换的缓存管理器 | 当缓存需要监控、跨节点一致性或业务级策略时，引入运行态缓存管理器 |
 | TD-030 | 实时数据变化广播仍是第一阶段通道能力 | 当前已通过 WebSocket/STOMP 打通 `CommittedChangeSet` 广播和前端 data change 订阅，但仍是 simple broker + 尽力投递；尚未治理租户/作用域精准过滤、多实例 broker relay、outbox 补偿、消息 offset、SockJS fallback、连接监控和限流 | 进入多实例部署、生产网关代理、跨租户高安全场景、通知中心/IM 产品化或数据变化可靠补发时，按 [平台实时通信设计](platform/REALTIME_COMMUNICATION.md) 回收对应可靠性、隔离和运维能力 |
+| TD-044 | 实时 Presence 治理仍由 IAM Web 维护 | 当前 `RealtimeConnectionRegistry` 同时承接 WebSocket 连接登记、会话 presence、闲置检测、既有业务 fan-out 和在线业务提醒投递。通知能力已将业务 Service 与 IAM 人员范围解析下沉到核心层，但连接状态仍由 Web 适配层持有，跨传输协议或统一在线治理时会继续耦合 WebSocket 细节 | 出现第二种实时传输、统一连接治理、跨节点 presence 或需要由核心服务主动管理在线状态时，在 Platform 建立中性 `RealtimePresenceService`；Web adapter 只上报连接生命周期，逐步迁移 session presence、闲置治理和 fan-out |
+| TD-045 | 业务提醒当前仅装配在线 STOMP 投递 | `BusinessNotificationService` 已是 Platform 服务，但其在线投递实现与 Bean 装配仍依赖 IAM WebSocket 运行时；这符合首期“仅当前在线前端提醒”的范围，但不能直接承载非 Web 通道、离线补发或可靠通知 | 出现邮件、移动端、站内信、离线补发、可靠送达或不加载 IAM WebSocket 的宿主时，将投递端口拆为可组合 channel，并由 Platform 统一装配默认/降级策略；不要在业务 Service 中直接补偿 |

@@ -40,6 +40,8 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshot;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshotService;
 import net.ximatai.muyun.spring.platform.ui.PlatformResolvedPageConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiClientType;
+import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
+import net.ximatai.muyun.spring.platform.ui.PageNavigatorSourceCapabilityResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -64,6 +66,8 @@ public class PlatformModuleRuntimeContextService {
     private final PlatformPageConfigSnapshotService pageConfigSnapshotService;
     private final PlatformPageBootstrapService pageBootstrapService;
     private final List<FileReferenceFieldPolicy> fileReferenceFieldPolicies;
+    private final PageNavigatorResolver pageNavigatorResolver;
+    private final PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver;
 
     @Autowired
     public PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -73,7 +77,9 @@ public class PlatformModuleRuntimeContextService {
                                                ObjectProvider<PlatformPageConfigSnapshotService> pageConfigSnapshotService,
                                                ObjectProvider<PlatformPageBootstrapService> pageBootstrapService,
                                                ObjectProvider<ActionExecutionPolicyService> actionExecutionPolicyService,
-                                               ObjectProvider<FileReferenceFieldPolicy> fileReferenceFieldPolicies) {
+                                               ObjectProvider<FileReferenceFieldPolicy> fileReferenceFieldPolicies,
+                                               ObjectProvider<PageNavigatorResolver> pageNavigatorResolver,
+                                               ObjectProvider<PageNavigatorSourceCapabilityResolver> navigatorSourceCapabilityResolver) {
         this(moduleService, actionService, staticModuleCatalog,
                 dynamicRecordService == null ? null : dynamicRecordService.getIfAvailable(),
                 pageConfigSnapshotService == null ? null : pageConfigSnapshotService.getIfAvailable(),
@@ -81,7 +87,10 @@ public class PlatformModuleRuntimeContextService {
                 actionExecutionPolicyService == null
                         ? new AllowAllActionExecutionPolicyService()
                         : actionExecutionPolicyService.getIfAvailable(AllowAllActionExecutionPolicyService::new),
-                fileReferenceFieldPolicies == null ? List.of() : fileReferenceFieldPolicies.orderedStream().toList());
+                fileReferenceFieldPolicies == null ? List.of() : fileReferenceFieldPolicies.orderedStream().toList(),
+                new CompositePageNavigatorResolver(pageNavigatorResolver == null ? List.of()
+                        : pageNavigatorResolver.orderedStream().toList()),
+                navigatorSourceCapabilityResolver == null ? null : navigatorSourceCapabilityResolver.getIfAvailable());
     }
 
     PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -92,7 +101,7 @@ public class PlatformModuleRuntimeContextService {
                                         PlatformPageBootstrapService pageBootstrapService,
                                         ActionExecutionPolicyService actionExecutionPolicyService) {
         this(moduleService, actionService, staticModuleCatalog, dynamicRecordService, pageConfigSnapshotService,
-                pageBootstrapService, actionExecutionPolicyService, List.of());
+                pageBootstrapService, actionExecutionPolicyService, List.of(), new DeclaredPageNavigatorResolver());
     }
 
     PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -103,6 +112,34 @@ public class PlatformModuleRuntimeContextService {
                                         PlatformPageBootstrapService pageBootstrapService,
                                         ActionExecutionPolicyService actionExecutionPolicyService,
                                         List<FileReferenceFieldPolicy> fileReferenceFieldPolicies) {
+        this(moduleService, actionService, staticModuleCatalog, dynamicRecordService, pageConfigSnapshotService,
+                pageBootstrapService, actionExecutionPolicyService, fileReferenceFieldPolicies,
+                new DeclaredPageNavigatorResolver(), null);
+    }
+
+    PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
+                                        PlatformModuleActionService actionService,
+                                        StaticModuleDefinitionCatalog staticModuleCatalog,
+                                        DynamicRecordService dynamicRecordService,
+                                        PlatformPageConfigSnapshotService pageConfigSnapshotService,
+                                        PlatformPageBootstrapService pageBootstrapService,
+                                        ActionExecutionPolicyService actionExecutionPolicyService,
+                                        List<FileReferenceFieldPolicy> fileReferenceFieldPolicies,
+                                        PageNavigatorResolver pageNavigatorResolver) {
+        this(moduleService, actionService, staticModuleCatalog, dynamicRecordService, pageConfigSnapshotService,
+                pageBootstrapService, actionExecutionPolicyService, fileReferenceFieldPolicies, pageNavigatorResolver, null);
+    }
+
+    PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
+                                        PlatformModuleActionService actionService,
+                                        StaticModuleDefinitionCatalog staticModuleCatalog,
+                                        DynamicRecordService dynamicRecordService,
+                                        PlatformPageConfigSnapshotService pageConfigSnapshotService,
+                                        PlatformPageBootstrapService pageBootstrapService,
+                                        ActionExecutionPolicyService actionExecutionPolicyService,
+                                        List<FileReferenceFieldPolicy> fileReferenceFieldPolicies,
+                                        PageNavigatorResolver pageNavigatorResolver,
+                                        PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver) {
         this.moduleService = moduleService;
         this.actionService = actionService;
         this.staticModuleCatalog = staticModuleCatalog;
@@ -113,6 +150,10 @@ public class PlatformModuleRuntimeContextService {
                 ? new AllowAllActionExecutionPolicyService()
                 : actionExecutionPolicyService;
         this.fileReferenceFieldPolicies = fileReferenceFieldPolicies == null ? List.of() : List.copyOf(fileReferenceFieldPolicies);
+        this.pageNavigatorResolver = pageNavigatorResolver == null
+                ? new DeclaredPageNavigatorResolver()
+                : pageNavigatorResolver;
+        this.navigatorSourceCapabilityResolver = navigatorSourceCapabilityResolver;
     }
 
     public PlatformModuleRuntimeContext context(String moduleAlias) {
@@ -131,6 +172,9 @@ public class PlatformModuleRuntimeContextService {
         String title = title(module, staticDefinition, dynamicDescriptor, validModuleAlias);
         ResolvedModuleUiDescriptor uiDescriptor = uiDescriptor(validModuleAlias, moduleKind, title, staticDefinition,
                 dynamicDescriptor);
+        Set<NavigatorSourceCapability> navigatorSourceCapabilities = navigatorSourceCapabilityResolver == null
+                ? Set.of()
+                : navigatorSourceCapabilityResolver.capabilities(validModuleAlias);
         return new PlatformModuleRuntimeContext(
                 validModuleAlias,
                 title,
@@ -142,6 +186,7 @@ public class PlatformModuleRuntimeContextService {
                 capabilities,
                 abilityCodes(capabilities),
                 actions,
+                navigatorSourceCapabilities,
                 uiDescriptor
         );
     }
@@ -176,7 +221,8 @@ public class PlatformModuleRuntimeContextService {
         ResolvedModuleUiDescriptor descriptor = staticDefinition
                 .map(ModuleUiDescriptorCompiler::compile)
                 .orElse(null);
-        return descriptor == null ? null : descriptor.withFileReferences(descriptor.fileReferences().stream()
+        return descriptor == null ? null : descriptor.withPage(resolvePage(moduleAlias, moduleKind, descriptor.page()))
+                .withFileReferences(descriptor.fileReferences().stream()
                 .map(reference -> withFieldAccess(moduleAlias, reference))
                 .toList());
     }
@@ -190,14 +236,69 @@ public class PlatformModuleRuntimeContextService {
         PlatformPageConfigSnapshot snapshot = pageConfigSnapshotService.snapshot(moduleAlias);
         PlatformResolvedPageConfig resolvedConfig = pageBootstrapService.resolveConfig(snapshot,
                 PlatformUiClientType.WEB);
+        java.util.Map<ViewFieldRef, FieldValueType> fieldTypes = dynamicFieldTypes(dynamicDescriptor, resolvedConfig);
         ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(snapshot,
-                resolvedConfig);
-        return ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, title,
+                resolvedConfig, dynamicDescriptor.entities().stream()
+                        .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias()))
+                        .findFirst()
+                        .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor::formulaRules)
+                        .orElse(List.of()), fieldTypes);
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, title,
                 dynamicOptionFields(dynamicDescriptor), dynamicReferenceFields(dynamicDescriptor),
-                dynamicRecordLabelField(dynamicDescriptor), dynamicFieldTypes(dynamicDescriptor, resolvedConfig))
+                dynamicRecordLabelField(dynamicDescriptor), fieldTypes)
                 .withFileReferences(dynamicFileReferences(dynamicDescriptor, resolvedConfig).stream()
                         .map(reference -> withFieldAccess(moduleAlias, reference))
                         .toList());
+        return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()));
+    }
+
+    private ResolvedModulePageDescriptor resolvePage(String moduleAlias,
+                                                     ModuleKind moduleKind,
+                                                     ResolvedModulePageDescriptor candidate) {
+        if (candidate == null) {
+            return null;
+        }
+        Set<String> visibleLevelKeys = pageNavigatorResolver.visibleLevelKeys(
+                new PageNavigatorResolutionContext(moduleAlias, moduleKind,
+                        CurrentUserContext.currentUser().orElse(null), candidate));
+        ResolvedPageNavigatorDescriptor navigator = filterNavigator(candidate.navigator(), visibleLevelKeys);
+        validateNavigatorSourceCapabilities(moduleAlias, navigator);
+        return candidate.withNavigator(navigator);
+    }
+
+    private void validateNavigatorSourceCapabilities(String pageModuleAlias,
+                                                     ResolvedPageNavigatorDescriptor navigator) {
+        if (navigator == null || navigatorSourceCapabilityResolver == null) return;
+        for (ResolvedPageNavigatorLevelDescriptor level : navigator.levels()) {
+            NavigatorSourceCapability required = level.kind() == PageNavigatorKind.TREE
+                    ? NavigatorSourceCapability.REFERENCE_TREE
+                    : NavigatorSourceCapability.REFERENCE_QUERY;
+            if (!navigatorSourceCapabilityResolver.supports(level.sourceModuleAlias(), required)) {
+                throw new PlatformException(PlatformErrorCodes.CONFIG_MISSING, 409,
+                        "Navigator source capability is unavailable: page=" + pageModuleAlias + ", level="
+                                + level.key() + ", source=" + level.sourceModuleAlias() + ", required=" + required);
+            }
+        }
+    }
+
+    private ResolvedPageNavigatorDescriptor filterNavigator(ResolvedPageNavigatorDescriptor navigator,
+                                                             Set<String> visibleLevelKeys) {
+        if (navigator == null || visibleLevelKeys == null || visibleLevelKeys.isEmpty()) {
+            return null;
+        }
+        List<ResolvedPageNavigatorLevelDescriptor> visibleLevels = navigator.levels().stream()
+                .filter(level -> visibleLevelKeys.contains(level.key()))
+                .map(level -> new ResolvedPageNavigatorLevelDescriptor(level.key(), level.kind(),
+                        level.sourceModuleAlias(), level.title(), level.searchPlaceholder(), level.management(),
+                        level.singleResultPolicy(), level.initialSelectionPolicy(), level.sourceScope()))
+                .toList();
+        List<ResolvedPageContextBindingDescriptor> visibleBindings = navigator.contextBindings().stream()
+                .filter(binding -> binding.source() != PageContextSource.NAVIGATOR
+                        || visibleLevelKeys.contains(binding.sourceKey()))
+                .filter(binding -> binding.target() != PageContextTarget.NAVIGATOR_QUERY
+                        || visibleLevelKeys.contains(binding.targetNavigatorLevelKey()))
+                .toList();
+        return visibleLevels.isEmpty() ? null : new ResolvedPageNavigatorDescriptor(visibleLevels, visibleBindings);
     }
 
     private ResolvedFileReferenceFieldDescriptor withFieldAccess(String moduleAlias,

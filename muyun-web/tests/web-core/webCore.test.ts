@@ -5,6 +5,7 @@ import {
   AppError,
   configureModuleContext,
   createAuthClient,
+  createLoginContextClient,
   createHttpClient,
   createMenuClient,
   createPageBootstrapClient,
@@ -19,11 +20,13 @@ import {
   resolveGlobalErrorPresentation,
   actionResultData,
   connectRealtimeBusinessEvents,
+  connectRealtimeBusinessNotifications,
   connectRealtimeDataChanges,
   connectRealtimeUserNotifications,
   createDataChangeDispatcher,
   webDataChanges,
   createRealtimeClient,
+  invokeBusinessNotificationRecordAction,
   contextDataChangeChannel,
   imConversationMessageChannel,
   imMessageSendCommand,
@@ -39,6 +42,7 @@ import {
   tenantPublicDataChangeChannel,
   tenantPublicNotificationChannel,
   userBusinessEventChannel,
+  userBusinessNotificationChannel,
   userImMessageChannel,
   userNotificationChannel,
   withWebActionResultChanges,
@@ -62,6 +66,39 @@ async function expectRejected(
 
   expect.fail('Expected promise to reject');
 }
+
+it('business notification record action uses the standard module action and record path', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return Response.json({ data: { accepted: true } });
+  };
+
+  try {
+    await invokeBusinessNotificationRecordAction(createHttpClient({ baseUrl: 'http://api.local' }), {
+      kind: 'record',
+      key: 'reject',
+      label: '拒绝',
+      moduleAlias: 'mr.remote_support',
+      recordId: 'support-1',
+      actionCode: 'rejectKnowledge',
+      arguments: { reason: '不采纳' },
+      danger: true,
+      dismissOnSuccess: true,
+    });
+    assert.equal(requests[0].url, 'http://api.local/mr.remote_support/rejectKnowledge/support-1');
+    assert.deepEqual(await requests[0].json(), { payload: { reason: '不采纳' } });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('business notifications have an isolated typed realtime channel', () => {
+  assert.equal(userBusinessNotificationChannel.destination, '/user/queue/platform/business-notifications');
+  assert.equal(userBusinessNotificationChannel.type, 'platform.business-notification');
+  assert.equal(typeof connectRealtimeBusinessNotifications, 'function');
+});
 
 it('menu client normalizes backend enum values before workbench navigation', async () => {
   const originalFetch = globalThis.fetch;
@@ -166,6 +203,30 @@ it('auth logout posts bearer token to backend logout endpoint', async () => {
     assert.equal(requests[0].url, 'http://api.local/iam.auth/logout');
     assert.equal(requests[0].method, 'POST');
     assert.equal(requests[0].headers.get('Authorization'), 'Bearer token-1');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('auth client resolves the public login context for a URL-locked tenant', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return Response.json({
+      tenantId: 'tenant-a',
+      branding: { title: '租户 A', subtitle: '租户专属工作台' },
+    });
+  };
+
+  try {
+    const context = await createLoginContextClient(
+      createHttpClient({ baseUrl: 'http://api.local' }),
+    ).loginContext('tenant-a');
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, 'http://api.local/iam.auth/login-context?tenantId=tenant-a');
+    assert.equal(context.branding?.title, '租户 A');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -894,6 +955,7 @@ it('static module tree client maps standard CRUD and tree endpoints by module al
     });
 
     await client.treeFlat();
+    await client.tree({ externalQueryValues: { tenantId: 'tenant-a' } });
     await client.querySchema();
     await client.querySchema({ uiConfigId: 'org-list-v1' });
     const insertResult = await client.insert({ title: '总部' });
@@ -901,21 +963,24 @@ it('static module tree client maps standard CRUD and tree endpoints by module al
 
     assert.equal(requests[0].url, 'http://api.local/iam.organization/tree?flat=true');
     assert.equal(requests[0].method, 'GET');
-    assert.equal(requests[1].url, 'http://api.local/iam.organization/query/schema');
-    assert.equal(requests[1].method, 'GET');
-    assert.equal(requests[2].url, 'http://api.local/iam.organization/query/schema?uiConfigId=org-list-v1');
+    assert.equal(requests[1].url, 'http://api.local/iam.organization/tree/query');
+    assert.equal(requests[1].method, 'POST');
+    assert.deepEqual(await requests[1].json(), { externalQueryValues: { tenantId: 'tenant-a' } });
+    assert.equal(requests[2].url, 'http://api.local/iam.organization/query/schema');
     assert.equal(requests[2].method, 'GET');
-    assert.equal(requests[3].url, 'http://api.local/iam.organization/insert');
-    assert.equal(requests[3].method, 'POST');
-    assert.deepEqual(await requests[3].json(), { title: '总部' });
+    assert.equal(requests[3].url, 'http://api.local/iam.organization/query/schema?uiConfigId=org-list-v1');
+    assert.equal(requests[3].method, 'GET');
+    assert.equal(requests[4].url, 'http://api.local/iam.organization/insert');
+    assert.equal(requests[4].method, 'POST');
+    assert.deepEqual(await requests[4].json(), { title: '总部' });
     assert.deepEqual(insertResult, {
       record: { id: 'org-1', title: '总部' },
       message: { code: 'platform.crud.created', text: '新增成功', type: 'SUCCESS' },
       changeSetId: 'change-set-1',
       changes: [{ type: 'record-created', moduleAlias: 'iam.organization', recordId: 'org-1' }],
     });
-    assert.equal(requests[4].url, 'http://api.local/iam.organization/sort/org-1');
-    assert.deepEqual(await requests[4].json(), { parentId: 'root' });
+    assert.equal(requests[5].url, 'http://api.local/iam.organization/sort/org-1');
+    assert.deepEqual(await requests[5].json(), { parentId: 'root' });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1089,6 +1154,44 @@ it('module context ignores record action decisions without runtime definition', 
 
     assert.equal(context.can('ghost', 'org-1'), undefined);
     assert.equal(context.action('ghost', 'org-1'), undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('module context batches, caches, and invalidates record action availability', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    if (request.url.endsWith('/context')) {
+      return Response.json(runtimeContext());
+    }
+    return Response.json([
+      { recordId: 'org-1', actions: [{ actionCode: 'update', available: false, reason: '受保护记录' }] },
+      { recordId: 'org-2', actions: [{ actionCode: 'update', available: true }] },
+    ]);
+  };
+
+  try {
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const context = createModuleContext({ moduleAlias: 'iam.organization' });
+    await context.runtime.ready;
+
+    await context.recordActionsBatch?.(['org-1', 'org-2', 'org-1']);
+    const batchRequest = requests.find((request) =>
+      request.url.endsWith('/iam.organization/actions/availability'),
+    );
+    assert.ok(batchRequest);
+    assert.deepEqual(await batchRequest.json(), { recordIds: ['org-1', 'org-2'] });
+    assert.equal(context.action('update', 'org-1')?.reason, '受保护记录');
+
+    await context.recordActionsBatch?.(['org-1', 'org-2']);
+    assert.equal(requests.filter((request) => request.url.endsWith('/actions/availability')).length, 1);
+    context.invalidateRecordActions?.(['org-1']);
+    assert.equal(context.recordActionsSnapshot('org-1'), undefined);
+    assert.notEqual(context.recordActionsSnapshot('org-2'), undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -1,5 +1,7 @@
+import java.io.File
 import java.util.Base64
 import org.gradle.api.component.AdhocComponentWithVariants
+import org.gradle.api.tasks.PathSensitivity
 
 plugins {
     alias(libs.plugins.spring.boot) apply false
@@ -361,50 +363,61 @@ val allowedProductionProjectDependencies = mapOf(
     ),
 )
 
+val moduleDependencyViolations = objects.listProperty<String>()
+val bootSourceRoot = project(":muyun-boot").file("src/main/java")
+
 tasks.register("verifyModuleBoundaries") {
     description = "Verifies production Gradle dependency direction and Boot host boundaries."
     group = LifecycleBasePlugin.VERIFICATION_GROUP
+    inputs.property("dependencyViolations", moduleDependencyViolations)
+    inputs.files(fileTree(bootSourceRoot) { include("**/*.java") })
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.property("bootSourceRoot", bootSourceRoot.absolutePath)
 
     doLast {
-        val violations = mutableListOf<String>()
-        subprojects.forEach { sourceProject ->
-            productionDependencyConfigurations.forEach { configurationName ->
-                sourceProject.configurations.findByName(configurationName)
-                    ?.dependencies
-                    ?.withType(org.gradle.api.artifacts.ProjectDependency::class.java)
-                    ?.forEach { dependency: org.gradle.api.artifacts.ProjectDependency ->
-                        val targetPath = dependency.path
-                        if (targetPath !in allowedProductionProjectDependencies.getValue(sourceProject.path)) {
-                            violations += ("${sourceProject.path} must not depend on $targetPath "
-                                    + "through production configuration $configurationName")
-                        }
-                        if (sourceProject.path in coreModulePaths && targetPath in deliveryModulePaths) {
-                            violations += "${sourceProject.path} must not depend on delivery module $targetPath"
-                        }
-                        if (sourceProject.path == ":muyun-web-adapter"
-                                && (targetPath in webDeliveryModulePaths || targetPath == ":muyun-boot")) {
-                            violations += ":muyun-web-adapter must not depend on $targetPath"
-                        }
-                        if (sourceProject.path in webDeliveryModulePaths && targetPath == ":muyun-boot") {
-                            violations += "${sourceProject.path} must not depend on application host :muyun-boot"
-                        }
-                    }
-            }
-        }
-
+        @Suppress("UNCHECKED_CAST")
+        val violations = (inputs.properties.getValue("dependencyViolations") as List<String>).toMutableList()
+        val sourceRoot = File(inputs.properties.getValue("bootSourceRoot") as String)
         val forbiddenBootStereotypes = Regex("@(RestController|Controller|Service|Repository)\\b")
-        fileTree(project(":muyun-boot").file("src/main/java")) {
-            include("**/*.java")
-        }.files.forEach { source ->
+        inputs.files.files.forEach { source ->
             if (forbiddenBootStereotypes.containsMatchIn(source.readText())) {
-                violations += ":muyun-boot must not declare delivery or domain stereotype: ${source.relativeTo(rootDir)}"
+                violations += ":muyun-boot must not declare delivery or domain stereotype: " +
+                        source.relativeTo(sourceRoot)
             }
         }
-
         check(violations.isEmpty()) {
             "Module boundary violations:\n${violations.joinToString("\n") { " - $it" }}"
         }
     }
+}
+
+gradle.projectsEvaluated {
+    val violations = mutableListOf<String>()
+    subprojects.forEach { sourceProject ->
+        productionDependencyConfigurations.forEach { configurationName ->
+            sourceProject.configurations.findByName(configurationName)
+                ?.dependencies
+                ?.withType(org.gradle.api.artifacts.ProjectDependency::class.java)
+                ?.forEach { dependency: org.gradle.api.artifacts.ProjectDependency ->
+                    val targetPath = dependency.path
+                    if (targetPath !in allowedProductionProjectDependencies.getValue(sourceProject.path)) {
+                        violations += ("${sourceProject.path} must not depend on $targetPath "
+                                + "through production configuration $configurationName")
+                    }
+                    if (sourceProject.path in coreModulePaths && targetPath in deliveryModulePaths) {
+                        violations += "${sourceProject.path} must not depend on delivery module $targetPath"
+                    }
+                    if (sourceProject.path == ":muyun-web-adapter"
+                            && (targetPath in webDeliveryModulePaths || targetPath == ":muyun-boot")) {
+                        violations += ":muyun-web-adapter must not depend on $targetPath"
+                    }
+                    if (sourceProject.path in webDeliveryModulePaths && targetPath == ":muyun-boot") {
+                        violations += "${sourceProject.path} must not depend on application host :muyun-boot"
+                    }
+                }
+        }
+    }
+    moduleDependencyViolations.set(violations)
 }
 
 integrationTestTasks.forEach { integrationTest ->

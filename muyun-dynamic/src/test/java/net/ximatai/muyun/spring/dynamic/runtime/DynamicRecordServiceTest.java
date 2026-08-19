@@ -73,6 +73,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -384,6 +385,25 @@ class DynamicRecordServiceTest {
                 .extracting(error -> error.phase())
                 .isEqualTo(net.ximatai.muyun.spring.common.formula.FormulaRulePhase.ACTION_AVAILABLE);
         assertThat(service.module(MODULE).actionAvailability("submit", draft).available()).isTrue();
+    }
+
+    @Test
+    void shouldResolvePersistedRecordActionAvailabilityInOneBatchRead() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of(
+                actionRow("contract-1", "C-001", "draft"),
+                actionRow("contract-2", "C-002", "submitted")
+        ));
+        DynamicRecordService service = actionService(operations);
+
+        List<DynamicRecordActionAvailability> availability = service.recordActionAvailability(
+                MODULE, "contract", List.of("submit"), List.of("contract-1", "contract-2"));
+
+        assertThat(availability).extracting(DynamicRecordActionAvailability::recordId)
+                .containsExactly("contract-1", "contract-2");
+        assertThat(availability.get(0).actions().get("submit").available()).isTrue();
+        assertThat(availability.get(1).actions().get("submit").available()).isFalse();
+        verify(operations, times(1)).query(anyString(), anyMap());
     }
 
     @Test
@@ -865,6 +885,85 @@ class DynamicRecordServiceTest {
                 .hasMessageContaining("record data permission denied");
 
         verify(operations, never()).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
+    }
+
+    @Test
+    void shouldApplyUpdateDataScopeBeforePreviewingAnExistingFormulaRecord() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> params = invocation.getArgument(1);
+            return params.containsValue("visible") && !params.containsValue("hidden")
+                    ? List.of(actionRow("visible", "C-001", "draft"))
+                    : List.of();
+        });
+        EntityDefinition entity = dataScopedActionEntity().withFormulaRules(
+                EntityFormulaRuleDefinition.validation("codeRequired", "code", "PRESENT({code})", "code is required")
+        );
+        DynamicRecordService service = service(operations, entity,
+                RuntimeEventPublisher.noop(), new VisibleOnlyDataScopeCriteriaService());
+        DynamicRecord hidden = service.newRecord(MODULE, "contract").setValue("code", "C-002");
+        hidden.setId("hidden");
+
+        assertThatThrownBy(() -> service.previewFormula(MODULE, "contract", hidden))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("record data permission denied");
+    }
+
+    @Test
+    void shouldRejectPreviewForANonexistentExistingFormulaRecord() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of());
+        DynamicRecordService service = service(operations, formulaValidationEntity());
+        DynamicRecord missing = service.newRecord(MODULE, "contract").setValue("amount", BigDecimal.TEN);
+        missing.setId("missing");
+
+        assertThatThrownBy(() -> service.previewFormula(MODULE, "contract", missing))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("dynamic record not found: missing");
+    }
+
+    @Test
+    void shouldAuthorizeNewFormulaPreviewAsCreateAtServiceBoundary() {
+        RecordingActionPolicyService policyService = new RecordingActionPolicyService();
+        DynamicRecordService service = serviceWithPolicy(operations(), formulaValidationEntity(), policyService);
+
+        service.previewFormula(MODULE, "contract", service.newRecord(MODULE, "contract")
+                .setValue("amount", BigDecimal.TEN));
+
+        assertThat(policyService.context.platformAction()).isEqualTo(PlatformAction.CREATE);
+    }
+
+    @Test
+    void shouldAuthorizeExistingFormulaPreviewAsUpdateAtServiceBoundary() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
+                "id", "contract-1", "amount", BigDecimal.ONE, "deleted", Boolean.FALSE, "version", 1
+        )));
+        RecordingActionPolicyService policyService = new RecordingActionPolicyService();
+        DynamicRecordService service = serviceWithPolicy(operations, formulaValidationEntity(), policyService);
+        DynamicRecord record = service.newRecord(MODULE, "contract").setValue("amount", BigDecimal.TEN);
+        record.setId("contract-1");
+
+        service.previewFormula(MODULE, "contract", record);
+
+        assertThat(policyService.context.platformAction()).isEqualTo(PlatformAction.UPDATE);
+    }
+
+    @Test
+    void shouldRejectExistingFormulaPreviewWhenUpdateIsUnauthorized() {
+        ActionExecutionPolicyService policyService = context -> {
+            if (context.platformAction() == PlatformAction.UPDATE) {
+                throw new PlatformException("update denied");
+            }
+        };
+        DynamicRecordService service = serviceWithPolicy(operations(), formulaValidationEntity(), policyService);
+        DynamicRecord record = service.newRecord(MODULE, "contract").setValue("amount", BigDecimal.TEN);
+        record.setId("contract-1");
+
+        assertThatThrownBy(() -> service.previewFormula(MODULE, "contract", record))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("update denied");
     }
 
     @Test
@@ -3107,6 +3206,22 @@ class DynamicRecordServiceTest {
 
     private DynamicRecordService service(IDatabaseOperations<Object> operations, EntityDefinition entity) {
         return service(operations, entity, RuntimeEventPublisher.noop());
+    }
+
+    private DynamicRecordService serviceWithPolicy(IDatabaseOperations<Object> operations,
+                                                   EntityDefinition entity,
+                                                   ActionExecutionPolicyService policyService) {
+        DynamicRecordRuntime runtime = DynamicRecordRuntime.builder(operations)
+                .registry(new DynamicModuleRegistry())
+                .fieldValueValidator(DynamicFieldValueValidator.NONE)
+                .eventPublisher(RuntimeEventPublisher.noop())
+                .build()
+                .register(new ModuleDefinition(MODULE, "Contract", List.of(entity)));
+        return new DynamicRecordService(
+                runtime,
+                policyService,
+                new net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService()
+        );
     }
 
     private DynamicRecordService service(IDatabaseOperations<Object> operations,

@@ -11,6 +11,14 @@
 
 两者可以有不同的声明方式，但不应有两套数据操作、两套生命周期或两套平台能力。
 
+## 可插拔业务边界
+
+Service 与 Web Controller 都是业务接入平台的边界。公共业务不应因来自静态 Java 或动态元数据而在某一层复制实现：Service 通过 Ability、生命周期和领域贡献接口接入；Web Controller 通过标准投影、来源无关 descriptor 和小型 Web 策略接入。两者都可以按模块插拔，且不应反向成为其他业务模块的基础依赖。
+
+模块自身保留领域事实和表达：例如模块 alias 与应用归属的约束、父子不可跨应用、页面字段标签、导航组合或独立业务动作。平台统一管理可由多个业务复用的流程：CRUD、树、排序、引用、启停、租户请求范围、权限与动作可用性、OpenAPI 发现投影、页面能力契约和表单运行器。HTTP 请求、路径变量或 scope 只有在改变交付投影时才进入类型化 Web policy；它们不进入领域 Service。反之，领域不变量不应留在 Controller。
+
+跨领域 Web 模块共享的请求生命周期、scope 或协议能力必须位于 `muyun-web-adapter` 或更低层的稳定契约中。某个 `*-web` 模块的模块专属 Controller、业务 Service 或业务策略不能成为另一个领域 Web 模块的生产依赖；平台配置类 Web 服务可以编排平台模块事实，但不拥有通用请求范围或领域规则。
+
 页面交付阶段的“动静一体”不表示要建设两套静态/动态页面内核。动态 UI 配置和静态模块声明可以有不同来源，但进入运行态前应编译到来源无关的 resolved descriptor，并继续共享同一套数据访问、能力语义、生命周期、权限、审计、租户和事务边界，不能为了页面配置或静态声明另起平行基础内核。
 
 ## 能力目录
@@ -79,7 +87,7 @@ DynamicRecordService
 
 静态业务应用通过独立的 `@PlatformStaticApplication` 声明类注册一次应用别名、标题和排序；声明类是应用的稳定 Java 身份，不承载通用 Boot Bean 装配。它被组件扫描或显式 `@Import` 后自动进入静态应用注册目录；同一应用下的静态模块以必填的 `@PlatformStaticModule(application = XxxApplication.class)` 直接指向它。模块别名以 Service 为事实源，承载模块的 Controller 或声明组件会在启动期校验一致并校验模块 alias 属于应用 alias。仅需注册模块、实体和权限动作而无独立 HTTP 入口时，使用实现 `StaticModuleServiceDeclaration` 的组件承接同一注解，并返回对应 `CrudAbility`；它不产生 Web endpoint。HTTP 路径仍保留原生 `@RequestMapping`：默认范围只能声明唯一的 `/<moduleAlias>`；父资源、嵌套资源、兼容旧路径或其他非标准路径须以 Web 层的 `@PlatformStaticWebScope(CUSTOM)` 显式标记；没有 Web 映射的模块不因此失效。启动期先协调平台托管 Application，再注册模块和动作；模块引用未声明应用会直接失败。人工在管理台创建的 Application 不属于静态声明协调范围，静态应用被移除时按平台托管规则停用而不物理删除。
 
-当前自动 Web 投射范围收敛在启停、排序、树和回收站。CRUD、查询 schema 等仍由稳定的 `CrudWeb` / `ReadOnlyWeb` 基类交付，暂不塞入现有投射编译器；它们仍服从同一份动作声明与停用规则。后续扩展必须先形成唯一的 `PlatformOperationDefinition → WebEndpointProjection → RegisteredWebEndpoint` 编译链，再扩大自动投射范围。
+当前自动 Web 投射范围收敛在启停、排序、树和回收站。完整 CRUD 与查询/详情协议仍由稳定的 `CrudWeb` / `QueryViewWeb` Web adapter 交付，暂不塞入现有投射编译器；它们仍服从同一份动作声明与停用规则。`QueryViewWeb` 只描述 controller 暴露 `query`、`view` 两个标准端点，不表达 service 的业务可写性。后续扩展必须先形成唯一的 `PlatformOperationDefinition → WebEndpointProjection → RegisteredWebEndpoint` 编译链，再扩大自动投射范围。
 
 Web 层通过标准投射描述组合模块基础路径、动作相对路径、HTTP method 和输入绑定，并把启用的 Operation 注册为真实 Spring MVC mapping。所有编译端点进入同一个平台 Dispatcher，不为每种 Ability 生成 Handler 类。端点在 Spring MVC 接受后写入真实端点目录，目录保留实际 `RequestMappingInfo`、Operation 语义和执行目标；模块运行态、Action 权限和后续 OpenAPI 应消费这条统一链路。动态元数据后续也应编译到相同 Operation 和端点目录，不能再维护一套独立硬编码路径。
 
@@ -93,6 +101,7 @@ Web 层通过标准投射描述组合模块基础路径、动作相对路径、H
 - 静态模块、子资源贡献和额外投影的标准端点映射由应用上下文契约测试统一核验：按 Service 能力与局部收窄规则计算期望映射，并与 Spring 已接受的端点目录逐项一致，避免共享路径或后续接入出现静默缺口。
 - 开发态会输出已注册端点目录（`endpointId`、模块、动作、方法、路径和来源）；编译端点执行期间将 `endpointId` 与既有 `traceId` 一同进入日志上下文，用于从异常、权限和运行日志回溯实际端点。
 - 真正独立的业务 HTTP 契约继续使用原生 Spring Controller。确需完全替换某个标准端点时，先在具体 Service 用 `@DisablePlatformOperations` 停用对应动作，再声明显式 `@ActionEndpoint`；标准动作仍启用时发生同路径覆写会在启动期失败。
+- 独立 Controller 新增目标模块动作时使用 `@PlatformStaticActionDeclaration(module = "...")`，动作目录由该声明一次性发布；`@PlatformStaticActionScope(module = "...")` 只可绑定目标模块已声明且语义完全一致的动作，不得借 Web scope 创建或覆盖动作。子资源仍使用 `@PlatformStaticActionContribution`，其资源前缀动作与模块级动作保持不同来源边界。模块本体、子资源贡献、独立动作声明、动作 scope 与额外标准投影是互斥的 Controller 归属方式，启动期会拒绝混用，避免扫描目录和运行期鉴权选择不同模块。
 
 旧 `EnableWeb`、`SortWeb`、`TreeWeb`、`RecycleBinWeb` 只作为动态链路和存量兼容入口，不是新的静态模块接入方式。静态业务行为扩展优先留在 Service/Ability hook；仅 HTTP 语境差异进入类型化 Web 投影策略，避免把 URL、请求 DTO 或路径变量污染到 Service。
 2. 动态模型没有 Java 类，才直接使用 `ModuleDefinition`、`EntityDefinition`、`FieldDefinition` 表达配置态。

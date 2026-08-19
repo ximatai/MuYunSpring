@@ -61,7 +61,7 @@ private transient List<Map<String, Object>> tagSummaries;
 
 `@ReferencedBy` 则表达只读反向关联。它从 `List` 的泛型来源模型中寻找唯一指向当前模型的
 `@ReferenceTo`；多条引用时以 `sourceField` 消歧。平台启动时按来源模型自动解析唯一的 CRUD service，
-读取目标记录后按该外键装配列表；缺少或重复来源 service 会在启动期失败。该注解不属于聚合、不会写入
+读取目标记录后按该外键装配列表；批量详情与领域聚合会对同一来源关系执行一次 `IN` 查询后按外键回填。缺少或重复来源 service 会在启动期失败。该注解不属于聚合、不会写入
 来源记录，也不会改变删除策略或触发父删联动。
 
 ```java
@@ -97,6 +97,25 @@ private transient String cStatus;
 `source` 和每个 `via` 都必须是实际 `@ReferenceTo` 字段；每个 hop 的 `target` 都是 service class，不使用
 点分路径字符串。多跳路径的 `source` 与每个 `via` 必须是 `ONE` 基数，保证每条源记录只对应一个终点值；
 直接读取 `MANY` 引用仍可用，并按源 ID 顺序输出非空值集合。四级及更深链路只需继续添加 hop；平台会按统一引用投影契约逐层批量解析。
+
+## 读取职责分层
+
+引用读取必须按事实、策略和聚合分层，避免同一条关联在模型、列表和领域 service 各维护一份：
+
+| 层次 | 入口 | 适用内容 | 不负责的内容 |
+| --- | --- | --- | --- |
+| 实体读事实 | `@ReferenceLoad`、`@ReferencedBy` | 记录本身稳定拥有的关联标题、字段或反向集合 | 列表筛选、排序、业务组合 |
+| 列表查询策略 | `ModuleReadProjection` | 已暴露字段的列表展示、筛选、排序与 SQL join 优化 | 定义新的实体事实、供领域 service 间接消费 |
+| 领域读取聚合 | 领域 read facade + `ReferenceReadFacade.enrich(...)` | 已授权根记录上的业务组合，如任职视图中的账号绑定 | 手工查询并重复拼接已声明的关联标题 |
+
+领域读取需要实体关联字段时，先以根实体 service 和记录集合调用 `ReferenceReadFacade.enrich(...)`。
+它只批量回填模型已经声明的 `@ReferenceLoad`、`@ReferencedBy` 事实，不暴露目标服务、引用图或 SQL planner；账号、权限、统计、
+生命周期等额外业务信息仍由领域 facade 显式组合。`PlatformAbilityRuntime` 是平台内部的装配入口，普通业务
+service 不应直接依赖它。
+
+静态 `CrudAbility` 的标准 `list(...)` 与 `pageQuery(...)` 会自动批量回填声明的 `@ReferenceLoad`，
+因此普通列表和分页业务代码不需要再调用读取门面。列表默认不自动回填 `@ReferencedBy`，避免一对多集合随
+分页记录膨胀；单条读取和明确的领域聚合仍按各自读取边界处理。
 
 ## 读投影声明
 
@@ -138,6 +157,17 @@ ReferencePath.from(Employee::getOrganizationId)
 `outputField` 是当前模块对外暴露的稳定字段名。UI、查询接口和前端只消费 `outputField`，不直接消费跨模块路径。
 同一模块内 `outputField` 必须唯一，并且不能覆盖主实体字段或平台标准字段。
 
+直接 `ONE` 引用的输出字段已经在模型上通过 `@ReferenceLoad` 声明时，service 只需补充列表查询策略，
+不应再次写出同一条路径：
+
+```java
+ModuleReadProjection.declared("organizationTitle", false, true)
+```
+
+扫描期会要求该模型上恰好存在一个同名的直接 `@ReferenceLoad` 输出，并将其编译回具体投影路径，
+因此仍可复用 SQL join 的列表展示与排序优化。反向桥接、多跳或 `EXISTS` 投影没有单一的实体读事实，
+继续使用类型化 `ReferencePath` 明确声明，不能用 `declared(...)` 隐藏其关系语义。
+
 把“带出哪些关联字段”放在当前 service 上，是为了稳定当前模块自己的读 API。若出现 `A -> B -> C`，
 且 A 需要带出 C 的字段，A service 应显式声明 `A.bId -> B.cId -> C.field` 的字段引用链；
 不应通过消费 B service 的 `outputField` 间接形成投影依赖。
@@ -151,6 +181,7 @@ ReferencePath.from(Employee::getOrganizationId)
 | 声明方式 | 可展示 | 可排序 | 可过滤 |
 | --- | --- | --- | --- |
 | `ModuleReadProjection.of(referencePath, outputField)` | 是 | 是 | 否 |
+| `ModuleReadProjection.declared(outputField, filterable, sortable)` | 是 | 按参数 | 按参数 |
 | `ModuleReadProjection.sortableOnly(referencePath, outputField)` | 是 | 是 | 否 |
 | `ModuleReadProjection.filterable(referencePath, outputField)` | 是 | 是 | 是 |
 | `ModuleReadProjection.filterableOnly(referencePath, outputField)` | 是 | 否 | 是 |
@@ -215,12 +246,19 @@ UI 不直接写跨模块路径，也不声明 SQL join。跨模块字段引用�
 
 ## 跨动静引用读取
 
-`@ReferenceLoad` 不以 SQL join 为前提。列表读取在完成源记录查询后，
-会按 `ReferenceTarget` 聚合源记录中的目标 ID 与所需字段，通过统一 `ReferenceAbility` 批量读取并回填输出。
+`@ReferenceLoad` 不以 SQL join 为前提。静态单条读取、标准 Web 列表读取和动态列表读取都会在根记录读取后进入引用读管线；
+领域 read facade 通过显式批量 enrich 入口复用同一实体读事实，不依赖 Web 的 Map 投影或 HTTP 入口。管线按
+`ReferenceTarget` 聚合源记录中的目标 ID 与所需字段，通过统一 `ReferenceAbility` 批量读取并回填输出。
+多跳路径会按 hop 逐层聚合并批量读取，不因源记录数量退化为逐条查询。
 因此静态模块引用动态模块时，仍可获得标题和字段投影；每个目标最多各执行一次标题读取和字段投影读取，
 不会产生逐行查询。
 
-静态目标可被当前引用图安全解析时，SQL join 仍是列表筛选、排序和摘要读取的优化路径。动态目标或不能安全
+需要诊断批量读取行为时，应用可声明一个或多个 `ReferenceReadObserver` Bean；平台会按 Spring 顺序组合并接入
+静态与动态引用读管线。观察事件只包含目标、字段集合、批量 ID 数、路径输出字段与 hop 序号，不携带具体 ID
+或业务值；没有 Bean 时默认观察器为 `NONE`，不产生额外事件。日志、指标和请求级关联由上层按部署需要接入，
+引用能力层不绑定具体观测框架。
+
+静态目标可被当前引用图安全解析时，SQL join 仍是列表筛选、排序和摘要读取的优化路径，而不是投影字段正确性的唯一来源。动态目标或不能安全
 编译为 join 的目标自动走上述批量补齐路径；该路径只负责输出，不让动态目标字段隐式成为源列表的筛选或排序字段。
 如需跨模块筛选、排序，必须先形成可验证的数据权限与查询语义，再扩展为独立能力。
 

@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.iam.role.DefaultOrganizationRoleProvisioner;
 import net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner;
 import net.ximatai.muyun.spring.iam.role.TenantAdminRoleReconciliationTask;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationReconciliationTask;
+import net.ximatai.muyun.spring.iam.tenant.TenantMenuReconciliationTask;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
@@ -80,6 +81,16 @@ public class MuYunSpringIdentityConfiguration {
     public DefaultTenantMenuProvisioner defaultTenantMenuProvisioner(MenuSchemeService menuSchemeService,
                                                                     MenuService menuService) {
         return new DefaultTenantMenuProvisioner(menuSchemeService, menuService);
+    }
+
+    @Bean
+    @ConditionalOnBean({TenantService.class, DefaultTenantMenuProvisioner.class})
+    @ConditionalOnMissingBean(TenantMenuReconciliationTask.class)
+    /** Applies system-menu declaration changes to the default menu copies of existing tenants. */
+    public TenantMenuReconciliationTask tenantMenuReconciliationTask(
+            TenantService tenantService,
+            DefaultTenantMenuProvisioner menuProvisioner) {
+        return new TenantMenuReconciliationTask(tenantService, menuProvisioner);
     }
 
     @Bean

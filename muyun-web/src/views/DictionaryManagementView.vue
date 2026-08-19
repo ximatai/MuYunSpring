@@ -17,7 +17,6 @@ import {
   RecordMetaSection,
   RecordStatusSwitch,
   TreeRecordExplorer,
-  childResourceDefaultFormViewCode,
   createStaticTreeResourceModuleContext,
   parentRecordConstraints,
   presentPlatformError,
@@ -216,10 +215,7 @@ async function loadDictionaryFormDefinitions() {
   try {
     const runtimeContext = await categoryContext.runtime.ready;
     categoryFormFieldDefinitions.value = resolveRecordFormFields(runtimeContext.uiDescriptor);
-    itemFormFieldDefinitions.value = resolveRecordFormFields(
-      runtimeContext.uiDescriptor,
-      childResourceDefaultFormViewCode(ITEM_RESOURCE),
-    );
+    itemFormFieldDefinitions.value = resolveRecordFormFields(runtimeContext.uiDescriptor, ITEM_RESOURCE);
   } catch (cause) {
     presentPlatformError(cause, { source: 'dictionary-management', phase: 'load' });
   }

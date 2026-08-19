@@ -45,7 +45,10 @@ class PlatformModuleRuntimeContextWebControllerTest {
                 Set.of("crud", "tree"),
                 List.of(),
                 ModuleUiDefinition.builder("iam.organization")
-                        .listView(list -> list.field("title", field -> field.label("组织名称")))
+                        .page(PageTemplates.listDetailCard(page -> page
+                                .list(list -> list.fields(fields -> fields.field("title", field -> field.label("组织名称"))))
+                                .detail(detail -> detail.editor(fields -> fields.field("title")))
+                                .traits(traits -> traits.standardCrud())))
                         .build()
         ));
         MockMvc mvc = mvc(service);
@@ -58,11 +61,12 @@ class PlatformModuleRuntimeContextWebControllerTest {
                 .andExpect(jsonPath("$.uiDefinition").doesNotExist())
                 .andExpect(jsonPath("$.uiDescriptor.schemaVersion").value(ResolvedModuleUiDescriptor.SCHEMA_VERSION))
                 .andExpect(jsonPath("$.uiDescriptor.moduleAlias").value("iam.organization"))
-                .andExpect(jsonPath("$.uiDescriptor.views[0].viewCode").value("default_list"))
-                .andExpect(jsonPath("$.uiDescriptor.views[0].fields[0].fieldRef.fieldName").value("title"))
-                .andExpect(jsonPath("$.uiDescriptor.views[0].fields[0].columnName").doesNotExist())
-                .andExpect(jsonPath("$.uiDescriptor.views[0].fields[0].tableName").doesNotExist())
-                .andExpect(jsonPath("$.uiDescriptor.views[0].fields[0].sql").doesNotExist())
+                .andExpect(jsonPath("$.uiDescriptor.page.template").value("LIST_DETAIL_CARD"))
+                .andExpect(jsonPath("$.uiDescriptor.page.list.fields.viewCode").value("default_list"))
+                .andExpect(jsonPath("$.uiDescriptor.page.list.fields.fields[0].fieldRef.fieldName").value("title"))
+                .andExpect(jsonPath("$.uiDescriptor.page.list.fields.fields[0].columnName").doesNotExist())
+                .andExpect(jsonPath("$.uiDescriptor.page.list.fields.fields[0].tableName").doesNotExist())
+                .andExpect(jsonPath("$.uiDescriptor.page.list.fields.fields[0].sql").doesNotExist())
                 .andExpect(jsonPath("$.sourceKind").doesNotExist());
     }
 

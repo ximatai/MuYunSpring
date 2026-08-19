@@ -34,4 +34,22 @@ describe('RecordFormFields', () => {
     // One leading boundary, one shared group boundary, and one trailing boundary.
     expect(wrapper.findAll('.record-form-group-divider')).toHaveLength(3);
   });
+
+  it('uses the numeric input adapter for platform numeric control aliases', () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      ['amount', { fieldRef: { fieldName: 'amount' }, label: '金额', uiType: 'amount' }],
+    ]);
+
+    const wrapper = mount(RecordFormFields, {
+      props: { record: { amount: '12.50' }, fields },
+    });
+
+    const input = wrapper.findComponent({ name: 'UiInput' });
+    expect(input.props('type')).toBe('number');
+
+    // UiInput deliberately keeps the platform's transport value unchanged. Dynamic record writes
+    // continue to submit numeric drafts as strings for the server-side field-type parser.
+    input.vm.$emit('update:value', '23.40');
+    expect(wrapper.emitted('update:field')).toContainEqual(['amount', '23.40']);
+  });
 });

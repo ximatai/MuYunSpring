@@ -76,7 +76,7 @@ class MenuWebControllerTest {
                 .andExpect(jsonPath("$.records[0].record.id").value("root-1"))
                 .andExpect(jsonPath("$.records[0].children[0].record.openMode").value("tab"))
                 .andExpect(jsonPath("$.records[0].children[0].record.moduleAlias").value("crm.customer"))
-                .andExpect(jsonPath("$.records[0].children[0].record.entryType").value("MODULE"));
+                .andExpect(jsonPath("$.records[0].children[0].record.entryType").value("module"));
     }
 
     @Test
@@ -111,7 +111,7 @@ class MenuWebControllerTest {
                 .andExpect(jsonPath("$.records[0].record.id").value("root-1"))
                 .andExpect(jsonPath("$.records[0].children[0].record.openMode").value("tab"))
                 .andExpect(jsonPath("$.records[0].children[0].record.moduleAlias").value("crm.customer"))
-                .andExpect(jsonPath("$.records[0].children[0].record.entryType").value("MODULE"));
+                .andExpect(jsonPath("$.records[0].children[0].record.entryType").value("module"));
 
         verify(sessionService).currentUser("token-1");
     }

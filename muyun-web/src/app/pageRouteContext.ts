@@ -1,7 +1,15 @@
 import { computed, inject, provide, type ComputedRef, type InjectionKey } from 'vue';
 import { useRoute, type RouteLocationNormalizedLoaded } from 'vue-router';
 
-const pageRouteKey: InjectionKey<ComputedRef<RouteLocationNormalizedLoaded>> = Symbol('page-route');
+export interface PageRoute {
+  path: string;
+  meta: RouteLocationNormalizedLoaded['meta'];
+  query: RouteLocationNormalizedLoaded['query'];
+  params: RouteLocationNormalizedLoaded['params'];
+  matched: Array<Pick<RouteLocationNormalizedLoaded['matched'][number], 'path'>>;
+}
+
+const pageRouteKey: InjectionKey<ComputedRef<PageRoute>> = Symbol('page-route');
 
 /**
  * Provides the route owned by one cached page instance.
@@ -10,12 +18,12 @@ const pageRouteKey: InjectionKey<ComputedRef<RouteLocationNormalizedLoaded>> = S
  * another tab must instead keep reading the route that created its own cache
  * entry, otherwise another tab's navigation can reset its local state.
  */
-export function providePageRoute(route: () => RouteLocationNormalizedLoaded) {
+export function providePageRoute(route: () => PageRoute) {
   provide(pageRouteKey, computed(route));
 }
 
 /** Returns the page-instance route when rendered by the workbench, otherwise the active router route. */
-export function usePageRoute(): ComputedRef<RouteLocationNormalizedLoaded> {
+export function usePageRoute(): ComputedRef<PageRoute> {
   const providedRoute = inject(pageRouteKey);
   if (providedRoute) return providedRoute;
   const activeRoute = useRoute();

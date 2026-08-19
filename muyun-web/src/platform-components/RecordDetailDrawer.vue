@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { watch } from 'vue';
+import { computed, inject, watch } from 'vue';
 import { Drawer as ADrawer } from 'ant-design-vue';
-import { UiActionButton } from '@muyun/vue-ui-antdv';
+import { UiActionButton, UiSidePanel, type UiSidePanelScope } from '@muyun/vue-ui-antdv';
+import { sidePanelHostKey } from '../vue-ui-antdv/components/sidePanelHost';
 import RecordDetailLayout from './RecordDetailLayout.vue';
 import type { DrawerPromotion } from './drawerPromotion';
 
@@ -11,17 +12,20 @@ const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
-    /** The owning page root. Drawers must never infer a workbench-level container. */
-    container: HTMLElement | null;
+    /** Explicit page container for a locally scoped drawer. Omitted uses the active tab host. */
+    container?: HTMLElement | null;
     subtitle?: string;
     width?: number | string;
+    scope?: UiSidePanelScope;
     closeOnOutside?: boolean;
     closeTitle?: string;
     promotion?: DrawerPromotion;
   }>(),
   {
+    container: undefined,
     subtitle: undefined,
     width: 520,
+    scope: 'tab',
     closeOnOutside: false,
     closeTitle: '关闭',
     promotion: undefined,
@@ -30,6 +34,9 @@ const props = withDefaults(
 
 defineSlots<{
   status(): unknown;
+  'title-prefix'(): unknown;
+  'title-actions'(): unknown;
+  'header-actions'(): unknown;
   default(): unknown;
   operation(): unknown;
 }>();
@@ -38,10 +45,15 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+const sidePanelHost = inject(sidePanelHostKey, undefined);
+const hasDrawerContainer = computed(
+  () => Boolean(props.container) || props.scope === 'viewport' || Boolean(sidePanelHost?.value),
+);
+
 watch(
-  () => [props.open, props.container] as const,
-  ([open, container]) => {
-    if (open && !container && import.meta.env.DEV) {
+  () => [props.open, hasDrawerContainer.value] as const,
+  ([open, hasContainer]) => {
+    if (open && !hasContainer && import.meta.env.DEV) {
       console.error('[RecordDetailDrawer] 打开抽屉前必须传入所属页面的根 DOM 容器。');
     }
   },
@@ -50,13 +62,47 @@ watch(
 </script>
 
 <template>
+  <UiSidePanel
+    v-if="!container && hasDrawerContainer"
+    :open="open"
+    :width="width"
+    :scope="scope"
+    :close-on-outside="closeOnOutside"
+    @close="emit('close')"
+  >
+    <RecordDetailLayout surface="drawer" :title="title" :subtitle="subtitle" scrollable-content>
+      <template v-if="$slots['title-prefix']" #title-prefix>
+        <slot name="title-prefix" />
+      </template>
+      <template #status>
+        <slot name="status" />
+      </template>
+      <template #title-actions>
+        <slot name="title-actions" />
+        <UiActionButton
+          v-if="promotion"
+          emphasis="quiet"
+          icon-name="export"
+          :title="promotion.title ?? '固定为页签'"
+          @click="promotion.promote()"
+        />
+      </template>
+      <template #actions>
+        <slot name="header-actions" />
+        <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="emit('close')" />
+      </template>
+      <slot />
+      <template v-if="$slots.operation" #operation>
+        <slot name="operation" />
+      </template>
+    </RecordDetailLayout>
+  </UiSidePanel>
   <ADrawer
-    v-if="container"
+    v-else-if="container"
     :open="open"
     placement="right"
     :width="width"
     :get-container="container"
-    :close-on-outside="closeOnOutside"
     :mask="closeOnOutside"
     :mask-closable="closeOnOutside"
     :mask-style="{ background: 'transparent' }"
@@ -68,10 +114,10 @@ watch(
     @close="emit('close')"
   >
     <RecordDetailLayout surface="drawer" :title="title" :subtitle="subtitle" scrollable-content>
-      <template #status>
-        <slot name="status" />
-      </template>
+      <template v-if="$slots['title-prefix']" #title-prefix><slot name="title-prefix" /></template>
+      <template #status><slot name="status" /></template>
       <template #title-actions>
+        <slot name="title-actions" />
         <UiActionButton
           v-if="promotion"
           emphasis="quiet"
@@ -81,12 +127,11 @@ watch(
         />
       </template>
       <template #actions>
+        <slot name="header-actions" />
         <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="emit('close')" />
       </template>
       <slot />
-      <template v-if="$slots.operation" #operation>
-        <slot name="operation" />
-      </template>
+      <template v-if="$slots.operation" #operation><slot name="operation" /></template>
     </RecordDetailLayout>
   </ADrawer>
 </template>

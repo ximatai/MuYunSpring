@@ -10,7 +10,10 @@ export { default as UiInput } from './components/UiInput.vue';
 export { default as UiSearchInput } from './components/UiSearchInput.vue';
 export { default as UiTextArea } from './components/UiTextArea.vue';
 export { default as UiSelect } from './components/UiSelect.vue';
+export { default as UiRadioGroup } from './components/UiRadioGroup.vue';
+export type { UiRadioOption } from './components/UiRadioGroup.vue';
 export { default as UiTreeSelect } from './components/UiTreeSelect.vue';
+export type { UiTreeSelectNode } from './components/UiTreeSelect.vue';
 export { default as UiTooltip } from './components/UiTooltip.vue';
 export { default as UiThemeProvider } from './components/UiThemeProvider.vue';
 export { default as UiSwitch } from './components/UiSwitch.vue';
@@ -19,6 +22,8 @@ export { default as UiTabs } from './components/UiTabs.vue';
 export { default as UiTree } from './components/UiTree.vue';
 export { default as UiDataTable } from './components/UiDataTable.vue';
 export { default as UiDropdown } from './components/UiDropdown.vue';
+export { default as UiSidePanel } from './components/UiSidePanel.vue';
+export { default as UiSidePanelHost } from './components/UiSidePanelHost.vue';
 export { default as UiModal } from './components/UiModal.vue';
 export { default as UiRecordExplorerItem } from './components/UiRecordExplorerItem.vue';
 export { default as UiSpin } from './components/UiSpin.vue';
@@ -39,6 +44,7 @@ export {
 export type { UiFeedbackOptions, UiFeedbackTone } from './feedback';
 export { resolveFieldComponent } from './registry';
 export type { UiIconName } from './components/UiIcon.vue';
+export type { UiSidePanelScope } from './components/sidePanelHost';
 export type { UiTagListItem } from './components/UiTagList.vue';
 export {
   antDesignThemeOf,

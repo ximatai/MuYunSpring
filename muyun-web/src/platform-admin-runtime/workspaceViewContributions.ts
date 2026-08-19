@@ -3,8 +3,6 @@ import { employeeDetailWorkspaceView } from '../views/employeeDetailWorkspaceVie
 import { roleDetailWorkspaceView } from '../views/roleDetailWorkspaceView';
 import { systemUserDetailWorkspaceView } from '../views/systemUserDetailWorkspaceView';
 import { roleAuthorizationWorkspaceView } from '../views/roleAuthorizationWorkspaceView';
-import { moduleActionManagementWorkspaceView } from '../views/moduleActionManagementWorkspaceView';
-import { metadataOrchestrationWorkspaceView } from '../views/metadataOrchestrationWorkspaceView';
 
 /** Application assembly for restorable workspace views. */
 export const workspaceViewContributions: readonly WorkspaceViewDefinition<WorkspaceViewInput>[] = [
@@ -12,6 +10,4 @@ export const workspaceViewContributions: readonly WorkspaceViewDefinition<Worksp
   roleDetailWorkspaceView,
   systemUserDetailWorkspaceView,
   roleAuthorizationWorkspaceView,
-  moduleActionManagementWorkspaceView,
-  metadataOrchestrationWorkspaceView,
 ];

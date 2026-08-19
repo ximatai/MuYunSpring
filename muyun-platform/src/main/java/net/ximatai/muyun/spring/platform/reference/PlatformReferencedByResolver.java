@@ -8,6 +8,9 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
 import java.util.List;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /** Bridges static {@code @ReferencedBy} declarations to their unique CRUD source services. */
 public final class PlatformReferencedByResolver implements ReferencedByResolver {
@@ -20,25 +23,40 @@ public final class PlatformReferencedByResolver implements ReferencedByResolver 
 
     @Override
     public void populate(CrudAbility<?> ability, EntityContract entity) {
-        if (ability == null || entity == null) {
-            return;
-        }
-        Class<?> targetModel = ability.modelClass() == null ? entity.getClass() : ability.modelClass();
+        populateAll(ability, entity == null ? List.of() : List.of(entity));
+    }
+
+    @Override
+    public void populateAll(CrudAbility<?> ability, Collection<? extends EntityContract> entities) {
+        if (ability == null || entities == null || entities.isEmpty()) return;
+        Class<?> targetModel = ability.modelClass() == null ? entities.iterator().next().getClass() : ability.modelClass();
         for (StaticReferencedByResolver.ReferencedByPlan plan : StaticReferencedByResolver.plans(targetModel)) {
             CrudAbility<?> sourceAbility = requireSourceAbility(targetModel, plan.sourceModel());
-            StaticReferencedByResolver.writeLoadedValue(entity, plan.fieldName(),
-                    sourceRows(sourceAbility, plan.sourceField(), entity.getId()));
+            List<String> targetIds = entities.stream().map(EntityContract::getId)
+                    .filter(id -> id != null && !id.isBlank()).distinct().toList();
+            Map<String, List<? extends EntityContract>> rowsByTarget = sourceRows(sourceAbility, plan.sourceField(), targetIds);
+            for (EntityContract entity : entities) {
+                StaticReferencedByResolver.writeLoadedValue(entity, plan.fieldName(),
+                        rowsByTarget.getOrDefault(entity.getId(), List.of()));
+            }
         }
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static List<? extends EntityContract> sourceRows(CrudAbility<?> sourceAbility,
-                                                               String sourceField,
-                                                               String targetId) {
-        if (targetId == null || targetId.isBlank()) {
-            return List.of();
+    private static Map<String, List<? extends EntityContract>> sourceRows(CrudAbility<?> sourceAbility,
+                                                                            String sourceField,
+                                                                            List<String> targetIds) {
+        if (targetIds.isEmpty()) return Map.of();
+        Map<String, List<EntityContract>> rows = new LinkedHashMap<>();
+        for (EntityContract row : (List<? extends EntityContract>) ((CrudAbility) sourceAbility)
+                .list(Criteria.of().in(sourceField, targetIds))) {
+            Object targetId = net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver
+                    .readLoadedValue(row, sourceField);
+            if (targetId != null) rows.computeIfAbsent(String.valueOf(targetId), ignored -> new java.util.ArrayList<>()).add(row);
         }
-        return ((CrudAbility) sourceAbility).list(Criteria.of().eq(sourceField, targetId));
+        Map<String, List<? extends EntityContract>> immutable = new LinkedHashMap<>();
+        rows.forEach((id, values) -> immutable.put(id, List.copyOf(values)));
+        return Map.copyOf(immutable);
     }
 
     private void validateDeclarations() {

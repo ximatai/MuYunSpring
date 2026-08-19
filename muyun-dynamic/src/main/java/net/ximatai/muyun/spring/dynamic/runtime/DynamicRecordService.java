@@ -153,7 +153,13 @@ public class DynamicRecordService {
     }
 
     public DynamicFormulaPreviewResult previewFormula(String moduleAlias, String entityAlias, DynamicRecord record) {
-        return entityService(moduleAlias, entityAlias).previewFormula(record);
+        if (record == null || record.getId() == null || record.getId().isBlank()) {
+            requireAction(moduleAlias, PlatformAction.CREATE);
+            return entityService(moduleAlias, entityAlias).previewFormula(record);
+        }
+        DataScopeCriteriaResult scope = requireBusinessRecordMutation(moduleAlias, entityAlias,
+                PlatformAction.UPDATE, normalizeRecordId(record.getId()));
+        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).previewFormula(record));
     }
 
     public List<DynamicActionDescriptor> actions(String moduleAlias) {
@@ -186,6 +192,76 @@ public class DynamicRecordService {
         String entityAlias = actionEntityAlias(moduleAlias, actionCode);
         return entityService(moduleAlias, entityAlias)
                 .actionAvailability(actionCode, record);
+    }
+
+    /**
+     * Resolves visible-record action availability with bounded reads: records are loaded once,
+     * and each action performs at most one data-scope projection for the requested id set.
+     */
+    public List<DynamicRecordActionAvailability> recordActionAvailability(String moduleAlias,
+                                                                            String entityAlias,
+                                                                            Collection<String> actionCodes,
+                                                                            Collection<String> recordIds) {
+        Set<String> ids = normalizeRecordIds(recordIds);
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        DynamicEntityDescriptor entity = entityDescriptor(moduleAlias, entityAlias);
+        Set<String> requestedActions = actionCodes == null ? Set.of() : new LinkedHashSet<>(actionCodes);
+        List<DynamicActionDescriptor> actions = entity.actions().stream()
+                .filter(action -> requestedActions.isEmpty() || requestedActions.contains(action.code()))
+                .toList();
+        Map<String, String> authorizationFailures = new LinkedHashMap<>();
+        for (DynamicActionDescriptor action : actions) {
+            authorizationFailures.put(action.code(), actionAuthorizationFailure(moduleAlias, actionPolicy(action)));
+        }
+        if (authorizationFailures.values().stream().allMatch(Objects::nonNull)) {
+            return ids.stream().map(recordId -> {
+                Map<String, DynamicActionAvailability> unavailable = new LinkedHashMap<>();
+                for (DynamicActionDescriptor action : actions) {
+                    unavailable.put(action.code(), DynamicActionAvailability.unavailable(action.code(),
+                            authorizationFailures.get(action.code())));
+                }
+                return new DynamicRecordActionAvailability(recordId, unavailable);
+            }).toList();
+        }
+        Map<String, Set<String>> visibleIdsByAction = new LinkedHashMap<>();
+        Set<String> visibleUnion = new LinkedHashSet<>();
+        for (DynamicActionDescriptor action : actions) {
+            Set<String> visibleIds = authorizationFailures.get(action.code()) == null
+                    ? visibleActionRecordIds(moduleAlias, entityAlias, actionPolicy(action), ids)
+                    : Set.of();
+            visibleIdsByAction.put(action.code(), visibleIds);
+            visibleUnion.addAll(visibleIds);
+        }
+        Map<String, DynamicRecord> records = visibleUnion.isEmpty()
+                ? Map.of()
+                : listSystem(moduleAlias, entityAlias, idsCriteria(visibleUnion)).stream()
+                        .collect(java.util.stream.Collectors.toMap(DynamicRecord::getId, Function.identity()));
+        if (records.size() != visibleUnion.size()) {
+            throw new IllegalArgumentException("dynamic record does not exist in requested scope: " + moduleAlias);
+        }
+        Map<String, Map<String, DynamicActionAvailability>> availabilityByRecord = new LinkedHashMap<>();
+        ids.forEach(id -> availabilityByRecord.put(id, new LinkedHashMap<>()));
+        for (DynamicActionDescriptor action : actions) {
+            ActionExecutionPolicy policy = actionPolicy(action);
+            String authorizationFailure = authorizationFailures.get(action.code());
+            Set<String> visibleIds = visibleIdsByAction.get(action.code());
+            for (String recordId : ids) {
+                DynamicActionAvailability availability;
+                if (authorizationFailure != null) {
+                    availability = DynamicActionAvailability.unavailable(action.code(), authorizationFailure);
+                } else if (!visibleIds.contains(recordId)) {
+                    availability = DynamicActionAvailability.unavailable(action.code(), "no data auth");
+                } else {
+                    availability = entityService(moduleAlias, entityAlias)
+                            .actionAvailabilityPersisted(action.code(), records.get(recordId));
+                }
+                availabilityByRecord.get(recordId).put(action.code(), availability);
+            }
+        }
+        return ids.stream().map(recordId -> new DynamicRecordActionAvailability(recordId,
+                availabilityByRecord.get(recordId))).toList();
     }
 
     public DynamicActionAvailability actionAuthorizationAvailability(String moduleAlias,
@@ -991,6 +1067,31 @@ public class DynamicRecordService {
                 pageRequest, sorts));
     }
 
+    /**
+     * Reads one tree level through a declared action policy.
+     *
+     * <p>This is intentionally separate from {@link #children(String, String, String)}: a page
+     * navigator consumes a module's reference surface, not its ordinary tree surface.</p>
+     */
+    public List<DynamicRecord> childrenForAction(String moduleAlias,
+                                                  String entityAlias,
+                                                  String actionCode,
+                                                  Criteria criteria,
+                                                  String parentId) {
+        requireCapability(moduleAlias, entityAlias, EntityCapability.TREE);
+        DynamicActionDescriptor action = findAction(moduleAlias, entityDescriptor(moduleAlias, entityAlias), actionCode);
+        ActionExecutionPolicy policy = actionPolicy(action);
+        actionExecutionPolicyService.authorize(ActionExecutionContext.ofPolicy(
+                moduleAlias,
+                policy,
+                Set.of(),
+                CurrentUserContext.currentUser()
+        ));
+        DataScopeCriteriaResult scope = readScope(moduleAlias, policy, criteria);
+        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias)
+                .children(scope.criteria(), parentId));
+    }
+
     public long count(String moduleAlias, String entityAlias, Criteria criteria) {
         DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.QUERY, criteria);
         return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).count(scope.criteria()));
@@ -1575,6 +1676,32 @@ public class DynamicRecordService {
         return scope;
     }
 
+    private String actionAuthorizationFailure(String moduleAlias, ActionExecutionPolicy policy) {
+        try {
+            actionExecutionPolicyService.authorizeAction(moduleAlias, policy, CurrentUserContext.currentUser());
+            return null;
+        } catch (PlatformException exception) {
+            return exception.getMessage() == null || exception.getMessage().isBlank()
+                    ? "no action auth"
+                    : exception.getMessage();
+        }
+    }
+
+    private Set<String> visibleActionRecordIds(String moduleAlias,
+                                               String entityAlias,
+                                               ActionExecutionPolicy policy,
+                                               Set<String> recordIds) {
+        if (!policy.requiresDataScope() || !supportsCapability(moduleAlias, entityAlias, EntityCapability.DATA_SCOPE)) {
+            return recordIds;
+        }
+        try {
+            DataScopeCriteriaResult scope = readScope(moduleAlias, policy, idsCriteria(recordIds));
+            return visibleRecordIds(moduleAlias, entityAlias, scope, recordIds);
+        } catch (PlatformException | IllegalArgumentException ignored) {
+            return Set.of();
+        }
+    }
+
     private DynamicActionAvailability actionAuthorizationAvailability(String moduleAlias,
                                                                       String entityAlias,
                                                                       DynamicActionDescriptor action,
@@ -1582,12 +1709,7 @@ public class DynamicRecordService {
         ActionExecutionPolicy policy = actionPolicy(action);
         Set<String> normalizedIds = normalizeRecordIds(recordIds);
         try {
-            actionExecutionPolicyService.authorize(ActionExecutionContext.ofPolicy(
-                    moduleAlias,
-                    policy,
-                    normalizedIds,
-                    CurrentUserContext.currentUser()
-            ));
+            actionExecutionPolicyService.authorizeAction(moduleAlias, policy, CurrentUserContext.currentUser());
             requireActionRecordDataScope(moduleAlias, entityAlias, policy, normalizedIds);
             return DynamicActionAvailability.available(action.code());
         } catch (PlatformException e) {

@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.MenuVisibilityPolicyService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
+import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
@@ -44,6 +45,7 @@ public class MenuService extends AbstractAbilityService<Menu> implements
         SoftDeleteAbility<Menu>,
         EnableAbility<Menu>,
         TreeAbility<Menu>,
+        PlatformManagedProtectionAbility<Menu>,
         InitialDataAbility<Menu>,
         QueryAbility<Menu> {
     public static final String MODULE_ALIAS = "platform.menu";

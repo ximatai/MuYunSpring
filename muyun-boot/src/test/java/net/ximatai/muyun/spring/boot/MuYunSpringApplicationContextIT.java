@@ -38,6 +38,7 @@ import net.ximatai.muyun.spring.platform.deletion.StaticDeletionRecoveryResource
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
+import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.iam.tenant.Tenant;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
@@ -210,9 +211,9 @@ class MuYunSpringApplicationContextIT {
         assertThat(registeredWebEndpointCatalog.endpoints().stream()
                 .filter(endpoint -> endpoint.definition().moduleAlias().equals("platform.module"))
                 .filter(endpoint -> endpoint.definition().source() == ResolvedWebEndpoint.Source.STATIC_ABILITY))
-                .extracting(endpoint -> endpoint.definition().action())
-                .doesNotContain(net.ximatai.muyun.spring.common.platform.PlatformAction.TREE,
-                        net.ximatai.muyun.spring.common.platform.PlatformAction.SORT);
+                .extracting(endpoint -> endpoint.definition().endpointId())
+                .contains("platform.module.tree.tree", "platform.module.tree.treeQuery",
+                        "platform.module.tree.subtree", "platform.module.tree.sort");
         assertThat(registeredWebEndpointCatalog.endpoints().stream()
                 .filter(endpoint -> endpoint.definition().abilityCode().startsWith("item.")))
                 .extracting(endpoint -> endpoint.definition().executionPolicy().actionCode())
@@ -235,6 +236,19 @@ class MuYunSpringApplicationContextIT {
                 .isPresent()
                 .get()
                 .isInstanceOf(TenantService.class);
+    }
+
+    @Test
+    void shouldRegisterApplicationAsStaticReferenceTargetBeforeStaticModuleRegistration() {
+        assertThat(applicationContext.getBean(ApplicationService.class)).isInstanceOf(ReferenceAbility.class);
+        assertThat(staticAbilityCatalog.abilities())
+                .extracting(ability -> ReferenceTargets.of(ability))
+                .contains(ReferenceTarget.of("platform", "application"));
+        assertThat(PlatformAbilityRuntime.referenceTargetResolver()
+                .resolve(ReferenceTarget.of("platform", "application")))
+                .isPresent()
+                .get()
+                .isInstanceOf(ApplicationService.class);
     }
 
     @Test
@@ -324,6 +338,7 @@ class MuYunSpringApplicationContextIT {
             if (enabled(service, PlatformAction.TREE, locallyDisabled)) {
                 add(expected, moduleAlias, PlatformAction.TREE, RequestMethod.GET, basePaths, "/tree");
                 add(expected, moduleAlias, PlatformAction.TREE, RequestMethod.GET, basePaths, "/tree/{id}");
+                add(expected, moduleAlias, PlatformAction.TREE, RequestMethod.POST, basePaths, "/tree/query");
             }
             if (enabled(service, PlatformAction.SORT, locallyDisabled)) {
                 add(expected, moduleAlias, PlatformAction.SORT, RequestMethod.POST, basePaths, "/sort/{id}");
@@ -335,6 +350,8 @@ class MuYunSpringApplicationContextIT {
             if (enabled(service, PlatformAction.RECYCLE_BIN_QUERY, locallyDisabled)) {
                 add(expected, moduleAlias, PlatformAction.RECYCLE_BIN_QUERY, RequestMethod.POST,
                         basePaths, "/recycle-bin/query");
+                add(expected, moduleAlias, PlatformAction.RECYCLE_BIN_QUERY, RequestMethod.GET,
+                        basePaths, "/recycle-bin/view/{id}");
             }
             if (enabled(service, PlatformAction.RECYCLE_BIN_RESTORE, locallyDisabled)) {
                 add(expected, moduleAlias, PlatformAction.RECYCLE_BIN_RESTORE, RequestMethod.POST,

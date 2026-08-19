@@ -3,13 +3,10 @@ package net.ximatai.muyun.spring.iam.user;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
-import net.ximatai.muyun.spring.iam.department.DepartmentService;
 import net.ximatai.muyun.spring.iam.employee.Employee;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeService;
-import net.ximatai.muyun.spring.iam.organization.OrganizationService;
-import net.ximatai.muyun.spring.iam.position.PositionService;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,9 +26,7 @@ class CurrentUserProfileServiceTest {
         when(accountService.employeeIdOfUser("user-1")).thenReturn("employee-1");
         when(employeeService.select("employee-1")).thenReturn(employee);
         when(positionService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(java.util.List.of());
-        CurrentUserProfileService service = new CurrentUserProfileService(accountService, employeeService,
-                mock(OrganizationService.class), mock(DepartmentService.class), positionService,
-                mock(PositionService.class));
+        CurrentUserProfileService service = new CurrentUserProfileService(accountService, employeeService, positionService);
 
         CurrentUserProfile profile = service.updateCurrentProfile(
                 CurrentUser.tenantUser("user-1", "demo.user", "tenant-a"),

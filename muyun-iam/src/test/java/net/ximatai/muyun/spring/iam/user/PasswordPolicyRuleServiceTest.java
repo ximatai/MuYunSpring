@@ -92,4 +92,5 @@ class PasswordPolicyRuleServiceTest {
         rule.setSortOrder(sortOrder);
         return rule;
     }
+
 }

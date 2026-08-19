@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
@@ -27,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,6 +36,7 @@ class DynamicEntityServiceReferenceReadTest {
     @AfterEach
     void tearDown() {
         PlatformAbilityRuntime.resetReferenceTargetResolver();
+        PlatformAbilityRuntime.resetReferenceReadObserver();
     }
 
     @Test
@@ -74,7 +77,7 @@ class DynamicEntityServiceReferenceReadTest {
 
         assertThat(records).extracting(record -> record.getValue("contractTitle"))
                 .containsExactly("合同一", "合同二");
-        verify(targetAbility).projections(List.of("contract-1", "contract-2"), List.of("title"));
+        verify(targetAbility, times(1)).projections(List.of("contract-1", "contract-2"), List.of("title"));
     }
 
     @Test
@@ -103,6 +106,8 @@ class DynamicEntityServiceReferenceReadTest {
                 .thenReturn(Map.of("teacher-1", Map.of("studentAssistantId", "student-1")));
         when(student.projections(List.of("student-1"), List.of("title")))
                 .thenReturn(Map.of("student-1", Map.of("title", "助理小李")));
+        List<ReferenceReadObserver.ProjectionRequest> observations = new java.util.ArrayList<>();
+        PlatformAbilityRuntime.configureReferenceReadObserver(observations::add);
         PlatformAbilityRuntime.configureReferenceTargetResolver(target -> switch (target.qualifiedName()) {
             case "education.school.classroom" -> java.util.Optional.of(classroom);
             case "education.school.teacher" -> java.util.Optional.of(teacher);
@@ -117,6 +122,10 @@ class DynamicEntityServiceReferenceReadTest {
 
         assertThat(service.list(Criteria.of(), PageRequest.of(1, 20)).getFirst().getValue("assistantTitle"))
                 .isEqualTo("助理小李");
+        assertThat(observations).extracting(ReferenceReadObserver.ProjectionRequest::target)
+                .containsExactly(ReferenceTarget.of("education.school", "classroom"),
+                        ReferenceTarget.of("education.school", "teacher"),
+                        ReferenceTarget.of("education.school", "student"));
     }
 
     @Test
@@ -131,23 +140,33 @@ class DynamicEntityServiceReferenceReadTest {
                 .referencedBys(List.of(new EntityReferencedByDefinition("classroom", "member", "classroomId", "members")))
                 .build();
         new ModuleDefinitionValidator().validate(module);
-        DynamicRecord classroomRecord = new DynamicRecord(classroom);
-        classroomRecord.setId("classroom-1");
-        DynamicRecord memberRecord = new DynamicRecord(member);
-        memberRecord.setId("member-1");
+        DynamicRecord firstClassroom = new DynamicRecord(classroom);
+        firstClassroom.setId("classroom-1");
+        DynamicRecord secondClassroom = new DynamicRecord(classroom);
+        secondClassroom.setId("classroom-2");
+        DynamicRecord firstMember = new DynamicRecord(member);
+        firstMember.setId("member-1");
+        firstMember.setValue("classroomId", "classroom-1");
+        DynamicRecord secondMember = new DynamicRecord(member);
+        secondMember.setId("member-2");
+        secondMember.setValue("classroomId", "classroom-2");
         DynamicRecordDao classroomDao = mock(DynamicRecordDao.class);
         when(classroomDao.getEntity()).thenReturn(classroom);
-        when(classroomDao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class))).thenReturn(List.of(classroomRecord));
+        when(classroomDao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(List.of(firstClassroom, secondClassroom));
         DynamicEntityService memberService = mock(DynamicEntityService.class);
-        when(memberService.list(any(Criteria.class))).thenReturn(List.of(memberRecord));
+        when(memberService.list(any(Criteria.class))).thenReturn(List.of(firstMember, secondMember));
 
         DynamicEntityService service = new DynamicEntityService(classroomDao, "education.school", DynamicRecordLifecycle.NONE,
                 module, alias -> "member".equals(alias) ? memberService : null,
                 ignored -> { throw new IllegalStateException("targets are not read"); }, null, DynamicFieldValueValidator.NONE,
                 FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE, new PlatformTimeService());
 
-        assertThat((List<Object>) service.list(Criteria.of(), PageRequest.of(1, 20)).getFirst().getValue("members"))
-                .containsExactly(memberRecord);
+        List<DynamicRecord> classrooms = service.list(Criteria.of(), PageRequest.of(1, 20));
+
+        assertThat((List<Object>) classrooms.getFirst().getValue("members")).containsExactly(firstMember);
+        assertThat((List<Object>) classrooms.get(1).getValue("members")).containsExactly(secondMember);
+        verify(memberService, times(1)).list(any(Criteria.class));
     }
 
     @Test
@@ -180,6 +199,7 @@ class DynamicEntityServiceReferenceReadTest {
         record.setValue("teacherId", "teacher-1");
         DynamicRecord memberRecord = new DynamicRecord(member);
         memberRecord.setId("member-1");
+        memberRecord.setValue("classroomId", "classroom-1");
         DynamicRecordDao classroomDao = mock(DynamicRecordDao.class);
         when(classroomDao.getEntity()).thenReturn(classroom);
         when(classroomDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(record));

@@ -41,7 +41,12 @@ public interface ScopedTreeWebProjectionPolicy<T extends EntityContract & TreeCa
 
     @Override
     default List<T> treeChildren(HttpServletRequest request, String parentId) {
-        return scopedTreeChildren(PlatformAction.TREE, requireCurrentOrRequestTreeScope(request), parentId);
+        return treeChildrenForAction(request, PlatformAction.TREE, parentId);
+    }
+
+    @Override
+    default List<T> treeChildrenForAction(HttpServletRequest request, PlatformAction action, String parentId) {
+        return scopedTreeChildren(action, requireCurrentOrRequestTreeScope(request), parentId);
     }
 
     @Override

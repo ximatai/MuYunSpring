@@ -30,6 +30,7 @@ import {
   type RecordFormRecord,
 } from './recordFormFieldModel';
 import { hasOptionHierarchy, optionItemsToOptions, optionItemsToTree } from './optionFieldOptions';
+import { loadOptionFieldItems } from './optionFieldOptionCache';
 
 defineOptions({ name: 'RecordFormFields' });
 
@@ -135,7 +136,7 @@ function stringArrayFieldValue(fieldName: string) {
 }
 
 function optionFieldItems(field: RecordFormFieldState) {
-  return optionItems.value[field.fieldName] ?? [];
+  return field.optionItems ?? optionItems.value[field.fieldName] ?? [];
 }
 
 function optionFieldOptions(field: RecordFormFieldState) {
@@ -174,7 +175,7 @@ async function loadOptionFields() {
     return;
   }
   for (const field of props.fields.values()) {
-    if (!field.option) {
+    if (!field.option || field.option.inlineItems?.length) {
       continue;
     }
     await loadOptionField(field);
@@ -188,10 +189,7 @@ async function loadOptionField(field: RecordFormFieldDescriptor) {
   const fieldName = field.fieldRef.fieldName;
   loadingOptionFields.value = new Set(loadingOptionFields.value).add(fieldName);
   try {
-    const items = await props.optionContext.http.request<OptionItemDescriptor[]>({
-      path: `/platform.module/${encodeURIComponent(props.optionContext.moduleAlias)}/fields/${encodeURIComponent(fieldName)}/options`,
-      query: { enabledOnly: false },
-    });
+    const items = await loadOptionFieldItems(props.optionContext, fieldName);
     optionItems.value = { ...optionItems.value, [fieldName]: items };
     const errors = { ...optionFieldErrors.value };
     delete errors[fieldName];
@@ -384,6 +382,14 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         :placeholder="field.placeholder"
         @update:value="updateField(field.fieldName, $event)"
       />
+      <UiInput
+        v-else-if="field.controlType === 'numberInput'"
+        :value="scalarFieldValue(field.fieldName)"
+        type="number"
+        :disabled="fieldDisabled(field)"
+        :placeholder="field.placeholder"
+        @update:value="updateField(field.fieldName, $event)"
+      />
       <UiColorPicker
         v-else-if="field.controlType === 'colorPicker'"
         :value="scalarFieldValue(field.fieldName)"
@@ -415,7 +421,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 <style scoped>
 .record-form-field {
   display: grid;
-  gap: 6px;
+  gap: var(--muyun-record-form-label-gap, 6px);
   color: var(--muyun-text-muted);
   font-size: 13px;
 }

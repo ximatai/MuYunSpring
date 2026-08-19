@@ -1,57 +1,52 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import jakarta.servlet.http.HttpServletRequest;
+import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 
-import net.ximatai.muyun.spring.ability.TreeAbility;
-import net.ximatai.muyun.spring.web.StandardMutation;
-import net.ximatai.muyun.spring.web.StandardMutationKind;
-import net.ximatai.muyun.spring.web.StandardMutationResultSupport;
 import net.ximatai.muyun.spring.web.SystemScope;
-import net.ximatai.muyun.spring.web.TreeSortWebRequest;
-import net.ximatai.muyun.spring.web.WebListResponse;
-import net.ximatai.muyun.spring.web.WebOutputSupport;
+import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
+import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
+import net.ximatai.muyun.spring.web.ScopedTreeWebProjectionPolicy;
+import net.ximatai.muyun.spring.web.TreeScope;
+import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
 import net.ximatai.muyun.spring.web.WebSupport;
-import net.ximatai.muyun.spring.web.WebTreeNode;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
-import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
-import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
-import net.ximatai.muyun.spring.common.security.FieldOutputContext;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.refresh.DynamicModuleRefreshResult;
+import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
-import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
-        alias = PlatformModuleService.MODULE_ALIAS, title = "平台模块", route = "/config/modules")
+        alias = PlatformModuleService.MODULE_ALIAS, title = "平台模块")
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.MODELING, title = "模块管理", order = 20)
 @RequestMapping("/platform.module")
 public class PlatformModuleWebController extends WebSupport<PlatformModuleService> implements
         CrudWeb<PlatformModule, PlatformModuleService>,
-        SystemScope<PlatformModuleService> {
+        NavigatorReferenceWeb<PlatformModule, PlatformModuleService>,
+        NavigatorReferenceTreeWeb<PlatformModule, PlatformModuleService>,
+        ScopedTreeWebProjectionPolicy<PlatformModule, PlatformModuleService>,
+        SystemScope<PlatformModuleService>,
+        StaticModuleUiContributor {
 
     private PlatformDynamicRuntimeRefreshService runtimeRefreshService;
-    private StaticModuleDefinitionCatalog staticModuleCatalog;
-    private ActionEndpointContextResolver actionContextResolver;
-    private ActionExecutionPolicyService actionExecutionPolicyService;
+    private PlatformOpenApiCatalogService openApiCatalogService;
 
     @Autowired
     public PlatformModuleWebController(PlatformDynamicRuntimeRefreshService runtimeRefreshService) {
@@ -61,94 +56,86 @@ public class PlatformModuleWebController extends WebSupport<PlatformModuleServic
     public PlatformModuleWebController() {
     }
 
-    @Autowired
-    void configureStaticModuleCatalog(StaticModuleDefinitionCatalog value) {
-        this.staticModuleCatalog = value;
+    /**
+     * The module catalog is a tree scoped by the selected application.  The application is a
+     * navigator context, not a synthetic node in the module tree: it constrains tree reads and
+     * supplies the default for new root modules, while {@code parentId} remains the module-tree
+     * relationship used for child creation.
+     */
+    @Override
+    public ModuleUiDefinition moduleUiDefinition() {
+        return ModuleUiDefinition.builder(PlatformModuleService.MODULE_ALIAS)
+                .page(PageTemplates.treeManagement(page -> page
+                        .navigator(navigator -> navigator
+                                .level("application", level -> level.microList(ApplicationService.MODULE_ALIAS,
+                                        "应用", "搜索应用")
+                                        .manageable(PageNavigatorManagementAction.CREATE)
+                                        .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
+                                .bindNavigatorToList("application", "applicationAlias")
+                                .bindNavigatorToPickerQuery("application", "parentId", "applicationAlias"))
+                        .detail(detail -> detail
+                                .emptyDescription("请选择模块，或新建根模块")
+                                .createTitle("新建模块")
+                                .display(form -> form.title("模块信息")
+                                        .field("applicationAlias", field -> field.label("所属应用"))
+                                        .field("alias", field -> field.label("模块 alias"))
+                                        .field("title", field -> field.label("模块名称"))
+                                        .field("parentId", field -> field.label("上级模块").treeRootTitle("根模块"))
+                                        .field("moduleKind", field -> field.label("模块类型"))
+                                        .field("entryType", field -> field.label("入口类型"))
+                                        .field("entryRoute", field -> field.label("内部路由")
+                                                .visible(UiRule.formula(UiFormula.booleanExpression(
+                                                        "{entryType} == 'route'"))))
+                                        .field("entryExternalUrl", field -> field.label("外部链接")
+                                                .visible(UiRule.formula(UiFormula.booleanExpression(
+                                                        "{entryType} == 'link'")))))
+                                .editor(form -> form.title("模块")
+                                        .field("alias", field -> field.label("模块 alias").required()
+                                                .enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
+                                        .field("title", field -> field.label("模块名称").required())
+                                        .field("applicationAlias", field -> field.label("所属应用").required().hidden())
+                                        .field("parentId", field -> field.label("上级模块").uiType("recordPicker"))
+                                        .field("moduleKind", field -> field.label("模块类型").required().uiType("select"))
+                                        .field("entryType", field -> field.label("入口类型").required().uiType("select"))
+                                        .field("entryRoute", field -> field.label("内部路由")
+                                                .visible(UiRule.formula(UiFormula.booleanExpression(
+                                                        "{entryType} == 'route'"))))
+                                        .field("entryExternalUrl", field -> field.label("外部链接")
+                                                .visible(UiRule.formula(UiFormula.booleanExpression(
+                                                        "{entryType} == 'link'"))))
+                                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
+                        .traits(traits -> traits.standardCrud().enabledStatus())))
+                .build();
     }
 
     @Autowired
-    void configureOpenApiAuthorization(ActionEndpointContextResolver contextResolver,
-                                       ActionExecutionPolicyService policyService) {
-        this.actionContextResolver = contextResolver;
-        this.actionExecutionPolicyService = policyService;
+    void configureOpenApiCatalog(PlatformOpenApiCatalogService value) {
+        this.openApiCatalogService = value;
     }
 
     @GetMapping("/openapi/catalog")
     @ActionEndpoint(PlatformAction.VIEW)
     public List<OpenApiModuleCatalogItem> openApiCatalog() {
-        return webScope(() -> service().listVisibleModules().stream()
-                .filter(this::openApiAvailable)
-                .filter(this::openApiDescribable)
-                .map(module -> new OpenApiModuleCatalogItem(module.getAlias(), module.getTitle(),
-                        module.getModuleKind().getCode(), "/" + module.getAlias() + "/openapi"))
-                .toList());
+        // Module configuration itself is read under SystemScope. Capture the request context
+        // before that switch so document discovery reflects the context which will later call
+        // the module endpoint, rather than the administrative read scope.
+        String requestTenantId = TenantContext.currentTenantId().orElse(null);
+        return webScope(() -> openApiCatalogService.discover(requestTenantId));
     }
 
-    @PostMapping("/sort/{id}")
-    @ActionEndpoint(PlatformAction.SORT)
-    @StandardMutation(StandardMutationKind.SORT)
-    public int sort(@PathVariable String id,
-                    @RequestBody(required = false) TreeSortWebRequest request) {
-        return webScope(() -> {
-            TreeSortWebRequest normalized = request == null ? new TreeSortWebRequest(null, null, null) : request;
-            if (blank(normalized.previousId()) && blank(normalized.nextId()) && blank(normalized.parentId())) {
-                throw new IllegalArgumentException("module tree sort requires previousId, nextId, or parentId");
-            }
-            return StandardMutationResultSupport.sorted(this, () -> {
-                service().moveInTree(id, normalized.previousId(), normalized.nextId(), normalized.parentId());
-                return 1;
-            });
-        });
+    @Override
+    public TreeScope treeScope(HttpServletRequest request) {
+        String applicationAlias = requestedApplicationAlias(request);
+        if (applicationAlias == null || applicationAlias.isBlank()) {
+            return TreeScope.none();
+        }
+        return TreeScope.of(Criteria.of().eq("applicationAlias",
+                PlatformNameRules.requireApplicationAlias(applicationAlias)));
     }
 
-    @GetMapping("/tree/{applicationAlias}")
-    @ActionEndpoint(PlatformAction.TREE)
-    public WebListResponse<?> tree(@PathVariable String applicationAlias,
-                                   @RequestParam(defaultValue = "false") boolean flat) {
-        return webScope(() -> {
-            String validApplicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);
-            List<PlatformModule> roots = service().rootModules(validApplicationAlias);
-            if (flat) {
-                List<PlatformModule> rows = new ArrayList<>();
-                for (PlatformModule root : roots) {
-                    rows.add(root);
-                    appendDescendants(validApplicationAlias, root.getId(), rows);
-                }
-                return new WebListResponse<>(WebOutputSupport.records(service(), rows, FieldOutputContext.VIEW));
-            }
-            return new WebListResponse<>(roots.stream()
-                    .map(root -> treeNode(validApplicationAlias, root))
-                    .toList());
-        });
-    }
-
-    @GetMapping("/tree/{applicationAlias}/{parentId}")
-    @ActionEndpoint(PlatformAction.TREE)
-    public WebListResponse<?> treeChildren(@PathVariable String applicationAlias,
-                                           @PathVariable String parentId,
-                                           @RequestParam(defaultValue = "false") boolean flat,
-                                           @RequestParam(defaultValue = "true") boolean includeSelf) {
-        return webScope(() -> {
-            String validApplicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);
-            PlatformModule root = TreeAbility.ROOT_ID.equals(parentId) ? null : service().select(parentId);
-            if (root != null && !validApplicationAlias.equals(root.getApplicationAlias())) {
-                throw new IllegalArgumentException("module parent must belong to application: " + validApplicationAlias);
-            }
-            if (flat) {
-                List<PlatformModule> rows = new ArrayList<>();
-                if (includeSelf && root != null) {
-                    rows.add(root);
-                }
-                appendDescendants(validApplicationAlias, parentId, rows);
-                return new WebListResponse<>(WebOutputSupport.records(service(), rows, FieldOutputContext.VIEW));
-            }
-            if (includeSelf && root != null) {
-                return new WebListResponse<>(List.of(treeNode(validApplicationAlias, root)));
-            }
-            return new WebListResponse<>(service().children(validApplicationAlias, parentId).stream()
-                    .map(child -> treeNode(validApplicationAlias, child))
-                    .toList());
-        });
+    @Override
+    public TreeScope treeScope(HttpServletRequest request, PlatformModule record) {
+        return record == null ? treeScope(request) : applicationTreeScope(record.getApplicationAlias());
     }
 
     @PostMapping("/{moduleAlias}/runtime/refresh")
@@ -172,44 +159,14 @@ public class PlatformModuleWebController extends WebSupport<PlatformModuleServic
         return webScope(() -> runtimeRefreshService.previewRefresh(moduleAlias));
     }
 
-    private void appendDescendants(String applicationAlias, String parentId, List<PlatformModule> rows) {
-        for (PlatformModule child : service().children(applicationAlias, parentId)) {
-            rows.add(child);
-            appendDescendants(applicationAlias, child.getId(), rows);
-        }
+    private TreeScope applicationTreeScope(String applicationAlias) {
+        return TreeScope.of(Criteria.of().eq("applicationAlias",
+                PlatformNameRules.requireApplicationAlias(applicationAlias)));
     }
 
-    private boolean openApiAvailable(PlatformModule module) {
-        if (module.getModuleKind() == ModuleKind.DYNAMIC) {
-            return true;
-        }
-        return staticModuleCatalog != null && staticModuleCatalog.find(module.getAlias())
-                .map(StaticModuleDefinition::openApiAvailable)
-                .orElse(false);
+    private String requestedApplicationAlias(HttpServletRequest request) {
+        String queryValue = TreeWebQuerySupport.externalQueryText(request, "applicationAlias");
+        return queryValue != null && !queryValue.isBlank() ? queryValue : null;
     }
 
-    private boolean openApiDescribable(PlatformModule module) {
-        if (actionContextResolver == null || actionExecutionPolicyService == null) {
-            return true;
-        }
-        try {
-            actionExecutionPolicyService.authorize(actionContextResolver.resolveModuleAction(
-                    module.getAlias(), PlatformAction.VIEW));
-            return true;
-        } catch (AuthenticationRequiredException | PlatformAccessDeniedException ignored) {
-            return false;
-        }
-    }
-
-    private WebTreeNode<PlatformModule> treeNode(String applicationAlias, PlatformModule record) {
-        return new WebTreeNode<>(
-                WebOutputSupport.record(service(), record, FieldOutputContext.VIEW),
-                service().children(applicationAlias, record.getId()).stream()
-                        .map(child -> treeNode(applicationAlias, child))
-                        .toList());
-    }
-
-    private boolean blank(String value) {
-        return value == null || value.isBlank();
-    }
 }

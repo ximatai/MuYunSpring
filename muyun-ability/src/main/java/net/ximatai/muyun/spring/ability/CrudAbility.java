@@ -215,15 +215,29 @@ public interface CrudAbility<T extends EntityContract> {
 
     @PlatformOperation(PlatformAction.QUERY)
     default PageResult<T> pageQuery(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
-        return getDao().pageQuery(activeCriteria(criteria), pageRequest, sorts);
+        PageResult<T> result = getDao().pageQuery(activeCriteria(criteria), pageRequest, sorts);
+        populateDeclaredReferenceLoads(result.getRecords());
+        return result;
     }
 
     default List<T> list(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
-        return getDao().query(activeCriteria(criteria), pageRequest, sorts);
+        List<T> records = getDao().query(activeCriteria(criteria), pageRequest, sorts);
+        populateDeclaredReferenceLoads(records);
+        return records;
     }
 
     default List<T> list(Criteria criteria, Sort... sorts) {
-        return getDao().list(activeCriteria(criteria), sorts);
+        List<T> records = getDao().list(activeCriteria(criteria), sorts);
+        populateDeclaredReferenceLoads(records);
+        return records;
+    }
+
+    /**
+     * Internal post-read step shared by standard list reads and ability decorators.
+     * Ordinary services do not call this directly; standard query methods invoke it automatically.
+     */
+    default void populateDeclaredReferenceLoads(Collection<T> records) {
+        PlatformAbilityDispatcher.populateReferenceLoads(this, records == null ? List.of() : records);
     }
 
     default long count(Criteria criteria) {

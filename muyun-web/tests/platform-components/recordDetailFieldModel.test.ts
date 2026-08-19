@@ -38,6 +38,33 @@ it('record detail display prefers the server-projected option title', () => {
   assert.equal(resolveRecordDetailDisplayValue(field, { gender: '1', genderTitle: '男' }), '男');
 });
 
+it('record detail display resolves runtime option codes through the source-neutral option catalog', () => {
+  const field = formField('moduleKind', {
+    controlType: 'select',
+    hasOption: true,
+  });
+
+  assert.equal(
+    resolveRecordDetailDisplayValue(
+      field,
+      { moduleKind: 'static' },
+      {
+        optionItems: [
+          { code: 'static', title: '静态模块', enabled: true },
+          { code: 'dynamic', title: '动态模块', enabled: true },
+        ],
+      },
+    ),
+    '静态模块',
+  );
+});
+
+it('record detail display only renders a tree root title when the descriptor declares it', () => {
+  const field = formField('parentId', { treeRootTitle: '根模块' });
+  assert.equal(resolveRecordDetailDisplayValue(field, { parentId: 'root' }), '根模块');
+  assert.equal(resolveRecordDetailDisplayValue(field, { parentId: 'ordinary-root' }), 'ordinary-root');
+});
+
 it('record detail display resolves record picker object with configured title', () => {
   const field = formField('department', {
     controlType: 'recordPicker',
@@ -67,6 +94,21 @@ it('record detail display prefers the server-projected reference title for a sca
       directoryTitle: '土石方施工',
     }),
     '土石方施工',
+  );
+});
+
+it('record detail display joins server-projected titles for a multi-record picker', () => {
+  const field = formField('uiControlAliases', {
+    controlType: 'recordMultiPicker',
+    referenceTitleField: 'uiControlTitles',
+  });
+
+  assert.equal(
+    resolveRecordDetailDisplayValue(field, {
+      uiControlAliases: ['input', 'textarea'],
+      uiControlTitles: ['单行输入', '多行输入'],
+    }),
+    '单行输入、多行输入',
   );
 });
 

@@ -25,13 +25,13 @@ public class DictionaryCategoryWebController
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(DictionaryCategoryService.MODULE_ALIAS)
-                .formView(form -> form
+                .editors(editors -> editors.defaultEditor(form -> form
                         .title("字典类目")
                         .field("applicationAlias", field -> field.label("所属应用").required().readOnly())
                         .field("alias", field -> field.label("类目 alias").required())
                         .field("categoryKind", field -> field.label("类目类型").required().uiType("select"))
                         .field("title", field -> field.label("类目名称").required())
-                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus")))
+                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
                 .build();
     }
 

@@ -13,8 +13,9 @@ import net.ximatai.muyun.spring.iam.user.CurrentUserProfileService;
 import net.ximatai.muyun.spring.iam.user.UpdateCurrentUserProfileRequest;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.iam.tenant.TenantBranding;
+import net.ximatai.muyun.spring.iam.tenant.TenantLoginContext;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
-import net.ximatai.muyun.spring.platform.web.PlatformStaticActionScope;
+import net.ximatai.muyun.spring.platform.web.PlatformStaticActionDeclaration;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
@@ -22,11 +23,12 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
 
 @RestController
-@PlatformStaticActionScope(module = "iam.user")
+@PlatformStaticActionDeclaration(module = "iam.user")
 @RequestMapping("/iam.auth")
 public class LoginWebController {
     private final UserSessionService userSessionService;
@@ -77,14 +79,14 @@ public class LoginWebController {
     }
 
     @GetMapping("/profile")
-    @CustomActionEndpoint(value = "selfProfile", title = "查看个人资料", level = PlatformActionLevel.RECORD,
+    @CustomActionEndpoint(value = "selfProfile", title = "个人资料", level = PlatformActionLevel.RECORD,
             accessMode = ActionAccessMode.LOGIN_REQUIRED, actionAuth = false)
     public CurrentUserProfile profile() {
         return requireCurrentUserProfileService().currentProfile(currentUser());
     }
 
     @PostMapping("/profile")
-    @CustomActionEndpoint(value = "selfProfile", title = "维护个人资料", level = PlatformActionLevel.RECORD,
+    @CustomActionEndpoint(value = "selfProfile", title = "个人资料", level = PlatformActionLevel.RECORD,
             accessMode = ActionAccessMode.LOGIN_REQUIRED, actionAuth = false)
     public CurrentUserProfile updateProfile(@RequestBody UpdateCurrentUserProfileRequest request) {
         return requireCurrentUserProfileService().updateCurrentProfile(currentUser(), request);
@@ -98,6 +100,18 @@ public class LoginWebController {
         return tenantId == null || tenantId.isBlank() || tenantService == null
                 ? TenantBranding.empty()
                 : tenantService.branding(tenantId);
+    }
+
+    /**
+     * Resolves branding for a tenant explicitly selected by the unauthenticated login entry.
+     */
+    @GetMapping("/login-context")
+    @CustomActionEndpoint(value = "loginContext", title = "获取登录入口上下文",
+            accessMode = ActionAccessMode.ANONYMOUS_ALLOWED, actionAuth = false, dataAuth = false)
+    public TenantLoginContext loginContext(@RequestParam String tenantId) {
+        TenantService service = requireTenantService();
+        service.requireActiveTenant(tenantId);
+        return new TenantLoginContext(tenantId, service.branding(tenantId));
     }
 
     private String bearerToken(HttpServletRequest request) {
@@ -122,6 +136,13 @@ public class LoginWebController {
             throw new IllegalStateException("current user profile service is not available");
         }
         return currentUserProfileService;
+    }
+
+    private TenantService requireTenantService() {
+        if (tenantService == null) {
+            throw new IllegalStateException("tenant service is not available");
+        }
+        return tenantService;
     }
 
     private String clientIp(HttpServletRequest request) {

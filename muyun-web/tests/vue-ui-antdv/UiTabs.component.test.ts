@@ -123,8 +123,10 @@ it('shows a pin button for locked tabs and keeps them out of bulk-close actions'
   });
   const labels = wrapper.findAll('.ui-tabs-label');
 
-  expect(wrapper.find('.ui-tabs-pin-button').attributes('aria-label')).toBe('取消锁定标签');
-  await wrapper.find('.ui-tabs-pin-button').trigger('click');
+  const pinButton = wrapper.find('.ui-tabs-pin-button');
+  expect(pinButton.attributes('aria-label')).toBe('取消锁定标签');
+  expect(pinButton.attributes('title')).toBeUndefined();
+  await pinButton.trigger('click');
   expect(wrapper.emitted('togglePin')).toEqual([['application']]);
 
   await labels[1].element

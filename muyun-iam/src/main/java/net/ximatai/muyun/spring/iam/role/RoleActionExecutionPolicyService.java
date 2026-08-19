@@ -107,8 +107,7 @@ public class RoleActionExecutionPolicyService implements ActionExecutionPolicySe
             return false;
         }
         return tenantAdminImplicitGrantPolicy != null
-                && tenantAdminImplicitGrantPolicy.grants(currentUser, context.moduleAlias(),
-                context.actionPolicy().permissionActionCode());
+                && tenantAdminImplicitGrantPolicy.grants(currentUser, context.moduleAlias(), context.actionPolicy());
     }
 
     private void requireOpenedApplication(CurrentUser currentUser, String moduleAlias) {

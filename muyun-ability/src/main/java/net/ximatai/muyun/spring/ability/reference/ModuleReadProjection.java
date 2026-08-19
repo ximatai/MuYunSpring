@@ -11,15 +11,18 @@ public record ModuleReadProjection(String path,
     }
 
     public ModuleReadProjection {
-        if ((path == null || path.isBlank()) && referencePath == null) {
-            throw new IllegalArgumentException("module read projection path must not be blank");
-        }
         path = path == null || path.isBlank() ? null : path.trim();
         projectionType = projectionType == null ? ProjectionType.FIELD : projectionType;
         if (outputField == null || outputField.isBlank()) {
+            if (path == null && referencePath == null) {
+                throw new IllegalArgumentException("module read projection path or declared outputField must not be blank");
+            }
             outputField = referencePath == null ? defaultOutputField(path) : referencePath.targetField().fieldName();
         } else {
             outputField = outputField.trim();
+        }
+        if (path == null && referencePath == null && projectionType != ProjectionType.FIELD) {
+            throw new IllegalArgumentException("declared read projection only supports FIELD: " + outputField);
         }
     }
 
@@ -41,6 +44,11 @@ public record ModuleReadProjection(String path,
 
     public static ModuleReadProjection of(ReferencePath referencePath, String outputField) {
         return new ModuleReadProjection(null, referencePath, outputField, ProjectionType.FIELD, false, true);
+    }
+
+    /** Reuses a direct {@code @ReferenceLoad} output as a list-query policy without repeating its path. */
+    public static ModuleReadProjection declared(String outputField, boolean filterable, boolean sortable) {
+        return new ModuleReadProjection(null, null, outputField, ProjectionType.FIELD, filterable, sortable);
     }
 
     public static ModuleReadProjection filterable(String path, String outputField) {

@@ -374,12 +374,11 @@ class RelationProjectionReadServiceTest {
                                 )
                         )
                 ))
-                       .uiDefinition(ModuleUiDefinition.builder("iam.user")
-                        .listView(list -> list
+                       .uiDefinition(TestModulePages.listDetail("iam.user", list -> list
                                 .field("username")
                                 .field("bound_employee", "employeeNo", field -> field.label("职员工号"))
                                 .field("bound_employee", "employeeTitle", field -> field.label("职员姓名")))
-                        .build())
+                        )
                        .projectionJoins(List.of(new RelationProjectionJoinDefinition(
                         "bound_employee",
                         new EntityDefinition(
@@ -436,12 +435,11 @@ class RelationProjectionReadServiceTest {
                         "User",
                         List.of(FieldDefinition.string("username", "账号").column("username"))
                 )))
-                       .uiDefinition(ModuleUiDefinition.builder("iam.user")
-                        .listView(list -> list
+                       .uiDefinition(TestModulePages.listDetail("iam.user", list -> list
                                 .field("username")
                                 .field("employeeNo")
                                 .field("employeeTitle"))
-                        .build())
+                        )
                        .references(List.of())
                        .readProjections(List.of(
                         new StaticModuleReadProjectionDefinition(

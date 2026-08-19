@@ -373,7 +373,6 @@ function fakeRuntimeState(): ModuleRuntimeContextState {
     uiDescriptor: {
       schemaVersion: 'module-ui.v2',
       moduleAlias: 'iam.tenant',
-      views: [],
       actions: [
         {
           actionCode: 'delete',

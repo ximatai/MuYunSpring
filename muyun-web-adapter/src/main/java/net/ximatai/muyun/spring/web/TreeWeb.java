@@ -53,6 +53,18 @@ public interface TreeWeb<T extends EntityContract & TreeCapable, S extends TreeA
         });
     }
 
+    /**
+     * Resolves a tree with descriptor-owned external query values, for example an upstream
+     * navigator selection. Tree scope policies consume these values on the server.
+     */
+    @PostMapping("/tree/query")
+    @ActionEndpoint(PlatformAction.TREE)
+    default WebListResponse<?> treeQuery(HttpServletRequest request,
+                                         @RequestBody(required = false) WebQueryRequest query) {
+        TreeWebQuerySupport.bind(request, query);
+        return tree(request, false);
+    }
+
     @GetMapping("/tree/{id}")
     @ActionEndpoint(PlatformAction.TREE)
     default WebListResponse<?> tree(HttpServletRequest request,

@@ -40,7 +40,7 @@ final class DynamicFormulaRuntime {
     }
 
     boolean hasBeforeUpdateRules(DynamicRecord record) {
-        return !runtimeRulesForUpdate(record, List.of(FormulaRulePhase.BEFORE_SAVE)).isEmpty();
+        return !runtimeRulesForUpdate(List.of(FormulaRulePhase.BEFORE_SAVE)).isEmpty();
     }
 
     boolean hasBeforeActionExecuteRules() {
@@ -51,12 +51,18 @@ final class DynamicFormulaRuntime {
         return execute(record, existing, List.of(FormulaRulePhase.ACTION_BEFORE_EXECUTE), true).report();
     }
 
-    DynamicFormulaPreviewResult preview(DynamicRecord record, DynamicRecord existing) {
+    DynamicFormulaPreviewResult preview(DynamicRecord record,
+                                        DynamicRecord existing,
+                                        Map<String, List<DynamicRecord>> existingChildren) {
         FormulaExecutionResult result = record.getId() == null || record.getId().isBlank()
                 ? execute(record, null, List.of(FormulaRulePhase.DEFAULT_VALUE, FormulaRulePhase.BEFORE_SAVE), true, false)
-                : execute(record, existing, List.of(FormulaRulePhase.BEFORE_SAVE), true, false);
+                : execute(record, existing, existingChildren, List.of(FormulaRulePhase.BEFORE_SAVE), false, true);
         List<String> changedFields = result.report().hasErrors() ? List.of() : result.changedFields();
         return new DynamicFormulaPreviewResult(record, result.report(), changedFields);
+    }
+
+    DynamicFormulaPreviewResult preview(DynamicRecord record, DynamicRecord existing) {
+        return preview(record, existing, Map.of());
     }
 
     boolean hasImportValidateRules() {
@@ -115,19 +121,97 @@ final class DynamicFormulaRuntime {
                                            DynamicRecord existing,
                                            Map<String, List<DynamicRecord>> existingChildren,
                                            List<FormulaRulePhase> phases) {
-        List<FormulaRule> rules = runtimeRulesForUpdate(record, phases);
+        return execute(record, existing, existingChildren, phases, true, true);
+    }
+
+    private FormulaExecutionResult execute(DynamicRecord record,
+                                           DynamicRecord existing,
+                                           Map<String, List<DynamicRecord>> existingChildren,
+                                           List<FormulaRulePhase> phases,
+                                           boolean failOnErrors,
+                                           boolean applyChanges) {
+        List<FormulaRule> rules = runtimeRulesForUpdate(phases);
         if (rules.isEmpty()) {
             return new FormulaExecutionResult();
+        }
+        FormulaExecutionResult unsupportedChildWrites = rejectUnpersistableChildWrites(record, existingChildren, rules);
+        if (unsupportedChildWrites.report().hasErrors()) {
+            if (failOnErrors) {
+                throw new DynamicFormulaException(moduleAlias, entity.alias(), unsupportedChildWrites.report());
+            }
+            return unsupportedChildWrites;
         }
         Map<String, Object> main = DynamicFormulaDataSupport.mainValues(record, existing);
         Map<String, List<Map<String, Object>>> tables = DynamicFormulaDataSupport.childValues(record, existingChildren);
         FormulaExecutionResult result = engine.execute(rules, FormulaRuntimeData.typed(
                 main, tables, DynamicFormulaDataSupport.fieldDefinitions(entity, module)));
-        if (result.report().hasErrors()) {
+        if (failOnErrors && result.report().hasErrors()) {
             throw new DynamicFormulaException(moduleAlias, entity.alias(), result.report());
         }
-        applyChangedFields(record, main, tables, result.changedFields());
+        if (applyChanges && !result.report().hasErrors()) {
+            applyChangedFields(record, main, tables, result.changedFields());
+        }
         return result;
+    }
+
+    /**
+     * Persisted child rows are present in the evaluation baseline so parent aggregates remain authoritative.
+     * They are not, however, part of the mutation payload. A formula must therefore not stage writes to a
+     * relation unless that relation was submitted as a complete replacement; otherwise the parent result could
+     * be calculated from child values that are never persisted.
+     */
+    private FormulaExecutionResult rejectUnpersistableChildWrites(
+            DynamicRecord record,
+            Map<String, List<DynamicRecord>> existingChildren,
+            List<FormulaRule> rules
+    ) {
+        FormulaExecutionResult result = new FormulaExecutionResult();
+        for (FormulaRule rule : rules) {
+            Set<String> writes = new HashSet<>(engine.assignedFields(rule.expression()));
+            if (rule.kind() == net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION
+                    && rule.targetField() != null) {
+                writes.add(rule.targetField());
+            }
+            for (String write : writes) {
+                int dot = write.indexOf('.');
+                if (dot < 0) {
+                    continue;
+                }
+                String relationCode = write.substring(0, dot);
+                if (!hasUnsubmittedPersistedRows(record, existingChildren, relationCode)) {
+                    continue;
+                }
+                result.report().error(rule, "FORMULA_PARTIAL_CHILD_WRITE_UNSUPPORTED", write, null,
+                        rule.expression(), "formula child field write requires a complete relation payload: " + write);
+            }
+        }
+        return result;
+    }
+
+    private boolean hasUnsubmittedPersistedRows(DynamicRecord record,
+                                                 Map<String, List<DynamicRecord>> existingChildren,
+                                                 String relationCode) {
+        List<DynamicRecord> persisted = existingChildren == null
+                ? List.of()
+                : existingChildren.getOrDefault(relationCode, List.of());
+        if (persisted.isEmpty()) {
+            return false;
+        }
+        List<DynamicRecord> submitted = record == null ? null : record.getChildren(relationCode);
+        boolean completeRelation = record != null
+                && record.getChildren().containsKey(relationCode)
+                && submitted != null
+                && !record.isPartialChildren(relationCode);
+        if (completeRelation) {
+            return false;
+        }
+        Set<String> submittedIds = submitted == null ? Set.of() : submitted.stream()
+                .map(DynamicRecord::getId)
+                .filter(java.util.Objects::nonNull)
+                .filter(id -> !id.isBlank())
+                .collect(java.util.stream.Collectors.toSet());
+        return persisted.stream().map(DynamicRecord::getId)
+                .anyMatch(id -> id == null || id.isBlank() || !submittedIds.contains(id));
     }
 
     private List<FormulaRule> runtimeRules(List<FormulaRulePhase> phases, boolean includeChildDependentRules) {
@@ -139,12 +223,10 @@ final class DynamicFormulaRuntime {
                 .toList();
     }
 
-    private List<FormulaRule> runtimeRulesForUpdate(DynamicRecord record, List<FormulaRulePhase> phases) {
-        Set<String> submittedRelations = submittedRelations(record);
+    private List<FormulaRule> runtimeRulesForUpdate(List<FormulaRulePhase> phases) {
         return entity.orderedFormulaRules().stream()
                 .filter(EntityFormulaRuleDefinition::enabled)
                 .filter(rule -> phases.contains(rule.phase()))
-                .filter(rule -> relationDependencies(rule).stream().allMatch(submittedRelations::contains))
                 .map(EntityFormulaRuleDefinition::toRuntimeRule)
                 .toList();
     }
@@ -172,19 +254,6 @@ final class DynamicFormulaRuntime {
             }
         }
         return dependencies;
-    }
-
-    private Set<String> submittedRelations(DynamicRecord record) {
-        if (record == null) {
-            return Set.of();
-        }
-        Set<String> relations = new HashSet<>();
-        record.getChildren().forEach((relationCode, children) -> {
-            if (children != null) {
-                relations.add(relationCode);
-            }
-        });
-        return relations;
     }
 
     private void applyChangedFields(DynamicRecord record,

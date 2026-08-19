@@ -31,7 +31,7 @@ public class DictionaryItemWebController
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(DictionaryCategoryService.MODULE_ALIAS)
-                .formView(ModuleUiViewCodes.childResourceDefaultForm(RESOURCE), form -> form
+                .editorContribution(RESOURCE, form -> form
                         .title("字典项")
                         .field(RESOURCE, "categoryId", field -> field.label("所属类目").readOnly())
                         .field(RESOURCE, "code", field -> field.label("字典项编码").required())

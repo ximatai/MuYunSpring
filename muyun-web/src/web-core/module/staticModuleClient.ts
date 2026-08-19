@@ -37,7 +37,7 @@ export interface StaticModuleCrudClient<TRecord> {
 }
 
 export interface StaticModuleTreeClient<TRecord> extends StaticModuleCrudClient<TRecord> {
-  tree(): Promise<WebListResponse<WebTreeNode<TRecord>>>;
+  tree(request?: WebQueryRequest): Promise<WebListResponse<WebTreeNode<TRecord>>>;
   treeFlat(options?: { rootId?: string; includeSelf?: boolean }): Promise<WebListResponse<TRecord>>;
   subtree(id: string, options?: { includeSelf?: boolean }): Promise<WebListResponse<WebTreeNode<TRecord>>>;
   sort(id: string, request: TreeSortRequest): Promise<StaticCountMutationResult>;
@@ -53,6 +53,24 @@ export function createStaticModuleCrudClient<TRecord>(
   options: { moduleAlias: string },
 ): StaticModuleCrudClient<TRecord> {
   return createStaticResourceCrudClient(http, modulePathOf(options.moduleAlias));
+}
+
+/** The navigation-only read surface deliberately does not reuse the module query endpoint. */
+export function createNavigatorReferenceCrudClient<TRecord>(
+  http: HttpClient,
+  options: { moduleAlias: string },
+): StaticModuleCrudClient<TRecord> {
+  const normal = createStaticModuleCrudClient<TRecord>(http, options);
+  const modulePath = modulePathOf(options.moduleAlias);
+  return {
+    ...normal,
+    query: (request) =>
+      http.request<WebPageResponse<TRecord>>({
+        method: 'POST',
+        path: `${modulePath}/navigator/reference/query`,
+        body: request,
+      }),
+  };
 }
 
 export function createStaticResourceCrudClient<TRecord>(
@@ -126,6 +144,26 @@ export function createStaticModuleTreeClient<TRecord>(
   return createStaticResourceTreeClient(http, modulePathOf(options.moduleAlias));
 }
 
+export function createNavigatorReferenceTreeClient<TRecord>(
+  http: HttpClient,
+  options: { moduleAlias: string },
+): StaticModuleTreeClient<TRecord> {
+  const normal = createNavigatorReferenceCrudClient<TRecord>(http, options);
+  const modulePath = modulePathOf(options.moduleAlias);
+  return {
+    ...normal,
+    tree: (request) =>
+      http.request<WebListResponse<WebTreeNode<TRecord>>>({
+        method: 'POST',
+        path: `${modulePath}/navigator/reference/tree/query`,
+        body: request,
+      }),
+    treeFlat: () => Promise.reject(new Error('Navigator reference tree does not expose flat traversal')),
+    subtree: () => Promise.reject(new Error('Navigator reference tree does not expose subtree traversal')),
+    sort: () => Promise.reject(new Error('Navigator reference tree is read-only')),
+  };
+}
+
 export function createStaticResourceTreeClient<TRecord>(
   http: HttpClient,
   resourcePath: string,
@@ -134,10 +172,16 @@ export function createStaticResourceTreeClient<TRecord>(
   const crud = createStaticResourceCrudClient<TRecord>(http, modulePath);
   return {
     ...crud,
-    tree: () =>
-      http.request<WebListResponse<WebTreeNode<TRecord>>>({
-        path: `${modulePath}/tree`,
-      }),
+    tree: (request) =>
+      request
+        ? http.request<WebListResponse<WebTreeNode<TRecord>>>({
+            method: 'POST',
+            path: `${modulePath}/tree/query`,
+            body: request,
+          })
+        : http.request<WebListResponse<WebTreeNode<TRecord>>>({
+            path: `${modulePath}/tree`,
+          }),
     treeFlat: (options) => {
       const rootId = options?.rootId;
       const path = rootId ? `${modulePath}/tree/${encodeURIComponent(rootId)}` : `${modulePath}/tree`;

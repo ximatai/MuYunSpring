@@ -510,9 +510,7 @@ class RelationProjectionQueryPlannerTest {
                         "User",
                         List.of(FieldDefinition.string("username", "账号").column("username"))
                 )))
-                       .uiDefinition(ModuleUiDefinition.builder("iam.user")
-                        .listView(list -> list.field("username"))
-                        .build())
+                       .uiDefinition(TestModulePages.listDetail("iam.user", list -> list.field("username")))
                        .references(List.of())
                        .readProjections(List.of(
                         new StaticModuleReadProjectionDefinition(
@@ -576,12 +574,11 @@ class RelationProjectionQueryPlannerTest {
                         "User",
                         List.of(FieldDefinition.string("username", "账号").column("username"))
                 )))
-                       .uiDefinition(ModuleUiDefinition.builder("iam.user")
-                        .listView(list -> list
+                       .uiDefinition(TestModulePages.listDetail("iam.user", list -> list
                                 .field("username")
                                 .field("employeeNo")
                                 .field(outputField))
-                        .build())
+                        )
                        .references(List.of())
                        .readProjections(List.of(
                         new StaticModuleReadProjectionDefinition(
@@ -617,12 +614,11 @@ class RelationProjectionQueryPlannerTest {
                         "User",
                         List.of(FieldDefinition.string("username", "账号").column("username"))
                 )))
-                       .uiDefinition(ModuleUiDefinition.builder("iam.user")
-                        .listView(list -> list
+                       .uiDefinition(TestModulePages.listDetail("iam.user", list -> list
                                 .field("username")
                                 .field("employeeNo")
                                 .field(outputField))
-                        .build())
+                        )
                        .references(List.of())
                        .readProjections(List.of(
                         new StaticModuleReadProjectionDefinition(
@@ -742,12 +738,11 @@ class RelationProjectionQueryPlannerTest {
                                 FieldDefinition.string("title", "职员姓名").column("title")
                         )
                 )))
-                       .uiDefinition(ModuleUiDefinition.builder("iam.employee")
-                        .listView(list -> list
+                       .uiDefinition(TestModulePages.listDetail("iam.employee", list -> list
                                 .field("employeeNo")
                                 .field(outputField)
                                 .field("title"))
-                        .build())
+                        )
                        .references(List.of(new StaticReferenceDefinition("organization", "organizationId", "iam.organization")))
                        .readProjections(List.of(new StaticModuleReadProjectionDefinition(readProjectionPath, outputField)))
                        .modelClass(Employee.class)
@@ -855,9 +850,7 @@ class RelationProjectionQueryPlannerTest {
                                 FieldDefinition.string("title", "Title").column("title")
                         )
                 )))
-                       .uiDefinition(ModuleUiDefinition.builder("test.a")
-                        .listView(list -> list.field("bTitle"))
-                        .build())
+                       .uiDefinition(TestModulePages.listDetail("test.a", list -> list.field("bTitle")))
                        .references(List.of(new StaticReferenceDefinition("b", "bId", "test.b")))
                        .readProjections(List.of(new StaticModuleReadProjectionDefinition("b.a.title", "bTitle")))
                        .build();
@@ -908,12 +901,11 @@ class RelationProjectionQueryPlannerTest {
                                 )
                         )
                 ))
-                       .uiDefinition(ModuleUiDefinition.builder("iam.user")
-                        .listView(list -> list
+                       .uiDefinition(TestModulePages.listDetail("iam.user", list -> list
                                 .field("username")
                                 .field("bound_employee", "employeeNo", field -> field.label("职员工号"))
                                 .field("bound_employee", "employeeTitle", field -> field.label("职员姓名")))
-                        .build())
+                        )
                        .projectionJoins(List.of(new RelationProjectionJoinDefinition(
                         "bound_employee",
                         new EntityDefinition(

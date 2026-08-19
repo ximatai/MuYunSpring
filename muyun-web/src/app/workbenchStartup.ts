@@ -13,11 +13,9 @@ import {
   getMenuNavigationTarget,
   isTabMenuTarget,
   pageDescriptorToUrl,
-  pageInstanceKeyOf,
   resolvePageDescriptor,
   tabKeyOf,
   tryPageDescriptorFromUrl,
-  withPageInstanceKey,
   type PageDescriptorResolveOptions,
 } from '@muyun/platform-workbench';
 import {
@@ -69,13 +67,11 @@ export function openMenuTab(
   target: MenuNavigationTarget,
   options: PageDescriptorResolveOptions = {},
 ): { tabs: MenuTab[]; activeTabKey: string } {
-  const existing = tabs.find(
-    (item) => item.pageDescriptor?.menuId === menu.id || item.target?.menuId === menu.id,
-  );
-  if (existing) {
-    return { tabs, activeTabKey: existing.key };
-  }
   const tab = createMenuTab(menu, target, options);
+  if (tabs.some((item) => item.key === tab.key)) {
+    return { tabs, activeTabKey: tab.key };
+  }
+
   return { tabs: [...tabs, tab], activeTabKey: tab.key };
 }
 
@@ -89,20 +85,10 @@ export function openDirectTab(
 }
 
 export function menuTargetUrl(menu: MenuRecord, target: MenuNavigationTarget): string {
-  const query = new URLSearchParams({ _muyunMenuId: menu.id });
-
-  if (target.menuType === 'module') {
-    const pageMode = (target.pageMode ?? 'LIST').toLowerCase();
-    if (target.defaultUiConfigId) query.set('uiConfigId', target.defaultUiConfigId);
-    if (target.defaultQueryTemplateId) query.set('queryTemplateId', target.defaultQueryTemplateId);
-    return `/platform/dynamic/${encodeURIComponent(target.moduleAlias)}/${pageMode}?${query.toString()}`;
+  if (target.menuType === 'link' && target.openMode === 'window') {
+    return target.externalUrl;
   }
-  if (target.menuType === 'route') {
-    return `${target.route}${target.route.includes('?') ? '&' : '?'}${query.toString()}`;
-  }
-  return target.openMode === 'tab'
-    ? `/platform/external/${encodeURIComponent(target.menuId)}?${query.toString()}`
-    : target.externalUrl;
+  return pageDescriptorToUrl(resolvePageDescriptor(target, { title: menu.title }));
 }
 
 export function activeTabUrlOf(state: WorkbenchStartupState): string | undefined {
@@ -121,12 +107,6 @@ export function activeTabUrlOf(state: WorkbenchStartupState): string | undefined
     return descriptor.target.route;
   }
   return descriptor ? pageDescriptorToUrl(descriptor) : undefined;
-}
-
-/** Finds an already-open page for a fallback address without treating InstanceKey as business route data. */
-export function findTabByRoute(tabs: MenuTab[], path: string): MenuTab | undefined {
-  const identity = routeIdentity(path);
-  return tabs.find((tab) => routeIdentity(tab.fullPath) === identity);
 }
 
 export function restoreWorkbenchStartupStateFromUrl(
@@ -237,8 +217,12 @@ export function arrangeLockedMenuTabs(
   return [...pinned, ...tabs.filter((tab) => !lockedKeys.has(tab.key))];
 }
 
-/** Restores only currently visible tab menus, rebuilding their descriptors from the active menu scheme. */
-export function restoreLockedMenuTabs(
+/**
+ * Restores account-locked tabs from two authority-checked sources only:
+ * currently visible tab menus and registered, URL-restorable workspace views.
+ * Arbitrary stored routes are deliberately not revived.
+ */
+export function restoreLockedWorkbenchTabs(
   lockedTabs: MenuTab[],
   menus: MenuTreeNode[],
   options: PageDescriptorResolveOptions = {},
@@ -248,17 +232,29 @@ export function restoreLockedMenuTabs(
   const restoredKeys = new Set<string>();
   return lockedTabs.flatMap((tab) => {
     const menuId = tab.pageDescriptor?.menuId ?? tab.target?.menuId;
-    if (!menuId || restoredKeys.has(menuId)) return [];
-    const available = availableMenus.get(menuId);
-    if (!available) return [];
-    restoredKeys.add(menuId);
-    const restoredDescriptor = tab.fullPath ? tryPageDescriptorFromUrl(tab.fullPath, options) : undefined;
-    return [
-      restoredDescriptor
-        ? createRestoredMenuTab(available.menu, available.target, restoredDescriptor, options)
-        : createMenuTab(available.menu, available.target, options),
-    ];
+    if (menuId) {
+      if (restoredKeys.has(menuId)) return [];
+      const available = availableMenus.get(menuId);
+      if (!available) return [];
+      restoredKeys.add(menuId);
+      return [createMenuTab(available.menu, available.target, options)];
+    }
+
+    const workspaceTab = restoreLockedWorkspaceTab(tab);
+    if (!workspaceTab || restoredKeys.has(workspaceTab.key)) return [];
+    restoredKeys.add(workspaceTab.key);
+    return [workspaceTab];
   });
+}
+
+function restoreLockedWorkspaceTab(tab: MenuTab): MenuTab | undefined {
+  const descriptor = tab.pageDescriptor;
+  if (descriptor?.pageType !== 'business-route') return undefined;
+  const workspaceView = resolveWorkspaceView(descriptor);
+  if (!workspaceView || workspaceView.presentation !== 'tab') return undefined;
+  // Recreate title, URL and identity from the registered definition instead
+  // of trusting a stale client-side snapshot.
+  return createDirectTab(createWorkspaceViewDescriptor(workspaceView.view, workspaceView.input, 'tab'));
 }
 
 export function updateLockedMenuTabs(lockedTabs: MenuTab[], tab: MenuTab): MenuTab[] {
@@ -303,15 +299,15 @@ function initialTabOf(menus: WorkbenchStartupState['menus'], options: PageDescri
 }
 
 function createDirectTab(descriptor: PageDescriptor): MenuTab {
-  const pageDescriptor = withPageInstanceKey(descriptor);
-  const fullPath = pageDescriptorToUrl(pageDescriptor);
-  const instanceKey = pageInstanceKeyOf(pageDescriptor)!;
+  const fullPath = pageDescriptorToUrl(descriptor);
   return {
-    instanceKey,
-    key: tabKeyOf(pageDescriptor),
-    title: pageDescriptor.title ?? directTabTitleOf(pageDescriptor),
+    ...(pageInstanceKeyOfDescriptor(descriptor)
+      ? { instanceKey: pageInstanceKeyOfDescriptor(descriptor) }
+      : {}),
+    key: tabKeyOf(descriptor),
+    title: descriptor.title ?? directTabTitleOf(descriptor),
     fullPath,
-    pageDescriptor,
+    pageDescriptor: descriptor,
     restoreState: { url: fullPath },
     closable: true,
   };
@@ -369,6 +365,16 @@ function createRestoredMenuTab(
     ...createDirectTab(pageDescriptor),
     target,
   };
+}
+
+function pageInstanceKeyOfDescriptor(descriptor: PageDescriptor): string | undefined {
+  const query =
+    descriptor.pageType === 'platform-route' || descriptor.pageType === 'business-route'
+      ? (descriptor.target.query ?? descriptor.params)
+      : descriptor.params;
+  const value = query?.InstanceKey;
+  const first = Array.isArray(value) ? value[0] : value;
+  return typeof first === 'string' && first ? first : undefined;
 }
 
 function isRouteDescriptor(
@@ -474,10 +480,4 @@ function findMenuById(nodes: WorkbenchStartupState['menus'], menuId: string): Me
   }
 
   return undefined;
-}
-
-function routeIdentity(path: string): string {
-  const url = new URL(path, 'http://muyun.local');
-  url.searchParams.delete('InstanceKey');
-  return `${url.pathname}?${url.searchParams.toString()}${url.hash}`;
 }

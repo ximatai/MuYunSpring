@@ -62,6 +62,7 @@ import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import net.ximatai.muyun.spring.web.RequestTraceWebFilter;
+import net.ximatai.muyun.spring.web.TenantRequestScope;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadServiceTestFactory;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryDescriptor;
@@ -274,14 +275,13 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
-    void shouldExposeFormulaPreviewAsCreateActionEndpoint() throws Exception {
+    void shouldLeaveFormulaPreviewAuthorizationToTheRecordService() throws Exception {
         Method method = DynamicRecordWebController.class.getDeclaredMethod("previewFormula",
                 String.class, DynamicFormulaPreviewRequest.class);
 
         ActionEndpoint endpoint = method.getAnnotation(ActionEndpoint.class);
 
-        assertThat(endpoint).isNotNull();
-        assertThat(endpoint.value()).isEqualTo(PlatformAction.CREATE);
+        assertThat(endpoint).isNull();
     }
 
     @Test
@@ -1019,6 +1019,52 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldReadNavigatorReferenceQueryThroughReferenceActionScope() throws Exception {
+        Criteria criteria = Criteria.of().eq("code", "C-001");
+        DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");
+        record.setId("contract-1");
+        when(mainEntity.queryCriteria(any())).thenReturn(criteria);
+        when(service.pageForAction(eq(MODULE), eq(ENTITY), eq(PlatformAction.REFERENCE.code()), any(Criteria.class),
+                any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(record), 1, PageRequest.of(1, 20)));
+
+        mvc.perform(post("/{moduleAlias}/navigator/reference/query", MODULE)
+                        .contentType("application/json")
+                        .content(json(Map.of("page", Map.of("pageNum", 1, "pageSize", 20)))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].id").value("contract-1"))
+                .andExpect(jsonPath("$.records[0].values.code").value("C-001"));
+
+        verify(service).pageForAction(eq(MODULE), eq(ENTITY), eq(PlatformAction.REFERENCE.code()), any(Criteria.class),
+                any(PageRequest.class), any(Sort[].class));
+        verify(mainEntity, never()).pageQuery(any(), any(PageRequest.class), any(Sort[].class));
+    }
+
+    @Test
+    void shouldReadNavigatorReferenceTreeThroughReferenceActionScope() throws Exception {
+        DynamicRecord root = new DynamicRecord(entity()).setValue("code", "ROOT");
+        root.setId("root-1");
+        DynamicRecord child = new DynamicRecord(entity()).setValue("code", "CHILD");
+        child.setId("child-1");
+        when(service.childrenForAction(eq(MODULE), eq(ENTITY), eq(PlatformAction.REFERENCE.code()), any(), anyString()))
+                .thenAnswer(invocation -> switch (invocation.getArgument(4, String.class)) {
+                    case "root" -> List.of(root);
+                    case "root-1" -> List.of(child);
+                    default -> List.of();
+                });
+
+        mvc.perform(post("/{moduleAlias}/navigator/reference/tree/query", MODULE)
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].record.id").value("root-1"))
+                .andExpect(jsonPath("$.records[0].children[0].record.id").value("child-1"));
+
+        verify(service, times(3)).childrenForAction(eq(MODULE), eq(ENTITY), eq(PlatformAction.REFERENCE.code()),
+                any(), anyString());
+    }
+
+    @Test
     void shouldPassCollectionQueryOperatorsFromHttpRequestToDynamicCriteria() throws Exception {
         Criteria criteria = Criteria.of().containsAny("tags", List.of("vip", "trial"));
         DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");
@@ -1217,6 +1263,12 @@ class DynamicRecordWebControllerTest {
         uiConfig.setUiSetId("set-list");
         uiConfig.setClientType(PlatformUiClientType.WEB);
         uiConfig.setPublished(true);
+        uiConfig.setLayoutJson("""
+                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"contextBindings":[{
+                  "source":"NAVIGATOR","sourceKey":"tenant","target":"LIST_QUERY","targetKey":"tenantId"
+                }],"levels":[{
+                  "key":"tenant","kind":"MICRO_LIST","sourceModuleAlias":"iam.tenant"
+                }]}}""");
         PlatformUiConfigField codeField = new PlatformUiConfigField();
         codeField.setUiConfigId("ui-list");
         codeField.setModuleMetadataFieldId("module-field-code");
@@ -3277,6 +3329,12 @@ class DynamicRecordWebControllerTest {
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.message").value(MODULE + " requires tenant context"));
 
+        noTenantMvc.perform(get("/{moduleAlias}/openapi", MODULE))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value(MODULE + " requires tenant context"));
+
         verifyNoInteractions(activeTenantVerifier);
     }
 
@@ -3540,7 +3598,7 @@ class DynamicRecordWebControllerTest {
         DynamicRecordWebController build() {
             return new DynamicRecordWebController(
                     recordService,
-                    activeTenantVerifier,
+                    new TenantRequestScope(activeTenantVerifier),
                     new DynamicRecordQueryServices(pageConfigSnapshotService, queryItemService,
                             moduleMetadataFieldService, fieldUiControlService, fieldUiControlBindingService,
                             relationProjectionReadService),

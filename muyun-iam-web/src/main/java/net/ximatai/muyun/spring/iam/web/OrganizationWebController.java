@@ -4,9 +4,18 @@ import jakarta.servlet.http.HttpServletRequest;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
+import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
+import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
+import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.web.TreeScope;
+import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
 import net.ximatai.muyun.spring.web.ScopedTreeWebProjectionPolicy;
+import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
+import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
 import net.ximatai.muyun.spring.web.WebSupport;
+import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
+import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
@@ -18,21 +27,65 @@ import net.ximatai.muyun.spring.iam.organization.OrganizationService;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Optional;
+
 @RestController
-@PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class, alias = "iam.organization", title = "机构管理", route = "/iam/organizations")
+@PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class, alias = "iam.organization", title = "机构管理")
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, order = 20)
 @RequestMapping("/iam.organization")
 public class OrganizationWebController extends WebSupport<OrganizationService> implements
         CrudWeb<Organization, OrganizationService>,
-        ScopedTreeWebProjectionPolicy<Organization, OrganizationService> {
+        NavigatorReferenceWeb<Organization, OrganizationService>,
+        NavigatorReferenceTreeWeb<Organization, OrganizationService>,
+        ScopedTreeWebProjectionPolicy<Organization, OrganizationService>,
+        MutationTenantScopeResolver<Organization>,
+        StaticModuleUiContributor {
+    @Override
+    public ModuleUiDefinition moduleUiDefinition() {
+        return ModuleUiDefinition.builder(OrganizationService.MODULE_ALIAS)
+                .page(PageTemplates.treeManagement(page -> page
+                        .navigator(navigator -> navigator
+                                .level("tenant", level -> level
+                                        .microList("iam.tenant", "租户", "搜索租户")
+                                        .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
+                                        .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
+                                .bindNavigatorToList("tenant", "tenantId"))
+                        .detail(detail -> detail
+                                .emptyDescription("请选择机构，或新建根机构")
+                                .editor(form -> form
+                                        .title("机构档案")
+                                        .field("title", field -> field.label("机构名称").required())
+                                        .field("code", field -> field.label("机构编码").required())
+                                        .field("parentId", field -> field.label("上级机构").uiType("recordPicker"))
+                                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
+                        .traits(traits -> traits.standardCrud().enabledStatus())))
+                .build();
+    }
+
     @Override
     public TreeScope treeScope(HttpServletRequest request) {
-        String tenantId = resolveTreeTenantId(request.getParameter("tenantId"));
+        String tenantId = resolveTreeTenantId(TreeWebQuerySupport.externalQueryText(request, "tenantId"));
         if (tenantId == null) {
             return TreeScope.none();
         }
         return TreeScope.tenant(Criteria.of().eq(StandardEntitySchema.TENANT_ID_FIELD, tenantId), tenantId);
+    }
+
+    @Override
+    public Optional<String> tenantIdForCreate(Organization record) {
+        return tenantIdOf(record);
+    }
+
+    @Override
+    public Optional<String> tenantIdForUpdate(String id, Organization record) {
+        Organization existing = service().select(id);
+        return tenantIdOf(existing == null ? record : existing);
+    }
+
+    @Override
+    public Optional<String> tenantIdForExistingRecord(String id) {
+        return tenantIdOf(service().select(id));
     }
 
     private String resolveTreeTenantId(String requestedTenantId) {
@@ -51,5 +104,10 @@ public class OrganizationWebController extends WebSupport<OrganizationService> i
             throw new PlatformException("organization tree tenantId must match current tenant");
         }
         return currentTenantId;
+    }
+
+    private Optional<String> tenantIdOf(Organization organization) {
+        return Optional.ofNullable(organization == null ? null : organization.getTenantId())
+                .filter(value -> !value.isBlank());
     }
 }

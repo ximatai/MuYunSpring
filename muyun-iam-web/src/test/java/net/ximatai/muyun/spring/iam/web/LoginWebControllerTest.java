@@ -6,12 +6,18 @@ import net.ximatai.muyun.spring.common.exception.AuthenticationFailedException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.iam.user.CurrentUserProfile;
 import net.ximatai.muyun.spring.iam.user.CurrentUserProfileService;
 import net.ximatai.muyun.spring.iam.tenant.TenantBranding;
+import net.ximatai.muyun.spring.iam.tenant.Tenant;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
+import net.ximatai.muyun.spring.platform.web.ActionEndpointContextResolver;
+import net.ximatai.muyun.spring.platform.web.ActionEndpointInterceptor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -20,6 +26,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -90,6 +97,56 @@ class LoginWebControllerTest {
                 .andExpect(jsonPath("$.subtitle").value("租户 A"));
 
         verify(tenantService).branding("tenant-a");
+    }
+
+    @Test
+    void shouldExposeActiveLockedTenantBrandingBeforeAuthentication() throws Exception {
+        TenantService tenantService = mock(TenantService.class);
+        when(tenantService.requireActiveTenant("tenant-a")).thenReturn(mock(Tenant.class));
+        when(tenantService.branding("tenant-a"))
+                .thenReturn(new TenantBranding("data:image/png;base64,bGlnaHQ=", null,
+                        "logoWithTitle", "租户 A", "租户专属工作台"));
+        LoginWebController controller = new LoginWebController(mock(UserSessionService.class), tenantService);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(get("/iam.auth/login-context").param("tenantId", "tenant-a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tenantId").value("tenant-a"))
+                .andExpect(jsonPath("$.branding.lightLogo").value("data:image/png;base64,bGlnaHQ="))
+                .andExpect(jsonPath("$.branding.title").value("租户 A"))
+                .andExpect(jsonPath("$.branding.subtitle").value("租户专属工作台"));
+
+        verify(tenantService).requireActiveTenant("tenant-a");
+        verify(tenantService).branding("tenant-a");
+    }
+
+    @Test
+    void shouldAuthorizePublicLoginContextThroughThePlatformActionChain() throws Exception {
+        TenantService tenantService = mock(TenantService.class);
+        when(tenantService.requireActiveTenant("tenant-a")).thenReturn(mock(Tenant.class));
+        when(tenantService.branding("tenant-a")).thenReturn(TenantBranding.empty());
+        ActionExecutionPolicyService policyService = mock(ActionExecutionPolicyService.class);
+        when(policyService.authorize(any(ActionExecutionContext.class)))
+                .thenAnswer(invocation -> ActionAuthorizationResult.allowed(invocation.getArgument(0)));
+        LoginWebController controller = new LoginWebController(mock(UserSessionService.class), tenantService);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .addInterceptors(new ActionEndpointInterceptor(policyService, new ActionEndpointContextResolver()))
+                .build();
+
+        mvc.perform(get("/iam.auth/login-context").param("tenantId", "tenant-a"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<ActionExecutionContext> context =
+                org.mockito.ArgumentCaptor.forClass(ActionExecutionContext.class);
+        verify(policyService).authorize(context.capture());
+        org.assertj.core.api.Assertions.assertThat(context.getValue()).satisfies(value -> {
+            org.assertj.core.api.Assertions.assertThat(value.moduleAlias()).isEqualTo("iam.user");
+            org.assertj.core.api.Assertions.assertThat(value.actionCode()).isEqualTo("loginContext");
+            org.assertj.core.api.Assertions.assertThat(value.actionPolicy().accessMode().name())
+                    .isEqualTo("ANONYMOUS_ALLOWED");
+            org.assertj.core.api.Assertions.assertThat(value.actionPolicy().actionAuth()).isFalse();
+            org.assertj.core.api.Assertions.assertThat(value.actionPolicy().dataAuth()).isFalse();
+        });
     }
 
     @Test

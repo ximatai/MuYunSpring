@@ -51,12 +51,13 @@ import {
   type RecordActionItem,
   type ResolvedRecordActionItem,
 } from './recordActionBarModel';
-import { useRecycleBinState } from './recycleBinState';
+import { recycleBinRestoreUnavailableReason, useRecycleBinState } from './recycleBinState';
 
 defineOptions({ name: 'RecordQueryListPanel' });
 
 export type QueryListRecord = Record<string, unknown> & { id?: string; enabled?: boolean };
 export type RecordQueryListMode = 'normal' | 'recycleBin';
+export type StandardCrudRowActionKey = 'view' | 'edit' | 'delete';
 
 export interface RecordQueryListColumn {
   key: string;
@@ -107,6 +108,10 @@ const props = withDefaults(
     batchActions?: RecordActionItem[];
     standardCrudActions?: boolean;
     standardCrudRowActions?: boolean;
+    /** Limits built-in row operations without replacing the platform list interaction. */
+    standardCrudRowActionKeys?: StandardCrudRowActionKey[];
+    /** Optional authorization-code overrides for platform built-in row operations. */
+    standardCrudRowActionCodes?: Partial<Record<StandardCrudRowActionKey, string>>;
     rowActionsOf?: (record: QueryListRecord) => RecordActionItem[];
     extraRowActionsOf?: (record: QueryListRecord) => RecordActionItem[];
     rowActionStateOf?: (
@@ -125,6 +130,12 @@ const props = withDefaults(
     pageSize?: number;
     uiConfigId?: string;
     queryTemplateId?: string;
+    /** A source-owned query schema avoids forcing embedded relation lists through target-module access. */
+    querySchema?: QuerySchema;
+    /** Read-only relation runners may deliberately suppress ad-hoc query controls. */
+    queryable?: boolean;
+    /** A relation query can intentionally be a bounded, non-pageable result. */
+    pageable?: boolean;
     ready?: boolean;
     externalQueryValues?: Record<string, unknown>;
     /** Descriptor-owned external criteria that must be exposed by the query schema. */
@@ -144,6 +155,8 @@ const props = withDefaults(
     batchActions: () => [],
     standardCrudActions: false,
     standardCrudRowActions: false,
+    standardCrudRowActionKeys: () => ['view', 'edit', 'delete'],
+    standardCrudRowActionCodes: () => ({}),
     rowActionsOf: undefined,
     extraRowActionsOf: undefined,
     rowActionStateOf: undefined,
@@ -157,6 +170,9 @@ const props = withDefaults(
     pageSize: 20,
     uiConfigId: undefined,
     queryTemplateId: undefined,
+    querySchema: undefined,
+    queryable: true,
+    pageable: true,
     ready: true,
     externalQueryValues: undefined,
     requiredExternalCriteriaKeys: () => [],
@@ -181,6 +197,8 @@ const emit = defineEmits<{
   rowAction: [action: ResolvedRecordActionItem, record: QueryListRecord, event?: MouseEvent];
   rowExpand: [record: QueryListRecord, expanded: boolean];
   modeChange: [mode: RecordQueryListMode];
+  /** Lets a page runner persist this presentation preference without owning pagination state. */
+  pageSizeChange: [pageSize: number];
   restored: [];
 }>();
 const slots = defineSlots<{
@@ -198,7 +216,7 @@ const recycleBinState = useRecycleBinState({ context: () => props.context });
 const total = ref(0);
 const pageNum = ref(1);
 const pageSize = ref(props.pageSize);
-const runtimeViews = ref<ResolvedViewDescriptor[]>([]);
+const runtimeListView = ref<ResolvedViewDescriptor>();
 const descriptorLoadError = ref(false);
 const quickSearchKeyword = ref('');
 const appliedQuickSearch = ref('');
@@ -226,10 +244,12 @@ const recycleBinHasRecords = computed<boolean | undefined>(() => {
 });
 const recycleBinEnabled = computed(() => hasRecycleBinAbility(props.context));
 const canQueryRecycleBinAvailable = computed(() => canQueryRecycleBin(props.context));
-const quickSearchEnabled = computed(() => schema.value?.quickSearch.enabled === true);
+const quickSearchEnabled = computed(() => props.queryable && schema.value?.quickSearch.enabled === true);
 const quickSearchDisabled = computed(() => !queryReady.value || !quickSearchEnabled.value);
 const queryActionsDisabled = computed(() => !queryReady.value);
-const conditionsDisabled = computed(() => !queryReady.value || queryFields.value.length === 0);
+const conditionsDisabled = computed(
+  () => !props.queryable || !queryReady.value || queryFields.value.length === 0,
+);
 const panelActions = computed<RecordActionItem[]>(() => {
   if (props.mode === 'recycleBin') {
     return [];
@@ -239,7 +259,7 @@ const panelActions = computed<RecordActionItem[]>(() => {
     base = props.actions;
   } else if (!props.standardCrudActions) {
     base = [];
-  } else {
+  } else if (props.context.can('create') === true) {
     base = [
       {
         key: 'create',
@@ -249,6 +269,8 @@ const panelActions = computed<RecordActionItem[]>(() => {
         disabled: !queryReady.value,
       },
     ];
+  } else {
+    base = [];
   }
   return mergeRecordActions(base, props.extraActions);
 });
@@ -274,7 +296,7 @@ const hasRowActions = computed(
     (props.mode === 'recycleBin' &&
       (props.context.can('recycleBinRestore') === true || props.context.can('recycleBinPurge') === true)) ||
     props.rowActionsOf !== undefined ||
-    props.standardCrudRowActions ||
+    (props.standardCrudRowActions && standardCrudRowActionsOf().length > 0) ||
     props.extraRowActionsOf !== undefined ||
     Boolean(slots.rowActions),
 );
@@ -284,7 +306,7 @@ const tableColumns = computed<RecordQueryListColumn[]>(() => {
   const base =
     props.columns && props.columns.length > 0
       ? recycleBinColumns(props.columns)
-      : recycleBinColumns(columnsFromRuntimeListView(runtimeViews.value, props.uiConfigId));
+      : recycleBinColumns(columnsFromRuntimeListView(runtimeListView.value));
   return mergeColumns(base, props.additionalColumns);
 });
 const dataTableColumns = computed<UiDataTableColumn[]>(() =>
@@ -320,8 +342,8 @@ watch(
 );
 
 watch(
-  () => [props.uiConfigId, props.queryTemplateId, props.ready],
-  ([, , ready]) => {
+  () => [props.uiConfigId, props.queryTemplateId, props.querySchema, props.ready],
+  ([, , , ready]) => {
     pageNum.value = 1;
     if (ready) {
       void loadSchemaAndRecords();
@@ -365,11 +387,13 @@ async function loadSchemaAndRecords() {
   loading.value = true;
   descriptorLoadError.value = false;
   try {
-    runtimeViews.value = await loadRuntimeViews();
-    const nextSchema = await props.context.crud.querySchema({
-      uiConfigId: props.uiConfigId,
-      queryTemplateId: props.queryTemplateId,
-    });
+    runtimeListView.value = await loadRuntimeListView();
+    const nextSchema =
+      props.querySchema ??
+      (await props.context.crud.querySchema({
+        uiConfigId: props.uiConfigId,
+        queryTemplateId: props.queryTemplateId,
+      }));
     if (requestSeq !== schemaRequestSeq) {
       return;
     }
@@ -420,13 +444,13 @@ async function loadSchemaAndRecords() {
   }
 }
 
-async function loadRuntimeViews(): Promise<ResolvedViewDescriptor[]> {
+async function loadRuntimeListView(): Promise<ResolvedViewDescriptor | undefined> {
   if (props.columns && props.columns.length > 0) {
-    return [];
+    return undefined;
   }
   try {
     const runtimeContext = await props.context.runtime.ready;
-    return runtimeContext.uiDescriptor?.views ?? [];
+    return runtimeContext.uiDescriptor?.page?.list?.fields;
   } catch (cause) {
     descriptorLoadError.value = true;
     throw cause;
@@ -474,6 +498,7 @@ async function loadRecords(updateLoading = true) {
       return;
     }
     records.value = response.records;
+    preloadRecordActionAvailability(response.records);
     selectedRowKeys.value = selectedRowKeys.value.filter((key) =>
       response.records.some((record) => recordKey(record) === String(key)),
     );
@@ -510,6 +535,9 @@ function buildQueryRequest(): WebQueryRequest {
     conditions: activeConditions.value,
     sorts: defaultSorts(),
   };
+  if (!props.pageable) {
+    delete request.page;
+  }
   if (props.uiConfigId) {
     request.uiConfigId = props.uiConfigId;
   }
@@ -569,8 +597,11 @@ function clearSelection() {
 }
 
 function resolveRow(record: QueryListRecord): QueryListRow {
-  const configuredActions = rowActions(record).map((action) => rowActionWithState(record, action));
-  const actions = resolveRecordActions(props.context, configuredActions);
+  const recordId = recordActionRecordId(record);
+  const configuredActions = rowActions(record)
+    .map((action) => rowActionWithState(record, action))
+    .map((action) => recordActionAvailabilityState(action, recordId));
+  const actions = resolveRecordActions(props.context, configuredActions, false, recordId);
   const primaryActions = actions.filter((action, index) => index === 0 || action.pinned === true);
   const secondaryActions = actions.filter((action, index) => index !== 0 && action.pinned !== true);
   return {
@@ -582,13 +613,55 @@ function resolveRow(record: QueryListRecord): QueryListRow {
   };
 }
 
+function recordActionRecordId(record: QueryListRecord) {
+  const id = record.id;
+  return typeof id === 'string' && id.trim() ? id.trim() : undefined;
+}
+
+function recordActionAvailabilityState(
+  action: RecordActionItem,
+  recordId: string | undefined,
+): RecordActionItem {
+  if (!recordId || !action.actionCode || props.context.runtime.snapshot() === undefined) {
+    return action;
+  }
+  if (props.context.recordActionsSnapshot(recordId) === undefined) {
+    return {
+      ...action,
+      disabled: true,
+      disabledReason: action.disabledReason ?? '正在校验操作可用性',
+    };
+  }
+  return action;
+}
+
+function preloadRecordActionAvailability(records: QueryListRecord[]) {
+  const recordIds = records.flatMap((record) => {
+    const id = recordActionRecordId(record);
+    return id && rowActions(record).some((action) => action.actionCode != null) ? [id] : [];
+  });
+  if (recordIds.length === 0 || props.context.recordActionsBatch == null) return;
+  void props.context.recordActionsBatch(recordIds).catch(() => {
+    // Keep row mutations disabled when availability cannot be resolved. The
+    // command endpoint remains authoritative if the UI later retries.
+  });
+}
+
 function rowActions(record: QueryListRecord): RecordActionItem[] {
   if (props.mode === 'recycleBin') {
     const item = recycleBinItems.get(recordKey(record));
     if (!item) return [];
     return [
       ...(props.context.can('recycleBinRestore') === true
-        ? [{ key: 'restore', actionCode: 'recycleBinRestore', title: '恢复', disabled: !item.restorable }]
+        ? [
+            {
+              key: 'restore',
+              actionCode: 'recycleBinRestore',
+              title: '恢复',
+              disabled: !item.restorable,
+              disabledReason: recycleBinRestoreUnavailableReason(item),
+            },
+          ]
         : []),
       ...(item.purgeable && props.context.can('recycleBinPurge') === true
         ? [{ key: 'purge', actionCode: 'recycleBinPurge', title: '彻底删除', danger: true }]
@@ -609,11 +682,28 @@ function rowActionWithState(record: QueryListRecord, action: RecordActionItem): 
 }
 
 function standardCrudRowActionsOf(): RecordActionItem[] {
-  return [
-    { key: 'view', title: '查看' },
-    { key: 'edit', actionCode: 'update', title: '修改', iconName: 'edit' },
-    { key: 'delete', actionCode: 'delete', title: '删除', iconName: 'delete', danger: true },
+  const actions: Array<RecordActionItem & { key: StandardCrudRowActionKey }> = [
+    { key: 'view', actionCode: props.standardCrudRowActionCodes.view ?? 'view', title: '查看' },
+    {
+      key: 'edit',
+      actionCode: props.standardCrudRowActionCodes.edit ?? 'update',
+      title: '修改',
+      iconName: 'edit',
+    },
+    {
+      key: 'delete',
+      actionCode: props.standardCrudRowActionCodes.delete ?? 'delete',
+      title: '删除',
+      iconName: 'delete',
+      danger: true,
+    },
   ];
+  return actions.filter(
+    (action) =>
+      props.standardCrudRowActionKeys.includes(action.key) &&
+      action.actionCode != null &&
+      props.context.can(action.actionCode) === true,
+  );
 }
 
 function rowActionDropdownItem(action: ResolvedRecordActionItem): UiDropdownItem {
@@ -713,12 +803,10 @@ function cellComponentFor(key: string) {
 }
 
 function handleTableRowClick(row: QueryListRow) {
-  if (props.mode === 'recycleBin') return;
   emit('select', row.record);
 }
 
 function handleTableRowDblclick(row: QueryListRow, event: MouseEvent) {
-  if (props.mode === 'recycleBin') return;
   emit('rowDblclick', row.record, event);
 }
 
@@ -955,14 +1043,7 @@ function statusCellValue(record: QueryListRecord, column: RecordQueryListColumn 
   return record[column?.key ?? ''] !== false;
 }
 
-function columnsFromRuntimeListView(
-  views: ResolvedViewDescriptor[] | undefined,
-  uiConfigId?: string,
-): RecordQueryListColumn[] {
-  const view =
-    views?.find((item) => item.viewKind === 'LIST' && item.sourceUiConfigId === uiConfigId) ??
-    views?.find((item) => item.viewKind === 'LIST' && item.viewCode === 'default_list') ??
-    views?.find((item) => item.viewKind === 'LIST');
+function columnsFromRuntimeListView(view: ResolvedViewDescriptor | undefined): RecordQueryListColumn[] {
   if (!view) {
     return [];
   }
@@ -1011,8 +1092,10 @@ function goPage(nextPage: number) {
 
 function handlePageSizeChange(value: OptionValue | OptionValueList | null) {
   const pageSizeValue = singleOptionValue(value);
-  pageSize.value =
+  const nextPageSize =
     typeof pageSizeValue === 'number' ? pageSizeValue : Number(pageSizeValue ?? props.pageSize);
+  pageSize.value = nextPageSize;
+  emit('pageSizeChange', nextPageSize);
   pageNum.value = 1;
   void loadRecords();
 }
@@ -1054,6 +1137,7 @@ defineExpose({ clearSelection, refresh });
         />
         <slot name="toolbarActions" :refresh="refresh" />
         <UiSearchInput
+          v-if="queryable"
           :value="quickSearchKeyword"
           class="record-query-list-search"
           :disabled="quickSearchDisabled"
@@ -1062,6 +1146,7 @@ defineExpose({ clearSelection, refresh });
           @search="submitQuickSearch"
         />
         <UiButton
+          v-if="queryable"
           class="record-query-list-advanced"
           :class="{ 'is-selected': conditionsExpanded }"
           type="text"
@@ -1249,6 +1334,9 @@ defineExpose({ clearSelection, refresh });
                 type="text"
                 :disabled="action.disabled"
                 :icon-name="action.iconName"
+                :title="
+                  action.disabled ? (action.disabledReason ?? action.reason ?? action.title) : action.title
+                "
                 @click="handlePrimaryRowAction(record as QueryListRow, action, $event)"
               >
                 {{ action.title }}
@@ -1288,7 +1376,7 @@ defineExpose({ clearSelection, refresh });
         :count="recycleBinState.summaryTotal.value"
         @click="emit('modeChange', mode === 'normal' ? 'recycleBin' : 'normal')"
       />
-      <div class="record-query-list-pagination-controls">
+      <div v-if="pageable" class="record-query-list-pagination-controls">
         <span>共 {{ total }} 条</span>
         <UiSelect
           class="record-query-list-page-size"
@@ -1298,13 +1386,21 @@ defineExpose({ clearSelection, refresh });
           :disabled="queryActionsDisabled"
           @update:value="handlePageSizeChange"
         />
-        <UiButton :disabled="queryActionsDisabled || pageNum <= 1" @click="goPage(pageNum - 1)">
-          上一页
-        </UiButton>
+        <UiButton
+          aria-label="上一页"
+          title="上一页"
+          icon-name="left"
+          :disabled="queryActionsDisabled || pageNum <= 1"
+          @click="goPage(pageNum - 1)"
+        />
         <span>第 {{ pageNum }} / {{ pages }} 页</span>
-        <UiButton :disabled="queryActionsDisabled || pageNum >= pages" @click="goPage(pageNum + 1)">
-          下一页
-        </UiButton>
+        <UiButton
+          aria-label="下一页"
+          title="下一页"
+          icon-name="right"
+          :disabled="queryActionsDisabled || pageNum >= pages"
+          @click="goPage(pageNum + 1)"
+        />
       </div>
     </footer>
   </main>
@@ -1320,11 +1416,12 @@ defineExpose({ clearSelection, refresh });
     'body'
     'pagination';
   align-content: stretch;
-  gap: 12px;
+  gap: var(--muyun-management-panel-content-gap, 8px);
   min-width: 0;
   min-height: 0;
   height: 100%;
-  padding: 14px;
+  padding: var(--muyun-management-panel-padding-block, 10px)
+    var(--muyun-management-panel-padding-inline, 12px);
   border: 1px solid var(--muyun-border);
   border-radius: 8px;
   background: var(--muyun-surface);

@@ -640,7 +640,7 @@ class DynamicRecordDaoTest {
     }
 
     @Test
-    void shouldSkipChildDependentFormulaRulesOnUpdateWhenChildRowsAreNotSubmitted() {
+    void shouldUsePersistedChildRowsForEquivalentPreviewAndUpdateWhenChildRowsAreNotSubmitted() {
         EntityDefinition invoice = new EntityDefinition(
                 "invoice",
                 "sales_invoice",
@@ -659,10 +659,19 @@ class DynamicRecordDaoTest {
                 .relations(List.of(EntityRelationDefinition.child("items", "invoice", "invoice_line", "invoiceId")))
                 .build();
         DynamicRecord record = new DynamicRecord(invoice).setValue("totalAmount", BigDecimal.valueOf(100));
+        record.setId("invoice-1");
+        DynamicRecord existingLine = new DynamicRecord(line).setValue("lineAmount", BigDecimal.valueOf(35));
+        existingLine.setId("line-1");
+        DynamicFormulaRuntime runtime = new DynamicFormulaRuntime("sales.invoice", invoice, module);
+        DynamicFormulaPreviewResult preview = runtime.preview(record.copy(), new DynamicRecord(invoice),
+                Map.of("items", List.of(existingLine)));
 
-        new DynamicFormulaRuntime("sales.invoice", invoice, module).beforeUpdate(record, null, Map.of());
+        runtime
+                .beforeUpdate(record, null, Map.of("items", List.of(existingLine)));
 
-        assertThat((BigDecimal) record.getValue("totalAmount")).isEqualByComparingTo("100");
+        assertThat((BigDecimal) preview.record().getValue("totalAmount")).isEqualByComparingTo("35");
+        assertThat(preview.changedFields()).containsExactly("totalAmount");
+        assertThat((BigDecimal) record.getValue("totalAmount")).isEqualByComparingTo("35");
     }
 
     @Test
@@ -732,7 +741,42 @@ class DynamicRecordDaoTest {
     }
 
     @Test
-    void shouldOnlyRunChildDependentFormulaWhenItsRelationIsSubmitted() {
+    void shouldKeepUnsubmittedPersistedRowsWhenPartiallyUpdatingChildrenForAggregateFormula() {
+        EntityDefinition invoice = new EntityDefinition(
+                "invoice",
+                "sales_invoice",
+                "Invoice",
+                List.of(FieldDefinition.decimal("totalAmount", "Total Amount").column("total_amount").precision(18, 2))
+        ).withFormulaRules(new EntityFormulaRuleDefinition("totalAmountCalc",
+                "{totalAmount} = SUM({items.lineAmount})"));
+        EntityDefinition line = new EntityDefinition(
+                "invoice_line",
+                "sales_invoice_line",
+                "Invoice Line",
+                List.of(FieldDefinition.decimal("lineAmount", "Line Amount").column("line_amount").precision(18, 2))
+        );
+        ModuleDefinition module = ModuleDefinition.builder("sales.invoice", "Invoice")
+                .entities(List.of(invoice, line))
+                .relations(List.of(EntityRelationDefinition.child("items", "invoice", "invoice_line", "invoiceId")))
+                .build();
+        DynamicRecord persistedFirst = new DynamicRecord(line).setValue("lineAmount", BigDecimal.TEN);
+        persistedFirst.setId("line-1");
+        DynamicRecord persistedSecond = new DynamicRecord(line).setValue("lineAmount", BigDecimal.valueOf(20));
+        persistedSecond.setId("line-2");
+        DynamicRecord changedFirst = new DynamicRecord(line).setValue("lineAmount", BigDecimal.valueOf(15));
+        changedFirst.setId("line-1");
+        DynamicRecord record = new DynamicRecord(invoice).setValue("totalAmount", BigDecimal.ZERO);
+        record.setPartialChildren("items", List.of(changedFirst));
+
+        new DynamicFormulaRuntime("sales.invoice", invoice, module)
+                .beforeUpdate(record, null, Map.of("items", List.of(persistedFirst, persistedSecond)));
+
+        assertThat((BigDecimal) record.getValue("totalAmount")).isEqualByComparingTo("35");
+        assertThat((BigDecimal) changedFirst.getValue("lineAmount")).isEqualByComparingTo("15");
+    }
+
+    @Test
+    void shouldCombinePersistedAndSubmittedRelationsWhenUpdatingFormulas() {
         EntityDefinition invoice = new EntityDefinition(
                 "invoice",
                 "sales_invoice",
@@ -767,10 +811,13 @@ class DynamicRecordDaoTest {
         DynamicRecord record = new DynamicRecord(invoice)
                 .setValue("itemTotal", BigDecimal.valueOf(100))
                 .setValue("attachmentTotal", BigDecimal.ZERO);
+        DynamicRecord persistedItem = new DynamicRecord(item).setValue("lineAmount", BigDecimal.valueOf(100));
+        persistedItem.setId("item-1");
         DynamicRecord attachmentRow = new DynamicRecord(attachment).setValue("fileSize", BigDecimal.valueOf(8));
         record.setChildren("attachments", List.of(attachmentRow));
 
-        new DynamicFormulaRuntime("sales.invoice", invoice, module).beforeUpdate(record, null, Map.of());
+        new DynamicFormulaRuntime("sales.invoice", invoice, module)
+                .beforeUpdate(record, null, Map.of("items", List.of(persistedItem)));
 
         assertThat((BigDecimal) record.getValue("itemTotal")).isEqualByComparingTo("100");
         assertThat((BigDecimal) record.getValue("attachmentTotal")).isEqualByComparingTo("8");
@@ -813,6 +860,57 @@ class DynamicRecordDaoTest {
 
         assertThat((BigDecimal) record.getValue("totalAmount")).isEqualByComparingTo("40");
         assertThat((BigDecimal) payloadLine.getValue("lineAmount")).isEqualByComparingTo("40");
+    }
+
+    @Test
+    void shouldRejectChildFormulaWritesWithoutACompleteRelationPayload() {
+        EntityDefinition invoice = new EntityDefinition(
+                "invoice",
+                "sales_invoice",
+                "Invoice",
+                List.of(FieldDefinition.decimal("totalAmount", "Total Amount").column("total_amount").precision(18, 2))
+        ).withFormulaRules(new EntityFormulaRuleDefinition("totalAmountCalc",
+                "{totalAmount} = SUM({items.lineAmount} = {items.quantity} * {items.price})"));
+        EntityDefinition line = new EntityDefinition(
+                "invoice_line",
+                "sales_invoice_line",
+                "Invoice Line",
+                List.of(
+                        FieldDefinition.decimal("quantity", "Quantity").precision(18, 2),
+                        FieldDefinition.decimal("price", "Price").precision(18, 2),
+                        FieldDefinition.decimal("lineAmount", "Line Amount").column("line_amount").precision(18, 2)
+                )
+        );
+        ModuleDefinition module = ModuleDefinition.builder("sales.invoice", "Invoice")
+                .entities(List.of(invoice, line))
+                .relations(List.of(EntityRelationDefinition.child("items", "invoice", "invoice_line", "invoiceId")))
+                .build();
+        DynamicRecord persistedLine = new DynamicRecord(line)
+                .setValue("quantity", BigDecimal.valueOf(2))
+                .setValue("price", BigDecimal.TEN)
+                .setValue("lineAmount", BigDecimal.valueOf(20));
+        persistedLine.setId("line-1");
+        DynamicRecord unsubmittedLine = new DynamicRecord(line)
+                .setValue("quantity", BigDecimal.ONE)
+                .setValue("price", BigDecimal.TEN)
+                .setValue("lineAmount", BigDecimal.TEN);
+        unsubmittedLine.setId("line-2");
+        DynamicFormulaRuntime runtime = new DynamicFormulaRuntime("sales.invoice", invoice, module);
+
+        DynamicRecord omitted = new DynamicRecord(invoice).setValue("totalAmount", BigDecimal.ZERO);
+        assertThatThrownBy(() -> runtime.beforeUpdate(omitted, null, Map.of("items", List.of(persistedLine))))
+                .isInstanceOfSatisfying(DynamicFormulaException.class, exception ->
+                        assertThat(exception.firstError().code())
+                                .isEqualTo("FORMULA_PARTIAL_CHILD_WRITE_UNSUPPORTED"));
+
+        DynamicRecord partialLine = new DynamicRecord(line).setValue("quantity", BigDecimal.valueOf(3));
+        partialLine.setId("line-1");
+        DynamicRecord partial = new DynamicRecord(invoice).setValue("totalAmount", BigDecimal.ZERO);
+        partial.setPartialChildren("items", List.of(partialLine));
+        assertThatThrownBy(() -> runtime.beforeUpdate(partial, null,
+                Map.of("items", List.of(persistedLine, unsubmittedLine))))
+                .isInstanceOfSatisfying(DynamicFormulaException.class, exception ->
+                        assertThat(exception.firstError().fieldPath()).isEqualTo("items.lineAmount"));
     }
 
     @Test

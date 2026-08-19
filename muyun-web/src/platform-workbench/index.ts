@@ -2,6 +2,7 @@ export { default as Workbench } from './Workbench.vue';
 export { default as WorkbenchMenu } from './WorkbenchMenu.vue';
 export { default as WorkbenchOutlet } from './WorkbenchOutlet.vue';
 export { default as WorkspaceViewOutlet } from './WorkspaceViewOutlet.vue';
+export { syncModulePageWorkspaceViewContributions } from './modulePageWorkspaceViews';
 export { provideWorkbenchNavigation, useWorkbenchNavigation } from './workbenchNavigation';
 export type { OpenRouteOptions, WorkbenchNavigation, WorkbenchPageOpenResult } from './workbenchNavigation';
 export { routeUrlWithOpenOptions } from './workbenchNavigation';

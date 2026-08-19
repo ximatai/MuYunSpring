@@ -32,6 +32,8 @@ const props = withDefaults(
     context: ModuleContext<TreeRecordBase>;
     selectedId?: string;
     reloadKey?: number;
+    /** Descriptor-owned criteria from upstream navigator levels. */
+    externalQueryValues?: Record<string, unknown>;
     keyword?: string;
     searchMode?: TreeRecordSearchMode;
     searchTrigger?: 'inline' | 'external';
@@ -50,6 +52,7 @@ const props = withDefaults(
   {
     selectedId: undefined,
     reloadKey: undefined,
+    externalQueryValues: undefined,
     keyword: undefined,
     searchMode: 'always',
     searchTrigger: 'inline',
@@ -69,6 +72,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   select: [record: TreeRecordBase];
+  deselect: [];
   action: [action: UiRecordInlineAction, record: TreeRecordBase];
   loaded: [records: TreeRecordBase[]];
 }>();
@@ -78,6 +82,7 @@ const localKeyword = ref('');
 const searchExpanded = ref(false);
 const tree = ref<WebTreeNode<TreeRecordBase>[]>([]);
 const expandedKeys = ref<string[]>([]);
+let treeRequestSeq = 0;
 
 const currentKeyword = computed(() => props.keyword ?? localKeyword.value);
 const effectiveKeyword = computed(() =>
@@ -113,6 +118,12 @@ watch(
   () => loadTree(),
 );
 
+watch(
+  () => props.externalQueryValues,
+  () => loadTree(),
+  { deep: true },
+);
+
 watch(effectiveKeyword, () => {
   if (effectiveKeyword.value.trim()) {
     expandedKeys.value = filteredTree.value.flatMap(expandAllTreeRecords);
@@ -120,21 +131,34 @@ watch(effectiveKeyword, () => {
 });
 
 async function loadTree() {
+  const requestSeq = ++treeRequestSeq;
   loading.value = true;
   try {
     await props.context.runtime.ready;
     const treeCapability = props.context.abilities.tree();
-    const response = await treeCapability.tree();
+    const response = await treeCapability.tree(
+      props.externalQueryValues && Object.keys(props.externalQueryValues).length > 0
+        ? { externalQueryValues: props.externalQueryValues }
+        : undefined,
+    );
+    if (requestSeq !== treeRequestSeq) {
+      return;
+    }
     tree.value = response.records;
     expandedKeys.value = firstTwoTreeLevels(response.records);
     emit('loaded', flattenTreeRecords(response.records));
   } catch (cause) {
+    if (requestSeq !== treeRequestSeq) {
+      return;
+    }
     tree.value = [];
     expandedKeys.value = [];
     emit('loaded', []);
     presentPlatformError(cause, { source: 'tree-record-explorer', phase: 'load' });
   } finally {
-    loading.value = false;
+    if (requestSeq === treeRequestSeq) {
+      loading.value = false;
+    }
   }
 }
 
@@ -150,6 +174,10 @@ function matchesKeyword(record: TreeRecordBase, normalized: string) {
 }
 
 function handleSelect(node: UiTreeNode) {
+  if (String(node.key) === props.selectedId) {
+    emit('deselect');
+    return;
+  }
   const record = records.value.find((item) => item.id === node.key);
   if (record) {
     emit('select', record);
@@ -233,6 +261,7 @@ defineExpose({ openSearch, toggleSearch });
       :nodes="nodes"
       :selected-key="selectedId"
       @select="handleSelect"
+      @deselect="emit('deselect')"
       @action="handleAction"
     />
   </div>

@@ -89,6 +89,48 @@ export interface WebUserNotification {
   targetSessionId?: string;
 }
 
+/** Ephemeral business reminder. It is not a persisted inbox or an acknowledgement record. */
+export interface WebBusinessNotification {
+  id: string;
+  code: string;
+  title: string;
+  subtitle?: string;
+  content: string;
+  dismissible: boolean;
+  actions: WebBusinessNotificationAction[];
+}
+
+export type WebBusinessNotificationAction =
+  | WebBusinessNotificationNavigateAction
+  | WebBusinessNotificationRecordAction;
+
+export interface WebBusinessNotificationNavigateAction {
+  kind: 'navigate';
+  key: string;
+  label: string;
+  moduleAlias: string;
+  recordId?: string;
+  pageMode?: 'LIST' | 'FORM' | 'DETAIL';
+  query?: Record<string, string>;
+  placement?: 'leading' | 'trailing';
+  dismissOnSuccess: boolean;
+}
+
+/** A standard record action implemented by the owning business module. */
+export interface WebBusinessNotificationRecordAction {
+  kind: 'record';
+  key: string;
+  label: string;
+  moduleAlias: string;
+  recordId: string;
+  actionCode: string;
+  arguments?: Record<string, unknown>;
+  danger?: boolean;
+  confirmation?: string;
+  placement?: 'leading' | 'trailing';
+  dismissOnSuccess: boolean;
+}
+
 export interface WebBusinessRealtimeEvent {
   type: string;
   moduleAlias: string;
@@ -110,10 +152,14 @@ export interface WebTreeNode<T> {
  */
 export interface RecordInlineAction {
   key: string;
+  /** Standard record action whose availability is resolved for the rendered record. */
+  actionCode?: string;
   title: string;
   iconName?: RecordInlineActionIconName;
   showLabel?: boolean;
   disabled?: boolean;
+  /** Explains why a visible inline action is unavailable. */
+  disabledReason?: string;
   danger?: boolean;
 }
 
@@ -192,6 +238,12 @@ export interface TenantBranding {
   subtitle?: string;
 }
 
+/** Public branding facts for a tenant locked by the unauthenticated login URL. */
+export interface TenantLoginContext {
+  tenantId: string;
+  branding?: TenantBranding;
+}
+
 export interface LoginRequest {
   tenantId?: string;
   username: string;
@@ -244,8 +296,119 @@ export interface PageBootstrap {
   resolvedConfig: {
     uiFields: unknown[];
     queryItems: unknown[];
+    /**
+     * Permission-scoped detail interaction blocks. The standard runner only
+     * executes the explicitly supported block kinds; it never resolves a
+     * backend block to an arbitrary client component or handler.
+     */
+    actionBlocks?: PageBootstrapActionBlock[];
+    /** Server-resolved detail relations. Only relation.queryContract is executable by a Web runner. */
+    associationBlocks?: PageBootstrapAssociationBlock[];
   };
   openApiPath: string;
+}
+
+/** A server-resolved action entry declared by a published detail UI config. */
+export interface PageBootstrapActionBlock {
+  uiConfigId?: string;
+  type: 'action' | 'dialog' | 'localEdit';
+  key?: string;
+  actionCode: string;
+  title?: string;
+  position?: string;
+  targetUiConfigId?: string;
+  submitPath?: string;
+  refreshStrategy?: {
+    list?: boolean;
+    detail?: boolean;
+  };
+  width?: number;
+  height?: number;
+  localEditForm?: PageBootstrapLocalEditForm;
+}
+
+export interface PageBootstrapLocalEditForm {
+  uiConfigId: string;
+  fields: PageBootstrapLocalEditField[];
+  submitContract: {
+    recordRequired: true;
+    recordVersionRequired: true;
+    fieldNamesRequired: true;
+    uiConfigIdPayloadKey: 'uiConfigId';
+  };
+}
+
+export interface PageBootstrapLocalEditField {
+  relationAlias?: string;
+  fieldName: string;
+  fieldTitle?: string;
+  fieldUiControlAlias?: string;
+  visible?: boolean;
+  readOnly?: boolean;
+  requiredOverride?: boolean;
+  placeholder?: string;
+  columnSpan?: number;
+}
+
+export interface PageBootstrapAssociationBlock {
+  title?: string;
+  relation?: ResolvedDetailRelationDescriptor;
+}
+
+/** Source-neutral detail-relation descriptor. A declaration without queryContract is intentionally inert. */
+export interface ResolvedDetailRelationDescriptor {
+  code: string;
+  title?: string;
+  readOnly: boolean;
+  sourceModuleAlias: string;
+  sourceEntityAlias: string;
+  targetModuleAlias: string;
+  targetEntityAlias: string;
+  parentBinding: string;
+  queryContract?: ResolvedDetailRelationQueryContract;
+  refreshOnDetailReload: boolean;
+}
+
+export interface ResolvedDetailRelationQueryContract {
+  queryPath: string;
+  targetUiConfigId?: string;
+  queryTemplateId?: string;
+  pageable: boolean;
+  queryable: boolean;
+  listProjection?: ResolvedDetailRelationListProjection;
+  /** Source-owned query schema; the relation runner must not load target-module schema directly. */
+  querySchema?: QuerySchema;
+}
+
+/** Server-issued list columns, not a raw target UI config or a client-side inferred view. */
+export interface ResolvedDetailRelationListProjection {
+  uiConfigId: string;
+  fields: ResolvedDetailRelationListField[];
+}
+
+export interface ResolvedDetailRelationListField {
+  fieldName: string;
+  title?: string;
+  fieldForm?: string;
+  fieldUiControlAlias?: string;
+  width?: number;
+  align?: 'left' | 'center' | 'right' | string;
+  maxDisplayLines?: number;
+}
+
+export function hasExecutableDetailRelationQueryContract(
+  relation: ResolvedDetailRelationDescriptor | undefined,
+): relation is ResolvedDetailRelationDescriptor & {
+  queryContract: ResolvedDetailRelationQueryContract & {
+    listProjection: ResolvedDetailRelationListProjection;
+  };
+} {
+  return (
+    relation?.queryContract?.queryPath != null &&
+    relation.queryContract.queryPath.trim().length > 0 &&
+    relation.queryContract.listProjection != null &&
+    relation.queryContract.querySchema != null
+  );
 }
 
 export type MenuEntryType = 'module' | 'route' | 'link';
@@ -254,7 +417,6 @@ export interface MenuRecord extends StandardEnabledTreeEntity {
   id: string;
   title: string;
   schemeId: string;
-  /** Read-only projection of the selected module entry; absent data is invalid for route registration. */
   entryType?: MenuEntryType;
   openMode?: MenuOpenMode;
   moduleAlias?: string;
@@ -432,13 +594,12 @@ export type PageDescriptor =
   | ExternalLinkPageDescriptor;
 
 export interface MenuTab {
-  /** The immutable page-instance identifier used by the router cache. */
-  instanceKey: string;
-  /** Tab-bar identity. Menu tabs may use a stable menu key while their page instance remains separate. */
+  /** Immutable page-instance key used by route restoration and cache isolation. */
+  instanceKey?: string;
   key: string;
   title: string;
-  /** The exact browser location that restores this page instance. */
-  fullPath: string;
+  /** Exact browser address used to restore this tab. */
+  fullPath?: string;
   target?: MenuNavigationTarget;
   pageDescriptor?: PageDescriptor;
   restoreState?: TabRestoreState;
@@ -555,13 +716,27 @@ export interface UiRule<T> {
   disabledHint?: string;
 }
 
-/**
- * A platform-owned portable Boolean predicate evaluated against the current record draft.
- * The current grammar supports `PRESENT({fieldName})`, `!()` negation, and `&&` conjunction of PRESENT terms.
- * It is deliberately smaller than the server FormulaEngine because this contract must run in every Web client.
- */
+/** A FormulaEngine expression together with its server-issued WEB_UI AST. */
 export interface UiFormula {
   expression: string;
+  program?: FormulaProgram;
+}
+
+/** Versioned program compiled by FormulaEngine. The browser executes it locally and never parses expression. */
+export interface FormulaProgram {
+  schemaVersion: number;
+  profile: 'WEB_UI' | 'FORM_COMPUTE';
+  root: FormulaNode;
+  referencedFields: string[];
+}
+
+/** Source-neutral FormulaEngine AST node. Profiles decide which nodes can execute. */
+export interface FormulaNode {
+  kind: 'VALUE' | 'FIELD' | 'UNARY' | 'BINARY' | 'FUNCTION' | 'ASSIGN';
+  operator?: string;
+  field?: string;
+  value?: string | number | boolean | null;
+  arguments: FormulaNode[];
 }
 
 export interface ViewFieldRef {
@@ -585,6 +760,8 @@ export interface ViewFieldDefinition {
   booleanStatus?: BooleanStatusPresentation;
   /** Maximum visible lines for text cells in standard list views. Omitted uses the platform default of one line. */
   maxDisplayLines?: number;
+  /** User-facing title for the standard tree root sentinel in a detail field. */
+  treeRootTitle?: string;
 }
 
 /** Semantic group that owns a contiguous set of standard-form fields. */
@@ -632,6 +809,7 @@ export interface ResolvedViewFieldDescriptor {
   align?: 'left' | 'center' | 'right' | string;
   fixed?: boolean;
   booleanStatus?: BooleanStatusPresentation;
+  treeRootTitle?: string;
   option?: ResolvedOptionFieldDescriptor;
   reference?: ResolvedReferenceFieldDescriptor;
   referenceSummary?: ResolvedReferenceSummaryFieldDescriptor;
@@ -663,6 +841,8 @@ export interface ResolvedOptionFieldDescriptor {
   binding: OptionBindingDescriptor;
   selectionMode: 'SINGLE' | 'MULTIPLE';
   titleField?: string;
+  /** Immutable option facts (currently CodeTitleEnum); scope-sensitive dictionaries stay runtime data. */
+  inlineItems?: OptionItemDescriptor[];
 }
 
 export interface OptionItemDescriptor {
@@ -682,6 +862,16 @@ export interface ViewDefinition {
   formGroups?: FormGroupDescriptor[];
 }
 
+/** Server-issued deterministic main-form calculation. The coordinator is introduced separately. */
+export interface ResolvedFormComputeRuleDescriptor {
+  code: string;
+  program: FormulaProgram;
+  targetField: string;
+  targetValueType: ViewFieldValueType;
+  triggerFields: string[];
+  writePolicy: 'ALWAYS';
+}
+
 export interface ResolvedViewDescriptor {
   viewCode: string;
   viewKind: ModuleViewKind;
@@ -690,8 +880,92 @@ export interface ResolvedViewDescriptor {
   fields: ResolvedViewFieldDescriptor[];
   /** Dynamic-page provenance used to select the view configured by a menu entry. */
   sourceUiConfigId?: string;
-  scopedListWorkspace?: ResolvedScopedListWorkspaceDescriptor;
   formGroups?: FormGroupDescriptor[];
+  formComputeRules?: ResolvedFormComputeRuleDescriptor[];
+}
+
+export type ModulePageTemplate = 'FLAT_MANAGEMENT' | 'LIST_DETAIL_CARD' | 'TREE_MANAGEMENT';
+
+export interface ResolvedPageExplorerDescriptor {
+  title: string;
+  searchPlaceholder: string;
+  emptyDescription: string;
+  recordLabel: string;
+  fallbackTitle: string;
+  titleField: string;
+  secondaryField?: string;
+  mutedWhenDisabled: boolean;
+}
+
+export interface ResolvedPageNavigatorDescriptor {
+  levels: ResolvedPageNavigatorLevelDescriptor[];
+  contextBindings: ResolvedPageContextBindingDescriptor[];
+}
+
+export interface ResolvedPageNavigatorLevelDescriptor {
+  key: string;
+  kind: 'TREE' | 'MICRO_LIST';
+  sourceModuleAlias: string;
+  title: string;
+  searchPlaceholder: string;
+  /** Presentation policy applied after the source has authoritatively loaded. */
+  singleResultPolicy?: 'NONE' | 'AUTO_SELECT' | 'AUTO_SELECT_AND_HIDE';
+  /** Explicit initial selection policy; omitted means the navigator starts unselected. */
+  initialSelectionPolicy?: 'NONE' | 'FIRST_RECORD';
+  /** Session-derived source scope, enforced by the source reference transport. */
+  sourceScope?: 'NONE' | 'CURRENT_TENANT';
+  /** When present, the navigator source exposes its own standard CRUD affordances in place. */
+  management?: ResolvedPageNavigatorManagementDescriptor;
+}
+
+export interface ResolvedPageContextBindingDescriptor {
+  source: 'SESSION' | 'NAVIGATOR';
+  sourceKey: string;
+  target: 'LIST_QUERY' | 'NAVIGATOR_QUERY' | 'FORM_DEFAULT' | 'PICKER_QUERY' | 'MUTATION_CONSTRAINT';
+  targetKey: string;
+  targetNavigatorLevelKey?: string;
+  /** Field name of the record picker which receives this query context. */
+  targetPickerFieldKey?: string;
+}
+
+export interface ResolvedPageNavigatorManagementDescriptor {
+  /** Optional named source-module form; the default editor is used when omitted. */
+  editorSurface?: string;
+  /**
+   * Presentation allow-list for standard in-place source management. Omitted
+   * descriptors retain the legacy create, update and delete affordances.
+   */
+  actions?: Array<'CREATE' | 'UPDATE' | 'DELETE'>;
+}
+
+export interface ResolvedPageListDescriptor {
+  searchPlaceholder: string;
+  fields: ResolvedViewDescriptor;
+}
+
+export interface ResolvedPageDetailDescriptor {
+  emptyDescription: string;
+  createTitle: string;
+  /** Whether the standard immutable system metadata section is displayed. */
+  showSystemInfo?: boolean;
+  display?: ResolvedViewDescriptor;
+  /** Omitted by an editorless page; standard mutation actions remain governed by the runtime action contract. */
+  editor?: ResolvedViewDescriptor;
+  /** Stable client registration key for an independently restorable detail workbench view. */
+  workspaceView?: ResolvedPageDetailWorkspaceViewDescriptor;
+}
+
+export interface ResolvedPageDetailWorkspaceViewDescriptor {
+  type: string;
+}
+
+export interface ResolvedModulePageDescriptor {
+  template: ModulePageTemplate;
+  explorer?: ResolvedPageExplorerDescriptor;
+  navigator?: ResolvedPageNavigatorDescriptor;
+  list?: ResolvedPageListDescriptor;
+  detail: ResolvedPageDetailDescriptor;
+  traits: ('STANDARD_CRUD' | 'ENABLED_STATUS' | 'RECYCLE_BIN' | 'RESPONSIVE_DETAIL_SURFACE')[];
 }
 
 export interface ResolvedUiActionConfirmationDescriptor {
@@ -702,18 +976,6 @@ export interface ResolvedUiActionConfirmationDescriptor {
 export interface ResolvedUiActionDescriptor {
   actionCode: string;
   confirmation?: ResolvedUiActionConfirmationDescriptor;
-}
-
-export interface ResolvedScopedListWorkspaceDescriptor {
-  scopeModuleAlias: string;
-  scopeField: string;
-  queryCriteriaKey: string;
-  scopeTitle: string;
-  scopeSearchPlaceholder: string;
-  /** Scope list items only show a secondary label when the descriptor explicitly enables it. */
-  showScopeItemSubtitle: boolean;
-  createPolicy: 'REQUIRE_SCOPE' | 'ALLOW_UNSCOPED';
-  manageScopeTree?: boolean;
 }
 
 /** Source-neutral runtime fact for one persisted MuYunFileServer field. */
@@ -727,20 +989,28 @@ export interface ResolvedFileReferenceFieldDescriptor {
   readAvailable: boolean;
 }
 
-export interface ModuleUiDefinition {
-  moduleAlias: string;
-  views: ViewDefinition[];
-}
-
 export interface ResolvedModuleUiDescriptor {
   schemaVersion: string;
   moduleAlias: string;
   moduleKind?: 'STATIC' | 'DYNAMIC';
   title?: string;
-  views: ResolvedViewDescriptor[];
   actions?: ResolvedUiActionDescriptor[];
   recordLabelField?: string;
   fileReferences?: ResolvedFileReferenceFieldDescriptor[];
+  page?: ResolvedModulePageDescriptor;
+  defaultEditor?: ResolvedViewDescriptor;
+  editorSurfaces?: ResolvedEditorSurfaceDescriptor[];
+  editorContributions?: ResolvedPageDetailEditorContribution[];
+}
+
+export interface ResolvedEditorSurfaceDescriptor {
+  key: string;
+  editor: ResolvedViewDescriptor;
+}
+
+export interface ResolvedPageDetailEditorContribution {
+  resource: string;
+  editor: ResolvedViewDescriptor;
 }
 
 export interface StandardEntity {

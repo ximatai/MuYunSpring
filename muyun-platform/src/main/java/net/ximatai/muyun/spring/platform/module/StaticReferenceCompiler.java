@@ -26,9 +26,15 @@ public final class StaticReferenceCompiler {
 
     private static String referenceCode(String fieldName) {
         if (fieldName.endsWith("Id") && fieldName.length() > 2) {
-            String base = fieldName.substring(0, fieldName.length() - 2);
-            return base.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase(java.util.Locale.ROOT);
+            return identifierFromReferenceField(fieldName.substring(0, fieldName.length() - 2));
+        }
+        if (fieldName.endsWith("Alias") && fieldName.length() > "Alias".length()) {
+            return identifierFromReferenceField(fieldName.substring(0, fieldName.length() - "Alias".length()));
         }
         return PlatformNameRules.requireIdentifier(fieldName, "referenceCode");
+    }
+
+    private static String identifierFromReferenceField(String value) {
+        return value.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase(java.util.Locale.ROOT);
     }
 }

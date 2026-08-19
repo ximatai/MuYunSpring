@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { UiActionButton } from '@muyun/vue-ui-antdv';
+import { UiActionButton, type UiSidePanelScope } from '@muyun/vue-ui-antdv';
 import RecordDetailDrawer from './RecordDetailDrawer.vue';
 import RecordExternalChangeNotice from './RecordExternalChangeNotice.vue';
 import type { DrawerPromotion } from './drawerPromotion';
@@ -11,10 +11,10 @@ const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
-    container: HTMLElement | null;
-    /** Secondary business identity rendered by the platform detail header. */
+    container?: HTMLElement | null;
     subtitle?: string;
     width?: number | string;
+    scope?: UiSidePanelScope;
     mode: string;
     viewMode?: string;
     formModes?: string[];
@@ -38,8 +38,10 @@ const props = withDefaults(
     externalChangeDismissTitle?: string;
   }>(),
   {
+    container: undefined,
     subtitle: undefined,
     width: 520,
+    scope: 'tab',
     viewMode: 'view',
     formModes: () => ['edit', 'create'],
     loading: false,
@@ -65,6 +67,9 @@ const props = withDefaults(
 
 defineSlots<{
   status(): unknown;
+  'title-prefix'(): unknown;
+  'title-actions'(): unknown;
+  'header-actions'(): unknown;
   loading(): unknown;
   error(): unknown;
   externalChangeNotice(): unknown;
@@ -96,13 +101,21 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
     :container="container"
     :subtitle="subtitle"
     :width="width"
+    :scope="scope"
     :close-on-outside="actualCloseOnOutside"
     :close-title="closeTitle"
     :promotion="promotion"
     @close="emit('close')"
   >
-    <template #status>
-      <slot name="status" />
+    <template v-if="$slots['title-prefix']" #title-prefix>
+      <slot name="title-prefix" />
+    </template>
+    <template #status><slot name="status" /></template>
+    <template v-if="$slots['title-actions']" #title-actions>
+      <slot name="title-actions" />
+    </template>
+    <template v-if="$slots['header-actions']" #header-actions>
+      <slot name="header-actions" />
     </template>
     <template v-if="$slots.operation || $slots.viewOperation || editAvailable || saveAvailable" #operation>
       <slot v-if="$slots.operation" name="operation" />
@@ -116,26 +129,20 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
         </UiActionButton>
       </template>
     </template>
-
     <slot />
-
-    <template v-if="loading">
-      <slot name="loading" />
-    </template>
+    <template v-if="loading"><slot name="loading" /></template>
     <template v-else-if="loadFailed">
       <slot name="error">
         <div class="record-mode-drawer-state">
-          <strong>{{ errorTitle }}</strong>
-          <span>{{ errorMessage }}</span>
+          <strong>{{ errorTitle }}</strong
+          ><span>{{ errorMessage }}</span>
           <UiActionButton emphasis="primary" icon-name="reload" @click="emit('retry')">
             {{ retryTitle }}
           </UiActionButton>
         </div>
       </slot>
     </template>
-    <template v-else-if="viewModeActive">
-      <slot name="view" />
-    </template>
+    <template v-else-if="viewModeActive"><slot name="view" /></template>
     <template v-else-if="formModeActive">
       <slot v-if="externallyChanged" name="externalChangeNotice">
         <RecordExternalChangeNotice
@@ -159,7 +166,6 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
   gap: 10px;
   color: var(--muyun-text);
 }
-
 .record-mode-drawer-state span {
   color: var(--muyun-text-muted);
   font-size: 13px;

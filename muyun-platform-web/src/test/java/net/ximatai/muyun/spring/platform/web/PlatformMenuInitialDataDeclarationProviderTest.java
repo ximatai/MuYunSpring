@@ -9,12 +9,14 @@ import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.ability.initialdata.InitialDataAbility;
 import net.ximatai.muyun.spring.iam.web.DepartmentWebController;
 import net.ximatai.muyun.spring.iam.web.EmployeeWebController;
 import net.ximatai.muyun.spring.iam.web.OrganizationWebController;
 import net.ximatai.muyun.spring.iam.web.PasswordPolicyRuleWebController;
 import net.ximatai.muyun.spring.iam.web.PositionCategoryWebController;
+import net.ximatai.muyun.spring.iam.web.PositionWebController;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
@@ -100,8 +102,10 @@ class PlatformMenuInitialDataDeclarationProviderTest {
             assertThat(platformModuleMenu.getId())
                     .isEqualTo("platform.menu.module.platform.module");
             assertThat(platformModuleMenu).satisfies(menu -> {
+                assertThat(menu.getSystemManaged()).isTrue();
                 assertThat(menu.getOpenMode()).isEqualTo(MenuOpenMode.TAB);
                 assertThat(menu.getModuleAlias()).isEqualTo("platform.module");
+                assertThat(menu.getRoute()).isNull();
                 assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
                 assertThat(menu.getTitle()).isEqualTo("模块管理");
                 assertThat(menu.getSortOrder()).isEqualTo(20);
@@ -110,6 +114,28 @@ class PlatformMenuInitialDataDeclarationProviderTest {
                     .extracting(Menu::getModuleAlias)
                     .containsExactly("iam.role");
             assertThat(moduleMenu("platform.hidden")).isNull();
+        }
+    }
+
+    @Test
+    void shouldDisableSystemManagedMenuWhoseCodeContributionWasRemoved() {
+        try (GenericApplicationContext context = context(PlatformModuleWeb.class)) {
+            registerStaticModules(context);
+            initializePlatformMenus(context);
+            Menu stale = new Menu();
+            stale.setId("platform.menu.module.retired");
+            stale.setSchemeId(MenuSchemeService.ADMIN_SCHEME_ID);
+            stale.setParentId(PlatformMenuGroups.MODELING);
+            stale.setTitle("已撤销模块");
+            stale.setEnabled(Boolean.TRUE);
+            stale.setSystemManaged(Boolean.TRUE);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.insert(stale));
+
+            new PlatformMenuContributionReconciliationTask(
+                    menuService, new PlatformMenuInitialDataDeclarationProvider(menuService, context)).run();
+
+            assertThat(menuService.select(stale.getId()).getEnabled()).isFalse();
+            assertThat(moduleMenu("platform.module").getEnabled()).isTrue();
         }
     }
 
@@ -126,8 +152,8 @@ class PlatformMenuInitialDataDeclarationProviderTest {
             assertThat(moduleMenu("iam.password_policy_rule")).satisfies(menu -> {
                 assertThat(menu.getTitle()).isEqualTo("密码管理");
                 assertThat(menu.getParentId()).isEqualTo(PlatformMenuGroups.SECURITY_AUDIT);
-                assertThat(menu.getRoute()).isEqualTo("/platform/security/passwords");
-                assertThat(menu.getPageMode()).isNull();
+                assertThat(menu.getRoute()).isNull();
+                assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
             });
         }
     }
@@ -160,7 +186,7 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     }
 
     @Test
-    void shouldRegisterOrganizationMenuAsRouteModuleEntry() {
+    void shouldRegisterOrganizationMenuAsStandardModuleEntry() {
         try (GenericApplicationContext context = context(OrganizationWebController.class)) {
             registerStaticModules(context);
             initializePlatformMenus(context);
@@ -168,8 +194,8 @@ class PlatformMenuInitialDataDeclarationProviderTest {
             assertThat(moduleMenu("iam.organization")).satisfies(menu -> {
                 assertThat(menu.getOpenMode()).isEqualTo(MenuOpenMode.TAB);
                 assertThat(menu.getModuleAlias()).isEqualTo("iam.organization");
-                assertThat(menu.getRoute()).isEqualTo("/iam/organizations");
-                assertThat(menu.getPageMode()).isNull();
+                assertThat(menu.getRoute()).isNull();
+                assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
             });
         }
     }
@@ -299,8 +325,19 @@ class PlatformMenuInitialDataDeclarationProviderTest {
         assertMenu(ApplicationWebController.class, PlatformMenuGroups.MODELING, "应用管理", 10);
         assertMenu(OrganizationWebController.class, PlatformMenuGroups.IDENTITY, "", 20);
         assertMenu(DepartmentWebController.class, PlatformMenuGroups.IDENTITY, "部门管理", 30);
-        assertMenu(PositionCategoryWebController.class, PlatformMenuGroups.IDENTITY, "岗位管理", 40);
+        assertMenu(PositionWebController.class, PlatformMenuGroups.IDENTITY, "岗位管理", 40);
         assertMenu(EmployeeWebController.class, PlatformMenuGroups.IDENTITY, "职员管理", 50);
+    }
+
+    @Test
+    void shouldDeclareTheCanonicalPositionMenuIdentity() {
+        try (GenericApplicationContext context = context(PositionWebController.class)) {
+            PlatformMenuInitialDataDeclarationProvider provider =
+                    new PlatformMenuInitialDataDeclarationProvider(menuService, context);
+
+            assertThat(provider.declaredMenuIds()).contains("platform.menu.module.iam.position")
+                    .doesNotContain("platform.menu.module.iam.position_category");
+        }
     }
 
     @Test
