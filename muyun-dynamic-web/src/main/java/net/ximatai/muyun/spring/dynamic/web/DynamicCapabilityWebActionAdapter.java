@@ -24,10 +24,8 @@ final class DynamicCapabilityWebActionAdapter {
             throw new PlatformException("dynamic entity does not support capability: SORT");
         }
         TreeSortWebRequest normalized = request == null ? new TreeSortWebRequest(null, null, null) : request;
-        if (operations.describe().capabilities().contains(EntityCapability.TREE.name())) {
-            requireTreeSortInput(normalized);
-            operations.moveInTree(id, normalized.previousId(), normalized.nextId(), normalized.parentId());
-            return 1;
+        if (TreeCapabilityWebActionAdapter.supports(operations)) {
+            return TreeCapabilityWebActionAdapter.moveInTree(operations, id, normalized);
         }
         if (hasText(normalized.parentId())) {
             throw new IllegalArgumentException("sort parentId requires TREE capability");
@@ -41,12 +39,6 @@ final class DynamicCapabilityWebActionAdapter {
             return 1;
         }
         throw new IllegalArgumentException("sort requires previousId or nextId");
-    }
-
-    private static void requireTreeSortInput(TreeSortWebRequest request) {
-        if (!hasText(request.previousId()) && !hasText(request.nextId()) && !hasText(request.parentId())) {
-            throw new IllegalArgumentException("tree sort requires previousId, nextId, or parentId");
-        }
     }
 
     private static boolean hasText(String value) {

@@ -23,6 +23,11 @@ public final class SortCapabilityActionFacet implements CapabilityActionContribu
         return List.of(new PlatformOperationDefinition("sort", "sort", PlatformAction.SORT));
     }
 
+    /** The TREE module owns placement semantics while deliberately reusing SORT's action contract. */
+    public PlatformOperationDefinition treeBridgeOperation() {
+        return new PlatformOperationDefinition("tree", "sort", PlatformAction.SORT);
+    }
+
     @Override
     public Optional<CapabilityEndpointProjection> endpointProjection(PlatformAction action) {
         return action == PlatformAction.SORT

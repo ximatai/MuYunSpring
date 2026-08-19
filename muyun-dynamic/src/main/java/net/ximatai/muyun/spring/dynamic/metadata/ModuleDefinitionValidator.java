@@ -103,16 +103,12 @@ public class ModuleDefinitionValidator {
         int titleFields = 0;
         FieldDefinition sortableField = null;
         FieldDefinition titleField = null;
-        FieldDefinition treeParentField = null;
         FieldDefinition enabledField = null;
         List<FieldDefinition> fields = entity.fields();
         for (FieldDefinition field : entity.fields()) {
             validateField(field);
             requireUnique(fieldCodes, field.code(), "field code");
             requireUnique(columnNames, field.columnName(), "column name");
-            if (PlatformAbilityFields.TREE_PARENT_FIELD.equals(field.fieldName())) {
-                treeParentField = field;
-            }
             if (PlatformAbilityFields.ENABLED_FIELD.equals(field.fieldName())
                     || PlatformAbilityFields.ENABLED_COLUMN.equals(field.columnName())) {
                 enabledField = field;
@@ -141,9 +137,6 @@ public class ModuleDefinitionValidator {
         }
         if (titleFields > 1) {
             throw new ModuleDefinitionException("entity can only have one title field: " + entity.alias());
-        }
-        if (entity.supports(EntityCapability.TREE)) {
-            requireTreeParentField(entity, treeParentField);
         }
         if (titleFields > 0 && !entity.supports(EntityCapability.REFERENCE)) {
             throw new ModuleDefinitionException("title field requires REFERENCE capability: " + entity.alias());
@@ -1285,18 +1278,6 @@ public class ModuleDefinitionValidator {
     private String physicalTableKey(EntityDefinition entity) {
         String schemaName = entity.schemaName() == null || entity.schemaName().isBlank() ? "" : entity.schemaName();
         return schemaName + "." + entity.tableName();
-    }
-
-    private void requireTreeParentField(EntityDefinition entity, FieldDefinition field) {
-        if (field == null) {
-            throw new ModuleDefinitionException("TREE capability requires standard field parentId: " + entity.alias());
-        }
-        if (!PlatformAbilityFields.TREE_PARENT_FIELD.equals(field.fieldName())
-                || !PlatformAbilityFields.TREE_PARENT_COLUMN.equals(field.columnName())
-                || field.type() != FieldType.STRING
-                || !Integer.valueOf(PlatformAbilityFields.TREE_PARENT_LENGTH).equals(field.length())) {
-            throw new ModuleDefinitionException("TREE capability requires standard field parentId/parent_id: " + entity.alias());
-        }
     }
 
     private void requireTitleField(EntityDefinition entity, FieldDefinition field) {

@@ -59,8 +59,8 @@ public final class StaticAbilityOperationRuntime {
         PlatformAction action = endpoint.definition().action();
         var capabilityAction = CapabilityModuleRegistry.defaultRegistry().actionOwner(action);
         if (capabilityAction.isPresent()) {
-            return capabilityActionAdapter.execute(capabilityAction.get(), scope, request, action, pathVariable(request, "id"),
-                    body);
+            return capabilityActionAdapter.execute(capabilityAction.get(), scope, request, action,
+                    endpoint.definition().operationCode(), action == PlatformAction.TREE ? null : pathVariable(request, "id"), body);
         }
         return switch (action) {
             case TREE -> tree(scope, request, endpoint.definition().operationCode(), (WebQueryRequest) body);
@@ -470,25 +470,56 @@ public final class StaticAbilityOperationRuntime {
 
     /** Static source adapter registry; each capability owns its own service contract here. */
     private final class StaticCapabilityActionRuntimeAdapter {
-        private final List<Handler> handlers = List.of(new EnableHandler(), new SortHandler());
+        private final TreeHandler treeHandler = new TreeHandler();
+        private final List<Handler> handlers = List.of(treeHandler, new EnableHandler(), new SortHandler());
 
-        int execute(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution,
-                    OperationScope scope,
-                    HttpServletRequest request,
-                    PlatformAction action,
-                    String id,
-                    Object body) {
+        Object execute(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution,
+                       OperationScope scope,
+                       HttpServletRequest request,
+                       PlatformAction action,
+                       String operationCode,
+                       String id,
+                       Object body) {
+            // The SORT contract remains source-neutral. TREE owns the bridge that turns it into a
+            // placement operation, instead of making SORT know about every hierarchical source.
+            if (action == PlatformAction.SORT && CapabilityModuleRegistry.defaultRegistry().require(
+                    net.ximatai.muyun.spring.common.platform.EntityCapability.TREE,
+                    net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityModule.class)
+                    .isEnabledOnStaticService(scope.service())) {
+                return treeHandler.execute(scope, request, action, operationCode, id, body);
+            }
             return handlers.stream().filter(handler -> handler.supports(contribution)).findFirst()
                     .orElseThrow(() -> new IllegalStateException("no static runtime adapter for capability action: "
                             + action.code()))
-                    .execute(scope, request, action, id, body);
+                    .execute(scope, request, action, operationCode, id, body);
         }
 
         private interface Handler {
             boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution);
 
-            int execute(OperationScope scope, HttpServletRequest request, PlatformAction action, String id,
-                        Object body);
+            Object execute(OperationScope scope, HttpServletRequest request, PlatformAction action, String operationCode, String id,
+                           Object body);
+        }
+
+        private final class TreeHandler implements Handler {
+            @Override
+            public boolean supports(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution) {
+                return contribution instanceof net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityActionFacet;
+            }
+
+            @Override
+            public Object execute(OperationScope scope, HttpServletRequest request, PlatformAction action, String operationCode, String id,
+                                  Object body) {
+                if (action == PlatformAction.TREE) {
+                    return tree(scope, request, operationCode,
+                            body instanceof WebQueryRequest query ? query : null);
+                }
+                if (action == PlatformAction.SORT) {
+                    return sortTree(scope, request, id, body instanceof TreeSortWebRequest tree
+                            ? tree : new TreeSortWebRequest(null, null, null));
+                }
+                throw new IllegalArgumentException("TREE static adapter does not own: " + action.code());
+            }
         }
 
         private final class EnableHandler implements Handler {
@@ -499,8 +530,8 @@ public final class StaticAbilityOperationRuntime {
 
             @Override
             @SuppressWarnings({"rawtypes", "unchecked"})
-            public int execute(OperationScope scope, HttpServletRequest httpRequest, PlatformAction action, String id,
-                               Object body) {
+            public Object execute(OperationScope scope, HttpServletRequest httpRequest, PlatformAction action, String operationCode, String id,
+                                  Object body) {
                 EnableAbility ability = requireService(scope, EnableAbility.class);
                 RecordActionWebRequest normalized = body instanceof RecordActionWebRequest request
                         ? request : new RecordActionWebRequest(null);
@@ -526,15 +557,10 @@ public final class StaticAbilityOperationRuntime {
             }
 
             @Override
-            public int execute(OperationScope scope, HttpServletRequest request, PlatformAction action, String id,
-                               Object body) {
+            public Object execute(OperationScope scope, HttpServletRequest request, PlatformAction action, String operationCode, String id,
+                                  Object body) {
                 if (action != PlatformAction.SORT) {
                     throw new IllegalArgumentException("SORT static adapter does not own: " + action.code());
-                }
-                // TREE depends on SORT but keeps its distinct placement semantics.
-                if (scope.service() instanceof TreeAbility<?>) {
-                    return sortTree(scope, request, id, body instanceof TreeSortWebRequest tree
-                            ? tree : new TreeSortWebRequest(null, null, null));
                 }
                 return sort(scope, request, id, body instanceof SortWebRequest sort
                         ? sort : new SortWebRequest(null, null));

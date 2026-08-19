@@ -75,6 +75,23 @@ class StaticModuleOpenApiGeneratorTest {
     }
 
     @Test
+    void shouldDescribeSortWireContractFromRegisteredCapabilityFacts() {
+        RegisteredWebEndpointCatalog endpointCatalog = new RegisteredWebEndpointCatalog();
+        register(endpointCatalog, endpoint("education.teacher.sort", "education.teacher", "sort",
+                PlatformAction.SORT, RequestMethod.POST, "/education.teacher/sort/{id}"));
+        generator = new StaticModuleOpenApiGenerator(
+                new StaticModuleDefinitionCatalog(List.of(
+                        StaticModuleDefinition.builder("education", "education.teacher", "教师").build())),
+                endpointCatalog);
+
+        var operation = generator.generate("education.teacher").operations().getFirst();
+
+        assertThat(operation.requestSchema()).isEqualTo("SortWebRequest");
+        assertThat(operation.responseSchema()).isEqualTo("integer");
+        assertThat(operation.actionCode()).isEqualTo(PlatformAction.SORT.code());
+    }
+
+    @Test
     void shouldHideStaticActionPathsDeniedToCurrentCaller() {
         RegisteredWebEndpointCatalog endpointCatalog = new RegisteredWebEndpointCatalog();
         register(endpointCatalog, endpoint("education.teacher.query", "education.teacher", "query",

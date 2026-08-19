@@ -14,6 +14,10 @@ final class DynamicCapabilityActionRuntimeAdapter {
     private DynamicCapabilityActionRuntimeAdapter() {
     }
 
+    static boolean supports(CapabilityActionContribution contribution) {
+        return HANDLERS.stream().anyMatch(handler -> handler.supports(contribution));
+    }
+
     static int execute(CapabilityActionContribution contribution,
                        PlatformAction action,
                        DynamicRecordService service,

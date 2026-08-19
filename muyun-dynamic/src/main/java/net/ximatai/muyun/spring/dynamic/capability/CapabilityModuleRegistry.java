@@ -20,7 +20,7 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
  */
 public final class CapabilityModuleRegistry {
     private static final CapabilityModuleRegistry DEFAULT = new CapabilityModuleRegistry(List.of(
-            new EnableCapabilityModule(), new SortCapabilityModule()));
+            new EnableCapabilityModule(), new SortCapabilityModule(), new TreeCapabilityModule()));
 
     private final Map<EntityCapability, CapabilityModule> modules;
     private final Map<PlatformAction, CapabilityActionContribution> actionContributions;

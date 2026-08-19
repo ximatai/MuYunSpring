@@ -175,13 +175,7 @@ public class DynamicOpenApiGenerator {
         }
         addCapabilityOperation(operations, descriptor, mainEntity, basePath, PlatformAction.SORT,
                 standardActionVisible, mainEntity.capabilities().contains(EntityCapability.TREE.name()));
-        if (mainEntity.capabilities().contains(EntityCapability.TREE.name())
-                && standardActionVisible.test(PlatformAction.TREE)) {
-            operations.add(getOperation(descriptor.moduleAlias(), basePath + "/tree", operationId(descriptor, "tree"),
-                    "Tree " + mainEntity.title(), null, "WebListResponse", PlatformAction.TREE.code()));
-            operations.add(getOperation(descriptor.moduleAlias(), basePath + "/tree/{id}", operationId(descriptor, "treeNode"),
-                    "Tree node " + mainEntity.title(), null, "WebListResponse", PlatformAction.TREE.code()));
-        }
+        addTreeCapabilityOperations(operations, descriptor, mainEntity, basePath, standardActionVisible);
         operations.add(getOperation(descriptor.moduleAlias(), basePath + "/actions", operationId(descriptor, "actions"),
                 "List module actions", null, "DynamicActionDescriptorList", null));
         operations.add(getOperation(descriptor.moduleAlias(), basePath + "/actions/{recordId}", operationId(descriptor, "recordActions"),
@@ -236,6 +230,22 @@ public class DynamicOpenApiGenerator {
                                         "Sort " + mainEntity.title(), contract.openApiRequestSchema(),
                                         contract.openApiResponseSchema(), action.code()))))
                 .ifPresent(operations::add);
+    }
+
+    private void addTreeCapabilityOperations(List<DynamicOpenApiDocument.Operation> operations,
+                                             DynamicModuleDescriptor descriptor,
+                                             DynamicEntityDescriptor mainEntity,
+                                             String basePath,
+                                             Predicate<PlatformAction> standardActionVisible) {
+        if (!mainEntity.capabilities().contains(EntityCapability.TREE.name())
+                || !standardActionVisible.test(PlatformAction.TREE)) return;
+        CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.TREE,
+                        net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityModule.class).actions()
+                .webEndpointProjections().forEach(projection -> operations.add(getOperation(descriptor.moduleAlias(),
+                        basePath + projection.path(), operationId(descriptor,
+                                "subtree".equals(projection.operationCode()) ? "treeNode" : projection.operationCode()),
+                        ("subtree".equals(projection.operationCode()) ? "Tree node " : "Tree ") + mainEntity.title(),
+                        null, "WebListResponse", PlatformAction.TREE.code())));
     }
 
     private boolean hasActionPath(DynamicActionDescriptor action,

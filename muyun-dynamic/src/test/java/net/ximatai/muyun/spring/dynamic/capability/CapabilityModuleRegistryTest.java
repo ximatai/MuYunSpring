@@ -26,6 +26,10 @@ class CapabilityModuleRegistryTest {
         return registry.require(EntityCapability.SORT, SortCapabilityModule.class);
     }
 
+    private TreeCapabilityModule tree() {
+        return registry.require(EntityCapability.TREE, TreeCapabilityModule.class);
+    }
+
     @Test
     void shouldOwnEnableDefinitionAndStandardActionsAsOneTypedModule() {
         EntityDefinition entity = entity(Set.of(EntityCapability.CRUD, EntityCapability.ENABLE), FieldDefinition.enabled());
@@ -87,6 +91,34 @@ class CapabilityModuleRegistryTest {
         assertThatThrownBy(() -> registry.validate(partitioned))
                 .isInstanceOf(ModuleDefinitionException.class)
                 .hasMessageContaining("sort partition requires SORT capability");
+    }
+
+    @Test
+    void shouldOwnTreeParentContractAndDeclareItsSortDependency() {
+        EntityDefinition entity = new EntityDefinition("contract", "contract", "Contract",
+                List.of(FieldDefinition.parentId(), FieldDefinition.sortOrder()),
+                Set.of(EntityCapability.CRUD, EntityCapability.TREE, EntityCapability.SORT));
+
+        registry.validate(entity);
+
+        assertThat(tree().dependencies()).containsExactlyInAnyOrder(EntityCapability.CRUD, EntityCapability.SORT);
+        assertThat(tree().actions().standardActions()).containsExactly(PlatformAction.TREE);
+        assertThat(tree().actions().enabledOnDynamicCapabilities(Set.of(EntityCapability.TREE.name()))).isTrue();
+        assertThat(tree().actions().enabledOnDynamicCapabilities(Set.of(EntityCapability.SORT.name()))).isFalse();
+        assertThat(registry.actionOwner(PlatformAction.TREE)).containsSame(tree().actions());
+        assertThat(tree().actions().staticOperations(sort().actions()))
+                .extracting(operation -> operation.operationCode())
+                .containsExactly("tree", "treeQuery", "subtree", "sort");
+    }
+
+    @Test
+    void shouldRejectTreeWithoutItsOwnedParentField() {
+        EntityDefinition entity = new EntityDefinition("contract", "contract", "Contract",
+                List.of(FieldDefinition.sortOrder()), Set.of(EntityCapability.CRUD, EntityCapability.TREE));
+
+        assertThatThrownBy(() -> registry.validate(entity))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("TREE capability requires standard field parentId");
     }
 
     @Test

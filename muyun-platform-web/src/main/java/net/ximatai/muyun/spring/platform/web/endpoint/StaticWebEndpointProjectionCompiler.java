@@ -39,7 +39,7 @@ final class StaticWebEndpointProjectionCompiler {
 
     private WebShape shape(PlatformOperationDefinition operation) {
         var capabilityProjection = CapabilityModuleRegistry.defaultRegistry().actionOwner(operation.action())
-                .flatMap(contribution -> contribution.endpointProjection(operation.action()));
+                .flatMap(contribution -> contribution.endpointProjection(operation));
         if (capabilityProjection.isPresent()) {
             var projection = capabilityProjection.get();
             if (!projection.operationCode().equals(operation.operationCode())) {
@@ -49,9 +49,6 @@ final class StaticWebEndpointProjectionCompiler {
             return new WebShape(RequestMethod.valueOf(projection.httpMethod()), projection.path());
         }
         return switch (operation.operationCode()) {
-            case "tree" -> new WebShape(RequestMethod.GET, "/tree");
-            case "treeQuery" -> new WebShape(RequestMethod.POST, "/tree/query");
-            case "subtree" -> new WebShape(RequestMethod.GET, "/tree/{id}");
             case "sort" -> new WebShape(RequestMethod.POST, "/sort/{id}");
             case "query" -> new WebShape(RequestMethod.POST, "/recycle-bin/query");
             case "view" -> new WebShape(RequestMethod.GET, "/recycle-bin/view/{id}");

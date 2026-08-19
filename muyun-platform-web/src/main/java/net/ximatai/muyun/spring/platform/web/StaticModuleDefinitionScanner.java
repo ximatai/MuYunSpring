@@ -697,7 +697,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
     private void addUnwiredLegacyAbilityActions(Map<String, StaticModuleActionDefinition> actions,
                                                 Class<?> beanClass) {
         if (TreeWeb.class.isAssignableFrom(beanClass)) {
-            addPlatform(actions, PlatformAction.TREE);
+            CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.TREE,
+                            net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityModule.class).actions()
+                    .standardActions().forEach(action -> addPlatform(actions, action));
             CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.SORT).orElseThrow()
                     .standardActions().forEach(action -> addPlatform(actions, action));
         } else if (SortWeb.class.isAssignableFrom(beanClass)) {
@@ -737,7 +739,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .forEach(action -> addContributionPlatform(actions, contribution, action));
         if (service == null) {
             if (TreeWeb.class.isAssignableFrom(beanClass)) {
-                addContributionPlatform(actions, contribution, PlatformAction.TREE);
+                CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.TREE,
+                                net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityModule.class).actions()
+                        .standardActions().forEach(action -> addContributionPlatform(actions, contribution, action));
                 CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.SORT).orElseThrow()
                         .standardActions().forEach(action -> addContributionPlatform(actions, contribution, action));
             } else if (SortWeb.class.isAssignableFrom(beanClass)) {

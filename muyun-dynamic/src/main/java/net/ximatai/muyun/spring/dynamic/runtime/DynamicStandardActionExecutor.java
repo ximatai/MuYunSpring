@@ -26,8 +26,8 @@ final class DynamicStandardActionExecutor {
                 .orElseThrow(() -> new IllegalArgumentException("unknown standard dynamic action: "
                         + moduleAlias + "." + entityAlias + "." + actionCode));
         var capabilityAction = CapabilityModuleRegistry.defaultRegistry().actionOwner(action);
-        if (capabilityAction.isPresent()) {
-            int count = DynamicCapabilityActionRuntimeAdapter.execute(capabilityAction.get(), action,
+        if (capabilityAction.filter(DynamicCapabilityActionRuntimeAdapter::supports).isPresent()) {
+            int count = DynamicCapabilityActionRuntimeAdapter.execute(capabilityAction.orElseThrow(), action,
                     service, moduleAlias, entityAlias, request, traceId);
             return action == PlatformAction.SORT ? DynamicActionResultBody.refreshed() : countResult(count);
         }
