@@ -566,6 +566,21 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.moduleAlias()).isEqualTo("iam.password_policy_rule");
                 assertThat(definition.title()).isEqualTo("密码策略规则");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.uiDefinition().page()).isInstanceOf(FlatManagementPageDefinition.class);
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page()).satisfies(page -> {
+                    assertThat(page.template()).isEqualTo(ModulePageTemplate.FLAT_MANAGEMENT);
+                    assertThat(page.explorer().title()).isEqualTo("密码规则");
+                    assertThat(page.explorer().secondaryField()).isNull();
+                    assertThat(page.detail().createTitle()).isEqualTo("新建密码规则");
+                    assertThat(page.detail().showSystemInfo()).isFalse();
+                    assertThat(page.detail().editor().fields())
+                            .extracting(field -> field.fieldRef().fieldName())
+                            .containsExactly("title", "pattern", "message", "sortOrder", "description");
+                    assertThat(page.detail().display().fields())
+                            .extracting(field -> field.fieldRef().fieldName())
+                            .contains("scopeTypeTitle");
+                });
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactly("menu", "create", "view", "update", "delete", "query",
                                 "sort", "enable", "disable");

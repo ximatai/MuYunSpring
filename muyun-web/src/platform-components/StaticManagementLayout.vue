@@ -59,16 +59,29 @@ const emit = defineEmits<{
     </ManagementExplorerColumn>
 
     <RecordDetailPanel class="static-management-card" :title="detailTitle">
+      <template v-if="$slots['detail-outside-top']" #outside-top>
+        <slot name="detail-outside-top" />
+      </template>
       <template #status>
         <slot name="detail-status" />
       </template>
       <template #actions>
         <slot name="detail-actions" />
       </template>
+      <template v-if="$slots['detail-content-top']" #content-top>
+        <slot name="detail-content-top" />
+      </template>
 
       <div v-if="mutedMessage" class="message muted">{{ mutedMessage }}</div>
 
       <slot />
+
+      <template v-if="$slots['detail-content-bottom']" #content-bottom>
+        <slot name="detail-content-bottom" />
+      </template>
+      <template v-if="$slots['detail-outside-bottom']" #outside-bottom>
+        <slot name="detail-outside-bottom" />
+      </template>
     </RecordDetailPanel>
   </ManagementWorkspace>
 </template>

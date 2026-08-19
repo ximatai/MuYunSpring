@@ -72,6 +72,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   select: [record: TreeRecordBase];
+  deselect: [];
   action: [action: UiRecordInlineAction, record: TreeRecordBase];
   loaded: [records: TreeRecordBase[]];
 }>();
@@ -173,6 +174,10 @@ function matchesKeyword(record: TreeRecordBase, normalized: string) {
 }
 
 function handleSelect(node: UiTreeNode) {
+  if (String(node.key) === props.selectedId) {
+    emit('deselect');
+    return;
+  }
   const record = records.value.find((item) => item.id === node.key);
   if (record) {
     emit('select', record);
@@ -256,6 +261,7 @@ defineExpose({ openSearch, toggleSearch });
       :nodes="nodes"
       :selected-key="selectedId"
       @select="handleSelect"
+      @deselect="emit('deselect')"
       @action="handleAction"
     />
   </div>

@@ -22,6 +22,8 @@ export interface ModulePageEnhancement {
   activate?(context: ModulePageEnhancementActivationContext): void | (() => void);
   list?: ModuleListEnhancement;
   detail?: ModuleDetailEnhancement;
+  /** Frontend-owned assistant persistently mounted in the standard record card. */
+  card?: ModuleCardEnhancement;
   /**
    * The presentation selected when a user invokes the standard record-view intent.
    *
@@ -58,6 +60,41 @@ export interface ModuleListEnhancement {
 export interface ModuleDetailEnhancement {
   actions?: ModulePageRecordActionContribution[];
   sections?: ModulePageDetailSection[];
+}
+
+/** Frontend-owned auxiliary UI adjacent to the descriptor-owned record card. */
+export interface ModuleCardEnhancement {
+  assistant: ModulePageCardAssistant;
+}
+
+export interface ModulePageCardAssistant {
+  /** A source component; backend descriptors never select or name it. */
+  component: Component;
+  /** Explicitly anchors the component to the standard record-card boundary. */
+  placement: ModulePageCardAssistantPlacement;
+}
+
+export interface ModulePageCardAssistantPlacement {
+  /** `inside` shares the record-card content scrollbar; `outside` remains a sibling surface. */
+  boundary: 'inside' | 'outside';
+  /** Position relative to that boundary; never inserted between descriptor-owned fields. */
+  position: 'top' | 'bottom';
+}
+
+export interface ModulePageCardAssistantContext {
+  module: ModuleContext<QueryListRecord>;
+  mode: 'view' | 'create' | 'edit';
+  /** Detached and deeply frozen current record or form draft. It may be absent before selection. */
+  record?: Readonly<Record<string, unknown>>;
+  /**
+   * Detached snapshot of records already loaded by the standard explorer.
+   * This never triggers an auxiliary request and may be bounded by the explorer.
+   */
+  loadedRecords: readonly Readonly<Record<string, unknown>>[];
+  formSessionKey: number;
+  saving: boolean;
+  loading: boolean;
+  loadFailed: boolean;
 }
 
 /** Application-owned presentation of the platform's standard record-view intent. */
@@ -345,6 +382,14 @@ function composeModulePageEnhancements(
       `模块页面增强目标 ${targetKey(target.moduleAlias, target.viewCode)} 重复声明业务查看呈现`,
     );
   }
+  const cards = enhancements
+    .map((enhancement) => enhancement.card)
+    .filter((card): card is ModuleCardEnhancement => card !== undefined);
+  if (cards.length > 1) {
+    throw new Error(
+      `模块页面增强目标 ${targetKey(target.moduleAlias, target.viewCode)} 重复声明记录卡片辅助区域`,
+    );
+  }
   const list = composeListEnhancement(enhancements, actionColumnWidths[0]);
   const detail = composeDetailEnhancement(enhancements);
   const composed: ModulePageEnhancement = {
@@ -352,6 +397,7 @@ function composeModulePageEnhancements(
     target,
     ...(list ? { list } : {}),
     ...(detail ? { detail } : {}),
+    ...(cards[0] ? { card: cards[0] } : {}),
     ...(recordViews[0] ? { recordView: recordViews[0] } : {}),
     workspaceViews: enhancements.flatMap((enhancement) => enhancement.workspaceViews ?? []),
   };
@@ -368,6 +414,29 @@ function composeModulePageEnhancements(
   }
   assertUniqueContributionKeys(composed);
   return composed;
+}
+
+/** Creates the only record shape that a card assistant may receive. */
+export function createReadonlyCardRecordSnapshot(
+  record: Record<string, unknown>,
+): Readonly<Record<string, unknown>> {
+  return freezeSnapshot(cloneSnapshot(record)) as Readonly<Record<string, unknown>>;
+}
+
+function cloneSnapshot(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(cloneSnapshot);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, nested]) => [key, cloneSnapshot(nested)]),
+    );
+  }
+  return value;
+}
+
+function freezeSnapshot(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  Object.values(value as Record<string, unknown>).forEach(freezeSnapshot);
+  return Object.freeze(value);
 }
 
 function composeListEnhancement(

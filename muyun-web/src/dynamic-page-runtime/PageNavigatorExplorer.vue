@@ -31,6 +31,7 @@ const emit = defineEmits<{
   refresh: [];
   create: [];
   select: [record: QueryListRecord];
+  deselect: [];
   loaded: [records: QueryListRecord[]];
   action: [action: RecordInlineAction, record: QueryListRecord];
 }>();
@@ -73,6 +74,7 @@ function managementAllows(level: NavigatorLevelRuntime, action: 'CREATE' | 'UPDA
       :actions-of="actionsOf"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
+      @deselect="emit('deselect')"
       @action="(action, record) => emit('action', action, record as QueryListRecord)"
     />
     <CrudRecordListExplorer
@@ -86,6 +88,7 @@ function managementAllows(level: NavigatorLevelRuntime, action: 'CREATE' | 'UPDA
       :actions-of="actionsOf"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
+      @deselect="emit('deselect')"
       @action="(action, record) => emit('action', action, record as QueryListRecord)"
     />
     <template #editor><slot name="editor" /></template>

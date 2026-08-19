@@ -935,7 +935,9 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   overflow-y: hidden;
 }
 
-@media (max-width: 980px) {
+/* The menu compacts below 980px, but tablet and narrow desktop workspaces remain viewport-bound.
+ * Only handset layouts fall back to document scrolling. */
+@media (max-width: 720px) {
   .workbench {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto;

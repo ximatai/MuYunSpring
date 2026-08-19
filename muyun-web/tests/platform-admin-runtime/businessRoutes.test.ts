@@ -15,7 +15,6 @@ it('static business route registry exposes only pages still owned by static rout
     '/config/field-ui-controls',
     '/config/dictionaries',
     '/config/menus',
-    '/platform/security/passwords',
     '/iam/tenants',
     '/iam/employees',
     '/iam/users',
@@ -27,7 +26,6 @@ it('static business route registry exposes only pages still owned by static rout
     'platform.field_ui_control': '/config/field-ui-controls',
     'platform.dictionary_category': '/config/dictionaries',
     'platform.menu_scheme': '/config/menus',
-    'iam.password_policy_rule': '/platform/security/passwords',
     'iam.tenant': '/iam/tenants',
     'iam.employee': '/iam/employees',
     'iam.user': '/iam/users',
@@ -81,7 +79,9 @@ it('legacy module management URL restores through the dynamic host', () => {
   assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/platform.module/list');
 });
 
-it('static business route registry resolves password management module route', () => {
+it('password management has no static route and keeps its old URL as a dynamic entry', () => {
+  assert.equal(platformAdminModuleRoutes['iam.password_policy_rule'], undefined);
+  assert.equal(platformAdminDynamicModuleRoutes['/platform/security/passwords'], 'iam.password_policy_rule');
   const descriptor: BusinessRoutePageDescriptor = {
     pageType: 'business-route',
     openMode: 'workbench-route',
@@ -90,25 +90,19 @@ it('static business route registry resolves password management module route', (
     tabPolicy: { identity: 'by-menu' },
   };
 
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route?.route, '/platform/security/passwords');
-  assert.equal(route?.moduleAlias, 'iam.password_policy_rule');
-  assert.equal(isPlatformAdminRoutePage(descriptor), true);
+  assert.equal(resolvePlatformAdminRoute(descriptor), undefined);
+  assert.equal(isPlatformAdminRoutePage(descriptor), false);
 });
 
-it('static business route registry resolves password management URL under platform namespace', () => {
+it('legacy password management URL restores through the standard module runner', () => {
   const descriptor = pageDescriptorFromUrl('/platform/security/passwords', {
-    businessRoutePrefixes: platformAdminRoutePrefixes,
+    dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
   });
 
-  assert.equal(descriptor.pageType, 'business-route');
-  assert.equal(descriptor.hostType, 'business-route-host');
-  assert.deepEqual(descriptor.target, {
-    route: '/platform/security/passwords',
-    query: undefined,
-  });
-  assert.equal(isPlatformAdminRoutePage(descriptor), true);
+  assert.equal(descriptor.pageType, 'dynamic-module');
+  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.target.moduleAlias, 'iam.password_policy_rule');
+  assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/iam.password_policy_rule/list');
 });
 
 it('static business route registry resolves tenant management module route', () => {

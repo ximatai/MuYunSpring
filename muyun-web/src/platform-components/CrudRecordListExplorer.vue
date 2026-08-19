@@ -60,6 +60,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   select: [record: CrudRecordListBase];
+  deselect: [];
   action: [action: UiRecordInlineAction, record: CrudRecordListBase];
   loaded: [records: CrudRecordListBase[]];
   restored: [];
@@ -170,6 +171,10 @@ function matchesKeyword(record: CrudRecordListBase, normalized: string) {
 }
 
 function handleSelect(record: CrudRecordListBase) {
+  if (record.id != null && String(record.id) === props.selectedId) {
+    emit('deselect');
+    return;
+  }
   emit('select', record);
 }
 

@@ -1,5 +1,6 @@
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
+import { defineComponent } from 'vue';
 import DynamicModuleHost from '@/dynamic-page-runtime/DynamicModuleHost.vue';
 import { configureModuleContext, createHttpClient } from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
@@ -440,6 +441,12 @@ describe('DynamicModuleHost', () => {
     expect(explorer.props('emptyDescription')).toBe('暂无应用');
     expect(explorer.props('fallbackTitle')).toBe('未命名应用');
     expect(explorer.props('mode')).toBe('normal');
+    expect(
+      (explorer.props('itemOf') as (record: { id: string; title: string }) => { secondary?: string })({
+        id: 'application-1',
+        title: '旧应用',
+      }).secondary,
+    ).toBeUndefined();
     expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).exists()).toBe(false);
 
     explorer.vm.$emit('select', { id: 'application-1', title: '旧应用' });
@@ -1419,6 +1426,78 @@ describe('DynamicModuleHost', () => {
     await flushPromises();
 
     expect(form.props('record')).toMatchObject({ quantity: 4, amount: 40 });
+  });
+
+  it('renders a source-owned card assistant with a reactive read-only record snapshot', async () => {
+    const Assistant = defineComponent({
+      name: 'TestCardAssistant',
+      props: { context: { type: Object, required: true } },
+      template: '<aside>assistant</aside>',
+    });
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) {
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: [],
+          actions: [
+            { actionCode: 'create', authorized: true },
+            { actionCode: 'update', authorized: true },
+          ],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'crm.customer',
+            page: page({ template: 'FLAT_MANAGEMENT' }),
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    configureModulePageEnhancements([
+      {
+        id: 'customer-card-assistant',
+        target: { moduleAlias: 'crm.customer' },
+        card: { assistant: { component: Assistant, placement: { boundary: 'inside', position: 'bottom' } } },
+      },
+    ]);
+    const wrapper = shallowMount(DynamicModuleHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          StaticManagementLayout: {
+            template:
+              '<section><slot name="explorer-actions" /><slot name="explorer" /><slot name="detail-actions" /><slot name="detail-content-top" /><slot /><slot name="detail-content-bottom" /></section>',
+          },
+        },
+      },
+    });
+    await flushPromises();
+
+    wrapper.findComponent({ name: 'ModuleActionButton' }).vm.$emit('click');
+    await flushPromises();
+    const form = wrapper.findComponent({ name: 'RecordFormFields' });
+    const assistant = wrapper.findComponent(Assistant);
+    expect(assistant.exists()).toBe(true);
+    expect(assistant.props('context')).toMatchObject({ mode: 'create', record: {} });
+
+    form.vm.$emit('update:field', 'title', '新客户');
+    await flushPromises();
+    const updatedContext = wrapper.findComponent(Assistant).props('context') as {
+      record: Record<string, unknown>;
+    };
+    expect(updatedContext.record).toMatchObject({ title: '新客户' });
+    expect(Object.isFrozen(updatedContext.record)).toBe(true);
+    expect(Reflect.set(updatedContext.record, 'title', '越界修改')).toBe(false);
+    expect(form.props('record')).toMatchObject({ title: '新客户' });
   });
 });
 

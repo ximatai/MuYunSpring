@@ -152,8 +152,8 @@ class PlatformMenuInitialDataDeclarationProviderTest {
             assertThat(moduleMenu("iam.password_policy_rule")).satisfies(menu -> {
                 assertThat(menu.getTitle()).isEqualTo("密码管理");
                 assertThat(menu.getParentId()).isEqualTo(PlatformMenuGroups.SECURITY_AUDIT);
-                assertThat(menu.getRoute()).isEqualTo("/platform/security/passwords");
-                assertThat(menu.getPageMode()).isNull();
+                assertThat(menu.getRoute()).isNull();
+                assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
             });
         }
     }

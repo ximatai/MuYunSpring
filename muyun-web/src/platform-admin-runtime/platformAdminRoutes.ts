@@ -9,7 +9,6 @@ import FieldUiControlManagementView from '../views/FieldUiControlManagementView.
 import DictionaryManagementView from '../views/DictionaryManagementView.vue';
 import EmployeeManagementView from '../views/EmployeeManagementView.vue';
 import MenuManagementView from '../views/MenuManagementView.vue';
-import PasswordManagementView from '../views/PasswordManagementView.vue';
 import RoleManagementView from '../views/RoleManagementView.vue';
 import RoleAuthorizationView from '../views/RoleAuthorizationView.vue';
 import SystemUserManagementView from '../views/SystemUserManagementView.vue';
@@ -44,12 +43,6 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
     moduleAlias: 'platform.menu_scheme',
     component: MenuManagementView,
     layout: 'workspace',
-  },
-  {
-    route: '/platform/security/passwords',
-    moduleAlias: 'iam.password_policy_rule',
-    component: PasswordManagementView,
-    layout: 'flow',
   },
   {
     route: '/iam/tenants',
@@ -104,6 +97,7 @@ export const platformAdminDynamicModuleRoutes: Record<string, string> = {
   // Keep the former static module-management URL as a bookmark-compatible
   // dynamic entry. Page serialization still uses the canonical dynamic URL.
   '/config/modules': 'platform.module',
+  '/platform/security/passwords': 'iam.password_policy_rule',
 };
 export const platformAdminModuleRoutes = Object.fromEntries(
   platformAdminRoutes

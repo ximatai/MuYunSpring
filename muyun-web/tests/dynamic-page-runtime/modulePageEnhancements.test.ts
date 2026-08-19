@@ -3,16 +3,21 @@ import {
   configureModulePageEnhancementContributions,
   configureModulePageEnhancements,
   createModulePageEnhancementRegistry,
+  createReadonlyCardRecordSnapshot,
   modulePageWorkspaceViews,
   resolveModulePageEnhancement,
 } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 import { createWorkspaceViewDescriptor } from '@/platform-workbench/workspaceViews.ts';
 import { platformModulePageEnhancement } from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
+import { passwordPolicyPageEnhancement } from '@/platform-admin-runtime/passwordPolicyPageEnhancement.ts';
 
 describe('module page enhancements', () => {
   afterEach(() => {
     configureModulePageEnhancements([]);
-    configureModulePageEnhancementContributions('platform-admin-runtime', [platformModulePageEnhancement]);
+    configureModulePageEnhancementContributions('platform-admin-runtime', [
+      platformModulePageEnhancement,
+      passwordPolicyPageEnhancement,
+    ]);
   });
 
   it('merges a view-specific enhancement with its module-wide fallback', () => {
@@ -164,6 +169,49 @@ describe('module page enhancements', () => {
       width: 720,
       loadRecord: false,
     });
+  });
+
+  it('accepts one source-owned card assistant and rejects competing owners for that region', () => {
+    const Assistant = { template: '<aside>assistant</aside>' };
+    const registry = createModulePageEnhancementRegistry([
+      {
+        id: 'customer-card-assistant',
+        target: { moduleAlias: 'crm.customer' },
+        card: { assistant: { component: Assistant, placement: { boundary: 'inside', position: 'bottom' } } },
+      },
+    ]);
+    expect(registry.resolve('crm.customer')?.card?.assistant.component).toBe(Assistant);
+
+    expect(() =>
+      createModulePageEnhancementRegistry([
+        {
+          id: 'first-card-assistant',
+          target: { moduleAlias: 'crm.customer' },
+          card: {
+            assistant: { component: Assistant, placement: { boundary: 'inside', position: 'bottom' } },
+          },
+        },
+        {
+          id: 'second-card-assistant',
+          target: { moduleAlias: 'crm.customer' },
+          card: {
+            assistant: { component: Assistant, placement: { boundary: 'inside', position: 'bottom' } },
+          },
+        },
+      ]),
+    ).toThrow('重复声明记录卡片辅助区域');
+  });
+
+  it('detaches and deeply freezes card record snapshots', () => {
+    const source = { title: '客户', children: [{ title: '联系人' }] };
+    const snapshot = createReadonlyCardRecordSnapshot(source);
+
+    expect(snapshot).not.toBe(source);
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen((snapshot.children as object[])[0])).toBe(true);
+    source.children[0].title = '已修改';
+    expect((snapshot.children as Array<{ title: string }>)[0].title).toBe('联系人');
+    expect(Reflect.set(snapshot, 'title', '越界修改')).toBe(false);
   });
 
   it('registers a stable business workspace view and creates a deduplicated tab descriptor', () => {
