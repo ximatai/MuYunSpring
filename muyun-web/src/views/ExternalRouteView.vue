@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { usePageRoute } from '../app/pageRouteContext';
 import ExternalPageHost from '@/platform-workbench/hosts/ExternalPageHost.vue';
 import type { RemoteUrlPageDescriptor } from '@muyun/web-contracts';
 
-const route = useRoute();
+const route = usePageRoute();
 const descriptor = computed<RemoteUrlPageDescriptor>(() => ({
   pageType: 'remote-url',
   openMode: 'iframe',
   hostType: 'external-page-host',
-  title: String(route.meta.title ?? ''),
-  menuId: String(route.meta.menuId),
-  target: { url: String(route.meta.externalUrl ?? ''), moduleAlias: String(route.meta.moduleAlias ?? '') },
+  title: String(route.value.meta.title ?? ''),
+  menuId: String(route.value.meta.menuId),
+  target: {
+    url: String(route.value.meta.externalUrl ?? ''),
+    moduleAlias: String(route.value.meta.moduleAlias ?? ''),
+  },
   tabPolicy: { identity: 'by-menu', closable: true, cacheable: true },
 }));
 </script>

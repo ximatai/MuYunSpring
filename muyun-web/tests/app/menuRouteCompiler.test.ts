@@ -155,20 +155,25 @@ it('registers a non-menu user detail branch with the same verified user module r
     componentPath: '/src/views/UserManagementView.vue',
     layout: 'workspace',
   };
-  const userDetail: StaticRouteDefinition = { ...userList, route: '/iam/users/:userId', menuEntry: false };
+  const userCreate: StaticRouteDefinition = { ...userList, route: '/iam/users/form', menuEntry: false };
+  const userDetail: StaticRouteDefinition = {
+    ...userList,
+    route: '/iam/users/form/:userId',
+    menuEntry: false,
+  };
   const loaders: Record<string, RoutePageLoader> = {
     [userList.componentPath]: vi.fn(async () => ({}) as Component),
   };
 
   const result = validateAndCompileMenuRoutes(
     [menu({ entryType: 'route', openMode: 'tab', moduleAlias: 'iam.user', route: userList.route })],
-    [userList, userDetail],
+    [userList, userCreate, userDetail],
     loaders,
   );
 
   assert.deepEqual(result.issues, []);
   assert.deepEqual(
     result.validRoutes.map((route) => route.path),
-    ['/iam/users', '/iam/users/:userId'],
+    ['/iam/users', '/iam/users/form', '/iam/users/form/:userId'],
   );
 });

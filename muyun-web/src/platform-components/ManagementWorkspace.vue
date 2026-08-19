@@ -33,6 +33,7 @@ const pageLayout = usePageLayout();
   --muyun-management-detail-min-width: 560px;
   --muyun-management-column-gap: 12px;
 
+  position: relative;
   display: grid;
   align-items: start;
   gap: var(--muyun-management-column-gap);

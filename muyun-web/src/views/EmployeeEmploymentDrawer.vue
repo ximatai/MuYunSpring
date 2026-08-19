@@ -25,6 +25,7 @@ defineOptions({ name: 'EmployeeEmploymentDrawer' });
 
 const props = defineProps<{
   open: boolean;
+  container: HTMLElement | null;
   employee?: Employee;
 }>();
 
@@ -249,7 +250,7 @@ async function runEmploymentAction(
 </script>
 
 <template>
-  <RecordDetailDrawer :open="open" :title="title" @close="emit('close')">
+  <RecordDetailDrawer :open="open" :title="title" :container="container" @close="emit('close')">
     <template #operation>
       <UiButton type="text" icon-name="reload" :disabled="loading || saving" @click="loadEmployments">
         刷新

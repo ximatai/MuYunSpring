@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { UiActionButton, type UiSidePanelScope } from '@muyun/vue-ui-antdv';
+import { UiActionButton } from '@muyun/vue-ui-antdv';
 import RecordDetailDrawer from './RecordDetailDrawer.vue';
 import RecordExternalChangeNotice from './RecordExternalChangeNotice.vue';
 import type { DrawerPromotion } from './drawerPromotion';
@@ -11,10 +11,10 @@ const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
+    container: HTMLElement | null;
     /** Secondary business identity rendered by the platform detail header. */
     subtitle?: string;
     width?: number | string;
-    scope?: UiSidePanelScope;
     mode: string;
     viewMode?: string;
     formModes?: string[];
@@ -40,7 +40,6 @@ const props = withDefaults(
   {
     subtitle: undefined,
     width: 520,
-    scope: 'tab',
     viewMode: 'view',
     formModes: () => ['edit', 'create'],
     loading: false,
@@ -94,9 +93,9 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
   <RecordDetailDrawer
     :open="open"
     :title="title"
+    :container="container"
     :subtitle="subtitle"
     :width="width"
-    :scope="scope"
     :close-on-outside="actualCloseOnOutside"
     :close-title="closeTitle"
     :promotion="promotion"

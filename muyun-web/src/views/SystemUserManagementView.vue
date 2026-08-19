@@ -60,6 +60,7 @@ type SystemUserFormFieldName = 'username' | 'enabled';
 const userContext = useModuleContext<UserAccount>({ moduleAlias: 'iam.user' });
 const workspaceViewHost = useWorkspaceViewHost();
 const selectedUserKey = ref<string>();
+const pageRoot = ref<HTMLElement | null>(null);
 const selectedUser = ref<UserAccount>();
 const detailOpen = ref(false);
 const detailMode = ref<SystemUserDetailMode>('view');
@@ -697,7 +698,7 @@ function systemUserTitle(record: Partial<UserAccount> | QueryListRecord | undefi
 </script>
 
 <template>
-  <section class="system-user-management-page">
+  <section ref="pageRoot" class="system-user-management-page">
     <RecordQueryListPanel
       v-if="!isWorkspaceTask || isDrawerWorkspaceTask"
       class="system-user-list-panel"
@@ -737,6 +738,7 @@ function systemUserTitle(record: Partial<UserAccount> | QueryListRecord | undefi
       v-if="shouldRenderDetailDrawer"
       :open="detailOpen"
       :title="detailTitle"
+      :container="pageRoot"
       :subtitle="detailSubtitle"
       :mode="detailMode"
       :form-modes="['edit', 'resetPassword']"

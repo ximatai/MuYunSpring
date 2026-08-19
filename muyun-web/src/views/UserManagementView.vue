@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useRoute } from 'vue-router';
 import { UiError } from '@muyun/vue-ui-antdv';
+import { usePageRoute } from '../app/pageRouteContext';
 import UserDetailRouteView from './UserDetailRouteView.vue';
 import UserManagementListView from './UserManagementListView.vue';
 import { userManagementRouteStateOf } from './userManagementRouteState';
 
 defineOptions({ name: 'UserManagementView' });
 
-const route = useRoute();
+const route = usePageRoute();
 const pageState = computed(() =>
-  userManagementRouteStateOf(stringRouteParam(route.params.userId), route.query),
+  userManagementRouteStateOf(
+    route.value.matched.at(-1)?.path,
+    stringRouteParam(route.value.params.userId),
+    route.value.query,
+  ),
 );
 
 function stringRouteParam(value: unknown): string | undefined {

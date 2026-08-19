@@ -178,16 +178,20 @@ it('creates independent tabs when the same user page opens twice', async () => {
   const workbenchNavigation = navigation();
   expect(workbenchNavigation).toBeDefined();
 
-  expect(workbenchNavigation?.openRoute('/iam/users/user-1', { newInstance: true })).toEqual({
-    created: true,
-  });
+  expect(workbenchNavigation?.openRoute('/iam/users/form/user-1?action=view', { newInstance: true })).toEqual(
+    {
+      created: true,
+    },
+  );
   await syncStartup(wrapper);
-  expect(workbenchNavigation?.openRoute('/iam/users/user-1', { newInstance: true })).toEqual({
-    created: true,
-  });
+  expect(workbenchNavigation?.openRoute('/iam/users/form/user-1?action=view', { newInstance: true })).toEqual(
+    {
+      created: true,
+    },
+  );
 
   const state = wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState;
-  expect(state.tabs?.filter((tab) => tab.fullPath?.startsWith('/iam/users/user-1'))).toHaveLength(2);
+  expect(state.tabs?.filter((tab) => tab.fullPath?.startsWith('/iam/users/form/user-1'))).toHaveLength(2);
   wrapper.unmount();
 });
 
@@ -198,21 +202,30 @@ it('replaces the current tab address and closes it into the fallback address', a
   const workbenchNavigation = navigation();
   expect(workbenchNavigation).toBeDefined();
 
-  workbenchNavigation?.openRoute('/iam/users?userAction=add', { newInstance: true });
+  workbenchNavigation?.openRoute('/iam/users/form?action=add', { newInstance: true });
   await syncStartup(wrapper);
-  expect(workbenchNavigation?.replaceRoute('/iam/users/user-1')).toEqual({ created: false });
+  expect(
+    workbenchNavigation?.replaceRoute('/iam/users/form/user-1?action=view', {
+      tabTitle: '浏览用户：alice',
+    }),
+  ).toEqual({ created: false });
   await syncStartup(wrapper);
 
   let state = wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState;
-  expect(state.tabs?.find((tab) => tab.key === state.activeTabKey)?.fullPath).toMatch(
-    /^\/iam\/users\/user-1\?InstanceKey=[0-9a-f-]{36}$/i,
+  const activeTabUrl = new URL(
+    state.tabs?.find((tab) => tab.key === state.activeTabKey)?.fullPath ?? '',
+    'http://muyun.local',
   );
+  expect(activeTabUrl.pathname).toBe('/iam/users/form/user-1');
+  expect(activeTabUrl.searchParams.get('action')).toBe('view');
+  expect(activeTabUrl.searchParams.get('InstanceKey')).toMatch(/^[0-9a-f-]{36}$/i);
+  expect(state.tabs?.find((tab) => tab.key === state.activeTabKey)?.title).toBe('浏览用户：alice');
   expect(wrapper.emitted('navigate')?.at(-1)?.[0]).toMatchObject({ mode: 'replace' });
 
   expect(workbenchNavigation?.closeCurrentTab('/a')).toEqual({ created: false });
   await syncStartup(wrapper);
   state = wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState;
-  expect(state.tabs?.some((tab) => tab.fullPath?.includes('/iam/users/user-1'))).toBe(false);
+  expect(state.tabs?.some((tab) => tab.fullPath?.includes('/iam/users/form/user-1'))).toBe(false);
   expect(state.activeTabKey).toBe('menu:A');
   expect(wrapper.emitted('navigate')?.at(-1)?.[0]).toMatchObject({ mode: 'replace' });
   wrapper.unmount();

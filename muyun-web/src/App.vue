@@ -976,24 +976,18 @@ function requiresLogin(cause: unknown) {
         <RouterView v-slot="{ Component, route }">
           <KeepAlive>
             <StaticRoutePageHost
-              v-if="route.meta.entryType === 'route' && route.meta.cacheable !== false"
+              v-if="route.meta.cacheable !== false"
               :key="pageCacheKey(route)"
               :component="Component"
               :route="route"
             />
-            <component
-              :is="Component"
-              v-else-if="route.meta.cacheable !== false"
-              :key="pageCacheKey(route)"
-            />
           </KeepAlive>
           <StaticRoutePageHost
-            v-if="route.meta.entryType === 'route' && route.meta.cacheable === false"
+            v-if="route.meta.cacheable === false"
             :key="pageCacheKey(route)"
             :component="Component"
             :route="route"
           />
-          <component :is="Component" v-else-if="route.meta.cacheable === false" :key="pageCacheKey(route)" />
         </RouterView>
       </template>
     </Workbench>

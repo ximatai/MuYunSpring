@@ -926,7 +926,7 @@ describe('Workbench compact menu', () => {
     expect(wrapper.emitted('userCommand')).toEqual([['themeSkin']]);
   });
 
-  it('remounts only the active tab page host when refreshing', async () => {
+  it('keeps the refresh entry visible but disabled until page refresh has an independent contract', () => {
     const wrapper = shallowMount(Workbench, {
       props: {
         startup: {
@@ -944,12 +944,8 @@ describe('Workbench compact menu', () => {
         },
       },
     });
-    const hostBeforeRefresh = wrapper.findComponent({ name: 'UiSidePanelHost' });
-    const hostKeyBeforeRefresh = hostBeforeRefresh.vm.$.vnode.key;
-
-    await wrapper.get('[aria-label="刷新当前页"]').trigger('click');
-
-    expect(wrapper.findComponent({ name: 'UiSidePanelHost' }).vm.$.vnode.key).not.toBe(hostKeyBeforeRefresh);
+    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('title')).toBe('刷新当前页暂未实现');
   });
 
   it('selects a dark tenant logo first and falls back to the default logo in light mode', () => {

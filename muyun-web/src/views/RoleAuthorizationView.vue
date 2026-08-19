@@ -44,6 +44,8 @@ defineOptions({ name: 'RoleAuthorizationView' });
 
 const props = defineProps<{
   roleId?: string;
+  /** Parent page root required when this view is displayed inside a drawer. */
+  container?: HTMLElement | null;
   /** A parent management tab owns the initial wide drawer before promotion. */
   drawer?: boolean;
 }>();
@@ -133,6 +135,7 @@ const workspaceContainerProps = computed(() =>
     ? {
         open: true,
         title: workspaceTitle.value,
+        container: props.container ?? null,
         profile: roleAuthorizationWorkspaceView.drawerProfile,
         promotion: authorizationPromotion.value,
         onClose: dismissWorkspaceView,

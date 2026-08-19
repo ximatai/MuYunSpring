@@ -12,7 +12,12 @@ import { createRoleGrantClient } from './roleGrantClient';
 import EmployeeEmploymentTable from './EmployeeEmploymentTable.vue';
 
 defineOptions({ name: 'RoleEmploymentGrantDrawer' });
-const props = defineProps<{ open: boolean; context: ModuleContext<Role>; role?: Role }>();
+const props = defineProps<{
+  open: boolean;
+  container: HTMLElement | null;
+  context: ModuleContext<Role>;
+  role?: Role;
+}>();
 const emit = defineEmits<{ close: []; saved: [] }>();
 const grants = ref<EmploymentRoleGrant[]>([]);
 const rows = ref<EmploymentSelectorItem[]>([]);
@@ -165,7 +170,13 @@ function selectedEmploymentDescription(employment: EmploymentSelectorItem) {
 }
 </script>
 <template>
-  <RecordDetailDrawer :open="open" :title="title" close-title="关闭" @close="!saving && emit('close')">
+  <RecordDetailDrawer
+    :open="open"
+    :title="title"
+    :container="container"
+    close-title="关闭"
+    @close="!saving && emit('close')"
+  >
     <template #operation>
       <UiButton :disabled="saving" @click="emit('close')">取消</UiButton>
       <UiButton

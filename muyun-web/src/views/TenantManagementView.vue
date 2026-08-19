@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, type ComponentPublicInstance, watch } from 'vue';
 import {
   CrudRecordListExplorer,
   type CrudRecordListBase,
@@ -35,6 +35,8 @@ defineOptions({ name: 'TenantManagementView' });
 const tenantContext = useModuleContext<Tenant>();
 const applicationContext = useModuleContext<Application>({ moduleAlias: 'platform.application' });
 const explorerSearchKeyword = ref('');
+const pageHost = ref<ComponentPublicInstance | null>(null);
+const pageRoot = computed(() => (pageHost.value?.$el instanceof HTMLElement ? pageHost.value.$el : null));
 const applications = ref<Application[]>([]);
 const applicationsLoading = ref(false);
 const tenantApplications = ref<TenantApplication[]>([]);
@@ -343,6 +345,7 @@ function resetTenantSelection() {
 
 <template>
   <StaticManagementLayout
+    ref="pageHost"
     v-model:explorer-search-keyword="explorerSearchKeyword"
     :explorer-title="recycleBinExplorer.active.value ? '回收站' : '租户列表'"
     :refresh-title="recycleBinExplorer.active.value ? '刷新回收站' : '刷新租户列表'"
@@ -515,6 +518,7 @@ function resetTenantSelection() {
   <RecordDetailDrawer
     :open="applicationConfigurationOpen"
     title="配置应用"
+    :container="pageRoot"
     close-title="取消"
     @close="closeApplicationConfiguration"
   >

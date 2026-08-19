@@ -841,6 +841,43 @@ it('restoreWorkbenchStartupStateFromUrl creates direct tab when URL has no menu 
   assert.equal(platformRouteTargetOf(restored.tabs?.[0]).route, '/crm/customer/list');
 });
 
+it('restoreWorkbenchStartupStateFromUrl keeps the user list menu tab when opening a user form', () => {
+  const userMenu: MenuTreeNode = {
+    record: {
+      id: 'iam.user.list',
+      schemeId: 'default',
+      title: '用户管理',
+      entryType: 'route',
+      openMode: 'tab',
+      moduleAlias: 'iam.user',
+      route: '/iam/users',
+    },
+    children: [],
+  };
+  const target = getMenuNavigationTarget(userMenu.record)!;
+  const initial = openMenuTab([], userMenu.record, target);
+  const restored = restoreWorkbenchStartupStateFromUrl(
+    { session: { currentUser }, menus: [userMenu], tabs: initial.tabs, activeTabKey: initial.activeTabKey },
+    '/iam/users/form?action=add',
+  );
+
+  assert.equal(restored.tabs?.length, 2);
+  assert.equal(
+    new URL(
+      restored.tabs?.find((tab) => tab.key === initial.activeTabKey)?.fullPath ?? '',
+      'http://muyun.local',
+    ).pathname,
+    '/iam/users',
+  );
+  const activeFormUrl = new URL(
+    restored.tabs?.find((tab) => tab.key === restored.activeTabKey)?.fullPath ?? '',
+    'http://muyun.local',
+  );
+  assert.equal(activeFormUrl.pathname, '/iam/users/form');
+  assert.equal(activeFormUrl.searchParams.get('action'), 'add');
+  assert.match(activeFormUrl.searchParams.get('InstanceKey') ?? '', /^[0-9a-f-]{36}$/i);
+});
+
 it('restoreWorkbenchStartupStateFromUrl restores a module OpenAPI document as a direct tab', () => {
   const state = {
     session: { currentUser },

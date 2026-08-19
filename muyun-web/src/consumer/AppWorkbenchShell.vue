@@ -202,7 +202,11 @@ function replaceRoute(path: string, options: OpenRouteOptions = {}) {
   if (!replacement) return navigateRoute(fullPath, {}, 'replace');
   const tabs = (restored.tabs ?? [])
     .filter((tab) => tab.key !== replacement.key)
-    .map((tab) => (tab.key === currentTabKey ? { ...currentTab, ...replacement, key: currentTabKey } : tab));
+    .map((tab) =>
+      tab.key === currentTabKey
+        ? { ...currentTab, ...replacement, key: currentTabKey, title: options.tabTitle ?? replacement.title }
+        : tab,
+    );
   update({ ...restored, tabs, activeTabKey: currentTabKey }, 'replace');
   return { created: false };
 }

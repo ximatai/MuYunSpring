@@ -20,8 +20,6 @@ export { default as UiTree } from './components/UiTree.vue';
 export { default as UiDataTable } from './components/UiDataTable.vue';
 export { default as UiDropdown } from './components/UiDropdown.vue';
 export { default as UiModal } from './components/UiModal.vue';
-export { default as UiSidePanel } from './components/UiSidePanel.vue';
-export { default as UiSidePanelHost } from './components/UiSidePanelHost.vue';
 export { default as UiRecordExplorerItem } from './components/UiRecordExplorerItem.vue';
 export { default as UiSpin } from './components/UiSpin.vue';
 export { default as UiEmpty } from './components/UiEmpty.vue';
@@ -42,7 +40,6 @@ export type { UiFeedbackOptions, UiFeedbackTone } from './feedback';
 export { resolveFieldComponent } from './registry';
 export type { UiIconName } from './components/UiIcon.vue';
 export type { UiTagListItem } from './components/UiTagList.vue';
-export type { UiSidePanelScope } from './components/sidePanelHost';
 export {
   antDesignThemeOf,
   cssVariablesOf,

@@ -4,6 +4,7 @@ import type { RouteLocationNormalizedLoaded } from 'vue-router';
 import { ModuleContextProvider } from '@muyun/web-core';
 import { providePageLayout } from '@muyun/platform-components';
 import type { PageLayoutMode } from '@muyun/web-contracts';
+import { providePageRoute } from './pageRouteContext';
 
 const props = defineProps<{
   component: Component;
@@ -16,10 +17,12 @@ const layout = computed<PageLayoutMode>(() =>
 );
 
 providePageLayout(layout);
+providePageRoute(() => props.route);
 </script>
 
 <template>
   <ModuleContextProvider v-if="moduleAlias" :module-alias="moduleAlias">
     <component :is="component" />
   </ModuleContextProvider>
+  <component :is="component" v-else />
 </template>

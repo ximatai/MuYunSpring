@@ -233,10 +233,11 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(operationBarSource, /defineOptions\(\{ name: 'DrawerOperationBar' \}\)/);
   assert.match(operationBarSource, /\.ant-btn-primary/);
   assert.match(operationBarSource, /@media \(max-width: 480px\)/);
-  assert.match(detailDrawerSource, /scope\?: UiSidePanelScope/);
-  assert.match(detailDrawerSource, /:scope="scope"/);
-  assert.match(drawerSource, /scope\?: UiSidePanelScope/);
-  assert.match(drawerSource, /:scope="scope"/);
+  assert.match(detailDrawerSource, /container: HTMLElement \| null/);
+  assert.match(detailDrawerSource, /Drawer as ADrawer/);
+  assert.match(detailDrawerSource, /:get-container="container"/);
+  assert.match(drawerSource, /container: HTMLElement \| null/);
+  assert.match(drawerSource, /:container="container"/);
   assert.match(detailLayoutSource, /overflow: auto/);
   assert.match(pageRealtimeSource, /subscribeAppModuleDataChanges\(options\.moduleAlias\)/);
 
@@ -807,7 +808,6 @@ it('employee management uses organization scope and platform query list panel', 
   const uiIndexSource = readSource('src/vue-ui-antdv/index.ts');
   const searchInputSource = readSource('src/vue-ui-antdv/components/UiSearchInput.vue');
   const drawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
-  const sidePanelSource = readSource('src/vue-ui-antdv/components/UiSidePanel.vue');
   const panelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
   const dataTableSource = readSource('src/vue-ui-antdv/components/UiDataTable.vue');
   const uiTypesSource = readSource('src/vue-ui-antdv/types.ts');
@@ -1019,11 +1019,10 @@ it('employee management uses organization scope and platform query list panel', 
   assert.match(panelSource, /:deep\(\.record-query-list-advanced\.is-selected\.ant-btn\)/);
   assert.match(employeeViewSource, /@action="handleEmployeeListAction"/);
   assert.match(indexSource, /RecordDetailDrawer/);
-  assert.match(uiIndexSource, /UiSidePanel/);
-  assert.match(drawerSource, /UiSidePanel/);
-  assert.match(sidePanelSource, /Drawer as ADrawer/);
-  assert.match(sidePanelSource, /:get-container="container"/);
-  assert.match(sidePanelSource, /scope: 'tab'/);
+  assert.notMatch(uiIndexSource, /UiSidePanel/);
+  assert.match(drawerSource, /Drawer as ADrawer/);
+  assert.match(drawerSource, /:get-container="container"/);
+  assert.match(employeeViewSource, /:container="pageRoot"/);
   assert.notMatch(drawerSource, /document\.addEventListener/);
   assert.match(indexSource, /RecordDetailFields/);
   assert.match(drawerSource, /closeOnOutside\?: boolean/);
@@ -1417,6 +1416,7 @@ it('user management keeps account basics separate from employment binding and ro
   assert.match(userListSource, /moduleAlias: 'iam\.tenant'/);
   assert.match(userDetailSource, /moduleAlias: 'iam\.user'/);
   assert.notMatch(userDetailSource, /setTabName\(/);
+  assert.match(userDetailSource, /tabTitle: `浏览用户：\$\{userTitle\(record\)\}`/);
   assert.match(userListSource, /tabTitle: action === 'view'/);
   assert.match(userListSource, /<CrudRecordListExplorer/);
   assert.match(userListSource, /<RecordQueryListPanel/);
@@ -1806,7 +1806,7 @@ it('color picker prevents every mutation path while disabled', () => {
 it('consumer surface exposes basic adapter controls for business App composition', () => {
   const consumerSource = readSource('src/consumer/index.ts');
 
-  assert.match(consumerSource, /UiButton,[\s\S]*UiDataTable,[\s\S]*UiSidePanel,[\s\S]*UiTree,/);
+  assert.match(consumerSource, /UiButton,[\s\S]*UiDataTable,[\s\S]*UiSwitch,[\s\S]*UiTree,/);
   assert.match(consumerSource, /export \{ default as FileTransferUploader \}/);
   assert.notMatch(consumerSource, /export \* from '\.\.\/platform-components\/index';/);
   assert.notMatch(consumerSource, /export \* from '\.\.\/dynamic-page-runtime\/index';/);
@@ -1919,7 +1919,8 @@ it('workbench delegates page rendering and caching to the routed outlet', () => 
   assert.notMatch(workbenchSource, /function shouldKeepTabMounted\(tab: MenuTab\)/);
   assert.notMatch(workbenchSource, /<template v-for="tab in openedTabs" :key="tab\.key">/);
   assert.notMatch(workbenchSource, /v-show="tab\.key === activeTabKey"/);
-  assert.match(workbenchSource, /<UiSidePanelHost v-if="activeTab"/);
+  assert.notMatch(workbenchSource, /UiSidePanelHost|tabHostKey|activeTabRefreshEpoch/);
+  assert.match(workbenchSource, /<div v-if="activeTab" class="tab-panel-host">/);
   assert.match(workbenchSource, /:active-tab="activeTab"[\s\S]*:page-descriptor="activePageDescriptor"/);
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
   assert.match(workbenchSource, /\.tab-page \{[\s\S]*padding: 10px;[\s\S]*overflow: auto;/);
@@ -2005,10 +2006,8 @@ it('tenant form statically owns its mode-dependent branding experience while reu
   assert.notMatch(tenantSource, /saveTenant/);
 });
 
-it('side panels use an explicit tab host and fixed drawer action regions', () => {
+it('page-owned drawers use explicit containers and fixed action regions', () => {
   const uiIndexSource = readSource('src/vue-ui-antdv/index.ts');
-  const sidePanelSource = readSource('src/vue-ui-antdv/components/UiSidePanel.vue');
-  const sidePanelHostSource = readSource('src/vue-ui-antdv/components/UiSidePanelHost.vue');
   const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
   const detailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
   const workspaceViewOutletSource = readSource('src/platform-workbench/WorkspaceViewOutlet.vue');
@@ -2027,12 +2026,11 @@ it('side panels use an explicit tab host and fixed drawer action regions', () =>
   const roleAccountGrantSource = readSource('src/views/RoleAccountGrantDrawer.vue');
   const roleEmploymentGrantSource = readSource('src/views/RoleEmploymentGrantDrawer.vue');
 
-  assert.match(uiIndexSource, /UiSidePanelHost/);
-  assert.match(sidePanelSource, /scope: 'tab'/);
-  assert.match(sidePanelSource, /props\.scope === 'viewport'/);
-  assert.match(sidePanelSource, /sidePanelHost\?\.value \?\? false/);
-  assert.match(sidePanelHostSource, /position: relative/);
-  assert.match(workbenchSource, /<UiSidePanelHost[\s\S]*class="tab-panel-host"/);
+  assert.notMatch(uiIndexSource, /UiSidePanel|UiSidePanelHost/);
+  assert.notMatch(workbenchSource, /UiSidePanelHost|tabHostKey|activeTabRefreshEpoch/);
+  assert.match(detailDrawerSource, /container: HTMLElement \| null/);
+  assert.match(detailDrawerSource, /v-if="container"/);
+  assert.match(detailDrawerSource, /:get-container="container"/);
   assert.match(detailDrawerSource, /promotion\?: DrawerPromotion/);
   assert.match(detailDrawerSource, /promotion\.promote\(\)/);
   assert.match(detailDrawerSource, /<template #title-actions>/);
@@ -2080,6 +2078,9 @@ it('side panels use an explicit tab host and fixed drawer action regions', () =>
   assert.notMatch(systemUserSource, /detailHeaderActions/);
   assert.match(roleAccountGrantSource, /<template #operation>/);
   assert.match(roleEmploymentGrantSource, /<template #operation>/);
+  assert.match(tenantSource, /ref="pageHost"[\s\S]*:container="pageRoot"/);
+  assert.match(roleSource, /ref="pageRoot"[\s\S]*:container="pageRoot"/);
+  assert.match(employeeSource, /ref="pageHost"[\s\S]*:container="pageRoot"/);
 });
 
 it('public management and drawer contracts use business roles instead of layout positions', () => {

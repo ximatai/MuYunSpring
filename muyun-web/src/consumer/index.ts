@@ -60,7 +60,6 @@ export {
   confirmAction,
   UiDataTable,
   UiInput,
-  UiSidePanel,
   UiSwitch,
   UiTextArea,
   UiTree,

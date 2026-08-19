@@ -101,7 +101,14 @@ export const staticRouteDefinitions: StaticRouteDefinition[] = [
     layout: 'workspace',
   },
   {
-    route: '/iam/users/:userId',
+    route: '/iam/users/form',
+    moduleAlias: 'iam.user',
+    componentPath: '/src/views/UserManagementView.vue',
+    layout: 'workspace',
+    menuEntry: false,
+  },
+  {
+    route: '/iam/users/form/:userId',
     moduleAlias: 'iam.user',
     componentPath: '/src/views/UserManagementView.vue',
     layout: 'workspace',

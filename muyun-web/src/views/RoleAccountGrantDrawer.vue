@@ -21,6 +21,7 @@ defineOptions({ name: 'RoleAccountGrantDrawer' });
 
 const props = defineProps<{
   open: boolean;
+  container: HTMLElement | null;
   context: ModuleContext<Role>;
   role?: Role;
 }>();
@@ -303,7 +304,13 @@ function roleTitle(record: Partial<Role>) {
 </script>
 
 <template>
-  <RecordDetailDrawer :open="open" :title="title" close-title="关闭" @close="handleClose">
+  <RecordDetailDrawer
+    :open="open"
+    :title="title"
+    :container="container"
+    close-title="关闭"
+    @close="handleClose"
+  >
     <template #operation>
       <UiButton :disabled="saving || loading" @click="handleClose">取消</UiButton>
       <UiButton type="primary" :loading="saving" :disabled="loading || !changed" @click="save">

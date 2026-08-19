@@ -82,6 +82,7 @@ const context = useModuleContext<QueryListRecord>({
 });
 const modulePageNavigation = useModulePageNavigation();
 const selectedRecord = ref<QueryListRecord>();
+const pageRoot = ref<HTMLElement | null>(null);
 const editingRecord = ref<QueryListRecord>();
 const editorMode = ref<'create' | 'edit' | 'view'>('view');
 const detailOpen = ref(false);
@@ -837,6 +838,7 @@ function recordTitle(record: QueryListRecord | undefined) {
   </section>
   <section
     v-else-if="isListPage"
+    ref="pageRoot"
     class="dynamic-module-workspace"
     :class="{ 'dynamic-module-workspace--tree': treeModule }"
   >
@@ -1125,6 +1127,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       v-if="!treeModule"
       :open="detailOpen"
       :title="detailTitle"
+      :container="pageRoot"
       :mode="editorMode"
       :loading="detailLoading"
       :load-failed="detailLoadFailed"
@@ -1192,6 +1195,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       v-if="enhancementDrawer"
       :open="true"
       :title="enhancementDrawer.definition.title"
+      :container="pageRoot"
       :width="enhancementDrawer.definition.width"
       @close="closeEnhancementDrawer"
     >
@@ -1206,6 +1210,7 @@ function recordTitle(record: QueryListRecord | undefined) {
 
 <style scoped>
 .dynamic-module-workspace {
+  position: relative;
   min-width: 0;
   min-height: calc(100vh - 116px);
 }

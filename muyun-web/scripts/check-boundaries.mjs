@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const sourceRoots = ['src', 'examples/business-web/src'];
 const allowedAntdvPrefix = 'src/vue-ui-antdv/';
+// RecordDetailDrawer is the page-owned drawer boundary. It uses ADrawer directly
+// so each business page can supply its own root DOM container without a global host.
+const allowedAntdvFiles = new Set(['src/platform-components/RecordDetailDrawer.vue']);
 const violations = [];
 const packageViolations = [];
 const layerViolations = [];
@@ -80,7 +83,11 @@ for (const sourceRoot of sourceRoots) {
       );
     }
 
-    if ((usesAntdvPackage || usesAntdvTemplate) && !projectPath.startsWith(allowedAntdvPrefix)) {
+    if (
+      (usesAntdvPackage || usesAntdvTemplate) &&
+      !projectPath.startsWith(allowedAntdvPrefix) &&
+      !allowedAntdvFiles.has(projectPath)
+    ) {
       violations.push(projectPath);
     }
 
@@ -122,7 +129,9 @@ if (
   adapterContractViolations.length > 0
 ) {
   if (violations.length > 0) {
-    console.error('Ant Design Vue imports or template tags are only allowed under src/vue-ui-antdv:');
+    console.error(
+      'Ant Design Vue imports or template tags are only allowed in the UI adapter or approved page-owned drawer:',
+    );
     for (const violation of violations) {
       console.error(`- ${violation}`);
     }

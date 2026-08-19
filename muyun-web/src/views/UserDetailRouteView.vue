@@ -27,7 +27,6 @@ import type {
   UserSessionView,
 } from '@muyun/web-contracts';
 import { useModuleContext, type ModuleContext } from '@muyun/web-core';
-import { useRoute } from 'vue-router';
 import { useWorkbenchNavigation } from '@muyun/platform-workbench';
 import { createBackendHttpClient } from '../platform-admin-runtime/backendHttp';
 import { usePageBusinessEventHandler } from '../platform-admin-runtime/pageRealtime';
@@ -36,6 +35,7 @@ import { shouldCommitUserDetailRequest, type UserDetailMode } from './userDetail
 import { userActionTitle, type UserRouteAction } from './userManagementRouteState';
 import { useUserSessionRows } from './useUserSessionRows';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
+import { usePageRoute } from '../app/pageRouteContext';
 
 defineOptions({ name: 'UserDetailRouteView' });
 
@@ -46,7 +46,7 @@ const props = defineProps<{
 
 type UserFormFieldName = 'username' | 'enabled';
 
-const route = useRoute();
+const route = usePageRoute();
 const navigation = useWorkbenchNavigation();
 const currentUser = useCurrentUserContext();
 const tenantContext = useModuleContext<Tenant>({ moduleAlias: 'iam.tenant' });
@@ -151,7 +151,7 @@ onMounted(() => {
   void loadUserFormDefinition();
 });
 watch(
-  () => [props.action, props.userId, route.query.InstanceKey] as const,
+  () => [props.action, props.userId, route.value.query.InstanceKey] as const,
   () => void initializeFromAddress(),
   { immediate: true },
 );
@@ -314,9 +314,9 @@ function handleDetailAction(action: RecordActionItem) {
 function openUserAction(action: Extract<UserRouteAction, 'edit'>) {
   const user = selectedUser.value;
   if (!user?.id) return;
-  navigation?.openRoute(`/iam/users/${encodeURIComponent(user.id)}`, {
+  navigation?.openRoute(`/iam/users/form/${encodeURIComponent(user.id)}`, {
     tabTitle: `编辑用户：${userTitle(user)}`,
-    query: { userAction: action },
+    query: { action },
   });
 }
 
@@ -352,7 +352,10 @@ async function saveUser() {
 /** 在当前页签内改为查看地址，不改变这个页签的身份。 */
 function replaceWithView(record: UserAccount) {
   if (!record.id) return;
-  navigation?.replaceRoute(`/iam/users/${encodeURIComponent(record.id)}`);
+  navigation?.replaceRoute(`/iam/users/form/${encodeURIComponent(record.id)}`, {
+    query: { action: 'view' },
+    tabTitle: `浏览用户：${userTitle(record)}`,
+  });
 }
 
 /** 取消编辑或改密码，新建取消则直接关闭新建页签。 */

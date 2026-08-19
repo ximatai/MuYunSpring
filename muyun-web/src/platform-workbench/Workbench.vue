@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import { UiDropdown, UiEmpty, UiError, UiIcon, UiSidePanelHost, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
+import { UiDropdown, UiEmpty, UiError, UiIcon, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
 import type {
   MenuNavigationTarget,
   MenuRecord,
@@ -62,7 +62,6 @@ const activeTabKey = computed(
 );
 const activeTab = computed(() => openedTabs.value.find((tab) => tab.key === activeTabKey.value));
 const activePageDescriptor = computed(() => pageDescriptorOf(activeTab.value));
-const activeTabRefreshEpoch = ref(0);
 const currentUser = computed(() => props.startup?.session.currentUser);
 const userDisplayName = computed(() => currentUser.value?.username ?? currentUser.value?.userId ?? '未登录');
 const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || 'M');
@@ -128,17 +127,6 @@ function toTabItem(tab: MenuTab): UiTabItem {
 function handleTabChange(key: string) {
   emit('update:activeTabKey', key);
   emit('changeTab', key);
-}
-
-function refreshActiveTab() {
-  if (!activeTab.value) {
-    return;
-  }
-  activeTabRefreshEpoch.value += 1;
-}
-
-function tabHostKey(tab: MenuTab) {
-  return tab.key === activeTabKey.value ? `${tab.key}:refresh:${activeTabRefreshEpoch.value}` : tab.key;
 }
 
 function handleUserCommand(key: string) {
@@ -390,9 +378,8 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             class="icon-button"
             type="button"
             aria-label="刷新当前页"
-            title="刷新当前页"
-            :disabled="!activeTab"
-            @click="refreshActiveTab"
+            title="刷新当前页暂未实现"
+            disabled
           >
             <UiIcon name="reload" />
           </button>
@@ -438,7 +425,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
           <UiSpin v-if="loading" />
           <UiError v-else-if="error" :message="error" />
           <template v-else>
-            <UiSidePanelHost v-if="activeTab" :key="tabHostKey(activeTab)" class="tab-panel-host">
+            <div v-if="activeTab" class="tab-panel-host">
               <div
                 class="tab-page"
                 data-testid="workbench-page"
@@ -450,7 +437,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
                   :page-descriptor="activePageDescriptor"
                 />
               </div>
-            </UiSidePanelHost>
+            </div>
             <UiEmpty v-else description="暂无页面" />
           </template>
         </section>
