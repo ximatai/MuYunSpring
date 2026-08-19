@@ -174,6 +174,46 @@ it('record form field state renders a textarea descriptor as a text area', () =>
   assert.equal(resolveRecordFormFieldState('remark', { fields }).controlType, 'textarea');
 });
 
+it('resolved field controls take precedence over legacy uiType and use the registered renderer', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'categoryCodes',
+      {
+        ...field('分类', { uiType: 'text' }),
+        fieldControl: { alias: 'multi_select', rendererType: 'MULTI_SELECT', valueShape: 'COLLECTION' },
+      },
+    ],
+  ]);
+
+  const state = resolveRecordFormFieldState('categoryCodes', { fields });
+  assert.equal(state.controlType, 'select');
+  assert.equal(state.optionSelectionMode, 'MULTIPLE');
+});
+
+it('an unknown resolved field-control renderer refuses editing instead of falling back to input', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'range',
+      {
+        ...field('区间', { uiType: 'text' }),
+        fieldControl: {
+          alias: 'range',
+          rendererType: 'RANGE',
+          valueShape: 'COMPOSITE',
+          bindings: [
+            { key: 'start', valueType: 'DATE' },
+            { key: 'end', valueType: 'DATE' },
+          ],
+        },
+      },
+    ],
+  ]);
+
+  const state = resolveRecordFormFieldState('range', { fields });
+  assert.equal(state.controlType, 'unsupported');
+  assert.match(state.rendererDiagnostic ?? '', /range/);
+});
+
 it.each(['number', 'integer', 'amount', 'percentage'])(
   'record form field state renders the %s descriptor as a numeric input',
   (uiType) => {

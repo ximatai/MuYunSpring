@@ -14,6 +14,11 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlProperty;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlValueShape;
+import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -25,6 +30,64 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
+    @Test
+    void shouldCompileStaticUiTypeToSourceNeutralFieldControlContract() {
+        ResolvedViewFieldDescriptor field = ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor.field("quantity", view -> view.uiType("number"))))))
+                .build()).page().detail().editor().fields().getFirst();
+
+        assertThat(field.uiType()).isEqualTo("number");
+        assertThat(field.fieldControl()).isEqualTo(new ResolvedFieldControlDescriptor("number", "DECIMAL",
+                "SCALAR", Map.of(), List.of()));
+    }
+
+    @Test
+    void shouldRejectUnknownUiTypeInsteadOfLeavingBrowserFallback() {
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor.field("quantity", view -> view.uiType("unsupported"))))))
+                .build())).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsupported field control alias: unsupported");
+    }
+
+    @Test
+    void shouldCompileConfiguredControlPropertiesAndCompositeBindings() {
+        FieldUiControl control = new FieldUiControl();
+        control.setAlias("period");
+        control.setEnabled(Boolean.TRUE);
+        control.setRendererType(ViewControlType.DATE);
+        control.setValueShape(FieldUiControlValueShape.COMPOSITE);
+        FieldUiControlProperty property = new FieldUiControlProperty();
+        property.setFieldUiControlAlias("period");
+        property.setAttributeAlias("format");
+        property.setDefaultValue("YYYY-MM-DD");
+        FieldUiControlBinding binding = new FieldUiControlBinding();
+        binding.setFieldUiControlAlias("period");
+        binding.setValueKey("end");
+        binding.setValueFieldSpecAlias("date");
+
+        assertThat(FieldControlDescriptorCatalog.fromConfigured(List.of(control), List.of(property), List.of(binding)))
+                .containsEntry("period", new ResolvedFieldControlDescriptor("period", "DATE", "COMPOSITE",
+                        Map.of("format", "YYYY-MM-DD"), List.of(new ResolvedFieldControlBindingDescriptor("end", "date"))));
+    }
+
+    @Test
+    void shouldNotLeakDynamicControlCatalogIntoSubsequentCompilation() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor.field("value", view -> view.uiType("text"))))))
+                .build();
+        ResolvedFieldControlDescriptor dynamicText = new ResolvedFieldControlDescriptor("text", "JSON", "SCALAR",
+                Map.of("dynamic", "true"), List.of());
+
+        assertThat(ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, "订单", Map.of(), Map.of(),
+                null, Map.of(), Map.of("text", dynamicText)).page().detail().editor().fields().getFirst().fieldControl())
+                .isEqualTo(dynamicText);
+        assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor().fields().getFirst().fieldControl())
+                .isEqualTo(new ResolvedFieldControlDescriptor("text", "TEXT", "SCALAR", Map.of(), List.of()));
+    }
+
     @Test
     void shouldCompileSourceNeutralFormComputeRuleToSignedProgram() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")

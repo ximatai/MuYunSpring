@@ -112,6 +112,7 @@ export type {
   RecordFormFieldFallback,
   RecordFormFieldPickerConfig,
   RecordFormFieldState,
+  RecordFieldRenderer,
   RecordFormFieldValue,
   RecordFormRecord,
 } from './recordFormFieldModel';
@@ -146,6 +147,7 @@ export {
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
   resolveRecordFormFields,
+  recordFieldRendererRegistry,
 } from './recordFormFieldModel';
 export {
   createQueryScopedTreeModuleContext,

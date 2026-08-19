@@ -5,6 +5,7 @@ import type {
   BooleanStatusPresentation,
   ResolvedOptionFieldDescriptor,
   ResolvedFileReferenceFieldDescriptor,
+  ResolvedFieldControlDescriptor,
   ResolvedModuleUiDescriptor,
   ResolvedViewFieldDescriptor,
   FieldValuePresentation,
@@ -18,6 +19,8 @@ import type { PickerConstraint, RecordPickerRecord } from './recordPickerConstra
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 
 export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewFieldDescriptor) & {
+  /** Optional during the protocol migration; resolved descriptors take precedence over legacy uiType. */
+  fieldControl?: ResolvedFieldControlDescriptor;
   option?: ResolvedOptionFieldDescriptor;
   reference?: ResolvedReferenceFieldDescriptor;
   fileReference?: ResolvedFileReferenceFieldDescriptor;
@@ -39,7 +42,54 @@ export type RecordFormFieldControlType =
   | 'recordPicker'
   | 'recordMultiPicker'
   | 'fileTransfer'
-  | 'imageFileTransfer';
+  | 'imageFileTransfer'
+  | 'unsupported';
+
+export interface RecordFieldRenderer {
+  rendererType: string;
+  controlType: Exclude<RecordFormFieldControlType, 'unsupported'>;
+  supports: (field: RecordFormFieldDescriptor) => boolean;
+}
+
+/**
+ * The standard-form renderer catalog maps platform semantics to local form facades. It intentionally
+ * contains no UI-adapter component names, so a descriptor cannot choose arbitrary client code.
+ */
+export const recordFieldRendererRegistry: readonly RecordFieldRenderer[] = [
+  { rendererType: 'TEXT', controlType: 'input', supports: () => true },
+  { rendererType: 'TEXTAREA', controlType: 'textarea', supports: () => true },
+  { rendererType: 'NUMBER', controlType: 'numberInput', supports: () => true },
+  { rendererType: 'DECIMAL', controlType: 'numberInput', supports: () => true },
+  { rendererType: 'SWITCH', controlType: 'switch', supports: () => true },
+  { rendererType: 'SELECT', controlType: 'select', supports: () => true },
+  { rendererType: 'MULTI_SELECT', controlType: 'select', supports: () => true },
+  { rendererType: 'ENABLED_STATUS', controlType: 'enabledStatus', supports: () => true },
+  {
+    rendererType: 'BOOLEAN_STATUS',
+    controlType: 'booleanStatus',
+    supports: (field) => field.booleanStatus != null,
+  },
+  {
+    rendererType: 'RECORD_PICKER',
+    controlType: 'recordPicker',
+    supports: (field) => field.reference?.cardinality === 'ONE',
+  },
+  {
+    rendererType: 'RECORD_PICKER',
+    controlType: 'recordMultiPicker',
+    supports: (field) => field.reference?.cardinality === 'MANY',
+  },
+  {
+    rendererType: 'FILE',
+    controlType: 'fileTransfer',
+    supports: (field) => field.fileReference != null && !isSingleImageFileReference(field.fileReference),
+  },
+  {
+    rendererType: 'FILE',
+    controlType: 'imageFileTransfer',
+    supports: (field) => field.fileReference != null && isSingleImageFileReference(field.fileReference),
+  },
+];
 
 export interface RecordFormFieldFallback {
   label: string;
@@ -72,6 +122,8 @@ export interface RecordFormFieldState {
   readOnly: boolean;
   visible: boolean;
   controlType: RecordFormFieldControlType;
+  /** Set only when an authoritative field-control descriptor cannot be executed safely. */
+  rendererDiagnostic?: string;
   columnSpan: number;
   hasOption: boolean;
   optionSelectionMode?: 'SINGLE' | 'MULTIPLE';
@@ -234,6 +286,9 @@ export function resolveRecordFormFieldState(
     columnSpan: field?.columnSpan === 2 ? 2 : 1,
     hasOption,
     pickerConfig,
+    ...(field?.fieldControl && controlType === 'unsupported'
+      ? { rendererDiagnostic: rendererDiagnostic(field.fieldControl) }
+      : {}),
     ...(field?.fileReference ? { fileReference: field.fileReference } : {}),
     ...(booleanStatus ? { booleanStatus } : {}),
     ...(field?.valuePresentation ? { valuePresentation: field.valuePresentation } : {}),
@@ -246,10 +301,13 @@ export function resolveRecordFormFieldState(
     ...baseState,
     ...(field?.option
       ? {
-          optionSelectionMode: field.option.selectionMode,
+          optionSelectionMode: fieldControlSelectionMode(field) ?? field.option.selectionMode,
           ...(field.option.inlineItems?.length ? { optionItems: field.option.inlineItems } : {}),
           ...(field.option.titleField ? { optionTitleField: field.option.titleField } : {}),
         }
+      : {}),
+    ...(!field?.option && fieldControlSelectionMode(field)
+      ? { optionSelectionMode: fieldControlSelectionMode(field) }
       : {}),
     ...(field?.reference?.titleField ? { referenceTitleField: field.reference.titleField } : {}),
     ...(field?.treeRootTitle ? { treeRootTitle: field.treeRootTitle } : {}),
@@ -285,6 +343,9 @@ function controlTypeOf(
   field: RecordFormFieldDescriptor | undefined,
   fallback: RecordFormFieldFallback | undefined,
 ): RecordFormFieldControlType {
+  if (field?.fieldControl) {
+    return resolveFieldControlType(field, field.fieldControl);
+  }
   if (field?.fileReference) {
     return isSingleImageFileReference(field.fileReference) ? 'imageFileTransfer' : 'fileTransfer';
   }
@@ -323,6 +384,27 @@ function controlTypeOf(
     return 'select';
   }
   return fallback?.controlType ?? 'input';
+}
+
+function resolveFieldControlType(
+  field: RecordFormFieldDescriptor,
+  fieldControl: ResolvedFieldControlDescriptor,
+): RecordFormFieldControlType {
+  const renderer = recordFieldRendererRegistry.find(
+    (candidate) => candidate.rendererType === fieldControl.rendererType && candidate.supports(field),
+  );
+  return renderer?.controlType ?? 'unsupported';
+}
+
+function rendererDiagnostic(fieldControl: ResolvedFieldControlDescriptor) {
+  return `字段控件“${fieldControl.alias}”的 renderer“${fieldControl.rendererType}”未在当前页面运行器登记，已拒绝编辑。`;
+}
+
+function fieldControlSelectionMode(field: RecordFormFieldDescriptor | undefined) {
+  if (field?.fieldControl?.rendererType === 'MULTI_SELECT') {
+    return 'MULTIPLE' as const;
+  }
+  return undefined;
 }
 
 /**

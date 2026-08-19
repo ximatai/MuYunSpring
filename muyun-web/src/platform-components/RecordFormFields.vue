@@ -400,6 +400,9 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         v-else-if="field.valuePresentation === 'FILE_SIZE'"
         :value="fileSizeValue(field.fieldName)"
       />
+      <div v-else-if="field.controlType === 'unsupported'" class="record-form-field-diagnostic" role="alert">
+        {{ field.rendererDiagnostic }}
+      </div>
       <UiInput
         v-else
         :value="scalarFieldValue(field.fieldName)"
@@ -479,6 +482,14 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
   gap: 4px;
   color: var(--muyun-danger-base);
   font-size: 12px;
+}
+
+.record-form-field-diagnostic {
+  border: 1px solid var(--muyun-danger-base);
+  border-radius: 4px;
+  color: var(--muyun-danger-base);
+  line-height: 1.5;
+  padding: 8px 10px;
 }
 
 @media (max-width: 720px) {

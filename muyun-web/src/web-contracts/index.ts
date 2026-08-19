@@ -788,6 +788,23 @@ export type ViewFieldValueType =
   | 'DECIMAL'
   | 'JSON';
 
+/**
+ * Source-neutral field-control fact compiled by the platform. `renderer` is a platform semantic
+ * renderer type, never a Vue component name or front-end module path.
+ */
+export interface ResolvedFieldControlDescriptor {
+  alias: string;
+  rendererType: string;
+  valueShape: 'SCALAR' | 'COLLECTION' | 'COMPOSITE';
+  properties?: Record<string, string>;
+  bindings?: ResolvedFieldControlBindingDescriptor[];
+}
+
+export interface ResolvedFieldControlBindingDescriptor {
+  key: string;
+  valueType: string;
+}
+
 export interface ResolvedViewFieldDescriptor {
   fieldRef: ViewFieldRef;
   label?: string;
@@ -795,6 +812,8 @@ export interface ResolvedViewFieldDescriptor {
   required?: UiRule<boolean>;
   readOnly?: UiRule<boolean>;
   uiType?: string;
+  /** Optional while older descriptors still publish only `uiType`. When present it is authoritative. */
+  fieldControl?: ResolvedFieldControlDescriptor;
   valueType?: ViewFieldValueType;
   valuePresentation?: FieldValuePresentation;
   width?: string;

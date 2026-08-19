@@ -42,6 +42,9 @@ import net.ximatai.muyun.spring.platform.ui.PlatformResolvedPageConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiClientType;
 import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import net.ximatai.muyun.spring.platform.ui.PageNavigatorSourceCapabilityResolver;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -68,6 +71,9 @@ public class PlatformModuleRuntimeContextService {
     private final List<FileReferenceFieldPolicy> fileReferenceFieldPolicies;
     private final PageNavigatorResolver pageNavigatorResolver;
     private final PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver;
+    private final FieldUiControlService fieldUiControlService;
+    private final FieldUiControlPropertyService fieldUiControlPropertyService;
+    private final FieldUiControlBindingService fieldUiControlBindingService;
 
     @Autowired
     public PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -79,7 +85,10 @@ public class PlatformModuleRuntimeContextService {
                                                ObjectProvider<ActionExecutionPolicyService> actionExecutionPolicyService,
                                                ObjectProvider<FileReferenceFieldPolicy> fileReferenceFieldPolicies,
                                                ObjectProvider<PageNavigatorResolver> pageNavigatorResolver,
-                                               ObjectProvider<PageNavigatorSourceCapabilityResolver> navigatorSourceCapabilityResolver) {
+                                               ObjectProvider<PageNavigatorSourceCapabilityResolver> navigatorSourceCapabilityResolver,
+                                               ObjectProvider<FieldUiControlService> fieldUiControlService,
+                                               ObjectProvider<FieldUiControlPropertyService> fieldUiControlPropertyService,
+                                               ObjectProvider<FieldUiControlBindingService> fieldUiControlBindingService) {
         this(moduleService, actionService, staticModuleCatalog,
                 dynamicRecordService == null ? null : dynamicRecordService.getIfAvailable(),
                 pageConfigSnapshotService == null ? null : pageConfigSnapshotService.getIfAvailable(),
@@ -90,7 +99,10 @@ public class PlatformModuleRuntimeContextService {
                 fileReferenceFieldPolicies == null ? List.of() : fileReferenceFieldPolicies.orderedStream().toList(),
                 new CompositePageNavigatorResolver(pageNavigatorResolver == null ? List.of()
                         : pageNavigatorResolver.orderedStream().toList()),
-                navigatorSourceCapabilityResolver == null ? null : navigatorSourceCapabilityResolver.getIfAvailable());
+                navigatorSourceCapabilityResolver == null ? null : navigatorSourceCapabilityResolver.getIfAvailable(),
+                fieldUiControlService == null ? null : fieldUiControlService.getIfAvailable(),
+                fieldUiControlPropertyService == null ? null : fieldUiControlPropertyService.getIfAvailable(),
+                fieldUiControlBindingService == null ? null : fieldUiControlBindingService.getIfAvailable());
     }
 
     PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -140,6 +152,24 @@ public class PlatformModuleRuntimeContextService {
                                         List<FileReferenceFieldPolicy> fileReferenceFieldPolicies,
                                         PageNavigatorResolver pageNavigatorResolver,
                                         PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver) {
+        this(moduleService, actionService, staticModuleCatalog, dynamicRecordService, pageConfigSnapshotService,
+                pageBootstrapService, actionExecutionPolicyService, fileReferenceFieldPolicies, pageNavigatorResolver,
+                navigatorSourceCapabilityResolver, null, null, null);
+    }
+
+    PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
+                                        PlatformModuleActionService actionService,
+                                        StaticModuleDefinitionCatalog staticModuleCatalog,
+                                        DynamicRecordService dynamicRecordService,
+                                        PlatformPageConfigSnapshotService pageConfigSnapshotService,
+                                        PlatformPageBootstrapService pageBootstrapService,
+                                        ActionExecutionPolicyService actionExecutionPolicyService,
+                                        List<FileReferenceFieldPolicy> fileReferenceFieldPolicies,
+                                        PageNavigatorResolver pageNavigatorResolver,
+                                        PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver,
+                                        FieldUiControlService fieldUiControlService,
+                                        FieldUiControlPropertyService fieldUiControlPropertyService,
+                                        FieldUiControlBindingService fieldUiControlBindingService) {
         this.moduleService = moduleService;
         this.actionService = actionService;
         this.staticModuleCatalog = staticModuleCatalog;
@@ -154,6 +184,9 @@ public class PlatformModuleRuntimeContextService {
                 ? new DeclaredPageNavigatorResolver()
                 : pageNavigatorResolver;
         this.navigatorSourceCapabilityResolver = navigatorSourceCapabilityResolver;
+        this.fieldUiControlService = fieldUiControlService;
+        this.fieldUiControlPropertyService = fieldUiControlPropertyService;
+        this.fieldUiControlBindingService = fieldUiControlBindingService;
     }
 
     public PlatformModuleRuntimeContext context(String moduleAlias) {
@@ -245,11 +278,36 @@ public class PlatformModuleRuntimeContextService {
                         .orElse(List.of()), fieldTypes);
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, title,
                 dynamicOptionFields(dynamicDescriptor), dynamicReferenceFields(dynamicDescriptor),
-                dynamicRecordLabelField(dynamicDescriptor), fieldTypes)
+                dynamicRecordLabelField(dynamicDescriptor), fieldTypes, dynamicFieldControls(resolvedConfig))
                 .withFileReferences(dynamicFileReferences(dynamicDescriptor, resolvedConfig).stream()
                         .map(reference -> withFieldAccess(moduleAlias, reference))
                         .toList());
         return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()));
+    }
+
+    private java.util.Map<String, ResolvedFieldControlDescriptor> dynamicFieldControls(
+            PlatformResolvedPageConfig resolvedConfig) {
+        if (fieldUiControlService == null || fieldUiControlPropertyService == null || fieldUiControlBindingService == null) {
+            return FieldControlDescriptorCatalog.standard();
+        }
+        List<String> aliases = resolvedConfig.uiFields().stream()
+                .map(net.ximatai.muyun.spring.platform.ui.PlatformResolvedUiField::fieldUiControlAlias)
+                .filter(alias -> alias != null && !alias.isBlank())
+                .filter(alias -> !"file_size".equals(alias)).distinct().toList();
+        if (aliases.isEmpty()) return FieldControlDescriptorCatalog.standard();
+        java.util.Map<String, ResolvedFieldControlDescriptor> configured = FieldControlDescriptorCatalog.fromConfigured(
+                fieldUiControlService.listEnabledByAliases(aliases),
+                fieldUiControlPropertyService.listByFieldUiControlAliases(aliases),
+                fieldUiControlBindingService.listByFieldUiControlAliases(aliases));
+        for (String alias : aliases) {
+            if (!configured.containsKey(alias)) {
+                throw new IllegalArgumentException("dynamic UI references missing, disabled, or unsupported field control: " + alias);
+            }
+        }
+        java.util.LinkedHashMap<String, ResolvedFieldControlDescriptor> controls = new java.util.LinkedHashMap<>(
+                FieldControlDescriptorCatalog.standard());
+        controls.putAll(configured);
+        return java.util.Map.copyOf(controls);
     }
 
     private ResolvedModulePageDescriptor resolvePage(String moduleAlias,

@@ -52,4 +52,30 @@ describe('RecordFormFields', () => {
     input.vm.$emit('update:value', '23.40');
     expect(wrapper.emitted('update:field')).toContainEqual(['amount', '23.40']);
   });
+
+  it('shows an explicit non-editable diagnostic for an unregistered resolved renderer', () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'schedule',
+        {
+          fieldRef: { fieldName: 'schedule' },
+          label: '排期',
+          fieldControl: {
+            alias: 'date_range',
+            rendererType: 'DATE_RANGE',
+            valueShape: 'COMPOSITE',
+            bindings: [
+              { key: 'start', valueType: 'DATE' },
+              { key: 'end', valueType: 'DATE' },
+            ],
+          },
+        },
+      ],
+    ]);
+
+    const wrapper = mount(RecordFormFields, { props: { record: { schedule: '' }, fields } });
+
+    expect(wrapper.find('[role="alert"]').text()).toContain('已拒绝编辑');
+    expect(wrapper.findComponent({ name: 'UiInput' }).exists()).toBe(false);
+  });
 });

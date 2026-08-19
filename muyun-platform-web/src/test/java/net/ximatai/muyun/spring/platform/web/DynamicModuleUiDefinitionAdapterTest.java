@@ -186,12 +186,16 @@ class DynamicModuleUiDefinitionAdapterTest {
         ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(snapshot, resolved);
 
         assertThat(definition.moduleAlias()).isEqualTo("crm.customer");
-        assertThat(ModuleUiDescriptorCompiler.compile(
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
                 definition,
                 net.ximatai.muyun.spring.platform.module.ModuleKind.DYNAMIC,
                 "客户",
                 java.util.Map.of(),
-                "name").recordLabelField()).isEqualTo("name");
+                "name");
+        assertThat(descriptor.recordLabelField()).isEqualTo("name");
+        assertThat(descriptor.page().detail().editor().fields()).filteredOn(field -> "name".equals(field.fieldRef().fieldName()))
+                .singleElement().satisfies(field -> assertThat(field.fieldControl()).isEqualTo(
+                        new ResolvedFieldControlDescriptor("input", "TEXT", "SCALAR", java.util.Map.of(), List.of())));
         assertThat(definition.page()).isInstanceOf(ListDetailCardPageDefinition.class);
         ListDetailCardPageDefinition page = (ListDetailCardPageDefinition) definition.page();
         ViewDefinition listView = page.list().list();

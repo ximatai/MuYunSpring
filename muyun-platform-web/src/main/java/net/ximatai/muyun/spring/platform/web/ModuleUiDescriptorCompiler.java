@@ -67,7 +67,7 @@ public final class ModuleUiDescriptorCompiler {
                 staticReferenceSummaryFields(definition.modelClass());
         ResolvedModuleUiDescriptor descriptor = compileResolved(uiDefinition, ModuleKind.STATIC, definition.title(),
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
-                        staticRecordLabelField(definition), fieldTypes(definition.entities()));
+                        staticRecordLabelField(definition), fieldTypes(definition.entities()), FieldControlDescriptorCatalog.standard());
         return new ModuleUiCompilationResult(
                 descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
                         .withDetailRelations(staticDetailRelations(definition, uiDefinition)),
@@ -79,13 +79,13 @@ public final class ModuleUiDescriptorCompiler {
         if (definition == null) {
             return null;
         }
-        return compileResolved(definition, null, null, Map.of(), Map.of(), Map.of(), null, Map.of());
+        return compileResolved(definition, null, null, Map.of(), Map.of(), Map.of(), null, Map.of(), FieldControlDescriptorCatalog.standard());
     }
 
     public static ResolvedModuleUiDescriptor compile(ModuleUiDefinition definition,
                                                      ModuleKind moduleKind,
                                                      String title) {
-        return compileResolved(definition, moduleKind, title, Map.of(), Map.of(), Map.of(), null, Map.of());
+        return compileResolved(definition, moduleKind, title, Map.of(), Map.of(), Map.of(), null, Map.of(), FieldControlDescriptorCatalog.standard());
     }
 
     public static ResolvedModuleUiDescriptor compile(ModuleUiDefinition definition,
@@ -95,7 +95,7 @@ public final class ModuleUiDescriptorCompiler {
         if (definition == null) {
             return null;
         }
-        return compileResolved(definition, moduleKind, title, optionFields, Map.of(), Map.of(), null, Map.of());
+        return compileResolved(definition, moduleKind, title, optionFields, Map.of(), Map.of(), null, Map.of(), FieldControlDescriptorCatalog.standard());
     }
 
     public static ResolvedModuleUiDescriptor compile(ModuleUiDefinition definition,
@@ -105,7 +105,7 @@ public final class ModuleUiDescriptorCompiler {
                                                      String defaultRecordLabelField) {
         if (definition == null) return null;
         return compileResolved(definition, moduleKind, title, optionFields == null ? Map.of() : optionFields,
-                Map.of(), Map.of(), defaultRecordLabelField, Map.of());
+                Map.of(), Map.of(), defaultRecordLabelField, Map.of(), FieldControlDescriptorCatalog.standard());
     }
 
     /**
@@ -122,7 +122,7 @@ public final class ModuleUiDescriptorCompiler {
         return compileResolved(definition, moduleKind, title,
                 optionFields == null ? Map.of() : optionFields,
                 referenceFields == null ? Map.of() : referenceFields,
-                Map.of(), defaultRecordLabelField, Map.of());
+                Map.of(), defaultRecordLabelField, Map.of(), FieldControlDescriptorCatalog.standard());
     }
 
     public static ResolvedModuleUiDescriptor compile(ModuleUiDefinition definition,
@@ -136,7 +136,24 @@ public final class ModuleUiDescriptorCompiler {
         return compileResolved(definition, moduleKind, title,
                 optionFields == null ? Map.of() : optionFields,
                 referenceFields == null ? Map.of() : referenceFields,
-                Map.of(), defaultRecordLabelField, fieldTypes == null ? Map.of() : fieldTypes);
+                Map.of(), defaultRecordLabelField, fieldTypes == null ? Map.of() : fieldTypes, FieldControlDescriptorCatalog.standard());
+    }
+
+    /** Compiles a published dynamic definition using its already-resolved control catalog. */
+    public static ResolvedModuleUiDescriptor compile(ModuleUiDefinition definition,
+                                                     ModuleKind moduleKind,
+                                                     String title,
+                                                     Map<String, ResolvedOptionFieldDescriptor> optionFields,
+                                                     Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
+                                                     String defaultRecordLabelField,
+                                                     Map<ViewFieldRef, FieldValueType> fieldTypes,
+                                                     Map<String, ResolvedFieldControlDescriptor> fieldControls) {
+        if (fieldControls == null) {
+            throw new IllegalArgumentException("resolved field controls must not be null");
+        }
+        return compileResolved(definition, moduleKind, title, optionFields == null ? Map.of() : optionFields,
+                referenceFields == null ? Map.of() : referenceFields, Map.of(), defaultRecordLabelField,
+                fieldTypes == null ? Map.of() : fieldTypes, Map.copyOf(fieldControls));
     }
 
     private static ResolvedModuleUiDescriptor compileResolved(ModuleUiDefinition definition,
@@ -146,7 +163,8 @@ public final class ModuleUiDescriptorCompiler {
                                                               Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                                               Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
                                                               String defaultRecordLabelField,
-                                                              Map<ViewFieldRef, FieldValueType> fieldTypes) {
+                                                              Map<ViewFieldRef, FieldValueType> fieldTypes,
+                                                              Map<String, ResolvedFieldControlDescriptor> fieldControls) {
         return new ResolvedModuleUiDescriptor(
                 ResolvedModuleUiDescriptor.SCHEMA_VERSION,
                 definition.moduleAlias(),
@@ -157,15 +175,15 @@ public final class ModuleUiDescriptorCompiler {
                         .toList(),
                 defaultRecordLabelField,
                 List.of(),
-                compilePage(definition.page(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
+                compilePage(definition.page(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                 definition.defaultEditor() == null ? null : compileView(definition.defaultEditor(), optionFields,
-                        referenceFields, referenceSummaryFields, fieldTypes),
+                        referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                 definition.editorSurfaces().stream().map(surface ->
                         new ResolvedEditorSurfaceDescriptor(surface.key(), compileView(surface.editor(), optionFields,
-                                referenceFields, referenceSummaryFields, fieldTypes))).toList(),
+                                referenceFields, referenceSummaryFields, fieldTypes, fieldControls))).toList(),
                 definition.editorContributions().stream().map(contribution ->
                         new ResolvedPageDetailEditorContribution(contribution.resource(), compileView(contribution.editor(),
-                                optionFields, referenceFields, referenceSummaryFields, fieldTypes))).toList(),
+                                optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls))).toList(),
                 List.of()
         );
     }
@@ -196,7 +214,8 @@ public final class ModuleUiDescriptorCompiler {
                                                             Map<String, ResolvedOptionFieldDescriptor> optionFields,
                                                             Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                                             Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
-                                                            Map<ViewFieldRef, FieldValueType> fieldTypes) {
+                                                            Map<ViewFieldRef, FieldValueType> fieldTypes,
+                                                            Map<String, ResolvedFieldControlDescriptor> fieldControls) {
         if (page == null) return null;
         return switch (page) {
             case FlatManagementPageDefinition flat -> {
@@ -206,7 +225,7 @@ public final class ModuleUiDescriptorCompiler {
                 yield new ResolvedModulePageDescriptor(
                     flat.template(), ResolvedPageExplorerDescriptor.from(flat.explorer()),
                     ResolvedPageNavigatorDescriptor.from(flat.navigator()), null,
-                    detail(flat.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
+                    detail(flat.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                     List.copyOf(flat.traits().values()));
             }
             case ListDetailCardPageDefinition card -> {
@@ -217,8 +236,8 @@ public final class ModuleUiDescriptorCompiler {
                         ResolvedPageNavigatorDescriptor.from(card.navigator()),
                         new ResolvedPageListDescriptor(card.list().searchPlaceholder(),
                                 compileView(card.list().list(), optionFields, referenceFields,
-                                        referenceSummaryFields, fieldTypes)),
-                        detail(card.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
+                                        referenceSummaryFields, fieldTypes, fieldControls)),
+                        detail(card.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                         List.copyOf(card.traits().values()));
             }
             case TreeManagementPageDefinition tree -> {
@@ -227,7 +246,7 @@ public final class ModuleUiDescriptorCompiler {
                 }
                 yield new ResolvedModulePageDescriptor(tree.template(), null,
                         ResolvedPageNavigatorDescriptor.from(tree.navigator()), null,
-                        detail(tree.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes),
+                        detail(tree.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                         List.copyOf(tree.traits().values()));
             }
         };
@@ -237,12 +256,13 @@ public final class ModuleUiDescriptorCompiler {
                                                        Map<String, ResolvedOptionFieldDescriptor> optionFields,
                                                        Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                                        Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
-                                                       Map<ViewFieldRef, FieldValueType> fieldTypes) {
+                                                       Map<ViewFieldRef, FieldValueType> fieldTypes,
+                                                       Map<String, ResolvedFieldControlDescriptor> fieldControls) {
         return new ResolvedPageDetailDescriptor(detail.emptyDescription(), detail.createTitle(),
                 detail.display() == null ? null : compileView(detail.display(), optionFields, referenceFields,
-                        referenceSummaryFields, fieldTypes),
+                        referenceSummaryFields, fieldTypes, fieldControls),
                 detail.editor() == null ? null : compileView(detail.editor(), optionFields, referenceFields,
-                        referenceSummaryFields, fieldTypes),
+                        referenceSummaryFields, fieldTypes, fieldControls),
                 detail.workspaceView() == null ? null
                         : new ResolvedPageDetailWorkspaceViewDescriptor(detail.workspaceView().type()),
                 detail.showSystemInfo());
@@ -333,10 +353,11 @@ public final class ModuleUiDescriptorCompiler {
                                                       Map<String, ResolvedOptionFieldDescriptor> optionFields,
                                                       Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                                       Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
-                                                      Map<ViewFieldRef, FieldValueType> fieldTypes) {
+                                                      Map<ViewFieldRef, FieldValueType> fieldTypes,
+                                                      Map<String, ResolvedFieldControlDescriptor> fieldControls) {
         List<ResolvedViewFieldDescriptor> fields = view.fields().stream()
                 .map(field -> compileField(view.viewKind(), field, optionFields, referenceFields,
-                        referenceSummaryFields, fieldTypes))
+                        referenceSummaryFields, fieldTypes, fieldControls))
                 .toList();
         return new ResolvedViewDescriptor(
                 view.viewCode(),
@@ -466,20 +487,23 @@ public final class ModuleUiDescriptorCompiler {
                                                             Map<String, ResolvedOptionFieldDescriptor> optionFields,
                                                             Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                                             Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
-                                                            Map<ViewFieldRef, FieldValueType> fieldTypes) {
+                                                            Map<ViewFieldRef, FieldValueType> fieldTypes,
+                                                            Map<String, ResolvedFieldControlDescriptor> fieldControls) {
         ResolvedReferenceSummaryFieldDescriptor referenceSummary = field.fieldRef().relationCode() == null
                 ? referenceSummaryFields.get(field.fieldRef().fieldName()) : null;
         FieldValueType resolvedValueType = valueType(field.fieldRef(), fieldTypes);
         validateBooleanStatus(viewKind, field);
         validateTagList(viewKind, field, referenceSummary);
         validateValuePresentation(viewKind, field, resolvedValueType);
+        String resolvedUiType = resolvedUiType(viewKind, field, resolvedValueType);
         return new ResolvedViewFieldDescriptor(
                 field.fieldRef(),
                 field.label(),
                 field.visible(),
                 field.required(),
                 field.readOnly(),
-                resolvedUiType(viewKind, field, resolvedValueType),
+                resolvedUiType,
+                resolveFieldControl(resolvedUiType, resolvedValueType, field.valuePresentation(), fieldControls),
                 resolvedValueType,
                 field.valuePresentation(),
                 field.width(),
@@ -493,6 +517,38 @@ public final class ModuleUiDescriptorCompiler {
                 field.maxDisplayLines(),
                 field.treeRootTitle()
         );
+    }
+
+    /**
+     * Static DSL keeps its established {@code uiType} spelling, while the resolved descriptor
+     * always carries the adapter-neutral execution fact. A missing or unsupported alias is a
+     * compilation error rather than a browser-side text-input fallback.
+     */
+    private static ResolvedFieldControlDescriptor resolveFieldControl(String uiType,
+                                                                       FieldValueType valueType,
+                                                                       FieldValuePresentation presentation,
+                                                                       Map<String, ResolvedFieldControlDescriptor> fieldControls) {
+        if (presentation != null) return null;
+        String alias = uiType == null ? inferredControlAlias(valueType) : uiType;
+        if (alias == null) return null;
+        ResolvedFieldControlDescriptor descriptor = fieldControls.get(alias);
+        if (descriptor == null) {
+            throw new IllegalArgumentException("unsupported field control alias: " + alias);
+        }
+        return descriptor;
+    }
+
+    private static String inferredControlAlias(FieldValueType valueType) {
+        if (valueType == null) return "text";
+        return switch (valueType) {
+            case BOOLEAN -> "switch";
+            case INTEGER -> "integer";
+            case LONG, DECIMAL -> "number";
+            case DATE -> "date";
+            case TIMESTAMP, ZONED_TIMESTAMP -> "datetime";
+            case JSON -> "json";
+            default -> "text";
+        };
     }
 
     /**
