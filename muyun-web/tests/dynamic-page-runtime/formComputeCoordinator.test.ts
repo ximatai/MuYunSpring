@@ -47,6 +47,7 @@ describe('FormComputeCoordinator', () => {
         code: 'invalid',
         program: invalid,
         targetField: 'target',
+        targetValueType: 'DECIMAL',
         triggerFields: ['source'],
         writePolicy: 'ALWAYS',
       },
@@ -71,6 +72,7 @@ function rule(
       referencedFields: [],
     },
     targetField,
+    targetValueType: targetField === 'label' ? 'STRING' : 'DECIMAL',
     triggerFields,
     writePolicy: 'ALWAYS',
   };

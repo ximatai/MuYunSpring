@@ -863,6 +863,57 @@ class DynamicRecordDaoTest {
     }
 
     @Test
+    void shouldRejectChildFormulaWritesWithoutACompleteRelationPayload() {
+        EntityDefinition invoice = new EntityDefinition(
+                "invoice",
+                "sales_invoice",
+                "Invoice",
+                List.of(FieldDefinition.decimal("totalAmount", "Total Amount").column("total_amount").precision(18, 2))
+        ).withFormulaRules(new EntityFormulaRuleDefinition("totalAmountCalc",
+                "{totalAmount} = SUM({items.lineAmount} = {items.quantity} * {items.price})"));
+        EntityDefinition line = new EntityDefinition(
+                "invoice_line",
+                "sales_invoice_line",
+                "Invoice Line",
+                List.of(
+                        FieldDefinition.decimal("quantity", "Quantity").precision(18, 2),
+                        FieldDefinition.decimal("price", "Price").precision(18, 2),
+                        FieldDefinition.decimal("lineAmount", "Line Amount").column("line_amount").precision(18, 2)
+                )
+        );
+        ModuleDefinition module = ModuleDefinition.builder("sales.invoice", "Invoice")
+                .entities(List.of(invoice, line))
+                .relations(List.of(EntityRelationDefinition.child("items", "invoice", "invoice_line", "invoiceId")))
+                .build();
+        DynamicRecord persistedLine = new DynamicRecord(line)
+                .setValue("quantity", BigDecimal.valueOf(2))
+                .setValue("price", BigDecimal.TEN)
+                .setValue("lineAmount", BigDecimal.valueOf(20));
+        persistedLine.setId("line-1");
+        DynamicRecord unsubmittedLine = new DynamicRecord(line)
+                .setValue("quantity", BigDecimal.ONE)
+                .setValue("price", BigDecimal.TEN)
+                .setValue("lineAmount", BigDecimal.TEN);
+        unsubmittedLine.setId("line-2");
+        DynamicFormulaRuntime runtime = new DynamicFormulaRuntime("sales.invoice", invoice, module);
+
+        DynamicRecord omitted = new DynamicRecord(invoice).setValue("totalAmount", BigDecimal.ZERO);
+        assertThatThrownBy(() -> runtime.beforeUpdate(omitted, null, Map.of("items", List.of(persistedLine))))
+                .isInstanceOfSatisfying(DynamicFormulaException.class, exception ->
+                        assertThat(exception.firstError().code())
+                                .isEqualTo("FORMULA_PARTIAL_CHILD_WRITE_UNSUPPORTED"));
+
+        DynamicRecord partialLine = new DynamicRecord(line).setValue("quantity", BigDecimal.valueOf(3));
+        partialLine.setId("line-1");
+        DynamicRecord partial = new DynamicRecord(invoice).setValue("totalAmount", BigDecimal.ZERO);
+        partial.setPartialChildren("items", List.of(partialLine));
+        assertThatThrownBy(() -> runtime.beforeUpdate(partial, null,
+                Map.of("items", List.of(persistedLine, unsubmittedLine))))
+                .isInstanceOfSatisfying(DynamicFormulaException.class, exception ->
+                        assertThat(exception.firstError().fieldPath()).isEqualTo("items.lineAmount"));
+    }
+
+    @Test
     void shouldNotRunAfterSelectForInternalReadsOrListQueries() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));

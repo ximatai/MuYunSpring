@@ -77,6 +77,7 @@
     {
       "id": "form-compute-arithmetic-zero-division",
       "profile": "FORM_COMPUTE",
+      "targetValueType": "DECIMAL",
       "expression": "{amount} = ({quantity} * {unitPrice}) / {divisor}",
       "record": { "amount": null, "quantity": "3", "unitPrice": 4, "divisor": 0 },
       "expected": { "amount": 0.0 },
@@ -102,6 +103,7 @@
     {
       "id": "form-compute-java-double-text",
       "profile": "FORM_COMPUTE",
+      "targetValueType": "DECIMAL",
       "expression": "{amount} = +{scientific} + +{hexadecimal}",
       "record": { "amount": null, "scientific": "1e2", "hexadecimal": "0x1.0p4" },
       "expected": { "amount": 116.0 },
@@ -128,6 +130,7 @@
     {
       "id": "form-compute-non-finite-text-normalizes-number",
       "profile": "FORM_COMPUTE",
+      "targetValueType": "DECIMAL",
       "expression": "{amount} = ({source} * 1) + 1",
       "record": { "amount": null, "source": "Infinity" },
       "expected": { "amount": 1.0 },
@@ -148,6 +151,49 @@
           ]
         },
         "referencedFields": ["amount", "source"]
+      }
+    },
+    {
+      "id": "form-compute-string-write-conversion",
+      "profile": "FORM_COMPUTE",
+      "targetValueType": "STRING",
+      "expression": "{amount} = 1 + 1",
+      "record": { "amount": null },
+      "expected": { "amount": "2.0" },
+      "program": {
+        "schemaVersion": 1,
+        "profile": "FORM_COMPUTE",
+        "root": {
+          "kind": "ASSIGN", "operator": "=", "field": null, "value": null,
+          "arguments": [
+            { "kind": "FIELD", "operator": null, "field": "amount", "value": null, "arguments": [] },
+            { "kind": "BINARY", "operator": "+", "field": null, "value": null, "arguments": [
+              { "kind": "VALUE", "operator": null, "field": null, "value": 1.0, "arguments": [] },
+              { "kind": "VALUE", "operator": null, "field": null, "value": 1.0, "arguments": [] }
+            ] }
+          ]
+        },
+        "referencedFields": ["amount"]
+      }
+    },
+    {
+      "id": "form-compute-boolean-write-conversion",
+      "profile": "FORM_COMPUTE",
+      "targetValueType": "BOOLEAN",
+      "expression": "{amount} = 1",
+      "record": { "amount": null },
+      "expected": { "amount": true },
+      "program": {
+        "schemaVersion": 1,
+        "profile": "FORM_COMPUTE",
+        "root": {
+          "kind": "ASSIGN", "operator": "=", "field": null, "value": null,
+          "arguments": [
+            { "kind": "FIELD", "operator": null, "field": "amount", "value": null, "arguments": [] },
+            { "kind": "VALUE", "operator": null, "field": null, "value": 1.0, "arguments": [] }
+          ]
+        },
+        "referencedFields": ["amount"]
       }
     }
   ]

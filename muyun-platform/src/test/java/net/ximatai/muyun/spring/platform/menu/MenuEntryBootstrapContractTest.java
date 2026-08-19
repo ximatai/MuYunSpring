@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.MenuVisibilityPolicyService;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.AssociationViewDisplayMode;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
@@ -417,6 +418,11 @@ class MenuEntryBootstrapContractTest {
                 java.util.List.of(), java.util.List.of(new DynamicAssociationViewDescriptor("contracts", "customer",
                 "crm.contract", "contract", AssociationViewDisplayMode.INLINE_LIST, "contracts", null,
                 EntityViewType.LIST, true))));
+        when(mockedRecordService.describe("crm.contract")).thenReturn(new DynamicModuleDescriptor(
+                "crm.contract", "合同", "contract", java.util.List.of(), java.util.List.of(
+                new DynamicEntityDescriptor("contract", "合同", java.util.Set.of(), java.util.List.of(),
+                        java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of())),
+                java.util.List.of(), java.util.List.of(), java.util.List.of()));
 
         PlatformPageBootstrap bootstrap = service.bootstrapByMenu("menu-1", PlatformUiClientType.WEB);
 
@@ -439,6 +445,9 @@ class MenuEntryBootstrapContractTest {
                 .extracting(field -> field.fieldName(), field -> field.title(), field -> field.width(),
                         field -> field.maxDisplayLines())
                 .containsExactly(tuple("summary", "摘要", 240, 2));
+        assertThat(block.relation().queryContract().querySchema())
+                .extracting(schema -> schema.scopeName(), schema -> schema.entityAlias())
+                .containsExactly("crm.contract", "contract");
         assertThat(bootstrap.resolvedConfig().actionBlocks())
                 .extracting(PlatformActionBlock::actionCode)
                 .containsExactly("submitDialog", "editBaseInfo");

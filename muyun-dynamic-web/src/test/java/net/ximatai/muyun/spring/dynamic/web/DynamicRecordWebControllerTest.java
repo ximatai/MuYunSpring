@@ -62,6 +62,7 @@ import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import net.ximatai.muyun.spring.web.RequestTraceWebFilter;
+import net.ximatai.muyun.spring.web.TenantRequestScope;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadServiceTestFactory;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryDescriptor;
@@ -3597,7 +3598,7 @@ class DynamicRecordWebControllerTest {
         DynamicRecordWebController build() {
             return new DynamicRecordWebController(
                     recordService,
-                    activeTenantVerifier,
+                    new TenantRequestScope(activeTenantVerifier),
                     new DynamicRecordQueryServices(pageConfigSnapshotService, queryItemService,
                             moduleMetadataFieldService, fieldUiControlService, fieldUiControlBindingService,
                             relationProjectionReadService),

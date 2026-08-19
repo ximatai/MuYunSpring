@@ -38,11 +38,14 @@ class ModuleUiDescriptorCompilerTest {
                                         "{amount} = {quantity} * {unitPrice}")))))
                 .build();
 
-        ResolvedFormComputeRuleDescriptor rule = ModuleUiDescriptorCompiler.compile(definition).page().detail()
+        ResolvedFormComputeRuleDescriptor rule = compileFormCompute(definition,
+                Map.of("quantity", FieldValueType.DECIMAL, "unitPrice", FieldValueType.DECIMAL,
+                        "amount", FieldValueType.DECIMAL)).page().detail()
                 .editor().formComputeRules().getFirst();
 
         assertThat(rule.code()).isEqualTo("amountFromQuantity");
         assertThat(rule.targetField()).isEqualTo("amount");
+        assertThat(rule.targetValueType()).isEqualTo(FieldValueType.DECIMAL);
         assertThat(rule.triggerFields()).containsExactly("quantity", "unitPrice");
         assertThat(rule.writePolicy()).isEqualTo(FormComputeWritePolicy.ALWAYS);
         assertThat(rule.program().profile().name()).isEqualTo("FORM_COMPUTE");
@@ -51,7 +54,7 @@ class ModuleUiDescriptorCompilerTest {
 
     @Test
     void shouldRejectFormComputeRulesOutsideTheirWritableMainFormFields() {
-        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
+        assertThatThrownBy(() -> compileFormCompute(ModuleUiDefinition.builder("sales.order")
                 .page(PageTemplates.flatManagement(page -> page
                         .explorer(explorer -> explorer.title("订单"))
                         .detail(detail -> detail.editor(editor -> editor
@@ -59,11 +62,11 @@ class ModuleUiDescriptorCompilerTest {
                                 .field("amount", field -> field.readOnly())
                                 .formCompute("amountFromQuantity", "amount", List.of("quantity"),
                                         "{amount} = {quantity}")))))
-                .build()))
+                .build(), Map.of("quantity", FieldValueType.DECIMAL, "amount", FieldValueType.DECIMAL)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("target field must be writable");
 
-        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
+        assertThatThrownBy(() -> compileFormCompute(ModuleUiDefinition.builder("sales.order")
                 .page(PageTemplates.flatManagement(page -> page
                         .explorer(explorer -> explorer.title("订单"))
                         .detail(detail -> detail.editor(editor -> editor
@@ -71,9 +74,28 @@ class ModuleUiDescriptorCompilerTest {
                                 .field("amount")
                                 .formCompute("amountFromQuantity", "amount", List.of("quantity"),
                                         "{amount} = {amount} + {quantity}")))))
-                .build()))
+                .build(), Map.of("quantity", FieldValueType.DECIMAL, "amount", FieldValueType.DECIMAL)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cannot reference itself");
+
+        assertThatThrownBy(() -> compileFormCompute(ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page
+                        .explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("payload")
+                                .field("amount")
+                                .formCompute("amountFromPayload", "amount", List.of("payload"),
+                                        "{amount} = {payload}")))))
+                .build(), Map.of("payload", FieldValueType.JSON, "amount", FieldValueType.DECIMAL)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("portable non-JSON value type");
+    }
+
+    private ResolvedModuleUiDescriptor compileFormCompute(ModuleUiDefinition definition,
+                                                          Map<String, FieldValueType> fieldTypes) {
+        Map<ViewFieldRef, FieldValueType> resolved = fieldTypes.entrySet().stream()
+                .collect(java.util.stream.Collectors.toMap(entry -> ViewFieldRef.main(entry.getKey()), Map.Entry::getValue));
+        return ModuleUiDescriptorCompiler.compile(definition, null, null, Map.of(), Map.of(), null, resolved);
     }
 
     @Test

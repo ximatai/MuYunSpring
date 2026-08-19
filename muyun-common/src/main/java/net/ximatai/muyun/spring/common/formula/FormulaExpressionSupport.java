@@ -90,6 +90,38 @@ final class FormulaExpressionSupport {
         return Set.copyOf(fields);
     }
 
+    static Set<String> assignedFields(AstNode node) {
+        LinkedHashSet<String> fields = new LinkedHashSet<>();
+        collectAssignedFields(node, fields);
+        return Set.copyOf(fields);
+    }
+
+    private static void collectAssignedFields(AstNode node, Set<String> fields) {
+        if (node == null) {
+            return;
+        }
+        if (node instanceof AssignNode assignNode) {
+            if (assignNode.left instanceof FieldNode fieldNode) {
+                fields.add(FormulaFieldPath.parse(fieldNode.dataIndex).dataIndex());
+            }
+            collectAssignedFields(assignNode.left, fields);
+            collectAssignedFields(assignNode.right, fields);
+            return;
+        }
+        if (node instanceof UnaryNode unaryNode) {
+            collectAssignedFields(unaryNode.arg, fields);
+            return;
+        }
+        if (node instanceof BinaryNode binaryNode) {
+            collectAssignedFields(binaryNode.left, fields);
+            collectAssignedFields(binaryNode.right, fields);
+            return;
+        }
+        if (node instanceof FuncNode funcNode) {
+            funcNode.args.stream().filter(Objects::nonNull).forEach(arg -> collectAssignedFields(arg, fields));
+        }
+    }
+
     private static void collectReferencedFields(AstNode node, Set<String> fields) {
         if (node == null) {
             return;

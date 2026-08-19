@@ -21,6 +21,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DynamicModuleUiDefinitionAdapterTest {
     @Test
+    void shouldDefaultLegacyPageLayoutToListDetailCard() {
+        PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
+        PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);
+        PlatformUiConfig listConfig = uiConfig("ui-list", "set-list", "客户列表", true, 10);
+        PlatformUiConfig formConfig = uiConfig("ui-form", "set-form", "客户表单", true, 10);
+        listConfig.setLayoutJson("{}");
+        PlatformPageConfigSnapshot snapshot = new PlatformPageConfigSnapshot("crm.customer",
+                List.of(listSet, formSet), List.of(listConfig, formConfig), List.of(), List.of(), List.of());
+
+        ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
+                snapshot, new PlatformResolvedPageConfig(List.of(), List.of()));
+
+        assertThat(definition.page()).isInstanceOf(ListDetailCardPageDefinition.class);
+    }
+
+    @Test
     void shouldCompileOnlyExistingSafeDynamicAssignmentsAsFormComputeRules() {
         PlatformUiSet listSet = uiSet("set-list", "sales.order", "order_list", PlatformUiSetType.LIST);
         PlatformUiSet formSet = uiSet("set-form", "sales.order", "order_form", PlatformUiSetType.FORM);
@@ -34,21 +50,36 @@ class DynamicModuleUiDefinitionAdapterTest {
                 resolvedField("ui-form", "unit-price", null, "unitPrice", "单价", "number", true,
                         false, null, null, null, null),
                 resolvedField("ui-form", "amount", null, "amount", "金额", "number", true,
+                        false, null, null, null, null),
+                resolvedField("ui-form", "payload", null, "payload", "扩展数据", "input", true,
                         false, null, null, null, null)), List.of());
         List<DynamicFormulaRuleDescriptor> sourceRules = List.of(
                 formulaRule("amountFromQuantity", "{amount} = {quantity} * {unitPrice}", null),
                 formulaRule("serverOnly", "{amount} = NOW()", null),
-                formulaRule("mismatchedTarget", "{amount} = {quantity}", "otherAmount"));
+                formulaRule("mismatchedTarget", "{amount} = {quantity}", "otherAmount"),
+                formulaRule("hiddenInput", "{amount} = {internalRate}", null),
+                formulaRule("jsonInput", "{amount} = {payload}", null),
+                formulaRule("defaultValueOnly", "{amount} = {quantity}", null, FormulaRulePhase.DEFAULT_VALUE));
+
+        java.util.Map<ViewFieldRef, FieldValueType> fieldTypes = java.util.Map.of(
+                ViewFieldRef.main("quantity"), FieldValueType.DECIMAL,
+                ViewFieldRef.main("unitPrice"), FieldValueType.DECIMAL,
+                ViewFieldRef.main("amount"), FieldValueType.DECIMAL,
+                ViewFieldRef.main("payload"), FieldValueType.JSON);
 
         ModuleUiDefinition definition = DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(snapshot, resolved,
-                sourceRules);
-        ResolvedFormComputeRuleDescriptor rule = ModuleUiDescriptorCompiler.compile(definition).page().detail()
+                sourceRules, fieldTypes);
+        ResolvedFormComputeRuleDescriptor rule = ModuleUiDescriptorCompiler.compile(definition,
+                        null, null, java.util.Map.of(), java.util.Map.of(), null, fieldTypes).page().detail()
                 .editor().formComputeRules().getFirst();
 
         assertThat(rule.code()).isEqualTo("amountFromQuantity");
         assertThat(rule.targetField()).isEqualTo("amount");
+        assertThat(rule.targetValueType()).isEqualTo(FieldValueType.DECIMAL);
         assertThat(rule.triggerFields()).containsExactly("quantity", "unitPrice");
         assertThat(rule.program().profile().name()).isEqualTo("FORM_COMPUTE");
+        assertThat(((ListDetailCardPageDefinition) definition.page()).detail().editor().formComputeRules())
+                .extracting(FormComputeRuleDefinition::code).containsExactly("amountFromQuantity");
     }
 
     @Test
@@ -320,8 +351,13 @@ class DynamicModuleUiDefinitionAdapterTest {
     }
 
     private DynamicFormulaRuleDescriptor formulaRule(String code, String expression, String targetField) {
+        return formulaRule(code, expression, targetField, FormulaRulePhase.BEFORE_SAVE);
+    }
+
+    private DynamicFormulaRuleDescriptor formulaRule(String code, String expression, String targetField,
+                                                      FormulaRulePhase phase) {
         return new DynamicFormulaRuleDescriptor(code, expression, FormulaRuleKind.CALCULATION,
-                FormulaRulePhase.BEFORE_SAVE, targetField, FormulaIssueLevel.ERROR, null, false, true, 0);
+                phase, targetField, FormulaIssueLevel.ERROR, null, false, true, 0);
     }
 
     private PlatformUiSet uiSet(String id, String moduleAlias, String alias, PlatformUiSetType setType) {

@@ -8,6 +8,7 @@ import java.util.List;
 public record ResolvedFormComputeRuleDescriptor(String code,
                                                 FormulaProgram program,
                                                 String targetField,
+                                                FieldValueType targetValueType,
                                                 List<String> triggerFields,
                                                 FormComputeWritePolicy writePolicy) {
     public ResolvedFormComputeRuleDescriptor {
@@ -16,6 +17,9 @@ public record ResolvedFormComputeRuleDescriptor(String code,
             throw new IllegalArgumentException("form compute rule must contain a FORM_COMPUTE program: " + code);
         }
         targetField = requireField(targetField, "form compute target field");
+        if (targetValueType == null || targetValueType == FieldValueType.JSON) {
+            throw new IllegalArgumentException("form compute target requires a portable non-JSON value type: " + code);
+        }
         triggerFields = triggerFields == null ? List.of() : List.copyOf(triggerFields);
         writePolicy = writePolicy == null ? FormComputeWritePolicy.ALWAYS : writePolicy;
     }

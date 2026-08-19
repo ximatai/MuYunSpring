@@ -29,7 +29,7 @@ class PlatformOpenApiCatalogServiceTest {
         PlatformModule staticMissing = module("crm.contract", "合同", ModuleKind.STATIC);
         PlatformModule dynamicReady = module("crm.order", "订单", ModuleKind.DYNAMIC);
         PlatformModule dynamicMissing = module("crm.invoice", "发票", ModuleKind.DYNAMIC);
-        when(moduleService.listVisibleModules())
+        when(moduleService.listVisibleModules("tenant-a"))
                 .thenReturn(List.of(staticReady, staticMissing, dynamicReady, dynamicMissing));
 
         StaticModuleDefinitionCatalog staticCatalog = new StaticModuleDefinitionCatalog(List.of(
@@ -65,6 +65,7 @@ class PlatformOpenApiCatalogServiceTest {
                 );
         verify(registry).containsModule("crm.order");
         verify(registry).containsModule("crm.invoice");
+        verify(moduleService).listVisibleModules("tenant-a");
     }
 
     @Test
@@ -73,7 +74,7 @@ class PlatformOpenApiCatalogServiceTest {
         PlatformModule allowed = module("crm.customer", "客户", ModuleKind.STATIC);
         PlatformModule denied = module("crm.contract", "合同", ModuleKind.STATIC);
         PlatformModule dynamic = module("crm.order", "订单", ModuleKind.DYNAMIC);
-        when(moduleService.listVisibleModules()).thenReturn(List.of(allowed, denied, dynamic));
+        when(moduleService.listVisibleModules((String) null)).thenReturn(List.of(allowed, denied, dynamic));
 
         StaticModuleDefinitionCatalog staticCatalog = new StaticModuleDefinitionCatalog(List.of(
                 StaticModuleDefinition.builder("crm", "crm.customer", "客户")
@@ -107,6 +108,7 @@ class PlatformOpenApiCatalogServiceTest {
         assertThat(service.discover("tenant-a"))
                 .extracting(OpenApiModuleCatalogItem::moduleAlias)
                 .containsExactly("crm.customer");
+        verify(moduleService).listVisibleModules((String) null);
     }
 
     private PlatformModule module(String alias, String title, ModuleKind kind) {

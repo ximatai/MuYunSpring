@@ -49,13 +49,31 @@ class FormulaProgramGoldenVectorTest {
     void keepsGoldenVectorEvaluationSemanticsOnTheServer() throws IOException {
         for (JsonNode vector : fixture().path("vectors")) {
             Map<String, Object> record = objectMapper.convertValue(vector.path("record"), Map.class);
-            Object actual = engine.evaluateValue(vector.path("expression").asText(), FormulaRuntimeData.of(record));
             JsonNode expected = vector.path("expected");
             if ("WEB_UI".equals(vector.path("profile").asText())) {
+                Object actual = engine.evaluateValue(vector.path("expression").asText(), FormulaRuntimeData.of(record));
                 assertThat(actual).as(vector.path("id").asText()).isEqualTo(expected.booleanValue());
             } else {
-                assertThat(actual).as(vector.path("id").asText())
-                        .isEqualTo(expected.path("amount").doubleValue());
+                Map<String, Object> typedRecord = new LinkedHashMap<>(record);
+                java.util.List<FormulaFieldDefinition> fieldDefinitions = typedRecord.keySet().stream()
+                        .map(field -> FormulaFieldDefinition.of(field, "amount".equals(field)
+                                ? FormulaValueType.valueOf(vector.path("targetValueType").asText())
+                                : FormulaValueType.ANY))
+                        .toList();
+                FormulaRuntimeData data = FormulaRuntimeData.typed(typedRecord, Map.of(), fieldDefinitions);
+                FormulaExecutionResult result = engine.execute(java.util.List.of(
+                        new FormulaRule(vector.path("id").asText(), vector.path("expression").asText())), data);
+                assertThat(result.report().hasErrors()).as(vector.path("id").asText()).isFalse();
+                Object typedValue = typedRecord.get("amount");
+                JsonNode expectedValue = expected.path("amount");
+                if (expectedValue.isNumber()) {
+                    assertThat(new java.math.BigDecimal(String.valueOf(typedValue)))
+                            .as(vector.path("id").asText()).isEqualByComparingTo(expectedValue.decimalValue());
+                } else if (expectedValue.isBoolean()) {
+                    assertThat(typedValue).as(vector.path("id").asText()).isEqualTo(expectedValue.booleanValue());
+                } else {
+                    assertThat(typedValue).as(vector.path("id").asText()).isEqualTo(expectedValue.textValue());
+                }
             }
         }
     }

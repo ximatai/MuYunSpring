@@ -42,10 +42,11 @@ public class PlatformOpenApiCatalogService {
      * captured by the Controller before its system-scoped module-catalog read begins.
      */
     public List<OpenApiModuleCatalogItem> discover(String requestTenantId) {
-        return moduleService.listVisibleModules().stream()
+        boolean activeTenant = tenantRequestScope.hasActiveTenant(requestTenantId);
+        return moduleService.listVisibleModules(activeTenant ? requestTenantId : null).stream()
                 .filter(this::documentExists)
                 .filter(this::describable)
-                .filter(module -> contextAvailable(module, requestTenantId))
+                .filter(module -> contextAvailable(module, activeTenant))
                 .map(this::toCatalogItem)
                 .toList();
     }
@@ -69,9 +70,9 @@ public class PlatformOpenApiCatalogService {
         }
     }
 
-    private boolean contextAvailable(PlatformModule module, String requestTenantId) {
+    private boolean contextAvailable(PlatformModule module, boolean activeTenant) {
         return module.getModuleKind() != ModuleKind.DYNAMIC
-                || tenantRequestScope.hasActiveTenant(requestTenantId);
+                || activeTenant;
     }
 
     private OpenApiModuleCatalogItem toCatalogItem(PlatformModule module) {

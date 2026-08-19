@@ -44,7 +44,6 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
-import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.web.PlatformWebPathRules;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -167,7 +166,7 @@ public class DynamicRecordWebController implements
 
     @Autowired
     public DynamicRecordWebController(DynamicRecordService recordService,
-                                      ActiveTenantVerifier activeTenantVerifier,
+                                      TenantRequestScope tenantRequestScope,
                                       DynamicRecordQueryServices queryServices,
                                       DynamicRecordAttachmentServices attachmentServices,
                                       DynamicRecordActionServices actionServices) {
@@ -184,7 +183,7 @@ public class DynamicRecordWebController implements
         this.duplicateCheckService = actionServices.duplicateCheckService();
         this.navigationService = actionServices.navigationService();
         this.dynamicRelationProjectionReadService = queryServices.relationProjectionReadService();
-        this.tenantRequestScope = new TenantRequestScope(activeTenantVerifier);
+        this.tenantRequestScope = tenantRequestScope;
     }
 
     @Override

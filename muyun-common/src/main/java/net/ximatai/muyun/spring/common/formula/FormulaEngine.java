@@ -108,6 +108,15 @@ public class FormulaEngine {
         return FormulaExpressionSupport.referencedFields(parsed.ast());
     }
 
+    /** Returns every field written by an assignment anywhere in the expression. */
+    public Set<String> assignedFields(String expression) {
+        FormulaExpressionSupport.ParsedExpression parsed = parse("expression", expression);
+        if (parsed == null) {
+            return Set.of();
+        }
+        return FormulaExpressionSupport.assignedFields(parsed.ast());
+    }
+
     /**
      * Compiles a FormulaEngine expression to the only profile that may execute in a Web form.
      * The returned AST is signed by the server descriptor; Web clients must not parse {@code expression} again.

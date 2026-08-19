@@ -460,6 +460,86 @@ class PlatformUiConfigurationServiceContractTest {
     }
 
     @Test
+    void shouldRejectPageValuesThatTheRuntimeCannotCompile() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField(
+                "crm.customer", "customer", "customerName", "customer_name", "string");
+        String uiSetId = uiSetService.insert(uiSet("crm.customer", "list", PlatformUiSetType.LIST, true));
+        String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
+
+        PlatformUiConfig config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("{\"template\":\"UNKNOWN\"}");
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("template is unsupported");
+
+        config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("{\"template\":\"LIST_DETAIL_CARD\",\"traits\":[\"UNKNOWN\"]}");
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("traits contains unsupported value");
+
+        config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {"template":"LIST_DETAIL_CARD","navigator":{"levels":[{
+                  "key":"project","kind":"MICRO_LIST","sourceModuleAlias":"crm.project",
+                  "singleResultPolicy":"UNKNOWN"
+                }]}}
+                """);
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("navigator layout is invalid")
+                .hasRootCauseMessage("navigator level singleResultPolicy is unsupported: UNKNOWN");
+
+        config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {"template":"LIST_DETAIL_CARD","navigator":{"levels":[{
+                  "key":"project","kind":"MICRO_LIST","sourceModuleAlias":"crm.project",
+                  "management":{"actions":["UPSERT"]}
+                }]}}
+                """);
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("navigator layout is invalid")
+                .hasRootCauseMessage("navigator management action is unsupported: UPSERT");
+    }
+
+    @Test
+    void shouldRejectNavigatorManagementWhenSourceContractCannotBeProved() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField(
+                "crm.customer", "customer", "customerName", "customer_name", "string");
+        String uiSetId = uiSetService.insert(uiSet("crm.customer", "list", PlatformUiSetType.LIST, true));
+        String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
+        PlatformUiConfig config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {"template":"LIST_DETAIL_CARD","navigator":{"levels":[{
+                  "key":"project","kind":"MICRO_LIST","sourceModuleAlias":"crm.project",
+                  "management":{"actions":["CREATE"]}
+                }]}}
+                """);
+        uiConfigService.update(config);
+
+        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
+        PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
+                uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
+                recordService, moduleAlias -> Set.of(NavigatorSourceCapability.REFERENCE_QUERY));
+
+        assertThatThrownBy(() -> verifyingPublishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("Navigator source management contract is unavailable")
+                .hasMessageContaining("source=crm.project");
+    }
+
+    @Test
     void shouldRejectPickerQueryWhosePublishedFormFieldIsHidden() {
         seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
         seedUiType("text", "string");

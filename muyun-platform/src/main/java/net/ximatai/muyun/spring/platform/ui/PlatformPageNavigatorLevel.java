@@ -12,6 +12,13 @@ public record PlatformPageNavigatorLevel(String key,
                                          String singleResultPolicy,
                                          String initialSelectionPolicy,
                                          String sourceScope) {
+    private static final java.util.Set<String> SINGLE_RESULT_POLICIES = java.util.Set.of(
+            "NONE", "AUTO_SELECT", "AUTO_SELECT_AND_HIDE");
+    private static final java.util.Set<String> INITIAL_SELECTION_POLICIES = java.util.Set.of(
+            "NONE", "FIRST_RECORD");
+    private static final java.util.Set<String> SOURCE_SCOPES = java.util.Set.of(
+            "NONE", "CURRENT_TENANT");
+
     public PlatformPageNavigatorLevel {
         key = PlatformNameRules.requireFieldName(key, "navigator level key");
         if (!"TREE".equals(kind) && !"MICRO_LIST".equals(kind)) {
@@ -25,5 +32,14 @@ public record PlatformPageNavigatorLevel(String key,
         initialSelectionPolicy = initialSelectionPolicy == null || initialSelectionPolicy.isBlank()
                 ? "NONE" : initialSelectionPolicy.trim();
         sourceScope = sourceScope == null || sourceScope.isBlank() ? "NONE" : sourceScope.trim();
+        requireSupported(singleResultPolicy, SINGLE_RESULT_POLICIES, "singleResultPolicy");
+        requireSupported(initialSelectionPolicy, INITIAL_SELECTION_POLICIES, "initialSelectionPolicy");
+        requireSupported(sourceScope, SOURCE_SCOPES, "sourceScope");
+    }
+
+    private static void requireSupported(String value, java.util.Set<String> supported, String name) {
+        if (!supported.contains(value)) {
+            throw new IllegalArgumentException("navigator level " + name + " is unsupported: " + value);
+        }
     }
 }

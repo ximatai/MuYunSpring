@@ -6,8 +6,9 @@ import type { FormulaProgram } from '../../src/web-contracts';
 type GoldenVector = {
   id: string;
   profile: FormulaProgram['profile'];
+  targetValueType?: import('../../src/web-contracts').ViewFieldValueType;
   record: Record<string, unknown>;
-  expected: boolean | { amount: number };
+  expected: boolean | Record<string, unknown>;
   program: FormulaProgram;
 };
 
@@ -23,7 +24,10 @@ describe('FormulaProgram cross-engine golden vectors', () => {
         expect(runtime.evaluateWebUi(vector.program, vector.record), vector.id).toBe(vector.expected);
         continue;
       }
-      expect(runtime.evaluateFormCompute(vector.program, vector.record), vector.id).toEqual({
+      expect(
+        runtime.evaluateFormCompute(vector.program, vector.record, vector.targetValueType),
+        vector.id,
+      ).toEqual({
         patch: vector.expected,
         changedFields: ['amount'],
       });
@@ -47,6 +51,70 @@ describe('FormulaProgram cross-engine golden vectors', () => {
       runtime.evaluateWebUi(
         {
           ...valid,
+          root: {
+            kind: 'UNARY',
+            operator: '!',
+            arguments: [{ kind: 'UNKNOWN' as never, arguments: [] }],
+          },
+        },
+        {},
+      ),
+    ).toBe(false);
+    expect(
+      runtime.evaluateWebUi(
+        {
+          ...valid,
+          root: {
+            kind: 'BINARY',
+            operator: '!=',
+            arguments: [
+              { kind: 'UNKNOWN' as never, arguments: [] },
+              { kind: 'VALUE', value: 'x', arguments: [] },
+            ],
+          },
+        },
+        {},
+      ),
+    ).toBe(false);
+    expect(runtime.evaluateWebUi({ ...valid, root: { kind: 'VALUE', value: true, arguments: [] } }, {})).toBe(
+      false,
+    );
+    expect(
+      runtime.evaluateWebUi(
+        {
+          ...valid,
+          root: {
+            kind: 'BINARY',
+            operator: '==',
+            arguments: [
+              { kind: 'FIELD', field: 'status', operator: '!', arguments: [] },
+              { kind: 'VALUE', value: 'active', arguments: [] },
+            ],
+          },
+        },
+        { status: 'active' },
+      ),
+    ).toBe(false);
+    expect(
+      runtime.evaluateWebUi(
+        {
+          ...valid,
+          root: {
+            kind: 'BINARY',
+            operator: '==',
+            arguments: [
+              { kind: 'FIELD', field: 'status', arguments: [] },
+              { kind: 'VALUE', value: 'x'.repeat(129), arguments: [] },
+            ],
+          },
+        },
+        { status: 'active' },
+      ),
+    ).toBe(false);
+    expect(
+      runtime.evaluateWebUi(
+        {
+          ...valid,
           root: { kind: 'VALUE', value: Number.POSITIVE_INFINITY, arguments: [] },
         },
         {},
@@ -58,13 +126,16 @@ describe('FormulaProgram cross-engine golden vectors', () => {
       runtime.evaluateFormCompute(
         { ...formCompute, root: { kind: 'FUNCTION', operator: 'NOW', arguments: [] } },
         { amount: 0 },
+        'DECIMAL',
       ),
     ).toEqual({ patch: {}, changedFields: [] });
 
     const nonFinite = vectors.vectors.find(
       (vector) => vector.id === 'form-compute-non-finite-text-normalizes-number',
     )!;
-    expect(runtime.evaluateFormCompute(nonFinite.program, { amount: null, source: 'NaN' })).toEqual({
+    expect(
+      runtime.evaluateFormCompute(nonFinite.program, { amount: null, source: 'NaN' }, 'DECIMAL'),
+    ).toEqual({
       patch: { amount: 1 },
       changedFields: ['amount'],
     });

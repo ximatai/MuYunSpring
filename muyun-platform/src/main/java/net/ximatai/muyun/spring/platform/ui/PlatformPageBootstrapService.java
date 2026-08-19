@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionRefreshStrategy;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicQuerySchemas;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.menu.MenuPageMode;
 import net.ximatai.muyun.spring.platform.menu.MenuService;
@@ -294,11 +296,17 @@ public class PlatformPageBootstrapService {
         String resolvedQueryTemplateId = queryTemplateId == null ? view.targetQueryTemplateId() : queryTemplateId;
         ResolvedDetailRelationListProjection listProjection = detailRelationListProjection(targetSnapshot,
                 resolvedTargetUiConfigId, view.targetEntityAlias());
+        DynamicEntityDescriptor targetEntity = recordService.describe(view.targetModuleAlias()).entities().stream()
+                .filter(candidate -> view.targetEntityAlias().equals(candidate.entityAlias()))
+                .findFirst()
+                .orElseThrow(() -> new PlatformException("association target entity is not available: "
+                        + view.targetModuleAlias() + "." + view.targetEntityAlias()));
         return new ResolvedDetailRelationDescriptor(view.code(), title, true, moduleAlias, view.sourceEntityAlias(),
                 view.targetModuleAlias(), view.targetEntityAlias(), parentBinding,
                 new ResolvedDetailRelationQueryContract("/" + moduleAlias + "/view/{id}/associations/"
                         + viewCode + "/query", resolvedTargetUiConfigId, resolvedQueryTemplateId, true,
-                        view.queryable(), listProjection), true);
+                        view.queryable(), listProjection,
+                        DynamicQuerySchemas.from(view.targetModuleAlias(), targetEntity, List.of())), true);
     }
 
     /**

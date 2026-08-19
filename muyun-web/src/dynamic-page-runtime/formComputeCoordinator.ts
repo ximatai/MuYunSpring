@@ -39,7 +39,7 @@ export class FormComputeCoordinator {
         // A descriptor is signed by the server, but do not let an unexpected
         // payload shape re-run a rule or disturb the rest of the user's draft.
         executedRules.add(rule.code);
-        const result = this.runtime.evaluateFormCompute(rule.program, next);
+        const result = this.runtime.evaluateFormCompute(rule.program, next, rule.targetValueType);
         if (result.changedFields.length === 0) continue;
         next = { ...next, ...result.patch };
         pendingFields.push(...result.changedFields);

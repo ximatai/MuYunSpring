@@ -130,6 +130,8 @@ const props = withDefaults(
     pageSize?: number;
     uiConfigId?: string;
     queryTemplateId?: string;
+    /** A source-owned query schema avoids forcing embedded relation lists through target-module access. */
+    querySchema?: QuerySchema;
     /** Read-only relation runners may deliberately suppress ad-hoc query controls. */
     queryable?: boolean;
     /** A relation query can intentionally be a bounded, non-pageable result. */
@@ -168,6 +170,7 @@ const props = withDefaults(
     pageSize: 20,
     uiConfigId: undefined,
     queryTemplateId: undefined,
+    querySchema: undefined,
     queryable: true,
     pageable: true,
     ready: true,
@@ -339,7 +342,7 @@ watch(
 );
 
 watch(
-  () => [props.uiConfigId, props.queryTemplateId, props.ready],
+  () => [props.uiConfigId, props.queryTemplateId, props.querySchema, props.ready],
   ([, , ready]) => {
     pageNum.value = 1;
     if (ready) {
@@ -385,10 +388,12 @@ async function loadSchemaAndRecords() {
   descriptorLoadError.value = false;
   try {
     runtimeListView.value = await loadRuntimeListView();
-    const nextSchema = await props.context.crud.querySchema({
-      uiConfigId: props.uiConfigId,
-      queryTemplateId: props.queryTemplateId,
-    });
+    const nextSchema =
+      props.querySchema ??
+      (await props.context.crud.querySchema({
+        uiConfigId: props.uiConfigId,
+        queryTemplateId: props.queryTemplateId,
+      }));
     if (requestSeq !== schemaRequestSeq) {
       return;
     }
@@ -493,6 +498,7 @@ async function loadRecords(updateLoading = true) {
       return;
     }
     records.value = response.records;
+    preloadRecordActionAvailability(response.records);
     selectedRowKeys.value = selectedRowKeys.value.filter((key) =>
       response.records.some((record) => recordKey(record) === String(key)),
     );
@@ -591,8 +597,11 @@ function clearSelection() {
 }
 
 function resolveRow(record: QueryListRecord): QueryListRow {
-  const configuredActions = rowActions(record).map((action) => rowActionWithState(record, action));
-  const actions = resolveRecordActions(props.context, configuredActions);
+  const recordId = recordActionRecordId(record);
+  const configuredActions = rowActions(record)
+    .map((action) => rowActionWithState(record, action))
+    .map((action) => recordActionAvailabilityState(action, recordId));
+  const actions = resolveRecordActions(props.context, configuredActions, false, recordId);
   const primaryActions = actions.filter((action, index) => index === 0 || action.pinned === true);
   const secondaryActions = actions.filter((action, index) => index !== 0 && action.pinned !== true);
   return {
@@ -602,6 +611,40 @@ function resolveRow(record: QueryListRecord): QueryListRow {
     secondaryActions,
     dropdownItems: secondaryActions.map(rowActionDropdownItem),
   };
+}
+
+function recordActionRecordId(record: QueryListRecord) {
+  const id = record.id;
+  return typeof id === 'string' && id.trim() ? id.trim() : undefined;
+}
+
+function recordActionAvailabilityState(
+  action: RecordActionItem,
+  recordId: string | undefined,
+): RecordActionItem {
+  if (!recordId || !action.actionCode || props.context.runtime.snapshot() === undefined) {
+    return action;
+  }
+  if (props.context.recordActionsSnapshot(recordId) === undefined) {
+    return {
+      ...action,
+      disabled: true,
+      disabledReason: action.disabledReason ?? '正在校验操作可用性',
+    };
+  }
+  return action;
+}
+
+function preloadRecordActionAvailability(records: QueryListRecord[]) {
+  const recordIds = records.flatMap((record) => {
+    const id = recordActionRecordId(record);
+    return id && rowActions(record).some((action) => action.actionCode != null) ? [id] : [];
+  });
+  if (recordIds.length === 0 || props.context.recordActionsBatch == null) return;
+  void props.context.recordActionsBatch(recordIds).catch(() => {
+    // Keep row mutations disabled when availability cannot be resolved. The
+    // command endpoint remains authoritative if the UI later retries.
+  });
 }
 
 function rowActions(record: QueryListRecord): RecordActionItem[] {

@@ -890,8 +890,8 @@ it('employee management uses organization scope and platform query list panel', 
   assert.match(panelSource, /interface QueryListRow/);
   assert.match(panelSource, /const rows = computed<QueryListRow/);
   assert.match(panelSource, /function resolveRow/);
-  assert.match(panelSource, /resolveRecordActions\(props\.context, configuredActions\)/);
-  assert.notMatch(panelSource, /resolveRecordActions\(props\.context, configuredActions, false, recordId/);
+  assert.match(panelSource, /resolveRecordActions\(props\.context, configuredActions, false, recordId\)/);
+  assert.notMatch(panelSource, /resolveRecordActions\(props\.context, configuredActions\)/);
   assert.match(panelSource, /<RecordActionBar/);
   assert.match(panelSource, /<RecordStatusTag/);
   assert.match(panelSource, /<UiDropdown/);

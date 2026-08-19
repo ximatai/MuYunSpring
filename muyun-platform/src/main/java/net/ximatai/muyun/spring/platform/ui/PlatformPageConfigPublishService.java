@@ -235,6 +235,18 @@ public class PlatformPageConfigPublishService {
                         + uiSet.getModuleAlias() + ", uiConfig=" + uiConfig.getId() + ", level=" + level.key()
                         + ", source=" + level.sourceModuleAlias() + ", required=" + required);
             }
+            PlatformPageNavigatorManagement management = level.management();
+            if (management != null) {
+                Set<String> actions = management.actions() == null
+                        ? Set.of("CREATE", "UPDATE", "DELETE")
+                        : management.actions();
+                if (!actions.isEmpty() && !navigatorSourceCapabilityResolver.supportsManagement(
+                        level.sourceModuleAlias(), actions, management.editorSurface())) {
+                    throw new PlatformException("Navigator source management contract is unavailable: page="
+                            + uiSet.getModuleAlias() + ", uiConfig=" + uiConfig.getId() + ", level=" + level.key()
+                            + ", source=" + level.sourceModuleAlias());
+                }
+            }
         }
     }
 
@@ -311,12 +323,35 @@ public class PlatformPageConfigPublishService {
         if (root == null || !root.isObject()) {
             throw new PlatformException("UI config layout JSON root must be object: " + uiConfigId);
         }
+        validatePageRootContract(root, uiConfigId);
         validateSummaryPanel(root.get("summaryPanel"), uiConfigId);
         validateReferenceCandidate(root.get("referenceCandidate"), "referenceCandidate", uiConfigId);
         validateReferenceCandidateArray(root.get("referenceCandidates"), "referenceCandidates", uiConfigId);
         validateChildSections(root.get("children"), "children", uiConfigId);
         validateChildSections(root.get("childSections"), "childSections", uiConfigId);
         validateKnownBlocks(moduleAlias, root.get("blocks"), uiConfigId);
+    }
+
+    private void validatePageRootContract(JsonNode root, String uiConfigId) {
+        JsonNode template = root.get("template");
+        if (template != null && !template.isNull()) {
+            if (!template.isTextual() || !Set.of("FLAT_MANAGEMENT", "LIST_DETAIL_CARD", "TREE_MANAGEMENT")
+                    .contains(template.asText())) {
+                throw layoutException(uiConfigId, "template is unsupported");
+            }
+        }
+        JsonNode traits = root.get("traits");
+        if (traits == null || traits.isNull()) return;
+        if (!traits.isArray()) {
+            throw layoutException(uiConfigId, "traits must be array");
+        }
+        Set<String> supported = Set.of(
+                "STANDARD_CRUD", "ENABLED_STATUS", "RECYCLE_BIN", "RESPONSIVE_DETAIL_SURFACE");
+        for (JsonNode trait : traits) {
+            if (!trait.isTextual() || !supported.contains(trait.asText())) {
+                throw layoutException(uiConfigId, "traits contains unsupported value");
+            }
+        }
     }
 
     private void validateSummaryPanel(JsonNode summaryPanel, String uiConfigId) {

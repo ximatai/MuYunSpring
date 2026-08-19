@@ -101,6 +101,9 @@ export const platformAdminRoutePrefixes = Array.from(
 export const platformAdminDynamicModuleRoutes: Record<string, string> = {
   '/iam/organizations': 'iam.organization',
   '/iam/departments': 'iam.department',
+  // Keep the former static module-management URL as a bookmark-compatible
+  // dynamic entry. Page serialization still uses the canonical dynamic URL.
+  '/config/modules': 'platform.module',
 };
 export const platformAdminModuleRoutes = Object.fromEntries(
   platformAdminRoutes

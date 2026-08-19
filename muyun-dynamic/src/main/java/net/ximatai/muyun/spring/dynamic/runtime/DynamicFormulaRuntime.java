@@ -134,6 +134,13 @@ final class DynamicFormulaRuntime {
         if (rules.isEmpty()) {
             return new FormulaExecutionResult();
         }
+        FormulaExecutionResult unsupportedChildWrites = rejectUnpersistableChildWrites(record, existingChildren, rules);
+        if (unsupportedChildWrites.report().hasErrors()) {
+            if (failOnErrors) {
+                throw new DynamicFormulaException(moduleAlias, entity.alias(), unsupportedChildWrites.report());
+            }
+            return unsupportedChildWrites;
+        }
         Map<String, Object> main = DynamicFormulaDataSupport.mainValues(record, existing);
         Map<String, List<Map<String, Object>>> tables = DynamicFormulaDataSupport.childValues(record, existingChildren);
         FormulaExecutionResult result = engine.execute(rules, FormulaRuntimeData.typed(
@@ -145,6 +152,66 @@ final class DynamicFormulaRuntime {
             applyChangedFields(record, main, tables, result.changedFields());
         }
         return result;
+    }
+
+    /**
+     * Persisted child rows are present in the evaluation baseline so parent aggregates remain authoritative.
+     * They are not, however, part of the mutation payload. A formula must therefore not stage writes to a
+     * relation unless that relation was submitted as a complete replacement; otherwise the parent result could
+     * be calculated from child values that are never persisted.
+     */
+    private FormulaExecutionResult rejectUnpersistableChildWrites(
+            DynamicRecord record,
+            Map<String, List<DynamicRecord>> existingChildren,
+            List<FormulaRule> rules
+    ) {
+        FormulaExecutionResult result = new FormulaExecutionResult();
+        for (FormulaRule rule : rules) {
+            Set<String> writes = new HashSet<>(engine.assignedFields(rule.expression()));
+            if (rule.kind() == net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION
+                    && rule.targetField() != null) {
+                writes.add(rule.targetField());
+            }
+            for (String write : writes) {
+                int dot = write.indexOf('.');
+                if (dot < 0) {
+                    continue;
+                }
+                String relationCode = write.substring(0, dot);
+                if (!hasUnsubmittedPersistedRows(record, existingChildren, relationCode)) {
+                    continue;
+                }
+                result.report().error(rule, "FORMULA_PARTIAL_CHILD_WRITE_UNSUPPORTED", write, null,
+                        rule.expression(), "formula child field write requires a complete relation payload: " + write);
+            }
+        }
+        return result;
+    }
+
+    private boolean hasUnsubmittedPersistedRows(DynamicRecord record,
+                                                 Map<String, List<DynamicRecord>> existingChildren,
+                                                 String relationCode) {
+        List<DynamicRecord> persisted = existingChildren == null
+                ? List.of()
+                : existingChildren.getOrDefault(relationCode, List.of());
+        if (persisted.isEmpty()) {
+            return false;
+        }
+        List<DynamicRecord> submitted = record == null ? null : record.getChildren(relationCode);
+        boolean completeRelation = record != null
+                && record.getChildren().containsKey(relationCode)
+                && submitted != null
+                && !record.isPartialChildren(relationCode);
+        if (completeRelation) {
+            return false;
+        }
+        Set<String> submittedIds = submitted == null ? Set.of() : submitted.stream()
+                .map(DynamicRecord::getId)
+                .filter(java.util.Objects::nonNull)
+                .filter(id -> !id.isBlank())
+                .collect(java.util.stream.Collectors.toSet());
+        return persisted.stream().map(DynamicRecord::getId)
+                .anyMatch(id -> id == null || id.isBlank() || !submittedIds.contains(id));
     }
 
     private List<FormulaRule> runtimeRules(List<FormulaRulePhase> phases, boolean includeChildDependentRules) {

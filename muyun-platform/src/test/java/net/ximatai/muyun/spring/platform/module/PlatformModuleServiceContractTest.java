@@ -97,6 +97,26 @@ class PlatformModuleServiceContractTest {
     }
 
     @Test
+    void shouldListCapturedTenantModulesWhileCallerIsInSystemScope() {
+        PlatformModuleService service = new PlatformModuleService(new ModuleMemoryDao());
+        try (TenantContext.Scope ignored = TenantContext.system("create global module")) {
+            service.insert(module("crm.customer", "crm"));
+        }
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            PlatformModule tenantModule = module("crm.tenant_customer", "crm");
+            tenantModule.setTenantId("tenant-a");
+            service.insert(tenantModule);
+        }
+
+        try (TenantContext.Scope ignored = TenantContext.system("openapi catalog")) {
+            assertThat(service.listVisibleModules("tenant-a")).extracting(PlatformModule::getAlias)
+                    .containsExactly("crm.customer", "crm.tenant_customer");
+            assertThat(service.listVisibleModules(null)).extracting(PlatformModule::getAlias)
+                    .containsExactly("crm.customer");
+        }
+    }
+
+    @Test
     void shouldRejectModuleAliasOutsideApplication() {
         PlatformModuleService service = new PlatformModuleService(new ModuleMemoryDao());
         PlatformModule module = module("sales.customer", "crm");

@@ -1,4 +1,4 @@
-import type { FormulaNode, FormulaProgram } from '@muyun/web-contracts';
+import type { FormulaNode, FormulaProgram, ViewFieldValueType } from '@muyun/web-contracts';
 
 export type FormulaRecord = Record<string, unknown>;
 export type FormulaComputePatch = Readonly<Record<string, FormulaValue>>;
@@ -16,6 +16,7 @@ export class FormulaRuntime {
   evaluateWebUi(program: FormulaProgram | undefined, record: FormulaRecord): boolean {
     if (!program || program.schemaVersion !== 1 || program.profile !== 'WEB_UI' || !program.root)
       return false;
+    if (!isValidWebUiRoot(program.root)) return false;
     return this.evaluateNode(program.root, record, 1, { count: 0 }) === true;
   }
 
@@ -23,19 +24,27 @@ export class FormulaRuntime {
    * Evaluates one server-issued FORM_COMPUTE assignment against a draft without mutating it.
    * Applying the returned patch, ordering rules, and user-value ownership remain form-runtime concerns.
    */
-  evaluateFormCompute(program: FormulaProgram | undefined, draft: FormulaRecord): FormulaComputeResult {
+  evaluateFormCompute(
+    program: FormulaProgram | undefined,
+    draft: FormulaRecord,
+    targetValueType?: ViewFieldValueType,
+  ): FormulaComputeResult {
     if (!program || program.schemaVersion !== 1 || program.profile !== 'FORM_COMPUTE' || !program.root)
       return EMPTY_COMPUTE_RESULT;
+    if (!targetValueType || targetValueType === 'JSON') return EMPTY_COMPUTE_RESULT;
     const budget: FormulaBudget = { count: 0 };
     const root = program.root;
     if (root.kind !== 'ASSIGN' || root.operator !== '=' || root.arguments.length !== 2)
       return EMPTY_COMPUTE_RESULT;
     const [target, expression] = root.arguments;
     if (!isDirectField(target)) return EMPTY_COMPUTE_RESULT;
-    const value = this.evaluateComputeNode(expression, draft, 2, budget);
+    const evaluated = this.evaluateComputeNode(expression, draft, 2, budget);
+    if (evaluated === INVALID_FORMULA_VALUE) return EMPTY_COMPUTE_RESULT;
+    const value = normalizeComputeWriteValue(evaluated, targetValueType);
     if (value === INVALID_FORMULA_VALUE) return EMPTY_COMPUTE_RESULT;
     const field = target.field;
-    if (equalsFormulaLoose(draft[field], value)) return EMPTY_COMPUTE_RESULT;
+    if (Object.is(draft[field], value) || (draft[field] == null && value == null))
+      return EMPTY_COMPUTE_RESULT;
     return Object.freeze({
       patch: Object.freeze({ [field]: value }),
       changedFields: Object.freeze([field]),
@@ -213,6 +222,155 @@ const EMPTY_COMPUTE_RESULT: FormulaComputeResult = Object.freeze({
   patch: Object.freeze({}),
   changedFields: Object.freeze([]),
 });
+
+function isValidWebUiRoot(node: FormulaNode): boolean {
+  return node.kind !== 'VALUE' && node.kind !== 'FIELD' && isValidWebUiNode(node, 1, { count: 0 });
+}
+
+function isValidWebUiNode(node: FormulaNode, depth: number, budget: FormulaBudget): boolean {
+  if (++budget.count > 64 || depth > 12 || !Array.isArray(node.arguments)) return false;
+  if (node.kind === 'FIELD') return node.operator == null && node.value == null && isDirectField(node);
+  if (node.kind === 'VALUE')
+    return (
+      node.operator == null &&
+      node.field == null &&
+      node.arguments.length === 0 &&
+      ((typeof node.value === 'string' && node.value.length <= 128) ||
+        typeof node.value === 'boolean' ||
+        (typeof node.value === 'number' && Number.isFinite(node.value)))
+    );
+  if (node.kind === 'UNARY')
+    return (
+      node.field == null &&
+      node.value == null &&
+      node.operator === '!' &&
+      node.arguments.length === 1 &&
+      isValidWebUiNode(node.arguments[0], depth + 1, budget)
+    );
+  if (node.kind === 'BINARY') {
+    if (node.field != null || node.value != null || node.arguments.length !== 2) return false;
+    if (node.operator === '&&' || node.operator === '||')
+      return (
+        isValidWebUiNode(node.arguments[0], depth + 1, budget) &&
+        isValidWebUiNode(node.arguments[1], depth + 1, budget)
+      );
+    return (
+      (node.operator === '==' || node.operator === '!=') &&
+      isWebUiField(node.arguments[0], depth + 1, budget) &&
+      isWebUiLiteral(node.arguments[1], depth + 1, budget)
+    );
+  }
+  if (node.kind !== 'FUNCTION' || node.field != null || node.value != null) return false;
+  if (node.operator === 'PRESENT' || node.operator === 'ISNULL')
+    return node.arguments.length === 1 && isWebUiField(node.arguments[0], depth + 1, budget);
+  if (node.operator !== 'IN' || node.arguments.length < 2 || node.arguments.length > 21) return false;
+  if (!isWebUiField(node.arguments[0], depth + 1, budget)) return false;
+  return node.arguments.slice(1).every((argument) => isWebUiLiteral(argument, depth + 1, budget));
+}
+
+function isWebUiField(node: FormulaNode, depth: number, budget: FormulaBudget): boolean {
+  return isValidWebUiNode(node, depth, budget) && node.kind === 'FIELD';
+}
+
+function isWebUiLiteral(node: FormulaNode, depth: number, budget: FormulaBudget): boolean {
+  return isValidWebUiNode(node, depth, budget) && node.kind === 'VALUE';
+}
+
+function normalizeComputeWriteValue(
+  input: FormulaValue,
+  targetValueType: ViewFieldValueType,
+): FormulaValue | typeof INVALID_FORMULA_VALUE {
+  const value = typeof input === 'number' && Number.isNaN(input) ? 0 : input;
+  if (value == null) return null;
+  switch (targetValueType) {
+    case 'STRING':
+    case 'TEXT':
+      return typeof value === 'number' ? javaDoubleString(value) : String(value);
+    case 'INTEGER': {
+      const integer = integralFormulaValue(value);
+      return integer !== undefined && integer >= -2_147_483_648 && integer <= 2_147_483_647
+        ? integer
+        : INVALID_FORMULA_VALUE;
+    }
+    case 'LONG': {
+      const integer = integralFormulaValue(value);
+      return integer !== undefined && Number.isSafeInteger(integer) ? integer : INVALID_FORMULA_VALUE;
+    }
+    case 'DECIMAL':
+      if (typeof value === 'number') return Number.isFinite(value) ? value : INVALID_FORMULA_VALUE;
+      return typeof value === 'string' && isJavaBigDecimal(value) ? value.trim() : INVALID_FORMULA_VALUE;
+    case 'BOOLEAN':
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'number') return value !== 0;
+      if (typeof value === 'string' && value.trim().toLowerCase() === 'true') return true;
+      if (typeof value === 'string' && value.trim().toLowerCase() === 'false') return false;
+      return INVALID_FORMULA_VALUE;
+    case 'DATE':
+      return typeof value === 'string' && isIsoDate(value.trim()) ? value.trim() : INVALID_FORMULA_VALUE;
+    case 'TIMESTAMP':
+    case 'ZONED_TIMESTAMP':
+      return typeof value === 'string' && isJavaTimestamp(value.trim())
+        ? value.trim()
+        : INVALID_FORMULA_VALUE;
+    case 'JSON':
+      return INVALID_FORMULA_VALUE;
+  }
+}
+
+function integralFormulaValue(value: FormulaValue): number | undefined {
+  if (typeof value === 'number')
+    return Number.isSafeInteger(value) && Number.isFinite(value) ? value : undefined;
+  if (typeof value !== 'string' || !/^[+-]?\d+$/.test(value.trim())) return undefined;
+  const numeric = Number(value.trim());
+  return Number.isSafeInteger(numeric) ? numeric : undefined;
+}
+
+function isJavaBigDecimal(value: string): boolean {
+  return /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim());
+}
+
+function isIsoDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12) return false;
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day >= 1 && day <= daysInMonth[month - 1];
+}
+
+function isJavaTimestamp(value: string): boolean {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})?$/.exec(value);
+  if (!match || !isIsoDate(match[1])) return false;
+  const hour = Number(match[2]);
+  const minute = Number(match[3]);
+  const second = Number(match[4]);
+  if (hour > 23 || minute > 59 || second > 59) return false;
+  const offset = match[5];
+  if (offset && offset !== 'Z') {
+    const [offsetHour, offsetMinute] = offset.slice(1).split(':').map(Number);
+    if (offsetHour > 18 || offsetMinute > 59 || (offsetHour === 18 && offsetMinute !== 0)) return false;
+  }
+  return true;
+}
+
+function javaDoubleString(value: number): string {
+  if (Number.isNaN(value)) return 'NaN';
+  if (value === Number.POSITIVE_INFINITY) return 'Infinity';
+  if (value === Number.NEGATIVE_INFINITY) return '-Infinity';
+  if (Object.is(value, -0)) return '-0.0';
+  const absolute = Math.abs(value);
+  if (absolute === 0) return '0.0';
+  if (absolute >= 1e-3 && absolute < 1e7) {
+    const plain = String(value);
+    return Number.isInteger(value) ? `${plain}.0` : plain;
+  }
+  const [rawMantissa, rawExponent] = value.toExponential().split('e');
+  const mantissa = rawMantissa.includes('.') ? rawMantissa : `${rawMantissa}.0`;
+  return `${mantissa}E${Number(rawExponent)}`;
+}
 
 function isKnownKind(kind: string): kind is FormulaNode['kind'] {
   return ['VALUE', 'FIELD', 'UNARY', 'BINARY', 'FUNCTION', 'ASSIGN'].includes(kind);

@@ -1359,6 +1359,7 @@ describe('DynamicModuleHost', () => {
                     {
                       code: 'amount-from-quantity',
                       targetField: 'amount',
+                      targetValueType: 'DECIMAL',
                       triggerFields: ['quantity'],
                       writePolicy: 'ALWAYS',
                       program: {

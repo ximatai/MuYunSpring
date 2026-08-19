@@ -61,6 +61,11 @@ final class StaticPageNavigatorSourceValidator {
                                                     StaticModuleDefinition source) {
         PageNavigatorManagementDefinition management = level.management();
         if (management == null) return;
+        if (source == null) {
+            throw new IllegalStateException("navigator management source contract cannot be proved from the static catalog: page="
+                    + pageDefinition.moduleAlias() + ", level=" + level.key() + ", source="
+                    + level.sourceModuleAlias());
+        }
         Set<String> sourceActionCodes = source.actions().stream()
                 .map(action -> action.actionCode())
                 .collect(Collectors.toUnmodifiableSet());

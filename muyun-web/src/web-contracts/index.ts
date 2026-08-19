@@ -376,6 +376,8 @@ export interface ResolvedDetailRelationQueryContract {
   pageable: boolean;
   queryable: boolean;
   listProjection?: ResolvedDetailRelationListProjection;
+  /** Source-owned query schema; the relation runner must not load target-module schema directly. */
+  querySchema?: QuerySchema;
 }
 
 /** Server-issued list columns, not a raw target UI config or a client-side inferred view. */
@@ -404,7 +406,8 @@ export function hasExecutableDetailRelationQueryContract(
   return (
     relation?.queryContract?.queryPath != null &&
     relation.queryContract.queryPath.trim().length > 0 &&
-    relation.queryContract.listProjection != null
+    relation.queryContract.listProjection != null &&
+    relation.queryContract.querySchema != null
   );
 }
 
@@ -857,6 +860,7 @@ export interface ResolvedFormComputeRuleDescriptor {
   code: string;
   program: FormulaProgram;
   targetField: string;
+  targetValueType: ViewFieldValueType;
   triggerFields: string[];
   writePolicy: 'ALWAYS';
 }

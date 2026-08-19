@@ -58,6 +58,17 @@ class StaticPageCapabilityValidatorTest {
     }
 
     @Test
+    void shouldRejectManageableNavigatorWhoseSourceCannotBeProvedFromStaticCatalog() {
+        StaticModuleDefinition page = module("catalog.item", navigatorPage(null), Set.of(),
+                actions(PlatformAction.CREATE, PlatformAction.UPDATE, PlatformAction.DELETE));
+
+        assertThatThrownBy(() -> StaticPageNavigatorSourceValidator.validate(List.of(page)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("source contract cannot be proved")
+                .hasMessageContaining("source=catalog.directory");
+    }
+
+    @Test
     void shouldAcceptDeclaredTreeTraitsAndManageableSourceContract() {
         StaticModuleDefinition source = module("catalog.directory", sourcePageWithSurface(), Set.of(),
                 actions(PlatformAction.CREATE, PlatformAction.UPDATE, PlatformAction.DELETE, PlatformAction.QUERY));

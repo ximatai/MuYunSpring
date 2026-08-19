@@ -6,7 +6,7 @@ import type {
   WebQueryRequest,
 } from '@muyun/web-contracts';
 import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
-import { createModuleContext, type ModuleContext } from '@muyun/web-core';
+import type { ModuleContext } from '@muyun/web-core';
 import RecordQueryListPanel, {
   type QueryListRecord,
   type RecordQueryListColumn,
@@ -38,24 +38,21 @@ const columns = computed<RecordQueryListColumn[]>(() =>
 );
 
 /**
- * The target context supplies only target schema/runtime semantics. Its query client is replaced
- * by the server-issued relation route, so the browser neither infers a relation endpoint nor
- * bypasses the owning record's association/data-scope checks.
+ * The source context remains the sole authorization context. The server-issued relation contract
+ * contains both the query route and schema, so the browser never loads target-module context or
+ * query schema merely to render an embedded relation.
  */
 const relationContext = computed<ModuleContext<QueryListRecord> | undefined>(() => {
   const relation = executableRelation.value;
   const contract = queryContract.value;
   const recordId = props.recordId;
   if (!relation || !contract || !recordId) return undefined;
-  const targetContext = createModuleContext<QueryListRecord>({
-    http: props.sourceContext.http,
-    moduleAlias: relation.targetModuleAlias,
-  });
   const queryPath = relationQueryPath(contract.queryPath, recordId);
   return {
-    ...targetContext,
+    ...props.sourceContext,
+    moduleAlias: relation.targetModuleAlias,
     crud: {
-      ...targetContext.crud,
+      ...props.sourceContext.crud,
       query: (request?: WebQueryRequest) =>
         props.sourceContext.http.request<WebPageResponse<QueryListRecord>>({
           method: 'POST',
@@ -84,6 +81,7 @@ function normalizeAlign(value: string | undefined): RecordQueryListColumn['align
     :reload-key="reloadKey"
     :ui-config-id="queryContract.targetUiConfigId"
     :query-template-id="queryContract.queryTemplateId"
+    :query-schema="queryContract.querySchema"
     :ready="ready"
     :queryable="queryContract.queryable"
     :pageable="queryContract.pageable"

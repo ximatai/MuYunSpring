@@ -384,6 +384,7 @@ public final class ModuleUiDescriptorCompiler {
                 throw new IllegalArgumentException("form compute target field must be writable: "
                         + view.viewCode() + "." + rule.targetField());
             }
+            requirePortableFormComputeType(target, "target", view, rule);
             for (String trigger : rule.triggerFields()) {
                 if (!mainFields.containsKey(trigger)) {
                     throw new IllegalArgumentException("form compute trigger field must be declared by the same form: "
@@ -408,19 +409,32 @@ public final class ModuleUiDescriptorCompiler {
             }
             Set<String> inputFields = valueSideFields(program);
             for (String field : inputFields) {
-                if (!mainFields.containsKey(field)) {
+                ResolvedViewFieldDescriptor input = mainFields.get(field);
+                if (input == null) {
                     throw new IllegalArgumentException("form compute expression may only reference fields declared by the same form: "
                             + view.viewCode() + "." + field);
                 }
+                requirePortableFormComputeType(input, "input", view, rule);
             }
             if (inputFields.contains(rule.targetField())) {
                 throw new IllegalArgumentException("form compute target field cannot reference itself: "
                         + view.viewCode() + "." + rule.targetField());
             }
             resolved.add(new ResolvedFormComputeRuleDescriptor(rule.code(), program, rule.targetField(),
-                    rule.triggerFields(), rule.writePolicy()));
+                    target.valueType(), rule.triggerFields(), rule.writePolicy()));
         }
         return List.copyOf(resolved);
+    }
+
+    private static void requirePortableFormComputeType(ResolvedViewFieldDescriptor field,
+                                                       String role,
+                                                       ViewDefinition view,
+                                                       FormComputeRuleDefinition rule) {
+        if (field.valueType() == null || field.valueType() == FieldValueType.JSON) {
+            throw new IllegalArgumentException("form compute " + role
+                    + " field requires a portable non-JSON value type: " + view.viewCode() + "." + rule.code()
+                    + "." + field.fieldRef().fieldName());
+        }
     }
 
     private static String assignedTarget(FormulaProgram program) {

@@ -19,6 +19,7 @@ import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
 import net.ximatai.muyun.spring.common.formula.FormulaNode;
 import net.ximatai.muyun.spring.common.formula.FormulaProgram;
 import net.ximatai.muyun.spring.common.formula.FormulaRuleKind;
+import net.ximatai.muyun.spring.common.formula.FormulaRulePhase;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFormulaRuleDescriptor;
 
 import java.util.List;
@@ -46,6 +47,13 @@ public final class DynamicModuleUiDefinitionAdapter {
     public static ModuleUiDefinition fromPublishedSnapshot(PlatformPageConfigSnapshot snapshot,
                                                            PlatformResolvedPageConfig resolvedPageConfig,
                                                            List<DynamicFormulaRuleDescriptor> mainFormulaRules) {
+        return fromPublishedSnapshot(snapshot, resolvedPageConfig, mainFormulaRules, Map.of());
+    }
+
+    public static ModuleUiDefinition fromPublishedSnapshot(PlatformPageConfigSnapshot snapshot,
+                                                           PlatformResolvedPageConfig resolvedPageConfig,
+                                                           List<DynamicFormulaRuleDescriptor> mainFormulaRules,
+                                                           Map<ViewFieldRef, FieldValueType> fieldTypes) {
         if (snapshot == null) {
             throw new IllegalArgumentException("platform page config snapshot must not be null");
         }
@@ -83,8 +91,9 @@ public final class DynamicModuleUiDefinitionAdapter {
         }
         ViewDefinition list = view(listConfig, uiSets.get(listConfig.getUiSetId()), ModuleViewKind.LIST,
                 fieldsByConfig.get(listConfig.getId()), List.of());
+        List<PlatformResolvedUiField> formFields = fieldsByConfig.get(formConfig.getId());
         ViewDefinition editor = view(formConfig, uiSets.get(formConfig.getUiSetId()), ModuleViewKind.FORM,
-                fieldsByConfig.get(formConfig.getId()), formComputeRules(mainFormulaRules));
+                formFields, formComputeRules(mainFormulaRules, formFields, fieldTypes));
         ModulePageDefinition page = page(list, editor, listConfig);
         return new ModuleUiDefinition(snapshot.moduleAlias(), List.of(), page, null, List.of(), List.of());
     }
@@ -107,21 +116,42 @@ public final class DynamicModuleUiDefinitionAdapter {
     }
 
     private static List<FormComputeRuleDefinition> formComputeRules(
-            List<DynamicFormulaRuleDescriptor> dynamicRules) {
+            List<DynamicFormulaRuleDescriptor> dynamicRules,
+            List<PlatformResolvedUiField> formFields,
+            Map<ViewFieldRef, FieldValueType> fieldTypes) {
         if (dynamicRules == null || dynamicRules.isEmpty()) return List.of();
+        Map<String, PlatformResolvedUiField> mainFields = formFields == null ? Map.of() : formFields.stream()
+                .filter(field -> field.relationAlias() == null || field.relationAlias().isBlank())
+                .filter(field -> field.fieldName() != null && !field.fieldName().isBlank())
+                .collect(Collectors.toMap(PlatformResolvedUiField::fieldName, Function.identity(),
+                        (left, ignored) -> left, java.util.LinkedHashMap::new));
+        Map<ViewFieldRef, FieldValueType> resolvedTypes = fieldTypes == null ? Map.of() : fieldTypes;
         java.util.ArrayList<FormComputeRuleDefinition> rules = new java.util.ArrayList<>();
         for (DynamicFormulaRuleDescriptor rule : dynamicRules) {
-            if (rule == null || !rule.enabled() || rule.kind() != FormulaRuleKind.CALCULATION) continue;
+            if (rule == null || !rule.enabled() || rule.kind() != FormulaRuleKind.CALCULATION
+                    || rule.phase() != FormulaRulePhase.BEFORE_SAVE) continue;
             try {
                 FormulaProgram program = FORMULA_ENGINE.compileFormComputeProgram(rule.expression());
                 String target = assignedTarget(program);
                 if (target == null || (rule.targetField() != null && !rule.targetField().equals(target))) continue;
-                rules.add(new FormComputeRuleDefinition(rule.code(), target, valueSideFields(program), rule.expression()));
+                PlatformResolvedUiField targetField = mainFields.get(target);
+                List<String> inputs = valueSideFields(program);
+                if (targetField == null || Boolean.TRUE.equals(targetField.readOnly()) || inputs.contains(target)
+                        || !portableType(resolvedTypes.get(ViewFieldRef.main(target)))
+                        || inputs.stream().anyMatch(field -> !mainFields.containsKey(field)
+                                || !portableType(resolvedTypes.get(ViewFieldRef.main(field))))) {
+                    continue;
+                }
+                rules.add(new FormComputeRuleDefinition(rule.code(), target, inputs, rule.expression()));
             } catch (FormulaEvaluationException ignored) {
                 // Server-only or relation-scoped formula rules remain server-only; they are not UI failures.
             }
         }
         return List.copyOf(rules);
+    }
+
+    private static boolean portableType(FieldValueType type) {
+        return type != null && type != FieldValueType.JSON;
     }
 
     private static String assignedTarget(FormulaProgram program) {
@@ -145,7 +175,7 @@ public final class DynamicModuleUiDefinitionAdapter {
 
     private static ModulePageDefinition page(ViewDefinition list, ViewDefinition editor, PlatformUiConfig listConfig) {
         JsonNode root = pageRoot(listConfig);
-        String template = root.path("template").asText();
+        String template = root.path("template").asText("LIST_DETAIL_CARD");
         if ("FLAT_MANAGEMENT".equals(template)) {
             JsonNode explorer = root.path("explorer");
             JsonNode detail = root.path("detail");

@@ -29,6 +29,9 @@ describe('DetailRelationListPanel', () => {
     ]);
     expect(list.props('uiConfigId')).toBe('contract-list');
     expect(list.props('queryTemplateId')).toBe('contract-default');
+    expect(list.props('querySchema')).toEqual(
+      expect.objectContaining({ scopeName: 'crm.contract', entityAlias: 'contract' }),
+    );
     expect(list.props('queryable')).toBe(true);
     expect(list.props('pageable')).toBe(true);
 
@@ -76,6 +79,14 @@ function executableRelation(): ResolvedDetailRelationDescriptor {
       queryTemplateId: 'contract-default',
       pageable: true,
       queryable: true,
+      querySchema: {
+        scopeName: 'crm.contract',
+        entityAlias: 'contract',
+        quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+        fields: [],
+        externalCriteria: [],
+        defaultSorts: [],
+      },
       listProjection: {
         uiConfigId: 'contract-list',
         fields: [

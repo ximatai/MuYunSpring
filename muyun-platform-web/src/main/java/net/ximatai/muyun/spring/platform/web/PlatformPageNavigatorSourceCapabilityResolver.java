@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /** Bridges static Web projection declarations into the source-capability contract used by pages. */
 @Service
@@ -42,6 +43,38 @@ public class PlatformPageNavigatorSourceCapabilityResolver implements PageNaviga
         return staticModuleCatalog.find(validAlias)
                 .map(StaticModuleDefinition::navigatorSourceCapabilities)
                 .orElseGet(() -> dynamicNavigatorSourceCapabilities(validAlias));
+    }
+
+    @Override
+    public boolean supportsManagement(String moduleAlias, Set<String> actions, String editorSurface) {
+        String validAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        return staticModuleCatalog.find(validAlias)
+                .filter(source -> supportsActions(source, actions))
+                .filter(source -> supportsEditor(source, editorSurface))
+                .isPresent();
+    }
+
+    private boolean supportsActions(StaticModuleDefinition source, Set<String> actions) {
+        Set<String> available = source.actions().stream()
+                .map(action -> action.actionCode().toUpperCase(java.util.Locale.ROOT))
+                .collect(Collectors.toUnmodifiableSet());
+        return actions == null || available.containsAll(actions);
+    }
+
+    private boolean supportsEditor(StaticModuleDefinition source, String editorSurface) {
+        ModuleUiDefinition ui = source.uiDefinition();
+        if (ui == null) return false;
+        if (editorSurface != null) {
+            return ui.editorSurfaces().stream().anyMatch(surface -> editorSurface.equals(surface.key()));
+        }
+        if (ui.defaultEditor() != null) return true;
+        if (ui.page() == null) return false;
+        PageDetailDefinition detail = switch (ui.page()) {
+            case FlatManagementPageDefinition page -> page.detail();
+            case ListDetailCardPageDefinition page -> page.detail();
+            case TreeManagementPageDefinition page -> page.detail();
+        };
+        return detail != null && detail.editor() != null;
     }
 
     private Set<NavigatorSourceCapability> dynamicNavigatorSourceCapabilities(String moduleAlias) {

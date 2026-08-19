@@ -16,6 +16,7 @@ import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadServic
 import net.ximatai.muyun.spring.platform.web.PlatformRecordActionAvailability;
 import net.ximatai.muyun.spring.platform.web.PlatformRecordActionAvailabilityService;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
+import net.ximatai.muyun.spring.web.TenantRequestScope;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserProvider;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
@@ -70,6 +71,9 @@ class DynamicRecordWebMvcSliceTest {
 
     @MockitoBean
     private ActiveTenantVerifier activeTenantVerifier;
+
+    @MockitoBean
+    private TenantRequestScope tenantRequestScope;
 
     @MockitoBean
     private PlatformRecordActionAvailabilityService recordActionAvailabilityService;
