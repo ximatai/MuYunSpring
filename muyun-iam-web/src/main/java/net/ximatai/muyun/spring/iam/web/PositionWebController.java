@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
+import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
 import net.ximatai.muyun.spring.web.WebSupport;
@@ -36,10 +37,26 @@ public class PositionWebController extends WebSupport<PositionService> implement
         StaticModuleUiContributor {
 
     private PositionCategoryService positionCategoryService;
+    private StandardModuleWebRuntime standardModuleWebRuntime;
 
     @Autowired
     void setPositionCategoryService(PositionCategoryService positionCategoryService) {
         this.positionCategoryService = positionCategoryService;
+    }
+
+    @Autowired(required = false)
+    void setStandardModuleWebRuntime(StandardModuleWebRuntime standardModuleWebRuntime) {
+        this.standardModuleWebRuntime = standardModuleWebRuntime;
+    }
+
+    @Override
+    public StandardModuleWebRuntime standardModuleWebRuntime() {
+        return standardModuleWebRuntime;
+    }
+
+    @Override
+    public boolean requiresModuleExecutionPlan() {
+        return true;
     }
 
     @Override
@@ -83,6 +100,7 @@ public class PositionWebController extends WebSupport<PositionService> implement
                                         .tree(PositionCategoryService.MODULE_ALIAS, "岗位分类", "搜索岗位分类")
                                         .manageable()
                                         .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
+                                .bindSessionToList("tenantId", "tenantId")
                                 .bindNavigatorToNavigator("tenant", "category", "tenantId")
                                 .bindNavigatorToList("category", "categoryId"))
                         .list(list -> list.fields(fields -> fields

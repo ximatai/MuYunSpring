@@ -47,6 +47,7 @@ public class PlatformModuleWebController extends WebSupport<PlatformModuleServic
 
     private PlatformDynamicRuntimeRefreshService runtimeRefreshService;
     private PlatformOpenApiCatalogService openApiCatalogService;
+    private StandardModuleWebRuntime standardModuleWebRuntime;
 
     @Autowired
     public PlatformModuleWebController(PlatformDynamicRuntimeRefreshService runtimeRefreshService) {
@@ -54,6 +55,21 @@ public class PlatformModuleWebController extends WebSupport<PlatformModuleServic
     }
 
     public PlatformModuleWebController() {
+    }
+
+    @Autowired(required = false)
+    void setStandardModuleWebRuntime(StandardModuleWebRuntime standardModuleWebRuntime) {
+        this.standardModuleWebRuntime = standardModuleWebRuntime;
+    }
+
+    @Override
+    public StandardModuleWebRuntime standardModuleWebRuntime() {
+        return standardModuleWebRuntime;
+    }
+
+    @Override
+    public boolean requiresModuleExecutionPlan() {
+        return true;
     }
 
     /**

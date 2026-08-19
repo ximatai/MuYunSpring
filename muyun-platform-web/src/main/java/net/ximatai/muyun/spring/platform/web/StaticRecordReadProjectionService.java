@@ -39,18 +39,25 @@ import java.util.Set;
 @Component
 public class StaticRecordReadProjectionService {
     private final StaticModuleDefinitionCatalog staticModuleDefinitionCatalog;
+    private final ModuleExecutionPlanCatalog moduleExecutionPlanCatalog;
     private final RelationProjectionReadService relationProjectionReadService;
     private final OptionSourceRegistry optionSourceRegistry;
 
     public StaticRecordReadProjectionService(StaticModuleDefinitionCatalog staticModuleDefinitionCatalog) {
-        this(staticModuleDefinitionCatalog, (RelationProjectionReadService) null, null);
+        this(staticModuleDefinitionCatalog, new ModuleExecutionPlanCatalog(staticModuleDefinitionCatalog),
+                (RelationProjectionReadService) null, null);
     }
 
     @Autowired
     public StaticRecordReadProjectionService(StaticModuleDefinitionCatalog staticModuleDefinitionCatalog,
                                              ObjectProvider<RelationProjectionReadService> relationProjectionReadService,
-                                             ObjectProvider<OptionSourceRegistry> optionSourceRegistry) {
+                                             ObjectProvider<OptionSourceRegistry> optionSourceRegistry,
+                                             ObjectProvider<ModuleExecutionPlanCatalog> moduleExecutionPlanCatalog) {
         this(staticModuleDefinitionCatalog,
+                moduleExecutionPlanCatalog == null
+                        ? new ModuleExecutionPlanCatalog(staticModuleDefinitionCatalog)
+                        : moduleExecutionPlanCatalog.getIfAvailable(
+                                () -> new ModuleExecutionPlanCatalog(staticModuleDefinitionCatalog)),
                 relationProjectionReadService == null ? null : relationProjectionReadService.getIfAvailable(),
                 optionSourceRegistry == null ? null : optionSourceRegistry.getIfAvailable());
     }
@@ -58,22 +65,25 @@ public class StaticRecordReadProjectionService {
     StaticRecordReadProjectionService(StaticModuleDefinitionCatalog staticModuleDefinitionCatalog,
                                       RelationProjectionQueryExecutor projectionQueryExecutor,
                                       RelationProjectionDatabaseTypeProvider databaseTypeProvider) {
-        this(staticModuleDefinitionCatalog, projectionQueryExecutor, databaseTypeProvider, null);
+        this(staticModuleDefinitionCatalog, new ModuleExecutionPlanCatalog(staticModuleDefinitionCatalog),
+                new RelationProjectionReadService(projectionQueryExecutor, databaseTypeProvider), null);
     }
 
     StaticRecordReadProjectionService(StaticModuleDefinitionCatalog staticModuleDefinitionCatalog,
                                       RelationProjectionQueryExecutor projectionQueryExecutor,
                                       RelationProjectionDatabaseTypeProvider databaseTypeProvider,
                                       OptionSourceRegistry optionSourceRegistry) {
-        this(staticModuleDefinitionCatalog,
+        this(staticModuleDefinitionCatalog, new ModuleExecutionPlanCatalog(staticModuleDefinitionCatalog),
                 new RelationProjectionReadService(projectionQueryExecutor, databaseTypeProvider),
                 optionSourceRegistry);
     }
 
-    private StaticRecordReadProjectionService(StaticModuleDefinitionCatalog staticModuleDefinitionCatalog,
-                                              RelationProjectionReadService relationProjectionReadService,
-                                              OptionSourceRegistry optionSourceRegistry) {
+    StaticRecordReadProjectionService(StaticModuleDefinitionCatalog staticModuleDefinitionCatalog,
+                                      ModuleExecutionPlanCatalog moduleExecutionPlanCatalog,
+                                      RelationProjectionReadService relationProjectionReadService,
+                                      OptionSourceRegistry optionSourceRegistry) {
         this.staticModuleDefinitionCatalog = staticModuleDefinitionCatalog;
+        this.moduleExecutionPlanCatalog = moduleExecutionPlanCatalog;
         this.relationProjectionReadService = relationProjectionReadService == null
                 ? new RelationProjectionReadService()
                 : relationProjectionReadService;
@@ -83,7 +93,16 @@ public class StaticRecordReadProjectionService {
     public <T> WebPageResponse<T> projectDefaultList(String moduleAlias,
                                                      WebPageResponse<T> response,
                                                      Object recordService) {
-        RecordReadProjection projection = defaultListProjection(moduleAlias, recordService).orElse(null);
+        return projectDefaultList(moduleAlias, response, recordService, false);
+    }
+
+    /** Compatibility is passed by an explicitly marked controller, never inferred from a missing plan. */
+    public <T> WebPageResponse<T> projectDefaultList(String moduleAlias,
+                                                     WebPageResponse<T> response,
+                                                     Object recordService,
+                                                     boolean allowLegacyDslCompilation) {
+        RecordReadProjection projection = defaultListProjection(moduleAlias, recordService,
+                allowLegacyDslCompilation).orElse(null);
         if (projection == null) {
             return response;
         }
@@ -92,15 +111,28 @@ public class StaticRecordReadProjectionService {
     }
 
     public boolean supportsDefaultListQuery(String moduleAlias, Object recordService) {
+        return supportsDefaultListQuery(moduleAlias, recordService, false);
+    }
+
+    public boolean supportsDefaultListQuery(String moduleAlias, Object recordService,
+                                            boolean allowLegacyDslCompilation) {
         StaticModuleDefinition definition = staticModuleDefinitionCatalog.find(moduleAlias).orElse(null);
         if (definition == null) {
             return false;
         }
-        return defaultListProjection(moduleAlias, recordService)
-                .filter(projection -> relationProjectionReadService
-                        .describeListQuery(staticModuleDefinitionCatalog.definitions(), definition, projection)
-                        .supported())
-                .isPresent();
+        Optional<RecordReadProjection> projection = defaultListProjection(moduleAlias, recordService,
+                allowLegacyDslCompilation);
+        if (projection.isEmpty()) {
+            return false;
+        }
+        ProjectionQueryDescriptor descriptor = relationProjectionReadService
+                .describeListQuery(staticModuleDefinitionCatalog.definitions(), definition, projection.get());
+        if (!descriptor.supported() && moduleExecutionPlanCatalog.find(moduleAlias).isPresent()
+                && requiresDeclaredReadProjection(definition, projection.get())) {
+            throw new IllegalStateException("declared static read projection cannot execute for module "
+                    + moduleAlias + ": " + descriptor.fallbackReason());
+        }
+        return descriptor.supported();
     }
 
     public boolean hasModuleDefinition(String moduleAlias) {
@@ -137,25 +169,51 @@ public class StaticRecordReadProjectionService {
                                                                            CrudAbility<?> recordService,
                                                                            ActionExecutionPolicy actionPolicy,
                                                                            RecordReadVisibility visibility) {
+        return queryDefaultList(moduleAlias, request, additionalCriteria, pageRequest, recordService, actionPolicy,
+                visibility, false);
+    }
+
+    public Optional<WebPageResponse<Map<String, Object>>> queryDefaultList(String moduleAlias,
+                                                                           QueryRequest request,
+                                                                           Criteria additionalCriteria,
+                                                                           PageRequest pageRequest,
+                                                                           CrudAbility<?> recordService,
+                                                                           ActionExecutionPolicy actionPolicy,
+                                                                           RecordReadVisibility visibility,
+                                                                           boolean allowLegacyDslCompilation) {
         if (moduleAlias == null || recordService == null || actionPolicy == null || visibility == null
-                || !supportsDefaultListQuery(moduleAlias, recordService)) {
+                || !(allowLegacyDslCompilation
+                ? supportsDefaultListQuery(moduleAlias, recordService, true)
+                : supportsDefaultListQuery(moduleAlias, recordService))) {
             return Optional.empty();
         }
         if (!visibility.action().matches(actionPolicy.actionCode())) {
             throw new IllegalArgumentException("record visibility does not match query action: "
                     + visibility + " / " + actionPolicy.actionCode());
         }
-        Criteria criteria = andCriteria(queryCriteria(moduleAlias, recordService, request), additionalCriteria);
-        Sort[] sorts = querySorts(moduleAlias, recordService, request);
+        // The compiled plan owns the query allow-list.  Do not re-read a controller/service
+        // declaration while executing a migrated standard module request.
+        ModuleExecutionPlan plan = executionPlan(moduleAlias, allowLegacyDslCompilation).orElse(null);
+        Criteria criteria = andCriteria(plan == null
+                ? queryCriteria(moduleAlias, recordService, request)
+                : new QueryCompiler(plan.queryDescriptor()).criteria(request), additionalCriteria);
+        Sort[] sorts = plan == null
+                ? querySorts(moduleAlias, recordService, request)
+                : new QueryCompiler(plan.queryDescriptor()).sorts(request);
         if (recordService instanceof DataScopeAbility<?> dataScopeAbility) {
             DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(actionPolicy, criteria);
             return dataScopeAbility.withDataScopeTenant(scope,
-                    () -> queryDefaultList(moduleAlias,
-                            visibility.apply(recordService, scope.criteria()),
+                    () -> allowLegacyDslCompilation
+                            ? queryDefaultList(moduleAlias, visibility.apply(recordService, scope.criteria()),
+                            pageRequest, recordService, sorts, true)
+                            : queryDefaultList(moduleAlias, visibility.apply(recordService, scope.criteria()),
                             pageRequest, recordService, sorts));
         }
-        return queryDefaultList(
-                moduleAlias, visibility.apply(recordService, criteria), pageRequest, recordService, sorts);
+        return allowLegacyDslCompilation
+                ? queryDefaultList(moduleAlias, visibility.apply(recordService, criteria), pageRequest,
+                recordService, sorts, true)
+                : queryDefaultList(moduleAlias, visibility.apply(recordService, criteria), pageRequest,
+                recordService, sorts);
     }
 
     public Optional<WebPageResponse<Map<String, Object>>> queryDefaultList(String moduleAlias,
@@ -181,20 +239,29 @@ public class StaticRecordReadProjectionService {
                                                                            PageRequest pageRequest,
                                                                            Object recordService,
                                                                            Sort... sorts) {
+        return queryDefaultList(moduleAlias, criteria, pageRequest, recordService, sorts, false);
+    }
+
+    private Optional<WebPageResponse<Map<String, Object>>> queryDefaultList(String moduleAlias,
+                                                                            Criteria criteria,
+                                                                            PageRequest pageRequest,
+                                                                            Object recordService,
+                                                                            Sort[] sorts,
+                                                                            boolean allowLegacyDslCompilation) {
         StaticModuleDefinition definition = staticModuleDefinitionCatalog.find(moduleAlias).orElse(null);
         if (definition == null) {
             return Optional.empty();
         }
-        ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(definition);
-        if (compilation == null || compilation.uiDescriptor() == null || compilation.readModel() == null) {
+        ModuleExecutionPlan plan = executionPlan(moduleAlias, allowLegacyDslCompilation).orElse(null);
+        if (plan == null) {
             return Optional.empty();
         }
-        if (!RecordReadProjectionPlanner.supportsDefaultListProjection(compilation.uiDescriptor())) {
+        if (!RecordReadProjectionPlanner.supportsDefaultListProjection(plan.uiDescriptor())) {
             return Optional.empty();
         }
         RecordReadProjection projection = withReferenceSourceFields(moduleAlias, recordService, RecordReadProjectionPlanner.defaultList(
-                compilation.uiDescriptor(),
-                compilation.readModel(),
+                plan.uiDescriptor(),
+                plan.readModel(),
                 recordService,
                 ActionExecutionContextHolder.current().orElse(null)));
         PageResult<Map<String, Object>> page = relationProjectionReadService.queryList(
@@ -244,13 +311,13 @@ public class StaticRecordReadProjectionService {
         if (definition == null) {
             return Optional.empty();
         }
-        ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(definition);
-        if (compilation == null || compilation.readModel() == null) {
+        ModuleExecutionPlan plan = executionPlan(moduleAlias).orElse(null);
+        if (plan == null) {
             return Optional.empty();
         }
         RecordReadProjection projection = withReferenceSourceFields(moduleAlias, recordService, RecordReadProjectionPlanner.explicit(
                 moduleAlias,
-                compilation.readModel(),
+                plan.readModel(),
                 viewCode,
                 outputFields,
                 recordService,
@@ -339,20 +406,54 @@ public class StaticRecordReadProjectionService {
         return field;
     }
 
-    private Optional<RecordReadProjection> defaultListProjection(String moduleAlias, Object recordService) {
+    private Optional<RecordReadProjection> defaultListProjection(String moduleAlias, Object recordService,
+                                                                  boolean allowLegacyDslCompilation) {
         if (moduleAlias == null || moduleAlias.isBlank()) {
             return Optional.empty();
         }
-        return staticModuleDefinitionCatalog.find(moduleAlias)
-                .map(ModuleUiDescriptorCompiler::compileModule)
-                .filter(compilation -> compilation.uiDescriptor() != null && compilation.readModel() != null
-                        && RecordReadProjectionPlanner.supportsDefaultListProjection(compilation.uiDescriptor()))
-                .map(compilation -> RecordReadProjectionPlanner.defaultList(
-                        compilation.uiDescriptor(),
-                        compilation.readModel(),
+        return executionPlan(moduleAlias, allowLegacyDslCompilation)
+                .filter(plan -> RecordReadProjectionPlanner.supportsDefaultListProjection(plan.uiDescriptor()))
+                .map(plan -> RecordReadProjectionPlanner.defaultList(
+                        plan.uiDescriptor(),
+                        plan.readModel(),
                         recordService,
                         ActionExecutionContextHolder.current().orElse(null)
                 ));
+    }
+
+    private Optional<ModuleExecutionPlan> executionPlan(String moduleAlias) {
+        return executionPlan(moduleAlias, false);
+    }
+
+    private Optional<ModuleExecutionPlan> executionPlan(String moduleAlias, boolean allowLegacyDslCompilation) {
+        Optional<ModuleExecutionPlan> catalogued = moduleExecutionPlanCatalog.find(moduleAlias);
+        if (catalogued.isPresent()) return catalogued;
+        StaticModuleDefinition definition = staticModuleDefinitionCatalog.find(moduleAlias).orElse(null);
+        if (definition == null) {
+            return Optional.empty();
+        }
+        if (!allowLegacyDslCompilation && !definition.legacyReadProjectionCompatibility()) {
+            throw new IllegalStateException("compiled module execution plan is required for static read projection: "
+                    + moduleAlias);
+        }
+        return Optional.of(definition)
+                .map(ModuleUiDescriptorCompiler::compileModule)
+                .filter(compilation -> compilation.uiDescriptor() != null && compilation.readModel() != null)
+                .map(compilation -> new ModuleExecutionPlan(moduleAlias, "legacy", compilation.uiDescriptor(),
+                        compilation.readModel(), List.of()));
+    }
+
+    private static boolean requiresDeclaredReadProjection(StaticModuleDefinition definition,
+                                                          RecordReadProjection projection) {
+        if (definition == null || definition.readProjections().isEmpty() || projection == null) {
+            return false;
+        }
+        Set<String> declaredOutputFields = definition.readProjections().stream()
+                .map(StaticModuleReadProjectionDefinition::outputField)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return projection.outputFields().stream()
+                .map(ViewFieldRef::fieldName)
+                .anyMatch(declaredOutputFields::contains);
     }
 
     private List<String> outputFieldNames(RecordReadProjection projection, Class<?> modelClass) {

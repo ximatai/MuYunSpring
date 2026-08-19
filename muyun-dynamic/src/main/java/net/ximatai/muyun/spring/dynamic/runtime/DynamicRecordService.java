@@ -120,6 +120,11 @@ public class DynamicRecordService {
         return runtime.describe(moduleAlias);
     }
 
+    /** Version of the installed runtime definition, for consumers caching compiled runtime facts. */
+    public long runtimeRevision(String moduleAlias) {
+        return runtime.registry().revision(moduleAlias);
+    }
+
     public List<ModuleDefinition> moduleDefinitions() {
         return runtime.registry().modules();
     }

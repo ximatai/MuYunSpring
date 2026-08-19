@@ -21,6 +21,8 @@ import net.ximatai.muyun.spring.web.ScopedWeb;
 import net.ximatai.muyun.spring.web.SortWeb;
 import net.ximatai.muyun.spring.web.TreeWeb;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.query.QueryAbility;
+import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.reference.ModuleReadProjectionContributor;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
@@ -134,7 +136,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .readProjections(readProjections(bean, module.alias()))
                 .modelClass(modelClass(bean))
                 .projectionJoins(projectionJoins)
+                .queryDescriptor(queryDescriptor(bean, module.alias()))
                 .openApiAvailable(AnnotationUtils.findAnnotation(beanClass, StaticModuleOpenApi.class) != null)
+                .legacyReadProjectionCompatibility(bean instanceof LegacyStaticReadProjectionCompatibility)
                 .build();
     }
 
@@ -325,6 +329,15 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             return declaration.staticModuleService();
         }
         return null;
+    }
+
+    /** Captures the service query contract while static modules are compiled, never per request. */
+    private QueryDescriptor queryDescriptor(Object bean, String moduleAlias) {
+        Object service = service(bean);
+        if (service instanceof QueryAbility<?> queryAbility) {
+            return queryAbility.queryDescriptor();
+        }
+        return QueryDescriptor.builder(moduleAlias).build();
     }
 
     private ApplicationDeclaration application(PlatformStaticModule module) {

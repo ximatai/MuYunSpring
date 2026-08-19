@@ -67,6 +67,18 @@ import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadServic
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryDescriptor;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryFallbackReason;
+import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan;
+import net.ximatai.muyun.spring.platform.web.ModuleMutationFieldValidation;
+import net.ximatai.muyun.spring.platform.web.ModuleQueryFormField;
+import net.ximatai.muyun.spring.platform.web.ModuleQueryTemplatePlan;
+import net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler;
+import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageTemplates;
+import net.ximatai.muyun.spring.platform.web.ResolvedModuleReadField;
+import net.ximatai.muyun.spring.platform.web.ResolvedModuleReadModel;
+import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
 import net.ximatai.muyun.spring.platform.attachment.RecordAttachment;
@@ -1338,6 +1350,76 @@ class DynamicRecordWebControllerTest {
         assertThat(externalValues.getValue()).containsEntry("optional", null);
         verify(mainEntity).queryCriteria(any());
         verify(snapshotService, times(3)).snapshot(MODULE);
+    }
+
+    @Test
+    void shouldRejectPublishedUiRequestWithoutInstalledExecutionPlanBeforeReadingSnapshot() throws Exception {
+        PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .query(snapshotService, null, null)
+                        .executionPlans(catalog)
+                        .build())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+
+        mvc.perform(post("/{moduleAlias}/query", MODULE)
+                        .contentType("application/json")
+                        .content("{\"uiConfigId\":\"ui-list\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(
+                        "no executable published page plan")));
+
+        verifyNoInteractions(snapshotService);
+    }
+
+    @Test
+    void shouldExecuteStandardQueryAndSavePathsFromInstalledPlanWithoutReadingSnapshot() throws Exception {
+        PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan()));
+        MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .query(snapshotService, null, null).executionPlans(catalog).build())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+        DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");
+        record.setId("contract-1");
+        when(mainEntity.queryCriteria(any())).thenReturn(Criteria.of().eq("code", "C-001"));
+        when(mainEntity.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(record), 1, PageRequest.of(1, 20)));
+
+        plannedMvc.perform(get("/{moduleAlias}/query/schema", MODULE).param("uiConfigId", "ui-list"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fields[0].name").value("code"));
+        plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
+                        .content("{\"uiConfigId\":\"ui-list\",\"conditions\":[{\"fieldName\":\"code\",\"operator\":\"EQ\",\"values\":[\"C-001\"]}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].values.code").value("C-001"));
+        plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
+                        .content("{\"uiConfigId\":\"ui-list\",\"queryTemplateId\":\"tpl-active\",\"externalQueryValues\":{\"code\":\"C-001\"}}"))
+                .andExpect(status().isOk());
+        plannedMvc.perform(get("/{moduleAlias}/query/schema", MODULE).param("uiConfigId", "stale-list"))
+                .andExpect(status().isBadRequest());
+        plannedMvc.perform(post("/{moduleAlias}/insert", MODULE).contentType("application/json")
+                        .content("{\"uiConfigId\":\"form-v1\",\"values\":{}}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("UI required field is missing: code")));
+        plannedMvc.perform(post("/{moduleAlias}/insert", MODULE).contentType("application/json")
+                        .content("{\"values\":{\"code\":\"C-001\"}}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Save requires published FORM uiConfigId")));
+        plannedMvc.perform(post("/{moduleAlias}/insert", MODULE).contentType("application/json")
+                        .content("{\"uiConfigId\":\"stale-form\",\"values\":{\"code\":\"C-001\"}}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Save requires published FORM uiConfigId")));
+
+        verifyNoInteractions(snapshotService);
     }
 
     @Test
@@ -3509,6 +3591,31 @@ class DynamicRecordWebControllerTest {
         return controllerFixture(recordService, activeTenantVerifier).build();
     }
 
+    private ModuleExecutionPlan installedDynamicPlan() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder(MODULE)
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("code")))
+                        .detail(detail -> detail.editor(editor -> editor.field("code", field -> field.required())))))
+                .build();
+        var descriptor = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, "Contract");
+        var schema = new net.ximatai.muyun.spring.ability.query.QuerySchema(MODULE, ENTITY,
+                new net.ximatai.muyun.spring.ability.query.QuerySchema.QuickSearch(true, List.of("code"), List.of()),
+                List.of(new net.ximatai.muyun.spring.ability.query.QuerySchema.Field("code", "Code",
+                        net.ximatai.muyun.spring.ability.query.QueryValueType.STRING,
+                        List.of(net.ximatai.muyun.spring.ability.query.QueryOperator.EQ),
+                        net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, true, true, null, null, null)),
+                List.of(), List.of());
+        return new ModuleExecutionPlan(MODULE, "dynamic-runtime-1-ui-1", descriptor,
+                new ResolvedModuleReadModel(MODULE, ENTITY,
+                        List.of(new ResolvedModuleReadField(ENTITY, null, "code", false))), List.of(),
+                net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder(MODULE).build(), schema,
+                List.of("tpl-active"), List.of(new ModuleQueryTemplatePlan("tpl-active", List.of(
+                        new ModuleQueryTemplatePlan.Node(net.ximatai.muyun.spring.platform.ui.PlatformQueryGroupOperator.AND,
+                                "code", DynamicQueryOperator.EQ, null, "code", null, List.of())))), "ui-list", "form-v1",
+                List.of(new ModuleQueryFormField("code", ModuleQueryFormField.Mode.DEFAULT, List.of())), List.of(),
+                List.of(new ModuleMutationFieldValidation(null, "code", false, true)), List.of(), false);
+    }
+
     private DynamicRecordWebControllerFixture controllerFixture(
             DynamicRecordService recordService,
             ActiveTenantVerifier activeTenantVerifier) {
@@ -3531,6 +3638,7 @@ class DynamicRecordWebControllerTest {
         private PlatformRecordNavigationService navigationService;
         private DynamicRelationProjectionReadService relationProjectionReadService =
                 DynamicRelationProjectionReadServiceTestFactory.withDefaults();
+        private ModuleExecutionPlanCatalog executionPlanCatalog;
 
         private DynamicRecordWebControllerFixture(
                 DynamicRecordService recordService,
@@ -3595,13 +3703,18 @@ class DynamicRecordWebControllerTest {
             return this;
         }
 
+        DynamicRecordWebControllerFixture executionPlans(ModuleExecutionPlanCatalog value) {
+            executionPlanCatalog = value;
+            return this;
+        }
+
         DynamicRecordWebController build() {
             return new DynamicRecordWebController(
                     recordService,
                     new TenantRequestScope(activeTenantVerifier),
                     new DynamicRecordQueryServices(pageConfigSnapshotService, queryItemService,
                             moduleMetadataFieldService, fieldUiControlService, fieldUiControlBindingService,
-                            relationProjectionReadService),
+                            relationProjectionReadService, executionPlanCatalog),
                     new DynamicRecordAttachmentServices(recordAttachmentService, recordAttachmentAccessService),
                     new DynamicRecordActionServices(codeBusinessPreviewService, referenceRecordGenerationFacade,
                             duplicateCheckService, navigationService));

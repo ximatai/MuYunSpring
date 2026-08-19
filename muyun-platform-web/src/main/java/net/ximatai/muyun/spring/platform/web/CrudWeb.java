@@ -45,6 +45,48 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return null;
     }
 
+    /** Optional bridge for migrated controllers. Its presence makes execution-plan facts authoritative. */
+    default StandardModuleWebRuntime standardModuleWebRuntime() {
+        return null;
+    }
+
+    /**
+     * Marks a controller that has completed the execution-plan migration.
+     *
+     * <p>Compatibility controllers may still derive their transport behaviour from a declaration
+     * DSL while they are migrated one by one. A migrated controller must instead have both the
+     * standard runtime and its compiled plan available; silently taking the compatibility branch
+     * would recreate the second request-time source of truth this migration removes.</p>
+     */
+    default boolean requiresModuleExecutionPlan() {
+        return false;
+    }
+
+    /** Temporary boundary for controllers explicitly migrating from the old read-projection path. */
+    default boolean allowsLegacyReadProjectionCompatibility() {
+        return this instanceof LegacyStaticReadProjectionCompatibility;
+    }
+
+    private StandardModuleWebRuntime requiredStandardModuleWebRuntime() {
+        StandardModuleWebRuntime runtime = standardModuleWebRuntime();
+        if (runtime == null) {
+            throw new IllegalStateException("migrated module " + webScopeName()
+                    + " requires StandardModuleWebRuntime");
+        }
+        runtime.requirePlan(webScopeName());
+        return runtime;
+    }
+
+    private StandardModuleWebRuntime executionRuntime() {
+        return requiresModuleExecutionPlan() ? requiredStandardModuleWebRuntime() : standardModuleWebRuntime();
+    }
+
+    private void requireExecutionPlanAtRequest() {
+        if (requiresModuleExecutionPlan()) {
+            requiredStandardModuleWebRuntime();
+        }
+    }
+
     default List<T> queryListRecords(WebQueryRequest request) {
         requireUnpagedQuerySupported(request);
         if (service() instanceof DataScopeAbility<?>) {
@@ -75,6 +117,15 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
 
     default Criteria queryCriteria(WebQueryRequest request) {
         Criteria workspaceCriteria = navigatorCriteria(request);
+        StandardModuleWebRuntime runtime = executionRuntime();
+        if (requiresModuleExecutionPlan()) {
+            return andCriteria(runtime.queryCriteria(webScopeName(), service(), WebQueryRequests.from(
+                    withoutNavigatorExternalValues(request))).orElseThrow(), workspaceCriteria);
+        }
+        if (runtime != null && runtime.hasPlan(webScopeName())) {
+            return andCriteria(runtime.queryCriteria(webScopeName(), service(), WebQueryRequests.from(
+                    withoutNavigatorExternalValues(request))).orElseThrow(), workspaceCriteria);
+        }
         if (service() instanceof QueryAbility<?> queryAbility) {
             // Navigator values are page-owned bindings, not fields in the source module's query schema.
             // Remove only the declared bindings before compiling the module query; unknown external values
@@ -106,6 +157,13 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     default Sort[] querySorts(WebQueryRequest request) {
+        StandardModuleWebRuntime runtime = executionRuntime();
+        if (requiresModuleExecutionPlan()) {
+            return runtime.querySorts(webScopeName(), service(), WebQueryRequests.from(request)).orElseThrow();
+        }
+        if (runtime != null && runtime.hasPlan(webScopeName())) {
+            return runtime.querySorts(webScopeName(), service(), WebQueryRequests.from(request)).orElseThrow();
+        }
         if (service() instanceof QueryAbility<?> queryAbility) {
             Sort[] sorts = queryAbility.querySorts(WebQueryRequests.from(request));
             return sorts == null ? new Sort[0] : sorts;
@@ -123,6 +181,13 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     @ActionEndpoint(PlatformAction.QUERY)
     default QuerySchema querySchema(@RequestParam(required = false) String uiConfigId) {
         return webScope(() -> {
+            StandardModuleWebRuntime runtime = executionRuntime();
+            if (requiresModuleExecutionPlan()) {
+                return withNavigatorCriteria(runtime.querySchema(webScopeName(), service()).orElseThrow(), uiConfigId);
+            }
+            if (runtime != null && runtime.hasPlan(webScopeName())) {
+                return withNavigatorCriteria(runtime.querySchema(webScopeName(), service()).orElseThrow(), uiConfigId);
+            }
             StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
             if (projectionService != null && this instanceof StaticModuleUiContributor contributor
                     && isCurrentModuleUiDefinition(contributor)
@@ -164,6 +229,13 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     private List<PageContextBindingDefinition> pageContextBindings(String uiConfigId, PageContextTarget target) {
+        StandardModuleWebRuntime runtime = executionRuntime();
+        if (requiresModuleExecutionPlan()) {
+            return runtime.pageContextBindings(webScopeName(), target);
+        }
+        if (runtime != null && runtime.hasPlan(webScopeName())) {
+            return runtime.pageContextBindings(webScopeName(), target);
+        }
         if (!(this instanceof StaticModuleUiContributor contributor) || !isCurrentModuleUiDefinition(contributor)) {
             return List.of();
         }
@@ -192,6 +264,19 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     default FormSchema formSchema(@RequestParam(required = false) String resource,
                                   @RequestParam(required = false) String editorSurface) {
         return webScope(() -> {
+            StandardModuleWebRuntime runtime = executionRuntime();
+            if (requiresModuleExecutionPlan()) {
+                String selectedResource = resource == null || resource.isBlank() ? staticContributionResource() : resource;
+                return runtime.formSchema(webScopeName(), formSchemaModelClass(), selectedResource, editorSurface)
+                        .orElseThrow(() -> new IllegalArgumentException("form schema is not available in execution plan for "
+                                + webScopeName()));
+            }
+            if (runtime != null && runtime.hasPlan(webScopeName())) {
+                String selectedResource = resource == null || resource.isBlank() ? staticContributionResource() : resource;
+                FormSchema schema = runtime.formSchema(webScopeName(), formSchemaModelClass(), selectedResource,
+                        editorSurface).orElse(null);
+                if (schema != null) return schema;
+            }
             if (this instanceof StaticModuleUiContributor contributor) {
                 if (isCurrentModuleUiDefinition(contributor)) {
                     String selectedResource = resource == null || resource.isBlank()
@@ -237,6 +322,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     @SuppressWarnings("unchecked")
     default WebPageResponse<T> query(@RequestBody(required = false) WebQueryRequest request) {
         return webScope(() -> {
+            requireExecutionPlanAtRequest();
             if (request == null || !request.unpagedEnabled()) {
                 Optional<WebPageResponse<Map<String, Object>>> projected = queryStaticProjectedList(
                         request, RecordReadVisibility.ACTIVE);
@@ -258,12 +344,23 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     default Optional<WebPageResponse<Map<String, Object>>> queryStaticProjectedList(
             WebQueryRequest request, RecordReadVisibility visibility) {
         StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
-        if (projectionService == null || !(this instanceof StaticModuleUiContributor contributor)
-                || visibility == null) {
+        if (projectionService == null || visibility == null) {
             return Optional.empty();
         }
-        String moduleAlias = contributor.moduleUiDefinition().moduleAlias();
+        String moduleAlias = moduleAliasForRuntime();
+        if (moduleAlias == null) return Optional.empty();
         WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
+        if (!allowsLegacyReadProjectionCompatibility()) {
+            return projectionService.queryDefaultList(
+                    moduleAlias,
+                    WebQueryRequests.from(request),
+                    navigatorCriteria(request),
+                    PageRequest.of(page.pageNum(), page.pageSize()),
+                    service(),
+                    StaticStandardMutationSupport.actionPolicy(this, visibility.action()),
+                    visibility
+            );
+        }
         return projectionService.queryDefaultList(
                 moduleAlias,
                 WebQueryRequests.from(request),
@@ -271,24 +368,40 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
                 PageRequest.of(page.pageNum(), page.pageSize()),
                 service(),
                 StaticStandardMutationSupport.actionPolicy(this, visibility.action()),
-                visibility
+                visibility,
+                allowsLegacyReadProjectionCompatibility()
         );
     }
 
     default WebPageResponse<T> projectStaticDefaultList(WebPageResponse<T> response) {
         StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
-        if (projectionService == null || !(this instanceof StaticModuleUiContributor contributor)) {
+        if (projectionService == null) {
             return response;
         }
-        return projectionService.projectDefaultList(contributor.moduleUiDefinition().moduleAlias(), response, service());
+        String moduleAlias = moduleAliasForRuntime();
+        if (moduleAlias == null) return response;
+        return allowsLegacyReadProjectionCompatibility()
+                ? projectionService.projectDefaultList(moduleAlias, response, service(), true)
+                : projectionService.projectDefaultList(moduleAlias, response, service());
+    }
+
+    private String moduleAliasForRuntime() {
+        StandardModuleWebRuntime runtime = executionRuntime();
+        if (requiresModuleExecutionPlan()) return webScopeName();
+        if (runtime != null && runtime.hasPlan(webScopeName())) return webScopeName();
+        if (this instanceof StaticModuleUiContributor contributor) return contributor.moduleUiDefinition().moduleAlias();
+        return null;
     }
 
     @GetMapping("/view/{id}")
     @ActionEndpoint(PlatformAction.VIEW)
     default T view(@PathVariable String id) {
-        return webScope(() -> WebOutputSupport.record(service(),
-                StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),
-                FieldOutputContext.VIEW));
+        return webScope(() -> {
+            requireExecutionPlanAtRequest();
+            return WebOutputSupport.record(service(),
+                    StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),
+                    FieldOutputContext.VIEW);
+        });
     }
 
     @PostMapping("/insert")
@@ -298,8 +411,11 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     @Transactional
     default T insert(@RequestBody T record) {
         return MutationTenantScopeExecutor.forCreate(this, record, () -> webScope(() -> {
+            requireExecutionPlanAtRequest();
             List<PageContextBindingDefinition> mutationConstraints =
-                    pageContextBindings(null, PageContextTarget.MUTATION_CONSTRAINT);
+                    requiresModuleExecutionPlan()
+                            ? requiredStandardModuleWebRuntime().mutationConstraints(webScopeName())
+                            : pageContextBindings(null, PageContextTarget.MUTATION_CONSTRAINT);
             if (!mutationConstraints.isEmpty()) {
                 PageContextMutationConstraints.applyForCreate(record, mutationConstraints);
             }
@@ -317,9 +433,12 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     default T update(@PathVariable String id, @RequestBody T record) {
         record.setId(id);
         return MutationTenantScopeExecutor.forUpdate(this, id, record, () -> webScope(() -> {
+            requireExecutionPlanAtRequest();
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.UPDATE, id);
             List<PageContextBindingDefinition> mutationConstraints =
-                    pageContextBindings(null, PageContextTarget.MUTATION_CONSTRAINT);
+                    requiresModuleExecutionPlan()
+                            ? requiredStandardModuleWebRuntime().mutationConstraints(webScopeName())
+                            : pageContextBindings(null, PageContextTarget.MUTATION_CONSTRAINT);
             if (!mutationConstraints.isEmpty()) {
                 PageContextMutationConstraints.applyForUpdate(record, service().select(id), mutationConstraints);
             }
@@ -337,6 +456,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     @StandardMutation(StandardMutationKind.DELETE)
     default int delete(@PathVariable String id, @RequestBody RecordActionWebRequest request) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireExecutionPlanAtRequest();
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.DELETE, id);
             T existing = service().select(id);
             return StandardMutationResultSupport.deleted(this, id, recordLabel(existing),

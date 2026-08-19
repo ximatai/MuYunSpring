@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
+import net.ximatai.muyun.spring.platform.web.LegacyStaticReadProjectionCompatibility;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.web.BusinessMutation;
 import net.ximatai.muyun.spring.web.MutationTenantScopeExecutor;
@@ -61,7 +62,8 @@ import java.util.function.Supplier;
 public class EmployeeWebController extends WebSupport<EmployeeService> implements
         CrudWeb<Employee, EmployeeService>,
         MutationTenantScopeResolver<Employee>,
-        StaticModuleUiContributor {
+        StaticModuleUiContributor,
+        LegacyStaticReadProjectionCompatibility {
     private static final ActionExecutionPolicy EMPLOYEE_POSITIONS_POLICY = new ActionExecutionPolicy(
             "employeePositions", PlatformActionLevel.RECORD, ActionAccessMode.AUTH_REQUIRED,
             true, true, ActionDefaultGrantPolicy.NONE, null);

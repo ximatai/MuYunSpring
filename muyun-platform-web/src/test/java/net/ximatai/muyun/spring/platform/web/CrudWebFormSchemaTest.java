@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.mockito.Mockito.mock;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -150,6 +151,34 @@ class CrudWebFormSchemaTest {
     }
 
     @Test
+    void shouldConsumeCompiledPlanForCrudSchemasWithoutReenteringControllerDefinition() throws Exception {
+        DemoRecordUiController controller = new DemoRecordUiController(new DemoRecordService());
+        StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(demoStaticModuleDefinition()));
+        controller.setStandardModuleWebRuntime(new StandardModuleWebRuntime(
+                new ModuleExecutionPlanCatalog(catalog), new StaticRecordReadProjectionService(catalog)));
+        controller.rejectDefinitionLookup();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(get("/demo.record.ui/query/schema"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.scopeName").value("demo.record.ui"));
+            mvc.perform(get("/demo.record.ui/form/schema"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.fields[0].name").value("title"));
+        }
+    }
+
+    @Test
+    void shouldRejectMigratedCrudEndpointWhenItsExecutionRuntimeIsMissing() {
+        StrictDemoRecordController controller = new StrictDemoRecordController(new DemoRecordService());
+
+        assertThatThrownBy(() -> controller.queryCriteria(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("migrated module demo.record.strict requires StandardModuleWebRuntime");
+    }
+
+    @Test
     void shouldProjectStaticModuleQueryThroughQueryViewEndpointWithoutPublishingMutations() throws Exception {
         DemoRecordQueryViewController controller = new DemoRecordQueryViewController(new DemoRecordService());
         controller.setStaticRecordReadProjectionService(new StaticRecordReadProjectionService(
@@ -178,10 +207,26 @@ class CrudWebFormSchemaTest {
     }
 
     @RestController
+    @RequestMapping("/demo.record.strict")
+    private static final class StrictDemoRecordController extends WebSupport<DemoRecordService>
+            implements CrudWeb<DemoRecord, DemoRecordService> {
+        private StrictDemoRecordController(DemoRecordService service) {
+            this.service = service;
+        }
+
+        @Override
+        public boolean requiresModuleExecutionPlan() {
+            return true;
+        }
+    }
+
+    @RestController
     @RequestMapping("/demo.record.ui")
     private static final class DemoRecordUiController extends WebSupport<DemoRecordService>
             implements CrudWeb<DemoRecord, DemoRecordService>, StaticModuleUiContributor {
         private StaticRecordReadProjectionService staticRecordReadProjectionService;
+        private StandardModuleWebRuntime standardModuleWebRuntime;
+        private boolean rejectDefinitionLookup;
 
         private DemoRecordUiController(DemoRecordService service) {
             this.service = service;
@@ -196,8 +241,24 @@ class CrudWebFormSchemaTest {
             return staticRecordReadProjectionService;
         }
 
+        private void setStandardModuleWebRuntime(StandardModuleWebRuntime standardModuleWebRuntime) {
+            this.standardModuleWebRuntime = standardModuleWebRuntime;
+        }
+
+        private void rejectDefinitionLookup() {
+            rejectDefinitionLookup = true;
+        }
+
+        @Override
+        public StandardModuleWebRuntime standardModuleWebRuntime() {
+            return standardModuleWebRuntime;
+        }
+
         @Override
         public ModuleUiDefinition moduleUiDefinition() {
+            if (rejectDefinitionLookup) {
+                throw new AssertionError("request runtime must not call moduleUiDefinition");
+            }
             return ModuleUiDefinition.builder("demo.record.ui")
                     .page(PageTemplates.listDetailCard(page -> page
                             .list(list -> list.fields(fields -> fields
