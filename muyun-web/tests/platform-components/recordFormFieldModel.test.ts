@@ -180,6 +180,79 @@ it('record form groups preserve fields nested by the UI descriptor and attach th
   );
 });
 
+it('preserves tenant branding option and image-upload semantics from the runtime descriptor', () => {
+  const uiDescriptor = {
+    schemaVersion: '1',
+    moduleAlias: 'iam.tenant',
+    fileReferences: [
+      {
+        fieldRef: { fieldName: 'lightLogoAssetId' },
+        maxFiles: 1,
+        allowedMediaTypes: ['image/png'],
+        storagePolicy: 'DATABASE_INLINE',
+        uploadAvailable: true,
+        readAvailable: true,
+      },
+      {
+        fieldRef: { fieldName: 'darkLogoAssetId' },
+        maxFiles: 1,
+        allowedMediaTypes: ['image/png'],
+        storagePolicy: 'DATABASE_INLINE',
+        uploadAvailable: true,
+        readAvailable: true,
+      },
+    ],
+    page: {
+      template: 'LIST_DETAIL_CARD',
+      list: { searchPlaceholder: '', fields: { viewCode: 'page_list', viewKind: 'LIST', fields: [] } },
+      detail: {
+        emptyDescription: '',
+        createTitle: '',
+        editor: {
+          viewCode: 'page_detail_editor',
+          viewKind: 'FORM',
+          fields: [
+            {
+              fieldRef: { fieldName: 'workbenchBrandMode' },
+              label: '展示方式',
+              option: {
+                binding: { sourceType: 'ENUM', source: 'TenantWorkbenchBrandMode' },
+                selectionMode: 'SINGLE',
+                inlineItems: [
+                  { code: 'logoOnly', title: '纯 Logo', enabled: true },
+                  { code: 'logoWithTitle', title: 'Logo + 标题', enabled: true },
+                ],
+              },
+            },
+            { fieldRef: { fieldName: 'lightLogoAssetId' }, label: '展示 Logo（默认）' },
+            {
+              fieldRef: { fieldName: 'darkLogoAssetId' },
+              label: '展示 Logo（暗色模式）',
+              fieldControl: {
+                alias: 'text',
+                rendererType: 'TEXT',
+                valueShape: 'SCALAR',
+                properties: {},
+                bindings: [],
+              },
+            },
+          ],
+        },
+      },
+      traits: [],
+    },
+  } satisfies ResolvedModuleUiDescriptor;
+
+  const fields = resolveRecordFormFields(uiDescriptor);
+  assert.equal(resolveRecordFormFieldState('workbenchBrandMode', { fields }).controlType, 'select');
+  assert.deepEqual(resolveRecordFormFieldState('workbenchBrandMode', { fields }).optionItems, [
+    { code: 'logoOnly', title: '纯 Logo', enabled: true },
+    { code: 'logoWithTitle', title: 'Logo + 标题', enabled: true },
+  ]);
+  assert.equal(resolveRecordFormFieldState('lightLogoAssetId', { fields }).controlType, 'imageFileTransfer');
+  assert.equal(resolveRecordFormFieldState('darkLogoAssetId', { fields }).controlType, 'imageFileTransfer');
+});
+
 it('record form field state preserves a descriptor switch as a generic boolean control', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
     ['completed', field('已完成', { uiType: 'switch' })],

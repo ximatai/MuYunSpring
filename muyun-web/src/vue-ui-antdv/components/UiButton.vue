@@ -17,6 +17,8 @@ const props = withDefaults(
     ariaLabel?: string;
     iconName?: UiIconName;
     iconPosition?: 'start' | 'end';
+    /** Fixed square hit area for compact actions whose content is only an icon. */
+    iconOnly?: boolean;
   }>(),
   {
     type: 'default',
@@ -29,6 +31,7 @@ const props = withDefaults(
     ariaLabel: undefined,
     iconName: undefined,
     iconPosition: 'start',
+    iconOnly: false,
   },
 );
 
@@ -52,7 +55,14 @@ const emit = defineEmits<{
     :size="size"
     :title="title"
     :aria-label="ariaLabel"
-    :class="[$attrs.class, solidForegroundClass]"
+    :class="[
+      $attrs.class,
+      solidForegroundClass,
+      {
+        'ui-button--icon-only': iconOnly,
+        'ui-button--icon-only-compact': iconOnly && size === 'small',
+      },
+    ]"
     :style="$attrs.style"
     @click="emit('click', $event)"
   >
@@ -75,5 +85,20 @@ const emit = defineEmits<{
 
 .ui-button-trailing-icon {
   margin-inline-start: 8px;
+}
+
+:deep(.ant-btn.ui-button--icon-only) {
+  display: inline-grid;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+}
+
+:deep(.ant-btn.ui-button--icon-only-compact) {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
 }
 </style>

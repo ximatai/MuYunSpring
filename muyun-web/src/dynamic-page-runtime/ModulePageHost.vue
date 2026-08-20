@@ -1969,6 +1969,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :record="editingRecord as RecordFormRecord"
           :fields="detailDisplayFields"
           :option-context="context"
+          :file-transfer-context="context"
           :exclude-field-names="['enabled']"
         />
         <StandardFlatFormSurface
@@ -1978,6 +1979,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :mode="editorMode"
           :form-session-key="formSessionKey"
           :option-context="context"
+          :file-transfer-context="context"
           :picker-configs="referencePickerConfigs"
           :disabled="saving"
           :exclude-field-names="['enabled']"
@@ -2227,6 +2229,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               :record="editingRecord as RecordFormRecord"
               :fields="detailDisplayFields"
               :option-context="context"
+              :file-transfer-context="context"
               :exclude-field-names="['enabled']"
             />
             <RecordDetailExtensionSection
@@ -2255,6 +2258,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               :fields="formFields"
               :form-session-key="formSessionKey"
               :option-context="context"
+              :file-transfer-context="context"
               :picker-configs="referencePickerConfigs"
               :disabled="saving"
               :exclude-field-names="['enabled']"
@@ -2474,6 +2478,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               :record="editingRecord as RecordFormRecord"
               :fields="detailDisplayFields"
               :option-context="context"
+              :file-transfer-context="context"
               :exclude-field-names="['enabled']"
             />
             <RecordDetailExtensionSection
@@ -2502,6 +2507,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               :fields="formFields"
               :form-session-key="formSessionKey"
               :option-context="context"
+              :file-transfer-context="context"
               :picker-configs="referencePickerConfigs"
               :exclude-field-names="['enabled']"
               @update:field="updateDraftField"
@@ -2637,6 +2643,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               :record="editingRecord as RecordFormRecord"
               :fields="detailDisplayFields"
               :option-context="context"
+              :file-transfer-context="context"
               :exclude-field-names="['enabled']"
             />
             <RecordDetailExtensionSection
@@ -2668,6 +2675,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :fields="formFields"
             :form-session-key="formSessionKey"
             :option-context="context"
+            :file-transfer-context="context"
             :picker-configs="referencePickerConfigs"
             :exclude-field-names="['enabled']"
             @update:field="updateDraftField"
@@ -2708,6 +2716,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       :record="localEditDraft"
       :fields="localEditFields"
       :option-context="context"
+      :file-transfer-context="context"
       :disabled="localEditSaving"
       @update:field="(fieldName, value) => (localEditDraft![fieldName] = value)"
       @validity-change="updateLocalEditFormValidity"

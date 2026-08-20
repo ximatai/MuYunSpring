@@ -8,11 +8,7 @@ describe('tenant module page enhancement', () => {
       'iam.tenant',
     );
 
-    expect(enhancement?.form?.contributions.map((item) => item.location)).toContainEqual({
-      surface: 'flat-main',
-      fieldName: 'workbenchBrandMode',
-      placement: 'before',
-    });
+    expect(enhancement?.form?.contributions).toEqual([]);
     const titlePolicy = enhancement?.form?.fieldPolicies?.find((item) => item.fieldName === 'workbenchTitle');
     expect(
       titlePolicy?.visible?.({

@@ -7,6 +7,7 @@ import {
   CheckOutlined,
   CloseOutlined,
   DeleteOutlined,
+  DownloadOutlined,
   DownOutlined,
   EditOutlined,
   ExportOutlined,
@@ -24,6 +25,7 @@ import {
   SearchOutlined,
   SettingOutlined,
   SkinOutlined,
+  SwapOutlined,
 } from '@ant-design/icons-vue';
 
 defineOptions({ name: 'UiIcon', inheritAttrs: false });
@@ -33,6 +35,7 @@ export type UiIconName =
   | 'check'
   | 'close'
   | 'delete'
+  | 'download'
   | 'down'
   | 'edit'
   | 'export'
@@ -53,7 +56,8 @@ export type UiIconName =
   | 'save'
   | 'search'
   | 'skin'
-  | 'settings';
+  | 'settings'
+  | 'swap';
 
 const props = defineProps<{
   name: UiIconName;
@@ -64,6 +68,7 @@ const icons = {
   check: CheckOutlined,
   close: CloseOutlined,
   delete: DeleteOutlined,
+  download: DownloadOutlined,
   down: DownOutlined,
   edit: EditOutlined,
   export: ExportOutlined,
@@ -85,6 +90,7 @@ const icons = {
   search: SearchOutlined,
   skin: SkinOutlined,
   settings: SettingOutlined,
+  swap: SwapOutlined,
 } as const;
 
 const lucideIconNames = new Set<UiIconName>(['open-in-new', 'pin', 'pin-off']);
