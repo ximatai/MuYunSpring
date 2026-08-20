@@ -119,7 +119,7 @@ class CapabilityModuleRegistryTest {
         assertThat(tree().actions().enabledOnDynamicCapabilities(Set.of(EntityCapability.TREE.name()))).isTrue();
         assertThat(tree().actions().enabledOnDynamicCapabilities(Set.of(EntityCapability.SORT.name()))).isFalse();
         assertThat(registry.actionOwner(PlatformAction.TREE)).containsSame(tree().actions());
-        assertThat(tree().actions().staticOperations(sort().actions()))
+        assertThat(tree().actions().staticOperations())
                 .extracting(operation -> operation.operationCode())
                 .containsExactly("tree", "treeQuery", "subtree", "sort");
     }

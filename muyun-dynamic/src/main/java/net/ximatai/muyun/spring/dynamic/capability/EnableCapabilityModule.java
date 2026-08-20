@@ -1,9 +1,12 @@
 package net.ximatai.muyun.spring.dynamic.capability;
 
 import net.ximatai.muyun.spring.ability.EnableAbility;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityFacet;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityOperationContext;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 
 import java.util.Set;
+import java.util.Optional;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 
@@ -22,10 +25,21 @@ public final class EnableCapabilityModule implements CapabilityModule {
     }
 
     @Override
-    public void validateDynamicDefinition(EntityDefinition entity) {
-        definition.validate(entity, entity.fields().stream()
+    public Optional<DynamicCapabilityDefinitionFacet> dynamicDefinitionFacet() {
+        return Optional.of(entity -> definition.validate(entity, entity.fields().stream()
                 .filter(field -> PlatformAbilityFields.ENABLED_FIELD.equals(field.fieldName()))
-                .findFirst().orElse(null));
+                .findFirst().orElse(null)));
+    }
+
+    @Override
+    public Optional<StaticCapabilityFacet> staticFacet() {
+        return Optional.of(new StaticCapabilityFacet() {
+            @Override public boolean supports(Object service) { return service instanceof EnableAbility<?>; }
+            @Override public java.util.List<net.ximatai.muyun.spring.ability.PlatformOperationDefinition> standardOperations(
+                    StaticCapabilityOperationContext context) {
+                return actions.staticOperations(context.operationMethods());
+            }
+        });
     }
 
     public boolean isEnabledOnStaticService(Object service) {

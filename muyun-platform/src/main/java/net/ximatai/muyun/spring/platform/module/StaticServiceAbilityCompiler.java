@@ -6,9 +6,8 @@ import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
 import net.ximatai.muyun.spring.ability.PlatformOperation;
 import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
-import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityOperationContext;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
@@ -46,28 +45,21 @@ public final class StaticServiceAbilityCompiler {
     }
 
     public static Set<EntityCapability> compile(Object service) {
+        return compile(service, CapabilityModuleRegistry.defaultRegistry());
+    }
+
+    /** Registry overload keeps static compilation extensible without adding compiler branches. */
+    public static Set<EntityCapability> compile(Object service, CapabilityModuleRegistry registry) {
         EnumSet<EntityCapability> capabilities = EnumSet.noneOf(EntityCapability.class);
         if (service instanceof CrudAbility<?>) capabilities.add(EntityCapability.CRUD);
         if (service instanceof SoftDeleteAbility<?>) capabilities.add(EntityCapability.SOFT_DELETE);
         if (service instanceof CacheAbility<?>) capabilities.add(EntityCapability.CACHE);
-        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.TREE,
-                net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityModule.class).isEnabledOnStaticService(service)) {
-            capabilities.add(EntityCapability.TREE);
-        }
-        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.SORT,
-                net.ximatai.muyun.spring.dynamic.capability.SortCapabilityModule.class).isEnabledOnStaticService(service)) {
-            capabilities.add(EntityCapability.SORT);
-        }
+        registry.modules().forEach(module -> module.staticFacet()
+                .filter(facet -> facet.supports(service))
+                .ifPresent(facet -> capabilities.add(module.capability())));
         if (service instanceof ReferenceAbility<?>) capabilities.add(EntityCapability.REFERENCE);
         if (service instanceof ReferencerAbility<?>) capabilities.add(EntityCapability.REFERENCE_DEPENDENCY);
-        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.ENABLE,
-                net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityModule.class).isEnabledOnStaticService(service)) {
-            capabilities.add(EntityCapability.ENABLE);
-        }
         if (service instanceof DataScopeAbility<?>) capabilities.add(EntityCapability.DATA_SCOPE);
-        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
-                net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class)
-                .isEnabledOnStaticService(service)) capabilities.add(EntityCapability.RECYCLE_BIN);
         if (service instanceof ChildrenAbility<?>) capabilities.add(EntityCapability.CHILD_RELATION);
         return Set.copyOf(capabilities);
     }
@@ -77,33 +69,18 @@ public final class StaticServiceAbilityCompiler {
     }
 
     public static List<PlatformOperationDefinition> standardOperations(Object service) {
+        return standardOperations(service, CapabilityModuleRegistry.defaultRegistry());
+    }
+
+    /** Registry overload is used by capability-contract tests and platform composition. */
+    public static List<PlatformOperationDefinition> standardOperations(Object service, CapabilityModuleRegistry registry) {
         List<PlatformOperationDefinition> operations = new ArrayList<>();
-        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.TREE,
-                net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityModule.class).isEnabledOnStaticService(service)) {
-            operations.addAll(CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.TREE,
-                            net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityModule.class).actions()
-                    .staticOperations(CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.SORT,
-                            net.ximatai.muyun.spring.dynamic.capability.SortCapabilityModule.class).actions()));
-        } else if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.SORT,
-                net.ximatai.muyun.spring.dynamic.capability.SortCapabilityModule.class).isEnabledOnStaticService(service)) {
-            operations.addAll(CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.SORT,
-                            net.ximatai.muyun.spring.dynamic.capability.SortCapabilityModule.class).actions()
-                    .staticOperations());
-        }
-        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.ENABLE,
-                net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityModule.class).isEnabledOnStaticService(service)) {
-            operations.addAll(CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.ENABLE,
-                            net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityModule.class).actions()
-                    .staticOperations(operationMethods(service)));
-        }
-        if (CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
-                net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class)
-                .isEnabledOnStaticService(service)) {
-            boolean purgeEnabled = ((RecycleBinAbility<?>) service).isRecycleBinPurgeEnabled();
-            operations.addAll(CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
-                            net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class)
-                    .actions().staticOperations(purgeEnabled));
-        }
+        Set<EntityCapability> capabilities = compile(service, registry);
+        StaticCapabilityOperationContext context = new StaticCapabilityOperationContext(service, capabilities,
+                operationMethods(service));
+        registry.modules().forEach(module -> module.staticFacet()
+                .filter(facet -> capabilities.contains(module.capability()))
+                .ifPresent(facet -> operations.addAll(facet.standardOperations(context))));
         Set<PlatformAction> disabled = disabledActions(service);
         return operations.stream().filter(operation -> !disabled.contains(operation.action())).toList();
     }

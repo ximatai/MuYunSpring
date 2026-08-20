@@ -1,10 +1,13 @@
 package net.ximatai.muyun.spring.dynamic.capability;
 
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityFacet;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityOperationContext;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 
 import java.util.Set;
+import java.util.Optional;
 
 /** Strongly typed TREE capability: parent hierarchy plus an explicit SORT dependency. */
 public final class TreeCapabilityModule implements CapabilityModule {
@@ -22,8 +25,17 @@ public final class TreeCapabilityModule implements CapabilityModule {
     }
 
     @Override
-    public void validateDynamicDefinition(EntityDefinition entity) {
-        definition.validate(entity);
+    public Optional<DynamicCapabilityDefinitionFacet> dynamicDefinitionFacet() {
+        return Optional.of(definition::validate);
+    }
+
+    @Override
+    public Optional<StaticCapabilityFacet> staticFacet() {
+        return Optional.of(new StaticCapabilityFacet() {
+            @Override public boolean supports(Object service) { return service instanceof TreeAbility<?>; }
+            @Override public java.util.List<net.ximatai.muyun.spring.ability.PlatformOperationDefinition> standardOperations(
+                    StaticCapabilityOperationContext context) { return actions.staticOperations(); }
+        });
     }
 
     public boolean isEnabledOnStaticService(Object service) {

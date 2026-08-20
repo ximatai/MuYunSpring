@@ -20,7 +20,9 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
  */
 public final class CapabilityModuleRegistry {
     private static final CapabilityModuleRegistry DEFAULT = new CapabilityModuleRegistry(List.of(
-            new EnableCapabilityModule(), new SortCapabilityModule(), new TreeCapabilityModule(),
+            // Stable declaration order also preserves the long-standing static action order:
+            // tree/sort operations precede enablement operations in generated module contracts.
+            new SortCapabilityModule(), new TreeCapabilityModule(), new EnableCapabilityModule(),
             new RecycleBinCapabilityModule()));
 
     private final Map<EntityCapability, CapabilityModule> modules;
@@ -101,7 +103,7 @@ public final class CapabilityModuleRegistry {
     /** Validates capability ownership/dependencies and the owned dynamic-definition contract. */
     public void validate(EntityDefinition entity) {
         for (CapabilityModule module : modules.values()) {
-            module.validateDynamicReferences(entity);
+            module.dynamicDefinitionFacet().ifPresent(facet -> facet.validateReferences(entity));
             if (!entity.supports(module.capability())) {
                 continue;
             }
@@ -111,7 +113,7 @@ public final class CapabilityModuleRegistry {
                             + dependency + " capability: " + entity.alias());
                 }
             }
-            module.validateDynamicDefinition(entity);
+            module.dynamicDefinitionFacet().ifPresent(facet -> facet.validateDefinition(entity));
         }
     }
 }

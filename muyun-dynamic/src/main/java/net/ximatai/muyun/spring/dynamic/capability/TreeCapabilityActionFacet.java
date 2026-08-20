@@ -23,12 +23,12 @@ public final class TreeCapabilityActionFacet implements CapabilityActionContribu
         return List.of(PlatformAction.TREE);
     }
 
-    public List<PlatformOperationDefinition> staticOperations(SortCapabilityActionFacet sort) {
+    public List<PlatformOperationDefinition> staticOperations() {
         return List.of(
                 new PlatformOperationDefinition("tree", "tree", PlatformAction.TREE),
                 new PlatformOperationDefinition("tree", "treeQuery", PlatformAction.TREE),
                 new PlatformOperationDefinition("tree", "subtree", PlatformAction.TREE),
-                sort.treeBridgeOperation());
+                new PlatformOperationDefinition("tree", "sort", PlatformAction.SORT));
     }
 
     @Override

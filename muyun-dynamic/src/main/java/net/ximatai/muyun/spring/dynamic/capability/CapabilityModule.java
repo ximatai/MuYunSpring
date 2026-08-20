@@ -2,24 +2,29 @@ package net.ximatai.muyun.spring.dynamic.capability;
 
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 
+import java.util.Optional;
 import java.util.Set;
-import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityFacet;
 
-/** Closed capability-module vocabulary; this is not a third-party extension SPI. */
-public sealed interface CapabilityModule permits EnableCapabilityModule, SortCapabilityModule, TreeCapabilityModule,
-        RecycleBinCapabilityModule {
+/**
+ * Platform-owned capability composition contract.  Registries remain explicitly assembled by the
+ * platform; the interface is intentionally extensible so compiler tests and future first-party
+ * capabilities do not require central branching.
+ */
+public interface CapabilityModule {
     EntityCapability capability();
 
     default Set<EntityCapability> dependencies() {
         return Set.of();
     }
 
-    default void validateDynamicDefinition(EntityDefinition entity) {
+    /** Dynamic metadata is an adapter facet, not part of the source-neutral capability contract. */
+    default Optional<DynamicCapabilityDefinitionFacet> dynamicDefinitionFacet() {
+        return Optional.empty();
     }
 
-    /** Validates declarations that name this capability even when it is not enabled. */
-    default void validateDynamicReferences(EntityDefinition entity) {
-    }
+    /** Static service detection and operation facts, when this capability supports static modules. */
+    default Optional<StaticCapabilityFacet> staticFacet() { return Optional.empty(); }
 
     CapabilityActionContribution actionContribution();
 }

@@ -710,32 +710,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
 
     private void addUnwiredLegacyAbilityActions(Map<String, StaticModuleActionDefinition> actions,
                                                 Class<?> beanClass) {
-        if (TreeWeb.class.isAssignableFrom(beanClass)) {
-            CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.TREE,
-                            net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityModule.class).actions()
-                    .standardActions().forEach(action -> addPlatform(actions, action));
-            CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.SORT).orElseThrow()
-                    .standardActions().forEach(action -> addPlatform(actions, action));
-        } else if (SortWeb.class.isAssignableFrom(beanClass)) {
-            CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.SORT).orElseThrow()
-                    .standardActions().forEach(action -> addPlatform(actions, action));
-        }
-        if (EnableWeb.class.isAssignableFrom(beanClass)) {
-            CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.ENABLE).orElseThrow()
-                    .standardActions().forEach(action -> addPlatform(actions, action));
-        }
-        if (RecycleBinWeb.class.isAssignableFrom(beanClass)) {
-            CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
-                            net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class).actions()
-                    .standardActions().stream().filter(action -> action != PlatformAction.RECYCLE_BIN_PURGE)
-                    .forEach(action -> addPlatform(actions, action));
-        }
-        if (RecycleBinPurgeWeb.class.isAssignableFrom(beanClass)) {
-            CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
-                            net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class).actions()
-                    .standardActions().stream().filter(action -> action == PlatformAction.RECYCLE_BIN_PURGE)
-                    .forEach(action -> addPlatform(actions, action));
-        }
+        legacyCapabilityActions(beanClass).forEach(action -> addPlatform(actions, action));
     }
 
     private void addContributionStandardActions(Map<String, StaticModuleActionDefinition> actions,
@@ -757,32 +732,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         StaticServiceAbilityCompiler.standardActions(service)
                 .forEach(action -> addContributionPlatform(actions, contribution, action));
         if (service == null) {
-            if (TreeWeb.class.isAssignableFrom(beanClass)) {
-                CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.TREE,
-                                net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityModule.class).actions()
-                        .standardActions().forEach(action -> addContributionPlatform(actions, contribution, action));
-                CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.SORT).orElseThrow()
-                        .standardActions().forEach(action -> addContributionPlatform(actions, contribution, action));
-            } else if (SortWeb.class.isAssignableFrom(beanClass)) {
-                CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.SORT).orElseThrow()
-                        .standardActions().forEach(action -> addContributionPlatform(actions, contribution, action));
-            }
-            if (EnableWeb.class.isAssignableFrom(beanClass)) {
-                CapabilityModuleRegistry.defaultRegistry().actionOwner(PlatformAction.ENABLE).orElseThrow()
-                        .standardActions().forEach(action -> addContributionPlatform(actions, contribution, action));
-            }
-            if (RecycleBinWeb.class.isAssignableFrom(beanClass)) {
-                CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
-                                net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class).actions()
-                        .standardActions().stream().filter(action -> action != PlatformAction.RECYCLE_BIN_PURGE)
-                        .forEach(action -> addContributionPlatform(actions, contribution, action));
-            }
-            if (RecycleBinPurgeWeb.class.isAssignableFrom(beanClass)) {
-                CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.RECYCLE_BIN,
-                                net.ximatai.muyun.spring.dynamic.capability.RecycleBinCapabilityModule.class).actions()
-                        .standardActions().stream().filter(action -> action == PlatformAction.RECYCLE_BIN_PURGE)
-                        .forEach(action -> addContributionPlatform(actions, contribution, action));
-            }
+            legacyCapabilityActions(beanClass)
+                    .forEach(action -> addContributionPlatform(actions, contribution, action));
         }
         if (ReferenceWeb.class.isAssignableFrom(beanClass)
                 || NavigatorReferenceWeb.class.isAssignableFrom(beanClass)
@@ -798,6 +749,29 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         if (!disabledActions.contains(action)) {
             addContributionPlatform(actions, contribution, action);
         }
+    }
+
+    /** Legacy Web markers only select capabilities; action facts stay owned by their registry facets. */
+    private java.util.List<PlatformAction> legacyCapabilityActions(Class<?> beanClass) {
+        java.util.LinkedHashSet<EntityCapability> capabilities = new java.util.LinkedHashSet<>();
+        if (TreeWeb.class.isAssignableFrom(beanClass)) {
+            capabilities.add(EntityCapability.TREE);
+            capabilities.add(EntityCapability.SORT);
+        } else if (SortWeb.class.isAssignableFrom(beanClass)) {
+            capabilities.add(EntityCapability.SORT);
+        }
+        if (EnableWeb.class.isAssignableFrom(beanClass)) capabilities.add(EntityCapability.ENABLE);
+        if (RecycleBinWeb.class.isAssignableFrom(beanClass) || RecycleBinPurgeWeb.class.isAssignableFrom(beanClass)) {
+            capabilities.add(EntityCapability.RECYCLE_BIN);
+        }
+        boolean allowPurge = RecycleBinPurgeWeb.class.isAssignableFrom(beanClass);
+        boolean queryRecycleBin = RecycleBinWeb.class.isAssignableFrom(beanClass);
+        return capabilities.stream()
+                .flatMap(capability -> CapabilityModuleRegistry.defaultRegistry().find(capability).stream())
+                .flatMap(module -> module.actionContribution().standardActions().stream())
+                .filter(action -> action != PlatformAction.RECYCLE_BIN_PURGE || allowPurge)
+                .filter(action -> action != PlatformAction.RECYCLE_BIN_QUERY || queryRecycleBin)
+                .toList();
     }
 
     private void addWorkflowActions(Map<String, StaticModuleActionDefinition> actions,
