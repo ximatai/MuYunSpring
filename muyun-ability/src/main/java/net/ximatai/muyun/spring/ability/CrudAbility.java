@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 public interface CrudAbility<T extends EntityContract> {
@@ -98,15 +99,6 @@ public interface CrudAbility<T extends EntityContract> {
     @PlatformOperation(PlatformAction.UPDATE)
     default int update(T entity) {
         DataScopeCriteriaResult mutationScope = mutationRecordScope(PlatformAction.UPDATE, entity == null ? null : entity.getId());
-        return updateWithinResolvedScope(entity, mutationScope);
-    }
-
-    /**
-     * Executes the standard update lifecycle with a scope already resolved by an aggregate gateway.
-     * The gateway remains responsible for resolving and checking that scope from its compiled action.
-     */
-    default int updateWithinResolvedScope(T entity, DataScopeCriteriaResult mutationScope) {
-        java.util.Objects.requireNonNull(mutationScope, "mutationScope must not be null");
         return withTenantScope(mutationScope, () -> {
             T existing = selectExistingForScopedMutation(entity);
             if (TenantContext.currentTenantId().isPresent() && existing == null) {
@@ -162,16 +154,6 @@ public interface CrudAbility<T extends EntityContract> {
             return 0;
         }
         DataScopeCriteriaResult mutationScope = mutationRecordScope(PlatformAction.DELETE, id);
-        return deleteWithinResolvedScope(id, expectedVersion, deletionContext, mutationScope);
-    }
-
-    /** Executes the standard delete lifecycle without re-resolving an aggregate-owned mutation scope. */
-    default int deleteWithinResolvedScope(String id, Integer expectedVersion, DeletionContext deletionContext,
-                                          DataScopeCriteriaResult mutationScope) {
-        if (id == null || id.isBlank()) {
-            return 0;
-        }
-        java.util.Objects.requireNonNull(mutationScope, "mutationScope must not be null");
         return PlatformAbilityDispatcher.inDeletionTransaction(() -> {
             DeletionContext context = PlatformAbilityDispatcher.resolveDeletionContext(
                     getModuleAlias(), id, deletionContext);
@@ -370,6 +352,10 @@ public interface CrudAbility<T extends EntityContract> {
         if (id == null || id.isBlank()) {
             return DataScopeCriteriaResult.unrestricted(Criteria.of());
         }
+        Optional<DataScopeCriteriaResult> verified = VerifiedMutationScopeExecutor.current(this, action, List.of(id));
+        if (verified.isPresent()) {
+            return verified.get();
+        }
         if (this instanceof DataScopeAbility dataScopeAbility) {
             return dataScopeAbility.requireRecordScopeResult(mutationPolicy(action), List.of(id));
         }
@@ -380,6 +366,10 @@ public interface CrudAbility<T extends EntityContract> {
     private DataScopeCriteriaResult mutationRecordScope(PlatformAction action, Collection<String> ids) {
         if (ids == null || ids.isEmpty()) {
             return DataScopeCriteriaResult.unrestricted(Criteria.of());
+        }
+        Optional<DataScopeCriteriaResult> verified = VerifiedMutationScopeExecutor.current(this, action, ids);
+        if (verified.isPresent()) {
+            return verified.get();
         }
         if (this instanceof DataScopeAbility dataScopeAbility) {
             return dataScopeAbility.requireRecordScopeResult(mutationPolicy(action), ids);

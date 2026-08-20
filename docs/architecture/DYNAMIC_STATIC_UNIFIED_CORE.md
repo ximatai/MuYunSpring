@@ -25,7 +25,7 @@ Service 与 Web Controller 都是业务接入平台的边界。公共业务不�
 
 标准页面允许前端以 `ModulePageEnhancement` 在受控区域补充业务表达，但扩展只能声明模块/视图/表面/字段位置并接收冻结 draft、字段状态、受控 `setField`、session 与 validity 回报。标准宿主仍独占保存、字段 wire codec、上传传输、权限、刷新和 CRUD 请求；后端 DSL 不携带 Vue 组件名、脚本或 URL。
 
-一层直接子资源通过受管 detail relation 接入同一标准宿主。Web DSL 分别声明可执行 query、可选 mutation、父记录绑定和来源无关适用条件，并在启动期编译出固定 association 协议、动作码、查询/列表/编辑字段事实；运行期只消费冻结计划。后端网关先按父场景的数据权限读取持久化父记录（读为 `VIEW`，写为 `UPDATE`），再绑定父键并校验 child 归属、子资源动作权限、数据权限和写字段白名单。前端标准 surface 独占分页查询、字段 codec、validity、busy/关闭门禁、错误、局部刷新和父切换的陈旧响应隔离，业务不拼 URL、不预载专用选项，也不把模块特判放进 Host。当前可写 handler 只接受静态 Service adapter；动态模块只读/可写 relation 必须在获得稳定的动态执行 handler 后再开放发布，不能因 descriptor 来源无关就宣称已经支持动态 mutation。多层嵌套、树、批量、拖拽、任意组件和组合范围导航不属于该契约。
+一层直接子资源通过受管 detail relation 接入同一标准宿主。Web DSL 分别声明可执行 query、可选 mutation、父记录绑定和来源无关适用条件，并在启动期编译出固定 association 协议、动作码、查询/列表/编辑字段事实；运行期只消费冻结计划。后端网关先按父场景的数据权限读取持久化父记录（读为 `VIEW`，写为 `UPDATE`），再绑定父键并校验 child 归属、子资源动作权限、数据权限和写字段白名单。预解析的数据范围只能作为与 Service 实例、操作和记录精确绑定的临时执行上下文传递，网关最终仍调用 Service 的正常多态入口，不得绕过软删、领域 override 或能力组合生命周期。前端标准 surface 独占分页查询、字段 codec、validity、busy/关闭门禁、错误、局部刷新和父切换的陈旧响应隔离，业务不拼 URL、不预载专用选项，也不把模块特判放进 Host。当前可写 handler 只接受静态 Service adapter；动态模块只读/可写 relation 必须在获得稳定的动态执行 handler 后再开放发布，不能因 descriptor 来源无关就宣称已经支持动态 mutation。多层嵌套、树、批量、拖拽、任意组件和组合范围导航不属于该契约。
 
 ## 能力目录
 

@@ -92,11 +92,11 @@ class ManagedDetailRelationGatewayWebTest {
         assertThat(inserted.getValue().getFieldUiControlAlias()).isEqualTo("select");
         assertThat(inserted.getValue().getTenantId()).isNull();
         org.mockito.ArgumentCaptor<FieldUiControlProperty> updated = org.mockito.ArgumentCaptor.forClass(FieldUiControlProperty.class);
-        verify(childService).updateWithinResolvedScope(updated.capture(), any());
+        verify(childService).update(updated.capture());
         assertThat(updated.getValue().getAttributeAlias()).isEqualTo("placeholder");
         assertThat(updated.getValue().getTitle()).isEqualTo("Changed title");
         assertThat(updated.getValue().getTenantId()).isNull();
-        verify(childService).deleteWithinResolvedScope(eq("property-1"), any(), any(), any());
+        verify(childService).delete(eq("property-1"), any());
         org.mockito.ArgumentCaptor<ActionExecutionContext> authorization =
                 org.mockito.ArgumentCaptor.forClass(ActionExecutionContext.class);
         verify(policy, org.mockito.Mockito.atLeast(4)).requireAuthorized(authorization.capture());
@@ -198,7 +198,7 @@ class ManagedDetailRelationGatewayWebTest {
         when(childDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(property));
         when(childDao.updateByIdAndVersion(any(FieldUiControlProperty.class), any())).thenReturn(1);
         when(childDao.deleteByIdAndVersion(eq("property-1"), any())).thenReturn(1);
-        ScopedPropertyService childService = new ScopedPropertyService(property, childDao);
+        OverridingPropertyService childService = new OverridingPropertyService(property, childDao);
 
         ActionExecutionPolicyService authorization = mock(ActionExecutionPolicyService.class);
         ManagedDetailRelationGateway gateway = gateway(parentService, childService,
@@ -208,6 +208,15 @@ class ManagedDetailRelationGatewayWebTest {
                 Map.of("attributeAlias", "placeholder", "version", 1));
         gateway.delete(FieldUiControlService.MODULE_ALIAS, parentService, "select", "properties", "property-1",
                 new net.ximatai.muyun.spring.web.RecordActionWebRequest(1));
+
+        assertThat(childService.updateCalls).isEqualTo(1);
+        assertThat(childService.deleteCalls).isEqualTo(1);
+        assertThat(childService.beforeSoftDeleteCalls).isEqualTo(1);
+        assertThat(childService.afterDeleteCalls).isEqualTo(1);
+        assertThat(property.getDeleted()).isTrue();
+        verify(childDao, org.mockito.Mockito.times(2))
+                .updateByIdAndVersion(any(FieldUiControlProperty.class), any());
+        verify(childDao, org.mockito.Mockito.never()).deleteByIdAndVersion(any(), any());
 
         assertThat(childService.scopeCalls).hasSize(3);
         assertThat(childService.scopeCalls).extracting(ScopeCall::moduleAlias)
@@ -234,6 +243,31 @@ class ManagedDetailRelationGatewayWebTest {
                 .filter(context -> context.actionCode().startsWith("field_ui_control_property_"))
                 .map(ActionExecutionContext::actionPolicy).toList())
                 .containsExactlyElementsOf(childService.scopeCalls.stream().map(ScopeCall::policy).toList());
+    }
+
+    @Test
+    void shouldPreserveSoftDeleteOptimisticLockThroughManagedGateway() {
+        FieldUiControlService parentService = mock(FieldUiControlService.class);
+        when(parentService.select("select")).thenReturn(parent("select"));
+        FieldUiControlProperty property = property("property-1", "select");
+        property.setVersion(3);
+        BaseDao<FieldUiControlProperty, String> childDao = mock(BaseDao.class);
+        when(childDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(property));
+        OverridingPropertyService childService = new OverridingPropertyService(property, childDao);
+        ManagedDetailRelationGateway gateway = gateway(parentService, childService,
+                mutation(true, true, true), new AllowAllPolicyService());
+
+        assertThatThrownBy(() -> gateway.delete(FieldUiControlService.MODULE_ALIAS, parentService, "select",
+                "properties", "property-1", new net.ximatai.muyun.spring.web.RecordActionWebRequest(2)))
+                .isInstanceOf(net.ximatai.muyun.spring.ability.OptimisticLockException.class)
+                .hasMessageContaining("version conflict");
+
+        assertThat(childService.deleteCalls).isEqualTo(1);
+        assertThat(childService.beforeSoftDeleteCalls).isZero();
+        assertThat(childService.afterDeleteCalls).isZero();
+        verify(childDao, org.mockito.Mockito.never())
+                .updateByIdAndVersion(any(FieldUiControlProperty.class), any());
+        verify(childDao, org.mockito.Mockito.never()).deleteByIdAndVersion(any(), any());
     }
 
     @Test
@@ -411,14 +445,14 @@ class ManagedDetailRelationGatewayWebTest {
 
     private record ScopeCall(String moduleAlias, ActionExecutionPolicy policy, Criteria criteria) { }
 
-    private static final class ScopedPropertyService extends FieldUiControlPropertyService
+    private static class ScopedPropertyService extends FieldUiControlPropertyService
             implements DataScopeAbility<FieldUiControlProperty> {
         private final FieldUiControlProperty record;
-        private final List<ScopeCall> scopeCalls = new ArrayList<>();
+        protected final List<ScopeCall> scopeCalls = new ArrayList<>();
 
         @SuppressWarnings("unchecked")
-        private ScopedPropertyService(FieldUiControlProperty record,
-                                      BaseDao<FieldUiControlProperty, String> dao) {
+        protected ScopedPropertyService(FieldUiControlProperty record,
+                                        BaseDao<FieldUiControlProperty, String> dao) {
             super(dao, mock(FieldUiControlService.class), mock(FieldSpecService.class));
             this.record = record;
         }
@@ -464,5 +498,39 @@ class ManagedDetailRelationGatewayWebTest {
             return record.getId().equals(id) ? record : null;
         }
 
+    }
+
+    private static final class OverridingPropertyService extends ScopedPropertyService {
+        private int updateCalls;
+        private int deleteCalls;
+        private int beforeSoftDeleteCalls;
+        private int afterDeleteCalls;
+
+        private OverridingPropertyService(FieldUiControlProperty record,
+                                          BaseDao<FieldUiControlProperty, String> dao) {
+            super(record, dao);
+        }
+
+        @Override
+        public int update(FieldUiControlProperty entity) {
+            updateCalls++;
+            return super.update(entity);
+        }
+
+        @Override
+        public int delete(String id, Integer version) {
+            deleteCalls++;
+            return super.delete(id, version);
+        }
+
+        @Override
+        public void beforeSoftDelete(FieldUiControlProperty entity) {
+            beforeSoftDeleteCalls++;
+        }
+
+        @Override
+        public void afterDelete(String id, FieldUiControlProperty entity, int deleted) {
+            afterDeleteCalls++;
+        }
     }
 }
