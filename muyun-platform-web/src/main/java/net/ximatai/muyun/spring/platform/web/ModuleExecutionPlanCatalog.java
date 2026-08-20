@@ -18,6 +18,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.LinkedHashMap;
@@ -127,9 +128,28 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
                     pageContextBindings(definition.uiDefinition()), queryDescriptor(definition),
                     QuerySchema.from(queryDescriptor(definition), definition.modelClass()),
                     mutationConstraints(definition.uiDefinition()), definition.actions(),
-                    definition.supports(EntityCapability.DATA_SCOPE)));
+                    definition.supports(EntityCapability.DATA_SCOPE), responseWireFieldTypes(definition)));
         }
         return Map.copyOf(plans);
+    }
+
+    /**
+     * Output wire semantics are model facts, not a side effect of a particular page layout.
+     * CrudWeb can return the complete entity while a module's list/detail omits individual
+     * fields, so every declared main-entity field must survive into the execution plan.
+     */
+    private static Map<String, FieldValueType> responseWireFieldTypes(StaticModuleDefinition definition) {
+        LinkedHashMap<String, FieldValueType> types = new LinkedHashMap<>();
+        definition.entities().stream().findFirst().map(entity -> entity.fields()).orElse(List.of()).stream()
+                .forEach(field -> addResponseWireType(types, field));
+        return Map.copyOf(types);
+    }
+
+    private static void addResponseWireType(Map<String, FieldValueType> target, FieldDefinition field) {
+        FieldValueType type = FieldValueType.from(field.type());
+        if (type != null) {
+            target.put(field.fieldName(), type);
+        }
     }
 
     /**

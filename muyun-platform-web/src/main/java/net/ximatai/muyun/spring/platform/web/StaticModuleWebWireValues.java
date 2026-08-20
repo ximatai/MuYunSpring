@@ -1,94 +1,80 @@
 package net.ximatai.muyun.spring.platform.web;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.fasterxml.jackson.annotation.JsonValue;
-import net.ximatai.muyun.spring.common.model.contract.EntityContract;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import net.ximatai.muyun.spring.common.web.PlatformWebWireContract;
 import net.ximatai.muyun.spring.web.WebPageResponse;
+import org.springframework.beans.BeanWrapper;
+import org.springframework.beans.BeanWrapperImpl;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.time.Instant;
 
-/** Applies the standard module wire contract after record-output transformations. */
+/**
+ * Applies the standard-module numeric wire contract to an already application-serialized record.
+ *
+ * <p>The supplied mapper is the application's managed mapper. Serializing to a tree first keeps
+ * mixins and registered serializers (such as {@code CodeTitleEnum}) authoritative before this
+ * adapter changes only LONG and DECIMAL fields.</p>
+ */
 final class StaticModuleWebWireValues {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
-            .registerModule(new JavaTimeModule())
-            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    static final String FIELD_TYPES_ATTRIBUTE = StaticModuleWebWireValues.class.getName() + ".fieldTypes";
 
     private StaticModuleWebWireValues() {
     }
 
-    static Object record(Object record, Map<String, FieldValueType> fieldTypes) {
+    static void markCurrentResponse(Map<String, FieldValueType> fieldTypes) {
+        RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+        if (attributes != null && fieldTypes != null && !fieldTypes.isEmpty()) {
+            attributes.setAttribute(FIELD_TYPES_ATTRIBUTE, Map.copyOf(fieldTypes), RequestAttributes.SCOPE_REQUEST);
+        }
+    }
+
+    static Object adapt(Object record, Map<String, FieldValueType> fieldTypes, ObjectMapper objectMapper) {
         if (record == null || fieldTypes == null || fieldTypes.isEmpty()) {
             return record;
         }
-        Map<String, Object> values = record instanceof Map<?, ?> map
-                ? copyMap(map)
-                : OBJECT_MAPPER.convertValue(record, new TypeReference<LinkedHashMap<String, Object>>() { });
+        JsonNode serialized = objectMapper.valueToTree(record);
+        if (!(serialized instanceof ObjectNode values)) {
+            return record;
+        }
         fieldTypes.forEach((fieldName, fieldType) -> {
-            if (values.containsKey(fieldName) && fieldType != null) {
-                values.put(fieldName, PlatformWebWireContract.responseValue(fieldType.name(), values.get(fieldName)));
+            JsonNode value = values.get(fieldName);
+            if (value != null && !value.isNull() && fieldType != null && isLosslessNumeric(fieldType)) {
+                Object wireValue = PlatformWebWireContract.responseValue(fieldType.name(), sourceValue(record, fieldName));
+                if (wireValue instanceof String text) {
+                    values.put(fieldName, text);
+                }
             }
         });
-        return new WireRecord(values);
+        return objectMapper.convertValue(values, Map.class);
     }
 
-    static WebPageResponse<?> page(WebPageResponse<?> response, Map<String, FieldValueType> fieldTypes) {
+    static WebPageResponse<?> adaptPage(WebPageResponse<?> response,
+                                   Map<String, FieldValueType> fieldTypes,
+                                   ObjectMapper objectMapper) {
         if (response == null || fieldTypes == null || fieldTypes.isEmpty()) {
             return response;
         }
-        List<Object> records = response.records().stream().map(record -> record(record, fieldTypes)).toList();
+        List<Object> records = response.records().stream()
+                .map(record -> adapt(record, fieldTypes, objectMapper))
+                .toList();
         return new WebPageResponse<>(records, response.total(), response.pageNum(), response.pageSize(),
                 response.pages(), response.totalKnown(), response.navigation());
     }
 
-    private static Map<String, Object> copyMap(Map<?, ?> source) {
-        LinkedHashMap<String, Object> copy = new LinkedHashMap<>();
-        source.forEach((key, value) -> copy.put(String.valueOf(key), value));
-        return copy;
+    private static boolean isLosslessNumeric(FieldValueType fieldType) {
+        return fieldType == FieldValueType.LONG || fieldType == FieldValueType.DECIMAL;
     }
 
-    /** Keeps CrudWeb's source-compatible EntityContract return type while serializing its map value. */
-    private static final class WireRecord implements EntityContract {
-        private final Map<String, Object> values;
-
-        private WireRecord(Map<String, Object> values) {
-            this.values = values;
+    private static Object sourceValue(Object record, String fieldName) {
+        if (record instanceof Map<?, ?> values) {
+            return values.get(fieldName);
         }
-
-        @JsonValue
-        public Map<String, Object> values() {
-            return values;
-        }
-
-        @Override public String getId() { return string("id"); }
-        @Override public void setId(String value) { values.put("id", value); }
-        @Override public String getTenantId() { return string("tenantId"); }
-        @Override public void setTenantId(String value) { values.put("tenantId", value); }
-        @Override public Integer getVersion() { return integer("version"); }
-        @Override public void setVersion(Integer value) { values.put("version", value); }
-        @Override public Boolean getDeleted() { return (Boolean) values.get("deleted"); }
-        @Override public void setDeleted(Boolean value) { values.put("deleted", value); }
-        @Override public Instant getDeletedAt() { return instant("deletedAt"); }
-        @Override public void setDeletedAt(Instant value) { values.put("deletedAt", value); }
-        @Override public String getDeletedBy() { return string("deletedBy"); }
-        @Override public void setDeletedBy(String value) { values.put("deletedBy", value); }
-        @Override public String getCreatedBy() { return string("createdBy"); }
-        @Override public void setCreatedBy(String value) { values.put("createdBy", value); }
-        @Override public Instant getCreatedAt() { return instant("createdAt"); }
-        @Override public void setCreatedAt(Instant value) { values.put("createdAt", value); }
-        @Override public String getUpdatedBy() { return string("updatedBy"); }
-        @Override public void setUpdatedBy(String value) { values.put("updatedBy", value); }
-        @Override public Instant getUpdatedAt() { return instant("updatedAt"); }
-        @Override public void setUpdatedAt(Instant value) { values.put("updatedAt", value); }
-
-        private String string(String key) { return (String) values.get(key); }
-        private Integer integer(String key) { return (Integer) values.get(key); }
-        private Instant instant(String key) { return (Instant) values.get(key); }
+        BeanWrapper bean = new BeanWrapperImpl(record);
+        return bean.isReadableProperty(fieldName) ? bean.getPropertyValue(fieldName) : null;
     }
 }

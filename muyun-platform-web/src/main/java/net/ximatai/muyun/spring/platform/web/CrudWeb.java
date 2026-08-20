@@ -214,7 +214,8 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         if (runtime == null || moduleAlias == null || !runtime.hasPlan(moduleAlias)) {
             return response;
         }
-        return StaticModuleWebWireValues.page(response, runtime.wireFieldTypes(moduleAlias));
+        runtime.markWireResponse(moduleAlias);
+        return response;
     }
 
     @SuppressWarnings("unchecked")
@@ -227,7 +228,8 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         if (runtime == null || moduleAlias == null || !runtime.hasPlan(moduleAlias)) {
             return record;
         }
-        return (T) StaticModuleWebWireValues.record(record, runtime.wireFieldTypes(moduleAlias));
+        runtime.markWireResponse(moduleAlias);
+        return record;
     }
 
     @GetMapping("/view/{id}")

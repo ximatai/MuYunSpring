@@ -82,7 +82,7 @@ public class StandardModuleWebRuntime {
      */
     public Map<String, FieldValueType> wireFieldTypes(String moduleAlias) {
         ModuleExecutionPlan plan = requirePlan(moduleAlias);
-        LinkedHashMap<String, FieldValueType> types = new LinkedHashMap<>();
+        LinkedHashMap<String, FieldValueType> types = new LinkedHashMap<>(plan.responseWireFieldTypes());
         collectFieldTypes(types, plan.uiDescriptor().defaultEditor());
         if (plan.uiDescriptor().page() != null) {
             ResolvedModulePageDescriptor page = plan.uiDescriptor().page();
@@ -94,6 +94,11 @@ public class StandardModuleWebRuntime {
         }
         plan.uiDescriptor().editorSurfaces().forEach(surface -> collectFieldTypes(types, surface.editor()));
         return Map.copyOf(types);
+    }
+
+    /** Marks the current HTTP response for managed serialization-time numeric adaptation. */
+    public void markWireResponse(String moduleAlias) {
+        StaticModuleWebWireValues.markCurrentResponse(wireFieldTypes(moduleAlias));
     }
 
     /**

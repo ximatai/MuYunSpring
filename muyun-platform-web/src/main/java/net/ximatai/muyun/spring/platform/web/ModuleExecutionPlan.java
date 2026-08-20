@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Source-neutral, compiled server-side facts for one executable module revision.
@@ -28,7 +29,27 @@ public record ModuleExecutionPlan(String moduleAlias,
                                   List<PageContextBindingDefinition> mutationConstraints,
                                   List<ModuleMutationFieldValidation> mutationFieldValidations,
                                   List<StaticModuleActionDefinition> actions,
-                                  boolean dataScopeEnabled) {
+                                  boolean dataScopeEnabled,
+                                  Map<String, FieldValueType> responseWireFieldTypes) {
+    /** Source-compatible constructor for callers that do not yet provide response wire facts. */
+    public ModuleExecutionPlan(String moduleAlias, String versionKey, ResolvedModuleUiDescriptor uiDescriptor,
+                               ResolvedModuleReadModel readModel,
+                               List<PageContextBindingDefinition> pageContextBindings,
+                               QueryDescriptor queryDescriptor,
+                               QuerySchema querySchema,
+                               List<String> queryTemplateIds,
+                               List<ModuleQueryTemplatePlan> queryTemplates,
+                               String listUiConfigId,
+                               String formUiConfigId,
+                               List<ModuleQueryFormField> queryFormFields,
+                               List<PageContextBindingDefinition> mutationConstraints,
+                               List<ModuleMutationFieldValidation> mutationFieldValidations,
+                               List<StaticModuleActionDefinition> actions,
+                               boolean dataScopeEnabled) {
+        this(moduleAlias, versionKey, uiDescriptor, readModel, pageContextBindings, queryDescriptor, querySchema,
+                queryTemplateIds, queryTemplates, listUiConfigId, formUiConfigId, queryFormFields,
+                mutationConstraints, mutationFieldValidations, actions, dataScopeEnabled, Map.of());
+    }
     /** Compatibility constructor for plans created before query and mutation facts were explicit. */
     public ModuleExecutionPlan(String moduleAlias, String versionKey, ResolvedModuleUiDescriptor uiDescriptor,
                                ResolvedModuleReadModel readModel,
@@ -42,7 +63,7 @@ public record ModuleExecutionPlan(String moduleAlias,
                 pageContextBindings == null ? List.of() : pageContextBindings.stream()
                         .filter(binding -> binding.target() == PageContextTarget.MUTATION_CONSTRAINT).toList(),
                 List.of(),
-                List.of(), false);
+                List.of(), false, Map.of());
     }
 
     /** Compatibility constructor for callers that already provide compiled query and mutation facts. */
@@ -52,7 +73,20 @@ public record ModuleExecutionPlan(String moduleAlias,
                                List<PageContextBindingDefinition> mutationConstraints,
                                List<StaticModuleActionDefinition> actions, boolean dataScopeEnabled) {
         this(moduleAlias, versionKey, uiDescriptor, readModel, pageContextBindings, queryDescriptor, querySchema,
-                List.of(), List.of(), null, null, List.of(), mutationConstraints, List.of(), actions, dataScopeEnabled);
+                List.of(), List.of(), null, null, List.of(), mutationConstraints, List.of(), actions, dataScopeEnabled,
+                Map.of());
+    }
+
+    /** Compatibility constructor with explicit model-derived response wire facts. */
+    public ModuleExecutionPlan(String moduleAlias, String versionKey, ResolvedModuleUiDescriptor uiDescriptor,
+                               ResolvedModuleReadModel readModel, List<PageContextBindingDefinition> pageContextBindings,
+                               QueryDescriptor queryDescriptor, QuerySchema querySchema,
+                               List<PageContextBindingDefinition> mutationConstraints,
+                               List<StaticModuleActionDefinition> actions, boolean dataScopeEnabled,
+                               Map<String, FieldValueType> responseWireFieldTypes) {
+        this(moduleAlias, versionKey, uiDescriptor, readModel, pageContextBindings, queryDescriptor, querySchema,
+                List.of(), List.of(), null, null, List.of(), mutationConstraints, List.of(), actions, dataScopeEnabled,
+                responseWireFieldTypes);
     }
 
     public ModuleExecutionPlan {
@@ -87,5 +121,6 @@ public record ModuleExecutionPlan(String moduleAlias,
         }
         mutationFieldValidations = mutationFieldValidations == null ? List.of() : List.copyOf(mutationFieldValidations);
         actions = actions == null ? List.of() : List.copyOf(actions);
+        responseWireFieldTypes = responseWireFieldTypes == null ? Map.of() : Map.copyOf(responseWireFieldTypes);
     }
 }

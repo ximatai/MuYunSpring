@@ -15,6 +15,7 @@ import net.ximatai.muyun.spring.platform.web.ActionEndpointInterceptor;
 import net.ximatai.muyun.spring.web.ActionResultResponseAdvice;
 import net.ximatai.muyun.spring.web.BusinessMutationInterceptor;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
+import net.ximatai.muyun.spring.web.MuYunSpringJacksonConfiguration;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import net.ximatai.muyun.spring.platform.web.endpoint.StaticAbilityWebEndpointRegistrar;
 import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
@@ -73,6 +74,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -107,11 +109,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PlatformConfigurationWebControllerTest {
 
     private static MockMvc abilityAwareMvc(Object... controllers) {
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.findAndRegisterModules();
+        ObjectMapper objectMapper = applicationObjectMapper();
         return MockMvcBuilders.standaloneSetup(controllers)
                 .setCustomHandlerMapping(() -> new AbilityAwareHandlerMapping(objectMapper))
+                .setControllerAdvice(new StandardModuleWireResponseAdvice(objectMapper))
                 .build();
+    }
+
+    private static MockMvc abilityAwareMvcWithManagedJackson(Object... controllers) {
+        ObjectMapper objectMapper = applicationObjectMapper();
+        return MockMvcBuilders.standaloneSetup(controllers)
+                .setCustomHandlerMapping(() -> new AbilityAwareHandlerMapping(objectMapper))
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new StandardModuleWireResponseAdvice(objectMapper))
+                .build();
+    }
+
+    private static ObjectMapper applicationObjectMapper() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.findAndRegisterModules();
+        objectMapper.registerModule(new MuYunSpringJacksonConfiguration().codeTitleEnumJacksonModule());
+        return objectMapper;
     }
 
     private static final class AbilityAwareHandlerMapping extends RequestMappingHandlerMapping {
@@ -185,6 +203,38 @@ class PlatformConfigurationWebControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"externalQueryValues\":{\"applicationAlias\":\"platform\"}}"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void shouldPreservePlatformModuleCodeValuesWhenStandardWireAdaptsCrudResponses() throws Exception {
+        PlatformModuleService service = mock(PlatformModuleService.class);
+        PlatformModuleWebController controller = new PlatformModuleWebController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        controller.setStandardModuleWebRuntime(platformModuleRuntime(controller));
+
+        PlatformModule saved = module("platform.sales", "platform", null);
+        saved.setTitle("销售");
+        saved.setModuleKind(net.ximatai.muyun.spring.platform.module.ModuleKind.STATIC);
+        saved.setEntryType(net.ximatai.muyun.spring.platform.module.ModuleEntryType.MODULE);
+        when(service.select(any(String.class))).thenReturn(saved);
+        when(service.insert(any(PlatformModule.class))).thenReturn("platform.sales");
+        when(service.update(any(PlatformModule.class))).thenReturn(1);
+
+        MockMvc mvc = abilityAwareMvcWithManagedJackson(controller);
+        mvc.perform(get("/platform.module/view/platform.sales"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.moduleKind").value("static"))
+                .andExpect(jsonPath("$.entryType").value("module"));
+        mvc.perform(post("/platform.module/insert").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"alias\":\"platform.sales\",\"title\":\"销售\",\"applicationAlias\":\"platform\",\"moduleKind\":\"dynamic\",\"entryType\":\"route\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.moduleKind").value("static"))
+                .andExpect(jsonPath("$.entryType").value("module"));
+        mvc.perform(post("/platform.module/update/platform.sales").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"销售\",\"applicationAlias\":\"platform\",\"moduleKind\":\"dynamic\",\"entryType\":\"link\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.moduleKind").value("static"))
+                .andExpect(jsonPath("$.entryType").value("module"));
     }
 
     @Test

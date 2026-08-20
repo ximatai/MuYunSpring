@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.web.*;
 
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -31,6 +32,7 @@ import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -160,7 +162,11 @@ class CrudWebFormSchemaTest {
         controller.setStandardModuleWebRuntime(new StandardModuleWebRuntime(
                 new ModuleExecutionPlanCatalog(catalog), new StaticRecordReadProjectionService(catalog)));
         controller.rejectDefinitionLookup();
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        ObjectMapper objectMapper = new ObjectMapper();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new StandardModuleWireResponseAdvice(objectMapper))
+                .build();
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
             mvc.perform(get("/demo.record.ui/query/schema"))
@@ -212,20 +218,25 @@ class CrudWebFormSchemaTest {
     }
 
     @Test
-    void shouldUseLosslessLongAndDecimalWireValuesForStaticCrudResponsesAndMutations() throws Exception {
+    void shouldUseLosslessLongAndDecimalWireValuesForHiddenStaticEntityFields() throws Exception {
         DemoRecordService service = new DemoRecordService();
         HighPrecisionDemoRecordController controller = new HighPrecisionDemoRecordController(service);
         StaticModuleDefinition definition = highPrecisionStaticModuleDefinition();
         controller.setStandardModuleWebRuntime(new StandardModuleWebRuntime(
                 new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of(definition))),
                 new StaticRecordReadProjectionService(new StaticModuleDefinitionCatalog(List.of(definition)))));
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        ObjectMapper objectMapper = new ObjectMapper();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new StandardModuleWireResponseAdvice(objectMapper))
+                .build();
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
             mvc.perform(post("/demo.record.high/query").contentType(MediaType.APPLICATION_JSON).content("{}"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.records[0].longValue").value("9007199254740993"))
-                    .andExpect(jsonPath("$.records[0].amount").value("9999999999999999.99"));
+                    .andExpect(jsonPath("$.records[0].title").value("Demo One"))
+                    .andExpect(jsonPath("$.records[0].longValue").doesNotExist())
+                    .andExpect(jsonPath("$.records[0].amount").doesNotExist());
             mvc.perform(get("/demo.record.high/view/demo-1"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.longValue").value("9007199254740993"))
@@ -537,13 +548,8 @@ class CrudWebFormSchemaTest {
                 .uiDefinition(ModuleUiDefinition.builder("demo.record.high")
                         .page(PageTemplates.listDetailCard(page -> page
                                 .list(list -> list.fields(fields -> fields
-                                        .field("title")
-                                        .field("longValue")
-                                        .field("amount")))
-                                .detail(detail -> detail.editor(form -> form
-                                        .field("title")
-                                        .field("longValue")
-                                        .field("amount")))))
+                                        .field("title")))
+                                .detail(detail -> detail.editor(form -> form.field("title")))))
                         .build())
                 .build();
     }
