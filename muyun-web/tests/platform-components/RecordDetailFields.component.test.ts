@@ -86,4 +86,36 @@ describe('RecordDetailFields', () => {
 
     expect(wrapper.get('img').attributes('src')).toBe('https://example.test/second.png');
   });
+
+  it('leaves loading state when an in-flight image reference is cleared', async () => {
+    let resolvePreview: ((value: { url: string }) => void) | undefined;
+    const request = vi.fn().mockImplementation(
+      () =>
+        new Promise<{ url: string }>((resolve) => {
+          resolvePreview = resolve;
+        }),
+    );
+    const wrapper = mount(RecordImageFileReferencePreview, {
+      props: {
+        value: 'logo',
+        record: { id: 'tenant-a' },
+        context: { moduleAlias: 'iam.tenant', http: { request } } as never,
+        definition: {
+          fieldRef: { fieldName: 'logoAssetId' },
+          allowedMediaTypes: ['image/png'],
+          maxFiles: 1,
+          storagePolicy: 'DATABASE_INLINE' as const,
+          uploadAvailable: true,
+          readAvailable: true,
+        },
+      },
+    });
+
+    await nextTick();
+    expect(wrapper.text()).toContain('正在加载预览');
+    await wrapper.setProps({ value: undefined });
+    await nextTick();
+    expect(wrapper.text()).toContain('图片预览不可用');
+    resolvePreview?.({ url: 'https://example.test/stale.png' });
+  });
 });

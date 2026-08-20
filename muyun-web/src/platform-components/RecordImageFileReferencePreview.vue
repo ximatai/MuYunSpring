@@ -27,6 +27,7 @@ watch(
     const requestedRecord = props.record;
     previewUrl.value = undefined;
     error.value = undefined;
+    loading.value = false;
     if (requestedFileId && props.definition.readAvailable)
       void loadPreview(revision, requestedFileId, requestedRecord);
   },

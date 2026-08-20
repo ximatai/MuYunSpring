@@ -32,6 +32,7 @@ describe('module page detail extension runtime', () => {
     expect(source).toMatch(/useModulePageDetailExtensionRuntime/);
     expect(source).toMatch(/@close="closeEnhancementDrawer"/);
     expect(source).toMatch(/:context="sectionContext\(record\)"/);
+    expect(source).toMatch(/<RecordDetailFields[\s\S]*:file-transfer-context="context"/);
   });
 
   it('publishes a monotonic section refresh fact for both static and dynamic detail shells', () => {

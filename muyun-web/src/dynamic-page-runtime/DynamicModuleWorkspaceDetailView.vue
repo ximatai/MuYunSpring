@@ -294,6 +294,7 @@ async function toggleEnabled() {
         v-if="mode === 'view'"
         :record="draft"
         :fields="fields"
+        :file-transfer-context="context"
         :exclude-field-names="['enabled']"
       />
       <div v-else class="dynamic-module-workspace-detail__form">
