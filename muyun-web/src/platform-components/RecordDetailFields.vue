@@ -4,6 +4,7 @@ import { UiSwitch } from '@muyun/vue-ui-antdv';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import RecordStatusTag from './RecordStatusTag.vue';
+import RecordImageFileReferencePreview from './RecordImageFileReferencePreview.vue';
 import FileSizeText from './FileSizeText.vue';
 import {
   resolveRecordFormFieldNames,
@@ -29,6 +30,7 @@ const props = withDefaults(
     fallback?: Record<string, RecordFormFieldFallback>;
     pickerConfigs?: Record<string, RecordFormFieldPickerConfig>;
     optionContext?: ModuleContext<unknown>;
+    fileTransferContext?: ModuleContext<unknown>;
     displayOf?: RecordDetailDisplayResolver;
     emptyText?: string;
   }>(),
@@ -39,6 +41,7 @@ const props = withDefaults(
     fallback: () => ({}),
     pickerConfigs: () => ({}),
     optionContext: undefined,
+    fileTransferContext: undefined,
     displayOf: undefined,
     emptyText: '-',
   },
@@ -133,6 +136,13 @@ function fileSizeValue(field: RecordFormFieldState) {
           v-else-if="field.controlType === 'switch'"
           :checked="props.record[field.fieldName] !== false"
           disabled
+        />
+        <RecordImageFileReferencePreview
+          v-else-if="field.controlType === 'imageFileTransfer' && field.fileReference && fileTransferContext"
+          :value="props.record[field.fieldName]"
+          :record="props.record"
+          :context="fileTransferContext"
+          :definition="field.fileReference"
         />
         <span v-else-if="field.controlType === 'colorPicker'" class="record-color-value">
           <i :style="{ backgroundColor: colorValue(field) }" aria-hidden="true" />

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
+import type { UiIconName } from '@muyun/vue-ui-antdv';
 import type { ModuleContext } from '@muyun/web-core';
 import type { ResolvedFileReferenceFieldDescriptor } from '@muyun/web-contracts';
 import FileTransferUploader from './FileTransferUploader.vue';
@@ -31,6 +32,9 @@ const props = defineProps<{
   uploaderPresentation?: 'dropzone' | 'button';
   uploadText?: string;
   uploadButtonType?: 'default' | 'primary' | 'dashed' | 'link' | 'text';
+  uploadButtonSize?: 'small' | 'middle' | 'large';
+  uploadButtonIconName?: UiIconName;
+  uploadButtonTitle?: string;
   showCompletedUploadItems?: boolean;
   /** The enclosing field has already rendered the bound file and needs the uploader slot immediately reusable. */
   releaseCompletedUploadOnBind?: boolean;
@@ -150,6 +154,9 @@ function releaseUploadedFile(fileId: string) {
     :presentation="uploaderPresentation"
     :upload-text="uploadText"
     :upload-button-type="uploadButtonType"
+    :upload-button-size="uploadButtonSize"
+    :upload-button-icon-name="uploadButtonIconName"
+    :upload-button-title="uploadButtonTitle"
     :show-completed-items="showCompletedUploadItems"
     :upload-advisory="uploadAdvisory"
     :upload-validation="uploadValidation"

@@ -377,11 +377,14 @@ function controlTypeOf(
   field: RecordFormFieldDescriptor | undefined,
   fallback: RecordFormFieldFallback | undefined,
 ): RecordFormFieldControlType {
-  if (field?.fieldControl) {
-    return resolveFieldControlType(field, field.fieldControl);
-  }
+  // A file-reference declaration is the source-of-truth transport contract. It must never
+  // degrade into a generic text renderer merely because an older descriptor also carries an
+  // inferred TEXT control for its String storage column.
   if (field?.fileReference) {
     return isSingleImageFileReference(field.fileReference) ? 'imageFileTransfer' : 'fileTransfer';
+  }
+  if (field?.fieldControl) {
+    return resolveFieldControlType(field, field.fieldControl);
   }
   const referenceControlType = referenceControlTypeOf(field?.reference, field?.uiType);
   if (referenceControlType) {

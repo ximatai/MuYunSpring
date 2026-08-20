@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
 import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
+import net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
@@ -183,7 +184,7 @@ class IamWebControllerTest {
     }
 
     @Test
-    void shouldExposeTenantBrandingInfrastructureFieldsWithoutEncodingTenantPageLayout() {
+    void shouldExposeTenantBrandingAsAStandardFormGroup() {
         assertThat(((net.ximatai.muyun.spring.platform.web.FlatManagementPageDefinition) new TenantWebController()
                 .moduleUiDefinition().page()).detail().editor().fields())
                 .extracting(field -> field.fieldRef().fieldName())
@@ -191,7 +192,42 @@ class IamWebControllerTest {
                         "lightLogoAssetId", "darkLogoAssetId");
         assertThat(((net.ximatai.muyun.spring.platform.web.FlatManagementPageDefinition) new TenantWebController()
                 .moduleUiDefinition().page()).detail().editor().formGroups())
-                .isEmpty();
+                .singleElement()
+                .satisfies(group -> {
+                    assertThat(group.groupCode()).isEqualTo("workbench_branding");
+                    assertThat(group.title()).isEqualTo("工作台品牌");
+                    assertThat(group.subtitle()).isEqualTo("配置 Logo、主标题与副标题的展示方式。");
+                    assertThat(group.fields()).extracting(field -> field.fieldRef().fieldName())
+                            .containsExactly("workbenchBrandMode", "workbenchTitle", "workbenchSubtitle",
+                                    "lightLogoAssetId", "darkLogoAssetId");
+                    assertThat(group.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("workbenchBrandMode"))
+                            .singleElement().satisfies(field -> assertThat(field.columnSpan()).isEqualTo(2));
+                });
+    }
+
+    @Test
+    void shouldCompileTenantBrandingControlsIntoTheStandardRuntimeDescriptor() {
+        TenantWebController controller = new TenantWebController();
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", TenantService.MODULE_ALIAS, "租户管理")
+                .modelClass(Tenant.class)
+                .entities(List.of(new StaticEntityDefinitionCompiler().compile("tenant", "租户管理", Tenant.class)))
+                .uiDefinition(controller.moduleUiDefinition())
+                .build();
+
+        var descriptor = ModuleUiDescriptorCompiler.compile(definition);
+
+        assertThat(descriptor.page().detail().editor().fields())
+                .filteredOn(field -> field.fieldRef().fieldName().equals("workbenchBrandMode"))
+                .singleElement()
+                .satisfies(field -> {
+                    assertThat(field.fieldControl().alias()).isEqualTo("select");
+                    assertThat(field.option().inlineItems())
+                            .extracting(item -> item.code())
+                            .containsExactly("logoOnly", "logoWithTitle");
+                });
+        assertThat(descriptor.fileReferences())
+                .extracting(reference -> reference.fieldRef().fieldName())
+                .containsExactlyInAnyOrder("lightLogoAssetId", "darkLogoAssetId");
     }
 
     @BeforeEach

@@ -5,7 +5,13 @@ import TenantApplicationConfigurationDrawer from '@/platform-admin-runtime/tenan
 
 describe('tenant detail extensions', () => {
   it('reloads the provisioned-application section when the standard detail extension refreshes', async () => {
-    const request = vi.fn().mockResolvedValue({ records: [] });
+    const request = vi
+      .fn()
+      .mockImplementation((request) =>
+        request.path === '/platform.application/query'
+          ? Promise.resolve({ records: [{ alias: 'iam', title: '身份权限' }] })
+          : Promise.resolve({ records: [{ applicationAlias: 'iam' }] }),
+      );
     const context = {
       module: { http: { request } },
       record: { id: 'tenant-a' },
@@ -16,10 +22,39 @@ describe('tenant detail extensions', () => {
     const wrapper = shallowMount(TenantApplicationsDetailSection, { props: { context: context as never } });
 
     await flushPromises();
-    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(wrapper.findComponent({ name: 'UiTagList' }).props('items')).toEqual([
+      { key: 'iam', label: '身份权限 · iam' },
+    ]);
     await wrapper.setProps({ context: { ...context, refreshKey: 1 } as never });
     await flushPromises();
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not retain a previous tenant application summary when a later load fails', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ records: [{ alias: 'iam', title: '身份权限' }] })
+      .mockResolvedValueOnce({ records: [{ applicationAlias: 'iam' }] })
+      .mockRejectedValueOnce(new Error('应用目录读取失败'))
+      .mockRejectedValueOnce(new Error('租户应用读取失败'));
+    const context = {
+      module: { http: { request } },
+      record: { id: 'tenant-a' },
+      refreshList: vi.fn(),
+      refreshKey: 0,
+      reload: vi.fn(),
+    };
+    const wrapper = shallowMount(TenantApplicationsDetailSection, { props: { context: context as never } });
+
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'UiTagList' }).props('items')).toEqual([
+      { key: 'iam', label: '身份权限 · iam' },
+    ]);
+    await wrapper.setProps({ context: { ...context, record: { id: 'tenant-b' } } as never });
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: 'UiTagList' }).props('items')).toEqual([]);
   });
 
   it('keeps drawer title actions synchronized while saving and refreshes detail extensions after success', async () => {

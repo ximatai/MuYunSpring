@@ -25,6 +25,7 @@ it('delegates the flat standard editor to its isolated contribution surface', ()
   assert.match(source, /flatManagementDetailActions[\s\S]*\.\.\.flatManagementEnhancementActions\.value/);
   assert.match(source, /function handleFlatManagementAction[\s\S]*runEnhancementAction/);
   assert.match(source, /@validity-change="updateMainFormValidity"/);
+  assert.match(source, /:file-transfer-context="context"/);
   assert.match(source, /localEditValid: localEditFormValid/);
   assert.match(source, /@validity-change="updateLocalEditFormValidity"/);
 });
