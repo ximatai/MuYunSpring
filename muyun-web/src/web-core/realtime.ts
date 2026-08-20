@@ -9,13 +9,7 @@ import type {
 import type { DataChangeDispatcher } from './dataChanges';
 
 export type RealtimeConnectionState =
-  | 'idle'
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'disconnected'
-  | 'unauthorized'
-  | 'failed';
+  'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'unauthorized' | 'failed';
 
 export interface RealtimeChannel<TPayload> {
   destination: string;

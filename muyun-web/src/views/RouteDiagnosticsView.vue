@@ -1,4 +1,5 @@
-npm<script setup lang="ts">
+npm
+<script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useRouteDiagnosticsStore } from '@/app/routeDiagnosticsStore';

@@ -273,91 +273,91 @@ async function toggleEnabled() {
 
 <template>
   <section ref="workspaceElement" class="dynamic-module-workspace-detail">
-  <RecordDetailPanel :title="title">
-    <template #actions>
-      <DynamicRecordDetailActions
-        :context="context"
-        :record="record"
-        :mode="mode"
-        :saving="saving"
-        :detail-loading="loading"
-        :detail-load-failed="loadFailed"
-        :actions="detailActions"
-        @cancel="cancelEditing"
-        @save="saveRecord"
-        @edit="editRecord"
-        @delete="deleteRecord"
-        @detail-action="handleDetailAction"
-      />
-    </template>
-    <template #status>
-      <RecordStatusSwitch
-        v-if="mode === 'view' && record"
-        :enabled="record.enabled !== false"
-        :disabled="!canToggleEnabled"
-        :disabled-reason="toggleEnabledDisabledReason"
-        :loading="togglingEnabled"
-        :show-label="false"
-        @change="toggleEnabled"
-      />
-    </template>
+    <RecordDetailPanel :title="title">
+      <template #actions>
+        <DynamicRecordDetailActions
+          :context="context"
+          :record="record"
+          :mode="mode"
+          :saving="saving"
+          :detail-loading="loading"
+          :detail-load-failed="loadFailed"
+          :actions="detailActions"
+          @cancel="cancelEditing"
+          @save="saveRecord"
+          @edit="editRecord"
+          @delete="deleteRecord"
+          @detail-action="handleDetailAction"
+        />
+      </template>
+      <template #status>
+        <RecordStatusSwitch
+          v-if="mode === 'view' && record"
+          :enabled="record.enabled !== false"
+          :disabled="!canToggleEnabled"
+          :disabled-reason="toggleEnabledDisabledReason"
+          :loading="togglingEnabled"
+          :show-label="false"
+          @change="toggleEnabled"
+        />
+      </template>
 
-    <RecordPanelState v-if="loading" loading loading-tip="加载记录详情" description="" />
-    <RecordPanelState v-else-if="loadFailed" description="记录已不存在，或你已无权查看。" />
-    <RecordPanelState v-else-if="!record" description="记录已删除。" />
-    <template v-else-if="draft">
-      <RecordDetailFields
-        v-if="mode === 'view'"
-        :record="draft"
-        :fields="fields"
-        :exclude-field-names="['enabled']"
-      />
-      <div v-else class="dynamic-module-workspace-detail__form">
-        <RecordFormFields
+      <RecordPanelState v-if="loading" loading loading-tip="加载记录详情" description="" />
+      <RecordPanelState v-else-if="loadFailed" description="记录已不存在，或你已无权查看。" />
+      <RecordPanelState v-else-if="!record" description="记录已删除。" />
+      <template v-else-if="draft">
+        <RecordDetailFields
+          v-if="mode === 'view'"
           :record="draft"
           :fields="fields"
-          :form-session-key="formSessionKey"
-          :option-context="context"
-          :picker-configs="referencePickerConfigs"
-          :disabled="saving"
           :exclude-field-names="['enabled']"
-          @update:field="updateDraftField"
         />
-      </div>
-      <template v-if="mode === 'view'">
-        <RecordDetailExtensionSection
-          v-for="section in detailSections"
-          :key="section.key"
-          :title="section.title"
-        >
-          <component
-            :is="section.component"
-            :context="{
-              module: context,
-              record,
-              refreshList: () => refreshModulePageList(context.moduleAlias),
-              reload: loadRecord,
-            }"
+        <div v-else class="dynamic-module-workspace-detail__form">
+          <RecordFormFields
+            :record="draft"
+            :fields="fields"
+            :form-session-key="formSessionKey"
+            :option-context="context"
+            :picker-configs="referencePickerConfigs"
+            :disabled="saving"
+            :exclude-field-names="['enabled']"
+            @update:field="updateDraftField"
           />
-        </RecordDetailExtensionSection>
+        </div>
+        <template v-if="mode === 'view'">
+          <RecordDetailExtensionSection
+            v-for="section in detailSections"
+            :key="section.key"
+            :title="section.title"
+          >
+            <component
+              :is="section.component"
+              :context="{
+                module: context,
+                record,
+                refreshList: () => refreshModulePageList(context.moduleAlias),
+                reload: loadRecord,
+              }"
+            />
+          </RecordDetailExtensionSection>
+        </template>
+        <RecordMetaSection v-if="showSystemInfo" :record="draft" show-sort-order />
       </template>
-      <RecordMetaSection v-if="showSystemInfo" :record="draft" show-sort-order />
-    </template>
-  </RecordDetailPanel>
-  <RecordModeDrawer
-    v-if="enhancementDrawer"
-    :open="true"
-    :title="enhancementDrawer.definition.title"
-    :container="workspaceElement ?? null"
-    :width="enhancementDrawer.definition.width"
-    mode="view"
-    @close="enhancementDrawer = undefined"
-  >
-    <template v-if="enhancementDrawer.titleActions.length" #title-actions>
-      <DrawerTitleActions :actions="enhancementDrawer.titleActions" />
-    </template>
-    <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
-  </RecordModeDrawer>
+    </RecordDetailPanel>
+    <RecordModeDrawer
+      v-if="enhancementDrawer"
+      :open="true"
+      :title="enhancementDrawer.definition.title"
+      :container="workspaceElement ?? null"
+      :width="enhancementDrawer.definition.width"
+      mode="view"
+      @close="enhancementDrawer = undefined"
+    >
+      <template v-if="enhancementDrawer.titleActions.length" #title-actions>
+        <DrawerTitleActions :actions="enhancementDrawer.titleActions" />
+      </template>
+      <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
+    </RecordModeDrawer>
   </section>
 </template>
 

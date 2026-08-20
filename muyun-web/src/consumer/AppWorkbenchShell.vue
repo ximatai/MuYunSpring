@@ -201,7 +201,8 @@ function replaceRoute(path: string, options: OpenRouteOptions = {}) {
     : undefined;
   if (instanceKey) url.searchParams.set('InstanceKey', instanceKey);
   const fullPath = `${url.pathname}${url.search}${url.hash}`;
-  if (!currentTabKey || !currentTab) return navigateRoute(fullPath, 'replace', props.startup, options.tabTitle);
+  if (!currentTabKey || !currentTab)
+    return navigateRoute(fullPath, 'replace', props.startup, options.tabTitle);
   const restored = restoreWorkbenchStartupStateFromUrl(props.startup, fullPath, props.resolveOptions);
   const replacement = restored.tabs?.find((tab) => tab.key === restored.activeTabKey);
   if (!replacement) return { created: false };
@@ -267,7 +268,9 @@ function setTabName(instanceKey: string, name: string) {
   if (!instanceKey || !title) return;
   update({
     ...props.startup,
-    tabs: (props.startup.tabs ?? []).map((tab) => (tab.instanceKey === instanceKey ? { ...tab, title } : tab)),
+    tabs: (props.startup.tabs ?? []).map((tab) =>
+      tab.instanceKey === instanceKey ? { ...tab, title } : tab,
+    ),
   });
 }
 
