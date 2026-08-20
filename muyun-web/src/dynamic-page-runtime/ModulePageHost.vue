@@ -38,18 +38,15 @@ import {
   type RecordPickerRecord,
   type CrudRecordListBase,
   type RecordExplorerItemDescriptor,
-  type RecordQueryListMode,
   type RecordActionItem,
   type RecordQueryListCellComponent,
   type StandardCrudRowActionKey,
   type QueryListRecord,
   type RecordFormRecord,
-  type RecordFormFieldDescriptor,
 } from '@muyun/platform-components';
 import type {
   StandardModulePageDescriptor,
   MenuPageMode,
-  PageBootstrapActionBlock,
   ResolvedDetailRelationDescriptor,
   ResolvedFormComputeRuleDescriptor,
   ResolvedModuleUiDescriptor,
@@ -96,6 +93,8 @@ import { useModulePageBootstrap } from './composables/useModulePageBootstrap';
 import { useNavigatorRuntime, type NavigatorLevelRuntime } from './composables/useNavigatorRuntime';
 import { useModulePageActions } from './composables/useModulePageActions';
 import { useRecordEditingSession } from './composables/useRecordEditingSession';
+import { useModulePageListSession } from './composables/useModulePageListSession';
+import { useModulePageDetailActionRuntime } from './composables/useModulePageDetailActionRuntime';
 
 /**
  * Descriptor-driven CRUD runner for every standard platform module page.
@@ -150,15 +149,39 @@ const {
   navigatorDismissedSelectionKeys,
   loadRuntimeForm,
 } = useNavigatorRuntime(context);
-const listMode = ref<RecordQueryListMode>('normal');
-const reloadKey = ref(0);
 const detailRelationReloadKey = ref(0);
 const treeReloadKey = ref(0);
 const selectedTreeRecord = ref<QueryListRecord>();
 const treeSearchKeyword = ref('');
 const flatManagementSearchKeyword = ref('');
 const flatManagementReloadKey = ref(0);
-const cardAssistantRecords = ref<QueryListRecord[]>([]);
+const {
+  listMode,
+  reloadKey,
+  cardAssistantRecords,
+  handleLoaded,
+  handleFlatManagementLoaded: loadFlatManagementRecords,
+  setCardAssistantRecords,
+  resetFlatManagementSelection,
+  handleListModeChange,
+  handleRecycleBinRestore,
+  selectListDetailRecord: selectListDetail,
+  selectStandaloneListRecord,
+  openListRecord,
+} = useModulePageListSession({
+  selectedRecord,
+  saving,
+  resetDetail: () => {
+    detail.close();
+    editingRecord.value = undefined;
+  },
+  invalidateDetailLoad: invalidatePendingRequests,
+  resetTreeSelection: () => {
+    selectedTreeRecord.value = undefined;
+  },
+  openRecord: (record) => void openRecordView(record),
+  openRecycleBinRecord: (record) => void openRecycleBinRecord(record),
+});
 const navigatorManagementDetail = useRecordDetailController<QueryListRecord>();
 const navigatorManagementLevel = ref<NavigatorLevelRuntime>();
 const navigatorManagementTogglingEnabled = ref(false);
@@ -246,62 +269,24 @@ const detailTitle = computed(() => {
   }
   return recordTitle(editingRecord.value ?? selectedRecord.value) ?? '记录详情';
 });
-/**
- * `action` is the only detail action block whose execution needs no extra
- * client-side input surface. Dialog and local-edit blocks deliberately remain
- * outside this runner until their typed parameter/form contracts are rendered.
- */
-const supportedDetailActionBlocks = computed(() =>
-  (pageBootstrap.value?.resolvedConfig.actionBlocks ?? []).filter(
-    (block): block is PageBootstrapActionBlock => block.type === 'action',
-  ),
-);
-const supportedDetailActions = computed<RecordActionItem[]>(() =>
-  supportedDetailActionBlocks.value.map((block, index) => ({
-    key: `page-action-block:${block.uiConfigId ?? 'entry'}:${block.key ?? block.actionCode}:${index}`,
-    actionCode: block.actionCode,
-    title: block.title ?? context.runtimeAction(block.actionCode)?.title ?? block.actionCode,
-  })),
-);
-const localEditActionBlocks = computed(() =>
-  (pageBootstrap.value?.resolvedConfig.actionBlocks ?? []).filter(
-    (
-      block,
-    ): block is PageBootstrapActionBlock & {
-      localEditForm: NonNullable<PageBootstrapActionBlock['localEditForm']>;
-    } => block.type === 'localEdit' && block.localEditForm != null,
-  ),
-);
-const localEditActions = computed<RecordActionItem[]>(() =>
-  localEditActionBlocks.value.map((block, index) => ({
-    key: `page-local-edit:${block.uiConfigId ?? 'entry'}:${block.key ?? block.actionCode}:${index}`,
-    actionCode: block.actionCode,
-    title: block.title ?? context.runtimeAction(block.actionCode)?.title ?? block.actionCode,
-  })),
-);
-const detailPageActions = computed(() => [...supportedDetailActions.value, ...localEditActions.value]);
-const localEditOpen = ref(false);
-const localEditSaving = ref(false);
-const localEditBlock = ref<(typeof localEditActionBlocks.value)[number]>();
-const localEditDraft = ref<RecordFormRecord>();
-const localEditFields = computed<Map<string, RecordFormFieldDescriptor>>(() => {
-  const form = localEditBlock.value?.localEditForm;
-  return new Map(
-    (form?.fields ?? [])
-      .filter((field) => field.visible !== false && !field.relationAlias)
-      .map((field) => [
-        field.fieldName,
-        {
-          fieldRef: { fieldName: field.fieldName },
-          label: field.fieldTitle,
-          visible: { constant: true },
-          required: { constant: field.requiredOverride === true },
-          readOnly: { constant: field.readOnly === true },
-          uiType: field.fieldUiControlAlias,
-          columnSpan: field.columnSpan,
-        },
-      ]),
-  );
+const {
+  detailPageActions,
+  localEditOpen,
+  localEditSaving,
+  localEditBlock,
+  localEditDraft,
+  localEditFields,
+  handleConfiguredAction,
+  submitLocalEdit,
+} = useModulePageDetailActionRuntime({
+  context,
+  pageBootstrap,
+  selectedRecord,
+  editorMode,
+  detail,
+  refreshList,
+  presentSuccess: presentModuleActionSuccess,
+  presentError: (cause, source) => presentPlatformError(cause, { source, phase: 'action' }),
 });
 /** Only server-issued executable contracts may mount a relation-list runner. */
 const executableDetailRelations = computed<ResolvedDetailRelationDescriptor[]>(() =>
@@ -810,32 +795,8 @@ function updateDetailSurfaceForWorkspaceWidth() {
   narrowDetailSurface.value = workspaceWidth < listDetailMinimumWidth.value;
 }
 
-function handleLoaded(records: QueryListRecord[]) {
-  if (listMode.value !== 'recycleBin') cardAssistantRecords.value = records;
-  if (selectedRecord.value) {
-    selectedRecord.value =
-      records.find((record) => record.id === selectedRecord.value?.id) ?? selectedRecord.value;
-    // The list is intentionally a compact projection. Do not overwrite an open
-    // detail snapshot with it after a refresh (for example, enable/disable), or
-    // form-only/read-side fields disappear from the drawer. `openRecord` and
-    // `toggleEnabled` refresh the authoritative detail through CRUD view.
-  }
-}
-
-function resetFlatManagementSelection() {
-  invalidatePendingRequests();
-  detail.close();
-  selectedRecord.value = undefined;
-  editingRecord.value = undefined;
-}
-
 function handleFlatManagementLoaded(records: QueryListRecord[]) {
-  // Card assistants receive the live, readable list projection. Recycle-bin
-  // records are intentionally excluded: they are not active business facts.
-  if (!flatManagementRecycleBin.active.value) {
-    cardAssistantRecords.value = records;
-    handleLoaded(records);
-  }
+  loadFlatManagementRecords(records, flatManagementRecycleBin.active.value);
 }
 
 function flatManagementItemOf(record: CrudRecordListBase): RecordExplorerItemDescriptor {
@@ -869,7 +830,7 @@ function openFlatManagementRecord(record: QueryListRecord) {
 
 function handleFlatManagementAction(action: RecordActionItem) {
   if (detailPageActions.value.some((item) => item.key === action.key)) {
-    handleSupportedDetailActionBlock(action);
+    handleConfiguredAction(action);
     return;
   }
   if (action.key === 'cancel') {
@@ -889,53 +850,8 @@ function handleFlatManagementAction(action: RecordActionItem) {
   }
 }
 
-function handleListModeChange(mode: RecordQueryListMode) {
-  if (saving.value || listMode.value === mode) return;
-  listMode.value = mode;
-  invalidatePendingRequests();
-  detailLoading.value = false;
-  detailLoadFailed.value = false;
-  detailOpen.value = false;
-  editorMode.value = 'view';
-  selectedRecord.value = undefined;
-  editingRecord.value = undefined;
-  selectedTreeRecord.value = undefined;
-}
-
-function handleRecycleBinRestore() {
-  reloadKey.value += 1;
-}
-
-function selectRecord(record: QueryListRecord) {
-  selectedRecord.value = record;
-}
-
-/**
- * A persistent detail card follows the selected row. When that same detail is
- * promoted to a drawer, retain the standard list interaction: selection only
- * highlights a row; double-click and the explicit view action open the drawer.
- */
 function selectListDetailRecord(record: QueryListRecord) {
-  selectRecord(record);
-  if (detailSurfaceUsesDrawer.value) return;
-  if (listMode.value === 'recycleBin') {
-    void openRecycleBinRecord(record);
-    return;
-  }
-  void openRecordView(record);
-}
-
-function selectStandaloneListRecord(record: QueryListRecord) {
-  selectRecord(record);
-  if (listMode.value === 'recycleBin') void openRecycleBinRecord(record);
-}
-
-function openListRecord(record: QueryListRecord) {
-  if (listMode.value === 'recycleBin') {
-    void openRecycleBinRecord(record);
-    return;
-  }
-  void openRecordView(record);
+  selectListDetail(record, detailSurfaceUsesDrawer.value);
 }
 
 /**
@@ -1402,7 +1318,7 @@ function clearTreeRecordSelection() {
 }
 
 function handleTreeLoaded(records: unknown[]) {
-  cardAssistantRecords.value = records as QueryListRecord[];
+  setCardAssistantRecords(records as QueryListRecord[]);
   if (selectedTreeRecord.value || editorMode.value !== 'view') return;
   const firstRecord = records.at(0);
   if (firstRecord) selectTreeRecord(firstRecord);
@@ -1643,97 +1559,13 @@ async function openRecordView(record: QueryListRecord) {
 
 function handleDetailAction(action: { key?: string }) {
   if (detailPageActions.value.some((item) => item.key === action.key)) {
-    handleSupportedDetailActionBlock(action);
+    handleConfiguredAction(action);
     return;
   }
   const record = selectedRecord.value;
   const contribution = enhancementDetailActions.value.find((item) => item.key === action.key);
   if (record && contribution) {
     void runEnhancementAction(contribution, { ...modulePageActionContext(record), record });
-  }
-}
-
-function handleSupportedDetailActionBlock(action: { key?: string }) {
-  const localIndex = localEditActions.value.findIndex((item) => item.key === action.key);
-  if (localIndex >= 0) {
-    openLocalEdit(localEditActionBlocks.value[localIndex]);
-    return;
-  }
-  const index = supportedDetailActions.value.findIndex((item) => item.key === action.key);
-  const block = index < 0 ? undefined : supportedDetailActionBlocks.value[index];
-  const recordId = selectedRecord.value?.id == null ? undefined : String(selectedRecord.value.id);
-  if (!block || !recordId || editorMode.value !== 'view') return;
-  void executeSupportedDetailActionBlock(block, recordId);
-}
-
-function openLocalEdit(block: (typeof localEditActionBlocks.value)[number]) {
-  const record = selectedRecord.value;
-  if (!record || typeof record.version !== 'number') return;
-  localEditBlock.value = block;
-  localEditDraft.value = {
-    id: record.id,
-    version: record.version,
-    ...Object.fromEntries(
-      (block.localEditForm.fields ?? []).map((field) => [field.fieldName, record[field.fieldName]]),
-    ),
-  };
-  localEditOpen.value = true;
-}
-
-async function submitLocalEdit() {
-  const block = localEditBlock.value;
-  const draft = localEditDraft.value;
-  const recordId = selectedRecord.value?.id == null ? undefined : String(selectedRecord.value.id);
-  if (!block || !draft || !recordId || typeof draft.version !== 'number' || !block.submitPath) return;
-  localEditSaving.value = true;
-  try {
-    const fieldNames = [...localEditFields.value.keys()];
-    const values = Object.fromEntries(fieldNames.map((fieldName) => [fieldName, draft[fieldName]]));
-    const result = await context.http.request<unknown>({
-      method: 'POST',
-      path: block.submitPath.replace('{recordId}', encodeURIComponent(recordId)),
-      body: {
-        recordId,
-        record: { id: recordId, version: draft.version, values },
-        fieldNames,
-        payload: {
-          [block.localEditForm.submitContract.uiConfigIdPayloadKey]: block.localEditForm.uiConfigId,
-        },
-      },
-    });
-    if (block.refreshStrategy?.detail !== false) detail.resolveLoad(await context.crud.view(recordId));
-    if (block.refreshStrategy?.list !== false) refreshList();
-    localEditOpen.value = false;
-    await presentModuleActionSuccess(result, `${block.title ?? block.actionCode}成功`, 'module-local-edit');
-  } catch (cause) {
-    presentPlatformError(cause, { source: 'module-local-edit', phase: 'action' });
-  } finally {
-    localEditSaving.value = false;
-  }
-}
-
-/**
- * Keep configured actions on the same record-action endpoint as every other
- * module action. `RecordActionBar` has already requested availability for
- * this record, while the endpoint remains the authoritative authorization and
- * data-scope check.
- */
-async function executeSupportedDetailActionBlock(block: PageBootstrapActionBlock, recordId: string) {
-  try {
-    const result = await context.http.request<unknown>({
-      method: 'POST',
-      path: `/${encodeURIComponent(context.moduleAlias)}/${encodeURIComponent(block.actionCode)}/${encodeURIComponent(recordId)}`,
-      body: {},
-    });
-    const refreshed = await context.crud.view(recordId);
-    detail.resolveLoad(refreshed);
-    refreshList();
-    await presentModuleActionSuccess(result, `${block.title ?? block.actionCode}成功`, 'module-action-block');
-  } catch (cause) {
-    presentPlatformError(cause, {
-      source: 'module-action-block',
-      phase: 'action',
-    });
   }
 }
 

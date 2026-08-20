@@ -2060,6 +2060,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   const explorerPanelSource = readSource('src/platform-components/RecordExplorerPanel.vue');
   const staticLayoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
   const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const listSessionSource = readSource('src/dynamic-page-runtime/composables/useModulePageListSession.ts');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
   const tenantSource = readSource('src/views/TenantManagementView.vue');
   const recycleBinModeSource = readSource('src/platform-components/useRecycleBinExplorerMode.ts');
@@ -2097,7 +2098,8 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(panelSource, /item\.purgeable/);
   assert.match(panelSource, /key: 'purge', actionCode: 'recycleBinPurge'/);
   assert.match(panelSource, /function handleTableRowClick[\s\S]*emit\('select', row\.record\)/);
-  assert.match(hostSource, /const listMode = ref<RecordQueryListMode>\('normal'\)/);
+  assert.match(hostSource, /useModulePageListSession\(/);
+  assert.match(listSessionSource, /const listMode = ref<RecordQueryListMode>\('normal'\)/);
   assert.match(hostSource, /:mode="listMode"/);
   assert.match(hostSource, /@mode-change="handleListModeChange"/);
   assert.match(hostSource, /@restored="handleRecycleBinRestore"/);
