@@ -49,6 +49,14 @@ import net.ximatai.muyun.spring.platform.ui.PlatformUiClientType;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlProperty;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlValueShape;
+import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -483,7 +491,7 @@ class PlatformModuleRuntimeContextServiceTest {
                 List.of()
         );
         PlatformResolvedPageConfig resolvedConfig = new PlatformResolvedPageConfig(List.of(
-                resolvedField("ui-list-web", "field-name", null, "name", "客户名称", "160", "left"),
+                resolvedField("ui-list-web", "field-name", null, "name", "客户名称", "160", "left", "text"),
                 resolvedField("ui-list-web", "field-enabled", null, "enabled", "启用状态", "120", "center"),
                 resolvedField("ui-list-web", "field-created-at", null, "createdAt", "创建时间", "180", "left"),
                 resolvedField("ui-list-web", "field-storage-bytes", null, "storageBytes", "存储大小", "120", "right",
@@ -508,7 +516,7 @@ class PlatformModuleRuntimeContextServiceTest {
                     return navigatorContext.candidate().navigator().levels().stream()
                             .map(ResolvedPageNavigatorLevelDescriptor::key)
                             .collect(java.util.stream.Collectors.toUnmodifiableSet());
-                }
+                }, null, null, null, null
         );
 
         PlatformModuleRuntimeContext context = service.context("crm.customer");
@@ -523,6 +531,8 @@ class PlatformModuleRuntimeContextServiceTest {
             assertThat(navigatorContext.candidate()).isEqualTo(context.uiDescriptor().page());
         });
         ResolvedViewDescriptor pageList = context.uiDescriptor().page().list().fields();
+        assertThat(pageList.fields().getFirst().fieldControl()).isEqualTo(new ResolvedFieldControlDescriptor(
+                "text", "TEXT", "SCALAR", java.util.Map.of(), List.of()));
         assertThat(context.uiDescriptor().page().navigator().levels()).singleElement().satisfies(level -> {
             assertThat(level.sourceModuleAlias()).isEqualTo("base.product");
         });

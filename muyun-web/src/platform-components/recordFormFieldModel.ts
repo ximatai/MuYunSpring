@@ -5,8 +5,10 @@ import type {
   BooleanStatusPresentation,
   ResolvedOptionFieldDescriptor,
   ResolvedFileReferenceFieldDescriptor,
+  ResolvedFieldControlDescriptor,
   ResolvedModuleUiDescriptor,
   ResolvedViewFieldDescriptor,
+  ViewFieldValueType,
   FieldValuePresentation,
   FormGroupDescriptor,
   UiFormula,
@@ -15,21 +17,41 @@ import type {
 } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import type { PickerConstraint, RecordPickerRecord } from './recordPickerConstraints';
+import type { RecordPickerMode } from './recordPickerModel';
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 
 export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewFieldDescriptor) & {
+  /** Optional during the protocol migration; resolved descriptors take precedence over legacy uiType. */
+  fieldControl?: ResolvedFieldControlDescriptor;
   option?: ResolvedOptionFieldDescriptor;
   reference?: ResolvedReferenceFieldDescriptor;
   fileReference?: ResolvedFileReferenceFieldDescriptor;
   formGroup?: FormGroupDescriptor;
+  /** Published storage type; resolved descriptors use it to select a lossless editor codec. */
+  valueType?: ViewFieldValueType;
 };
 export type RecordFormRecord = Record<string, unknown>;
-export type RecordFormFieldValue = string | number | boolean | OptionValueList | string[] | undefined;
+/**
+ * Transport values emitted by the standard editor. JSON is deliberately represented as parsed
+ * objects/arrays rather than a display string, so dynamic records retain their JSON column
+ * semantics all the way to the HTTP request.
+ */
+export type RecordFormFieldValue =
+  | string
+  | number
+  | boolean
+  | OptionValueList
+  | string[]
+  | JsonValue
+  | undefined;
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 /** A business boolean does not inherit the lifecycle field's implicit enabled default. */
 export type RecordBooleanStatusValue = boolean | undefined;
 export type RecordFormFieldControlType =
   | 'input'
   | 'numberInput'
+  | 'dateInput'
+  | 'dateTimeInput'
   | 'textarea'
   | 'colorPicker'
   | 'select'
@@ -39,7 +61,61 @@ export type RecordFormFieldControlType =
   | 'recordPicker'
   | 'recordMultiPicker'
   | 'fileTransfer'
-  | 'imageFileTransfer';
+  | 'imageFileTransfer'
+  | 'unsupported';
+
+export interface RecordFieldRenderer {
+  rendererType: string;
+  controlType: Exclude<RecordFormFieldControlType, 'unsupported'>;
+  supports: (field: RecordFormFieldDescriptor) => boolean;
+}
+
+/**
+ * The standard-form renderer catalog maps platform semantics to local form facades. It intentionally
+ * contains no UI-adapter component names, so a descriptor cannot choose arbitrary client code.
+ */
+export const recordFieldRendererRegistry: readonly RecordFieldRenderer[] = [
+  { rendererType: 'TEXT', controlType: 'input', supports: () => true },
+  { rendererType: 'TEXTAREA', controlType: 'textarea', supports: () => true },
+  { rendererType: 'NUMBER', controlType: 'numberInput', supports: () => true },
+  { rendererType: 'DECIMAL', controlType: 'numberInput', supports: () => true },
+  { rendererType: 'DATE', controlType: 'dateInput', supports: () => true },
+  { rendererType: 'DATETIME', controlType: 'dateTimeInput', supports: () => true },
+  { rendererType: 'JSON', controlType: 'textarea', supports: () => true },
+  { rendererType: 'SWITCH', controlType: 'switch', supports: () => true },
+  // Both select variants depend on a published option binding. A missing binding must not
+  // silently become a free-text field, otherwise configured enum semantics are lost.
+  { rendererType: 'SELECT', controlType: 'select', supports: (field) => field.option != null },
+  // A collection has no scalar fallback.  Without its option binding, a select renderer cannot
+  // preserve the array transport contract, so reject the editor rather than degrading to UiInput.
+  { rendererType: 'MULTI_SELECT', controlType: 'select', supports: (field) => field.option != null },
+  { rendererType: 'ENABLED_STATUS', controlType: 'enabledStatus', supports: () => true },
+  {
+    rendererType: 'BOOLEAN_STATUS',
+    controlType: 'booleanStatus',
+    supports: (field) => field.booleanStatus != null,
+  },
+  {
+    rendererType: 'RECORD_PICKER',
+    controlType: 'recordPicker',
+    supports: (field) => field.reference?.cardinality === 'ONE',
+  },
+  {
+    rendererType: 'RECORD_PICKER',
+    controlType: 'recordMultiPicker',
+    supports: (field) => field.reference?.cardinality === 'MANY',
+  },
+  {
+    rendererType: 'FILE',
+    controlType: 'fileTransfer',
+    supports: (field) => field.fileReference != null && !isSingleImageFileReference(field.fileReference),
+  },
+  {
+    rendererType: 'FILE',
+    controlType: 'imageFileTransfer',
+    supports: (field) => field.fileReference != null && isSingleImageFileReference(field.fileReference),
+  },
+];
 
 export interface RecordFormFieldFallback {
   label: string;
@@ -56,7 +132,7 @@ export interface RecordFormFieldFallback {
 export interface RecordFormFieldPickerConfig {
   context: ModuleContext<RecordPickerRecord>;
   reloadKey?: number;
-  mode?: 'list' | 'tree';
+  mode?: RecordPickerMode;
   placeholder?: string;
   allowClear?: boolean;
   constraints?: PickerConstraint<RecordPickerRecord>[];
@@ -72,6 +148,14 @@ export interface RecordFormFieldState {
   readOnly: boolean;
   visible: boolean;
   controlType: RecordFormFieldControlType;
+  fieldControl?: ResolvedFieldControlDescriptor;
+  /**
+   * Published storage semantics drive the editor wire codec. In particular LONG and DECIMAL
+   * deliberately remain text in the browser so JSON.stringify cannot round enterprise values.
+   */
+  valueType?: ViewFieldValueType;
+  /** Set only when an authoritative field-control descriptor cannot be executed safely. */
+  rendererDiagnostic?: string;
   columnSpan: number;
   hasOption: boolean;
   optionSelectionMode?: 'SINGLE' | 'MULTIPLE';
@@ -231,9 +315,14 @@ export function resolveRecordFormFieldState(
     readOnly,
     visible,
     controlType,
+    ...(field?.fieldControl ? { fieldControl: field.fieldControl } : {}),
+    ...(field?.valueType ? { valueType: field.valueType } : {}),
     columnSpan: field?.columnSpan === 2 ? 2 : 1,
     hasOption,
     pickerConfig,
+    ...(field?.fieldControl && controlType === 'unsupported'
+      ? { rendererDiagnostic: rendererDiagnostic(field.fieldControl) }
+      : {}),
     ...(field?.fileReference ? { fileReference: field.fileReference } : {}),
     ...(booleanStatus ? { booleanStatus } : {}),
     ...(field?.valuePresentation ? { valuePresentation: field.valuePresentation } : {}),
@@ -246,10 +335,13 @@ export function resolveRecordFormFieldState(
     ...baseState,
     ...(field?.option
       ? {
-          optionSelectionMode: field.option.selectionMode,
+          optionSelectionMode: fieldControlSelectionMode(field) ?? field.option.selectionMode,
           ...(field.option.inlineItems?.length ? { optionItems: field.option.inlineItems } : {}),
           ...(field.option.titleField ? { optionTitleField: field.option.titleField } : {}),
         }
+      : {}),
+    ...(!field?.option && fieldControlSelectionMode(field)
+      ? { optionSelectionMode: fieldControlSelectionMode(field) }
       : {}),
     ...(field?.reference?.titleField ? { referenceTitleField: field.reference.titleField } : {}),
     ...(field?.treeRootTitle ? { treeRootTitle: field.treeRootTitle } : {}),
@@ -285,8 +377,14 @@ function controlTypeOf(
   field: RecordFormFieldDescriptor | undefined,
   fallback: RecordFormFieldFallback | undefined,
 ): RecordFormFieldControlType {
+  // A file-reference declaration is the source-of-truth transport contract. It must never
+  // degrade into a generic text renderer merely because an older descriptor also carries an
+  // inferred TEXT control for its String storage column.
   if (field?.fileReference) {
     return isSingleImageFileReference(field.fileReference) ? 'imageFileTransfer' : 'fileTransfer';
+  }
+  if (field?.fieldControl) {
+    return resolveFieldControlType(field, field.fieldControl);
   }
   const referenceControlType = referenceControlTypeOf(field?.reference, field?.uiType);
   if (referenceControlType) {
@@ -323,6 +421,97 @@ function controlTypeOf(
     return 'select';
   }
   return fallback?.controlType ?? 'input';
+}
+
+function resolveFieldControlType(
+  field: RecordFormFieldDescriptor,
+  fieldControl: ResolvedFieldControlDescriptor,
+): RecordFormFieldControlType {
+  const renderer = recordFieldRendererRegistry.find(
+    (candidate) => candidate.rendererType === fieldControl.rendererType && candidate.supports(field),
+  );
+  return renderer?.controlType ?? 'unsupported';
+}
+
+function rendererDiagnostic(fieldControl: ResolvedFieldControlDescriptor) {
+  return `字段控件“${fieldControl.alias}”的 renderer“${fieldControl.rendererType}”未在当前页面运行器登记，已拒绝编辑。`;
+}
+
+function fieldControlSelectionMode(field: RecordFormFieldDescriptor | undefined) {
+  if (field?.fieldControl?.rendererType === 'MULTI_SELECT') {
+    return 'MULTIPLE' as const;
+  }
+  return undefined;
+}
+
+/**
+ * Native number inputs emit text. INTEGER is the only standard numeric field that is safe as a
+ * JavaScript number; LONG and DECIMAL use an exact textual wire form and are parsed by the
+ * field-aware server deserializer. Do not turn these values into `Number` before JSON encoding.
+ */
+export function decodeNumberEditorValue(
+  value: string,
+  valueType?: ViewFieldValueType,
+): number | string | undefined {
+  if (!value.trim()) return undefined;
+  const text = value.trim();
+  if (valueType === 'LONG') {
+    return /^[-+]?\d+$/.test(text) ? canonicalIntegerWireValue(text) : undefined;
+  }
+  if (valueType === 'DECIMAL') {
+    return /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text) ? text : undefined;
+  }
+  const decoded = Number(text);
+  if (!Number.isFinite(decoded)) return undefined;
+  // Legacy uiType-only descriptors do not publish a storage type yet. Preserve their previous
+  // numeric behavior during protocol migration; resolved INTEGER descriptors take the strict
+  // safe-integer path, while resolved LONG/DECIMAL never arrive here.
+  return valueType === 'INTEGER' && !Number.isSafeInteger(decoded) ? undefined : decoded;
+}
+
+function canonicalIntegerWireValue(value: string) {
+  const negative = value.startsWith('-');
+  const unsigned = value.replace(/^[-+]/, '').replace(/^0+(?=\d)/, '');
+  return negative && unsigned !== '0' ? `-${unsigned}` : unsigned;
+}
+
+/** Converts the canonical UTC-second record value to the browser-local datetime-local value. */
+export function formatDateTimeLocalEditorValue(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return value;
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return (
+    `${instant.getFullYear()}-${pad(instant.getMonth() + 1)}-${pad(instant.getDate())}` +
+    `T${pad(instant.getHours())}:${pad(instant.getMinutes())}:${pad(instant.getSeconds())}`
+  );
+}
+
+/** Converts browser-local datetime-local input to the dynamic-record UTC-second wire contract. */
+export function decodeDateTimeLocalEditorValue(value: string): string | undefined {
+  if (!value.trim()) return undefined;
+  const local = new Date(value);
+  if (Number.isNaN(local.getTime())) return undefined;
+  return local.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+export function formatJsonEditorValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
+export function decodeJsonEditorValue(value: string): JsonValue | undefined {
+  if (!value.trim()) return undefined;
+  const decoded = JSON.parse(value) as JsonValue;
+  if (!Array.isArray(decoded) && (decoded === null || typeof decoded !== 'object')) {
+    throw new Error('JSON 字段必须是对象或数组');
+  }
+  return decoded;
 }
 
 /**

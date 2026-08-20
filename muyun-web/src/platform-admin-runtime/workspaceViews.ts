@@ -3,6 +3,7 @@ import { configureWorkspaceViewContributions } from '@muyun/platform-workbench';
 import { configureModulePageEnhancementContributions } from '@muyun/dynamic-page-runtime';
 import { platformModulePageEnhancement } from './platformModulePageEnhancement';
 import { passwordPolicyPageEnhancement } from './passwordPolicyPageEnhancement';
+import { tenantModulePageEnhancement } from './tenantModulePageEnhancement';
 
 configureWorkspaceViewContributions('platform-admin-runtime', workspaceViewContributions);
 // The first-party platform enhancement is a default contribution, not an App.vue
@@ -11,6 +12,7 @@ configureWorkspaceViewContributions('platform-admin-runtime', workspaceViewContr
 configureModulePageEnhancementContributions('platform-admin-runtime', [
   platformModulePageEnhancement,
   passwordPolicyPageEnhancement,
+  tenantModulePageEnhancement,
 ]);
 
 export {

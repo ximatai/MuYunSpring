@@ -24,6 +24,7 @@ import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
+import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
@@ -96,6 +97,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     private final EmployeeService employeeService;
     private final UserSessionService userSessionService;
     private StaticRecordReadProjectionService staticRecordReadProjectionService;
+    private StandardModuleWebRuntime standardModuleWebRuntime;
 
     public UserAccountWebController() {
         this(null, null, null, null);
@@ -121,9 +123,19 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
         this.staticRecordReadProjectionService = staticRecordReadProjectionService;
     }
 
+    @Autowired(required = false)
+    void setStandardModuleWebRuntime(StandardModuleWebRuntime standardModuleWebRuntime) {
+        this.standardModuleWebRuntime = standardModuleWebRuntime;
+    }
+
     @Override
     public StaticRecordReadProjectionService staticRecordReadProjectionService() {
         return staticRecordReadProjectionService;
+    }
+
+    @Override
+    public StandardModuleWebRuntime standardModuleWebRuntime() {
+        return standardModuleWebRuntime;
     }
 
     @Override

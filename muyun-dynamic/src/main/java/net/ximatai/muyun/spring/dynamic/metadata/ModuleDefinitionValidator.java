@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.common.schema.PlatformDataScopeSchema;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.web.PlatformWebPathRules;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 
 import java.util.Optional;
 import java.util.HashSet;
@@ -102,16 +103,12 @@ public class ModuleDefinitionValidator {
         int titleFields = 0;
         FieldDefinition sortableField = null;
         FieldDefinition titleField = null;
-        FieldDefinition treeParentField = null;
         FieldDefinition enabledField = null;
         List<FieldDefinition> fields = entity.fields();
         for (FieldDefinition field : entity.fields()) {
             validateField(field);
             requireUnique(fieldCodes, field.code(), "field code");
             requireUnique(columnNames, field.columnName(), "column name");
-            if (PlatformAbilityFields.TREE_PARENT_FIELD.equals(field.fieldName())) {
-                treeParentField = field;
-            }
             if (PlatformAbilityFields.ENABLED_FIELD.equals(field.fieldName())
                     || PlatformAbilityFields.ENABLED_COLUMN.equals(field.columnName())) {
                 enabledField = field;
@@ -132,7 +129,6 @@ public class ModuleDefinitionValidator {
         }
         validateTenantUniqueConstraints(entity, fields);
         validateFileReferences(entity, fields);
-        validateSortPartition(entity, fields);
         if (!entity.supports(EntityCapability.CRUD)) {
             throw new ModuleDefinitionException("dynamic entity requires CRUD capability: " + entity.alias());
         }
@@ -141,15 +137,6 @@ public class ModuleDefinitionValidator {
         }
         if (titleFields > 1) {
             throw new ModuleDefinitionException("entity can only have one title field: " + entity.alias());
-        }
-        if (sortableFields > 0 && !entity.supports(EntityCapability.SORT)) {
-            throw new ModuleDefinitionException("sortable field requires SORT capability: " + entity.alias());
-        }
-        if (entity.supports(EntityCapability.TREE)) {
-            requireTreeParentField(entity, treeParentField);
-        }
-        if (entity.supports(EntityCapability.SORT)) {
-            requireSortField(entity, sortableField);
         }
         if (titleFields > 0 && !entity.supports(EntityCapability.REFERENCE)) {
             throw new ModuleDefinitionException("title field requires REFERENCE capability: " + entity.alias());
@@ -160,9 +147,7 @@ public class ModuleDefinitionValidator {
         if (entity.supports(EntityCapability.REFERENCE)) {
             requireTitleField(entity, titleField);
         }
-        if (entity.supports(EntityCapability.ENABLE)) {
-            requireEnabledField(entity, enabledField);
-        }
+        CapabilityModuleRegistry.defaultRegistry().validate(entity);
         FieldCompanionRules.validateEntity(entity);
         validateFormulaRules(entity);
     }
@@ -217,27 +202,6 @@ public class ModuleDefinitionValidator {
                             + " field: " + entity.alias() + "." + targetFieldName);
                 }
             });
-        }
-    }
-
-    private void validateSortPartition(EntityDefinition entity, List<FieldDefinition> fields) {
-        if (entity.sortPartitionFields().isEmpty()) {
-            return;
-        }
-        if (!entity.supports(EntityCapability.SORT)) {
-            throw new ModuleDefinitionException("sort partition requires SORT capability: " + entity.alias());
-        }
-        Set<String> declared = new HashSet<>();
-        for (String fieldName : entity.sortPartitionFields()) {
-            requireFieldName(fieldName, "sort partition field");
-            if (!declared.add(fieldName)) {
-                throw new ModuleDefinitionException("duplicate sort partition field: " + entity.alias() + "." + fieldName);
-            }
-            boolean physical = fields.stream().anyMatch(field -> field.fieldName().equals(fieldName) && field.isPhysical());
-            if (!physical) {
-                throw new ModuleDefinitionException("sort partition requires physical field: "
-                        + entity.alias() + "." + fieldName);
-            }
         }
     }
 
@@ -1316,29 +1280,6 @@ public class ModuleDefinitionValidator {
         return schemaName + "." + entity.tableName();
     }
 
-    private void requireSortField(EntityDefinition entity, FieldDefinition field) {
-        if (field == null) {
-            throw new ModuleDefinitionException("SORT capability requires standard field sortOrder: " + entity.alias());
-        }
-        if (!PlatformAbilityFields.SORT_FIELD.equals(field.fieldName())
-                || !PlatformAbilityFields.SORT_COLUMN.equals(field.columnName())
-                || field.type() != FieldType.INTEGER) {
-            throw new ModuleDefinitionException("SORT capability requires standard field sortOrder/sort_order: " + entity.alias());
-        }
-    }
-
-    private void requireTreeParentField(EntityDefinition entity, FieldDefinition field) {
-        if (field == null) {
-            throw new ModuleDefinitionException("TREE capability requires standard field parentId: " + entity.alias());
-        }
-        if (!PlatformAbilityFields.TREE_PARENT_FIELD.equals(field.fieldName())
-                || !PlatformAbilityFields.TREE_PARENT_COLUMN.equals(field.columnName())
-                || field.type() != FieldType.STRING
-                || !Integer.valueOf(PlatformAbilityFields.TREE_PARENT_LENGTH).equals(field.length())) {
-            throw new ModuleDefinitionException("TREE capability requires standard field parentId/parent_id: " + entity.alias());
-        }
-    }
-
     private void requireTitleField(EntityDefinition entity, FieldDefinition field) {
         if (field == null) {
             throw new ModuleDefinitionException("REFERENCE capability requires standard field title: " + entity.alias());
@@ -1347,17 +1288,6 @@ public class ModuleDefinitionValidator {
                 || !PlatformAbilityFields.TITLE_COLUMN.equals(field.columnName())
                 || field.type() != FieldType.STRING) {
             throw new ModuleDefinitionException("REFERENCE capability requires standard field title/title: " + entity.alias());
-        }
-    }
-
-    private void requireEnabledField(EntityDefinition entity, FieldDefinition field) {
-        if (field == null) {
-            throw new ModuleDefinitionException("ENABLE capability requires standard field enabled: " + entity.alias());
-        }
-        if (!PlatformAbilityFields.ENABLED_FIELD.equals(field.fieldName())
-                || !PlatformAbilityFields.ENABLED_COLUMN.equals(field.columnName())
-                || field.type() != FieldType.BOOLEAN) {
-            throw new ModuleDefinitionException("ENABLE capability requires standard field enabled/enabled: " + entity.alias());
         }
     }
 

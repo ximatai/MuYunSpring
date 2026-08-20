@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.option.DictionaryField;
 import net.ximatai.muyun.spring.common.option.OptionLoad;
@@ -14,6 +15,11 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlProperty;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlValueShape;
+import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -25,6 +31,78 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
+    @Test
+    void shouldCompileStaticUiTypeToSourceNeutralFieldControlContract() {
+        ResolvedViewFieldDescriptor field = ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor.field("quantity", view -> view.uiType("number"))))))
+                .build()).page().detail().editor().fields().getFirst();
+
+        assertThat(field.uiType()).isEqualTo("number");
+        assertThat(field.fieldControl()).isEqualTo(new ResolvedFieldControlDescriptor("number", "DECIMAL",
+                "SCALAR", Map.of(), List.of()));
+    }
+
+    @Test
+    void shouldRejectUnknownUiTypeInsteadOfLeavingBrowserFallback() {
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor.field("quantity", view -> view.uiType("unsupported"))))))
+                .build())).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsupported field control alias: unsupported");
+    }
+
+    @Test
+    void shouldRejectConfiguredControlWithoutExecutableWebRenderer() {
+        FieldUiControl control = new FieldUiControl();
+        control.setAlias("period");
+        control.setEnabled(Boolean.TRUE);
+        control.setRendererType(ViewControlType.DATE);
+        control.setValueShape(FieldUiControlValueShape.COMPOSITE);
+        FieldUiControlProperty property = new FieldUiControlProperty();
+        property.setFieldUiControlAlias("period");
+        property.setAttributeAlias("format");
+        property.setDefaultValue("YYYY-MM-DD");
+        FieldUiControlBinding binding = new FieldUiControlBinding();
+        binding.setFieldUiControlAlias("period");
+        binding.setValueKey("end");
+        binding.setValueFieldSpecAlias("date");
+
+        assertThatThrownBy(() -> FieldControlDescriptorCatalog.fromConfigured(List.of(control), List.of(property), List.of(binding)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no executable web value shape: period.COMPOSITE");
+    }
+
+    @Test
+    void shouldRejectUnimplementedCompositeDateRangeBeforeStaticModuleStarts() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor.field("deliveryPeriod",
+                                field -> field.uiType("date_range"))))))
+                .build();
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, ModuleKind.STATIC, "订单", Map.of(),
+                Map.of(), null, Map.of(ViewFieldRef.main("deliveryPeriod"), FieldValueType.DATE)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsupported field control alias: date_range");
+    }
+
+    @Test
+    void shouldNotLeakDynamicControlCatalogIntoSubsequentCompilation() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor.field("value", view -> view.uiType("text"))))))
+                .build();
+        ResolvedFieldControlDescriptor dynamicText = new ResolvedFieldControlDescriptor("text", "JSON", "SCALAR",
+                Map.of("dynamic", "true"), List.of());
+
+        assertThat(ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, "订单", Map.of(), Map.of(),
+                null, Map.of(), Map.of("text", dynamicText)).page().detail().editor().fields().getFirst().fieldControl())
+                .isEqualTo(dynamicText);
+        assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor().fields().getFirst().fieldControl())
+                .isEqualTo(new ResolvedFieldControlDescriptor("text", "TEXT", "SCALAR", Map.of(), List.of()));
+    }
+
     @Test
     void shouldCompileSourceNeutralFormComputeRuleToSignedProgram() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
@@ -82,7 +160,9 @@ class ModuleUiDescriptorCompilerTest {
                 .page(PageTemplates.flatManagement(page -> page
                         .explorer(explorer -> explorer.title("订单"))
                         .detail(detail -> detail.editor(editor -> editor
-                                .field("payload")
+                                // JSON has no executable standard editor; make this test exercise
+                                // the compute-program type guard rather than the form renderer gate.
+                                .field("payload", field -> field.uiType("text"))
                                 .field("amount")
                                 .formCompute("amountFromPayload", "amount", List.of("payload"),
                                         "{amount} = {payload}")))))
@@ -731,6 +811,35 @@ class ModuleUiDescriptorCompilerTest {
                     assertThat(reference.targetModuleAlias()).isEqualTo("crm.tag");
                     assertThat(reference.cardinality()).isEqualTo(ReferenceCardinality.MANY);
                 });
+    }
+
+    @Test
+    void shouldCompileReferencePickerModeFromResolvedTargetFacts() {
+        ModuleUiDefinition uiDefinition = editorPage("sales.order", form -> form
+                .field("customerId", field -> field.label("客户"))
+                .field("tagIds", field -> field.label("标签")));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.order", "订单")
+                .entities(List.of(new EntityDefinition("order", "sales_order", "Order",
+                        List.of(FieldDefinition.string("customerId", "客户"),
+                                FieldDefinition.string("tagIds", "标签")))))
+                .uiDefinition(uiDefinition)
+                .modelClass(ReferenceOrder.class)
+                .build();
+
+        List<ResolvedViewFieldDescriptor> fields = ModuleUiDescriptorCompiler.compile(definition,
+                        alias -> "crm.tag".equals(alias) ? ReferencePickerMode.TREE : ReferencePickerMode.LIST)
+                .page().detail().editor().fields();
+
+        assertThat(fields).extracting(field -> field.reference().pickerMode())
+                .containsExactly(ReferencePickerMode.LIST, ReferencePickerMode.TREE);
+    }
+
+    @Test
+    void shouldSerializeReferencePickerModeAsClientContract() throws Exception {
+        String json = new ObjectMapper().writeValueAsString(new ResolvedReferenceFieldDescriptor(
+                "crm.category", ReferenceCardinality.ONE, "categoryTitle", ReferencePickerMode.TREE));
+
+        assertThat(new ObjectMapper().readTree(json).path("pickerMode").asText()).isEqualTo("TREE");
     }
 
     @Test

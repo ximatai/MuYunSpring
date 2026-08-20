@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { config, mount, shallowMount } from '@vue/test-utils';
 import Workbench from '@/platform-workbench/Workbench.vue';
 import WorkbenchBrandControl from '@/platform-workbench/WorkbenchBrandControl.vue';
@@ -960,6 +962,24 @@ describe('Workbench compact menu', () => {
     );
   });
 
+  it('keeps skin and user actions within the same topbar action region', () => {
+    const wrapper = shallowMount(Workbench);
+    const actions = wrapper.get('.topbar-actions');
+
+    expect(actions.find('[aria-label="皮肤切换"]').exists()).toBe(true);
+    expect(actions.findComponent({ name: 'UiDropdown' }).exists()).toBe(true);
+  });
+
+  it('keeps the compact topbar on one line and compresses secondary identity text only on phone widths', () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, '../../src/platform-workbench/Workbench.vue'),
+      'utf8',
+    );
+
+    expect(source).toMatch(/@media \(max-width: 720px\)[\s\S]*flex-wrap: nowrap/);
+    expect(source).toMatch(/@media \(max-width: 480px\)[\s\S]*\.topbar-title span,[\s\S]*\.user-meta/);
+  });
+
   it('opens the shared theme skin preferences from the global toolbar', async () => {
     const wrapper = shallowMount(Workbench);
 
@@ -1226,6 +1246,45 @@ describe('WorkbenchBrandControl', () => {
         right: expect.any(Number),
         bottom: expect.any(Number),
       }),
+    );
+  });
+
+  it('uses the full brand control, including the presentation toggle, as the compact-menu anchor', async () => {
+    const wrapper = mount(WorkbenchBrandControl, { props: { presentation: 'compact' } });
+    const control = wrapper.get('.workbench-brand-control').element;
+    const identity = wrapper.get('[aria-label="系统菜单"]');
+    vi.spyOn(control, 'getBoundingClientRect').mockReturnValue({
+      left: 12,
+      top: 8,
+      right: 144,
+      bottom: 44,
+      width: 132,
+      height: 36,
+      x: 12,
+      y: 8,
+      toJSON: () => ({}),
+    });
+
+    await identity.trigger('click');
+
+    expect(wrapper.emitted('openCompactMenu')?.at(-1)).toEqual([
+      'click',
+      {
+        left: 12,
+        top: 8,
+        right: 144,
+        bottom: 44,
+      },
+    ]);
+  });
+
+  it('marks the open compact brand anchor so it can share the Mega-menu surface', () => {
+    const wrapper = mount(WorkbenchBrandControl, {
+      props: { presentation: 'compact', compactOpen: true },
+    });
+
+    expect(wrapper.get('.workbench-brand-control').classes()).toContain(
+      'workbench-brand-control--compact-open',
     );
   });
 

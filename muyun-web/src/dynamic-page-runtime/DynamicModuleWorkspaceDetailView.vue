@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, toRaw, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { createModuleContext, useModuleContext } from '@muyun/web-core';
 import {
   confirmAction,
   handlePlatformActionSuccess,
   presentPlatformError,
+  recordPickerModeOf,
   RecordDetailExtensionSection,
   DrawerTitleActions,
   RecordDetailFields,
@@ -24,11 +25,11 @@ import {
   resolveModulePageEnhancement,
   type ModulePageActionContext,
   type ModulePageDrawer,
-  type ModulePageDrawerContext,
   type ModulePageRecordActionContribution,
 } from './modulePageEnhancements';
 import { useModulePageNavigation } from './modulePageNavigation';
-import DynamicRecordDetailActions from './DynamicRecordDetailActions.vue';
+import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
+import { useModulePageDetailExtensionRuntime } from './composables/useModulePageDetailExtensionRuntime';
 import { useRecordDetailController } from './recordDetailController';
 
 defineOptions({ name: 'DynamicModuleWorkspaceDetailView' });
@@ -41,11 +42,18 @@ const detail = useRecordDetailController<QueryListRecord>();
 const { record, draft, mode, formSessionKey, loading, loadFailed, saving, togglingEnabled } = detail;
 const fields = ref(resolveRecordFormFields(undefined));
 const workspaceElement = ref<HTMLElement>();
-const enhancementDrawer = ref<{
-  definition: ModulePageDrawer;
-  context: ModulePageDrawerContext;
-  titleActions: import('./modulePageEnhancements').ModulePageDrawerAction[];
-}>();
+const {
+  drawer: enhancementDrawer,
+  sectionContext,
+  openDrawer: openEnhancementDrawer,
+  closeDrawer: closeEnhancementDrawer,
+} = useModulePageDetailExtensionRuntime({
+  module: context,
+  scope: () => undefined,
+  refreshList: () => refreshModulePageList(context.moduleAlias),
+  reload: loadRecord,
+  closeDetail: () => undefined,
+});
 let loadRevision = 0;
 
 const title = computed(() => {
@@ -68,7 +76,7 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
     if (!field.reference) continue;
     configs[field.fieldRef.fieldName] = {
       context: createModuleContext({ http: context.http, moduleAlias: field.reference.targetModuleAlias }),
-      mode: 'tree',
+      mode: recordPickerModeOf(field.reference.pickerMode),
       allowClear: !field.required?.constant,
     };
   }
@@ -211,29 +219,7 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
     module: context,
     refreshList: () => refreshModulePageList(context.moduleAlias),
     reload: loadRecord,
-    openDrawer: (definition: ModulePageDrawer) => {
-      const runtime = {
-        definition,
-        titleActions: [] as import('./modulePageEnhancements').ModulePageDrawerAction[],
-        context: undefined as unknown as ModulePageDrawerContext,
-      };
-      const drawerContext: ModulePageDrawerContext = {
-        module: context,
-        record,
-        refreshList: () => refreshModulePageList(context.moduleAlias),
-        reload: loadRecord,
-        close: () => {
-          enhancementDrawer.value = undefined;
-        },
-        setTitleActions: (actions) => {
-          const activeDrawer = enhancementDrawer.value;
-          if (activeDrawer && toRaw(activeDrawer.context) === drawerContext)
-            activeDrawer.titleActions = actions;
-        },
-      };
-      runtime.context = drawerContext;
-      enhancementDrawer.value = runtime;
-    },
+    openDrawer: (definition: ModulePageDrawer) => openEnhancementDrawer(definition, record),
     openWorkspaceTab: (view, input) => {
       if (!modulePageNavigation) throw new Error('模块页面工作视图需要 Workbench 导航承载');
       modulePageNavigation.openWorkspaceTab(view, input);
@@ -275,7 +261,7 @@ async function toggleEnabled() {
   <section ref="workspaceElement" class="dynamic-module-workspace-detail">
     <RecordDetailPanel :title="title">
       <template #actions>
-        <DynamicRecordDetailActions
+        <ModuleRecordDetailActions
           :context="context"
           :record="record"
           :mode="mode"
@@ -310,6 +296,7 @@ async function toggleEnabled() {
           v-if="mode === 'view'"
           :record="draft"
           :fields="fields"
+          :file-transfer-context="context"
           :exclude-field-names="['enabled']"
         />
         <div v-else class="dynamic-module-workspace-detail__form">
@@ -330,15 +317,7 @@ async function toggleEnabled() {
             :key="section.key"
             :title="section.title"
           >
-            <component
-              :is="section.component"
-              :context="{
-                module: context,
-                record,
-                refreshList: () => refreshModulePageList(context.moduleAlias),
-                reload: loadRecord,
-              }"
-            />
+            <component :is="section.component" :context="sectionContext(record)" />
           </RecordDetailExtensionSection>
         </template>
         <RecordMetaSection v-if="showSystemInfo" :record="draft" show-sort-order />
@@ -348,10 +327,10 @@ async function toggleEnabled() {
       v-if="enhancementDrawer"
       :open="true"
       :title="enhancementDrawer.definition.title"
-      :container="workspaceElement ?? null"
       :width="enhancementDrawer.definition.width"
+      :container="workspaceElement ?? null"
       mode="view"
-      @close="enhancementDrawer = undefined"
+      @close="closeEnhancementDrawer"
     >
       <template v-if="enhancementDrawer.titleActions.length" #title-actions>
         <DrawerTitleActions :actions="enhancementDrawer.titleActions" />

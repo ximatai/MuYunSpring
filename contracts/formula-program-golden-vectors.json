@@ -10,16 +10,55 @@
         "schemaVersion": 1,
         "profile": "WEB_UI",
         "root": {
-          "kind": "BINARY", "operator": "&&", "field": null, "value": null,
+          "kind": "BINARY",
+          "operator": "&&",
+          "field": null,
+          "value": null,
           "arguments": [
-            { "kind": "FUNCTION", "operator": "PRESENT", "field": null, "value": null, "arguments": [
-              { "kind": "FIELD", "operator": null, "field": "entryType", "value": null, "arguments": [] }
-            ] },
-            { "kind": "FUNCTION", "operator": "IN", "field": null, "value": null, "arguments": [
-              { "kind": "FIELD", "operator": null, "field": "moduleKind", "value": null, "arguments": [] },
-              { "kind": "VALUE", "operator": null, "field": null, "value": "standard", "arguments": [] },
-              { "kind": "VALUE", "operator": null, "field": null, "value": "system", "arguments": [] }
-            ] }
+            {
+              "kind": "FUNCTION",
+              "operator": "PRESENT",
+              "field": null,
+              "value": null,
+              "arguments": [
+                {
+                  "kind": "FIELD",
+                  "operator": null,
+                  "field": "entryType",
+                  "value": null,
+                  "arguments": []
+                }
+              ]
+            },
+            {
+              "kind": "FUNCTION",
+              "operator": "IN",
+              "field": null,
+              "value": null,
+              "arguments": [
+                {
+                  "kind": "FIELD",
+                  "operator": null,
+                  "field": "moduleKind",
+                  "value": null,
+                  "arguments": []
+                },
+                {
+                  "kind": "VALUE",
+                  "operator": null,
+                  "field": null,
+                  "value": "standard",
+                  "arguments": []
+                },
+                {
+                  "kind": "VALUE",
+                  "operator": null,
+                  "field": null,
+                  "value": "system",
+                  "arguments": []
+                }
+              ]
+            }
           ]
         },
         "referencedFields": ["entryType", "moduleKind"]
@@ -35,15 +74,48 @@
         "schemaVersion": 1,
         "profile": "WEB_UI",
         "root": {
-          "kind": "BINARY", "operator": "||", "field": null, "value": null,
+          "kind": "BINARY",
+          "operator": "||",
+          "field": null,
+          "value": null,
           "arguments": [
-            { "kind": "FUNCTION", "operator": "ISNULL", "field": null, "value": null, "arguments": [
-              { "kind": "FIELD", "operator": null, "field": "comment", "value": null, "arguments": [] }
-            ] },
-            { "kind": "BINARY", "operator": "==", "field": null, "value": null, "arguments": [
-              { "kind": "FIELD", "operator": null, "field": "quantity", "value": null, "arguments": [] },
-              { "kind": "VALUE", "operator": null, "field": null, "value": 3.0, "arguments": [] }
-            ] }
+            {
+              "kind": "FUNCTION",
+              "operator": "ISNULL",
+              "field": null,
+              "value": null,
+              "arguments": [
+                {
+                  "kind": "FIELD",
+                  "operator": null,
+                  "field": "comment",
+                  "value": null,
+                  "arguments": []
+                }
+              ]
+            },
+            {
+              "kind": "BINARY",
+              "operator": "==",
+              "field": null,
+              "value": null,
+              "arguments": [
+                {
+                  "kind": "FIELD",
+                  "operator": null,
+                  "field": "quantity",
+                  "value": null,
+                  "arguments": []
+                },
+                {
+                  "kind": "VALUE",
+                  "operator": null,
+                  "field": null,
+                  "value": 3.0,
+                  "arguments": []
+                }
+              ]
+            }
           ]
         },
         "referencedFields": ["comment", "quantity"]
@@ -59,16 +131,55 @@
         "schemaVersion": 1,
         "profile": "WEB_UI",
         "root": {
-          "kind": "BINARY", "operator": "&&", "field": null, "value": null,
+          "kind": "BINARY",
+          "operator": "&&",
+          "field": null,
+          "value": null,
           "arguments": [
-            { "kind": "BINARY", "operator": "==", "field": null, "value": null, "arguments": [
-              { "kind": "FIELD", "operator": null, "field": "enabled", "value": null, "arguments": [] },
-              { "kind": "VALUE", "operator": null, "field": null, "value": false, "arguments": [] }
-            ] },
-            { "kind": "BINARY", "operator": "!=", "field": null, "value": null, "arguments": [
-              { "kind": "FIELD", "operator": null, "field": "status", "value": null, "arguments": [] },
-              { "kind": "VALUE", "operator": null, "field": null, "value": "disabled", "arguments": [] }
-            ] }
+            {
+              "kind": "BINARY",
+              "operator": "==",
+              "field": null,
+              "value": null,
+              "arguments": [
+                {
+                  "kind": "FIELD",
+                  "operator": null,
+                  "field": "enabled",
+                  "value": null,
+                  "arguments": []
+                },
+                {
+                  "kind": "VALUE",
+                  "operator": null,
+                  "field": null,
+                  "value": false,
+                  "arguments": []
+                }
+              ]
+            },
+            {
+              "kind": "BINARY",
+              "operator": "!=",
+              "field": null,
+              "value": null,
+              "arguments": [
+                {
+                  "kind": "FIELD",
+                  "operator": null,
+                  "field": "status",
+                  "value": null,
+                  "arguments": []
+                },
+                {
+                  "kind": "VALUE",
+                  "operator": null,
+                  "field": null,
+                  "value": "disabled",
+                  "arguments": []
+                }
+              ]
+            }
           ]
         },
         "referencedFields": ["enabled", "status"]
@@ -79,22 +190,66 @@
       "profile": "FORM_COMPUTE",
       "targetValueType": "DECIMAL",
       "expression": "{amount} = ({quantity} * {unitPrice}) / {divisor}",
-      "record": { "amount": null, "quantity": "3", "unitPrice": 4, "divisor": 0 },
+      "record": {
+        "amount": null,
+        "quantity": "3",
+        "unitPrice": 4,
+        "divisor": 0
+      },
       "expected": { "amount": 0.0 },
       "program": {
         "schemaVersion": 1,
         "profile": "FORM_COMPUTE",
         "root": {
-          "kind": "ASSIGN", "operator": "=", "field": null, "value": null,
+          "kind": "ASSIGN",
+          "operator": "=",
+          "field": null,
+          "value": null,
           "arguments": [
-            { "kind": "FIELD", "operator": null, "field": "amount", "value": null, "arguments": [] },
-            { "kind": "BINARY", "operator": "/", "field": null, "value": null, "arguments": [
-              { "kind": "BINARY", "operator": "*", "field": null, "value": null, "arguments": [
-                { "kind": "FIELD", "operator": null, "field": "quantity", "value": null, "arguments": [] },
-                { "kind": "FIELD", "operator": null, "field": "unitPrice", "value": null, "arguments": [] }
-              ] },
-              { "kind": "FIELD", "operator": null, "field": "divisor", "value": null, "arguments": [] }
-            ] }
+            {
+              "kind": "FIELD",
+              "operator": null,
+              "field": "amount",
+              "value": null,
+              "arguments": []
+            },
+            {
+              "kind": "BINARY",
+              "operator": "/",
+              "field": null,
+              "value": null,
+              "arguments": [
+                {
+                  "kind": "BINARY",
+                  "operator": "*",
+                  "field": null,
+                  "value": null,
+                  "arguments": [
+                    {
+                      "kind": "FIELD",
+                      "operator": null,
+                      "field": "quantity",
+                      "value": null,
+                      "arguments": []
+                    },
+                    {
+                      "kind": "FIELD",
+                      "operator": null,
+                      "field": "unitPrice",
+                      "value": null,
+                      "arguments": []
+                    }
+                  ]
+                },
+                {
+                  "kind": "FIELD",
+                  "operator": null,
+                  "field": "divisor",
+                  "value": null,
+                  "arguments": []
+                }
+              ]
+            }
           ]
         },
         "referencedFields": ["amount", "quantity", "unitPrice", "divisor"]
@@ -105,23 +260,66 @@
       "profile": "FORM_COMPUTE",
       "targetValueType": "DECIMAL",
       "expression": "{amount} = +{scientific} + +{hexadecimal}",
-      "record": { "amount": null, "scientific": "1e2", "hexadecimal": "0x1.0p4" },
+      "record": {
+        "amount": null,
+        "scientific": "1e2",
+        "hexadecimal": "0x1.0p4"
+      },
       "expected": { "amount": 116.0 },
       "program": {
         "schemaVersion": 1,
         "profile": "FORM_COMPUTE",
         "root": {
-          "kind": "ASSIGN", "operator": "=", "field": null, "value": null,
+          "kind": "ASSIGN",
+          "operator": "=",
+          "field": null,
+          "value": null,
           "arguments": [
-            { "kind": "FIELD", "operator": null, "field": "amount", "value": null, "arguments": [] },
-            { "kind": "BINARY", "operator": "+", "field": null, "value": null, "arguments": [
-              { "kind": "UNARY", "operator": "+", "field": null, "value": null, "arguments": [
-                { "kind": "FIELD", "operator": null, "field": "scientific", "value": null, "arguments": [] }
-              ] },
-              { "kind": "UNARY", "operator": "+", "field": null, "value": null, "arguments": [
-                { "kind": "FIELD", "operator": null, "field": "hexadecimal", "value": null, "arguments": [] }
-              ] }
-            ] }
+            {
+              "kind": "FIELD",
+              "operator": null,
+              "field": "amount",
+              "value": null,
+              "arguments": []
+            },
+            {
+              "kind": "BINARY",
+              "operator": "+",
+              "field": null,
+              "value": null,
+              "arguments": [
+                {
+                  "kind": "UNARY",
+                  "operator": "+",
+                  "field": null,
+                  "value": null,
+                  "arguments": [
+                    {
+                      "kind": "FIELD",
+                      "operator": null,
+                      "field": "scientific",
+                      "value": null,
+                      "arguments": []
+                    }
+                  ]
+                },
+                {
+                  "kind": "UNARY",
+                  "operator": "+",
+                  "field": null,
+                  "value": null,
+                  "arguments": [
+                    {
+                      "kind": "FIELD",
+                      "operator": null,
+                      "field": "hexadecimal",
+                      "value": null,
+                      "arguments": []
+                    }
+                  ]
+                }
+              ]
+            }
           ]
         },
         "referencedFields": ["amount", "scientific", "hexadecimal"]
@@ -138,16 +336,55 @@
         "schemaVersion": 1,
         "profile": "FORM_COMPUTE",
         "root": {
-          "kind": "ASSIGN", "operator": "=", "field": null, "value": null,
+          "kind": "ASSIGN",
+          "operator": "=",
+          "field": null,
+          "value": null,
           "arguments": [
-            { "kind": "FIELD", "operator": null, "field": "amount", "value": null, "arguments": [] },
-            { "kind": "BINARY", "operator": "+", "field": null, "value": null, "arguments": [
-              { "kind": "BINARY", "operator": "*", "field": null, "value": null, "arguments": [
-                { "kind": "FIELD", "operator": null, "field": "source", "value": null, "arguments": [] },
-                { "kind": "VALUE", "operator": null, "field": null, "value": 1.0, "arguments": [] }
-              ] },
-              { "kind": "VALUE", "operator": null, "field": null, "value": 1.0, "arguments": [] }
-            ] }
+            {
+              "kind": "FIELD",
+              "operator": null,
+              "field": "amount",
+              "value": null,
+              "arguments": []
+            },
+            {
+              "kind": "BINARY",
+              "operator": "+",
+              "field": null,
+              "value": null,
+              "arguments": [
+                {
+                  "kind": "BINARY",
+                  "operator": "*",
+                  "field": null,
+                  "value": null,
+                  "arguments": [
+                    {
+                      "kind": "FIELD",
+                      "operator": null,
+                      "field": "source",
+                      "value": null,
+                      "arguments": []
+                    },
+                    {
+                      "kind": "VALUE",
+                      "operator": null,
+                      "field": null,
+                      "value": 1.0,
+                      "arguments": []
+                    }
+                  ]
+                },
+                {
+                  "kind": "VALUE",
+                  "operator": null,
+                  "field": null,
+                  "value": 1.0,
+                  "arguments": []
+                }
+              ]
+            }
           ]
         },
         "referencedFields": ["amount", "source"]
@@ -164,13 +401,40 @@
         "schemaVersion": 1,
         "profile": "FORM_COMPUTE",
         "root": {
-          "kind": "ASSIGN", "operator": "=", "field": null, "value": null,
+          "kind": "ASSIGN",
+          "operator": "=",
+          "field": null,
+          "value": null,
           "arguments": [
-            { "kind": "FIELD", "operator": null, "field": "amount", "value": null, "arguments": [] },
-            { "kind": "BINARY", "operator": "+", "field": null, "value": null, "arguments": [
-              { "kind": "VALUE", "operator": null, "field": null, "value": 1.0, "arguments": [] },
-              { "kind": "VALUE", "operator": null, "field": null, "value": 1.0, "arguments": [] }
-            ] }
+            {
+              "kind": "FIELD",
+              "operator": null,
+              "field": "amount",
+              "value": null,
+              "arguments": []
+            },
+            {
+              "kind": "BINARY",
+              "operator": "+",
+              "field": null,
+              "value": null,
+              "arguments": [
+                {
+                  "kind": "VALUE",
+                  "operator": null,
+                  "field": null,
+                  "value": 1.0,
+                  "arguments": []
+                },
+                {
+                  "kind": "VALUE",
+                  "operator": null,
+                  "field": null,
+                  "value": 1.0,
+                  "arguments": []
+                }
+              ]
+            }
           ]
         },
         "referencedFields": ["amount"]
@@ -187,10 +451,25 @@
         "schemaVersion": 1,
         "profile": "FORM_COMPUTE",
         "root": {
-          "kind": "ASSIGN", "operator": "=", "field": null, "value": null,
+          "kind": "ASSIGN",
+          "operator": "=",
+          "field": null,
+          "value": null,
           "arguments": [
-            { "kind": "FIELD", "operator": null, "field": "amount", "value": null, "arguments": [] },
-            { "kind": "VALUE", "operator": null, "field": null, "value": 1.0, "arguments": [] }
+            {
+              "kind": "FIELD",
+              "operator": null,
+              "field": "amount",
+              "value": null,
+              "arguments": []
+            },
+            {
+              "kind": "VALUE",
+              "operator": null,
+              "field": null,
+              "value": 1.0,
+              "arguments": []
+            }
           ]
         },
         "referencedFields": ["amount"]

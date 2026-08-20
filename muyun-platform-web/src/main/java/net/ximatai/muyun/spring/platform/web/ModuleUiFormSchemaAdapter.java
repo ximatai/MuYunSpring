@@ -50,6 +50,20 @@ public final class ModuleUiFormSchemaAdapter {
         return FormSchema.from(descriptor.build(), modelClass);
     }
 
+    /** Builds the legacy form protocol from compiled, source-neutral UI facts. */
+    public static FormSchema formSchema(ResolvedModuleUiDescriptor descriptor, Class<?> modelClass, String resource,
+                                        String editorSurface) {
+        if (descriptor == null) return null;
+        ResolvedViewDescriptor formView = resolvedFormView(descriptor, resource, editorSurface);
+        if (formView == null) return null;
+        FormDescriptor.Builder form = FormDescriptor.builder(descriptor.moduleAlias()).title(formView.title());
+        formView.fields().stream()
+                .filter(field -> !Boolean.FALSE.equals(field.visible().constant()))
+                .map(ModuleUiFormSchemaAdapter::field)
+                .forEach(form::field);
+        return FormSchema.from(form.build(), modelClass);
+    }
+
     private static ViewDefinition formView(ModuleUiDefinition definition, String resource, String editorSurface) {
         if (resource != null && !resource.isBlank()) {
             return definition.editorContributions().stream()
@@ -75,6 +89,23 @@ public final class ModuleUiFormSchemaAdapter {
         };
     }
 
+    private static ResolvedViewDescriptor resolvedFormView(ResolvedModuleUiDescriptor descriptor, String resource,
+                                                           String editorSurface) {
+        if (resource != null && !resource.isBlank()) {
+            return descriptor.editorContributions().stream()
+                    .filter(contribution -> resource.trim().equals(contribution.resource()))
+                    .map(ResolvedPageDetailEditorContribution::editor).findFirst().orElse(null);
+        }
+        if (editorSurface != null && !editorSurface.isBlank()) {
+            return descriptor.editorSurfaces().stream()
+                    .filter(surface -> editorSurface.trim().equals(surface.key()))
+                    .map(ResolvedEditorSurfaceDescriptor::editor).findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("editor surface is not declared: " + editorSurface));
+        }
+        if (descriptor.page() != null) return descriptor.page().detail().editor();
+        return descriptor.defaultEditor();
+    }
+
     private static FormField field(ViewFieldDefinition field, Map<String, FormValueType> valueTypes) {
         FormValueType valueType = valueType(field, valueTypes);
         FormField formField = new FormField(
@@ -89,6 +120,37 @@ public final class ModuleUiFormSchemaAdapter {
                 null
         );
         return formField;
+    }
+
+    private static FormField field(ResolvedViewFieldDescriptor field) {
+        FormValueType valueType = field.valueType() == null ? FormValueType.STRING
+                : switch (field.valueType()) {
+                    case TIMESTAMP, ZONED_TIMESTAMP -> FormValueType.INSTANT;
+                    default -> FormValueType.valueOf(field.valueType().name());
+                };
+        FormField result = new FormField(field.fieldRef().fieldName(), field.label(), valueType, controlType(field),
+                Boolean.TRUE.equals(field.required().constant()), Boolean.TRUE.equals(field.readOnly().constant()),
+                field.option() == null ? null : field.option().binding(),
+                field.option() == null ? null : field.option().selectionMode(),
+                field.option() == null ? null : field.option().titleField());
+        return result;
+    }
+
+    private static FormControlType controlType(ResolvedViewFieldDescriptor field) {
+        if (field.fieldControl() == null) return null;
+        return switch (field.fieldControl().rendererType()) {
+            case "TEXT" -> FormControlType.TEXT;
+            case "TEXTAREA" -> FormControlType.TEXTAREA;
+            case "NUMBER" -> FormControlType.NUMBER;
+            case "DECIMAL" -> FormControlType.DECIMAL;
+            case "SWITCH", "ENABLED_STATUS" -> FormControlType.SWITCH;
+            case "DATE" -> FormControlType.DATE;
+            case "DATETIME" -> FormControlType.DATETIME;
+            case "SELECT" -> FormControlType.SELECT;
+            case "MULTI_SELECT" -> FormControlType.MULTI_SELECT;
+            case "JSON" -> FormControlType.JSON;
+            default -> null;
+        };
     }
 
     private static FormValueType valueType(ViewFieldDefinition field, Map<String, FormValueType> valueTypes) {

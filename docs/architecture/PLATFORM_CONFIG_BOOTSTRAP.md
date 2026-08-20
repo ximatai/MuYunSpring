@@ -112,16 +112,16 @@
 
 建议字段：
 
-| 字段               | 含义                           |
-| ------------------ | ------------------------------ |
-| `moduleAlias`      | 当前运行模块                   |
-| `metadataId`       | 被使用的元数据                 |
-| `relationRole`     | `MAIN` / `CHILD`               |
-| `parentMetadataId` | 父级元数据，可为空             |
-| `foreignKey`       | 子表指向父表的字段             |
-| `relationAlias`    | 关系别名，在模块下唯一         |
-| `autoPopulate`     | 读取主记录时是否装配子记录     |
-| `sortOrder`        | 关系排序                       |
+| 字段               | 含义                       |
+| ------------------ | -------------------------- |
+| `moduleAlias`      | 当前运行模块               |
+| `metadataId`       | 被使用的元数据             |
+| `relationRole`     | `MAIN` / `CHILD`           |
+| `parentMetadataId` | 父级元数据，可为空         |
+| `foreignKey`       | 子表指向父表的字段         |
+| `relationAlias`    | 关系别名，在模块下唯一     |
+| `autoPopulate`     | 读取主记录时是否装配子记录 |
+| `sortOrder`        | 关系排序                   |
 
 约束：
 
@@ -170,18 +170,18 @@
 
 `Menu` 建议字段：
 
-| 字段          | 含义                                  |
-| ------------- | ------------------------------------- |
-| `tenantId`    | 从所属方案继承，用于租户隔离          |
-| `schemeId`    | 所属菜单方案                          |
-| `parentId`    | 父菜单；根菜单使用平台树根节点值      |
-| `title`       | 菜单名称                              |
-| `moduleAlias` | 可选；绑定后该菜单成为可点击模块入口  |
-| `openMode`    | `tab` / `window`；入口菜单必填        |
-| `route`       | 从模块入口投影的内部路由              |
-| `externalUrl` | 从模块入口投影的外部链接 URL          |
-| `enabled`     | 是否启用                              |
-| `sortOrder`   | 排序                                  |
+| 字段          | 含义                                 |
+| ------------- | ------------------------------------ |
+| `tenantId`    | 从所属方案继承，用于租户隔离         |
+| `schemeId`    | 所属菜单方案                         |
+| `parentId`    | 父菜单；根菜单使用平台树根节点值     |
+| `title`       | 菜单名称                             |
+| `moduleAlias` | 可选；绑定后该菜单成为可点击模块入口 |
+| `openMode`    | `tab` / `window`；入口菜单必填       |
+| `route`       | 从模块入口投影的内部路由             |
+| `externalUrl` | 从模块入口投影的外部链接 URL         |
+| `enabled`     | 是否启用                             |
+| `sortOrder`   | 排序                                 |
 
 菜单基础能力只要求菜单方案、菜单树、排序、启停、模块挂载和入口打开方式。权限只对已解析的菜单树做剪枝，不进入菜单模型。
 

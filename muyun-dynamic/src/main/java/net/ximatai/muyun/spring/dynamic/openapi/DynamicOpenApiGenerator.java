@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.common.web.PlatformWebPathRules;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 
@@ -162,31 +163,9 @@ public class DynamicOpenApiGenerator {
                     operationId(descriptor, "exportSelected"),
                     "Export selected data " + mainEntity.title(), "DynamicSelectedExportRequest", PlatformAction.EXPORT.code()));
         }
-        if (mainEntity.capabilities().contains(EntityCapability.ENABLE.name())
-                && standardActionVisible.test(PlatformAction.ENABLE)) {
-            operations.add(operation(descriptor.moduleAlias(), basePath + "/enable/{id}", operationId(descriptor, "enable"),
-                    "Enable " + mainEntity.title(), null, "integer", PlatformAction.ENABLE.code()));
-        }
-        if (mainEntity.capabilities().contains(EntityCapability.ENABLE.name())
-                && standardActionVisible.test(PlatformAction.DISABLE)) {
-            operations.add(operation(descriptor.moduleAlias(), basePath + "/disable/{id}", operationId(descriptor, "disable"),
-                    "Disable " + mainEntity.title(), null, "integer", PlatformAction.DISABLE.code()));
-        }
-        if (mainEntity.capabilities().contains(EntityCapability.SORT.name())
-                && standardActionVisible.test(PlatformAction.SORT)) {
-            String sortRequestSchema = mainEntity.capabilities().contains(EntityCapability.TREE.name())
-                    ? "TreeSortWebRequest"
-                    : "SortWebRequest";
-            operations.add(operation(descriptor.moduleAlias(), basePath + "/sort/{id}", operationId(descriptor, "sort"),
-                    "Sort " + mainEntity.title(), sortRequestSchema, "integer", PlatformAction.SORT.code()));
-        }
-        if (mainEntity.capabilities().contains(EntityCapability.TREE.name())
-                && standardActionVisible.test(PlatformAction.TREE)) {
-            operations.add(getOperation(descriptor.moduleAlias(), basePath + "/tree", operationId(descriptor, "tree"),
-                    "Tree " + mainEntity.title(), null, "WebListResponse", PlatformAction.TREE.code()));
-            operations.add(getOperation(descriptor.moduleAlias(), basePath + "/tree/{id}", operationId(descriptor, "treeNode"),
-                    "Tree node " + mainEntity.title(), null, "WebListResponse", PlatformAction.TREE.code()));
-        }
+        addCapabilityOperations(operations, descriptor, mainEntity, basePath, standardActionVisible);
+        addTreeCapabilityOperations(operations, descriptor, mainEntity, basePath, standardActionVisible);
+        addCapabilityHttpEndpoints(operations, descriptor, mainEntity, basePath, standardActionVisible);
         operations.add(getOperation(descriptor.moduleAlias(), basePath + "/actions", operationId(descriptor, "actions"),
                 "List module actions", null, "DynamicActionDescriptorList", null));
         operations.add(getOperation(descriptor.moduleAlias(), basePath + "/actions/{recordId}", operationId(descriptor, "recordActions"),
@@ -221,6 +200,69 @@ public class DynamicOpenApiGenerator {
                             PlatformAction.REFERENCE.code())));
         }
         return List.copyOf(operations);
+    }
+
+    private void addCapabilityOperations(List<DynamicOpenApiDocument.Operation> operations,
+                                         DynamicModuleDescriptor descriptor,
+                                         DynamicEntityDescriptor mainEntity,
+                                         String basePath,
+                                         Predicate<PlatformAction> standardActionVisible) {
+        CapabilityModuleRegistry.defaultRegistry().modules().stream()
+                .filter(module -> mainEntity.capabilities().contains(module.capability().name()))
+                .flatMap(module -> module.actionContribution().standardActions().stream()
+                        .map(action -> Map.entry(action, module.actionContribution())))
+                .filter(entry -> standardActionVisible.test(entry.getKey()))
+                .forEach(entry -> addCapabilityOperation(operations, descriptor, mainEntity, basePath,
+                        entry.getKey(), entry.getValue(),
+                        entry.getKey() == PlatformAction.SORT
+                                && mainEntity.capabilities().contains(EntityCapability.TREE.name())));
+    }
+
+    private void addCapabilityOperation(List<DynamicOpenApiDocument.Operation> operations,
+                                        DynamicModuleDescriptor descriptor,
+                                        DynamicEntityDescriptor mainEntity,
+                                        String basePath,
+                                        PlatformAction action,
+                                        net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution contribution,
+                                        boolean treeBridge) {
+        contribution.endpointProjection(action)
+                .flatMap(projection -> contribution.webActionContract(action, treeBridge)
+                        .map(contract -> operation(descriptor.moduleAlias(), basePath + projection.path(),
+                                operationId(descriptor, projection.operationCode()),
+                                action.title() + " " + mainEntity.title(), contract.openApiRequestSchema(),
+                                contract.openApiResponseSchema(), action.code())))
+                .ifPresent(operations::add);
+    }
+
+    private void addTreeCapabilityOperations(List<DynamicOpenApiDocument.Operation> operations,
+                                             DynamicModuleDescriptor descriptor,
+                                             DynamicEntityDescriptor mainEntity,
+                                             String basePath,
+                                             Predicate<PlatformAction> standardActionVisible) {
+        if (!mainEntity.capabilities().contains(EntityCapability.TREE.name())
+                || !standardActionVisible.test(PlatformAction.TREE)) return;
+        CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.TREE,
+                        net.ximatai.muyun.spring.dynamic.capability.TreeCapabilityModule.class).actions()
+                .webEndpointProjections().forEach(projection -> operations.add(getOperation(descriptor.moduleAlias(),
+                        basePath + projection.path(), operationId(descriptor,
+                                "subtree".equals(projection.operationCode()) ? "treeNode" : projection.operationCode()),
+                        ("subtree".equals(projection.operationCode()) ? "Tree node " : "Tree ") + mainEntity.title(),
+                        null, "WebListResponse", PlatformAction.TREE.code())));
+    }
+
+    private void addCapabilityHttpEndpoints(List<DynamicOpenApiDocument.Operation> operations,
+                                            DynamicModuleDescriptor descriptor,
+                                            DynamicEntityDescriptor mainEntity,
+                                            String basePath,
+                                            Predicate<PlatformAction> standardActionVisible) {
+        CapabilityModuleRegistry.defaultRegistry().modules().stream()
+                .filter(module -> mainEntity.capabilities().contains(module.capability().name()))
+                .flatMap(module -> module.actionContribution().dynamicHttpEndpoints().stream())
+                .filter(endpoint -> standardActionVisible.test(endpoint.action()))
+                .forEach(endpoint -> operations.add(operation(descriptor.moduleAlias(),
+                        basePath + endpoint.endpoint().path(), operationId(descriptor, endpoint.endpoint().operationCode()),
+                        endpoint.action().title() + " " + mainEntity.title(), endpoint.openApiRequestSchema(),
+                        endpoint.openApiResponseSchema(), endpoint.action().code())));
     }
 
     private boolean hasActionPath(DynamicActionDescriptor action,

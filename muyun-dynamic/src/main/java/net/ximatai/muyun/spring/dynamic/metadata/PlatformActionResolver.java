@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionGroup;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -25,6 +26,9 @@ final class PlatformActionResolver {
     }
 
     private static List<EntityActionDefinition> standardActions(EntityDefinition entity, PlatformActionGroup group) {
+        var contribution = CapabilityModuleRegistry.defaultRegistry().find(group.capability())
+                .map(module -> module.actionContribution());
+        if (contribution.isPresent()) return contribution.get().standardActions().stream().map(action -> action(entity, action)).toList();
         return PlatformAction.ofGroup(group).stream()
                 .map(action -> action(entity, action))
                 .toList();

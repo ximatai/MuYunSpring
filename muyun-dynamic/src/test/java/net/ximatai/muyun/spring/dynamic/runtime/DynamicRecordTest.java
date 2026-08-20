@@ -83,6 +83,9 @@ class DynamicRecordTest {
         assertThatThrownBy(() -> record.setValue("amount", "10.00"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("invalid value type");
+        assertThatThrownBy(() -> record.setValue("amount", "not-a-decimal"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("invalid value type");
     }
 
     @Test

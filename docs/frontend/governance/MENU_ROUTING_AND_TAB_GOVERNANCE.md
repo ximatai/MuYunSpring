@@ -34,7 +34,7 @@ Vue Router 是页面承载方式之一，不是所有菜单和 tab 的唯一身�
 2. Tab identity 应来自业务入口，而不是单纯来自 `route.fullPath`。
 3. Workbench 负责菜单、tab 和页面 host 的编排；具体页面由对应 host 承载。
 4. 平台内置页面可以走静态 Vue Router。
-5. 动态模块页面应优先走平台动态运行器。
+5. 模块页面应优先走来源无关的 `ModulePageHost` 标准运行器。
 6. 独立业务页面应支持不重发平台包的承载方式。
 7. 微前端不是第一阶段默认方案，只有当 iframe 或 offline route 无法满足业务体验时再评估。
 
@@ -59,7 +59,11 @@ Vue Router 是页面承载方式之一，不是所有菜单和 tab 的唯一身�
 5. 后端菜单 target envelope 的大规模表结构迁移。
 6. 多菜单方案、跨租户、跨环境持久化恢复和配置包迁移恢复。
 
-如果某项能力需要真实业务页面、动态模块运行器或后端配置中心进一步定型，应先记录边界并暂停，不用在当前专项里提前固化完整方案。
+如果某项能力需要真实业务页面、标准模块运行器或后端配置中心进一步定型，应先记录边界并暂停，不用在当前专项里提前固化完整方案。
+
+### 标准模块页面宿主
+
+`ModulePageHost` 是 module 菜单的唯一正式页面宿主：它只消费来源无关 descriptor，不根据静态 Java 或动态元数据选择平行页面内核。`DynamicModuleHost` 仅是恢复已持久化 `dynamic-module-host` 值和旧扩展 import 的 deprecated wrapper，不得作为新模块或新扩展的默认入口。待已持久化 hostType 与扩展 import 都完成迁移、兼容窗口结束后删除该 wrapper 和对应 hostType 兼容分支。
 
 ## 目标模型
 
@@ -80,7 +84,7 @@ MenuRecord
 | 字段        | 含义                                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------------------- |
 | `pageType`  | 页面是什么，例如 `platform-route`、`business-route`、`dynamic-module`、`remote-url`、`micro-app`、`external-link`。 |
-| `openMode`  | Workbench 怎么承载，例如 `workbench-route`、`dynamic-runner`、`iframe`、`micro-app`、`new-window`。                     |
+| `openMode`  | Workbench 怎么承载，例如 `workbench-route`、`dynamic-runner`、`iframe`、`micro-app`、`new-window`。                 |
 | `target`    | 具体目标，例如 route name/path、moduleAlias、remote url、micro app entry。                                          |
 | `params`    | 页面入参，例如 route params/query、entryParams、动态模块配置 id。                                                   |
 | `tabPolicy` | tab 打开策略，例如单例、多实例、是否可关闭、刷新策略。                                                              |
@@ -92,17 +96,17 @@ MenuRecord
 
 前端 resolver 不应长期替后端模型弥补语义缺口。推进本专项时需要同步观察后端菜单模型是否能稳定表达页面入口：
 
-| 字段或语义                                     | 当前作用                                                  | 风险与观察点                                                                                                         |
-| ---------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 字段或语义                                     | 当前作用                                                               | 风险与观察点                                                                                                         |
+| ---------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `moduleAlias`                                  | 后端菜单绑定模块入口的锚点，也是权限和模块上下文锚点；为空时只是容器。 | 菜单是否可点击由是否绑定模块入口推导；一个绑定了模块的菜单仍可继续拥有子菜单。                                       |
-| `MenuNavigationTarget.menuType`                | 前端 resolver 的解析结果，区分 `module`、`route`、`link`。 | 这是前端承载和页签治理语义，不是后端菜单模型字段；不要把它反向作为权限或菜单配置主体。                               |
-| `route`                                        | 表达平台 route、offline 业务 path、routeName 或 pageKey。 | 字段容易过载；新增能力应通过结构化 target 或 resolver 规则区分语义。                                                 |
-| `openMode`                                     | 表达菜单入口在 Workbench 页签还是外部窗口打开。           | 使用 `tab` / `window`，不按 URL 形态隐式推断承载方式；`group` 不配置。                                               |
-| `externalUrl`                                  | 表达 online 业务页面或外部系统 URL。                      | URL 只表达目标，不表达打开方式；`link + tab` 由前端编译为 iframe，`link + window` 打开新窗口。                       |
-| `pageMode`                                     | 表达动态模块列表、表单、详情等模式。                      | 应与动态运行器支持的页面模式保持枚举一致。                                                                           |
-| `defaultUiConfigId` / `defaultQueryTemplateId` | 表达默认页面配置和查询模板。                              | 如果页面入口长期由 alias 管理，后续可能需要 alias 或版本语义，避免跨环境 ID 不稳定。                                 |
-| `entryParamsJson`                              | 表达入口参数。                                            | JSON 字符串适合兼容阶段；如果参数需要校验、展示或配置治理，应收敛成结构化参数模型。                                  |
-| `id` / `schemeId`                              | 支撑菜单身份和菜单方案。                                  | `menuId` 适合当前菜单树内的 tab identity；跨菜单方案、跨租户或跨环境恢复时，应纳入菜单方案上下文或 descriptor 版本。 |
+| `MenuNavigationTarget.menuType`                | 前端 resolver 的解析结果，区分 `module`、`route`、`link`。             | 这是前端承载和页签治理语义，不是后端菜单模型字段；不要把它反向作为权限或菜单配置主体。                               |
+| `route`                                        | 表达平台 route、offline 业务 path、routeName 或 pageKey。              | 字段容易过载；新增能力应通过结构化 target 或 resolver 规则区分语义。                                                 |
+| `openMode`                                     | 表达菜单入口在 Workbench 页签还是外部窗口打开。                        | 使用 `tab` / `window`，不按 URL 形态隐式推断承载方式；`group` 不配置。                                               |
+| `externalUrl`                                  | 表达 online 业务页面或外部系统 URL。                                   | URL 只表达目标，不表达打开方式；`link + tab` 由前端编译为 iframe，`link + window` 打开新窗口。                       |
+| `pageMode`                                     | 表达动态模块列表、表单、详情等模式。                                   | 应与动态运行器支持的页面模式保持枚举一致。                                                                           |
+| `defaultUiConfigId` / `defaultQueryTemplateId` | 表达默认页面配置和查询模板。                                           | 如果页面入口长期由 alias 管理，后续可能需要 alias 或版本语义，避免跨环境 ID 不稳定。                                 |
+| `entryParamsJson`                              | 表达入口参数。                                                         | JSON 字符串适合兼容阶段；如果参数需要校验、展示或配置治理，应收敛成结构化参数模型。                                  |
+| `id` / `schemeId`                              | 支撑菜单身份和菜单方案。                                               | `menuId` 适合当前菜单树内的 tab identity；跨菜单方案、跨租户或跨环境恢复时，应纳入菜单方案上下文或 descriptor 版本。 |
 
 第一阶段可以继续由前端把现有 `Menu` 字段编译成 `MenuNavigationTarget` 和 `PageDescriptor`。一旦出现以下情况，应优先提醒并评估后端字段或模型调整：
 
@@ -118,7 +122,7 @@ MenuRecord
 | Host              | 适用场景                                      | 第一阶段策略                              |
 | ----------------- | --------------------------------------------- | ----------------------------------------- |
 | PlatformRouteHost | 平台内置页面，例如元数据、菜单、设计器。      | 使用 Vue Router。                         |
-| DynamicModuleHost | 动态模块页面，例如 `moduleAlias + pageMode`。 | 进入动态运行器。                          |
+| ModulePageHost    | 标准模块页面，例如 `moduleAlias + pageMode`。 | 进入来源无关的模块页面运行器。            |
 | BusinessRouteHost | offline 业务页面，随平台统一构建发布。        | 先轻量占位，后续再接业务 route manifest。 |
 | ExternalPageHost  | online 业务页面或外部系统。                   | 先支持新窗口或 iframe。                   |
 | MicroAppHost      | online 子应用，独立发布但需要更强一体化体验。 | 只预留，不作为第一阶段默认方案。          |
@@ -283,7 +287,7 @@ Workbench tab 不能只是内存状态。当前 active tab 应与浏览器 URL �
 | ----------------- | ----------------------------------------------------------------------------------------------- |
 | PlatformRouteHost | 使用平台内置 route，例如 `/platform/metadata`。                                                 |
 | BusinessRouteHost | 使用 offline 业务 route path，例如 `/crm/customer/list`，或平台 workspace route 携带业务 path。 |
-| DynamicModuleHost | 使用可读动态入口，例如 `/platform/dynamic/crm.customer/list?uiConfigId=customer-list-v1`。      |
+| ModulePageHost    | 使用可读模块入口，例如 `/platform/dynamic/crm.customer/list?uiConfigId=customer-list-v1`。      |
 | ExternalPageHost  | 使用平台 workspace route 携带 remote url，或在新窗口直接打开业务 url。                          |
 | MicroAppHost      | 使用平台 workspace route 携带 app 和 route，例如 `/platform/app/crm/customer/list`。            |
 
@@ -332,7 +336,7 @@ Workbench 负责保存和分发 tab 生命周期，页面或 host 负责声明�
 | ----------------- | ----------------------------------------------------------------------- |
 | PlatformRouteHost | 优先使用 keep-alive，后续补 snapshot/dirty 生命周期。                   |
 | BusinessRouteHost | offline 业务页面可复用平台 PageHost 生命周期。                          |
-| DynamicModuleHost | 查询条件、分页、表单草稿等应由动态运行器统一 snapshot。                 |
+| ModulePageHost    | 查询条件、分页、表单草稿等应由标准模块运行器统一 snapshot。             |
 | ExternalPageHost  | iframe 内部状态 Workbench 无法直接读取，只能通过 postMessage 协议协作。 |
 | MicroAppHost      | 由微前端生命周期和子应用协议共同管理。                                  |
 
@@ -373,7 +377,7 @@ Workbench 在处理菜单点击时，应先根据 `MenuNavigationTarget` 选择 
 
 ```text
 route  -> PlatformRouteHost 或 BusinessRouteHost
-module -> DynamicModuleHost
+module -> ModulePageHost
 link   -> ExternalPageHost
 APP    -> MicroAppHost
 ```
@@ -514,7 +518,7 @@ PageDescriptor
 - [x] 增加 `WorkbenchOutlet` 或同等内容区承载器。
 - [x] 增加 `PlatformRouteHost`。
 - [x] 增加 `BusinessRouteHost`。
-- [x] 增加 `DynamicModuleHost` 占位。
+- [x] 增加 `ModulePageHost` 标准宿主。
 - [x] 增加 `ExternalPageHost` 占位。
 - [x] `Workbench` 内容区通过 descriptor 选择 host，而不是散落判断菜单类型。
 
@@ -522,7 +526,7 @@ PageDescriptor
 
 - [x] 平台 route 菜单能进入 PlatformRouteHost。
 - [x] 业务 route 菜单能进入 BusinessRouteHost。
-- [x] module 菜单能进入 DynamicModuleHost 占位。
+- [x] module 菜单能进入 ModulePageHost 标准宿主。
 - [x] link 菜单能进入 ExternalPageHost 占位。
 - [x] `App.vue` 不再直接散落 target 类型判断。
 - [x] PageHost outlet 有构建验证和 host 分发测试。
@@ -550,7 +554,7 @@ PageDescriptor
 
 - [ ] 定义 PageHost 生命周期：activate、deactivate、snapshot、restore、beforeClose、close。
 - [ ] 平台内置 route 支持基本 keep-alive。
-- [ ] DynamicModuleHost 预留查询、分页、表单草稿 snapshot 结构。
+- [ ] ModulePageHost 预留查询、分页、表单草稿 snapshot 结构。
 - [ ] dirty tab 关闭有拦截出口。
 
 验收：

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
+import type { UiIconName } from '@muyun/vue-ui-antdv';
 import {
   performBrowserFileTransferUpload,
   type FileTransferUploadAccess,
@@ -47,6 +48,9 @@ const props = withDefaults(
     uploadText?: string;
     presentation?: 'dropzone' | 'button';
     uploadButtonType?: 'default' | 'primary' | 'dashed' | 'link' | 'text';
+    uploadButtonSize?: 'small' | 'middle' | 'large';
+    uploadButtonIconName?: UiIconName;
+    uploadButtonTitle?: string;
     showCompletedItems?: boolean;
     /** Non-blocking, browser-side guidance evaluated after file selection and before transfer. */
     uploadAdvisory?: (file: File) => string | undefined | Promise<string | undefined>;
@@ -77,6 +81,9 @@ const props = withDefaults(
     uploadText: '选择文件上传',
     presentation: 'dropzone',
     uploadButtonType: 'default',
+    uploadButtonSize: 'middle',
+    uploadButtonIconName: undefined,
+    uploadButtonTitle: undefined,
     showCompletedItems: true,
     uploadAdvisory: undefined,
     uploadValidation: undefined,
@@ -378,10 +385,15 @@ function stateText(item: UploadItem) {
       v-if="presentation === 'button'"
       class="file-transfer-uploader__choose-button"
       :type="uploadButtonType"
+      :size="uploadButtonSize"
+      :icon-name="uploadButtonIconName"
+      :icon-only="!!uploadButtonIconName"
+      :title="uploadButtonTitle"
+      :aria-label="uploadButtonTitle"
       :disabled="unavailable"
       @click="chooseFiles"
     >
-      {{ uploadText }}
+      <span v-if="!uploadButtonIconName">{{ uploadText }}</span>
     </UiButton>
     <div
       v-else
@@ -447,7 +459,7 @@ function stateText(item: UploadItem) {
 .file-transfer-uploader__input {
   display: none;
 }
-.file-transfer-uploader__choose-button {
+.file-transfer-uploader__choose-button:not(.ui-button--icon-only) {
   width: fit-content;
 }
 .file-transfer-uploader__drop-zone {

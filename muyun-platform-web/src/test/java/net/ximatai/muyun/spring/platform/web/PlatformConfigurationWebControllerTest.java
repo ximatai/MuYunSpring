@@ -15,6 +15,7 @@ import net.ximatai.muyun.spring.platform.web.ActionEndpointInterceptor;
 import net.ximatai.muyun.spring.web.ActionResultResponseAdvice;
 import net.ximatai.muyun.spring.web.BusinessMutationInterceptor;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
+import net.ximatai.muyun.spring.web.MuYunSpringJacksonConfiguration;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import net.ximatai.muyun.spring.platform.web.endpoint.StaticAbilityWebEndpointRegistrar;
 import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
@@ -57,6 +58,9 @@ import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.platform.application.Application;
+import net.ximatai.muyun.spring.platform.application.ApplicationService;
+import net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigPublishService;
@@ -70,6 +74,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -104,11 +109,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PlatformConfigurationWebControllerTest {
 
     private static MockMvc abilityAwareMvc(Object... controllers) {
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.findAndRegisterModules();
+        ObjectMapper objectMapper = applicationObjectMapper();
         return MockMvcBuilders.standaloneSetup(controllers)
                 .setCustomHandlerMapping(() -> new AbilityAwareHandlerMapping(objectMapper))
+                .setControllerAdvice(new StandardModuleWireResponseAdvice(objectMapper))
                 .build();
+    }
+
+    private static MockMvc abilityAwareMvcWithManagedJackson(Object... controllers) {
+        ObjectMapper objectMapper = applicationObjectMapper();
+        return MockMvcBuilders.standaloneSetup(controllers)
+                .setCustomHandlerMapping(() -> new AbilityAwareHandlerMapping(objectMapper))
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new StandardModuleWireResponseAdvice(objectMapper))
+                .build();
+    }
+
+    private static ObjectMapper applicationObjectMapper() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.findAndRegisterModules();
+        objectMapper.registerModule(new MuYunSpringJacksonConfiguration().codeTitleEnumJacksonModule());
+        return objectMapper;
     }
 
     private static final class AbilityAwareHandlerMapping extends RequestMappingHandlerMapping {
@@ -162,6 +183,58 @@ class PlatformConfigurationWebControllerTest {
         verify(service, org.mockito.Mockito.atLeastOnce())
                 .children(criteria.capture(), any(String.class));
         assertClause(criteria.getAllValues().getFirst(), "applicationAlias", "platform");
+    }
+
+    @Test
+    void shouldRunModuleCrudSchemasFromCompiledPlanWithoutReenteringDsl() throws Exception {
+        PlanOnlyPlatformModuleWebController controller = new PlanOnlyPlatformModuleWebController();
+        ReflectionTestUtils.setField(controller, "service", new PlatformModuleService(mock(net.ximatai.muyun.spring.ability.BaseDao.class)));
+        ReflectionTestUtils.setField(controller, "standardModuleWebRuntime", platformModuleRuntime(controller));
+        controller.rejectDefinitionLookup();
+        MockMvc mvc = abilityAwareMvc(controller);
+
+        mvc.perform(get("/platform.module/query/schema"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scopeName").value("platform.module"));
+        mvc.perform(get("/platform.module/form/schema"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fields[0].name").value("alias"));
+        mvc.perform(post("/platform.module/tree/query")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"externalQueryValues\":{\"applicationAlias\":\"platform\"}}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void shouldPreservePlatformModuleCodeValuesWhenStandardWireAdaptsCrudResponses() throws Exception {
+        PlatformModuleService service = mock(PlatformModuleService.class);
+        PlatformModuleWebController controller = new PlatformModuleWebController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        controller.setStandardModuleWebRuntime(platformModuleRuntime(controller));
+
+        PlatformModule saved = module("platform.sales", "platform", null);
+        saved.setTitle("销售");
+        saved.setModuleKind(net.ximatai.muyun.spring.platform.module.ModuleKind.STATIC);
+        saved.setEntryType(net.ximatai.muyun.spring.platform.module.ModuleEntryType.MODULE);
+        when(service.select(any(String.class))).thenReturn(saved);
+        when(service.insert(any(PlatformModule.class))).thenReturn("platform.sales");
+        when(service.update(any(PlatformModule.class))).thenReturn(1);
+
+        MockMvc mvc = abilityAwareMvcWithManagedJackson(controller);
+        mvc.perform(get("/platform.module/view/platform.sales"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.moduleKind").value("static"))
+                .andExpect(jsonPath("$.entryType").value("module"));
+        mvc.perform(post("/platform.module/insert").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"alias\":\"platform.sales\",\"title\":\"销售\",\"applicationAlias\":\"platform\",\"moduleKind\":\"dynamic\",\"entryType\":\"route\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.moduleKind").value("static"))
+                .andExpect(jsonPath("$.entryType").value("module"));
+        mvc.perform(post("/platform.module/update/platform.sales").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"销售\",\"applicationAlias\":\"platform\",\"moduleKind\":\"dynamic\",\"entryType\":\"link\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.moduleKind").value("static"))
+                .andExpect(jsonPath("$.entryType").value("module"));
     }
 
     @Test
@@ -1345,6 +1418,56 @@ class PlatformConfigurationWebControllerTest {
             return method.invoke(entry);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Cannot read criteria node", e);
+        }
+    }
+
+    private StandardModuleWebRuntime platformModuleRuntime(PlatformModuleWebController controller) {
+        StaticModuleDefinition module = staticDefinition("platform", PlatformModuleService.MODULE_ALIAS, "模块",
+                PlatformModule.class, controller.moduleUiDefinition(),
+                java.util.Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.CRUD,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.TREE,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE));
+        ApplicationWebController applicationController = new ApplicationWebController();
+        StaticModuleDefinition application = staticDefinition("platform", ApplicationService.MODULE_ALIAS, "应用",
+                Application.class, applicationController.moduleUiDefinition(),
+                java.util.Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.CRUD,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.RECYCLE_BIN))
+                .toBuilder().navigatorSourceCapabilities(java.util.Set.of(
+                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY)).build();
+        StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(module, application));
+        return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
+                new StaticRecordReadProjectionService(catalog));
+    }
+
+    private StaticModuleDefinition staticDefinition(String applicationAlias, String moduleAlias, String title,
+                                                    Class<?> modelClass, ModuleUiDefinition uiDefinition,
+                                                    java.util.Set<net.ximatai.muyun.spring.common.platform.EntityCapability> capabilities) {
+        return StaticModuleDefinition.builder(applicationAlias, moduleAlias, title)
+                .entry(net.ximatai.muyun.spring.platform.module.ModuleEntryType.ROUTE, "/" + moduleAlias, null)
+                .capabilities(capabilities)
+                .actions(Arrays.stream(PlatformAction.values())
+                        .map(net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition::platformAction).toList())
+                .entities(List.of(new StaticEntityDefinitionCompiler().compile(moduleAlias.substring(moduleAlias.lastIndexOf('.') + 1),
+                        moduleAlias, modelClass)))
+                .modelClass(modelClass)
+                .uiDefinition(uiDefinition)
+                .build();
+    }
+
+    private static final class PlanOnlyPlatformModuleWebController extends PlatformModuleWebController {
+        private boolean rejectDefinitionLookup;
+
+        private void rejectDefinitionLookup() {
+            rejectDefinitionLookup = true;
+        }
+
+        @Override
+        public ModuleUiDefinition moduleUiDefinition() {
+            if (rejectDefinitionLookup) {
+                throw new AssertionError("request runtime must not call moduleUiDefinition");
+            }
+            return super.moduleUiDefinition();
         }
     }
 

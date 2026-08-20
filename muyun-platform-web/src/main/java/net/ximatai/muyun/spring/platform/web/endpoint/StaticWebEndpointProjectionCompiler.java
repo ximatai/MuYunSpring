@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticActionContribution;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticActionContributionSupport;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import org.springframework.web.bind.annotation.RequestMethod;
 
 import java.util.ArrayList;
@@ -37,19 +38,17 @@ final class StaticWebEndpointProjectionCompiler {
     }
 
     private WebShape shape(PlatformOperationDefinition operation) {
-        return switch (operation.operationCode()) {
-            case "enable" -> new WebShape(RequestMethod.POST, "/enable/{id}");
-            case "disable" -> new WebShape(RequestMethod.POST, "/disable/{id}");
-            case "tree" -> new WebShape(RequestMethod.GET, "/tree");
-            case "treeQuery" -> new WebShape(RequestMethod.POST, "/tree/query");
-            case "subtree" -> new WebShape(RequestMethod.GET, "/tree/{id}");
-            case "sort" -> new WebShape(RequestMethod.POST, "/sort/{id}");
-            case "query" -> new WebShape(RequestMethod.POST, "/recycle-bin/query");
-            case "view" -> new WebShape(RequestMethod.GET, "/recycle-bin/view/{id}");
-            case "restore" -> new WebShape(RequestMethod.POST, "/recycle-bin/{sourceDeleteOperationId}/restore");
-            case "purge" -> new WebShape(RequestMethod.POST, "/recycle-bin/{sourceDeleteOperationId}/purge");
-            default -> throw new IllegalArgumentException("unsupported static standard operation: " + operation);
-        };
+        var capabilityProjection = CapabilityModuleRegistry.defaultRegistry().actionOwner(operation.action())
+                .flatMap(contribution -> contribution.endpointProjection(operation));
+        if (capabilityProjection.isPresent()) {
+            var projection = capabilityProjection.get();
+            if (!projection.operationCode().equals(operation.operationCode())) {
+                throw new IllegalArgumentException("capability endpoint operation does not match capability contract: "
+                        + operation);
+            }
+            return new WebShape(RequestMethod.valueOf(projection.httpMethod()), projection.path());
+        }
+        throw new IllegalArgumentException("unsupported static standard operation: " + operation);
     }
 
     private ActionExecutionPolicy contributionPolicy(PlatformStaticActionContribution contribution,

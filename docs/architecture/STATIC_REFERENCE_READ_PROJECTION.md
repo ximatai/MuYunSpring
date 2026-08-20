@@ -27,11 +27,11 @@ private String employeeId;
 
 字段含义：
 
-| 字段 | 含义 |
-| --- | --- |
-| `target` | 静态业务的首选目标声明。目标 service 必须暴露 `public static String MODULE_ALIAS`。 |
-| `moduleAlias`、`entityAlias` | 成对使用的别名后备声明，适用于动态、外部或无法直接依赖目标 class 的场景。 |
-| `integrity` | 目标不可用时保留历史、阻断或级联删除的生命周期策略。 |
+| 字段                         | 含义                                                                                |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `target`                     | 静态业务的首选目标声明。目标 service 必须暴露 `public static String MODULE_ALIAS`。 |
+| `moduleAlias`、`entityAlias` | 成对使用的别名后备声明，适用于动态、外部或无法直接依赖目标 class 的场景。           |
+| `integrity`                  | 目标不可用时保留历史、阻断或级联删除的生命周期策略。                                |
 
 `target` 与 `moduleAlias` / `entityAlias` 必须二选一。记录引用始终指向目标主键 `id`；字典 code 由独立字典能力处理，不作为记录引用或 join 预留。
 
@@ -102,11 +102,11 @@ private transient String cStatus;
 
 引用读取必须按事实、策略和聚合分层，避免同一条关联在模型、列表和领域 service 各维护一份：
 
-| 层次 | 入口 | 适用内容 | 不负责的内容 |
-| --- | --- | --- | --- |
-| 实体读事实 | `@ReferenceLoad`、`@ReferencedBy` | 记录本身稳定拥有的关联标题、字段或反向集合 | 列表筛选、排序、业务组合 |
-| 列表查询策略 | `ModuleReadProjection` | 已暴露字段的列表展示、筛选、排序与 SQL join 优化 | 定义新的实体事实、供领域 service 间接消费 |
-| 领域读取聚合 | 领域 read facade + `ReferenceReadFacade.enrich(...)` | 已授权根记录上的业务组合，如任职视图中的账号绑定 | 手工查询并重复拼接已声明的关联标题 |
+| 层次         | 入口                                                 | 适用内容                                         | 不负责的内容                              |
+| ------------ | ---------------------------------------------------- | ------------------------------------------------ | ----------------------------------------- |
+| 实体读事实   | `@ReferenceLoad`、`@ReferencedBy`                    | 记录本身稳定拥有的关联标题、字段或反向集合       | 列表筛选、排序、业务组合                  |
+| 列表查询策略 | `ModuleReadProjection`                               | 已暴露字段的列表展示、筛选、排序与 SQL join 优化 | 定义新的实体事实、供领域 service 间接消费 |
+| 领域读取聚合 | 领域 read facade + `ReferenceReadFacade.enrich(...)` | 已授权根记录上的业务组合，如任职视图中的账号绑定 | 手工查询并重复拼接已声明的关联标题        |
 
 领域读取需要实体关联字段时，先以根实体 service 和记录集合调用 `ReferenceReadFacade.enrich(...)`。
 它只批量回填模型已经声明的 `@ReferenceLoad`、`@ReferencedBy` 事实，不暴露目标服务、引用图或 SQL planner；账号、权限、统计、
@@ -178,14 +178,14 @@ ModuleReadProjection.declared("organizationTitle", false, true)
 
 `ModuleReadProjection` 的默认语义是：
 
-| 声明方式 | 可展示 | 可排序 | 可过滤 |
-| --- | --- | --- | --- |
-| `ModuleReadProjection.of(referencePath, outputField)` | 是 | 是 | 否 |
-| `ModuleReadProjection.declared(outputField, filterable, sortable)` | 是 | 按参数 | 按参数 |
-| `ModuleReadProjection.sortableOnly(referencePath, outputField)` | 是 | 是 | 否 |
-| `ModuleReadProjection.filterable(referencePath, outputField)` | 是 | 是 | 是 |
-| `ModuleReadProjection.filterableOnly(referencePath, outputField)` | 是 | 否 | 是 |
-| `ModuleReadProjection.exists(referencePath, outputField)` | 是 | 否 | 是 |
+| 声明方式                                                           | 可展示 | 可排序 | 可过滤 |
+| ------------------------------------------------------------------ | ------ | ------ | ------ |
+| `ModuleReadProjection.of(referencePath, outputField)`              | 是     | 是     | 否     |
+| `ModuleReadProjection.declared(outputField, filterable, sortable)` | 是     | 按参数 | 按参数 |
+| `ModuleReadProjection.sortableOnly(referencePath, outputField)`    | 是     | 是     | 否     |
+| `ModuleReadProjection.filterable(referencePath, outputField)`      | 是     | 是     | 是     |
+| `ModuleReadProjection.filterableOnly(referencePath, outputField)`  | 是     | 否     | 是     |
+| `ModuleReadProjection.exists(referencePath, outputField)`          | 是     | 否     | 是     |
 
 过滤必须显式开启。展示字段不会因为已经被 select 出来就自动获得过滤能力。
 `exists(...)` 用于“引用链是否命中”的布尔派生字段，例如职员是否已经绑定账号；SQL planner 会按引用链
@@ -193,25 +193,25 @@ ModuleReadProjection.declared("organizationTitle", false, true)
 
 当前用户模块的边界是：
 
-| 输出字段 | 路径 | 能力 |
-| --- | --- | --- |
-| `employeeNo` | `EmployeeAccount.userId(inverse) -> EmployeeAccount.employeeId -> Employee.employeeNo` | 展示、排序、过滤 |
-| `employeeTitle` | `EmployeeAccount.userId(inverse) -> EmployeeAccount.employeeId -> Employee.title` | 展示、排序 |
+| 输出字段        | 路径                                                                                   | 能力             |
+| --------------- | -------------------------------------------------------------------------------------- | ---------------- |
+| `employeeNo`    | `EmployeeAccount.userId(inverse) -> EmployeeAccount.employeeId -> Employee.employeeNo` | 展示、排序、过滤 |
+| `employeeTitle` | `EmployeeAccount.userId(inverse) -> EmployeeAccount.employeeId -> Employee.title`      | 展示、排序       |
 
 当前职员模块的账号边界是：
 
-| 输出字段 | 路径 | 能力 |
-| --- | --- | --- |
-| `username` | `EmployeeAccount.employeeId(inverse) -> EmployeeAccount.userId -> UserAccount.username` | 展示、过滤 |
-| `accountBound` | `EmployeeAccount.employeeId(inverse) -> EmployeeAccount.id` | 展示、过滤 |
+| 输出字段       | 路径                                                                                    | 能力       |
+| -------------- | --------------------------------------------------------------------------------------- | ---------- |
+| `username`     | `EmployeeAccount.employeeId(inverse) -> EmployeeAccount.userId -> UserAccount.username` | 展示、过滤 |
+| `accountBound` | `EmployeeAccount.employeeId(inverse) -> EmployeeAccount.id`                             | 展示、过滤 |
 
 SQL plan 内部按语义拆分字段集合：
 
-| 字段集合 | 含义 |
-| --- | --- |
-| `responseFields` | 响应给前端的字段。 |
+| 字段集合          | 含义                   |
+| ----------------- | ---------------------- |
+| `responseFields`  | 响应给前端的字段。     |
 | `queryableFields` | 可进入查询条件的字段。 |
-| `sortableFields` | 可进入排序的字段。 |
+| `sortableFields`  | 可进入排序的字段。     |
 
 ## UI 消费边界
 

@@ -20,15 +20,15 @@
 
 代码入口：
 
-| 入口 | 作用 |
-| --- | --- |
-| `DynamicRecordService` | 动态记录对外门面，按 `moduleAlias` 和 `entityAlias` 定位运行态服务，承接 describe、CRUD/query、引用、视图、关联视图和动作执行。 |
-| `DynamicEntityOperations` | 单个动态实体的轻量操作门面，供调用方以实体维度执行记录操作。 |
-| `DynamicRecordRuntime` / `DynamicModuleRegistry` | 保存当前模块运行态快照，按模块别名提供模块定义和实体服务。 |
-| `DynamicEntityService` | 单个动态实体的运行态服务，复用 CRUD、软删、树、排序、引用、缓存等平台能力。 |
-| `DynamicRecordDao` | 动态表数据访问与 SQL 映射，不承接生命周期、权限或业务编排。 |
-| `DynamicRecordWebController` | 动态模块 Web 入口，路径根为 `/{moduleAlias}`。 |
-| `DynamicOpenApiGenerator` | 从动态 descriptor 生成基础 OpenAPI 文档模型。 |
+| 入口                                             | 作用                                                                                                                            |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `DynamicRecordService`                           | 动态记录对外门面，按 `moduleAlias` 和 `entityAlias` 定位运行态服务，承接 describe、CRUD/query、引用、视图、关联视图和动作执行。 |
+| `DynamicEntityOperations`                        | 单个动态实体的轻量操作门面，供调用方以实体维度执行记录操作。                                                                    |
+| `DynamicRecordRuntime` / `DynamicModuleRegistry` | 保存当前模块运行态快照，按模块别名提供模块定义和实体服务。                                                                      |
+| `DynamicEntityService`                           | 单个动态实体的运行态服务，复用 CRUD、软删、树、排序、引用、缓存等平台能力。                                                     |
+| `DynamicRecordDao`                               | 动态表数据访问与 SQL 映射，不承接生命周期、权限或业务编排。                                                                     |
+| `DynamicRecordWebController`                     | 动态模块 Web 入口，路径根为 `/{moduleAlias}`。                                                                                  |
+| `DynamicOpenApiGenerator`                        | 从动态 descriptor 生成基础 OpenAPI 文档模型。                                                                                   |
 
 运行时身份统一使用平台模块别名 `moduleAlias`，实体身份在运行态服务内部使用 `entityAlias`。Web 层面向前端主要暴露模块主元数据，不暴露 `entities/{entityAlias}` 路由体系。
 
@@ -74,11 +74,11 @@ OpenAPI 链路以 descriptor 为输入，经来源无关的内部文档模型投
 
 动态字段的时间语义按字段类型稳定表达：
 
-| 字段类型 | 语义 | 存储与动态 CRUD/API 输入口径 |
-| --- | --- | --- |
-| `DATE` | 业务日期 | 表示本地业务日，不做时区换算。 |
-| `TIMESTAMP` | UTC 绝对时刻 | 表示已经确定的发生时刻，动态 CRUD/API 输入使用秒级 UTC instant。导入导出的 workbook 时区解释归属数据交换专题。 |
-| `ZONED_TIMESTAMP` | 带业务时区来源的绝对时刻 | 业务值仍存 UTC instant，同时必须声明 IANA `ZoneId` companion 字段。 |
+| 字段类型          | 语义                     | 存储与动态 CRUD/API 输入口径                                                                                   |
+| ----------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `DATE`            | 业务日期                 | 表示本地业务日，不做时区换算。                                                                                 |
+| `TIMESTAMP`       | UTC 绝对时刻             | 表示已经确定的发生时刻，动态 CRUD/API 输入使用秒级 UTC instant。导入导出的 workbook 时区解释归属数据交换专题。 |
+| `ZONED_TIMESTAMP` | 带业务时区来源的绝对时刻 | 业务值仍存 UTC instant，同时必须声明 IANA `ZoneId` companion 字段。                                            |
 
 `ZONED_TIMESTAMP` 当前契约是 `instant + timeZone`，用于保留业务时区来源并支撑后续展示、导入导出和查询口径。一期不额外保存原始 `LocalDateTime`；周期性本地时间、工作日历、营业时间和跨时区调度属于后续业务时间能力。
 
@@ -100,10 +100,10 @@ OpenAPI 链路以 descriptor 为输入，经来源无关的内部文档模型投
 
 ## 关联专题
 
-| 专题 | 关系 |
-| --- | --- |
-| 配置专题 | 提供应用、模块、元数据、字段、关系、视图和动作配置，并刷新到动态运行态。 |
-| 页面交付 | 消费 descriptor、视图配置、查询配置、关联视图和动态 Web API。 |
-| 身份与权限 | 为动态 CRUD、查询、动作、菜单和 descriptor 输出提供授权与数据范围裁剪。 |
-| 工作流与任务 | 通过动态记录、动作执行和运行上下文挂接审批、待办和任务能力。 |
-| 业务编排 | 编码规则、导入导出、生成回写等专题复用动态记录门面和动作上下文。 |
+| 专题         | 关系                                                                     |
+| ------------ | ------------------------------------------------------------------------ |
+| 配置专题     | 提供应用、模块、元数据、字段、关系、视图和动作配置，并刷新到动态运行态。 |
+| 页面交付     | 消费 descriptor、视图配置、查询配置、关联视图和动态 Web API。            |
+| 身份与权限   | 为动态 CRUD、查询、动作、菜单和 descriptor 输出提供授权与数据范围裁剪。  |
+| 工作流与任务 | 通过动态记录、动作执行和运行上下文挂接审批、待办和任务能力。             |
+| 业务编排     | 编码规则、导入导出、生成回写等专题复用动态记录门面和动作上下文。         |

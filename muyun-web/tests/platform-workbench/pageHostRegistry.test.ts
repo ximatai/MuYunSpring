@@ -9,7 +9,8 @@ it('resolvePageHostComponentName maps business route hosts to BusinessRouteHost'
   assert.equal(resolvePageHostComponentName('business-route-host'), 'BusinessRouteHost');
 });
 
-it('resolvePageHostComponentName maps dynamic and external hosts', () => {
-  assert.equal(resolvePageHostComponentName('dynamic-module-host'), 'DynamicModuleHost');
+it('resolvePageHostComponentName maps neutral and persisted module hosts to the same public host', () => {
+  assert.equal(resolvePageHostComponentName('module-page-host'), 'ModulePageHost');
+  assert.equal(resolvePageHostComponentName('dynamic-module-host'), 'ModulePageHost');
   assert.equal(resolvePageHostComponentName('external-page-host'), 'ExternalPageHost');
 });

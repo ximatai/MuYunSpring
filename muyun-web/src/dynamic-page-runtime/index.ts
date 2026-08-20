@@ -1,3 +1,4 @@
+export { default as ModulePageHost } from './ModulePageHost.vue';
 export { default as DynamicModuleHost } from './DynamicModuleHost.vue';
 export { default as DynamicModulePage } from './DynamicModulePage.vue';
 export { default as DynamicModuleWorkspaceDetailView } from './DynamicModuleWorkspaceDetailView.vue';
@@ -20,6 +21,14 @@ export type { ModulePageListRefreshRegistry } from './modulePageListRefresh';
 export type {
   ModuleListEnhancement,
   ModuleDetailEnhancement,
+  ModulePageFormEnhancement,
+  ModulePageFormContribution,
+  ModulePageFormContributionContext,
+  ModulePageFormContributionState,
+  ModulePageFormFieldPolicy,
+  ModulePageFormContributionLocation,
+  ModulePageFormContributionValidity,
+  ModulePageFormSurface,
   ModuleCardEnhancement,
   ModulePageActionContext,
   ModulePageActionContribution,
@@ -32,6 +41,7 @@ export type {
   ModulePageDetailSectionContext,
   ModulePageDrawer,
   ModulePageDrawerContext,
+  ModulePageRecordViewContext,
   ModulePageEnhancement,
   ModulePageEnhancementActivationContext,
   ModulePageEnhancementRegistry,

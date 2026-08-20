@@ -14,7 +14,6 @@ const MenuManagementView = defineAsyncComponent(() => import('../views/MenuManag
 const RoleManagementView = defineAsyncComponent(() => import('../views/RoleManagementView.vue'));
 const RoleAuthorizationView = defineAsyncComponent(() => import('../views/RoleAuthorizationView.vue'));
 const SystemUserManagementView = defineAsyncComponent(() => import('../views/SystemUserManagementView.vue'));
-const TenantManagementView = defineAsyncComponent(() => import('../views/TenantManagementView.vue'));
 const UserManagementView = defineAsyncComponent(() => import('../views/UserManagementView.vue'));
 
 export interface PlatformAdminRoute {
@@ -44,12 +43,6 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
     route: '/config/menus',
     moduleAlias: 'platform.menu_scheme',
     component: MenuManagementView,
-    layout: 'workspace',
-  },
-  {
-    route: '/iam/tenants',
-    moduleAlias: 'iam.tenant',
-    component: TenantManagementView,
     layout: 'workspace',
   },
   {
@@ -108,6 +101,9 @@ export const platformAdminRoutePrefixes = Array.from(
  * canonical `/platform/dynamic/<moduleAlias>/list` URL directly.
  */
 export const platformAdminDynamicModuleRoutes: Record<string, string> = {
+  // Tenant management is descriptor-owned. Keep the former static URL for
+  // bookmarks and menus; page serialization canonicalizes it to the module host.
+  '/iam/tenants': 'iam.tenant',
   '/iam/organizations': 'iam.organization',
   '/iam/departments': 'iam.department',
   // Keep the former static module-management URL as a bookmark-compatible

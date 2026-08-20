@@ -35,7 +35,6 @@ const componentPathByRoute: Record<string, StaticRouteDefinition['componentPath'
   '/config/field-ui-controls': '/src/views/FieldUiControlManagementView.vue',
   '/config/dictionaries': '/src/views/DictionaryManagementView.vue',
   '/config/menus': '/src/views/MenuManagementView.vue',
-  '/iam/tenants': '/src/views/TenantManagementView.vue',
   '/iam/employees': '/src/views/EmployeeManagementView.vue',
   '/iam/users': '/src/views/UserManagementView.vue',
   '/iam/users/form': '/src/views/UserManagementView.vue',

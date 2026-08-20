@@ -64,6 +64,11 @@ class StaticModuleOpenApiGeneratorTest {
                 .extracting(operation -> operation.path())
                 .containsExactly("/education.teacher/query", "/education.teacher/enable/{id}")
                 .doesNotContain("/education.teacher/openapi");
+        assertThat(document.operations())
+                .filteredOn(operation -> PlatformAction.ENABLE.code().equals(operation.actionCode()))
+                .singleElement()
+                .extracting(operation -> operation.requestSchema(), operation -> operation.responseSchema())
+                .containsExactly("RecordActionWebRequest", "integer");
         assertThat(document.operations().getFirst().permissionCode()).isEqualTo(
                 PlatformPermissionCode.action("education.teacher",
                         PlatformAction.permissionActionCodeOf(PlatformAction.QUERY.code())));
@@ -72,6 +77,23 @@ class StaticModuleOpenApiGeneratorTest {
         assertThat(document.errors()).containsKeys(PlatformErrorCodes.VALIDATION_FAILED,
                 PlatformErrorCodes.CONFLICT_VERSION, PlatformErrorCodes.RESOURCE_NOT_FOUND,
                 PlatformErrorCodes.INTERNAL_ERROR);
+    }
+
+    @Test
+    void shouldDescribeSortWireContractFromRegisteredCapabilityFacts() {
+        RegisteredWebEndpointCatalog endpointCatalog = new RegisteredWebEndpointCatalog();
+        register(endpointCatalog, endpoint("education.teacher.sort", "education.teacher", "sort",
+                PlatformAction.SORT, RequestMethod.POST, "/education.teacher/sort/{id}"));
+        generator = new StaticModuleOpenApiGenerator(
+                new StaticModuleDefinitionCatalog(List.of(
+                        StaticModuleDefinition.builder("education", "education.teacher", "教师").build())),
+                endpointCatalog);
+
+        var operation = generator.generate("education.teacher").operations().getFirst();
+
+        assertThat(operation.requestSchema()).isEqualTo("SortWebRequest");
+        assertThat(operation.responseSchema()).isEqualTo("integer");
+        assertThat(operation.actionCode()).isEqualTo(PlatformAction.SORT.code());
     }
 
     @Test
@@ -138,7 +160,9 @@ class StaticModuleOpenApiGeneratorTest {
                 new StaticModuleDefinitionCatalog(List.of(
                         StaticModuleDefinition.builder("education", "education.teacher", "教师")
                                 .entities(List.of(new EntityDefinition("teacher", "teacher", "教师",
-                                        List.of(FieldDefinition.titleField()))))
+                                        List.of(FieldDefinition.titleField(),
+                                                FieldDefinition.longInteger("employeeNumber", "工号"),
+                                                FieldDefinition.decimal("annualSalary", "年薪")))))
                                 .build())),
                 endpointCatalog);
 
@@ -153,6 +177,12 @@ class StaticModuleOpenApiGeneratorTest {
                 .containsKeys("id", "tenantId", "version", "deleted", "createdAt", "updatedAt");
         assertThat(document.schemas().get("Teacher").properties().get("version").optionSource())
                 .contains("Optimistic lock");
+        assertThat(document.schemas().get("Teacher").properties().get("employeeNumber"))
+                .extracting(property -> property.type(), property -> property.format())
+                .containsExactly("string", "int64");
+        assertThat(document.schemas().get("Teacher").properties().get("annualSalary"))
+                .extracting(property -> property.type(), property -> property.format())
+                .containsExactly("string", "decimal");
         assertThat(document.operations()).filteredOn(operation -> PlatformAction.CREATE.code().equals(operation.actionCode()))
                 .singleElement().extracting(operation -> operation.successStatus()).isEqualTo(201);
         assertThat(document.operations()).filteredOn(operation -> PlatformAction.CREATE.code().equals(operation.actionCode()))

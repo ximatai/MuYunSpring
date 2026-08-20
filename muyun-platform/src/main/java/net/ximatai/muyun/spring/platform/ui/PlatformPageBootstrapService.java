@@ -20,6 +20,7 @@ import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
+import net.ximatai.muyun.spring.platform.metadata.FieldSpecService;
 import net.ximatai.muyun.spring.platform.metadata.ResolvedModuleMetadataField;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,7 @@ public class PlatformPageBootstrapService {
     private final FieldUiControlService fieldUiTypeService;
     private final FieldUiControlPropertyService fieldUiTypeAttributeService;
     private final FieldUiControlBindingService fieldUiTypeFieldMappingService;
+    private final FieldSpecService fieldSpecService;
     private final DynamicRecordService recordService;
 
     public PlatformPageBootstrapService(MenuService menuService,
@@ -60,7 +62,18 @@ public class PlatformPageBootstrapService {
                                         FieldUiControlPropertyService fieldUiTypeAttributeService,
                                         FieldUiControlBindingService fieldUiTypeFieldMappingService) {
         this(menuService, snapshotService, moduleFieldService, fieldUiTypeService, fieldUiTypeAttributeService,
-                fieldUiTypeFieldMappingService, null);
+                fieldUiTypeFieldMappingService, null, null);
+    }
+
+    public PlatformPageBootstrapService(MenuService menuService,
+                                        PlatformPageConfigSnapshotService snapshotService,
+                                        ModuleMetadataFieldService moduleFieldService,
+                                        FieldUiControlService fieldUiTypeService,
+                                        FieldUiControlPropertyService fieldUiTypeAttributeService,
+                                        FieldUiControlBindingService fieldUiTypeFieldMappingService,
+                                        DynamicRecordService recordService) {
+        this(menuService, snapshotService, moduleFieldService, fieldUiTypeService, fieldUiTypeAttributeService,
+                fieldUiTypeFieldMappingService, recordService, null);
     }
 
     @Autowired
@@ -70,7 +83,8 @@ public class PlatformPageBootstrapService {
                                         FieldUiControlService fieldUiTypeService,
                                         FieldUiControlPropertyService fieldUiTypeAttributeService,
                                         FieldUiControlBindingService fieldUiTypeFieldMappingService,
-                                        DynamicRecordService recordService) {
+                                        DynamicRecordService recordService,
+                                        FieldSpecService fieldSpecService) {
         this.menuService = menuService;
         this.snapshotService = snapshotService;
         this.moduleFieldService = moduleFieldService;
@@ -78,6 +92,7 @@ public class PlatformPageBootstrapService {
         this.fieldUiTypeAttributeService = fieldUiTypeAttributeService;
         this.fieldUiTypeFieldMappingService = fieldUiTypeFieldMappingService;
         this.recordService = recordService;
+        this.fieldSpecService = fieldSpecService;
     }
 
     public PlatformPageBootstrap bootstrapByMenu(String menuId) {
@@ -503,6 +518,8 @@ public class PlatformPageBootstrapService {
                 resolved.columnName(),
                 resolved.fieldTitle(),
                 resolved.fieldSpecAlias(),
+                fieldSpecService == null ? null : fieldSpecService.requireFieldType(resolved.fieldSpecAlias())
+                        .getFieldType().name(),
                 resolved.fieldForm() == null ? null : resolved.fieldForm().name(),
                 field.getFieldUiControlAlias(),
                 field.getVisible(),

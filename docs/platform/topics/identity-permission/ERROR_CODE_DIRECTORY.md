@@ -20,29 +20,29 @@ IAM 业务失败统一通过 `BusinessExceptions.warning(...)` 返回：
 
 ## 已收口目录
 
-| 聚合 | 规则类别 | 当前稳定错误码 |
-| --- | --- | --- |
-| 部门 | 所属机构不可用 | `iam.department.organization-not-active` |
-| 职员 | 部门与机构归属不一致 | `iam.employee.department-organization-mismatch` |
-| 职员账号 | 职员已绑定账号 | `iam.employee-account.already-bound` |
-| 任职 | 归属、引用有效性、主岗位与重复约束 | `iam.employee-position.not-belong-to-employee`、`iam.employee-position.employee-not-active`、`iam.employee-position.organization-not-active`、`iam.employee-position.department-not-active`、`iam.employee-position.position-not-active`、`iam.employee-position.department-organization-mismatch`、`iam.employee-position.primary-owner-mismatch`、`iam.employee-position.primary-already-exists`、`iam.employee-position.already-exists` |
-| 岗位分类 | 删除存在子项或岗位引用的分类 | `iam.position-category.delete-has-children`、`iam.position-category.delete-referenced` |
-| 岗位 | 删除仍被任职引用的岗位 | `iam.position.delete-referenced` |
-| 用户与会话 | 管理当前登录账号密码、强制当前用户下线、临时密码、撤销当前会话 | `iam.user.password-admin-current-user`、`iam.user.force-logout-current-user`、`iam.user.temporary-password-unavailable`、`iam.user-session.revoke-current-denied` |
-| 角色 | 授权主体、角色形态、归属与共享、角色组成员、动作与数据范围 | `iam.role.*`（见下表） |
+| 聚合       | 规则类别                                                       | 当前稳定错误码                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 部门       | 所属机构不可用                                                 | `iam.department.organization-not-active`                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 职员       | 部门与机构归属不一致                                           | `iam.employee.department-organization-mismatch`                                                                                                                                                                                                                                                                                                                                                                                            |
+| 职员账号   | 职员已绑定账号                                                 | `iam.employee-account.already-bound`                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 任职       | 归属、引用有效性、主岗位与重复约束                             | `iam.employee-position.not-belong-to-employee`、`iam.employee-position.employee-not-active`、`iam.employee-position.organization-not-active`、`iam.employee-position.department-not-active`、`iam.employee-position.position-not-active`、`iam.employee-position.department-organization-mismatch`、`iam.employee-position.primary-owner-mismatch`、`iam.employee-position.primary-already-exists`、`iam.employee-position.already-exists` |
+| 岗位分类   | 删除存在子项或岗位引用的分类                                   | `iam.position-category.delete-has-children`、`iam.position-category.delete-referenced`                                                                                                                                                                                                                                                                                                                                                     |
+| 岗位       | 删除仍被任职引用的岗位                                         | `iam.position.delete-referenced`                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 用户与会话 | 管理当前登录账号密码、强制当前用户下线、临时密码、撤销当前会话 | `iam.user.password-admin-current-user`、`iam.user.force-logout-current-user`、`iam.user.temporary-password-unavailable`、`iam.user-session.revoke-current-denied`                                                                                                                                                                                                                                                                          |
+| 角色       | 授权主体、角色形态、归属与共享、角色组成员、动作与数据范围     | `iam.role.*`（见下表）                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ### 角色授权
 
 角色是 IAM 中规则密度最高的聚合，保留完整目录，避免前端把多种授权失败折叠成一条笼统提示。
 
-| 类别 | 错误码 |
-| --- | --- |
-| 可绑定性 | `iam.role.inactive`、`platform-private-not-bindable`、`not-account-role`、`not-employment-role`、`account-grant-kind-denied`、`employment-grant-role-mismatch`、`account-grant-role-mismatch` |
-| 角色维护 | `iam.role.system-managed-mutation-denied`、`assignment-type-immutable`、`kind-immutable`、`owner-scope-type-immutable`、`owner-scope-id-immutable` |
-| 归属与共享 | `iam.role.platform-management-system-context-required`、`tenant-context-required`、`owner-tenant-mismatch`、`owner-organization-tenant-mismatch`、`platform-share-policy-invalid`、`tenant-share-policy-invalid`、`organization-share-policy-invalid` |
-| 角色组 | `iam.role.group-action-grant-denied`、`group-member-not-found`、`group-member-assignment-type-invalid`、`group-member-kind-invalid`、`group-member-inactive`、`group-data-grant-member-duplicate` |
+| 类别         | 错误码                                                                                                                                                                                                                                                                  |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 可绑定性     | `iam.role.inactive`、`platform-private-not-bindable`、`not-account-role`、`not-employment-role`、`account-grant-kind-denied`、`employment-grant-role-mismatch`、`account-grant-role-mismatch`                                                                           |
+| 角色维护     | `iam.role.system-managed-mutation-denied`、`assignment-type-immutable`、`kind-immutable`、`owner-scope-type-immutable`、`owner-scope-id-immutable`                                                                                                                      |
+| 归属与共享   | `iam.role.platform-management-system-context-required`、`tenant-context-required`、`owner-tenant-mismatch`、`owner-organization-tenant-mismatch`、`platform-share-policy-invalid`、`tenant-share-policy-invalid`、`organization-share-policy-invalid`                   |
+| 角色组       | `iam.role.group-action-grant-denied`、`group-member-not-found`、`group-member-assignment-type-invalid`、`group-member-kind-invalid`、`group-member-inactive`、`group-data-grant-member-duplicate`                                                                       |
 | 模块动作授权 | `iam.role.data-grant-duplicate`、`data-grant-required`、`employment-data-scope-required`、`account-role-data-scope-denied`、`data-grant-scope-required`、`custom-data-scope-unsupported`、`reference-dependency-unavailable`、`reference-dependency-action-unsupported` |
-| 数据授权角色 | `iam.role.not-data-grant-role`、`data-grant-action-unsupported`、`data-grant-scope-required` |
+| 数据授权角色 | `iam.role.not-data-grant-role`、`data-grant-action-unsupported`、`data-grant-scope-required`                                                                                                                                                                            |
 
 表格中省略 `iam.role.` 前缀的条目均以上述前缀组合为完整错误码。
 

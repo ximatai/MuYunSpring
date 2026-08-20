@@ -52,4 +52,14 @@ class DynamicFieldValueSupportTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("IANA");
     }
+
+    @Test
+    void shouldRejectLosslessNumericWireTextOutsideWebAdapter() {
+        assertThatThrownBy(() -> DynamicFieldValueSupport.normalize(FieldType.LONG, "9007199254740993"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("LONG");
+        assertThatThrownBy(() -> DynamicFieldValueSupport.normalize(FieldType.DECIMAL, "0.123456789012345678"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("DECIMAL");
+    }
 }

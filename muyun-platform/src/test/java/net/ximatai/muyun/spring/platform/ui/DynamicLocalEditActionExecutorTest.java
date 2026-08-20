@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,7 +60,7 @@ class DynamicLocalEditActionExecutorTest {
         DynamicRecord record = record();
         record.setId("contract-1");
         record.setVersion(3);
-        record.setValue("amount", 100);
+        record.setValue("amount", new BigDecimal("100"));
 
         assertThatThrownBy(() -> executor.execute(context(), DynamicActionExecutionRequest.record(record)
                         .withPayload(Map.of("uiConfigId", "ui-local")),

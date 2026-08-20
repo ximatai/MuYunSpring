@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.iam.user.UserSessionLifecycleEvent;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -96,8 +97,7 @@ class RealtimeWebSocketIT {
                 .thenReturn(Optional.of(CurrentUser.tenantUser("user-2", "User 2", "tenant-b")));
         when(userSessionService.currentSessionId("token-1")).thenReturn(Optional.of("session-1"));
         when(userSessionService.currentSessionId("token-2")).thenReturn(Optional.of("session-2"));
-        WebSocketStompClient stompClient = new WebSocketStompClient(new StandardWebSocketClient());
-        stompClient.setMessageConverter(new MappingJackson2MessageConverter());
+        WebSocketStompClient stompClient = stompClient();
         BlockingQueue<JsonNode> user1Messages = new LinkedBlockingQueue<>();
         BlockingQueue<JsonNode> user2Messages = new LinkedBlockingQueue<>();
 
@@ -140,8 +140,7 @@ class RealtimeWebSocketIT {
         when(userSessionService.currentUser("token-admin-b")).thenReturn(Optional.of(admin));
         when(userSessionService.currentSessionId("token-admin-a")).thenReturn(Optional.of("admin-session-a"));
         when(userSessionService.currentSessionId("token-admin-b")).thenReturn(Optional.of("admin-session-b"));
-        WebSocketStompClient stompClient = new WebSocketStompClient(new StandardWebSocketClient());
-        stompClient.setMessageConverter(new MappingJackson2MessageConverter());
+        WebSocketStompClient stompClient = stompClient();
         BlockingQueue<JsonNode> adminAMessages = new LinkedBlockingQueue<>();
         BlockingQueue<JsonNode> adminBMessages = new LinkedBlockingQueue<>();
 
@@ -182,8 +181,7 @@ class RealtimeWebSocketIT {
         when(actionAvailabilityService.recordActions("iam.user", "user-1")).thenReturn(
                 new PlatformRecordActionAvailability("user-1",
                         List.of(new PlatformRecordActionAvailability.Action("sessions", true, null))));
-        WebSocketStompClient stompClient = new WebSocketStompClient(new StandardWebSocketClient());
-        stompClient.setMessageConverter(new MappingJackson2MessageConverter());
+        WebSocketStompClient stompClient = stompClient();
         BlockingQueue<JsonNode> messages = new LinkedBlockingQueue<>();
 
         StompSession adminSession = connect(stompClient, "token-admin");
@@ -221,8 +219,7 @@ class RealtimeWebSocketIT {
         when(actionAvailabilityService.recordActions("iam.user", "user-1")).thenReturn(
                 new PlatformRecordActionAvailability("user-1",
                         List.of(new PlatformRecordActionAvailability.Action("sessions", true, null))));
-        WebSocketStompClient stompClient = new WebSocketStompClient(new StandardWebSocketClient());
-        stompClient.setMessageConverter(new MappingJackson2MessageConverter());
+        WebSocketStompClient stompClient = stompClient();
         BlockingQueue<JsonNode> messages = new LinkedBlockingQueue<>();
 
         StompSession adminSession = connect(stompClient, "token-admin");
@@ -261,6 +258,12 @@ class RealtimeWebSocketIT {
                         new StompSessionHandlerAdapter() {
                         })
                 .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    private WebSocketStompClient stompClient() {
+        WebSocketStompClient stompClient = new WebSocketStompClient(new StandardWebSocketClient());
+        stompClient.setMessageConverter(new MappingJackson2MessageConverter());
+        return stompClient;
     }
 
     private StompFrameHandler frameHandler(BlockingQueue<JsonNode> messages) {
@@ -303,6 +306,18 @@ class RealtimeWebSocketIT {
                 .isEqualTo("iam.user.session.collectionChanged");
         assertThat(envelope.path("payload").path("recordId").asText()).isEqualTo(userId);
         assertThat(envelope.path("payload").path("reason").asText()).isEqualTo(reason);
+    }
+
+    @AfterEach
+    void awaitDisconnectedWebSocketSessions() throws InterruptedException {
+        long deadline = System.nanoTime() + TIMEOUT.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (userRegistry.getUserCount() == 0) {
+                return;
+            }
+            TimeUnit.MILLISECONDS.sleep(50);
+        }
+        assertThat(userRegistry.getUserCount()).isZero();
     }
 
     private void awaitServerSubscriptions(String destination, int count) throws InterruptedException {

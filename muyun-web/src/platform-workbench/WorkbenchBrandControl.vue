@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import { UiIcon } from '@muyun/vue-ui-antdv';
 
 defineOptions({ name: 'WorkbenchBrandControl' });
@@ -42,11 +43,14 @@ const emit = defineEmits<{
   changeExpandedMenuDepth: [depth: 1 | 2 | 3];
 }>();
 
+const brandControl = ref<HTMLElement>();
+
 function requestCompactMenuOpen(source: 'pointer' | 'focus' | 'click', event: MouseEvent | FocusEvent) {
-  if (props.presentation !== 'compact' || !(event.currentTarget instanceof HTMLElement)) {
+  const anchor = brandControl.value ?? event.currentTarget;
+  if (props.presentation !== 'compact' || !(anchor instanceof HTMLElement)) {
     return;
   }
-  const rect = event.currentTarget.getBoundingClientRect();
+  const rect = anchor.getBoundingClientRect();
   emit('openCompactMenu', source, {
     left: rect.left,
     top: rect.top,
@@ -78,10 +82,14 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
 
 <template>
   <div
+    ref="brandControl"
     class="workbench-brand-control"
     :class="[
       `workbench-brand-control--${presentation}`,
-      { 'workbench-brand-control--with-title': showTitleArea },
+      {
+        'workbench-brand-control--with-title': showTitleArea,
+        'workbench-brand-control--compact-open': presentation === 'compact' && compactOpen,
+      },
     ]"
   >
     <component
@@ -317,6 +325,24 @@ button.workbench-brand-identity {
   border-radius: 0;
   background: var(--muyun-support-surface);
   box-shadow: inset 0 -1px 0 var(--muyun-support-surface);
+}
+
+/* The brand anchor extends to the compact panel's top edge, forming one Mega-menu surface. */
+.workbench-brand-control--compact-open {
+  position: relative;
+  z-index: 5;
+  margin-bottom: -13px;
+  margin-left: -8px;
+  margin-top: -4px;
+  padding-bottom: 13px;
+  padding-left: 8px;
+  padding-top: 4px;
+  background: var(--muyun-support-surface);
+}
+
+.workbench-brand-control--compact-open .workbench-brand-identity--open {
+  background: transparent;
+  box-shadow: none;
 }
 
 .workbench-brand-control--compact .workbench-brand-identity:focus-visible {

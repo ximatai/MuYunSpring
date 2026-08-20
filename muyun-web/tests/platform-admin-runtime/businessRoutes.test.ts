@@ -15,7 +15,6 @@ it('static business route registry exposes only pages still owned by static rout
     '/config/field-ui-controls',
     '/config/dictionaries',
     '/config/menus',
-    '/iam/tenants',
     '/iam/employees',
     '/iam/users',
     '/iam/users/form',
@@ -28,7 +27,6 @@ it('static business route registry exposes only pages still owned by static rout
     'platform.field_ui_control': '/config/field-ui-controls',
     'platform.dictionary_category': '/config/dictionaries',
     'platform.menu_scheme': '/config/menus',
-    'iam.tenant': '/iam/tenants',
     'iam.employee': '/iam/employees',
     'iam.user': '/iam/users',
     'iam.system_user': '/iam/system-users',
@@ -65,7 +63,7 @@ it('module management has no static route and resolves through the canonical dyn
   const descriptor = pageDescriptorFromUrl('/platform/dynamic/platform.module/list');
 
   assert.equal(descriptor.pageType, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.hostType, 'module-page-host');
   assert.equal(descriptor.target.moduleAlias, 'platform.module');
   assert.equal(descriptor.menuId, undefined);
 });
@@ -76,7 +74,7 @@ it('legacy module management URL restores through the dynamic host', () => {
   });
 
   assert.equal(descriptor.pageType, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.hostType, 'module-page-host');
   assert.equal(descriptor.target.moduleAlias, 'platform.module');
   assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/platform.module/list');
 });
@@ -102,24 +100,22 @@ it('legacy password management URL restores through the standard module runner',
   });
 
   assert.equal(descriptor.pageType, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.hostType, 'module-page-host');
   assert.equal(descriptor.target.moduleAlias, 'iam.password_policy_rule');
   assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/iam.password_policy_rule/list');
 });
 
-it('static business route registry resolves tenant management module route', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/iam/tenants', moduleAlias: 'iam.tenant' },
-    tabPolicy: { identity: 'by-menu' },
-  };
+it('legacy tenant management URL restores through the standard module runner', () => {
+  assert.equal(platformAdminModuleRoutes['iam.tenant'], undefined);
+  assert.equal(platformAdminDynamicModuleRoutes['/iam/tenants'], 'iam.tenant');
+  const descriptor = pageDescriptorFromUrl('/iam/tenants', {
+    dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
+  });
 
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route?.route, '/iam/tenants');
-  assert.equal(route?.moduleAlias, 'iam.tenant');
+  assert.equal(descriptor.pageType, 'dynamic-module');
+  assert.equal(descriptor.hostType, 'module-page-host');
+  assert.equal(descriptor.target.moduleAlias, 'iam.tenant');
+  assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/iam.tenant/list');
 });
 
 it('position management is intentionally delegated to the dynamic page host', () => {

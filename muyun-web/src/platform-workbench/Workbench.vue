@@ -392,18 +392,17 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
           >
             <UiIcon name="skin" />
           </button>
+          <UiDropdown v-slot="{ toggle }" :items="userMenuItems" @select="handleUserCommand">
+            <button class="user-button" type="button" @click.stop="toggle">
+              <span class="avatar">{{ userInitial }}</span>
+              <span class="user-meta">
+                <strong>{{ userDisplayName }}</strong>
+                <small>{{ currentUser?.system ? '系统管理员' : '业务用户' }}</small>
+              </span>
+              <UiIcon class="user-caret" name="down" />
+            </button>
+          </UiDropdown>
         </div>
-
-        <UiDropdown v-slot="{ toggle }" :items="userMenuItems" @select="handleUserCommand">
-          <button class="user-button" type="button" @click.stop="toggle">
-            <span class="avatar">{{ userInitial }}</span>
-            <span class="user-meta">
-              <strong>{{ userDisplayName }}</strong>
-              <small>{{ currentUser?.system ? '系统管理员' : '业务用户' }}</small>
-            </span>
-            <UiIcon class="user-caret" name="down" />
-          </button>
-        </UiDropdown>
       </header>
 
       <section class="workbench-mega-surface">
@@ -495,6 +494,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .topbar-title-heading {
   display: inline-flex;
   max-width: 100%;
+  min-width: 0;
   align-items: center;
 }
 
@@ -596,9 +596,12 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 }
 
 .app-topbar h1 {
+  overflow: hidden;
   color: var(--muyun-support-text);
   font-size: 16px;
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-title span {
@@ -952,17 +955,43 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   }
 
   .app-topbar {
-    display: grid;
-    grid-template-columns: 1fr;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  .topbar-identity {
+    flex: 1 1 auto;
   }
 
   .topbar-actions {
+    flex: 0 0 auto;
     justify-content: flex-start;
     margin-left: 0;
   }
+}
+
+@media (max-width: 480px) {
+  .app-topbar {
+    padding-inline: 10px;
+  }
+
+  .header-title-divider {
+    margin-inline: 8px;
+  }
+
+  .topbar-title span,
+  .user-meta {
+    display: none;
+  }
 
   .user-button {
-    width: 100%;
+    min-width: 0;
+    gap: 4px;
+    padding-right: 5px;
+  }
+
+  .user-caret {
+    margin-left: 0;
   }
 }
 

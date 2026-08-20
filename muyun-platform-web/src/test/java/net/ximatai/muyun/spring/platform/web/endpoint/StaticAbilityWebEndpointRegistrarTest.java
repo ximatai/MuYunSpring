@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
 import net.ximatai.muyun.spring.ability.EnableAbility;
+import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
@@ -47,12 +48,14 @@ class StaticAbilityWebEndpointRegistrarTest {
     @Test
     void shouldGrowAndShrinkPhysicalMappingsFromServiceAbilityWithoutChangingController() throws Exception {
         Set<String> enabledMappings = mappings(mock(EnableAbility.class));
+        Set<String> sortMappings = mappings(mock(SortAbility.class));
         Set<String> plainMappings = mappings(mock(CrudAbility.class));
 
         assertThat(enabledMappings).containsExactlyInAnyOrder(
                 "/demo.resource/enable/{id}",
                 "/demo.resource/disable/{id}"
         );
+        assertThat(sortMappings).containsExactly("/demo.resource/sort/{id}");
         assertThat(plainMappings).isEmpty();
     }
 
@@ -278,6 +281,7 @@ class StaticAbilityWebEndpointRegistrarTest {
     void shouldServeGeneratedEndpointThroughRealSpringMvcHandlerPipeline() throws Exception {
         EnableAbility<?> service = mock(EnableAbility.class);
         when(service.enable("record-1", 3)).thenReturn(1);
+        when(service.disable("record-1", 4)).thenReturn(2);
         try (AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext()) {
             context.setServletContext(new MockServletContext());
             context.register(MvcConfiguration.class);
@@ -291,12 +295,18 @@ class StaticAbilityWebEndpointRegistrarTest {
                     context.getBeanProvider(net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade.class)
             ).afterSingletonsInstantiated();
 
-            MockMvcBuilders.webAppContextSetup(context).build()
+            var mvc = MockMvcBuilders.webAppContextSetup(context).build();
+            mvc
                     .perform(post("/demo.resource/enable/record-1")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"version\":3}"))
                     .andExpect(status().isOk())
                     .andExpect(content().json("1"));
+            mvc.perform(post("/demo.resource/disable/record-1")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"version\":4}"))
+                    .andExpect(status().isOk())
+                    .andExpect(content().json("2"));
         }
     }
 

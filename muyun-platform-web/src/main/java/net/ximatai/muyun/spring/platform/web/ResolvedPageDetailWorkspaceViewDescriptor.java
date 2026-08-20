@@ -1,6 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
-/** Source-neutral declaration that the frontend may bind to a registered workbench view. */
+/** Source-neutral declaration that the client runtime may bind to a registered workbench view. */
 public record ResolvedPageDetailWorkspaceViewDescriptor(String type) {
     public ResolvedPageDetailWorkspaceViewDescriptor {
         if (type == null || type.isBlank()) {

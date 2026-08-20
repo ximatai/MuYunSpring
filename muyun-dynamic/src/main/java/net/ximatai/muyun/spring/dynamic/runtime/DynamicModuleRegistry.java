@@ -15,6 +15,7 @@ import java.util.Optional;
 public class DynamicModuleRegistry {
     private final ModuleDefinitionValidator validator;
     private final Map<String, ModuleDefinition> modules = new LinkedHashMap<>();
+    private final Map<String, Long> revisions = new LinkedHashMap<>();
 
     public DynamicModuleRegistry() {
         this(new ModuleDefinitionValidator());
@@ -30,11 +31,13 @@ public class DynamicModuleRegistry {
             throw new ModuleDefinitionException("duplicate module alias: " + module.moduleAlias());
         }
         modules.put(module.moduleAlias(), module);
+        revisions.merge(module.moduleAlias(), 1L, Long::sum);
     }
 
     public void refresh(ModuleDefinition module) {
         validator.validate(module);
         modules.put(module.moduleAlias(), module);
+        revisions.merge(module.moduleAlias(), 1L, Long::sum);
     }
 
     public Optional<ModuleDefinition> findModule(String moduleAlias) {
@@ -43,6 +46,12 @@ public class DynamicModuleRegistry {
 
     public boolean containsModule(String moduleAlias) {
         return modules.containsKey(moduleAlias);
+    }
+
+    /** Monotonic per-module runtime revision, advanced only after a runtime install or refresh. */
+    public long revision(String moduleAlias) {
+        requireModule(moduleAlias);
+        return revisions.getOrDefault(moduleAlias, 0L);
     }
 
     public ModuleDefinition requireModule(String moduleAlias) {

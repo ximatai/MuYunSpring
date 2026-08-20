@@ -236,13 +236,13 @@ WebSocket endpoint + SockJS fallback
 
 建议订阅策略：
 
-| 场景 | 订阅方式 |
-| --- | --- |
-| 登录后默认 | user queue |
-| 登录后可选 | 当前租户 public、当前机构 public |
-| 页面打开列表 | module channel |
-| 页面打开详情或编辑 | record channel |
-| 业务上下文、任务空间、协同房间 | context / conversation channel |
+| 场景                           | 订阅方式                         |
+| ------------------------------ | -------------------------------- |
+| 登录后默认                     | user queue                       |
+| 登录后可选                     | 当前租户 public、当前机构 public |
+| 页面打开列表                   | module channel                   |
+| 页面打开详情或编辑             | record channel                   |
+| 业务上下文、任务空间、协同房间 | context / conversation channel   |
 
 租户和机构 public channel 是公共事实频道，不是数据权限频道。任何需要角色、数据权限、记录级可见性判断的变化，不得进入公共频道。
 
@@ -386,12 +386,12 @@ simpMessagingTemplate.convertAndSendToUser(userId, "/queue/platform/data-changes
 
 后端发布门面按消息类型分层，不复用 payload：
 
-| 消息类型 | 门面 | 默认 destination | payload 边界 |
-| --- | --- | --- | --- |
-| 数据变化 | `DataChangeRealtimePublisher` | 发起用户 `/user/queue/platform/data-changes`；公共 module / record topic | user queue 可发送完整 `CommittedChangeSet`；公共 topic 只能发送清空 `facts` 的低敏脏标记 |
-| 安全通知 | `SecurityRealtimeNotifier` | `/user/queue/platform/notifications` | 只表达安全事实、是否需要退出、目标 session；不携带 token、IP、User-Agent 或 UI 指令 |
-| 业务私有事件 | `BusinessRealtimeNotifier` / `BusinessRealtimeFanOutPublisher` | `/user/queue/platform/business-events` | 只发送给经 recipient policy 判定的用户；普通业务状态变化优先发送低敏脏标记，详情通过业务查询接口读取 |
-| 会话 presence | `UserSessionPresenceLookup` + `UserSessionLifecycleEvent` | 用户管理仍复用 `/user/queue/platform/business-events` | presence 只表达 WebSocket 连接观测，不替代 session 有效性；管理页通过会话查询接口读取完整状态 |
+| 消息类型      | 门面                                                           | 默认 destination                                                         | payload 边界                                                                                         |
+| ------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| 数据变化      | `DataChangeRealtimePublisher`                                  | 发起用户 `/user/queue/platform/data-changes`；公共 module / record topic | user queue 可发送完整 `CommittedChangeSet`；公共 topic 只能发送清空 `facts` 的低敏脏标记             |
+| 安全通知      | `SecurityRealtimeNotifier`                                     | `/user/queue/platform/notifications`                                     | 只表达安全事实、是否需要退出、目标 session；不携带 token、IP、User-Agent 或 UI 指令                  |
+| 业务私有事件  | `BusinessRealtimeNotifier` / `BusinessRealtimeFanOutPublisher` | `/user/queue/platform/business-events`                                   | 只发送给经 recipient policy 判定的用户；普通业务状态变化优先发送低敏脏标记，详情通过业务查询接口读取 |
+| 会话 presence | `UserSessionPresenceLookup` + `UserSessionLifecycleEvent`      | 用户管理仍复用 `/user/queue/platform/business-events`                    | presence 只表达 WebSocket 连接观测，不替代 session 有效性；管理页通过会话查询接口读取完整状态        |
 
 ### 5.3.1 实时业务提醒
 
@@ -455,12 +455,12 @@ simpMessagingTemplate.convertAndSendToUser(userId, "/queue/platform/data-changes
 
 权限粒度按能力演进：
 
-| 阶段 | 权限口径 |
-| --- | --- |
+| 阶段         | 权限口径                                                                                                                           |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | 数据变化广播 | 发起用户始终收到完整 user queue；module / record 共享 topic 只能承载低敏脏标记；跨用户完整 payload 必须通过按权限过滤的 user queue |
-| 用户通知 | 只能接收当前用户 queue |
-| IM / 协同 | 按房间、会话、参与者或业务资源校验 |
-| 动态能力 | 通过动态元数据、动作权限和数据权限 adapter 接入 |
+| 用户通知     | 只能接收当前用户 queue                                                                                                             |
+| IM / 协同    | 按房间、会话、参与者或业务资源校验                                                                                                 |
+| 动态能力     | 通过动态元数据、动作权限和数据权限 adapter 接入                                                                                    |
 
 ### 5.7 租户与作用域
 
@@ -551,7 +551,10 @@ views / business pages
 export interface RealtimeClient {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
-  subscribe<T>(channel: RealtimeChannel<T>, handler: RealtimeHandler<T>): RealtimeSubscription;
+  subscribe<T>(
+    channel: RealtimeChannel<T>,
+    handler: RealtimeHandler<T>,
+  ): RealtimeSubscription;
   publish<T>(command: RealtimeCommand<T>, payload: T): void;
 }
 ```
@@ -575,7 +578,7 @@ realtime.subscribe(dataChangeChannel, handleChangeSet);
 而不是：
 
 ```ts
-client.subscribe('/user/queue/platform/data-changes', callback);
+client.subscribe("/user/queue/platform/data-changes", callback);
 ```
 
 ### 6.3 连接生命周期
@@ -649,13 +652,13 @@ STOMP message
 
 字段语义：
 
-| 字段 | 说明 |
-| --- | --- |
-| `id` | 实时消息 ID，用于诊断和后续补偿 |
-| `type` | 平台消息类型，不等同于 UI 类型 |
-| `occurredAt` | 事件形成时间 |
-| `traceId` | 关联 HTTP 动作或后台任务 |
-| `payload` | 业务事实载荷 |
+| 字段         | 说明                            |
+| ------------ | ------------------------------- |
+| `id`         | 实时消息 ID，用于诊断和后续补偿 |
+| `type`       | 平台消息类型，不等同于 UI 类型  |
+| `occurredAt` | 事件形成时间                    |
+| `traceId`    | 关联 HTTP 动作或后台任务        |
+| `payload`    | 业务事实载荷                    |
 
 `payload` 必须是稳定契约对象，不使用临时 `Map` 作为跨层协议。
 

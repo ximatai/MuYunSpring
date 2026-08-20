@@ -713,6 +713,19 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
+    void shouldEnableOnlyPresetControlsWithPublishedWebFormRenderers() {
+        assertThat(FieldUiControlPresetCatalog.fieldUiControls())
+                .filteredOn(FieldUiControl::getEnabled)
+                .extracting(FieldUiControl::getRendererType)
+                .containsOnlyElementsOf(FieldUiControlPresetCatalog.WEB_FORM_EXECUTABLE_RENDERERS);
+        assertThat(FieldUiControlPresetCatalog.fieldUiControls())
+                .filteredOn(control -> "date_range".equals(control.getAlias())
+                        || "date_time_range".equals(control.getAlias())
+                        || "date_time_with_time_zone".equals(control.getAlias()))
+                .allSatisfy(control -> assertThat(control.getEnabled()).isFalse());
+    }
+
+    @Test
     void shouldCompileDefaultUiTypeFromFieldType() {
         fieldUiTypeService.insert(fieldUiType("text", "输入框", "string", ViewControlType.TEXT));
         FieldSpec displayString = fieldType("display_string", FieldType.STRING, 128);

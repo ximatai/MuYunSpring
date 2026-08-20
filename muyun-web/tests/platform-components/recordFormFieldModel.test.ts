@@ -1,4 +1,4 @@
-import { assert, it } from 'vitest';
+import { assert, expect, it } from 'vitest';
 import {
   childResourceDefaultFormViewCode,
   resolveRecordDetailFields,
@@ -8,6 +8,8 @@ import {
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
   evaluateUiFormula,
+  recordFieldRendererRegistry,
+  decodeNumberEditorValue,
   type RecordFormFieldDescriptor,
   type RecordFormFieldFallback,
 } from '@/platform-components/recordFormFieldModel.ts';
@@ -17,6 +19,34 @@ import {
   optionItemsToTree,
 } from '@/platform-components/optionFieldOptions.ts';
 import type { ResolvedModuleUiDescriptor } from '@/web-contracts/index.ts';
+
+it('registers every renderer kind promised by the persisted web-form support matrix', () => {
+  const rendererTypes = new Set(recordFieldRendererRegistry.map((renderer) => renderer.rendererType));
+  // Keep this aligned with FieldUiControlPresetCatalog.WEB_FORM_EXECUTABLE_RENDERERS.  The
+  // backend rejects any configured renderer outside that matrix before descriptor publication.
+  expect([...rendererTypes]).toEqual(
+    expect.arrayContaining([
+      'TEXT',
+      'TEXTAREA',
+      'NUMBER',
+      'DECIMAL',
+      'SWITCH',
+      'SELECT',
+      'MULTI_SELECT',
+      'DATE',
+      'DATETIME',
+      'JSON',
+    ]),
+  );
+});
+
+it('keeps LONG and DECIMAL editor transport lossless while INTEGER remains a JSON number', () => {
+  expect(decodeNumberEditorValue('42', 'INTEGER')).toBe(42);
+  expect(decodeNumberEditorValue('9007199254740993', 'LONG')).toBe('9007199254740993');
+  expect(decodeNumberEditorValue('9999999999999999.99', 'DECIMAL')).toBe('9999999999999999.99');
+  expect(decodeNumberEditorValue('0.123456789012345678', 'DECIMAL')).toBe('0.123456789012345678');
+  expect(decodeNumberEditorValue('1e6', 'DECIMAL')).toBeUndefined();
+});
 
 it('record form field names prefer descriptor order and fill missing fallback fields', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
@@ -150,6 +180,79 @@ it('record form groups preserve fields nested by the UI descriptor and attach th
   );
 });
 
+it('preserves tenant branding option and image-upload semantics from the runtime descriptor', () => {
+  const uiDescriptor = {
+    schemaVersion: '1',
+    moduleAlias: 'iam.tenant',
+    fileReferences: [
+      {
+        fieldRef: { fieldName: 'lightLogoAssetId' },
+        maxFiles: 1,
+        allowedMediaTypes: ['image/png'],
+        storagePolicy: 'DATABASE_INLINE',
+        uploadAvailable: true,
+        readAvailable: true,
+      },
+      {
+        fieldRef: { fieldName: 'darkLogoAssetId' },
+        maxFiles: 1,
+        allowedMediaTypes: ['image/png'],
+        storagePolicy: 'DATABASE_INLINE',
+        uploadAvailable: true,
+        readAvailable: true,
+      },
+    ],
+    page: {
+      template: 'LIST_DETAIL_CARD',
+      list: { searchPlaceholder: '', fields: { viewCode: 'page_list', viewKind: 'LIST', fields: [] } },
+      detail: {
+        emptyDescription: '',
+        createTitle: '',
+        editor: {
+          viewCode: 'page_detail_editor',
+          viewKind: 'FORM',
+          fields: [
+            {
+              fieldRef: { fieldName: 'workbenchBrandMode' },
+              label: '展示方式',
+              option: {
+                binding: { sourceType: 'ENUM', source: 'TenantWorkbenchBrandMode' },
+                selectionMode: 'SINGLE',
+                inlineItems: [
+                  { code: 'logoOnly', title: '纯 Logo', enabled: true },
+                  { code: 'logoWithTitle', title: 'Logo + 标题', enabled: true },
+                ],
+              },
+            },
+            { fieldRef: { fieldName: 'lightLogoAssetId' }, label: '展示 Logo（默认）' },
+            {
+              fieldRef: { fieldName: 'darkLogoAssetId' },
+              label: '展示 Logo（暗色模式）',
+              fieldControl: {
+                alias: 'text',
+                rendererType: 'TEXT',
+                valueShape: 'SCALAR',
+                properties: {},
+                bindings: [],
+              },
+            },
+          ],
+        },
+      },
+      traits: [],
+    },
+  } satisfies ResolvedModuleUiDescriptor;
+
+  const fields = resolveRecordFormFields(uiDescriptor);
+  assert.equal(resolveRecordFormFieldState('workbenchBrandMode', { fields }).controlType, 'select');
+  assert.deepEqual(resolveRecordFormFieldState('workbenchBrandMode', { fields }).optionItems, [
+    { code: 'logoOnly', title: '纯 Logo', enabled: true },
+    { code: 'logoWithTitle', title: 'Logo + 标题', enabled: true },
+  ]);
+  assert.equal(resolveRecordFormFieldState('lightLogoAssetId', { fields }).controlType, 'imageFileTransfer');
+  assert.equal(resolveRecordFormFieldState('darkLogoAssetId', { fields }).controlType, 'imageFileTransfer');
+});
+
 it('record form field state preserves a descriptor switch as a generic boolean control', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
     ['completed', field('已完成', { uiType: 'switch' })],
@@ -172,6 +275,82 @@ it('record form field state renders a textarea descriptor as a text area', () =>
   ]);
 
   assert.equal(resolveRecordFormFieldState('remark', { fields }).controlType, 'textarea');
+});
+
+it('resolved field controls take precedence over legacy uiType and use the registered renderer', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'categoryCodes',
+      {
+        ...field('分类', { uiType: 'text' }),
+        fieldControl: { alias: 'multi_select', rendererType: 'MULTI_SELECT', valueShape: 'COLLECTION' },
+        option: {
+          binding: { sourceType: 'dictionary', source: 'crm.category' },
+          selectionMode: 'MULTIPLE',
+        },
+      },
+    ],
+  ]);
+
+  const state = resolveRecordFormFieldState('categoryCodes', { fields });
+  assert.equal(state.controlType, 'select');
+  assert.equal(state.optionSelectionMode, 'MULTIPLE');
+});
+
+it('refuses a multi-select descriptor without its option binding instead of degrading collection transport to input', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'categoryCodes',
+      {
+        ...field('分类', { uiType: 'text' }),
+        fieldControl: { alias: 'multi_select', rendererType: 'MULTI_SELECT', valueShape: 'COLLECTION' },
+      },
+    ],
+  ]);
+
+  const state = resolveRecordFormFieldState('categoryCodes', { fields });
+  assert.equal(state.controlType, 'unsupported');
+  assert.match(state.rendererDiagnostic ?? '', /multi_select/);
+});
+
+it('refuses a select descriptor without its option binding instead of degrading enum transport to input', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'status',
+      {
+        ...field('状态', { uiType: 'text' }),
+        fieldControl: { alias: 'select', rendererType: 'SELECT', valueShape: 'SCALAR' },
+      },
+    ],
+  ]);
+
+  const state = resolveRecordFormFieldState('status', { fields });
+  assert.equal(state.controlType, 'unsupported');
+  assert.match(state.rendererDiagnostic ?? '', /select/);
+});
+
+it('an unknown resolved field-control renderer refuses editing instead of falling back to input', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'range',
+      {
+        ...field('区间', { uiType: 'text' }),
+        fieldControl: {
+          alias: 'range',
+          rendererType: 'RANGE',
+          valueShape: 'COMPOSITE',
+          bindings: [
+            { key: 'start', valueType: 'DATE' },
+            { key: 'end', valueType: 'DATE' },
+          ],
+        },
+      },
+    ],
+  ]);
+
+  const state = resolveRecordFormFieldState('range', { fields });
+  assert.equal(state.controlType, 'unsupported');
+  assert.match(state.rendererDiagnostic ?? '', /range/);
 });
 
 it.each(['number', 'integer', 'amount', 'percentage'])(

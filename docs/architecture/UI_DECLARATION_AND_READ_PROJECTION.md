@@ -90,11 +90,11 @@ UI 链路按三个阶段组织：
 Definition -> Descriptor -> Plan
 ```
 
-| 阶段 | 含义 | 消费方 |
-| --- | --- | --- |
-| `Definition` | 源码声明或配置态事实，例如静态模块 UI 声明、后续动态 UI 配置 | 平台编译器 |
-| `Descriptor` | 编译后的对外 resolved 结果，例如模块、字段、视图和动作的前端协议 | Web 和前端运行器 |
-| `Plan` | 后端内部执行计划，例如读投影、查询计划和后处理任务 | DAO、SQL mapper 和输出转换 |
+| 阶段         | 含义                                                             | 消费方                     |
+| ------------ | ---------------------------------------------------------------- | -------------------------- |
+| `Definition` | 源码声明或配置态事实，例如静态模块 UI 声明、后续动态 UI 配置     | 平台编译器                 |
+| `Descriptor` | 编译后的对外 resolved 结果，例如模块、字段、视图和动作的前端协议 | Web 和前端运行器           |
+| `Plan`       | 后端内部执行计划，例如读投影、查询计划和后处理任务               | DAO、SQL mapper 和输出转换 |
 
 这三个阶段不能互相替代。`Definition` 不直接给前端，`Descriptor` 不携带物理列，`Plan` 不暴露给前端。当前实现如果临时同时返回 `uiDefinition` 和 `uiDescriptor`，只能作为收口前的短期脚手架；正式前端协议只消费 `uiDescriptor`。
 
@@ -171,11 +171,11 @@ class EmployeeService implements FormAbility<Employee> {
 
 视图身份至少包含：
 
-| 字段 | 含义 |
-| --- | --- |
-| `viewCode` | 模块内视图编码，例如 `default_list`、`default_form` |
-| `viewKind` | 视图类型，例如 `LIST`、`FORM`、`DETAIL` |
-| `clientType` | 客户端类型，第一阶段可默认为 Web |
+| 字段         | 含义                                                |
+| ------------ | --------------------------------------------------- |
+| `viewCode`   | 模块内视图编码，例如 `default_list`、`default_form` |
+| `viewKind`   | 视图类型，例如 `LIST`、`FORM`、`DETAIL`             |
+| `clientType` | 客户端类型，第一阶段可默认为 Web                    |
 
 第一阶段 `clientType` 只作为未来锚点，不参与编译分支。同一套 `ResolvedModuleUiDescriptor` 协议不能因为客户端不同而生成两套语义模型。
 
@@ -183,15 +183,15 @@ class EmployeeService implements FormAbility<Employee> {
 
 字段 UI 声明只表达页面意图：
 
-| 字段 | 含义 |
-| --- | --- |
-| `fieldRef` | 字段引用，静态主表可简写为业务字段名 |
-| `label` | 页面标题覆盖 |
-| `visible` | 当前视图是否展示，第一阶段只支持常量规则 |
-| `required` | 当前视图的输入必填语义，第一阶段只支持常量规则 |
-| `readOnly` | 当前视图的输入只读语义，第一阶段只支持常量规则 |
-| `uiType` | 平台 UI 类型提示，不绑定具体前端组件库 |
-| `width` / `align` / `fixed` | 列表展示的轻量提示 |
+| 字段                        | 含义                                           |
+| --------------------------- | ---------------------------------------------- |
+| `fieldRef`                  | 字段引用，静态主表可简写为业务字段名           |
+| `label`                     | 页面标题覆盖                                   |
+| `visible`                   | 当前视图是否展示，第一阶段只支持常量规则       |
+| `required`                  | 当前视图的输入必填语义，第一阶段只支持常量规则 |
+| `readOnly`                  | 当前视图的输入只读语义，第一阶段只支持常量规则 |
+| `uiType`                    | 平台 UI 类型提示，不绑定具体前端组件库         |
+| `width` / `align` / `fixed` | 列表展示的轻量提示                             |
 
 当前已落地的 `uiType` 先保持小集合：`enabledStatus` 表达启停布尔控件，`booleanStatus` 表达带显式
 true/false 标签和语义色的业务布尔展示，`recordPicker` 表达引用选择控件。业务布尔值保留 unknown 状态，
@@ -318,10 +318,10 @@ contributor 仍然贡献模块 UI 定义，不改变 service 的运行能力面�
 
 `required` 和 `readOnly` 需要区分来源：
 
-| 来源 | 含义 |
-| --- | --- |
+| 来源     | 含义                                   |
+| -------- | -------------------------------------- |
 | 数据契约 | 模型、字段定义或平台能力要求的底线约束 |
-| UI 声明 | 当前视图或当前页面场景下的输入语义 |
+| UI 声明  | 当前视图或当前页面场景下的输入语义     |
 
 UI 可以加强输入要求，但不能绕过底层数据契约。隐藏或只读的必填字段必须由默认值、平台托管字段或业务链路填充，否则编译或保存校验应失败。
 
@@ -366,10 +366,10 @@ Web 主协议应逐步收敛到模块或页面 bootstrap，而不是继续扩展
 
 静态和动态的差异只保留在来源定义层：
 
-| 类型 | 来源定义 | 归一目标 | Descriptor |
-| --- | --- | --- |
+| 类型     | 来源定义                                    | 归一目标             | Descriptor                   |
+| -------- | ------------------------------------------- | -------------------- | ---------------------------- |
 | 静态模块 | Java model、Ability、StaticModuleDefinition | `ModuleUiDefinition` | `ResolvedModuleUiDescriptor` |
-| 动态模块 | Metadata、FieldDefinition、动态 UI 配置 | `ModuleUiDefinition` | `ResolvedModuleUiDescriptor` |
+| 动态模块 | Metadata、FieldDefinition、动态 UI 配置     | `ModuleUiDefinition` | `ResolvedModuleUiDescriptor` |
 
 前端运行器、Web bootstrap、读投影和输出转换不应因为静态或动态来源不同而分裂成两套协议。
 
@@ -399,16 +399,16 @@ UI 配置 -> SQL columns / SQL fragment
 
 `RecordReadProjection` 是后端内部对象。当前最小实现先保持 `ViewFieldRef` 形态的逻辑字段计划，不承载物理列；后续接入 SQL 投影时再补 `selectColumns`。`outputFields` 不应退化为裸字段名，否则会丢失关系锚点，后续无法优雅支持引用字段、关联表字段和动态字段 ID 映射。它最终可包含：
 
-| 内容 | 作用 |
-| --- | --- |
-| `outputFields` | 本次响应需要输出的字段引用 |
-| `fieldReadPolicies` | 已参与本次投影计划的字段可读策略标记 |
-| `selectColumns` | 经字段事实白名单解析后的物理列 |
-| `requiredPlatformColumns` | 平台运行需要自动补齐的列 |
-| `postReadTransforms` | 字典标题、引用标题、脱敏、虚拟值等后处理 |
-| `virtualFields` | 可输出但无物理列或不直接读列的字段 |
-| `referenceTitleFields` | 引用标题或投影输出字段 |
-| `protectedFields` | 输出前需要脱敏或签名验证的字段 |
+| 内容                      | 作用                                     |
+| ------------------------- | ---------------------------------------- |
+| `outputFields`            | 本次响应需要输出的字段引用               |
+| `fieldReadPolicies`       | 已参与本次投影计划的字段可读策略标记     |
+| `selectColumns`           | 经字段事实白名单解析后的物理列           |
+| `requiredPlatformColumns` | 平台运行需要自动补齐的列                 |
+| `postReadTransforms`      | 字典标题、引用标题、脱敏、虚拟值等后处理 |
+| `virtualFields`           | 可输出但无物理列或不直接读列的字段       |
+| `referenceTitleFields`    | 引用标题或投影输出字段                   |
+| `protectedFields`         | 输出前需要脱敏或签名验证的字段           |
 
 `ResolvedModuleReadModel` 是模块级事实，`RecordReadProjection` 是 view/request 级执行计划。只有 `RecordReadProjection` 可以包含本次请求的 `outputFields`、`selectColumns` 和 `postReadTransforms`。`postReadTransforms` 使用平台统一编码契约表达后处理类型和字段，SQL 投影路径只能执行已明确声明支持 Map 输出的后处理，不能由调用点临时硬编码字符串判断。
 
@@ -467,14 +467,14 @@ id, version, tenant_id, employee_no, title, organization_id
 
 命名遵循项目既有边界：
 
-| 名称 | 用途 |
-| --- | --- |
-| `Definition` | 源码或配置态声明，例如 `FormViewDefinition` |
-| `ModuleUiDefinition` | 静态 DSL 和动态 UI 配置归一后的源无关 UI 定义 |
-| `Descriptor` | 编译后的对外输出，例如 `ResolvedModuleUiDescriptor` |
+| 名称                      | 用途                                                       |
+| ------------------------- | ---------------------------------------------------------- |
+| `Definition`              | 源码或配置态声明，例如 `FormViewDefinition`                |
+| `ModuleUiDefinition`      | 静态 DSL 和动态 UI 配置归一后的源无关 UI 定义              |
+| `Descriptor`              | 编译后的对外输出，例如 `ResolvedModuleUiDescriptor`        |
 | `ResolvedModuleReadModel` | 模块级后端内部读模型，不暴露给前端，不包含本次请求输出计划 |
-| `Plan` / `Projection` | 后端内部执行计划，例如 `RecordReadProjection` |
-| `moduleAlias` | 运行时模块身份，不使用 `scopeName` 表达同一件事 |
-| `viewCode` | 模块内视图编码，用于区分 `list`、`form`、`detail` 等视图 |
+| `Plan` / `Projection`     | 后端内部执行计划，例如 `RecordReadProjection`              |
+| `moduleAlias`             | 运行时模块身份，不使用 `scopeName` 表达同一件事            |
+| `viewCode`                | 模块内视图编码，用于区分 `list`、`form`、`detail` 等视图   |
 
 `FormAbility` 不再作为目标形态。UI 声明不是 service ability，而是模块交付定义。

@@ -349,6 +349,35 @@ class DynamicOpenApiGeneratorTest {
     }
 
     @Test
+    void shouldExposeRecycleBinLifecycleOnlyWhenMainEntitySupportsRecycleBin() {
+        DynamicOpenApiDocument plain = generator.generate(DynamicModuleDescriptor.from(
+                new ModuleDefinition("sales.contract", "Contract", List.of(contractEntityWithoutExchange()))));
+        DynamicOpenApiDocument recycleBin = generator.generate(DynamicModuleDescriptor.from(
+                new ModuleDefinition("sales.contract", "Contract", List.of(recycleBinEntity()))));
+
+        assertThat(plain.operations()).extracting(DynamicOpenApiDocument.Operation::path)
+                .doesNotContain("/sales.contract/recycle-bin/query");
+        assertThat(recycleBin.operations()).extracting(DynamicOpenApiDocument.Operation::path).contains(
+                "/sales.contract/recycle-bin/query", "/sales.contract/recycle-bin/view/{id}",
+                "/sales.contract/recycle-bin/{sourceDeleteOperationId}/restore",
+                "/sales.contract/recycle-bin/{sourceDeleteOperationId}/purge");
+        assertThat(recycleBin.operations().stream()
+                .filter(operation -> operation.path().equals("/sales.contract/recycle-bin/query"))).singleElement()
+                .satisfies(operation -> {
+                    assertThat(operation.requestSchema()).isEqualTo("WebQueryRequest");
+                    assertThat(operation.responseSchema()).isEqualTo("RecycleBinItemPage");
+                    assertThat(operation.actionCode()).isEqualTo(PlatformAction.RECYCLE_BIN_QUERY.code());
+                });
+        assertThat(generator.generate(DynamicModuleDescriptor.from(
+                new ModuleDefinition("sales.contract", "Contract", List.of(recycleBinEntity()))),
+                action -> action != PlatformAction.RECYCLE_BIN_QUERY)
+                .operations()).extracting(DynamicOpenApiDocument.Operation::path)
+                .doesNotContain("/sales.contract/recycle-bin/query", "/sales.contract/recycle-bin/view/{id}")
+                .contains("/sales.contract/recycle-bin/{sourceDeleteOperationId}/restore",
+                        "/sales.contract/recycle-bin/{sourceDeleteOperationId}/purge");
+    }
+
+    @Test
     void shouldExposeExchangeOperationsOnlyWhenMainEntitySupportsExchange() {
         DynamicOpenApiDocument document = generator.generate(DynamicModuleDescriptor.from(
                 new ModuleDefinition("sales.contract", "Contract", List.of(contractEntityWithoutExchange()))));
@@ -383,6 +412,7 @@ class DynamicOpenApiGeneratorTest {
                 .findFirst())
                 .get()
                 .satisfies(operation -> {
+                    assertThat(operation.requestSchema()).isEqualTo("RecordActionWebRequest");
                     assertThat(operation.responseSchema()).isEqualTo("integer");
                     assertThat(operation.actionCode()).isEqualTo(PlatformAction.ENABLE.code());
                 });
@@ -390,6 +420,8 @@ class DynamicOpenApiGeneratorTest {
                 .filter(operation -> operation.path().equals("/sales.contract/disable/{id}")))
                 .singleElement()
                 .satisfies(operation -> {
+                    assertThat(operation.requestSchema()).isEqualTo("RecordActionWebRequest");
+                    assertThat(operation.responseSchema()).isEqualTo("integer");
                     assertThat(operation.actionCode()).isEqualTo(PlatformAction.DISABLE.code());
                     assertThat(operation.permissionCode()).isEqualTo("sales.contract:enable");
                 });
@@ -435,8 +467,13 @@ class DynamicOpenApiGeneratorTest {
                 });
         assertThat(schema.properties().get("amount"))
                 .satisfies(property -> {
-                    assertThat(property.type()).isEqualTo("number");
+                    assertThat(property.type()).isEqualTo("string");
                     assertThat(property.format()).isEqualTo("decimal");
+                });
+        assertThat(schema.properties().get("externalSequence"))
+                .satisfies(property -> {
+                    assertThat(property.type()).isEqualTo("string");
+                    assertThat(property.format()).isEqualTo("int64");
                 });
         assertThat(schema.properties().get("status"))
                 .satisfies(property -> {
@@ -652,6 +689,7 @@ class DynamicOpenApiGeneratorTest {
                 FieldDefinition.string("status", "Status")
                         .dictionary("sales", "contract_status"),
                 FieldDefinition.decimal("amount", "Amount").precision(18, 2).required(),
+                FieldDefinition.longInteger("externalSequence", "External Sequence").column("external_sequence"),
                 FieldDefinition.of("tags", FieldType.JSON, "Tags")
                         .dictionary("sales", "contract_tag", OptionSelectionMode.MULTIPLE),
                 FieldDefinition.string("customerId", "Customer"),
@@ -694,5 +732,11 @@ class DynamicOpenApiGeneratorTest {
                 FieldDefinition.string("code", "Code").length(64).required(),
                 FieldDefinition.enabled()
         )).withCapabilities(EntityCapability.ENABLE);
+    }
+
+    private EntityDefinition recycleBinEntity() {
+        return new EntityDefinition("contract", "sales_contract", "Contract", List.of(
+                FieldDefinition.string("code", "Code").length(64).required()
+        )).withCapabilities(EntityCapability.RECYCLE_BIN);
     }
 }

@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceMatchMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveMode;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.platform.impact.RecordOriginContext;
+import net.ximatai.muyun.spring.common.web.PlatformWebWireContract;
 
 import java.util.Collection;
 import java.time.Instant;
@@ -180,6 +181,7 @@ record DynamicRecordResponse(String id,
                 ));
         @SuppressWarnings("unchecked")
         Map<String, Object> values = (Map<String, Object>) DynamicWebValues.webValue(record.outputValues(FieldOutputContext.VIEW));
+        values = DynamicWebValues.losslessNumericWireValues(record, values);
         return new DynamicRecordResponse(record.getId(), record.getVersion(), values, childResponses);
     }
 }
@@ -279,5 +281,22 @@ final class DynamicWebValues {
             return instant.truncatedTo(ChronoUnit.SECONDS).toString();
         }
         return value;
+    }
+
+    /**
+     * JavaScript cannot faithfully load an int64 or arbitrary decimal JSON number. Dynamic
+     * record HTTP therefore uses the same textual wire form for LONG/DECIMAL responses as the
+     * standard form editor uses for mutations.
+     */
+    static Map<String, Object> losslessNumericWireValues(DynamicRecord record, Map<String, Object> values) {
+        LinkedHashMap<String, Object> converted = new LinkedHashMap<>(values);
+        record.getEntity().fields().forEach(field -> {
+            Object value = converted.get(field.fieldName());
+            if (value == null) {
+                return;
+            }
+            converted.put(field.fieldName(), PlatformWebWireContract.responseValue(field.type().name(), value));
+        });
+        return converted;
     }
 }

@@ -337,25 +337,28 @@ it('record mode drawer owns detail mode branch switching', () => {
 });
 
 it('standard module runner waits for a complete detail and action availability before enabling mutations', () => {
-  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
-  const detailActionsSource = readSource('src/dynamic-page-runtime/DynamicRecordDetailActions.vue');
+  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const detailActionsSource = readSource('src/dynamic-page-runtime/ModuleRecordDetailActions.vue');
   const detailControllerSource = readSource('src/dynamic-page-runtime/recordDetailController.ts');
+  const editingSessionSource = readSource('src/dynamic-page-runtime/composables/useRecordEditingSession.ts');
 
   assert.match(hostSource, /import \{ useRecordDetailController \} from '.\/recordDetailController'/);
   assert.match(hostSource, /const detail = useRecordDetailController<QueryListRecord>\(\)/);
   assert.match(hostSource, /loading: detailLoading/);
   assert.match(hostSource, /loadFailed: detailLoadFailed/);
-  assert.match(hostSource, /const requestSequence = \+\+detailLoadSequence/);
-  assert.match(hostSource, /detail\.beginLoad\(record, mode\)/);
-  assert.match(hostSource, /await context\.crud\.view\(id\)/);
-  assert.match(hostSource, /shouldCommitDynamicModuleDetailRequest/);
-  assert.match(hostSource, /detail\.failLoad\(\)/);
+  assert.match(hostSource, /useRecordEditingSession/);
+  assert.match(hostSource, /invalidatePendingRequests\(\)/);
+  assert.match(editingSessionSource, /const sequence = \+\+requestSequence/);
+  assert.match(editingSessionSource, /detail\.beginLoad\(record, mode\)/);
+  assert.match(editingSessionSource, /await context\.crud\.view\(id\)/);
+  assert.match(editingSessionSource, /sequence !== requestSequence/);
+  assert.match(editingSessionSource, /detail\.failLoad\(\)/);
   assert.match(hostSource, /function retryLoadDetail\(\)/);
   assert.match(hostSource, /:loading="detailLoading"/);
   assert.match(hostSource, /:load-failed="detailLoadFailed"/);
   assert.match(hostSource, /@retry="retryLoadDetail"/);
-  assert.match(hostSource, /canMutateDynamicModuleDetail/);
-  assert.match(hostSource, /<DynamicRecordDetailActions/);
+  assert.match(hostSource, /canMutateModuleDetail/);
+  assert.match(hostSource, /<ModuleRecordDetailActions/);
   assert.match(hostSource, /:detail-loading="detailLoading"/);
   assert.match(hostSource, /:detail-load-failed="detailLoadFailed"/);
   assert.match(detailActionsSource, /const formActive = computed/);
@@ -372,9 +375,11 @@ it('standard module runner waits for a complete detail and action availability b
 });
 
 it('page navigator renders levels through the standard module runner', () => {
-  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
+  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const navigatorRuntimeSource = readSource('src/dynamic-page-runtime/composables/useNavigatorRuntime.ts');
 
-  assert.match(hostSource, /navigatorLevels = ref<NavigatorLevelRuntime\[\]>/);
+  assert.match(hostSource, /useNavigatorRuntime\(context\)/);
+  assert.match(navigatorRuntimeSource, /navigatorLevels = ref<NavigatorLevelRuntime\[\]>/);
   assert.match(hostSource, /selectedNavigatorRecords/);
   assert.match(hostSource, /function selectNavigatorRecord/);
   assert.match(hostSource, /function navigatorExplorerQueryValues/);
@@ -383,11 +388,10 @@ it('page navigator renders levels through the standard module runner', () => {
 });
 
 it('static edit draft normalizers preserve standard record fields', () => {
-  const userSource = readSource('src/views/UserDetailRouteView.vue');
+  const userSource = readSource('src/views/UserManagementView.vue');
   const systemUserSource = readSource('src/views/SystemUserManagementView.vue');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
-  const tenantStateSource = readSource('src/views/tenantManagementState.ts');
   const menuStateSource = readSource('src/views/menuManagementState.ts');
   const dictionaryStateSource = readSource('src/views/dictionaryManagementState.ts');
 
@@ -401,7 +405,6 @@ it('static edit draft normalizers preserve standard record fields', () => {
     /function normalizedEmployeeDraft[\s\S]*normalizeRecordDraft<Employee>\(draft,/,
   );
   assert.match(roleSource, /function normalizedRoleDraft[\s\S]*normalizeRecordDraft<Role>\(draft,/);
-  assert.match(tenantStateSource, /function normalizedDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(menuStateSource, /function normalizeSchemeDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(
     menuStateSource,
@@ -514,16 +517,16 @@ it('system user management fills the constrained work area and leaves scrolling 
 });
 
 it('user management fills the constrained work area and leaves scrolling to its scope and list panels', () => {
-  const userSource = readSource('src/views/UserManagementListView.vue');
+  const userSource = readSource('src/views/UserManagementView.vue');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
 
   assert.match(
     userSource,
-    /\.user-management-list-page \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/,
+    /\.user-management-page \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/,
   );
   assert.match(
     userSource,
-    /@media \(max-width: 980px\) \{[\s\S]*\.user-management-list-page \{[\s\S]*height: auto;[\s\S]*overflow: visible;/,
+    /@media \(max-width: 980px\) \{[\s\S]*\.user-management-page \{[\s\S]*height: auto;[\s\S]*overflow: visible;/,
   );
   assert.match(routesSource, /route: '\/iam\/users'[\s\S]*layout: 'workspace'/);
 });
@@ -564,11 +567,10 @@ it('menu management keeps scheme actions inline and delegates search to panel', 
 
 it('static management explorers use unified item descriptors', () => {
   const explorerViews = [
-    'TenantManagementView.vue',
     'DictionaryManagementView.vue',
     'MenuManagementView.vue',
     'EmployeeManagementView.vue',
-    'UserManagementListView.vue',
+    'UserManagementView.vue',
     'RoleManagementView.vue',
   ];
 
@@ -678,7 +680,6 @@ it('three-column management pages use the platform detail panel', () => {
   const indexSource = readSource('src/platform-components/index.ts');
   const panelSource = readSource('src/platform-components/RecordDetailPanel.vue');
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
-  const tenantViewSource = readSource('src/views/TenantManagementView.vue');
   const dictionaryViewSource = readSource('src/views/DictionaryManagementView.vue');
   const menuViewSource = readSource('src/views/MenuManagementView.vue');
   const dictionaryDetailSource = dictionaryViewSource.slice(
@@ -699,11 +700,6 @@ it('three-column management pages use the platform detail panel', () => {
   assert.match(layoutSource, /<slot name="explorer-actions" \/>/);
   assert.match(layoutSource, /<slot name="detail-actions" \/>/);
   assert.notMatch(layoutSource, /RecordStatusTag|card-header|title-line/);
-  for (const source of [tenantViewSource]) {
-    assert.match(source, /<template #detail-status>/);
-    assert.match(source, /<RecordStatusSwitch/);
-    assert.notMatch(source, /EnabledSelect|启用状态|toggle-enabled|show-status/);
-  }
   assert.equal(matchCount(dictionaryViewSource, /<RecordDetailPanel/g), 1);
   assert.equal(matchCount(menuViewSource, /<RecordDetailPanel/g), 1);
   assert.match(dictionaryViewSource, /v-if="itemMode !== 'view'"[\s\S]*:enabled="itemDraft\.enabled"/);
@@ -927,7 +923,7 @@ it('employee management uses organization scope and platform query list panel', 
   assert.notMatch(panelSource, /props\.mode === 'normal' && \(props\.expandedRowKeys/);
   assert.match(employmentRowsSource, /handleEmployeeRowExpand/);
   assert.match(employeeViewSource, /<RecordExpandedSubtable[\s\S]*title="任职信息"/);
-  const userViewSource = readSource('src/views/UserManagementListView.vue');
+  const userViewSource = readSource('src/views/UserManagementView.vue');
   assert.match(userViewSource, /<UserSessionExpandedSubtable/);
   const expandedSubtableSource = readSource('src/platform-components/RecordExpandedSubtable.vue');
   assert.match(expandedSubtableSource, /defineOptions\(\{ name: 'RecordExpandedSubtable' \}\)/);
@@ -1319,11 +1315,7 @@ it('role management keeps basic scope management separate from binding and autho
 });
 
 it('user management keeps account basics separate from employment binding and role authorization', () => {
-  const userViewSource = [
-    readSource('src/views/UserManagementView.vue'),
-    readSource('src/views/UserManagementListView.vue'),
-    readSource('src/views/UserDetailRouteView.vue'),
-  ].join('\n');
+  const userViewSource = readSource('src/views/UserManagementView.vue');
   const userDetailContentSource = readSource('src/views/UserDetailContent.vue');
   const userSessionRowsSource = readSource('src/views/useUserSessionRows.ts');
   const userSessionExpandedSource = readSource('src/platform-components/UserSessionExpandedSubtable.vue');
@@ -1378,10 +1370,7 @@ it('user management keeps account basics separate from employment binding and ro
   assert.match(userSessionExpandedSource, /user-session-expanded-main strong/);
   assert.match(userSessionExpandedSource, /text-overflow: ellipsis/);
   assert.match(userSessionExpandedSource, /@media \(max-width: 980px\)/);
-  assert.match(
-    userViewSource,
-    /useUserSessionRows\(\{ context: userContext, source: 'user-management-(list|detail)' \}\)/,
-  );
+  assert.match(userViewSource, /useUserSessionRows\(\{ context: userContext, source: 'user-management' \}\)/);
   assert.match(userViewSource, /usePageBusinessEventHandler\(handleUserSessionBusinessEvent\)/);
   assert.match(userViewSource, /:cell-renderers="\{ onlineStatus: userOnlineStatusTitle \}"/);
   assert.match(userSessionRowsSource, /function handleUserListLoaded\(records: Array<\{ id\?: string \}>\)/);
@@ -1407,7 +1396,7 @@ it('user management keeps account basics separate from employment binding and ro
   assert.match(userDetailContentSource, /temporaryPassword/);
   assert.match(
     userViewSource,
-    /detailMode\.value === 'resetPassword'[\s\S]*const userId = selectedUser\.value\?\.id[\s\S]*userContext\.can\('changePassword', userId\)/,
+    /userDetailMode\.value === 'resetPassword'[\s\S]*const userId = selectedUser\.value\?\.id[\s\S]*userContext\.can\('changePassword', userId\)/,
   );
   assert.match(userViewSource, /:record-id="selectedUser\?\.id"/);
   assert.match(userViewSource, /path: `\/iam\.user\/changePassword\/\$\{encodeURIComponent\(user\.id!\)\}`/);
@@ -1552,7 +1541,7 @@ it('ordinary management pages do not infer their height from the workbench chrom
 it('password management uses the standard module runner with a source-owned card assistant', () => {
   const passwordPreviewSource = readSource('src/views/PasswordPolicyPreview.vue');
   const enhancementSource = readSource('src/platform-admin-runtime/passwordPolicyPageEnhancement.ts');
-  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
+  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
   const contractsSource = readSource('src/web-contracts/index.ts');
 
@@ -1563,7 +1552,7 @@ it('password management uses the standard module runner with a source-owned card
   assert.match(enhancementSource, /boundary: 'outside'/);
   assert.match(enhancementSource, /position: 'bottom'/);
   assert.match(hostSource, /createReadonlyCardRecordSnapshot/);
-  assert.match(hostSource, /dynamic-card-assistant/);
+  assert.match(hostSource, /module-card-assistant/);
   assert.match(passwordPreviewSource, /defineOptions\(\{ name: 'PasswordPolicyPreview' \}\)/);
   assert.match(passwordPreviewSource, /本规则/);
   assert.match(passwordPreviewSource, /全规则/);
@@ -1650,16 +1639,18 @@ it('business views use page realtime lifecycle wrappers only', () => {
 });
 
 it('dynamic module host uses shared descriptor driven list and form runners', () => {
-  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
+  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
   const navigatorExplorerSource = readSource('src/dynamic-page-runtime/PageNavigatorExplorer.vue');
   const listPanelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
+  const bootstrapSource = readSource('src/dynamic-page-runtime/composables/useModulePageBootstrap.ts');
+  const navigatorRuntimeSource = readSource('src/dynamic-page-runtime/composables/useNavigatorRuntime.ts');
 
   assert.match(hostSource, /useModuleContext<QueryListRecord>/);
   assert.match(hostSource, /<RecordQueryListPanel/);
   assert.match(hostSource, /<RecordModeDrawer/);
   assert.match(hostSource, /enhancementDetailActions/);
   assert.match(hostSource, /<template(?: v-if="[^"]+")? #operation>/);
-  assert.match(hostSource, /<DynamicRecordDetailActions/);
+  assert.match(hostSource, /<ModuleRecordDetailActions/);
   assert.match(hostSource, /<RecordDetailFields/);
   assert.match(hostSource, /<RecordFormFields/);
   assert.match(hostSource, /RecordStatusSwitch/);
@@ -1667,20 +1658,21 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /context\.crud\.enable\(id, \{ version \}\)/);
   assert.match(hostSource, /context\.crud\.disable\(id, \{ version \}\)/);
   assert.match(hostSource, /:exclude-field-names="\['enabled'\]"/);
-  assert.match(hostSource, /resolveRecordFormFields\(runtimeContext\.uiDescriptor\)/);
+  assert.match(hostSource, /useNavigatorRuntime\(context\)/);
   assert.match(hostSource, /isListPage/);
   assert.match(hostSource, /listUiConfigId/);
-  assert.match(hostSource, /runtimePage\.value\?\.navigator\?\.levels/);
+  assert.match(navigatorRuntimeSource, /runtimePage\.value\?\.navigator\?\.levels/);
   assert.match(hostSource, /:ui-config-id="listUiConfigId"/);
-  assert.match(hostSource, /createPageBootstrapClient\(context\.http\)\.byMenu\(menuId\)/);
-  assert.match(hostSource, /bootstrap\.entry\.moduleAlias !== context\.moduleAlias/);
+  assert.match(hostSource, /useModulePageBootstrap/);
+  assert.match(bootstrapSource, /createPageBootstrapClient\(context\.http\)\.byMenu\(entryMenuId\)/);
+  assert.match(bootstrapSource, /bootstrap\.entry\.moduleAlias !== context\.moduleAlias/);
   assert.match(hostSource, /pageBootstrap\.value\?\.entry\.pageMode/);
   assert.match(hostSource, /v-else-if="!pageReady"/);
   assert.match(hostSource, /v-else-if="isListPage"/);
   assert.match(hostSource, /:query-template-id="listQueryTemplateId"/);
   assert.match(hostSource, /:ready="pageReady && navigatorListScopeReady"/);
-  assert.match(hostSource, /动态\$\{pageMode\.value\}入口暂未接入运行器/);
-  assert.match(hostSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
+  assert.match(hostSource, /\$\{pageMode\.value\}入口暂未接入模块页面运行器/);
+  assert.match(navigatorRuntimeSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
   assert.match(hostSource, /:explorer-count="visibleNavigatorLevels\.length"/);
   assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);
   assert.match(hostSource, /listDetailWorkspaceMinWidth\(navigatorLevels\.value\.length\)/);
@@ -1695,7 +1687,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /const navigatorCreateDefaults = computed/);
   assert.equal(/scopedListWorkspace/.test(hostSource), false);
   assert.equal(/selectedScopeRecord/.test(hostSource), false);
-  assert.match(hostSource, /sourceCapabilities\?\.includes\('REFERENCE_TREE'\)/);
+  assert.match(navigatorRuntimeSource, /sourceCapabilities\?\.includes\('REFERENCE_TREE'\)/);
   assert.match(navigatorExplorerSource, /<TreeRecordExplorer[\s\S]*v-if="level\.tree"/);
   assert.match(navigatorExplorerSource, /search-mode="none"/);
   assert.match(hostSource, /:external-query-values="navigatorListQueryValues"/);
@@ -1741,32 +1733,25 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
     /function selectListDetailRecord\(record: QueryListRecord\)[\s\S]*openRecordView\(record\)/,
   );
   assert.match(hostSource, /<StaticManagementLayout\s+v-if="flatManagementPage"/);
-  assert.equal(matchCount(hostSource, /class="dynamic-card-layout"/g), 0);
-  assert.equal(matchCount(hostSource, /class="dynamic-card-assistant"/g), 6);
-  assert.equal(matchCount(hostSource, /dynamic-card-assistant--outside/g), 6);
+  assert.equal(matchCount(hostSource, /class="module-card-layout"/g), 0);
+  assert.equal(matchCount(hostSource, /class="module-card-assistant"/g), 6);
+  assert.equal(matchCount(hostSource, /module-card-assistant--outside/g), 6);
   assert.match(hostSource, /hasCardAssistantAt\('inside', 'bottom'\)/);
   assert.match(hostSource, /hasCardAssistantAt\('outside', 'bottom'\)/);
-  assert.match(hostSource, /<div v-else class="dynamic-form">[\s\S]*<RecordFormFields/);
-  assert.match(hostSource, /\.dynamic-form \{[\s\S]*column-gap: 12px;[\s\S]*row-gap: 16px;/);
-  assert.match(hostSource, /\.dynamic-form \{[\s\S]*--muyun-record-form-label-gap: 8px;/);
+  assert.match(hostSource, /<div v-else class="module-form">[\s\S]*<RecordFormFields/);
+  assert.match(hostSource, /\.module-form \{[\s\S]*column-gap: 12px;[\s\S]*row-gap: 16px;/);
+  assert.match(hostSource, /\.module-form \{[\s\S]*--muyun-record-form-label-gap: 8px;/);
   const recordFormFieldsSource = readSource('src/platform-components/RecordFormFields.vue');
+  const moduleActionsSource = readSource('src/dynamic-page-runtime/composables/useModulePageActions.ts');
   assert.match(recordFormFieldsSource, /gap: var\(--muyun-record-form-label-gap, 6px\)/);
   assert.match(hostSource, /useRecycleBinExplorerMode<QueryListRecord>/);
   assert.match(hostSource, /title: `删除\$\{recordLabel\.value\}`/);
-  assert.match(
-    hostSource,
-    /function presentDynamicModuleActionSuccess\([\s\S]*handlePlatformActionSuccess\(result,[\s\S]*source,[\s\S]*fallbackMessage/,
-  );
-  assert.match(hostSource, /await presentDynamicModuleActionSuccess\(result, '保存成功'\)/);
-  assert.match(hostSource, /await presentDynamicModuleActionSuccess\(result, '删除成功'\)/);
-  assert.match(
-    hostSource,
-    /await presentDynamicModuleActionSuccess\(result, enabling \? '已启用' : '已停用'\)/,
-  );
-  assert.match(
-    hostSource,
-    /presentPlatformError\(cause, \{ source: 'dynamic-module-action', phase: 'action' \}\)/,
-  );
+  assert.match(hostSource, /useModulePageActions\(\)/);
+  assert.match(moduleActionsSource, /handlePlatformActionSuccess\(result,/);
+  assert.match(hostSource, /await presentModuleActionSuccess\(result, '保存成功'\)/);
+  assert.match(hostSource, /await presentModuleActionSuccess\(result, '删除成功'\)/);
+  assert.match(hostSource, /await presentModuleActionSuccess\(result, enabling \? '已启用' : '已停用'\)/);
+  assert.match(hostSource, /presentPlatformError\(cause, \{ source: 'module-action', phase: 'action' \}\)/);
   assert.notMatch(hostSource, /formViewCode/);
   assert.notMatch(hostSource, /:subtitle=/);
   assert.notMatch(hostSource, /<button/);
@@ -1887,62 +1872,29 @@ it('platform error feedback respects global error presentation slots', () => {
   assert.match(dictionaryStateSource, /handlePlatformActionSuccess/);
 });
 
-it('workbench delegates page lifetime to the single Vue Router outlet', () => {
+it('production workbench delegates page lifetime to the Vue Router outlet', () => {
+  const appSource = readSource('src/App.vue');
   const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
 
   assert.match(workbenchSource, /const openedTabs = computed\(\(\) => props\.startup\?\.tabs \?\? \[\]\)/);
   assert.notMatch(workbenchSource, /UiSidePanelHost/);
   assert.notMatch(workbenchSource, /shouldKeepTabMounted|tabHostKey/);
   assert.notMatch(workbenchSource, /<template v-for="tab in openedTabs"/);
-  assert.match(workbenchSource, /<div v-else-if="activeTab" class="tab-panel-host">/);
-  assert.match(workbenchSource, /:active-tab="activeTab"[\s\S]*:page-descriptor="activePageDescriptor"/);
+  assert.match(workbenchSource, /<div v-else-if="activeTab" class="tab-panel-host">[\s\S]*?<slot/);
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
-  assert.match(workbenchSource, /\.tab-page \{[\s\S]*padding: 10px;[\s\S]*overflow: auto;/);
-  assert.match(workbenchSource, /tab-page--workspace/);
-  assert.match(workbenchSource, /\.tab-page--workspace \{\s*overflow-x: auto;\s*overflow-y: hidden;/);
+  assert.match(appSource, /<RouterView v-slot="\{ Component, route \}">/);
+  assert.match(appSource, /<KeepAlive>[\s\S]*<StaticRoutePageHost/);
+  assert.match(appSource, /:key="pageCacheKey\(route\)"/);
+  assert.notMatch(appSource, /PlatformAdminRouteOutlet|WorkbenchOutlet/);
 });
 
-it('tenant management governs application entitlements as tenant child records', () => {
-  const tenantSource = readSource('src/views/TenantManagementView.vue');
-
-  assert.match(tenantSource, /TenantApplication/);
-  assert.match(tenantSource, /tenantApplicationsPath\(tenantId\)\}\/query/);
-  assert.match(tenantSource, /tenantApplicationsPath\(tenantId\)\}\/configure/);
-  assert.match(tenantSource, /RecordDetailDrawer/);
-  assert.match(tenantSource, /配置应用/);
-  assert.match(tenantSource, /configuredApplicationAliases/);
-  assert.match(tenantSource, /已开通应用/);
-  assert.notMatch(tenantSource, /draft\.applicationAliases/);
-  assert.notMatch(tenantSource, /enabledApplicationAliases/);
-  assert.notMatch(tenantSource, /toggleTenantApplication/);
-  assert.notMatch(tenantSource, /tenantApplicationsSaving/);
-  assert.match(tenantSource, /\(\) => selected\.value\?\.id/);
-  assert.match(tenantSource, /tenantApplications\.value = \[\]/);
-  assert.match(tenantSource, /tenantApplicationsLoadVersion/);
-  assert.match(tenantSource, /selected\.value\?\.id === tenantId/);
-  assert.match(tenantSource, /'iam',/);
-  assert.match(tenantSource, /record\.alias === 'iam'/);
-});
-
-it('tenant form statically owns its mode-dependent branding experience while reusing governed image transfer', () => {
-  const tenantSource = readSource('src/views/TenantManagementView.vue');
-
-  assert.match(tenantSource, /tenantFormFields = ref\(resolveRecordFormFields\(undefined\)\)/);
-  assert.match(tenantSource, /<SingleImageFileReferenceField/);
-  assert.match(tenantSource, /:upload-validation="validateTenantLogo"/);
-  assert.match(tenantSource, /Logo \+ 标题模式仅支持正方形图片/);
-  assert.match(tenantSource, /v-model:value="workbenchBrandMode"/);
-  assert.match(tenantSource, /v-if="logoWithTitle"/);
-  assert.match(tenantSource, /\.static-record-form > \.tenant-branding[\s\S]*grid-column: 1 \/ -1/);
-  assert.notMatch(tenantSource, /\/branding/);
-  assert.notMatch(tenantSource, /saveTenant/);
-});
-
-it('side panels use page-owned containers and fixed drawer action regions', () => {
+it('pages own their drawer containers and fixed drawer action regions', () => {
   const uiIndexSource = readSource('src/vue-ui-antdv/index.ts');
   const sidePanelSource = readSource('src/vue-ui-antdv/components/UiSidePanel.vue');
   const sidePanelHostSource = readSource('src/vue-ui-antdv/components/UiSidePanelHost.vue');
-  const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
+  const dynamicWorkspaceDetailSource = readSource(
+    'src/dynamic-page-runtime/DynamicModuleWorkspaceDetailView.vue',
+  );
   const detailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
   const workspaceViewOutletSource = readSource('src/platform-workbench/WorkspaceViewOutlet.vue');
   const workspaceViewContributionsSource = readSource(
@@ -1950,12 +1902,7 @@ it('side panels use page-owned containers and fixed drawer action regions', () =
   );
   const workspaceViewsSource = readSource('src/platform-workbench/workspaceViews.ts');
   const viewPromotionSource = readSource('src/platform-admin-runtime/useWorkspaceViewPromotion.ts');
-  const tenantSource = readSource('src/views/TenantManagementView.vue');
-  const userSource = [
-    readSource('src/views/UserManagementView.vue'),
-    readSource('src/views/UserManagementListView.vue'),
-    readSource('src/views/UserDetailRouteView.vue'),
-  ].join('\n');
+  const userSource = readSource('src/views/UserManagementView.vue');
   const userDetailContentSource = readSource('src/views/UserDetailContent.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
@@ -1968,7 +1915,9 @@ it('side panels use page-owned containers and fixed drawer action regions', () =
   assert.match(sidePanelSource, /props\.scope === 'viewport'/);
   assert.match(sidePanelSource, /sidePanelHost\?\.value \?\? false/);
   assert.match(sidePanelHostSource, /position: relative/);
-  assert.notMatch(workbenchSource, /UiSidePanelHost/);
+  assert.match(dynamicWorkspaceDetailSource, /const workspaceElement = ref<HTMLElement>\(\)/);
+  assert.match(dynamicWorkspaceDetailSource, /<section ref="workspaceElement"/);
+  assert.match(dynamicWorkspaceDetailSource, /:container="workspaceElement \?\? null"/);
   assert.match(detailDrawerSource, /promotion\?: DrawerPromotion/);
   assert.match(detailDrawerSource, /promotion\.promote\(\)/);
   assert.match(detailDrawerSource, /<template #title-actions>/);
@@ -1995,20 +1944,14 @@ it('side panels use page-owned containers and fixed drawer action regions', () =
     readSource('src/platform-admin-runtime/PlatformAdminOutlet.vue'),
     /workspaceViewPresentation === 'drawer'/,
   );
-  assert.match(userSource, /UserManagementListView/);
-  assert.match(userSource, /UserDetailRouteView/);
-  assert.match(userSource, /navigation\?\.openRoute/);
-  assert.match(userSource, /navigation\?\.replaceRoute/);
+  assert.match(userSource, /useWorkspaceViewHost/);
+  assert.match(userSource, /isDrawerWorkspaceTask/);
   assert.match(employeeSource, /useWorkspaceViewHost/);
   assert.match(employeeSource, /isDrawerWorkspaceView/);
-  assert.match(tenantSource, /<template #operation>/);
-  assert.notMatch(tenantSource, /useWorkspaceViewPromotion/);
-  assert.notMatch(tenantSource, /:promotion=/);
-  assert.match(tenantSource, />\s*确认\s*<\/UiButton/);
-  assert.notMatch(tenantSource, /确认配置/);
-  assert.match(userSource, /const detailActions = computed/);
+  assert.match(userSource, /userDetailOperationActions/);
+  assert.match(userSource, /userDetailPromotion/);
   assert.match(userSource, /<UserDetailContent/);
-  assert.match(userSource, /<RecordDetailPanel/);
+  assert.match(userSource, /<RecordDetailPanel v-else/);
   assert.match(userDetailContentSource, /defineOptions\(\{ name: 'UserDetailContent' \}\)/);
   assert.notMatch(userSource, /userDetailHeaderActions/);
   assert.match(roleSource, /roleDetailOperationActions/);
@@ -2025,16 +1968,14 @@ it('public management and drawer contracts use business roles instead of layout 
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
   const recordDetailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
   const recordModeDrawerSource = readSource('src/platform-components/RecordModeDrawer.vue');
-  const managementPageSources = [readSource('src/views/TenantManagementView.vue')];
   const standardDrawerSources = [
-    readSource('src/views/UserDetailRouteView.vue'),
+    readSource('src/views/UserManagementView.vue'),
     readSource('src/views/RoleManagementView.vue'),
     readSource('src/views/EmployeeManagementView.vue'),
     readSource('src/views/SystemUserManagementView.vue'),
     readSource('src/views/EmployeeEmploymentDrawer.vue'),
     readSource('src/views/RoleAccountGrantDrawer.vue'),
     readSource('src/views/RoleEmploymentGrantDrawer.vue'),
-    readSource('src/views/TenantManagementView.vue'),
   ];
 
   assert.match(layoutSource, /explorerTitle: string/);
@@ -2043,16 +1984,6 @@ it('public management and drawer contracts use business roles instead of layout 
   assert.match(layoutSource, /<slot name="explorer-actions" \/>/);
   assert.match(layoutSource, /<slot name="detail-actions" \/>/);
   assert.notMatch(layoutSource, /sidebarTitle|cardTitle|sidebar-actions|card-actions|card-status/);
-  for (const source of managementPageSources) {
-    assert.match(source, /v-model:explorer-search-keyword/);
-    assert.match(source, /explorer-title=/);
-    assert.match(source, /:detail-title=/);
-    assert.notMatch(
-      source,
-      /sidebar-search|sidebar-title|card-title|sidebar-actions|card-actions|card-status/,
-    );
-  }
-
   assert.notMatch(recordDetailDrawerSource, /<slot name="actions" \/>/);
   assert.notMatch(recordModeDrawerSource, /<slot name="actions" \/>/);
   for (const source of standardDrawerSources) {
@@ -2067,10 +1998,11 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   const explorerItemSource = readSource('src/vue-ui-antdv/components/UiRecordExplorerItem.vue');
   const explorerPanelSource = readSource('src/platform-components/RecordExplorerPanel.vue');
   const staticLayoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
-  const hostSource = readSource('src/dynamic-page-runtime/DynamicModuleHost.vue');
+  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const listSessionSource = readSource('src/dynamic-page-runtime/composables/useModulePageListSession.ts');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
-  const tenantSource = readSource('src/views/TenantManagementView.vue');
   const recycleBinModeSource = readSource('src/platform-components/useRecycleBinExplorerMode.ts');
+  const editingSessionSource = readSource('src/dynamic-page-runtime/composables/useRecordEditingSession.ts');
   const indexSource = readSource('src/platform-components/index.ts');
 
   assert.match(panelSource, /export type RecordQueryListMode = 'normal' \| 'recycleBin'/);
@@ -2104,7 +2036,8 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(panelSource, /item\.purgeable/);
   assert.match(panelSource, /key: 'purge', actionCode: 'recycleBinPurge'/);
   assert.match(panelSource, /function handleTableRowClick[\s\S]*emit\('select', row\.record\)/);
-  assert.match(hostSource, /const listMode = ref<RecordQueryListMode>\('normal'\)/);
+  assert.match(hostSource, /useModulePageListSession\(/);
+  assert.match(listSessionSource, /const listMode = ref<RecordQueryListMode>\('normal'\)/);
   assert.match(hostSource, /:mode="listMode"/);
   assert.match(hostSource, /@mode-change="handleListModeChange"/);
   assert.match(hostSource, /@restored="handleRecycleBinRestore"/);
@@ -2124,31 +2057,17 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(explorerSource, /showLabel: true/);
   assert.match(explorerSource, /disabledReason: recycleBinRestoreUnavailableReason\(item\)/);
   assert.match(explorerSource, /recycleBinState\.restore\(item, false\)/);
-  assert.match(hostSource, /function openRecycleBinRecord/);
-  assert.match(hostSource, /\/recycle-bin\/view\/\$\{encodeURIComponent\(id\)\}/);
+  assert.match(hostSource, /openRecycleBinRecord/);
+  assert.match(editingSessionSource, /\/recycle-bin\/view\/\$\{encodeURIComponent\(id\)\}/);
   assert.match(hostSource, /const recycleBinDetailActive = computed/);
-  assert.match(tenantSource, /<CrudRecordListExplorer/);
   assert.match(explorerItemSource, /action\.showLabel \? action\.title : actionFallbackLabel\(action\)/);
   assert.match(explorerItemSource, /action\.disabledReason \?\? action\.title/);
   assert.match(recycleBinModeSource, /hasRecycleBinAbility\(toValue\(options\.context\)\)/);
   assert.match(recycleBinModeSource, /canQueryRecycleBin\(toValue\(options\.context\)\)/);
   assert.match(recycleBinModeSource, /options\.resetSelection\?\.\(\)/);
-  assert.match(tenantSource, /useRecycleBinExplorerMode/);
-  assert.match(tenantSource, /recycleBinExplorer\.buttonVisible\.value/);
-  assert.match(tenantSource, /<template #explorer-footer>[\s\S]*回收站/);
-  assert.match(tenantSource, /RecycleBinModeButton/);
-  assert.match(tenantSource, /@recycle-bin-summary/);
-  assert.match(tenantSource, /:count="recycleBinExplorer\.total\.value"/);
-  assert.notMatch(tenantSource, /已删除/);
-  assert.notMatch(tenantSource, /<template #explorer-actions>[\s\S]{0,320}recycleBinQuery/);
   assert.match(explorerPanelSource, /<slot name="footer" \/>/);
   assert.match(staticLayoutSource, /<slot name="explorer-footer" \/>/);
-  assert.match(tenantSource, /:mode="recycleBinExplorer\.mode\.value"/);
-  assert.match(tenantSource, /handleReadonlyListLoaded\(tenants\)/);
   assert.match(employeeSource, /employeeRecycleBinExplorer\.enter\(\)/);
-  assert.match(tenantSource, /recycleBinExplorer\.active\.value \|\| readonly/);
-  assert.notMatch(tenantSource, /<RecycleBinPanel/);
-  assert.notMatch(tenantSource, /recycle-bin-detail-hint/);
   assert.notMatch(indexSource, /RecycleBinPanel/);
 });
 

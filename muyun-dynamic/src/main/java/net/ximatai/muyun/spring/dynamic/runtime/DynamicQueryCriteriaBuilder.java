@@ -7,8 +7,10 @@ import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicFieldValueSupport;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -164,11 +166,28 @@ public final class DynamicQueryCriteriaBuilder {
                     + condition.fieldName() + "." + condition.operator());
         }
         try {
-            return DynamicFieldValueSupport.normalize(field.type(), value);
+            return DynamicFieldValueSupport.normalize(field.type(), queryValue(field.type(), value));
         } catch (RuntimeException e) {
             throw new ModuleDefinitionException("invalid query value type: "
                     + condition.fieldName() + "." + condition.operator(), e);
         }
+    }
+
+    /** Query conditions are adapter inputs, rather than DynamicRecord value assignments. */
+    private Object queryValue(FieldType type, Object value) {
+        if (type == FieldType.LONG && value instanceof String text) {
+            return Long.valueOf(text);
+        }
+        if (type == FieldType.LONG && value instanceof Number number && !(number instanceof Long)) {
+            return new BigDecimal(number.toString()).longValueExact();
+        }
+        if (type == FieldType.DECIMAL && value instanceof String text) {
+            return new BigDecimal(text);
+        }
+        if (type == FieldType.DECIMAL && value instanceof Number number && !(number instanceof BigDecimal)) {
+            return new BigDecimal(number.toString());
+        }
+        return value;
     }
 
 }

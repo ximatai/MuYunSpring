@@ -9,6 +9,7 @@ public record PlatformResolvedUiField(
         String columnName,
         String fieldTitle,
         String fieldSpecAlias,
+        String valueType,
         String fieldForm,
         String fieldUiControlAlias,
         Boolean visible,
@@ -24,6 +25,34 @@ public record PlatformResolvedUiField(
         PlatformUiFixedPosition fixedPosition,
         Integer maxDisplayLines
 ) {
+    /** Source-compatible constructor for projections created before the web value type was published. */
+    public PlatformResolvedUiField(String uiConfigId,
+                                   String moduleMetadataFieldId,
+                                   String relationAlias,
+                                   String metadataAlias,
+                                   String fieldName,
+                                   String columnName,
+                                   String fieldTitle,
+                                   String fieldSpecAlias,
+                                   String fieldForm,
+                                   String fieldUiControlAlias,
+                                   Boolean visible,
+                                   String visibleWhen,
+                                   Boolean readOnly,
+                                   String readOnlyWhen,
+                                   Boolean requiredOverride,
+                                   String placeholder,
+                                   String defaultValue,
+                                   Integer width,
+                                   Integer columnSpan,
+                                   String align,
+                                   PlatformUiFixedPosition fixedPosition,
+                                   Integer maxDisplayLines) {
+        this(uiConfigId, moduleMetadataFieldId, relationAlias, metadataAlias, fieldName, columnName, fieldTitle,
+                fieldSpecAlias, null, fieldForm, fieldUiControlAlias, visible, visibleWhen, readOnly, readOnlyWhen,
+                requiredOverride, placeholder, defaultValue, width, columnSpan, align, fixedPosition, maxDisplayLines);
+    }
+
     /** Source-compatible constructor for projections created before conditional UI predicates were introduced. */
     public PlatformResolvedUiField(String uiConfigId,
                                    String moduleMetadataFieldId,
@@ -46,7 +75,7 @@ public record PlatformResolvedUiField(
                                    PlatformUiFixedPosition fixedPosition,
                                    Integer maxDisplayLines) {
         this(uiConfigId, moduleMetadataFieldId, relationAlias, metadataAlias, fieldName, columnName, fieldTitle,
-                fieldSpecAlias, fieldForm, fieldUiControlAlias, visible, null, readOnly, null, requiredOverride,
+                fieldSpecAlias, null, fieldForm, fieldUiControlAlias, visible, null, readOnly, null, requiredOverride,
                 placeholder, defaultValue, width, columnSpan, align, fixedPosition, maxDisplayLines);
     }
 
@@ -71,7 +100,7 @@ public record PlatformResolvedUiField(
                                    String align,
                                    PlatformUiFixedPosition fixedPosition) {
         this(uiConfigId, moduleMetadataFieldId, relationAlias, metadataAlias, fieldName, columnName, fieldTitle,
-                fieldSpecAlias, fieldForm, fieldUiControlAlias, visible, null, readOnly, null, requiredOverride, placeholder,
+                fieldSpecAlias, null, fieldForm, fieldUiControlAlias, visible, null, readOnly, null, requiredOverride, placeholder,
                 defaultValue, width, columnSpan, align, fixedPosition, null);
     }
 
@@ -95,7 +124,7 @@ public record PlatformResolvedUiField(
                                    String align,
                                    PlatformUiFixedPosition fixedPosition) {
         this(uiConfigId, moduleMetadataFieldId, relationAlias, metadataAlias, fieldName, columnName, fieldTitle,
-                fieldSpecAlias, fieldForm, fieldUiControlAlias, visible, null, readOnly, null, requiredOverride, placeholder,
+                fieldSpecAlias, null, fieldForm, fieldUiControlAlias, visible, null, readOnly, null, requiredOverride, placeholder,
                 defaultValue, width, 1, align, fixedPosition, null);
     }
 }

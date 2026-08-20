@@ -14,7 +14,13 @@ import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.web.MuYunSpringJacksonConfiguration;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
-import net.ximatai.muyun.spring.platform.web.RecordReadVisibility;
+import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
+import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
+import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
+import net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler;
+import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
+import net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import net.ximatai.muyun.spring.web.WebPageResponse;
@@ -41,6 +47,7 @@ import net.ximatai.muyun.spring.iam.organization.Organization;
 import net.ximatai.muyun.spring.iam.organization.OrganizationDao;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
 import net.ximatai.muyun.spring.iam.position.Position;
+import net.ximatai.muyun.spring.iam.position.PositionCategory;
 import net.ximatai.muyun.spring.iam.position.PositionCategoryDao;
 import net.ximatai.muyun.spring.iam.position.PositionCategoryService;
 import net.ximatai.muyun.spring.iam.position.PositionDao;
@@ -81,6 +88,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -123,7 +131,60 @@ class IamWebControllerTest {
     private MockMvc mvc;
 
     @Test
-    void shouldExposeTenantBrandingInfrastructureFieldsWithoutEncodingTenantPageLayout() {
+    void shouldRunPositionNavigatorSessionAndMutationConstraintsFromCompiledPlan() {
+        PositionDao dao = mock(PositionDao.class);
+        PositionCategoryService categoryService = mock(PositionCategoryService.class);
+        PositionService positionService = new PositionService(dao, mock(ActiveTenantVerifier.class), categoryService,
+                mock(EmployeePositionDao.class));
+        PlanOnlyPositionWebController controller = new PlanOnlyPositionWebController();
+        ReflectionTestUtils.setField(controller, "service", positionService);
+        controller.setPositionCategoryService(categoryService);
+        ReflectionTestUtils.setField(controller, "standardModuleWebRuntime", positionRuntime(controller));
+        controller.rejectDefinitionLookup();
+
+        PositionCategory category = new PositionCategory();
+        category.setId("category-1");
+        category.setTenantId("tenant_a");
+        when(categoryService.select("category-1")).thenReturn(category);
+        doAnswer(invocation -> null).when(categoryService).requireEnabled(eq("category-1"), any());
+        when(dao.count(any(Criteria.class))).thenReturn(0L);
+        when(dao.insert(any(Position.class))).thenAnswer(invocation -> invocation.<Position>getArgument(0).getId());
+        when(dao.updateByIdAndCondition(any(Position.class), any())).thenReturn(1);
+        when(dao.updateByIdAndVersion(any(Position.class), any())).thenReturn(1);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenAnswer(invocation -> {
+            PageRequest page = invocation.getArgument(1);
+            if (page.getLimit() > 1) {
+                return List.of();
+            }
+            Position position = new Position();
+            position.setId("position-1");
+            position.setCategoryId("category-1");
+            position.setCode("DEV");
+            position.setTitle("Developer");
+            position.setTenantId("tenant_a");
+            return List.of(position);
+        });
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
+                CurrentUser.tenantUser("user-1", "User", "tenant_a"));
+             TenantContext.Scope tenant = TenantContext.use("tenant_a")) {
+            Criteria criteria = controller.queryCriteria(null);
+            assertThat(containsCondition(criteria, "tenantId", "tenant_a")).isTrue();
+
+            Position incoming = position(null, "category-1", "DEV", "Developer");
+            Position saved = controller.insert(incoming);
+            assertThat(saved.getTenantId()).isEqualTo("tenant_a");
+            assertThat(incoming.getTenantId()).isEqualTo("tenant_a");
+
+            Position update = position(null, "category-1", "DEV-2", "Developer II");
+            Position updated = controller.update("position-1", update);
+            assertThat(updated.getTenantId()).isEqualTo("tenant_a");
+            assertThat(update.getTenantId()).isEqualTo("tenant_a");
+        }
+    }
+
+    @Test
+    void shouldExposeTenantBrandingAsAStandardFormGroup() {
         assertThat(((net.ximatai.muyun.spring.platform.web.FlatManagementPageDefinition) new TenantWebController()
                 .moduleUiDefinition().page()).detail().editor().fields())
                 .extracting(field -> field.fieldRef().fieldName())
@@ -131,7 +192,42 @@ class IamWebControllerTest {
                         "lightLogoAssetId", "darkLogoAssetId");
         assertThat(((net.ximatai.muyun.spring.platform.web.FlatManagementPageDefinition) new TenantWebController()
                 .moduleUiDefinition().page()).detail().editor().formGroups())
-                .isEmpty();
+                .singleElement()
+                .satisfies(group -> {
+                    assertThat(group.groupCode()).isEqualTo("workbench_branding");
+                    assertThat(group.title()).isEqualTo("工作台品牌");
+                    assertThat(group.subtitle()).isEqualTo("配置 Logo、主标题与副标题的展示方式。");
+                    assertThat(group.fields()).extracting(field -> field.fieldRef().fieldName())
+                            .containsExactly("workbenchBrandMode", "workbenchTitle", "workbenchSubtitle",
+                                    "lightLogoAssetId", "darkLogoAssetId");
+                    assertThat(group.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("workbenchBrandMode"))
+                            .singleElement().satisfies(field -> assertThat(field.columnSpan()).isEqualTo(2));
+                });
+    }
+
+    @Test
+    void shouldCompileTenantBrandingControlsIntoTheStandardRuntimeDescriptor() {
+        TenantWebController controller = new TenantWebController();
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", TenantService.MODULE_ALIAS, "租户管理")
+                .modelClass(Tenant.class)
+                .entities(List.of(new StaticEntityDefinitionCompiler().compile("tenant", "租户管理", Tenant.class)))
+                .uiDefinition(controller.moduleUiDefinition())
+                .build();
+
+        var descriptor = ModuleUiDescriptorCompiler.compile(definition);
+
+        assertThat(descriptor.page().detail().editor().fields())
+                .filteredOn(field -> field.fieldRef().fieldName().equals("workbenchBrandMode"))
+                .singleElement()
+                .satisfies(field -> {
+                    assertThat(field.fieldControl().alias()).isEqualTo("select");
+                    assertThat(field.option().inlineItems())
+                            .extracting(item -> item.code())
+                            .containsExactly("logoOnly", "logoWithTitle");
+                });
+        assertThat(descriptor.fileReferences())
+                .extracting(reference -> reference.fieldRef().fieldName())
+                .containsExactlyInAnyOrder("lightLogoAssetId", "darkLogoAssetId");
     }
 
     @BeforeEach
@@ -167,8 +263,10 @@ class IamWebControllerTest {
         UserAccountWebController userAccountController = new UserAccountWebController();
         RoleWebController roleController = new RoleWebController(grantableActionResolver);
         ReflectionTestUtils.setField(tenantController, "service", tenantService);
+        ReflectionTestUtils.setField(tenantController, "standardModuleWebRuntime", tenantRuntime(tenantController));
         ReflectionTestUtils.setField(organizationController, "service", organizationService);
         ReflectionTestUtils.setField(positionController, "service", positionService);
+        ReflectionTestUtils.setField(positionController, "standardModuleWebRuntime", positionRuntime(positionController));
         ReflectionTestUtils.setField(userAccountController, "service", userAccountService);
         ReflectionTestUtils.setField(roleController, "service", roleService);
         mvc = MockMvcBuilders
@@ -254,7 +352,7 @@ class IamWebControllerTest {
         });
         RecycleBinItem<Tenant> recycleBinItem = new RecycleBinItem<>(deleted, "delete-operation-1",
                 deleted.getDeletedAt(), true, false, null);
-        when(recycleBinFacade.items(eq(tenantService), eq(List.of(deleted)),
+        when(recycleBinFacade.items(eq(tenantService), any(),
                 any(java.util.function.Function.class), any(java.util.function.Function.class)))
                 .thenReturn((List) List.of(recycleBinItem));
         RestoreReport report = new RestoreReport("delete-operation-1", "restore-operation-1", List.of());
@@ -275,7 +373,7 @@ class IamWebControllerTest {
                 .andExpect(jsonPath("$.sourceOperationId").value("delete-operation-1"))
                 .andExpect(jsonPath("$.restoreOperationId").value("restore-operation-1"));
 
-        verify(recycleBinFacade).items(eq(tenantService), eq(List.of(deleted)),
+        verify(recycleBinFacade).items(eq(tenantService), any(),
                 any(java.util.function.Function.class), any(java.util.function.Function.class));
         verify(recycleBinFacade).restoreWithSource(tenantService, "delete-operation-1");
     }
@@ -359,7 +457,7 @@ class IamWebControllerTest {
                         ))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].id").value("pos-1"))
-                .andExpect(jsonPath("$.records[0].categoryId").value("category-1"));
+                .andExpect(jsonPath("$.records[0].code").value("DEV"));
 
         ArgumentCaptor<Criteria> criteriaCaptor = ArgumentCaptor.captor();
         verify(positionDao).pageQuery(criteriaCaptor.capture(), any(PageRequest.class), any(Sort[].class));
@@ -1486,51 +1584,6 @@ class IamWebControllerTest {
                 .andExpect(jsonPath("$.message").value("系统暂时不可用，请稍后重试"));
     }
 
-    @Test
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    void shouldDelegateActiveVisibilityAndActionPolicyToUserProjectionQuery() throws Exception {
-        RecordingUserAccountService userAccountService = new RecordingUserAccountService();
-        StaticRecordReadProjectionService projectionService = mock(StaticRecordReadProjectionService.class);
-        UserAccountWebController controller = new UserAccountWebController();
-        ReflectionTestUtils.setField(controller, "service", userAccountService);
-        controller.setStaticRecordReadProjectionService(projectionService);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new PlatformWebExceptionHandler())
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
-                .addFilters(new CurrentUserWebFilter(() ->
-                        java.util.Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
-                .build();
-        when(projectionService.queryDefaultList(
-                any(),
-                any(net.ximatai.muyun.spring.ability.query.QueryRequest.class),
-                any(Criteria.class),
-                any(PageRequest.class),
-                any(),
-                any(ActionExecutionPolicy.class),
-                eq(RecordReadVisibility.ACTIVE)
-        )).thenReturn(java.util.Optional.of(WebPageResponse.from(PageResult.of(List.of(Map.of(
-                "id", "user-2",
-                "username", "alice"
-        )), 1, PageRequest.of(1, 20)))));
-
-        mvc.perform(post("/iam.user/query"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.records[0].username").value("alice"));
-
-        ArgumentCaptor<ActionExecutionPolicy> policyCaptor = ArgumentCaptor.captor();
-        verify(projectionService).queryDefaultList(
-                any(),
-                any(net.ximatai.muyun.spring.ability.query.QueryRequest.class),
-                any(Criteria.class),
-                any(PageRequest.class),
-                any(),
-                policyCaptor.capture(),
-                eq(RecordReadVisibility.ACTIVE)
-        );
-        assertThat(policyCaptor.getValue().actionCode()).isEqualTo("query");
-        verify(userAccountDao, never()).pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class));
-    }
-
     private Tenant tenant(String alias, String title) {
         Tenant tenant = new Tenant();
         tenant.setAlias(alias);
@@ -1654,6 +1707,67 @@ class IamWebControllerTest {
         return criteria.getClauses().stream()
                 .anyMatch(clause -> fieldName.equals(clause.getField())
                         && clause.getValues().contains(value));
+    }
+
+    private StandardModuleWebRuntime positionRuntime(PositionWebController controller) {
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", PositionService.MODULE_ALIAS, "岗位管理")
+                .entry(ModuleEntryType.ROUTE, "/iam.position", null)
+                .capabilities(java.util.Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.CRUD,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.SORT))
+                .entities(List.of(new StaticEntityDefinitionCompiler().compile("position", PositionService.MODULE_ALIAS,
+                        Position.class)))
+                .modelClass(Position.class)
+                .uiDefinition(controller.moduleUiDefinition())
+                .build();
+        PositionCategoryWebController categoryController = new PositionCategoryWebController();
+        StaticModuleDefinition categoryDefinition = StaticModuleDefinition.builder("iam", PositionCategoryService.MODULE_ALIAS,
+                        "岗位分类")
+                .entry(ModuleEntryType.ROUTE, "/iam.position-category", null)
+                .capabilities(java.util.Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.CRUD,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.TREE,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.SORT,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.RECYCLE_BIN))
+                .navigatorSourceCapabilities(java.util.Set.of(
+                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE))
+                .actions(java.util.Arrays.stream(net.ximatai.muyun.spring.common.platform.PlatformAction.values())
+                        .map(net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition::platformAction).toList())
+                .entities(List.of(new StaticEntityDefinitionCompiler().compile("position_category",
+                        PositionCategoryService.MODULE_ALIAS, PositionCategory.class)))
+                .modelClass(PositionCategory.class)
+                .uiDefinition(categoryController.moduleUiDefinition())
+                .build();
+        StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(definition, categoryDefinition));
+        return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
+                new StaticRecordReadProjectionService(catalog));
+    }
+
+    private StandardModuleWebRuntime tenantRuntime(TenantWebController controller) {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean("tenantController", TenantWebController.class, () -> controller);
+            context.refresh();
+            StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(
+                    new net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionScanner(context).scan());
+            return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
+                    new StaticRecordReadProjectionService(catalog));
+        }
+    }
+
+    private static final class PlanOnlyPositionWebController extends PositionWebController {
+        private boolean rejectDefinitionLookup;
+
+        private void rejectDefinitionLookup() {
+            rejectDefinitionLookup = true;
+        }
+
+        @Override
+        public net.ximatai.muyun.spring.platform.web.ModuleUiDefinition moduleUiDefinition() {
+            if (rejectDefinitionLookup) {
+                throw new AssertionError("request runtime must not call moduleUiDefinition");
+            }
+            return super.moduleUiDefinition();
+        }
     }
 
     private String compiledCriteria(Criteria criteria) {
