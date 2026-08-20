@@ -431,6 +431,69 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldPreserveLosslessLongAndDecimalTextWireValuesThroughDynamicRecordHttpContract() throws Exception {
+        EntityDefinition numericEntity = new EntityDefinition(ENTITY, "sales_contract", "Contract", List.of(
+                FieldDefinition.string("code", "Code").length(64).required(),
+                FieldDefinition.longInteger("externalSequence", "External Sequence").column("external_sequence"),
+                FieldDefinition.decimal("amount", "Amount").precision(18, 2)
+        ));
+        DynamicRecord created = new DynamicRecord(numericEntity)
+                .setValue("code", "C-001")
+                .setValue("externalSequence", 9007199254740993L)
+                .setValue("amount", new BigDecimal("0.123456789012345678"));
+        created.setId("contract-1");
+        created.setVersion(1);
+        when(mainEntity.newRecord()).thenAnswer(invocation -> new DynamicRecord(numericEntity));
+        when(mainEntity.insert(any(DynamicRecord.class))).thenReturn("contract-1");
+        when(mainEntity.update(any(DynamicRecord.class))).thenReturn(1);
+        when(mainEntity.select("contract-1")).thenReturn(created);
+
+        mvc.perform(post("/{moduleAlias}/insert", MODULE)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "values": {
+                                    "code": "C-001",
+                                    "externalSequence": "9007199254740993",
+                                    "amount": "0.123456789012345678"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.values.externalSequence").value("9007199254740993"))
+                .andExpect(jsonPath("$.values.amount").value("0.123456789012345678"));
+
+        ArgumentCaptor<DynamicRecord> captured = ArgumentCaptor.forClass(DynamicRecord.class);
+        verify(mainEntity).insert(captured.capture());
+        assertThat(captured.getValue().getValue("externalSequence")).isEqualTo(9007199254740993L);
+        assertThat((BigDecimal) captured.getValue().getValue("amount"))
+                .isEqualByComparingTo(new BigDecimal("0.123456789012345678"));
+
+        mvc.perform(get("/{moduleAlias}/view/{recordId}", MODULE, "contract-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.values.externalSequence").value("9007199254740993"))
+                .andExpect(jsonPath("$.values.amount").value("0.123456789012345678"));
+
+        mvc.perform(post("/{moduleAlias}/update/{recordId}", MODULE, "contract-1")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "version": 1,
+                                  "values": {
+                                    "externalSequence": "9007199254740993",
+                                    "amount": "9999999999999999.99"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isOk());
+        ArgumentCaptor<DynamicRecord> updated = ArgumentCaptor.forClass(DynamicRecord.class);
+        verify(mainEntity).update(updated.capture());
+        assertThat(updated.getValue().getValue("externalSequence")).isEqualTo(9007199254740993L);
+        assertThat((BigDecimal) updated.getValue().getValue("amount"))
+                .isEqualByComparingTo(new BigDecimal("9999999999999999.99"));
+    }
+
+    @Test
     void shouldRejectVirtualFieldWhenSavingDynamicRecord() throws Exception {
         when(service.relations(MODULE)).thenReturn(List.of(
                 new DynamicRelationDescriptor("lines", ENTITY, "contract_line", "contractId", false, false)

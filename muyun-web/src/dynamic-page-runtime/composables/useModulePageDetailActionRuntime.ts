@@ -19,6 +19,8 @@ export interface ModulePageDetailActionRuntimeOptions {
   editorMode: Ref<'create' | 'edit' | 'view'>;
   detail: DetailLoader;
   refreshList(): void;
+  /** Current local-edit form validity, owned by RecordFormFields at the host boundary. */
+  localEditValid?: Ref<boolean>;
   presentSuccess(result: unknown, fallbackMessage: string, source: string): Promise<unknown> | unknown;
   presentError(cause: unknown, source: string): void;
 }
@@ -123,7 +125,15 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
     const draft = localEditDraft.value;
     const recordId =
       options.selectedRecord.value?.id == null ? undefined : String(options.selectedRecord.value.id);
-    if (!block || !draft || !recordId || typeof draft.version !== 'number' || !block.submitPath) return;
+    if (
+      !block ||
+      !draft ||
+      !recordId ||
+      typeof draft.version !== 'number' ||
+      !block.submitPath ||
+      options.localEditValid?.value === false
+    )
+      return;
     localEditSaving.value = true;
     try {
       const fieldNames = [...localEditFields.value.keys()];

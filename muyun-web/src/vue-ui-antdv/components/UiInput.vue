@@ -13,6 +13,7 @@ defineProps<{
   allowClear?: boolean;
   autocomplete?: string;
   required?: boolean;
+  step?: string | number;
   ariaLabel?: string;
 }>();
 
@@ -34,6 +35,7 @@ const emit = defineEmits<{
     :allow-clear="allowClear"
     :autocomplete="autocomplete"
     :required="required"
+    :step="step"
     :aria-label="ariaLabel"
     :class="$attrs.class"
     :style="$attrs.style"

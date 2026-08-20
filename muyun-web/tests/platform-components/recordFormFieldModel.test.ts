@@ -9,6 +9,7 @@ import {
   resolveRecordFormFieldState,
   evaluateUiFormula,
   recordFieldRendererRegistry,
+  decodeNumberEditorValue,
   type RecordFormFieldDescriptor,
   type RecordFormFieldFallback,
 } from '@/platform-components/recordFormFieldModel.ts';
@@ -37,6 +38,14 @@ it('registers every renderer kind promised by the persisted web-form support mat
       'JSON',
     ]),
   );
+});
+
+it('keeps LONG and DECIMAL editor transport lossless while INTEGER remains a JSON number', () => {
+  expect(decodeNumberEditorValue('42', 'INTEGER')).toBe(42);
+  expect(decodeNumberEditorValue('9007199254740993', 'LONG')).toBe('9007199254740993');
+  expect(decodeNumberEditorValue('9999999999999999.99', 'DECIMAL')).toBe('9999999999999999.99');
+  expect(decodeNumberEditorValue('0.123456789012345678', 'DECIMAL')).toBe('0.123456789012345678');
+  expect(decodeNumberEditorValue('1e6', 'DECIMAL')).toBeUndefined();
 });
 
 it('record form field names prefer descriptor order and fill missing fallback fields', () => {

@@ -133,6 +133,19 @@ const {
   loading: detailLoading,
   loadFailed: detailLoadFailed,
 } = detail;
+// RecordFormFields owns parser and renderer diagnostics. Persist only its
+// validity fact here; the host remains responsible for the save boundary.
+const mainFormValid = ref(true);
+const localEditFormValid = ref(true);
+function updateMainFormValidity(validity: { valid: boolean }) {
+  mainFormValid.value = validity.valid;
+}
+function updateLocalEditFormValidity(validity: { valid: boolean }) {
+  localEditFormValid.value = validity.valid;
+}
+watch([() => editingRecord.value?.id, formSessionKey], () => {
+  mainFormValid.value = true;
+});
 const { pageBootstrap, pageBootstrapError, loadPageBootstrap } = useModulePageBootstrap(
   context,
   () => props.descriptor.menuId,
@@ -285,8 +298,14 @@ const {
   editorMode,
   detail,
   refreshList,
+  localEditValid: localEditFormValid,
   presentSuccess: presentModuleActionSuccess,
   presentError: (cause, source) => presentPlatformError(cause, { source, phase: 'action' }),
+});
+watch(localEditOpen, () => {
+  // The modal may be re-opened for a different record after an invalid edit.
+  // Its mounted form immediately recomputes the current validity afterwards.
+  localEditFormValid.value = true;
 });
 /** Only server-issued executable contracts may mount a relation-list runner. */
 const executableDetailRelations = computed<ResolvedDetailRelationDescriptor[]>(() =>
@@ -1416,6 +1435,7 @@ async function editRecord(record: QueryListRecord) {
 async function saveRecord() {
   const record = editingRecord.value;
   if (!record) return;
+  if (!mainFormValid.value) return;
   if (editorMode.value === 'create' ? context.can('create') !== true : context.can('update') !== true) {
     return;
   }
@@ -1968,6 +1988,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :disabled="saving"
             :exclude-field-names="['enabled']"
             @update:field="updateDraftField"
+            @validity-change="updateMainFormValidity"
           />
         </div>
         <template v-if="editorMode === 'view'">
@@ -2243,6 +2264,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               :disabled="saving"
               :exclude-field-names="['enabled']"
               @update:field="updateDraftField"
+              @validity-change="updateMainFormValidity"
             />
           </div>
           <RecordMetaSection
@@ -2488,6 +2510,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               :picker-configs="referencePickerConfigs"
               :exclude-field-names="['enabled']"
               @update:field="updateDraftField"
+              @validity-change="updateMainFormValidity"
             />
           </div>
           <RecordMetaSection
@@ -2653,6 +2676,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :picker-configs="referencePickerConfigs"
             :exclude-field-names="['enabled']"
             @update:field="updateDraftField"
+            @validity-change="updateMainFormValidity"
           />
         </div>
       </template>
@@ -2691,6 +2715,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       :option-context="context"
       :disabled="localEditSaving"
       @update:field="(fieldName, value) => (localEditDraft![fieldName] = value)"
+      @validity-change="updateLocalEditFormValidity"
     />
   </UiModal>
 </template>

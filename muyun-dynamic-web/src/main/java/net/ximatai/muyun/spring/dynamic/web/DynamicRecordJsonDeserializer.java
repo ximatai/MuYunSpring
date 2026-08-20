@@ -87,8 +87,9 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
 
     /**
      * JSON parsers cannot infer an editor's target field type from an untyped record map. Decode
-     * number nodes by the published entity field fact before DynamicRecord applies its invariant
-     * validation, rather than requiring browser number inputs to send quoted Java values.
+     * numeric JSON nodes by the published entity field fact before DynamicRecord applies its
+     * invariant validation. LONG and DECIMAL also accept their lossless textual wire form; the
+     * DynamicFieldValueSupport invariant then parses it without a browser Number round-trip.
      */
     private Object readFieldValue(DynamicRecord record,
                                   String fieldName,

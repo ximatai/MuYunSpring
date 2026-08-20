@@ -467,8 +467,13 @@ class DynamicOpenApiGeneratorTest {
                 });
         assertThat(schema.properties().get("amount"))
                 .satisfies(property -> {
-                    assertThat(property.type()).isEqualTo("number");
+                    assertThat(property.type()).isEqualTo("string");
                     assertThat(property.format()).isEqualTo("decimal");
+                });
+        assertThat(schema.properties().get("externalSequence"))
+                .satisfies(property -> {
+                    assertThat(property.type()).isEqualTo("string");
+                    assertThat(property.format()).isEqualTo("int64");
                 });
         assertThat(schema.properties().get("status"))
                 .satisfies(property -> {
@@ -684,6 +689,7 @@ class DynamicOpenApiGeneratorTest {
                 FieldDefinition.string("status", "Status")
                         .dictionary("sales", "contract_status"),
                 FieldDefinition.decimal("amount", "Amount").precision(18, 2).required(),
+                FieldDefinition.longInteger("externalSequence", "External Sequence").column("external_sequence"),
                 FieldDefinition.of("tags", FieldType.JSON, "Tags")
                         .dictionary("sales", "contract_tag", OptionSelectionMode.MULTIPLE),
                 FieldDefinition.string("customerId", "Customer"),

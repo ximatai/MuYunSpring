@@ -47,9 +47,37 @@ describe('RecordFormFields', () => {
     const input = wrapper.findComponent({ name: 'UiInput' });
     expect(input.props('type')).toBe('number');
 
-    // Native number inputs emit text, but dynamic record payloads must retain JSON numbers.
+    // INTEGER stays a JSON number; LONG and DECIMAL deliberately use a lossless text wire form.
     input.vm.$emit('update:value', '23.40');
     expect(wrapper.emitted('update:field')).toContainEqual(['amount', 23.4]);
+  });
+
+  it('emits lossless string wire values for LONG and DECIMAL field descriptors', () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'externalSequence',
+        {
+          fieldRef: { fieldName: 'externalSequence' },
+          label: '外部序号',
+          valueType: 'LONG',
+          uiType: 'integer',
+        },
+      ],
+      [
+        'amount',
+        { fieldRef: { fieldName: 'amount' }, label: '金额', valueType: 'DECIMAL', uiType: 'amount' },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: { record: { externalSequence: '9007199254740993', amount: '0.123456789012345678' }, fields },
+    });
+    const inputs = wrapper.findAllComponents({ name: 'UiInput' });
+
+    inputs[0].vm.$emit('update:value', '9007199254740993');
+    inputs[1].vm.$emit('update:value', '0.123456789012345678');
+
+    expect(wrapper.emitted('update:field')).toContainEqual(['externalSequence', '9007199254740993']);
+    expect(wrapper.emitted('update:field')).toContainEqual(['amount', '0.123456789012345678']);
   });
 
   it('uses native date and datetime transports for executable field-control renderers', () => {
@@ -77,14 +105,15 @@ describe('RecordFormFields', () => {
     const inputs = wrapper.findAllComponents({ name: 'UiInput' });
 
     expect(inputs.map((input) => input.props('type'))).toEqual(['date', 'datetime-local']);
+    expect(inputs[1].props('step')).toBe('1');
     inputs[0].vm.$emit('update:value', '2026-08-21');
     const localDateTime = String(inputs[1].props('value'));
     expect(localDateTime).toMatch(/^2026-08-20T\d{2}:30:00$/);
-    inputs[1].vm.$emit('update:value', '2026-08-21T11:00');
+    inputs[1].vm.$emit('update:value', '2026-08-21T11:00:37');
     expect(wrapper.emitted('update:field')).toContainEqual(['deliveryDate', '2026-08-21']);
     expect(wrapper.emitted('update:field')).toContainEqual([
       'scheduledAt',
-      new Date('2026-08-21T11:00').toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      new Date('2026-08-21T11:00:37').toISOString().replace(/\.\d{3}Z$/, 'Z'),
     ]);
   });
 
@@ -113,6 +142,83 @@ describe('RecordFormFields', () => {
     textarea.vm.$emit('update:value', '"not an object"');
     await wrapper.vm.$nextTick();
     expect(wrapper.find('[role="alert"]').text()).toContain('有效 JSON');
+  });
+
+  it('publishes invalid editor and unsupported-control state, then recovers after correction', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'payload',
+        {
+          fieldRef: { fieldName: 'payload' },
+          label: '扩展信息',
+          fieldControl: { alias: 'json', rendererType: 'JSON', valueShape: 'SCALAR' },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: { record: { id: 'record-1', payload: {} }, fields, formSessionKey: 1 },
+    });
+    const textarea = wrapper.findComponent({ name: 'UiTextArea' });
+
+    textarea.vm.$emit('update:value', '{bad');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([
+      expect.objectContaining({ valid: false, errors: { payload: '请输入有效 JSON' } }),
+    ]);
+    expect(wrapper.emitted('update:field')).toBeUndefined();
+
+    textarea.vm.$emit('update:value', '{"level":3}');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([expect.objectContaining({ valid: true })]);
+    expect(wrapper.emitted('update:field')).toContainEqual(['payload', { level: 3 }]);
+  });
+
+  it('clears parser errors when the form session receives a new record', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'payload',
+        {
+          fieldRef: { fieldName: 'payload' },
+          label: '扩展信息',
+          fieldControl: { alias: 'json', rendererType: 'JSON', valueShape: 'SCALAR' },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: { record: { id: 'record-1', payload: {} }, fields, formSessionKey: 1 },
+    });
+    wrapper.findComponent({ name: 'UiTextArea' }).vm.$emit('update:value', '{bad');
+    await wrapper.vm.$nextTick();
+
+    // Normal immutable draft updates must retain the parser failure.
+    await wrapper.setProps({ record: { id: 'record-1', payload: { untouched: true } } });
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([expect.objectContaining({ valid: false })]);
+
+    await wrapper.setProps({ record: { id: 'record-2', payload: {} }, formSessionKey: 2 });
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([expect.objectContaining({ valid: true })]);
+  });
+
+  it('marks an illegal numeric editor invalid without replacing the saved draft value', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'quantity',
+        { fieldRef: { fieldName: 'quantity' }, label: '数量', valueType: 'INTEGER', uiType: 'integer' },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, { props: { record: { quantity: 2 }, fields } });
+    const input = wrapper.findComponent({ name: 'UiInput' });
+
+    input.vm.$emit('update:value', '2.5');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([
+      expect.objectContaining({ valid: false, errors: { quantity: '请输入有效数字' } }),
+    ]);
+    expect(wrapper.emitted('update:field')).toBeUndefined();
+
+    input.vm.$emit('update:value', '3');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([expect.objectContaining({ valid: true })]);
+    expect(wrapper.emitted('update:field')).toContainEqual(['quantity', 3]);
   });
 
   it('shows an explicit non-editable diagnostic for an unregistered resolved renderer', () => {

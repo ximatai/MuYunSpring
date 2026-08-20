@@ -8,6 +8,7 @@ import type {
   ResolvedFieldControlDescriptor,
   ResolvedModuleUiDescriptor,
   ResolvedViewFieldDescriptor,
+  ViewFieldValueType,
   FieldValuePresentation,
   FormGroupDescriptor,
   UiFormula,
@@ -26,6 +27,8 @@ export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewField
   reference?: ResolvedReferenceFieldDescriptor;
   fileReference?: ResolvedFileReferenceFieldDescriptor;
   formGroup?: FormGroupDescriptor;
+  /** Published storage type; resolved descriptors use it to select a lossless editor codec. */
+  valueType?: ViewFieldValueType;
 };
 export type RecordFormRecord = Record<string, unknown>;
 /**
@@ -146,6 +149,11 @@ export interface RecordFormFieldState {
   visible: boolean;
   controlType: RecordFormFieldControlType;
   fieldControl?: ResolvedFieldControlDescriptor;
+  /**
+   * Published storage semantics drive the editor wire codec. In particular LONG and DECIMAL
+   * deliberately remain text in the browser so JSON.stringify cannot round enterprise values.
+   */
+  valueType?: ViewFieldValueType;
   /** Set only when an authoritative field-control descriptor cannot be executed safely. */
   rendererDiagnostic?: string;
   columnSpan: number;
@@ -308,6 +316,7 @@ export function resolveRecordFormFieldState(
     visible,
     controlType,
     ...(field?.fieldControl ? { fieldControl: field.fieldControl } : {}),
+    ...(field?.valueType ? { valueType: field.valueType } : {}),
     columnSpan: field?.columnSpan === 2 ? 2 : 1,
     hasOption,
     pickerConfig,
@@ -432,11 +441,35 @@ function fieldControlSelectionMode(field: RecordFormFieldDescriptor | undefined)
   return undefined;
 }
 
-/** Native number inputs emit text; standard record payloads must retain JSON numeric values. */
-export function decodeNumberEditorValue(value: string): number | undefined {
+/**
+ * Native number inputs emit text. INTEGER is the only standard numeric field that is safe as a
+ * JavaScript number; LONG and DECIMAL use an exact textual wire form and are parsed by the
+ * field-aware server deserializer. Do not turn these values into `Number` before JSON encoding.
+ */
+export function decodeNumberEditorValue(
+  value: string,
+  valueType?: ViewFieldValueType,
+): number | string | undefined {
   if (!value.trim()) return undefined;
-  const decoded = Number(value);
-  return Number.isFinite(decoded) ? decoded : undefined;
+  const text = value.trim();
+  if (valueType === 'LONG') {
+    return /^[-+]?\d+$/.test(text) ? canonicalIntegerWireValue(text) : undefined;
+  }
+  if (valueType === 'DECIMAL') {
+    return /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text) ? text : undefined;
+  }
+  const decoded = Number(text);
+  if (!Number.isFinite(decoded)) return undefined;
+  // Legacy uiType-only descriptors do not publish a storage type yet. Preserve their previous
+  // numeric behavior during protocol migration; resolved INTEGER descriptors take the strict
+  // safe-integer path, while resolved LONG/DECIMAL never arrive here.
+  return valueType === 'INTEGER' && !Number.isSafeInteger(decoded) ? undefined : decoded;
+}
+
+function canonicalIntegerWireValue(value: string) {
+  const negative = value.startsWith('-');
+  const unsigned = value.replace(/^[-+]/, '').replace(/^0+(?=\d)/, '');
+  return negative && unsigned !== '0' ? `-${unsigned}` : unsigned;
 }
 
 /** Converts the canonical UTC-second record value to the browser-local datetime-local value. */

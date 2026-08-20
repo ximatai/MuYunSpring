@@ -39,6 +39,11 @@ import { loadOptionFieldItems } from './optionFieldOptionCache';
 
 defineOptions({ name: 'RecordFormFields' });
 
+export interface RecordFormValidity {
+  valid: boolean;
+  errors: Record<string, string>;
+}
+
 const props = withDefaults(
   defineProps<{
     record: RecordFormRecord;
@@ -78,6 +83,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:field': [fieldName: string, value: RecordFormFieldValue];
+  'validity-change': [validity: RecordFormValidity];
 }>();
 
 const resolvedFieldNames = computed(
@@ -93,6 +99,15 @@ const optionItems = ref<Record<string, OptionItemDescriptor[]>>({});
 const loadingOptionFields = ref(new Set<string>());
 const optionFieldErrors = ref<Record<string, string>>({});
 const editorFieldErrors = ref<Record<string, string>>({});
+const formValidity = computed<RecordFormValidity>(() => {
+  const errors = { ...optionFieldErrors.value, ...editorFieldErrors.value };
+  for (const field of fieldStates.value) {
+    if (field.controlType === 'unsupported') {
+      errors[field.fieldName] = field.rendererDiagnostic ?? '该字段控件当前不可编辑';
+    }
+  }
+  return { valid: Object.keys(errors).length === 0, errors };
+});
 
 onMounted(() => {
   void loadOptionFields();
@@ -105,6 +120,11 @@ watch(
     initializeRequiredColorFields();
   },
 );
+watch([() => props.record.id, () => props.formSessionKey], () => {
+  // A new record/session must never inherit parser failures from its predecessor.
+  editorFieldErrors.value = {};
+});
+watch(formValidity, (validity) => emit('validity-change', validity), { immediate: true });
 
 function fieldState(fieldName: string): RecordFormFieldState {
   return resolveRecordFormFieldState(fieldName, {
@@ -252,7 +272,7 @@ function updateEditorField(field: RecordFormFieldState, value: string) {
 
 function decodeEditorValue(field: RecordFormFieldState, value: string): RecordFormFieldValue {
   if (field.controlType === 'numberInput') {
-    const decoded = decodeNumberEditorValue(value);
+    const decoded = decodeNumberEditorValue(value, field.valueType);
     if (decoded === undefined && value.trim()) throw new Error('请输入有效数字');
     return decoded;
   }
@@ -449,6 +469,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         v-else-if="field.controlType === 'numberInput'"
         :value="editorFieldValue(field)"
         type="number"
+        step="any"
         :disabled="fieldDisabled(field)"
         :placeholder="field.placeholder"
         @update:value="updateEditorField(field, $event)"
@@ -465,6 +486,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         v-else-if="field.controlType === 'dateTimeInput'"
         :value="editorFieldValue(field)"
         type="datetime-local"
+        step="1"
         :disabled="fieldDisabled(field)"
         :placeholder="field.placeholder"
         @update:value="updateEditorField(field, $event)"

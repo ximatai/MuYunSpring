@@ -172,11 +172,14 @@ final class DynamicOpenApiSchemaFactory {
         return switch (type) {
             case STRING, TEXT -> new FieldShape("string", null);
             case INTEGER -> new FieldShape("integer", "int32");
-            case LONG -> new FieldShape("integer", "int64");
+            // JavaScript clients must not parse enterprise int64 values through Number. Dynamic
+            // record HTTP therefore transports LONG/DECIMAL as canonical text in both requests
+            // and responses; the runtime parses them by FieldType.
+            case LONG -> new FieldShape("string", "int64");
             case BOOLEAN -> new FieldShape("boolean", null);
             case DATE -> new FieldShape("string", "date");
             case TIMESTAMP, ZONED_TIMESTAMP -> new FieldShape("string", "date-time");
-            case DECIMAL -> new FieldShape("number", "decimal");
+            case DECIMAL -> new FieldShape("string", "decimal");
             case JSON -> new FieldShape("object", null);
         };
     }

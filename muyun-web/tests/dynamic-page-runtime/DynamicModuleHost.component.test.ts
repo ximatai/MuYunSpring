@@ -79,6 +79,7 @@ describe('ModulePageHost', () => {
             template: '<section><slot name="explorer" /><slot name="detail-actions" /><slot /></section>',
           },
           RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+          UiModal: { name: 'UiModal', template: '<section><slot /></section>' },
         },
       },
     });
@@ -178,6 +179,7 @@ describe('ModulePageHost', () => {
             template: '<section><slot name="explorer" /><slot name="detail-actions" /><slot /></section>',
           },
           RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+          UiModal: { name: 'UiModal', template: '<section><slot /></section>' },
         },
       },
     });
@@ -193,6 +195,15 @@ describe('ModulePageHost', () => {
       );
     actionBar!.vm.$emit('action', { key: 'page-local-edit:entry:base:0', actionCode: 'editBaseInfo' });
     await flushPromises();
+    const localForm = wrapper.findComponent({ name: 'RecordFormFields' });
+    localForm.vm.$emit('validity-change', { valid: false, errors: { name: '请输入有效数字' } });
+    wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+    await flushPromises();
+    expect(requests.some((request) => request.url.endsWith('/crm.customer/editBaseInfo/customer-1'))).toBe(
+      false,
+    );
+
+    localForm.vm.$emit('validity-change', { valid: true, errors: {} });
     wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
     await flushPromises();
     const submit = requests.find((request) => request.url.endsWith('/crm.customer/editBaseInfo/customer-1'));
@@ -352,8 +363,10 @@ describe('ModulePageHost', () => {
   });
 
   it('renders the flat management template as an inline explorer and detail workspace', async () => {
-    globalThis.fetch = async (input) => {
-      const request = new Request(input);
+    const requests: Request[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
       if (request.url.endsWith('/platform.module/platform.application/context')) {
         return Response.json({
           moduleAlias: 'platform.application',
@@ -390,6 +403,14 @@ describe('ModulePageHost', () => {
                       visible: { kind: 'CONSTANT', value: true },
                       required: { kind: 'CONSTANT', value: true },
                       readOnly: { kind: 'CONSTANT', value: false },
+                    },
+                    {
+                      fieldRef: { fieldName: 'payload' },
+                      label: '扩展信息',
+                      visible: { kind: 'CONSTANT', value: true },
+                      required: { kind: 'CONSTANT', value: false },
+                      readOnly: { kind: 'CONSTANT', value: false },
+                      fieldControl: { alias: 'json', rendererType: 'JSON', valueShape: 'SCALAR' },
                     },
                   ],
                 },
@@ -462,6 +483,13 @@ describe('ModulePageHost', () => {
     expect(actionBar.props('actions')).toEqual(
       expect.arrayContaining([expect.objectContaining({ key: 'save', actionCode: 'create' })]),
     );
+
+    // RecordFormFields emits this only after its JSON/number/date codec has rejected input.
+    const form = wrapper.findComponent({ name: 'RecordFormFields' });
+    form.vm.$emit('validity-change', { valid: false, errors: { payload: '请输入有效 JSON' } });
+    actionBar.vm.$emit('action', { key: 'save', actionCode: 'create' });
+    await flushPromises();
+    expect(requests.some((request) => request.url.endsWith('/platform.application/create'))).toBe(false);
   });
 
   it('uses the same record grant for the standard view row action and double-click', async () => {

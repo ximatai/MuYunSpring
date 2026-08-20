@@ -13,12 +13,14 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionResult;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionResultBody;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicFormulaPreviewResult;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceMatchMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveMode;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.platform.impact.RecordOriginContext;
 
 import java.util.Collection;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -180,6 +182,7 @@ record DynamicRecordResponse(String id,
                 ));
         @SuppressWarnings("unchecked")
         Map<String, Object> values = (Map<String, Object>) DynamicWebValues.webValue(record.outputValues(FieldOutputContext.VIEW));
+        values = DynamicWebValues.losslessNumericWireValues(record, values);
         return new DynamicRecordResponse(record.getId(), record.getVersion(), values, childResponses);
     }
 }
@@ -279,5 +282,27 @@ final class DynamicWebValues {
             return instant.truncatedTo(ChronoUnit.SECONDS).toString();
         }
         return value;
+    }
+
+    /**
+     * JavaScript cannot faithfully load an int64 or arbitrary decimal JSON number. Dynamic
+     * record HTTP therefore uses the same textual wire form for LONG/DECIMAL responses as the
+     * standard form editor uses for mutations.
+     */
+    static Map<String, Object> losslessNumericWireValues(DynamicRecord record, Map<String, Object> values) {
+        LinkedHashMap<String, Object> converted = new LinkedHashMap<>(values);
+        record.getEntity().fields().forEach(field -> {
+            Object value = converted.get(field.fieldName());
+            if (value == null) {
+                return;
+            }
+            if (field.type() == FieldType.LONG && value instanceof Number number) {
+                converted.put(field.fieldName(), number.toString());
+            }
+            if (field.type() == FieldType.DECIMAL && value instanceof BigDecimal decimal) {
+                converted.put(field.fieldName(), decimal.toPlainString());
+            }
+        });
+        return converted;
     }
 }

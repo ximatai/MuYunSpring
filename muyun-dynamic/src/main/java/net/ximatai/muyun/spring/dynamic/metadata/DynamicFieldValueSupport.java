@@ -31,7 +31,7 @@ public final class DynamicFieldValueSupport {
         return switch (type) {
             case STRING, TEXT -> requireType(type, value, String.class);
             case INTEGER -> requireType(type, value, Integer.class);
-            case LONG -> requireType(type, value, Long.class);
+            case LONG -> longValue(value);
             case BOOLEAN -> requireType(type, value, Boolean.class);
             case TIMESTAMP, ZONED_TIMESTAMP -> timestampValue(value);
             case DATE -> dateValue(value);
@@ -129,9 +129,32 @@ public final class DynamicFieldValueSupport {
         throw new IllegalArgumentException("invalid value type for dynamic field type: " + FieldType.DATE);
     }
 
+    private static Long longValue(Object value) {
+        if (value instanceof Long longValue) {
+            return longValue;
+        }
+        if (value instanceof String text) {
+            try {
+                return Long.valueOf(text);
+            } catch (NumberFormatException exception) {
+                throw new IllegalArgumentException("invalid value type for dynamic field type: " + FieldType.LONG,
+                        exception);
+            }
+        }
+        throw new IllegalArgumentException("invalid value type for dynamic field type: " + FieldType.LONG);
+    }
+
     private static Object decimalValue(Object value) {
         if (value instanceof BigDecimal) {
             return value;
+        }
+        if (value instanceof String text) {
+            try {
+                return new BigDecimal(text);
+            } catch (NumberFormatException exception) {
+                throw new IllegalArgumentException("invalid value type for dynamic field type: " + FieldType.DECIMAL,
+                        exception);
+            }
         }
         if (value instanceof Number) {
             return value;

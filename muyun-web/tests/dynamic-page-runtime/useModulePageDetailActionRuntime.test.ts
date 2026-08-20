@@ -1,8 +1,8 @@
-import { ref } from 'vue';
+import { ref, type Ref } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { useModulePageDetailActionRuntime } from '@/dynamic-page-runtime/composables/useModulePageDetailActionRuntime.ts';
 
-function createRuntime() {
+function createRuntime(localEditValid?: Ref<boolean>) {
   const request = vi.fn().mockResolvedValue({ message: '已提交' });
   const view = vi.fn().mockResolvedValue({ id: 'record-1', version: 2, title: '已刷新' });
   const resolveLoad = vi.fn();
@@ -52,6 +52,7 @@ function createRuntime() {
     } as never),
     selectedRecord: selectedRecord as never,
     editorMode: ref<'create' | 'edit' | 'view'>('view'),
+    localEditValid,
     detail: { resolveLoad },
     refreshList,
     presentSuccess,
@@ -103,5 +104,18 @@ describe('module page detail action runtime', () => {
 
     expect(presentError).toHaveBeenCalledWith(expect.any(Error), 'module-local-edit');
     expect(runtime.localEditSaving.value).toBe(false);
+  });
+
+  it('does not issue local-edit HTTP while the mounted form reports invalid, then submits after correction', async () => {
+    const localEditValid = ref(false);
+    const { runtime, request } = createRuntime(localEditValid);
+    runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+
+    await runtime.submitLocalEdit();
+    expect(request).not.toHaveBeenCalled();
+
+    localEditValid.value = true;
+    await runtime.submitLocalEdit();
+    expect(request).toHaveBeenCalledOnce();
   });
 });
