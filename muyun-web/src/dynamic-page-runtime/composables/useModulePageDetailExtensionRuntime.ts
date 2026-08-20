@@ -6,6 +6,7 @@ import type {
   ModulePageDrawer,
   ModulePageDrawerAction,
   ModulePageDrawerContext,
+  ModulePageRecordViewContext,
   ModulePageScopeContext,
 } from '../modulePageEnhancements';
 
@@ -43,17 +44,15 @@ export function useModulePageDetailExtensionRuntime(options: Options) {
     };
   }
 
-  function detailDrawerContext(record: QueryListRecord): ModulePageDrawerContext {
+  function recordViewContext(record: QueryListRecord): ModulePageRecordViewContext {
     return {
       module: options.module,
       record,
       scope: options.scope(),
       refreshList: options.refreshList,
       refreshDetailExtensions,
-      setCloseBlocked: () => undefined,
       close: options.closeDetail,
       reload: options.reload,
-      setTitleActions: () => undefined,
     };
   }
 
@@ -95,5 +94,5 @@ export function useModulePageDetailExtensionRuntime(options: Options) {
     if (!drawer.value?.closeBlocked) drawer.value = undefined;
   }
 
-  return { drawer, refreshDetailExtensions, sectionContext, detailDrawerContext, openDrawer, closeDrawer };
+  return { drawer, refreshDetailExtensions, sectionContext, recordViewContext, openDrawer, closeDrawer };
 }

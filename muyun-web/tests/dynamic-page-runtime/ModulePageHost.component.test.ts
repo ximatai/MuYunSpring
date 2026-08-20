@@ -21,7 +21,8 @@ it('delegates the flat standard editor to its isolated contribution surface', ()
   assert.match(source, /if \(!mainFormValid\.value\) return;/);
   assert.match(source, /StandardFlatFormSurface/);
   assert.notMatch(source, /ModulePageFormContributionRenderer/);
-  assert.match(source, /flatManagementDetailActions[\s\S]*\.\.\.enhancementDetailActions\.value/);
+  assert.match(source, /function flatManagementAllowsDetailEnhancement[\s\S]*editorMode\.value === 'view'/);
+  assert.match(source, /flatManagementDetailActions[\s\S]*\.\.\.flatManagementEnhancementActions\.value/);
   assert.match(source, /function handleFlatManagementAction[\s\S]*runEnhancementAction/);
   assert.match(source, /@validity-change="updateMainFormValidity"/);
   assert.match(source, /localEditValid: localEditFormValid/);

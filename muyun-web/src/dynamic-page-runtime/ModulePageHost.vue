@@ -166,7 +166,7 @@ const detailRelationReloadKey = ref(0);
 const {
   drawer: enhancementDrawer,
   sectionContext: detailSectionContext,
-  detailDrawerContext,
+  recordViewContext,
   openDrawer: openEnhancementDrawer,
   closeDrawer: closeEnhancementDrawer,
 } = useModulePageDetailExtensionRuntime({
@@ -659,9 +659,26 @@ const flatManagementActions = computed<RecordActionItem[]>(() => {
     },
   ];
 });
+/**
+ * A detail contribution belongs to the standard record-view lifecycle.  Flat
+ * management must not surface it while the platform is editing, creating, or
+ * showing a retained record, even when the previous selected record remains
+ * in memory.
+ */
+function flatManagementAllowsDetailEnhancement() {
+  return (
+    editorMode.value === 'view' &&
+    !flatManagementRecycleBin.active.value &&
+    listMode.value !== 'recycleBin' &&
+    selectedRecord.value != null
+  );
+}
+const flatManagementEnhancementActions = computed<ModulePageRecordActionContribution[]>(() =>
+  flatManagementAllowsDetailEnhancement() ? enhancementDetailActions.value : [],
+);
 const flatManagementDetailActions = computed<RecordActionItem[]>(() => [
   ...flatManagementActions.value,
-  ...enhancementDetailActions.value,
+  ...flatManagementEnhancementActions.value,
   ...detailPageActions.value,
 ]);
 const recycleBinDetailActive = computed(
@@ -860,7 +877,7 @@ function openFlatManagementRecord(record: QueryListRecord) {
 
 function handleFlatManagementAction(action: RecordActionItem) {
   const record = selectedRecord.value;
-  const contribution = enhancementDetailActions.value.find((item) => item.key === action.key);
+  const contribution = flatManagementEnhancementActions.value.find((item) => item.key === action.key);
   if (record && contribution) {
     void runEnhancementAction(contribution, { ...modulePageActionContext(record), record });
     return;
@@ -2613,7 +2630,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           <component
             :is="enhancementDetailDrawer.component"
             v-if="enhancementDetailDrawer"
-            :context="detailDrawerContext(editingRecord)"
+            :context="recordViewContext(editingRecord)"
           />
           <template v-else>
             <RecordDetailFields

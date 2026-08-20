@@ -47,4 +47,20 @@ describe('module page detail extension runtime', () => {
     runtime.refreshDetailExtensions();
     expect(runtime.sectionContext({ id: 'record-a' }).refreshKey).toBe(1);
   });
+
+  it('does not advertise action-drawer chrome controls to a record-view body', () => {
+    const runtime = useModulePageDetailExtensionRuntime({
+      module: {} as never,
+      scope: () => undefined,
+      refreshList: () => undefined,
+      reload: () => undefined,
+      closeDetail: () => undefined,
+    });
+
+    const context = runtime.recordViewContext({ id: 'record-a' });
+    expect('setCloseBlocked' in context).toBe(false);
+    expect('setTitleActions' in context).toBe(false);
+    expect(context.close).toBeTypeOf('function');
+    expect(context.refreshDetailExtensions).toBeTypeOf('function');
+  });
 });

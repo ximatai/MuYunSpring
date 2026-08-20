@@ -132,6 +132,119 @@ describe('ModulePageHost', () => {
     expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).props('title')).toBe('配置扩展');
   });
 
+  it('limits flat detail contributions to an active normal record-view lifecycle', async () => {
+    const ExtensionDrawer = defineComponent({
+      name: 'LifecycleExtensionDrawer',
+      template: '<section>扩展</section>',
+    });
+    configureModulePageEnhancements([
+      {
+        id: 'customer-flat-lifecycle-extension',
+        target: { moduleAlias: 'crm.customer' },
+        detail: {
+          actions: [
+            {
+              key: 'configure-extension',
+              title: '配置扩展',
+              run({ openDrawer }) {
+                openDrawer({ title: '配置扩展', component: ExtensionDrawer });
+              },
+            },
+          ],
+        },
+      },
+    ]);
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) {
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: ['RECYCLE_BIN'],
+          actions: [
+            { actionCode: 'update', authorized: true },
+            { actionCode: 'delete', authorized: true },
+            { actionCode: 'recycleBinQuery', authorized: true },
+          ],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'crm.customer',
+            page: page({ template: 'FLAT_MANAGEMENT' }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.menu/customer-menu/entry?clientType=WEB')) {
+        return Response.json({
+          entry: { menuId: 'customer-menu', moduleAlias: 'crm.customer', pageMode: 'LIST' },
+          clientType: 'WEB',
+          mainEntityAlias: 'customer',
+          resolvedConfig: { uiFields: [], queryItems: [], actionBlocks: [] },
+          openApiPath: '/crm.customer/openapi',
+        });
+      }
+      if (request.url.endsWith('/crm.customer/actions/customer-1')) {
+        return Response.json({ recordId: 'customer-1', actions: [] });
+      }
+      if (request.url.endsWith('/crm.customer/view/customer-1')) {
+        return Response.json({ id: 'customer-1', title: '客户一', version: 1 });
+      }
+      if (request.url.includes('/crm.customer/recycle-bin/query'))
+        return Response.json({ records: [], total: 0 });
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          menuId: 'customer-menu',
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          StaticManagementLayout: {
+            template:
+              '<section><slot name="explorer" /><slot name="explorer-footer" /><slot name="detail-actions" /><slot /></section>',
+          },
+          RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+          UiModal: { name: 'UiModal', template: '<section><slot /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+
+    const explorer = wrapper.findComponent({ name: 'CrudRecordListExplorer' });
+    explorer.vm.$emit('select', { id: 'customer-1' });
+    await flushPromises();
+    const actionBar = () => wrapper.findComponent({ name: 'RecordActionBar' });
+    expect(actionBar().props('actions')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'configure-extension' })]),
+    );
+
+    actionBar().vm.$emit('action', { key: 'edit', actionCode: 'update' });
+    await flushPromises();
+    expect(actionBar().props('actions')).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'configure-extension' })]),
+    );
+    actionBar().vm.$emit('action', { key: 'configure-extension' });
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).exists()).toBe(false);
+
+    actionBar().vm.$emit('action', { key: 'cancel' });
+    await flushPromises();
+    wrapper.findComponent({ name: 'RecycleBinModeButton' }).vm.$emit('click');
+    await flushPromises();
+    expect(actionBar().props('actions')).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'configure-extension' })]),
+    );
+    actionBar().vm.$emit('action', { key: 'configure-extension' });
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).exists()).toBe(false);
+  });
+
   it('submits a signed local-edit form with its versioned action contract', async () => {
     const requests: Request[] = [];
     globalThis.fetch = async (input, init) => {

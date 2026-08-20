@@ -234,7 +234,7 @@ export interface ModulePageDetailSection {
 
 /** Business content rendered inside the platform-owned standard view drawer. */
 export interface ModulePageDetailDrawer {
-  /** The component receives only the documented ModulePageDrawerContext prop. */
+  /** The component receives only the documented read-only ModulePageRecordViewContext prop. */
   component: Component;
   /** Keeps the platform drawer shell while allowing dense business views more room. */
   width?: number | string;
@@ -301,6 +301,24 @@ export interface ModulePageDrawerContext {
   reload(): void;
   /** Replaces contextual actions beside the drawer title; actions are cleared with the drawer. */
   setTitleActions(actions: ModulePageDrawerAction[]): void;
+}
+
+/**
+ * Context for a custom body inside the platform-owned record-view shell.
+ *
+ * A record-view body does not own the drawer chrome. In particular it cannot
+ * replace title actions or block the shell from closing; those facilities are
+ * reserved for an action-opened ModulePageDrawer, whose operation lifecycle is
+ * explicitly governed by the platform drawer runtime.
+ */
+export interface ModulePageRecordViewContext {
+  module: ModuleContext<QueryListRecord>;
+  record: QueryListRecord;
+  scope?: ModulePageScopeContext;
+  refreshList(): void;
+  refreshDetailExtensions(): void;
+  close(): void;
+  reload(): void;
 }
 
 export interface ModulePageActionContext {
