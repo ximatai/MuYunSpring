@@ -392,7 +392,6 @@ it('static edit draft normalizers preserve standard record fields', () => {
   const systemUserSource = readSource('src/views/SystemUserManagementView.vue');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
-  const tenantStateSource = readSource('src/views/tenantManagementState.ts');
   const menuStateSource = readSource('src/views/menuManagementState.ts');
   const dictionaryStateSource = readSource('src/views/dictionaryManagementState.ts');
 
@@ -406,7 +405,6 @@ it('static edit draft normalizers preserve standard record fields', () => {
     /function normalizedEmployeeDraft[\s\S]*normalizeRecordDraft<Employee>\(draft,/,
   );
   assert.match(roleSource, /function normalizedRoleDraft[\s\S]*normalizeRecordDraft<Role>\(draft,/);
-  assert.match(tenantStateSource, /function normalizedDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(menuStateSource, /function normalizeSchemeDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(
     menuStateSource,
@@ -569,7 +567,6 @@ it('menu management keeps scheme actions inline and delegates search to panel', 
 
 it('static management explorers use unified item descriptors', () => {
   const explorerViews = [
-    'TenantManagementView.vue',
     'DictionaryManagementView.vue',
     'MenuManagementView.vue',
     'EmployeeManagementView.vue',
@@ -683,7 +680,6 @@ it('three-column management pages use the platform detail panel', () => {
   const indexSource = readSource('src/platform-components/index.ts');
   const panelSource = readSource('src/platform-components/RecordDetailPanel.vue');
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
-  const tenantViewSource = readSource('src/views/TenantManagementView.vue');
   const dictionaryViewSource = readSource('src/views/DictionaryManagementView.vue');
   const menuViewSource = readSource('src/views/MenuManagementView.vue');
   const dictionaryDetailSource = dictionaryViewSource.slice(
@@ -704,11 +700,6 @@ it('three-column management pages use the platform detail panel', () => {
   assert.match(layoutSource, /<slot name="explorer-actions" \/>/);
   assert.match(layoutSource, /<slot name="detail-actions" \/>/);
   assert.notMatch(layoutSource, /RecordStatusTag|card-header|title-line/);
-  for (const source of [tenantViewSource]) {
-    assert.match(source, /<template #detail-status>/);
-    assert.match(source, /<RecordStatusSwitch/);
-    assert.notMatch(source, /EnabledSelect|启用状态|toggle-enabled|show-status/);
-  }
   assert.equal(matchCount(dictionaryViewSource, /<RecordDetailPanel/g), 1);
   assert.equal(matchCount(menuViewSource, /<RecordDetailPanel/g), 1);
   assert.match(dictionaryViewSource, /v-if="itemMode !== 'view'"[\s\S]*:enabled="itemDraft\.enabled"/);
@@ -1899,42 +1890,6 @@ it('workbench keeps cacheable tab pages mounted behind their stable tab keys', (
   assert.match(workbenchSource, /\.tab-page--workspace \{\s*overflow-x: auto;\s*overflow-y: hidden;/);
 });
 
-it('tenant management governs application entitlements as tenant child records', () => {
-  const tenantSource = readSource('src/views/TenantManagementView.vue');
-
-  assert.match(tenantSource, /TenantApplication/);
-  assert.match(tenantSource, /tenantApplicationsPath\(tenantId\)\}\/query/);
-  assert.match(tenantSource, /tenantApplicationsPath\(tenantId\)\}\/configure/);
-  assert.match(tenantSource, /RecordDetailDrawer/);
-  assert.match(tenantSource, /配置应用/);
-  assert.match(tenantSource, /configuredApplicationAliases/);
-  assert.match(tenantSource, /已开通应用/);
-  assert.notMatch(tenantSource, /draft\.applicationAliases/);
-  assert.notMatch(tenantSource, /enabledApplicationAliases/);
-  assert.notMatch(tenantSource, /toggleTenantApplication/);
-  assert.notMatch(tenantSource, /tenantApplicationsSaving/);
-  assert.match(tenantSource, /\(\) => selected\.value\?\.id/);
-  assert.match(tenantSource, /tenantApplications\.value = \[\]/);
-  assert.match(tenantSource, /tenantApplicationsLoadVersion/);
-  assert.match(tenantSource, /selected\.value\?\.id === tenantId/);
-  assert.match(tenantSource, /'iam',/);
-  assert.match(tenantSource, /record\.alias === 'iam'/);
-});
-
-it('tenant form statically owns its mode-dependent branding experience while reusing governed image transfer', () => {
-  const tenantSource = readSource('src/views/TenantManagementView.vue');
-
-  assert.match(tenantSource, /tenantFormFields = ref\(resolveRecordFormFields\(undefined\)\)/);
-  assert.match(tenantSource, /<SingleImageFileReferenceField/);
-  assert.match(tenantSource, /:upload-validation="validateTenantLogo"/);
-  assert.match(tenantSource, /Logo \+ 标题模式仅支持正方形图片/);
-  assert.match(tenantSource, /v-model:value="workbenchBrandMode"/);
-  assert.match(tenantSource, /v-if="logoWithTitle"/);
-  assert.match(tenantSource, /\.static-record-form > \.tenant-branding[\s\S]*grid-column: 1 \/ -1/);
-  assert.notMatch(tenantSource, /\/branding/);
-  assert.notMatch(tenantSource, /saveTenant/);
-});
-
 it('side panels use an explicit tab host and fixed drawer action regions', () => {
   const uiIndexSource = readSource('src/vue-ui-antdv/index.ts');
   const sidePanelSource = readSource('src/vue-ui-antdv/components/UiSidePanel.vue');
@@ -1947,7 +1902,6 @@ it('side panels use an explicit tab host and fixed drawer action regions', () =>
   );
   const workspaceViewsSource = readSource('src/platform-workbench/workspaceViews.ts');
   const viewPromotionSource = readSource('src/platform-admin-runtime/useWorkspaceViewPromotion.ts');
-  const tenantSource = readSource('src/views/TenantManagementView.vue');
   const userSource = readSource('src/views/UserManagementView.vue');
   const userDetailContentSource = readSource('src/views/UserDetailContent.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
@@ -1992,11 +1946,6 @@ it('side panels use an explicit tab host and fixed drawer action regions', () =>
   assert.match(userSource, /isDrawerWorkspaceTask/);
   assert.match(employeeSource, /useWorkspaceViewHost/);
   assert.match(employeeSource, /isDrawerWorkspaceView/);
-  assert.match(tenantSource, /<template #operation>/);
-  assert.notMatch(tenantSource, /useWorkspaceViewPromotion/);
-  assert.notMatch(tenantSource, /:promotion=/);
-  assert.match(tenantSource, />\s*确认\s*<\/UiButton/);
-  assert.notMatch(tenantSource, /确认配置/);
   assert.match(userSource, /userDetailOperationActions/);
   assert.match(userSource, /userDetailPromotion/);
   assert.match(userSource, /<UserDetailContent/);
@@ -2017,7 +1966,6 @@ it('public management and drawer contracts use business roles instead of layout 
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
   const recordDetailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
   const recordModeDrawerSource = readSource('src/platform-components/RecordModeDrawer.vue');
-  const managementPageSources = [readSource('src/views/TenantManagementView.vue')];
   const standardDrawerSources = [
     readSource('src/views/UserManagementView.vue'),
     readSource('src/views/RoleManagementView.vue'),
@@ -2026,7 +1974,6 @@ it('public management and drawer contracts use business roles instead of layout 
     readSource('src/views/EmployeeEmploymentDrawer.vue'),
     readSource('src/views/RoleAccountGrantDrawer.vue'),
     readSource('src/views/RoleEmploymentGrantDrawer.vue'),
-    readSource('src/views/TenantManagementView.vue'),
   ];
 
   assert.match(layoutSource, /explorerTitle: string/);
@@ -2035,16 +1982,6 @@ it('public management and drawer contracts use business roles instead of layout 
   assert.match(layoutSource, /<slot name="explorer-actions" \/>/);
   assert.match(layoutSource, /<slot name="detail-actions" \/>/);
   assert.notMatch(layoutSource, /sidebarTitle|cardTitle|sidebar-actions|card-actions|card-status/);
-  for (const source of managementPageSources) {
-    assert.match(source, /v-model:explorer-search-keyword/);
-    assert.match(source, /explorer-title=/);
-    assert.match(source, /:detail-title=/);
-    assert.notMatch(
-      source,
-      /sidebar-search|sidebar-title|card-title|sidebar-actions|card-actions|card-status/,
-    );
-  }
-
   assert.notMatch(recordDetailDrawerSource, /<slot name="actions" \/>/);
   assert.notMatch(recordModeDrawerSource, /<slot name="actions" \/>/);
   for (const source of standardDrawerSources) {
@@ -2062,7 +1999,6 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
   const listSessionSource = readSource('src/dynamic-page-runtime/composables/useModulePageListSession.ts');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
-  const tenantSource = readSource('src/views/TenantManagementView.vue');
   const recycleBinModeSource = readSource('src/platform-components/useRecycleBinExplorerMode.ts');
   const editingSessionSource = readSource('src/dynamic-page-runtime/composables/useRecordEditingSession.ts');
   const indexSource = readSource('src/platform-components/index.ts');
@@ -2122,28 +2058,14 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(hostSource, /openRecycleBinRecord/);
   assert.match(editingSessionSource, /\/recycle-bin\/view\/\$\{encodeURIComponent\(id\)\}/);
   assert.match(hostSource, /const recycleBinDetailActive = computed/);
-  assert.match(tenantSource, /<CrudRecordListExplorer/);
   assert.match(explorerItemSource, /action\.showLabel \? action\.title : actionFallbackLabel\(action\)/);
   assert.match(explorerItemSource, /action\.disabledReason \?\? action\.title/);
   assert.match(recycleBinModeSource, /hasRecycleBinAbility\(toValue\(options\.context\)\)/);
   assert.match(recycleBinModeSource, /canQueryRecycleBin\(toValue\(options\.context\)\)/);
   assert.match(recycleBinModeSource, /options\.resetSelection\?\.\(\)/);
-  assert.match(tenantSource, /useRecycleBinExplorerMode/);
-  assert.match(tenantSource, /recycleBinExplorer\.buttonVisible\.value/);
-  assert.match(tenantSource, /<template #explorer-footer>[\s\S]*回收站/);
-  assert.match(tenantSource, /RecycleBinModeButton/);
-  assert.match(tenantSource, /@recycle-bin-summary/);
-  assert.match(tenantSource, /:count="recycleBinExplorer\.total\.value"/);
-  assert.notMatch(tenantSource, /已删除/);
-  assert.notMatch(tenantSource, /<template #explorer-actions>[\s\S]{0,320}recycleBinQuery/);
   assert.match(explorerPanelSource, /<slot name="footer" \/>/);
   assert.match(staticLayoutSource, /<slot name="explorer-footer" \/>/);
-  assert.match(tenantSource, /:mode="recycleBinExplorer\.mode\.value"/);
-  assert.match(tenantSource, /handleReadonlyListLoaded\(tenants\)/);
   assert.match(employeeSource, /employeeRecycleBinExplorer\.enter\(\)/);
-  assert.match(tenantSource, /recycleBinExplorer\.active\.value \|\| readonly/);
-  assert.notMatch(tenantSource, /<RecycleBinPanel/);
-  assert.notMatch(tenantSource, /recycle-bin-detail-hint/);
   assert.notMatch(indexSource, /RecycleBinPanel/);
 });
 

@@ -87,6 +87,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -226,6 +227,7 @@ class IamWebControllerTest {
         UserAccountWebController userAccountController = new UserAccountWebController();
         RoleWebController roleController = new RoleWebController(grantableActionResolver);
         ReflectionTestUtils.setField(tenantController, "service", tenantService);
+        ReflectionTestUtils.setField(tenantController, "standardModuleWebRuntime", tenantRuntime(tenantController));
         ReflectionTestUtils.setField(organizationController, "service", organizationService);
         ReflectionTestUtils.setField(positionController, "service", positionService);
         ReflectionTestUtils.setField(positionController, "standardModuleWebRuntime", positionRuntime(positionController));
@@ -314,7 +316,7 @@ class IamWebControllerTest {
         });
         RecycleBinItem<Tenant> recycleBinItem = new RecycleBinItem<>(deleted, "delete-operation-1",
                 deleted.getDeletedAt(), true, false, null);
-        when(recycleBinFacade.items(eq(tenantService), eq(List.of(deleted)),
+        when(recycleBinFacade.items(eq(tenantService), any(),
                 any(java.util.function.Function.class), any(java.util.function.Function.class)))
                 .thenReturn((List) List.of(recycleBinItem));
         RestoreReport report = new RestoreReport("delete-operation-1", "restore-operation-1", List.of());
@@ -335,7 +337,7 @@ class IamWebControllerTest {
                 .andExpect(jsonPath("$.sourceOperationId").value("delete-operation-1"))
                 .andExpect(jsonPath("$.restoreOperationId").value("restore-operation-1"));
 
-        verify(recycleBinFacade).items(eq(tenantService), eq(List.of(deleted)),
+        verify(recycleBinFacade).items(eq(tenantService), any(),
                 any(java.util.function.Function.class), any(java.util.function.Function.class));
         verify(recycleBinFacade).restoreWithSource(tenantService, "delete-operation-1");
     }
@@ -1703,6 +1705,17 @@ class IamWebControllerTest {
         StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(definition, categoryDefinition));
         return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
                 new StaticRecordReadProjectionService(catalog));
+    }
+
+    private StandardModuleWebRuntime tenantRuntime(TenantWebController controller) {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean("tenantController", TenantWebController.class, () -> controller);
+            context.refresh();
+            StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(
+                    new net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionScanner(context).scan());
+            return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
+                    new StaticRecordReadProjectionService(catalog));
+        }
     }
 
     private static final class PlanOnlyPositionWebController extends PositionWebController {

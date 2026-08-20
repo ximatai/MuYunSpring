@@ -10,6 +10,7 @@ import {
 import { createWorkspaceViewDescriptor } from '@/platform-workbench/workspaceViews.ts';
 import { platformModulePageEnhancement } from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
 import { passwordPolicyPageEnhancement } from '@/platform-admin-runtime/passwordPolicyPageEnhancement.ts';
+import { tenantModulePageEnhancement } from '@/platform-admin-runtime/tenantModulePageEnhancement.ts';
 
 describe('module page enhancements', () => {
   afterEach(() => {
@@ -17,6 +18,7 @@ describe('module page enhancements', () => {
     configureModulePageEnhancementContributions('platform-admin-runtime', [
       platformModulePageEnhancement,
       passwordPolicyPageEnhancement,
+      tenantModulePageEnhancement,
     ]);
   });
 
@@ -87,6 +89,37 @@ describe('module page enhancements', () => {
         },
       ]),
     ).toThrow('不能覆盖平台标准动作：update');
+
+    expect(() =>
+      createModulePageEnhancementRegistry([
+        {
+          id: 'first-form-contribution',
+          target: { moduleAlias: 'crm.customer' },
+          form: {
+            contributions: [
+              {
+                key: 'brand-mode',
+                component: {},
+                location: { surface: 'flat-main', section: 'before-fields' },
+              },
+            ],
+          },
+        },
+        {
+          id: 'second-form-contribution',
+          target: { moduleAlias: 'crm.customer' },
+          form: {
+            contributions: [
+              {
+                key: 'brand-mode',
+                component: {},
+                location: { surface: 'flat-main', section: 'before-fields' },
+              },
+            ],
+          },
+        },
+      ]),
+    ).toThrow('同一页面区域存在重复的贡献 key');
 
     expect(() =>
       createModulePageEnhancementRegistry([

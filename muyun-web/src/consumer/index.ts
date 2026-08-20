@@ -46,6 +46,7 @@ export type {
   ModulePageDetailSectionContext,
   ModulePageDrawer,
   ModulePageDrawerContext,
+  ModulePageRecordViewContext,
   ModulePageEnhancement,
   ModulePageEnhancementTarget,
   ModulePageRecordActionContext,

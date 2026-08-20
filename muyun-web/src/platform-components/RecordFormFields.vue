@@ -341,6 +341,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 
 <template>
   <template v-for="(field, index) in fieldStates" :key="field.fieldName">
+    <slot name="before-field" :field="field" />
     <template v-if="groupOf(field) && groupStartsAt(field, index)">
       <div v-if="!groupOf(fieldStates[index - 1])" class="record-form-group-divider" aria-hidden="true" />
       <header class="record-form-group-heading">
@@ -521,6 +522,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         {{ editorFieldError(field) }}
       </div>
     </label>
+    <slot name="after-field" :field="field" />
     <div v-if="groupEndsAt(field, index)" class="record-form-group-divider" aria-hidden="true" />
   </template>
 </template>

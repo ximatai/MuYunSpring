@@ -4,7 +4,7 @@ import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.web.SystemScope;
 import net.ximatai.muyun.spring.web.CurrentTenantNavigatorReferenceWeb;
-import net.ximatai.muyun.spring.web.WebSupport;
+import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, order = 10)
 @RequestMapping("/iam.tenant")
-public class TenantWebController extends WebSupport<TenantService> implements
+public class TenantWebController extends StaticModuleWebControllerAdapter<TenantService> implements
         CrudWeb<Tenant, TenantService>,
         CurrentTenantNavigatorReferenceWeb<Tenant, TenantService>,
         SystemScope<TenantService>,

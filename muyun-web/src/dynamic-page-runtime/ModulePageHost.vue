@@ -67,9 +67,7 @@ import {
   type ModulePageColumnContribution,
   type ModulePageDetailDrawer,
   type ModulePageDetailSection,
-  type ModulePageDetailSectionContext,
   type ModulePageDrawer,
-  type ModulePageDrawerContext,
   type ModulePageCardAssistantContext,
   type ModulePageRecordActionContribution,
   type ModulePageWorkspaceView,
@@ -84,6 +82,7 @@ import {
 } from './detailSurfacePreference';
 import { normalizeListPageSize, restoreListPageSize, saveListPageSize } from './listPageSizePreference';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
+import StandardFlatFormSurface from './StandardFlatFormSurface.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { useRecordDetailController } from './recordDetailController';
@@ -95,6 +94,7 @@ import { useModulePageActions } from './composables/useModulePageActions';
 import { useRecordEditingSession } from './composables/useRecordEditingSession';
 import { useModulePageListSession } from './composables/useModulePageListSession';
 import { useModulePageDetailActionRuntime } from './composables/useModulePageDetailActionRuntime';
+import { useModulePageDetailExtensionRuntime } from './composables/useModulePageDetailExtensionRuntime';
 
 /**
  * Descriptor-driven CRUD runner for every standard platform module page.
@@ -163,6 +163,19 @@ const {
   loadRuntimeForm,
 } = useNavigatorRuntime(context);
 const detailRelationReloadKey = ref(0);
+const {
+  drawer: enhancementDrawer,
+  sectionContext: detailSectionContext,
+  recordViewContext,
+  openDrawer: openEnhancementDrawer,
+  closeDrawer: closeEnhancementDrawer,
+} = useModulePageDetailExtensionRuntime({
+  module: context,
+  scope: () => modulePageActionStateContext().scope,
+  refreshList,
+  reload: reloadModulePage,
+  closeDetail,
+});
 const treeReloadKey = ref(0);
 const selectedTreeRecord = ref<QueryListRecord>();
 const treeSearchKeyword = ref('');
@@ -211,11 +224,6 @@ const listPageSize = ref(
   normalizeListPageSize(userPreferences.get(`module-page.list-page-size.${context.moduleAlias}`, 20)),
 );
 const workspaceElement = ref<HTMLElement>();
-const enhancementDrawer = ref<{
-  definition: ModulePageDrawer;
-  context: ModulePageDrawerContext;
-  titleActions: import('./modulePageEnhancements').ModulePageDrawerAction[];
-}>();
 let unregisterListRefresh: (() => void) | undefined;
 let workspaceResizeObserver: ResizeObserver | undefined;
 let removeWorkspaceResizeFallback: (() => void) | undefined;
@@ -395,6 +403,8 @@ const treeRootTitle = computed(
 const pageEnhancement = computed(() =>
   resolveModulePageEnhancement(context.moduleAlias, activeListView.value?.viewCode),
 );
+const flatFormContributions = computed(() => pageEnhancement.value?.form?.contributions ?? []);
+const flatFormFieldPolicies = computed(() => pageEnhancement.value?.form?.fieldPolicies ?? []);
 let disposePageEnhancement: (() => void) | undefined;
 watch(
   pageEnhancement,
@@ -649,8 +659,26 @@ const flatManagementActions = computed<RecordActionItem[]>(() => {
     },
   ];
 });
+/**
+ * A detail contribution belongs to the standard record-view lifecycle.  Flat
+ * management must not surface it while the platform is editing, creating, or
+ * showing a retained record, even when the previous selected record remains
+ * in memory.
+ */
+function flatManagementAllowsDetailEnhancement() {
+  return (
+    editorMode.value === 'view' &&
+    !flatManagementRecycleBin.active.value &&
+    listMode.value !== 'recycleBin' &&
+    selectedRecord.value != null
+  );
+}
+const flatManagementEnhancementActions = computed<ModulePageRecordActionContribution[]>(() =>
+  flatManagementAllowsDetailEnhancement() ? enhancementDetailActions.value : [],
+);
 const flatManagementDetailActions = computed<RecordActionItem[]>(() => [
   ...flatManagementActions.value,
+  ...flatManagementEnhancementActions.value,
   ...detailPageActions.value,
 ]);
 const recycleBinDetailActive = computed(
@@ -848,6 +876,12 @@ function openFlatManagementRecord(record: QueryListRecord) {
 }
 
 function handleFlatManagementAction(action: RecordActionItem) {
+  const record = selectedRecord.value;
+  const contribution = flatManagementEnhancementActions.value.find((item) => item.key === action.key);
+  if (record && contribution) {
+    void runEnhancementAction(contribution, { ...modulePageActionContext(record), record });
+    return;
+  }
   if (detailPageActions.value.some((item) => item.key === action.key)) {
     handleConfiguredAction(action);
     return;
@@ -1596,22 +1630,6 @@ function handleBatchAction(action: { key?: string }, records: QueryListRecord[],
   }
 }
 
-function detailSectionContext(record: QueryListRecord): ModulePageDetailSectionContext {
-  return { module: context, record, refreshList, reload: reloadModulePage };
-}
-
-function detailDrawerContext(record: QueryListRecord): ModulePageDrawerContext {
-  return {
-    module: context,
-    record,
-    scope: modulePageActionStateContext().scope,
-    refreshList,
-    close: closeDetail,
-    reload: reloadModulePage,
-    setTitleActions: () => undefined,
-  };
-}
-
 /** Opens the declared detail workspace independently of the current card/drawer surface. */
 function openDetailWorkspaceView() {
   const view = detailWorkspaceView.value;
@@ -1627,28 +1645,7 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
     scope: modulePageActionStateContext().scope,
     refreshList,
     reload: reloadModulePage,
-    openDrawer: (definition: ModulePageDrawer) => {
-      const runtime = {
-        definition,
-        titleActions: [] as import('./modulePageEnhancements').ModulePageDrawerAction[],
-        context: undefined as unknown as ModulePageDrawerContext,
-      };
-      const drawerContext: ModulePageDrawerContext = {
-        module: context,
-        record,
-        scope: modulePageActionStateContext().scope,
-        refreshList,
-        close: closeEnhancementDrawer,
-        reload: reloadModulePage,
-        setTitleActions: (actions) => {
-          const activeDrawer = enhancementDrawer.value;
-          if (activeDrawer && toRaw(activeDrawer.context) === drawerContext)
-            activeDrawer.titleActions = actions;
-        },
-      };
-      runtime.context = drawerContext;
-      enhancementDrawer.value = runtime;
-    },
+    openDrawer: (definition: ModulePageDrawer) => openEnhancementDrawer(definition, record),
     openWorkspaceTab: (view, input) => {
       if (!modulePageNavigation) {
         throw new Error('模块页面工作视图需要 Workbench 导航承载');
@@ -1675,10 +1672,6 @@ function modulePageActionStateContext(): ModulePageActionStateContext {
         },
       }
     : { module: context };
-}
-
-function closeEnhancementDrawer() {
-  enhancementDrawer.value = undefined;
 }
 
 function reloadModulePage() {
@@ -1978,19 +1971,21 @@ function recordTitle(record: QueryListRecord | undefined) {
           :option-context="context"
           :exclude-field-names="['enabled']"
         />
-        <div v-else class="module-form">
-          <RecordFormFields
-            :record="editingRecord as RecordFormRecord"
-            :fields="formFields"
-            :form-session-key="formSessionKey"
-            :option-context="context"
-            :picker-configs="referencePickerConfigs"
-            :disabled="saving"
-            :exclude-field-names="['enabled']"
-            @update:field="updateDraftField"
-            @validity-change="updateMainFormValidity"
-          />
-        </div>
+        <StandardFlatFormSurface
+          v-else
+          :record="editingRecord as RecordFormRecord"
+          :fields="formFields"
+          :mode="editorMode"
+          :form-session-key="formSessionKey"
+          :option-context="context"
+          :picker-configs="referencePickerConfigs"
+          :disabled="saving"
+          :exclude-field-names="['enabled']"
+          :contributions="flatFormContributions"
+          :field-policies="flatFormFieldPolicies"
+          @update:field="updateDraftField"
+          @validity-change="updateMainFormValidity"
+        />
         <template v-if="editorMode === 'view'">
           <RecordDetailExtensionSection
             v-for="section in enhancementDetailSections"
@@ -2635,7 +2630,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           <component
             :is="enhancementDetailDrawer.component"
             v-if="enhancementDetailDrawer"
-            :context="detailDrawerContext(editingRecord)"
+            :context="recordViewContext(editingRecord)"
           />
           <template v-else>
             <RecordDetailFields
