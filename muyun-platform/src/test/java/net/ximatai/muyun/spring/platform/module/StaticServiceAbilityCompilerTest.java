@@ -4,9 +4,9 @@ import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityFacet;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityModule;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityOperationContext;
-import net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution;
-import net.ximatai.muyun.spring.dynamic.capability.CapabilityModule;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
 import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.mockito.Mockito.mock;
 
 class StaticServiceAbilityCompilerTest {
@@ -21,14 +22,15 @@ class StaticServiceAbilityCompilerTest {
     void shouldCompileEnableAbilityThroughTheSameCapabilityModuleFacts() {
         PlatformModuleService service = mock(PlatformModuleService.class);
 
-        assertThat(StaticServiceAbilityCompiler.compile(service)).contains(EntityCapability.ENABLE);
-        assertThat(StaticServiceAbilityCompiler.standardActions(service))
+        assertThat(StaticServiceAbilityCompiler.compile(service, CapabilityModuleRegistry.defaultRegistry()))
+                .contains(EntityCapability.ENABLE);
+        assertThat(StaticServiceAbilityCompiler.standardActions(service, CapabilityModuleRegistry.defaultRegistry()))
                 .contains(PlatformAction.ENABLE, PlatformAction.DISABLE);
     }
 
     @Test
     void shouldCompileFirstPartyCapabilityThroughItsFacetWithoutChangingTheCentralCompiler() {
-        CapabilityModuleRegistry registry = new CapabilityModuleRegistry(List.of(new ApprovalCapabilityModule()));
+        StaticCapabilityRegistry registry = () -> List.of(new ApprovalCapabilityModule());
 
         assertThat(StaticServiceAbilityCompiler.compile(new ApprovalService(), registry))
                 .containsExactly(EntityCapability.APPROVAL);
@@ -37,25 +39,35 @@ class StaticServiceAbilityCompilerTest {
                 .containsExactly(PlatformAction.EXPORT);
     }
 
+    @Test
+    void shouldRejectStaticFacetWhoseServiceDoesNotDeclareItsPrerequisite() {
+        StaticCapabilityRegistry registry = () -> List.of(new MissingDependencyCapabilityModule());
+
+        assertThatIllegalStateException().isThrownBy(() ->
+                        StaticServiceAbilityCompiler.compile(new ApprovalService(), registry))
+                .withMessageContaining("APPROVAL requires CRUD");
+    }
+
     private static final class ApprovalService { }
 
-    private static final class ApprovalCapabilityModule implements CapabilityModule {
+    private static final class ApprovalCapabilityModule implements StaticCapabilityModule {
         @Override public EntityCapability capability() { return EntityCapability.APPROVAL; }
-        @Override public CapabilityActionContribution actionContribution() {
-            return new CapabilityActionContribution() {
-                @Override public EntityCapability capability() { return EntityCapability.APPROVAL; }
-                @Override public List<PlatformAction> standardActions() { return List.of(PlatformAction.EXPORT); }
-                @Override public Optional<CapabilityEndpointProjection> endpointProjection(PlatformAction action) {
-                    return Optional.empty();
-                }
-            };
-        }
         @Override public Optional<StaticCapabilityFacet> staticFacet() {
             return Optional.of(new StaticCapabilityFacet() {
                 @Override public boolean supports(Object service) { return service instanceof ApprovalService; }
                 @Override public List<PlatformOperationDefinition> standardOperations(StaticCapabilityOperationContext context) {
                     return List.of(new PlatformOperationDefinition("approval", "export", PlatformAction.EXPORT));
                 }
+            });
+        }
+    }
+
+    private static final class MissingDependencyCapabilityModule implements StaticCapabilityModule {
+        @Override public EntityCapability capability() { return EntityCapability.APPROVAL; }
+        @Override public java.util.Set<EntityCapability> dependencies() { return java.util.Set.of(EntityCapability.CRUD); }
+        @Override public Optional<StaticCapabilityFacet> staticFacet() {
+            return Optional.of(new StaticCapabilityFacet() {
+                @Override public boolean supports(Object service) { return service instanceof ApprovalService; }
             });
         }
     }

@@ -85,6 +85,11 @@ import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityFacet;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityModule;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityOperationContext;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
 import net.ximatai.muyun.spring.ability.reference.ModuleReadProjection;
 import net.ximatai.muyun.spring.ability.reference.ModuleReadProjectionContributor;
 import net.ximatai.muyun.spring.common.measure.MeasureUnitField;
@@ -1178,14 +1183,45 @@ class StaticModuleDefinitionScannerTest {
 
     @Test
     void shouldRejectServiceAbilityRedeclaredByStaticModuleAnnotation() {
+        Object service = mock(CrudAbility.class, withSettings().extraInterfaces(EnableAbility.class));
         try (GenericApplicationContext context = new GenericApplicationContext()) {
-            context.registerBean(RedeclaredServiceAbilityWeb.class);
+            context.registerBean(RedeclaredServiceAbilityWeb.class,
+                    () -> new RedeclaredServiceAbilityWeb(service));
             context.refresh();
 
             assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("must not redeclare service ability")
                     .hasMessageContaining("demo.redeclared.ENABLE");
+        }
+    }
+
+    @Test
+    void shouldCompileRegisteredStaticFacetWithoutChangingScannerBranches() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(FacetOnlyWeb.class, () -> new FacetOnlyWeb(new FacetOnlyService()));
+            context.refresh();
+
+            StaticCapabilityRegistry registry = () -> List.of(new ApprovalStaticFacetModule());
+            StaticModuleDefinition definition = new StaticModuleDefinitionScanner(context, registry).scan().getFirst();
+
+            assertThat(definition.capabilities()).contains(EntityCapability.APPROVAL);
+            assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
+                    .contains("export");
+        }
+    }
+
+    @Test
+    void shouldRejectStaticFacetWhenItsServiceMissesDeclaredDependency() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(FacetOnlyWeb.class, () -> new FacetOnlyWeb(new FacetOnlyService()));
+            context.refresh();
+
+            StaticCapabilityRegistry registry = () -> List.of(new MissingCrudApprovalStaticFacetModule());
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context, registry).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("APPROVAL requires CRUD");
         }
     }
 
@@ -1508,7 +1544,41 @@ class StaticModuleDefinitionScannerTest {
 @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class, alias = "demo.redeclared", title = "Redeclared",
             capabilities = EntityCapability.ENABLE)
     @RequestMapping("/demo.redeclared")
-    static class RedeclaredServiceAbilityWeb {
+    static class RedeclaredServiceAbilityWeb extends net.ximatai.muyun.spring.web.WebSupport<Object> {
+        RedeclaredServiceAbilityWeb(Object service) {
+            this.service = service;
+        }
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.facet_only", title = "Facet only")
+    static class FacetOnlyWeb extends net.ximatai.muyun.spring.web.WebSupport<Object> {
+        FacetOnlyWeb(Object service) {
+            this.service = service;
+        }
+    }
+
+    private static final class FacetOnlyService {
+    }
+
+    private static class ApprovalStaticFacetModule implements StaticCapabilityModule {
+        @Override public EntityCapability capability() { return EntityCapability.APPROVAL; }
+        @Override public java.util.Optional<StaticCapabilityFacet> staticFacet() {
+            return java.util.Optional.of(new StaticCapabilityFacet() {
+                @Override public boolean supports(Object service) { return service instanceof FacetOnlyService; }
+                @Override public List<PlatformOperationDefinition> standardOperations(
+                        StaticCapabilityOperationContext context) {
+                    return List.of(new PlatformOperationDefinition("approval", "export", PlatformAction.EXPORT));
+                }
+            });
+        }
+    }
+
+    private static final class MissingCrudApprovalStaticFacetModule extends ApprovalStaticFacetModule {
+        @Override public java.util.Set<EntityCapability> dependencies() {
+            return java.util.Set.of(EntityCapability.CRUD);
+        }
     }
 
     @DisablePlatformOperations({PlatformAction.CREATE, PlatformAction.UPDATE, PlatformAction.DELETE})

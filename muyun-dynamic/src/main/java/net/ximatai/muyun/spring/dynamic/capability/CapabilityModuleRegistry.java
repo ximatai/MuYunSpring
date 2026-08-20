@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.capability;
 
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 
@@ -18,7 +19,7 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
  * definition, action and runtime facets have a stable shared contract. ENABLE is the first
  * complete module and provides the template for subsequent capabilities.</p>
  */
-public final class CapabilityModuleRegistry {
+public final class CapabilityModuleRegistry implements StaticCapabilityRegistry {
     private static final CapabilityModuleRegistry DEFAULT = new CapabilityModuleRegistry(List.of(
             // Stable declaration order also preserves the long-standing static action order:
             // tree/sort operations precede enablement operations in generated module contracts.
@@ -58,6 +59,11 @@ public final class CapabilityModuleRegistry {
 
     /** Closed registered modules, exposed only for platform composition of their typed facets. */
     public List<CapabilityModule> modules() {
+        return registeredModules;
+    }
+
+    @Override
+    public List<CapabilityModule> staticModules() {
         return registeredModules;
     }
 

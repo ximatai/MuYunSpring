@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleRegistrationSource;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceCompiler;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
 import net.ximatai.muyun.spring.platform.module.StaticServiceAbilityCompiler;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
 import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.platform.module.StaticModuleServiceDeclaration;
 import net.ximatai.muyun.database.core.annotation.Table;
@@ -53,9 +54,17 @@ import java.util.Set;
 
 public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSource {
     private final ApplicationContext applicationContext;
+    private final StaticCapabilityRegistry staticCapabilityRegistry;
 
     public StaticModuleDefinitionScanner(ApplicationContext applicationContext) {
+        this(applicationContext, CapabilityModuleRegistry.defaultRegistry());
+    }
+
+    /** Allows scanner contracts to prove a newly registered static facet needs no scanner branch. */
+    public StaticModuleDefinitionScanner(ApplicationContext applicationContext,
+                                         StaticCapabilityRegistry staticCapabilityRegistry) {
         this.applicationContext = applicationContext;
+        this.staticCapabilityRegistry = staticCapabilityRegistry;
     }
 
     public List<StaticModuleDefinition> scan() {
@@ -159,14 +168,16 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
 
     private java.util.Set<EntityCapability> capabilities(Object bean, PlatformStaticModule module) {
         java.util.EnumSet<EntityCapability> capabilities = java.util.EnumSet.noneOf(EntityCapability.class);
+        java.util.Set<EntityCapability> serviceCapabilities =
+                StaticServiceAbilityCompiler.compile(service(bean), staticCapabilityRegistry);
         for (EntityCapability declared : module.capabilities()) {
-            if (StaticServiceAbilityCompiler.isServiceDeclared(declared)) {
+            if (serviceCapabilities.contains(declared)) {
                 throw new IllegalStateException("@PlatformStaticModule must not redeclare service ability: "
                         + module.alias() + "." + declared.name());
             }
             capabilities.add(declared);
         }
-        capabilities.addAll(StaticServiceAbilityCompiler.compile(service(bean)));
+        capabilities.addAll(serviceCapabilities);
         return java.util.Set.copyOf(capabilities);
     }
 
@@ -689,7 +700,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addPlatformUnlessDisabled(actions, PlatformAction.DELETE, disabledActions);
             addPlatformUnlessDisabled(actions, PlatformAction.QUERY, disabledActions);
         }
-        StaticServiceAbilityCompiler.standardActions(service).forEach(action -> addPlatform(actions, action));
+        StaticServiceAbilityCompiler.standardActions(service, staticCapabilityRegistry)
+                .forEach(action -> addPlatform(actions, action));
         if (service == null) {
             addUnwiredLegacyAbilityActions(actions, beanClass);
         }
@@ -729,7 +741,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addContributionUnlessDisabled(actions, contribution, PlatformAction.VIEW, disabledActions);
             addContributionUnlessDisabled(actions, contribution, PlatformAction.QUERY, disabledActions);
         }
-        StaticServiceAbilityCompiler.standardActions(service)
+        StaticServiceAbilityCompiler.standardActions(service, staticCapabilityRegistry)
                 .forEach(action -> addContributionPlatform(actions, contribution, action));
         if (service == null) {
             legacyCapabilityActions(beanClass)
