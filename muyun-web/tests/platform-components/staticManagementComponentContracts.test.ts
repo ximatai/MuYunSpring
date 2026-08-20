@@ -388,7 +388,7 @@ it('page navigator renders levels through the standard module runner', () => {
 });
 
 it('static edit draft normalizers preserve standard record fields', () => {
-  const userSource = readSource('src/views/UserManagementView.vue');
+  const userSource = readSource('src/views/UserDetailRouteView.vue');
   const systemUserSource = readSource('src/views/SystemUserManagementView.vue');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
@@ -520,14 +520,9 @@ it('user management fills the constrained work area and leaves scrolling to its 
   const userSource = readSource('src/views/UserManagementView.vue');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
 
-  assert.match(
-    userSource,
-    /\.user-management-page \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/,
-  );
-  assert.match(
-    userSource,
-    /@media \(max-width: 980px\) \{[\s\S]*\.user-management-page \{[\s\S]*height: auto;[\s\S]*overflow: visible;/,
-  );
+  assert.match(userSource, /\.user-management-page \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
+  assert.match(userSource, /<UserManagementListView v-else-if="!pageState\.action" \/>/);
+  assert.match(userSource, /<UserDetailRouteView v-else/);
   assert.match(routesSource, /route: '\/iam\/users'[\s\S]*layout: 'workspace'/);
 });
 
@@ -570,7 +565,7 @@ it('static management explorers use unified item descriptors', () => {
     'DictionaryManagementView.vue',
     'MenuManagementView.vue',
     'EmployeeManagementView.vue',
-    'UserManagementView.vue',
+    'UserManagementListView.vue',
     'RoleManagementView.vue',
   ];
 
@@ -923,7 +918,7 @@ it('employee management uses organization scope and platform query list panel', 
   assert.notMatch(panelSource, /props\.mode === 'normal' && \(props\.expandedRowKeys/);
   assert.match(employmentRowsSource, /handleEmployeeRowExpand/);
   assert.match(employeeViewSource, /<RecordExpandedSubtable[\s\S]*title="任职信息"/);
-  const userViewSource = readSource('src/views/UserManagementView.vue');
+  const userViewSource = readSource('src/views/UserManagementListView.vue');
   assert.match(userViewSource, /<UserSessionExpandedSubtable/);
   const expandedSubtableSource = readSource('src/platform-components/RecordExpandedSubtable.vue');
   assert.match(expandedSubtableSource, /defineOptions\(\{ name: 'RecordExpandedSubtable' \}\)/);
@@ -1315,7 +1310,11 @@ it('role management keeps basic scope management separate from binding and autho
 });
 
 it('user management keeps account basics separate from employment binding and role authorization', () => {
-  const userViewSource = readSource('src/views/UserManagementView.vue');
+  const userViewSource = [
+    readSource('src/views/UserManagementView.vue'),
+    readSource('src/views/UserManagementListView.vue'),
+    readSource('src/views/UserDetailRouteView.vue'),
+  ].join('\n');
   const userDetailContentSource = readSource('src/views/UserDetailContent.vue');
   const userSessionRowsSource = readSource('src/views/useUserSessionRows.ts');
   const userSessionExpandedSource = readSource('src/platform-components/UserSessionExpandedSubtable.vue');
@@ -1370,7 +1369,10 @@ it('user management keeps account basics separate from employment binding and ro
   assert.match(userSessionExpandedSource, /user-session-expanded-main strong/);
   assert.match(userSessionExpandedSource, /text-overflow: ellipsis/);
   assert.match(userSessionExpandedSource, /@media \(max-width: 980px\)/);
-  assert.match(userViewSource, /useUserSessionRows\(\{ context: userContext, source: 'user-management' \}\)/);
+  assert.match(
+    userViewSource,
+    /useUserSessionRows\(\{ context: userContext, source: 'user-management-(list|detail)' \}\)/,
+  );
   assert.match(userViewSource, /usePageBusinessEventHandler\(handleUserSessionBusinessEvent\)/);
   assert.match(userViewSource, /:cell-renderers="\{ onlineStatus: userOnlineStatusTitle \}"/);
   assert.match(userSessionRowsSource, /function handleUserListLoaded\(records: Array<\{ id\?: string \}>\)/);
@@ -1396,7 +1398,7 @@ it('user management keeps account basics separate from employment binding and ro
   assert.match(userDetailContentSource, /temporaryPassword/);
   assert.match(
     userViewSource,
-    /userDetailMode\.value === 'resetPassword'[\s\S]*const userId = selectedUser\.value\?\.id[\s\S]*userContext\.can\('changePassword', userId\)/,
+    /detailMode\.value === 'resetPassword'[\s\S]*const userId = selectedUser\.value\?\.id[\s\S]*userContext\.can\('changePassword', userId\)/,
   );
   assert.match(userViewSource, /:record-id="selectedUser\?\.id"/);
   assert.match(userViewSource, /path: `\/iam\.user\/changePassword\/\$\{encodeURIComponent\(user\.id!\)\}`/);
@@ -1902,7 +1904,11 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
   );
   const workspaceViewsSource = readSource('src/platform-workbench/workspaceViews.ts');
   const viewPromotionSource = readSource('src/platform-admin-runtime/useWorkspaceViewPromotion.ts');
-  const userSource = readSource('src/views/UserManagementView.vue');
+  const userSource = [
+    readSource('src/views/UserManagementView.vue'),
+    readSource('src/views/UserManagementListView.vue'),
+    readSource('src/views/UserDetailRouteView.vue'),
+  ].join('\n');
   const userDetailContentSource = readSource('src/views/UserDetailContent.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
@@ -1944,14 +1950,15 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
     readSource('src/platform-admin-runtime/PlatformAdminOutlet.vue'),
     /workspaceViewPresentation === 'drawer'/,
   );
-  assert.match(userSource, /useWorkspaceViewHost/);
-  assert.match(userSource, /isDrawerWorkspaceTask/);
+  assert.match(userSource, /useWorkbenchNavigation/);
+  assert.match(userSource, /navigation\?\.openRoute\('/);
+  assert.match(userSource, /navigation\?\.replaceRoute\(`/);
+  assert.match(userSource, /navigation\?\.closeCurrentTab\('/);
   assert.match(employeeSource, /useWorkspaceViewHost/);
   assert.match(employeeSource, /isDrawerWorkspaceView/);
-  assert.match(userSource, /userDetailOperationActions/);
-  assert.match(userSource, /userDetailPromotion/);
+  assert.match(userSource, /const detailActions = computed<RecordActionItem\[\]>/);
   assert.match(userSource, /<UserDetailContent/);
-  assert.match(userSource, /<RecordDetailPanel v-else/);
+  assert.match(userSource, /<RecordDetailPanel :title="userDetailTitle"/);
   assert.match(userDetailContentSource, /defineOptions\(\{ name: 'UserDetailContent' \}\)/);
   assert.notMatch(userSource, /userDetailHeaderActions/);
   assert.match(roleSource, /roleDetailOperationActions/);
@@ -1969,7 +1976,7 @@ it('public management and drawer contracts use business roles instead of layout 
   const recordDetailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
   const recordModeDrawerSource = readSource('src/platform-components/RecordModeDrawer.vue');
   const standardDrawerSources = [
-    readSource('src/views/UserManagementView.vue'),
+    readSource('src/views/UserDetailRouteView.vue'),
     readSource('src/views/RoleManagementView.vue'),
     readSource('src/views/EmployeeManagementView.vue'),
     readSource('src/views/SystemUserManagementView.vue'),
