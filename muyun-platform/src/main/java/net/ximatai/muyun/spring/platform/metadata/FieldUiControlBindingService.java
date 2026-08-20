@@ -48,6 +48,8 @@ public class FieldUiControlBindingService extends AbstractAbilityService<FieldUi
     @Override
     public void beforeUpdate(FieldUiControlBinding mapping) {
         normalizeAndValidate(mapping);
+        FieldUiControlBinding existing = selectIncludingDeleted(mapping.getId());
+        rejectChanged(existing, mapping, "Field UI control binding value key", FieldUiControlBinding::getValueKey);
     }
 
     public List<FieldUiControlBinding> listByFieldUiControlAliases(List<String> aliases) {

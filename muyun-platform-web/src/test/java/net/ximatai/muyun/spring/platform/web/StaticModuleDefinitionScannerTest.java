@@ -1037,26 +1037,35 @@ class StaticModuleDefinitionScannerTest {
     @Test
     void shouldScanFieldUiControlNestedConfigurationActions() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(FieldUiControlWebController.class,
+                    () -> {
+                        var service = mock(net.ximatai.muyun.spring.platform.metadata.FieldUiControlService.class);
+                        org.mockito.Mockito.when(service.modelClass()).thenReturn(net.ximatai.muyun.spring.platform.metadata.FieldUiControl.class);
+                        return withService(new FieldUiControlWebController(), service);
+                    });
             context.registerBean(FieldUiControlPropertyWebController.class,
-                    () -> withService(new FieldUiControlPropertyWebController(),
-                            mock(net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService.class)));
+                    () -> {
+                        var service = mock(net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService.class);
+                        org.mockito.Mockito.when(service.modelClass()).thenReturn(net.ximatai.muyun.spring.platform.metadata.FieldUiControlProperty.class);
+                        return withService(new FieldUiControlPropertyWebController(), service);
+                    });
             context.registerBean(FieldUiControlBindingWebController.class,
-                    () -> withService(new FieldUiControlBindingWebController(),
-                            mock(net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService.class)));
+                    () -> {
+                        var service = mock(net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService.class);
+                        org.mockito.Mockito.when(service.modelClass()).thenReturn(net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding.class);
+                        return withService(new FieldUiControlBindingWebController(), service);
+                    });
             context.refresh();
 
             Map<String, StaticModuleDefinition> byAlias = new StaticModuleDefinitionScanner(context).scan().stream()
                     .collect(Collectors.toMap(StaticModuleDefinition::moduleAlias, Function.identity()));
 
-            assertThat(byAlias.keySet()).containsExactlyInAnyOrder(
-                    "platform.field_ui_control_property",
-                    "platform.field_ui_control_binding");
-            assertThat(byAlias.get("platform.field_ui_control_property").actions())
-                    .extracting(StaticModuleActionDefinition::actionCode)
-                    .containsExactlyInAnyOrder("query", "view", "create", "update", "delete", "sort");
-            assertThat(byAlias.get("platform.field_ui_control_binding").actions())
-                    .extracting(StaticModuleActionDefinition::actionCode)
-                    .containsExactlyInAnyOrder("query", "view", "create", "update", "delete", "sort");
+            assertThat(byAlias).containsOnlyKeys("platform.field_ui_control");
+            assertThat(byAlias.get("platform.field_ui_control").entities())
+                    .extracting(net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition::alias)
+                    .contains("field_ui_control", "field_ui_control_property", "field_ui_control_binding");
+            assertThat(byAlias.get("platform.field_ui_control").uiDefinition().detailRelations())
+                    .allSatisfy(relation -> assertThat(relation.mutation()).isNotNull());
         }
     }
 

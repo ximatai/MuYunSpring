@@ -23,6 +23,11 @@ import net.ximatai.muyun.spring.common.formula.FormulaNode;
 import net.ximatai.muyun.spring.common.formula.FormulaProgram;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationMutationContract;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationQueryContract;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListProjection;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationParentConstraint;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -84,7 +89,7 @@ public final class ModuleUiDescriptorCompiler {
                         staticRecordLabelField(definition), fieldTypes(definition.entities()), FieldControlDescriptorCatalog.standard());
         return new ModuleUiCompilationResult(
                 descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
-                        .withDetailRelations(staticDetailRelations(definition, uiDefinition)),
+                        .withDetailRelations(staticDetailRelations(definition, descriptor)),
                 readModel(definition, uiDefinition)
         );
     }
@@ -203,25 +208,77 @@ public final class ModuleUiDescriptorCompiler {
     }
 
     private static List<ResolvedDetailRelationDescriptor> staticDetailRelations(StaticModuleDefinition definition,
-                                                                                  ModuleUiDefinition uiDefinition) {
+                                                                                  ResolvedModuleUiDescriptor descriptor) {
         String sourceEntityAlias = definition.entities().isEmpty() ? null : definition.entities().getFirst().alias();
         if (sourceEntityAlias == null) {
-            if (!uiDefinition.detailRelations().isEmpty()) {
+            if (definition.uiDefinition() != null && !definition.uiDefinition().detailRelations().isEmpty()) {
                 throw new IllegalArgumentException("static detail relation requires a declared source entity");
             }
             return List.of();
         }
-        return uiDefinition.detailRelations().stream().map(relation -> {
+        List<PageDetailRelationDefinition> definitions = definition.uiDefinition() == null
+                ? List.of() : definition.uiDefinition().detailRelations();
+        return definitions.stream().map(relation -> {
             boolean targetExists = definition.entities().stream()
                     .anyMatch(entity -> relation.targetEntityAlias().equals(entity.alias()));
             if (!targetExists) {
                 throw new IllegalArgumentException("static detail relation target entity is not declared by model facts: "
                         + relation.targetEntityAlias());
             }
+            ResolvedDetailRelationQueryContract queryContract = !relation.managedQuery() ? null
+                    : managedDetailRelationQueryContract(definition, descriptor, relation);
+            ResolvedDetailRelationMutationContract mutationContract = relation.mutation() == null ? null
+                    : managedDetailRelationMutationContract(definition, relation);
+            ResolvedDetailRelationParentConstraint parentConstraint = relation.parentConstraint() == null ? null
+                    : new ResolvedDetailRelationParentConstraint(relation.parentConstraint().fieldName(),
+                    relation.parentConstraint().expectedValue());
             return new ResolvedDetailRelationDescriptor(relation.code(), relation.title(), relation.readOnly(),
                     definition.moduleAlias(), sourceEntityAlias, definition.moduleAlias(), relation.targetEntityAlias(),
-                    relation.parentBinding(), null, relation.refreshOnDetailReload());
+                    relation.parentBinding(), queryContract, mutationContract, parentConstraint,
+                    relation.refreshOnDetailReload());
         }).toList();
+    }
+
+    private static ResolvedDetailRelationQueryContract managedDetailRelationQueryContract(
+            StaticModuleDefinition definition, ResolvedModuleUiDescriptor descriptor,
+            PageDetailRelationDefinition relation) {
+        ResolvedPageDetailEditorContribution editor = descriptor.editorContributions().stream()
+                .filter(candidate -> candidate.resource().equals(relation.targetEntityAlias()))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                        "managed detail relation requires an editor contribution: " + relation.code()));
+        List<ResolvedDetailRelationListField> fields = editor.editor().fields().stream()
+                .map(field -> new ResolvedDetailRelationListField(field.fieldRef().fieldName(), field.label(),
+                        null, field.fieldControl() == null ? null : field.fieldControl().alias(),
+                        null, null, null))
+                .toList();
+        String actionCode = requireRelationAction(definition, relation, "query");
+        return new ResolvedDetailRelationQueryContract(null, true, false,
+                new ResolvedDetailRelationListProjection(null, fields),
+                net.ximatai.muyun.spring.ability.query.QuerySchema.from(
+                        net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder(relation.targetEntityAlias()).build()),
+                actionCode);
+    }
+
+    private static ResolvedDetailRelationMutationContract managedDetailRelationMutationContract(
+            StaticModuleDefinition definition, PageDetailRelationDefinition relation) {
+        PageDetailRelationMutationDefinition mutation = relation.mutation();
+        return new ResolvedDetailRelationMutationContract(
+                mutation.createAllowed(), mutation.updateAllowed(), mutation.deleteAllowed(),
+                mutation.createAllowed() ? requireRelationAction(definition, relation, "create") : null,
+                mutation.updateAllowed() ? requireRelationAction(definition, relation, "update") : null,
+                mutation.deleteAllowed() ? requireRelationAction(definition, relation, "delete") : null);
+    }
+
+    private static String requireRelationAction(StaticModuleDefinition definition,
+                                                PageDetailRelationDefinition relation,
+                                                String operation) {
+        String actionCode = relation.targetEntityAlias() + "_" + operation;
+        boolean declared = definition.actions().stream().anyMatch(action -> action.actionCode().equals(actionCode));
+        if (!declared) {
+            throw new IllegalArgumentException("managed detail relation requires contributed action: "
+                    + definition.moduleAlias() + "." + actionCode);
+        }
+        return actionCode;
     }
 
     private static ResolvedModulePageDescriptor compilePage(ModulePageDefinition page,

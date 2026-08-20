@@ -12,7 +12,6 @@ import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 it('static business route registry exposes only pages still owned by static route hosts', () => {
   assert.deepEqual(platformAdminRoutePrefixes, [
     '/_workspace',
-    '/config/field-ui-controls',
     '/config/dictionaries',
     '/config/menus',
     '/iam/employees',
@@ -22,7 +21,6 @@ it('static business route registry exposes only pages still owned by static rout
     '/iam/role-authorization',
   ]);
   assert.deepEqual(platformAdminModuleRoutes, {
-    'platform.field_ui_control': '/config/field-ui-controls',
     'platform.dictionary_category': '/config/dictionaries',
     'platform.menu_scheme': '/config/menus',
     'iam.employee': '/iam/employees',
@@ -75,6 +73,19 @@ it('legacy module management URL restores through the dynamic host', () => {
   assert.equal(descriptor.hostType, 'module-page-host');
   assert.equal(descriptor.target.moduleAlias, 'platform.module');
   assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/platform.module/list');
+});
+
+it('legacy field UI control URL restores through the standard module runner', () => {
+  assert.equal(platformAdminModuleRoutes['platform.field_ui_control'], undefined);
+  assert.equal(platformAdminDynamicModuleRoutes['/config/field-ui-controls'], 'platform.field_ui_control');
+  const descriptor = pageDescriptorFromUrl('/config/field-ui-controls', {
+    dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
+  });
+
+  assert.equal(descriptor.pageType, 'dynamic-module');
+  assert.equal(descriptor.hostType, 'module-page-host');
+  assert.equal(descriptor.target.moduleAlias, 'platform.field_ui_control');
+  assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/platform.field_ui_control/list');
 });
 
 it('password management has no static route and keeps its old URL as a dynamic entry', () => {

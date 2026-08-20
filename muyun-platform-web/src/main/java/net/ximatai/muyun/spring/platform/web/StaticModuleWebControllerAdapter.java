@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
  */
 public abstract class StaticModuleWebControllerAdapter<S> extends WebSupport<S> {
     private StandardModuleWebRuntime standardModuleWebRuntime;
+    private ManagedDetailRelationGateway managedDetailRelationGateway;
 
     @Autowired(required = false)
     public final void setStandardModuleWebRuntime(StandardModuleWebRuntime standardModuleWebRuntime) {
@@ -28,5 +29,14 @@ public abstract class StaticModuleWebControllerAdapter<S> extends WebSupport<S> 
 
     public final boolean requiresModuleExecutionPlan() {
         return true;
+    }
+
+    @Autowired(required = false)
+    public final void setManagedDetailRelationGateway(ManagedDetailRelationGateway managedDetailRelationGateway) {
+        this.managedDetailRelationGateway = managedDetailRelationGateway;
+    }
+
+    public final ManagedDetailRelationGateway managedDetailRelationGateway() {
+        return managedDetailRelationGateway;
     }
 }

@@ -11,7 +11,6 @@ import {
   RecordDetailPanel,
   RecordActionBar,
   RecordDetailExtensionSection,
-  DetailRelationListPanel,
   RecordDetailFields,
   RecordExplorerPanel,
   RecordFormFields,
@@ -83,6 +82,7 @@ import {
 import { normalizeListPageSize, restoreListPageSize, saveListPageSize } from './listPageSizePreference';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import StandardFlatFormSurface from './StandardFlatFormSurface.vue';
+import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { useRecordDetailController } from './recordDetailController';
@@ -153,6 +153,7 @@ const { pageBootstrap, pageBootstrapError, loadPageBootstrap } = useModulePageBo
 const {
   formFields,
   detailDisplayFields,
+  runtimeUiDescriptor,
   runtimePage,
   treeModule,
   navigatorLevels,
@@ -317,16 +318,20 @@ watch(localEditOpen, () => {
 });
 /** Only server-issued executable contracts may mount a relation-list runner. */
 const executableDetailRelations = computed<ResolvedDetailRelationDescriptor[]>(() =>
-  (pageBootstrap.value?.resolvedConfig.associationBlocks ?? []).flatMap((block) =>
-    hasExecutableDetailRelationQueryContract(block.relation) ? [block.relation] : [],
+  [
+    ...(runtimeUiDescriptor.value?.detailRelations ?? []),
+    ...(pageBootstrap.value?.resolvedConfig.associationBlocks ?? []).flatMap((block) =>
+      block.relation ? [block.relation] : [],
+    ),
+  ].filter(
+    (relation, index, values) =>
+      hasExecutableDetailRelationQueryContract(relation) &&
+      values.findIndex(
+        (candidate) =>
+          candidate.sourceModuleAlias === relation.sourceModuleAlias && candidate.code === relation.code,
+      ) === index,
   ),
 );
-const detailRelationRecordId = computed(() => {
-  if (!detailOpen.value || editorMode.value !== 'view' || detailLoading.value || detailLoadFailed.value) {
-    return undefined;
-  }
-  return selectedRecord.value?.id == null ? undefined : String(selectedRecord.value.id);
-});
 const configuredPageMode = computed<MenuPageMode>(() => props.descriptor.target.pageMode ?? 'LIST');
 const pageMode = computed<MenuPageMode>(
   () => pageBootstrap.value?.entry.pageMode ?? configuredPageMode.value,
@@ -1994,18 +1999,14 @@ function recordTitle(record: QueryListRecord | undefined) {
           >
             <component :is="section.component" :context="detailSectionContext(editingRecord)" />
           </RecordDetailExtensionSection>
-          <RecordDetailExtensionSection
-            v-for="relation in executableDetailRelations"
-            :key="`relation:${relation.code}`"
-            :title="relation.title ?? relation.code"
-          >
-            <DetailRelationListPanel
-              :source-context="context"
-              :relation="relation"
-              :record-id="detailRelationRecordId"
-              :reload-key="detailRelationReloadKey"
-            />
-          </RecordDetailExtensionSection>
+          <ModulePageDetailRelations
+            v-if="runtimeUiDescriptor"
+            :source-context="context"
+            :ui-descriptor="runtimeUiDescriptor"
+            :relations="executableDetailRelations"
+            :parent-record="editingRecord"
+            :reload-key="detailRelationReloadKey"
+          />
         </template>
         <RecordMetaSection
           v-if="editorMode !== 'create' && showDetailSystemInfo"
@@ -2236,18 +2237,14 @@ function recordTitle(record: QueryListRecord | undefined) {
             >
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
             </RecordDetailExtensionSection>
-            <RecordDetailExtensionSection
-              v-for="relation in executableDetailRelations"
-              :key="`relation:${relation.code}`"
-              :title="relation.title ?? relation.code"
-            >
-              <DetailRelationListPanel
-                :source-context="context"
-                :relation="relation"
-                :record-id="detailRelationRecordId"
-                :reload-key="detailRelationReloadKey"
-              />
-            </RecordDetailExtensionSection>
+            <ModulePageDetailRelations
+              v-if="runtimeUiDescriptor"
+              :source-context="context"
+              :ui-descriptor="runtimeUiDescriptor"
+              :relations="executableDetailRelations"
+              :parent-record="editingRecord"
+              :reload-key="detailRelationReloadKey"
+            />
           </template>
           <div v-else class="module-form">
             <RecordFormFields
@@ -2483,18 +2480,14 @@ function recordTitle(record: QueryListRecord | undefined) {
             >
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
             </RecordDetailExtensionSection>
-            <RecordDetailExtensionSection
-              v-for="relation in executableDetailRelations"
-              :key="`relation:${relation.code}`"
-              :title="relation.title ?? relation.code"
-            >
-              <DetailRelationListPanel
-                :source-context="context"
-                :relation="relation"
-                :record-id="detailRelationRecordId"
-                :reload-key="detailRelationReloadKey"
-              />
-            </RecordDetailExtensionSection>
+            <ModulePageDetailRelations
+              v-if="runtimeUiDescriptor"
+              :source-context="context"
+              :ui-descriptor="runtimeUiDescriptor"
+              :relations="executableDetailRelations"
+              :parent-record="editingRecord"
+              :reload-key="detailRelationReloadKey"
+            />
           </template>
           <div v-else class="module-form">
             <RecordFormFields
@@ -2646,18 +2639,14 @@ function recordTitle(record: QueryListRecord | undefined) {
             >
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
             </RecordDetailExtensionSection>
-            <RecordDetailExtensionSection
-              v-for="relation in executableDetailRelations"
-              :key="`relation:${relation.code}`"
-              :title="relation.title ?? relation.code"
-            >
-              <DetailRelationListPanel
-                :source-context="context"
-                :relation="relation"
-                :record-id="detailRelationRecordId"
-                :reload-key="detailRelationReloadKey"
-              />
-            </RecordDetailExtensionSection>
+            <ModulePageDetailRelations
+              v-if="runtimeUiDescriptor"
+              :source-context="context"
+              :ui-descriptor="runtimeUiDescriptor"
+              :relations="executableDetailRelations"
+              :parent-record="editingRecord"
+              :reload-key="detailRelationReloadKey"
+            />
           </template>
         </template>
       </template>

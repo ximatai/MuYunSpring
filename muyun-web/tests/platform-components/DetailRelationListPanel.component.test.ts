@@ -60,6 +60,35 @@ describe('DetailRelationListPanel', () => {
     expect(wrapper.findComponent({ name: 'RecordQueryListPanel' }).exists()).toBe(false);
     expect(request).not.toHaveBeenCalled();
   });
+
+  it('derives the managed association gateway from neutral parent and relation facts', async () => {
+    const request = vi.fn();
+    const relation: ResolvedDetailRelationDescriptor = {
+      ...executableRelation(),
+      readOnly: false,
+      code: 'properties',
+      queryContract: {
+        ...executableRelation().queryContract!,
+        queryPath: undefined,
+        managedGateway: true,
+        actionCode: 'contract_query',
+      },
+    };
+    const wrapper = shallowMount(DetailRelationListPanel, {
+      props: { sourceContext: sourceContext(request), recordId: 'select / 1', relation },
+    });
+    await flushPromises();
+
+    const relationContext = wrapper
+      .findComponent({ name: 'RecordQueryListPanel' })
+      .props('context') as ModuleContext<Record<string, unknown>>;
+    await relationContext.crud.query();
+    expect(request).toHaveBeenLastCalledWith({
+      method: 'POST',
+      path: '/crm.customer/view/select%20%2F%201/relations/properties/query',
+      body: undefined,
+    });
+  });
 });
 
 function executableRelation(): ResolvedDetailRelationDescriptor {

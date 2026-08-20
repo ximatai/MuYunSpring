@@ -96,9 +96,29 @@ public class StandardModuleWebRuntime {
         return Map.copyOf(types);
     }
 
+    /** Field semantics for one compiled child relation, isolated from similarly named parent fields. */
+    public Map<String, FieldValueType> relationWireFieldTypes(String moduleAlias, String relationCode) {
+        ModuleExecutionPlan plan = requirePlan(moduleAlias);
+        var relation = plan.uiDescriptor().detailRelations().stream()
+                .filter(candidate -> candidate.code().equals(relationCode))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("unknown detail relation: " + relationCode));
+        LinkedHashMap<String, FieldValueType> types = new LinkedHashMap<>();
+        plan.uiDescriptor().editorContributions().stream()
+                .filter(contribution -> contribution.resource().equals(relation.targetEntityAlias()))
+                .findFirst()
+                .ifPresent(contribution -> collectFieldTypes(types, contribution.editor()));
+        return Map.copyOf(types);
+    }
+
     /** Marks the current HTTP response for managed serialization-time numeric adaptation. */
     public void markWireResponse(String moduleAlias) {
         StaticModuleWebWireValues.markCurrentResponse(wireFieldTypes(moduleAlias));
+    }
+
+    /** Marks a managed relation response without leaking child field types into the parent record contract. */
+    public void markRelationWireResponse(String moduleAlias, String relationCode) {
+        StaticModuleWebWireValues.markCurrentResponse(relationWireFieldTypes(moduleAlias, relationCode));
     }
 
     /**

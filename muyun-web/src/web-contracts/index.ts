@@ -375,11 +375,34 @@ export interface ResolvedDetailRelationDescriptor {
   targetEntityAlias: string;
   parentBinding: string;
   queryContract?: ResolvedDetailRelationQueryContract;
+  /** Read access never implies these operations; the server must explicitly compile them. */
+  mutationContract?: ResolvedDetailRelationMutationContract;
+  /** Optional client-visible applicability fact; the server remains authoritative. */
+  parentConstraint?: ResolvedDetailRelationParentConstraint;
   refreshOnDetailReload: boolean;
 }
 
+export interface ResolvedDetailRelationParentConstraint {
+  fieldName: string;
+  expectedValue: string;
+}
+
+export interface ResolvedDetailRelationMutationContract {
+  createAllowed: boolean;
+  updateAllowed: boolean;
+  deleteAllowed: boolean;
+  createActionCode?: string;
+  updateActionCode?: string;
+  deleteActionCode?: string;
+}
+
 export interface ResolvedDetailRelationQueryContract {
-  queryPath: string;
+  /** Dynamic/legacy relation route. Managed relations deliberately omit it. */
+  queryPath?: string;
+  /** Uses the platform parent-association gateway derived from module + relation facts. */
+  managedGateway?: boolean;
+  /** Compiled action identity in the source/parent module permission catalog. */
+  actionCode?: string;
   targetUiConfigId?: string;
   queryTemplateId?: string;
   pageable: boolean;
@@ -391,7 +414,7 @@ export interface ResolvedDetailRelationQueryContract {
 
 /** Server-issued list columns, not a raw target UI config or a client-side inferred view. */
 export interface ResolvedDetailRelationListProjection {
-  uiConfigId: string;
+  uiConfigId?: string;
   fields: ResolvedDetailRelationListField[];
 }
 
@@ -413,10 +436,25 @@ export function hasExecutableDetailRelationQueryContract(
   };
 } {
   return (
-    relation?.queryContract?.queryPath != null &&
-    relation.queryContract.queryPath.trim().length > 0 &&
+    ((relation?.queryContract?.managedGateway === true && Boolean(relation.queryContract.actionCode)) ||
+      (relation?.queryContract?.queryPath != null && relation.queryContract.queryPath.trim().length > 0)) &&
     relation.queryContract.listProjection != null &&
     relation.queryContract.querySchema != null
+  );
+}
+
+export function hasExecutableDetailRelationMutationContract(
+  relation: ResolvedDetailRelationDescriptor | undefined,
+): relation is ResolvedDetailRelationDescriptor & {
+  mutationContract: ResolvedDetailRelationMutationContract;
+} {
+  const mutation = relation?.mutationContract;
+  return (
+    relation?.readOnly === false &&
+    mutation != null &&
+    ((mutation.createAllowed && Boolean(mutation.createActionCode)) ||
+      (mutation.updateAllowed && Boolean(mutation.updateActionCode)) ||
+      (mutation.deleteAllowed && Boolean(mutation.deleteActionCode)))
   );
 }
 
@@ -1041,6 +1079,7 @@ export interface ResolvedModuleUiDescriptor {
   defaultEditor?: ResolvedViewDescriptor;
   editorSurfaces?: ResolvedEditorSurfaceDescriptor[];
   editorContributions?: ResolvedPageDetailEditorContribution[];
+  detailRelations?: ResolvedDetailRelationDescriptor[];
 }
 
 export interface ResolvedEditorSurfaceDescriptor {

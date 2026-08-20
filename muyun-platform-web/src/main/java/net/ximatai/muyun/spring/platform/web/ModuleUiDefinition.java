@@ -81,6 +81,33 @@ public record ModuleUiDefinition(String moduleAlias,
             return this;
         }
 
+        /** Declares a directly managed relation; relation reads alone never imply this capability. */
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
+                                             String parentBinding,
+                                             PageDetailRelationMutationDefinition mutations) {
+            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
+                    false, true, mutations, null, true));
+            return this;
+        }
+
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
+                                             String parentBinding,
+                                             PageDetailRelationMutationDefinition mutations,
+                                             PageDetailRelationParentConstraintDefinition parentConstraint) {
+            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
+                    false, true, mutations, parentConstraint, true));
+            return this;
+        }
+
+        /** Declares a gateway-backed query while deliberately exposing no mutation capability. */
+        public Builder managedReadOnlyDetailRelation(String code, String title, String targetEntityAlias,
+                                                     String parentBinding,
+                                                     PageDetailRelationParentConstraintDefinition parentConstraint) {
+            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
+                    true, true, null, parentConstraint, true));
+            return this;
+        }
+
         /** Declares one default editor plus optional named editors owned by this module. */
         public Builder editors(Consumer<EditorSurfacesBuilder> customizer) {
             EditorSurfacesBuilder builder = new EditorSurfacesBuilder();

@@ -1,13 +1,12 @@
 package net.ximatai.muyun.spring.platform.web;
 
-import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
-
 import net.ximatai.muyun.database.core.orm.Criteria;
 import jakarta.servlet.http.HttpServletRequest;
 import net.ximatai.muyun.spring.web.NestedSortableCrudWebSupport;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlProperty;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -15,11 +14,24 @@ import java.util.Objects;
 
 @RestController
 @PlatformStaticWebScope(PlatformStaticWebScope.Scope.CUSTOM)
-@PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class, alias = FieldUiControlPropertyService.MODULE_ALIAS,
-        title = "平台字段 UI 类型属性")
+@PlatformStaticActionContribution(targetModule = FieldUiControlService.MODULE_ALIAS,
+        resource = "field_ui_control_property", resourceTitle = "控件属性")
 @RequestMapping("/platform.field_ui_control/{fieldUiControlAlias}/properties")
 public class FieldUiControlPropertyWebController
-        extends NestedSortableCrudWebSupport<FieldUiControlProperty, FieldUiControlPropertyService> {
+        extends NestedSortableCrudWebSupport<FieldUiControlProperty, FieldUiControlPropertyService>
+        implements StaticModuleUiContributor {
+
+    @Override
+    public ModuleUiDefinition moduleUiDefinition() {
+        return ModuleUiDefinition.builder(FieldUiControlService.MODULE_ALIAS)
+                .editorContribution("field_ui_control_property", form -> form.title("控件属性")
+                        .field("field_ui_control_property", "attributeAlias", field -> field.label("属性 alias")
+                                .required().enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
+                        .field("field_ui_control_property", "title", field -> field.label("属性名称").required())
+                        .field("field_ui_control_property", "valueFieldSpecAlias", field -> field.label("值字段规格"))
+                        .field("field_ui_control_property", "defaultValue", field -> field.label("默认值")))
+                .build();
+    }
 
     @Override
     protected void appendScope(Criteria criteria, HttpServletRequest request) {

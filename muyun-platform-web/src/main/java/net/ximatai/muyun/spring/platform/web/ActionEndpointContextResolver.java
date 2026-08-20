@@ -127,6 +127,16 @@ public class ActionEndpointContextResolver {
         );
     }
 
+    /** Resolves a compiled custom action code with the same persisted governance used by HTTP endpoints. */
+    public ActionExecutionContext resolveActionCode(String moduleAlias, String actionCode, Set<String> recordIds) {
+        String normalized = PlatformNameRules.requireActionCode(actionCode, "actionCode");
+        requireActionPublished(moduleAlias, normalized);
+        ActionExecutionPolicy fallback = ActionExecutionContext.ofActionCode(
+                moduleAlias, normalized, recordIds, CurrentUserContext.currentUser()).actionPolicy();
+        return ActionExecutionContext.ofPolicy(moduleAlias, resolvedPolicy(moduleAlias, fallback),
+                recordIds, CurrentUserContext.currentUser());
+    }
+
     /** Resolves a compiled endpoint for projections such as OpenAPI. */
     public ActionExecutionContext resolve(ResolvedWebEndpoint endpoint) {
         requireActionPublished(endpoint.moduleAlias(), endpoint.executionPolicy().actionCode());

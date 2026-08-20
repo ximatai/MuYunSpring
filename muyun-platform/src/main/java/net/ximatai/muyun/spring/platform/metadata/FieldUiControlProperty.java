@@ -7,6 +7,7 @@ import net.ximatai.muyun.database.core.annotation.CompositeIndex;
 import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.standard.StandardSortableEntity;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 
 @Getter
 @Setter
@@ -23,6 +24,7 @@ public class FieldUiControlProperty extends StandardSortableEntity {
     private String attributeAlias;
 
     @Column(name = "value_field_spec_alias", type = ColumnType.VARCHAR, length = 64, comment = "Value field type alias")
+    @ReferenceTo(target = FieldSpecService.class)
     private String valueFieldSpecAlias;
 
     @Column(name = "default_value", type = ColumnType.VARCHAR, length = 512, comment = "Default value")

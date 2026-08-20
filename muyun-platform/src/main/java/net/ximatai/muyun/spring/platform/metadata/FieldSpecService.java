@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
@@ -25,6 +26,7 @@ public class FieldSpecService extends AbstractAbilityService<FieldSpec> implemen
         SoftDeleteAbility<FieldSpec>,
         EnableAbility<FieldSpec>,
         SortAbility<FieldSpec>,
+        ReferenceAbility<FieldSpec>,
         QueryAbility<FieldSpec> {
     public static final String MODULE_ALIAS = "platform.field_spec";
     private final BaseDao<FieldUiControl, String> fieldUiTypeDao;

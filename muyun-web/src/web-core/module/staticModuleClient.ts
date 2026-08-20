@@ -50,6 +50,58 @@ export interface ModuleEnableClient {
   disable(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
 }
 
+/**
+ * Fixed platform transport for a compiled, one-level detail relation.
+ * Relation descriptors contain no business URL: the parent module alias, persisted parent id and
+ * server-issued relation code are the only routing facts a surface receives.
+ */
+export interface ManagedDetailRelationClient<TRecord> {
+  query(request?: WebQueryRequest): Promise<WebPageResponse<TRecord>>;
+  insert(record: TRecord): Promise<StaticRecordMutationResult<TRecord>>;
+  update(id: string, record: TRecord): Promise<StaticRecordMutationResult<TRecord>>;
+  delete(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
+}
+
+export function createManagedDetailRelationClient<TRecord>(
+  http: HttpClient,
+  options: { parentModuleAlias: string; parentId: string; relationCode: string },
+): ManagedDetailRelationClient<TRecord> {
+  const parentPath = modulePathOf(options.parentModuleAlias);
+  const relationPath = `${parentPath}/view/${encodeURIComponent(options.parentId)}/relations/${encodeURIComponent(options.relationCode)}`;
+  return {
+    query: (request) =>
+      http.request<WebPageResponse<TRecord>>({
+        method: 'POST',
+        path: `${relationPath}/query`,
+        body: request,
+      }),
+    insert: async (record) =>
+      normalizeRecordMutationResponse(
+        await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
+          method: 'POST',
+          path: `${relationPath}/insert`,
+          body: record,
+        }),
+      ),
+    update: async (id, record) =>
+      normalizeRecordMutationResponse(
+        await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
+          method: 'POST',
+          path: `${relationPath}/update/${encodeURIComponent(id)}`,
+          body: record,
+        }),
+      ),
+    delete: (id, request) =>
+      http
+        .request<StaticCountMutationResult>({
+          method: 'POST',
+          path: `${relationPath}/delete/${encodeURIComponent(id)}`,
+          body: request,
+        })
+        .then(normalizeCountMutationResponse),
+  };
+}
+
 export function createModuleCrudClient<TRecord>(
   http: HttpClient,
   options: { moduleAlias: string },

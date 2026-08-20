@@ -48,6 +48,9 @@ public class FieldUiControlPropertyService extends AbstractAbilityService<FieldU
     @Override
     public void beforeUpdate(FieldUiControlProperty attribute) {
         normalizeAndValidate(attribute);
+        FieldUiControlProperty existing = selectIncludingDeleted(attribute.getId());
+        rejectChanged(existing, attribute, "Field UI control attribute alias",
+                FieldUiControlProperty::getAttributeAlias);
     }
 
     public List<FieldUiControlProperty> listByFieldUiControlAliases(List<String> aliases) {

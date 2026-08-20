@@ -6,6 +6,7 @@ import {
   type RecordFormFieldDescriptor,
 } from '@muyun/platform-components';
 import type {
+  ResolvedModuleUiDescriptor,
   ResolvedModulePageDescriptor,
   ResolvedPageContextBindingDescriptor,
   ResolvedPageNavigatorLevelDescriptor,
@@ -28,6 +29,7 @@ export function useNavigatorRuntime(context: ModuleContext<QueryListRecord>) {
   const formFields = ref<Map<string, RecordFormFieldDescriptor>>(resolveRecordFormFields(undefined));
   const detailDisplayFields = ref(resolveRecordDetailFields(undefined));
   const runtimePage = ref<ResolvedModulePageDescriptor>();
+  const runtimeUiDescriptor = ref<ResolvedModuleUiDescriptor>();
   const treeModule = ref(false);
   const navigatorLevels = ref<NavigatorLevelRuntime[]>([]);
   const pageContextBindings = ref<ResolvedPageContextBindingDescriptor[]>([]);
@@ -42,6 +44,7 @@ export function useNavigatorRuntime(context: ModuleContext<QueryListRecord>) {
   ) {
     if (!isListPage.value) return;
     const runtimeContext = await context.runtime.ready;
+    runtimeUiDescriptor.value = runtimeContext.uiDescriptor;
     runtimePage.value = runtimeContext.uiDescriptor?.page;
     treeModule.value = context.abilities.hasTree() === true;
     if (treeModule.value && hasBusinessRecordView()) {
@@ -85,6 +88,7 @@ export function useNavigatorRuntime(context: ModuleContext<QueryListRecord>) {
     formFields,
     detailDisplayFields,
     runtimePage,
+    runtimeUiDescriptor,
     treeModule,
     navigatorLevels,
     pageContextBindings,

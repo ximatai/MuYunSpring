@@ -97,7 +97,9 @@
 
 ## 字段 UI 类型配置
 
-字段 UI 类型属性和字段映射挂在字段 UI 类型 alias 下。请求体中的 `fieldUiControlAlias` 以后端 URL 为准，避免跨 UI 类型维护。
+标准模块宿主通过父记录 association 协议维护字段 UI 类型属性和字段映射：`POST /platform.field_ui_control/view/{parentId}/relations/{relationCode}/query|insert|update/{childId}|delete/{childId}`，其中 `relationCode` 为 `properties` 或 `bindings`。协议路径不进入页面 descriptor；descriptor 只交付已编译 query/mutation、动作码、字段投影、父绑定和适用条件。服务端以持久化父记录为准绑定 `fieldUiControlAlias`，更新和删除校验子记录归属，`bindings` 仅对 `COMPOSITE` 父记录开放。
+
+以下 alias 嵌套接口保留为兼容 API，不是标准模块宿主的新接入方式。请求体中的 `fieldUiControlAlias` 仍以后端 URL 为准，避免跨 UI 类型维护。
 
 | 对象 | 方法 | URL | 功能点 |
 | --- | --- | --- | --- |
