@@ -25,3 +25,13 @@ it('registers menu routes beneath the workbench route while retaining their abso
     await router.replace('/');
   }
 });
+
+it('registers direct dynamic, external, workspace, and OpenAPI pages beneath the workbench route', () => {
+  const routeNames = new Set(router.getRoutes().map((route) => route.name));
+
+  assert.equal(routeNames.has('dynamic-module-route'), true);
+  assert.equal(routeNames.has('external-route'), true);
+  assert.equal(routeNames.has('workspace-view-route'), true);
+  assert.equal(routeNames.has('module-openapi-route'), true);
+  assert.equal(routeNames.has('openapi-catalog-route'), true);
+});

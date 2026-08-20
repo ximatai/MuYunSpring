@@ -266,13 +266,18 @@ export function findFirstNavigationMenu(nodes: MenuTreeNode[]): MenuRecord | und
 }
 
 export function tabKeyOf(descriptor: PageDescriptor): string {
-  const baseKey = tabBaseKeyOf(descriptor);
+  const baseKey = tabIdentityKeyOf(descriptor);
   if (descriptor.tabPolicy.identity === 'by-menu' && descriptor.menuId) return baseKey;
   const instanceKey = pageInstanceKeyOf(descriptor);
   return instanceKey ? `${baseKey}:InstanceKey:${instanceKey}` : baseKey;
 }
 
-function tabBaseKeyOf(descriptor: PageDescriptor): string {
+/**
+ * Stable page intent without the workbench instance marker.
+ * `by-params` workspace views use this to focus an existing logical view while
+ * the actual tab key still contains InstanceKey for cached route isolation.
+ */
+export function tabIdentityKeyOf(descriptor: PageDescriptor): string {
   if (descriptor.tabPolicy.identity === 'by-menu' && descriptor.menuId) {
     return `menu:${descriptor.menuId}`;
   }

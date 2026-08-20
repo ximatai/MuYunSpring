@@ -803,7 +803,10 @@ it('openDirectTab keeps authorization pages for different roles separate', () =>
 
   assert.equal(second.tabs.length, 2);
   assert.notEqual(first.activeTabKey, second.activeTabKey);
-  assert.equal(second.activeTabKey, 'business-route:/iam/role-authorization:roleId=role-b');
+  assert.match(
+    second.activeTabKey,
+    /^business-route:\/iam\/role-authorization:roleId=role-b:InstanceKey:[0-9a-f-]{36}$/i,
+  );
 });
 
 it('openDirectTab reports reuse when the stable work view tab already exists', () => {
@@ -825,6 +828,21 @@ it('openDirectTab reports reuse when the stable work view tab already exists', (
   assert.equal(first.created, true);
   assert.equal(reused.created, false);
   assert.equal(reused.tabs.length, 1);
+});
+
+it('openDirectTab assigns an InstanceKey before a route page enters the workbench', () => {
+  const opened = openDirectTab([], {
+    pageType: 'business-route',
+    openMode: 'workbench-route',
+    hostType: 'business-route-host',
+    title: '角色授权',
+    target: { route: '/iam/role-authorization', query: { roleId: 'role-a' } },
+    params: { roleId: 'role-a' },
+    tabPolicy: { identity: 'by-params' },
+  });
+
+  const url = new URL(opened.tabs[0]?.fullPath ?? '', 'http://muyun.local');
+  assert.match(url.searchParams.get('InstanceKey') ?? '', /^[0-9a-f-]{36}$/i);
 });
 
 it('restoreWorkbenchStartupStateFromUrl creates direct tab when URL has no menu match', () => {

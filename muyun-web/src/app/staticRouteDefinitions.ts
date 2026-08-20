@@ -1,5 +1,9 @@
 import type { Component } from 'vue';
 import type { PageLayoutMode } from '@muyun/web-contracts';
+import {
+  platformAdminDynamicModuleRoutes,
+  platformAdminRoutes,
+} from '../platform-admin-runtime/platformAdminRoutes';
 
 /**
  * 集中列出前端自带页面的固定地址、所属模块和页面文件。
@@ -27,76 +31,40 @@ export const routePageLoaders = import.meta.glob('/src/views/**/*View.vue', {
  * 前端自带页面的唯一清单。
  * 每一项把浏览器地址、模块名、页面文件和展示样式放在一起，供菜单检查和页面打开共同使用。
  */
+const componentPathByRoute: Record<string, StaticRouteDefinition['componentPath']> = {
+  '/config/field-ui-controls': '/src/views/FieldUiControlManagementView.vue',
+  '/config/dictionaries': '/src/views/DictionaryManagementView.vue',
+  '/config/menus': '/src/views/MenuManagementView.vue',
+  '/iam/tenants': '/src/views/TenantManagementView.vue',
+  '/iam/employees': '/src/views/EmployeeManagementView.vue',
+  '/iam/users': '/src/views/UserManagementView.vue',
+  '/iam/users/form': '/src/views/UserManagementView.vue',
+  '/iam/users/form/:userId': '/src/views/UserManagementView.vue',
+  '/iam/system-users': '/src/views/SystemUserManagementView.vue',
+  '/iam/roles': '/src/views/RoleManagementView.vue',
+  '/iam/role-authorization': '/src/views/RoleAuthorizationView.vue',
+};
+
+const platformStaticRouteDefinitions: StaticRouteDefinition[] = platformAdminRoutes.map((route) => ({
+  route: route.route as StaticRouteDefinition['route'],
+  moduleAlias: route.moduleAlias,
+  componentPath: componentPathByRoute[route.route]!,
+  layout: route.layout,
+  menuEntry: route.menuEntry,
+}));
+
+const dynamicCompatibilityRouteDefinitions: StaticRouteDefinition[] = Object.entries(
+  platformAdminDynamicModuleRoutes,
+).map(([route, moduleAlias]) => ({
+  route: route as StaticRouteDefinition['route'],
+  moduleAlias,
+  componentPath: '/src/views/DynamicModuleRouteView.vue',
+  layout: 'workspace',
+}));
+
 export const staticRouteDefinitions: StaticRouteDefinition[] = [
-  {
-    route: '/config/field-ui-controls',
-    moduleAlias: 'platform.field_ui_control',
-    componentPath: '/src/views/FieldUiControlManagementView.vue',
-    layout: 'workspace',
-  },
-  {
-    route: '/config/dictionaries',
-    moduleAlias: 'platform.dictionary_category',
-    componentPath: '/src/views/DictionaryManagementView.vue',
-    layout: 'workspace',
-  },
-  {
-    route: '/config/menus',
-    moduleAlias: 'platform.menu_scheme',
-    componentPath: '/src/views/MenuManagementView.vue',
-    layout: 'workspace',
-  },
-  {
-    route: '/iam/tenants',
-    moduleAlias: 'iam.tenant',
-    componentPath: '/src/views/TenantManagementView.vue',
-    layout: 'workspace',
-  },
-  {
-    route: '/iam/employees',
-    moduleAlias: 'iam.employee',
-    componentPath: '/src/views/EmployeeManagementView.vue',
-    layout: 'workspace',
-  },
-  {
-    route: '/iam/users',
-    moduleAlias: 'iam.user',
-    componentPath: '/src/views/UserManagementView.vue',
-    layout: 'workspace',
-  },
-  {
-    route: '/iam/users/form',
-    moduleAlias: 'iam.user',
-    componentPath: '/src/views/UserManagementView.vue',
-    layout: 'workspace',
-    menuEntry: false,
-  },
-  {
-    route: '/iam/users/form/:userId',
-    moduleAlias: 'iam.user',
-    componentPath: '/src/views/UserManagementView.vue',
-    layout: 'workspace',
-    menuEntry: false,
-  },
-  {
-    route: '/iam/system-users',
-    moduleAlias: 'iam.system_user',
-    componentPath: '/src/views/SystemUserManagementView.vue',
-    layout: 'workspace',
-  },
-  {
-    route: '/iam/roles',
-    moduleAlias: 'iam.role',
-    componentPath: '/src/views/RoleManagementView.vue',
-    layout: 'workspace',
-  },
-  {
-    route: '/iam/role-authorization',
-    moduleAlias: 'iam.role',
-    componentPath: '/src/views/RoleAuthorizationView.vue',
-    layout: 'workspace',
-    menuEntry: false,
-  },
+  ...platformStaticRouteDefinitions,
+  ...dynamicCompatibilityRouteDefinitions,
 ];
 
 /**

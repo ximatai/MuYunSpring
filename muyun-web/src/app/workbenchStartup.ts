@@ -14,8 +14,10 @@ import {
   isTabMenuTarget,
   pageDescriptorToUrl,
   resolvePageDescriptor,
+  tabIdentityKeyOf,
   tabKeyOf,
   tryPageDescriptorFromUrl,
+  withPageInstanceKey,
   type PageDescriptorResolveOptions,
 } from '@muyun/platform-workbench';
 import {
@@ -23,7 +25,9 @@ import {
   resolveWorkspaceView,
 } from '../platform-admin-runtime/workspaceViews';
 import {
+  createOpenApiCatalogPageDescriptor,
   createModuleOpenApiPageDescriptor,
+  isOpenApiCatalogPath,
   isModuleOpenApiPage,
   moduleAliasFromOpenApiPath,
 } from '../platform-admin-runtime/moduleOpenApi';
@@ -79,9 +83,17 @@ export function openDirectTab(
   tabs: MenuTab[],
   descriptor: PageDescriptor,
 ): { tabs: MenuTab[]; activeTabKey: string; created: boolean } {
-  const tab = createDirectTab(descriptor);
-  const created = !tabs.some((item) => item.key === tab.key);
-  return { tabs: upsertTab(tabs, tab), activeTabKey: tab.key, created };
+  const tab = createDirectTab(withPageInstanceKey(descriptor));
+  const existing = tabs.find((item) => {
+    if (item.key === tab.key) return true;
+    return (
+      tab.pageDescriptor?.tabPolicy.identity === 'by-params' &&
+      item.pageDescriptor?.tabPolicy.identity === 'by-params' &&
+      tabIdentityKeyOf(item.pageDescriptor) === tabIdentityKeyOf(tab.pageDescriptor)
+    );
+  });
+  if (existing) return { tabs, activeTabKey: existing.key, created: false };
+  return { tabs: [...tabs, tab], activeTabKey: tab.key, created: true };
 }
 
 export function menuTargetUrl(menu: MenuRecord, target: MenuNavigationTarget): string {
@@ -118,10 +130,13 @@ export function restoreWorkbenchStartupStateFromUrl(
     return state;
   }
 
-  const openApiModuleAlias = moduleAliasFromOpenApiPath(url.split(/[?#]/, 1)[0] ?? '');
+  const pathname = url.split(/[?#]/, 1)[0] ?? '';
+  const openApiModuleAlias = moduleAliasFromOpenApiPath(pathname);
   const descriptor = openApiModuleAlias
     ? createModuleOpenApiPageDescriptor(openApiModuleAlias)
-    : tryPageDescriptorFromUrl(url, options);
+    : isOpenApiCatalogPath(pathname)
+      ? createOpenApiCatalogPageDescriptor()
+      : tryPageDescriptorFromUrl(url, options);
   if (!descriptor) {
     return state;
   }

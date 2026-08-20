@@ -22,6 +22,36 @@ export const router = createRouter({
           component: () => import('@/views/HomeView.vue'),
           meta: { public: true, cacheable: false },
         },
+        {
+          path: '/platform/dynamic/:moduleAlias/:pageMode',
+          name: 'dynamic-module-route',
+          component: () => import('@/views/DynamicModuleRouteView.vue'),
+          meta: { cacheable: true },
+        },
+        {
+          path: '/platform/external/:menuId?',
+          name: 'external-route',
+          component: () => import('@/views/ExternalRouteView.vue'),
+          meta: { cacheable: true },
+        },
+        {
+          path: '/openapi',
+          name: 'openapi-catalog-route',
+          component: () => import('@/views/OpenApiCatalogRouteView.vue'),
+          meta: { cacheable: true },
+        },
+        {
+          path: '/openapi/:moduleAlias',
+          name: 'module-openapi-route',
+          component: () => import('@/views/ModuleOpenApiRouteView.vue'),
+          meta: { cacheable: true },
+        },
+        {
+          path: '/_workspace/:workspaceView',
+          name: 'workspace-view-route',
+          component: () => import('@/views/WorkspaceRouteView.vue'),
+          meta: { cacheable: true },
+        },
       ],
     },
     {

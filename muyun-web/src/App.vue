@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import {
-  Workbench,
-  WorkbenchOutlet,
-  pageDescriptorToUrl,
-  type WorkbenchRealtimeStatus,
-} from '@muyun/platform-workbench';
+import { RouterView } from 'vue-router';
+import { Workbench, pageDescriptorToUrl, type WorkbenchRealtimeStatus } from '@muyun/platform-workbench';
 import {
   UiThemeProvider,
   confirmAction,
@@ -62,21 +58,13 @@ import {
   platformAdminModuleRoutes,
   platformAdminRouteLayouts,
   platformAdminRoutePrefixes,
-  isPlatformAdminRoutePage,
 } from './platform-admin-runtime/platformAdminRoutes';
 import { connectAppRealtime } from './platform-admin-runtime/realtime';
+import './platform-admin-runtime/workspaceViews';
 import ChangeOwnPasswordDialog from './app/ChangeOwnPasswordDialog.vue';
 import CurrentUserProfileDialog from './app/CurrentUserProfileDialog.vue';
 import LoginView from './app/LoginView.vue';
 import ThemeSkinPreferencesDialog from './app/ThemeSkinPreferencesDialog.vue';
-import PlatformAdminRouteOutlet from './platform-admin-runtime/PlatformAdminOutlet.vue';
-import {
-  createModuleOpenApiPageDescriptor,
-  isModuleOpenApiPage,
-  isOpenApiCatalogPath,
-} from './platform-admin-runtime/moduleOpenApi';
-import ModuleOpenApiView from './views/ModuleOpenApiView.vue';
-import OpenApiCatalogView from './views/OpenApiCatalogView.vue';
 import {
   closeMenuTab,
   closeMenuTabs,
@@ -98,7 +86,9 @@ import {
   type OpenRouteOptions,
 } from './platform-workbench/workbenchNavigation';
 import { syncModulePageWorkspaceViewContributions } from './platform-workbench/modulePageWorkspaceViews';
-import { router } from './app/router';
+import { pageCacheKey } from './platform-workbench/pageCacheKey';
+import StaticRoutePageHost from './app/StaticRoutePageHost.vue';
+import { ensureMenuRoutes, resetMenuRoutes, router } from './app/router';
 import { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from './app/workbenchRouteSync';
 import {
   restoreThemeSkinPreference,
@@ -159,7 +149,6 @@ const confirmPassword = ref('');
 const securityNotification = ref<WebUserNotification>();
 const businessNotifications = ref<WebBusinessNotification[]>([]);
 const securityLogoutCountdown = ref(0);
-const openApiCatalogOpen = ref(isOpenApiCatalogPath(window.location.pathname));
 const realtimeStatus = ref<WorkbenchRealtimeStatus>('unavailable');
 const platformAdminRouteResolveOptions = {
   businessRoutePrefixes: platformAdminRoutePrefixes,
@@ -243,13 +232,12 @@ async function loadWorkbench() {
     lockedTabs.value = restoredLockedTabs;
     const arrangedState = { ...state, tabs: arrangeLockedMenuTabs(state.tabs ?? [], restoredLockedTabs) };
     startup.value = arrangedState;
+    await ensureMenuRoutes(arrangedState.menus);
     activeTabKey.value = arrangedState.activeTabKey;
     loginRequired.value = false;
     void restoreThemeSkinFromBackend();
     reconnectRealtime();
-    if (!openApiCatalogOpen.value) {
-      syncBrowserUrl(arrangedState, 'replace');
-    }
+    syncBrowserUrl(arrangedState, 'replace');
   } catch (cause) {
     if (isPasswordChangeRequiredError(cause)) {
       openChangeOwnPasswordDialog();
@@ -491,6 +479,7 @@ async function handleLogout() {
     // Local logout should still be possible if the token is already expired or the backend is unavailable.
   } finally {
     clearAuthToken();
+    resetMenuRoutes();
     businessNotifications.value = [];
     startup.value = undefined;
     activeTabKey.value = undefined;
@@ -646,6 +635,7 @@ function forceLocalLogout() {
   }
   clearSecurityLogoutTimer();
   clearAuthToken();
+  resetMenuRoutes();
   businessNotifications.value = [];
   startup.value = undefined;
   activeTabKey.value = undefined;
@@ -694,7 +684,12 @@ function handleOpenPage(descriptor: import('@muyun/web-contracts').PageDescripto
 }
 
 function handleOpenRoute(path: string, options: OpenRouteOptions = {}) {
-  return navigateWorkbenchRoute(routeUrlWithOpenOptions(path, options), 'push', startup.value, options.tabTitle);
+  return navigateWorkbenchRoute(
+    routeUrlWithOpenOptions(path, options),
+    'push',
+    startup.value,
+    options.tabTitle,
+  );
 }
 
 function handleReplaceRoute(path: string, options: OpenRouteOptions = {}) {
@@ -705,7 +700,13 @@ function handleReplaceRoute(path: string, options: OpenRouteOptions = {}) {
     ? new URL(activeTabUrlOf(current)!, window.location.origin).searchParams.get('InstanceKey')
     : undefined;
   if (instanceKey) url.searchParams.set('InstanceKey', instanceKey);
-  return navigateWorkbenchRoute(`${url.pathname}${url.search}${url.hash}`, 'replace', current, options.tabTitle, true);
+  return navigateWorkbenchRoute(
+    `${url.pathname}${url.search}${url.hash}`,
+    'replace',
+    current,
+    options.tabTitle,
+    true,
+  );
 }
 
 function handleCloseCurrentTab(fallbackPath: string) {
@@ -758,7 +759,9 @@ function navigateWorkbenchRoute(
   } else if (tabTitle && next.activeTabKey) {
     next = {
       ...next,
-      tabs: (next.tabs ?? []).map((tab) => (tab.key === next.activeTabKey ? { ...tab, title: tabTitle } : tab)),
+      tabs: (next.tabs ?? []).map((tab) =>
+        tab.key === next.activeTabKey ? { ...tab, title: tabTitle } : tab,
+      ),
     };
   }
   startup.value = next;
@@ -777,6 +780,7 @@ function handleReplacePage(pageKey: string, descriptor: import('@muyun/web-contr
       ? {
           ...tab,
           title: descriptor.title ?? tab.title,
+          fullPath: pageDescriptorToUrl(descriptor),
           pageDescriptor: descriptor,
           restoreState: { url: pageDescriptorToUrl(descriptor) },
         }
@@ -921,18 +925,6 @@ function currentBrowserPath() {
   return router.currentRoute.value.fullPath;
 }
 
-function returnToWorkbench() {
-  if (startup.value) syncBrowserUrl(startup.value, 'replace');
-}
-
-function openModuleOpenApi(moduleAlias: string, moduleTitle?: string) {
-  handleOpenPage(createModuleOpenApiPageDescriptor(moduleAlias, moduleTitle));
-}
-
-function resolveModuleOpenApiTitle(tabKey: string, moduleAlias: string, moduleTitle: string) {
-  handleReplacePage(tabKey, createModuleOpenApiPageDescriptor(moduleAlias, moduleTitle));
-}
-
 function syncBrowserUrl(state: WorkbenchStartupState, mode: 'push' | 'replace') {
   const navigation = workbenchRouteWriteFor(state, currentBrowserPath(), mode);
   if (!navigation) {
@@ -948,8 +940,7 @@ function syncBrowserUrl(state: WorkbenchStartupState, mode: 'push' | 'replace') 
 }
 
 function restoreWorkbenchFromRoute(url: string) {
-  openApiCatalogOpen.value = isOpenApiCatalogPath(router.currentRoute.value.path);
-  if (!shouldRestoreWorkbenchFromRoute(url, pendingWorkbenchNavigation, openApiCatalogOpen.value)) {
+  if (!shouldRestoreWorkbenchFromRoute(url, pendingWorkbenchNavigation)) {
     pendingWorkbenchNavigation = undefined;
     return;
   }
@@ -982,7 +973,6 @@ function requiresLogin(cause: unknown) {
       :error="error"
       @authenticated="handleAuthenticated"
     />
-    <OpenApiCatalogView v-else-if="openApiCatalogOpen" @open="openModuleOpenApi" @back="returnToWorkbench" />
     <Workbench
       v-else
       v-model:active-tab-key="activeTabKey"
@@ -1000,19 +990,23 @@ function requiresLogin(cause: unknown) {
       @reorder-tabs="handleReorderTabs"
       @user-command="handleUserCommand"
     >
-      <template #default="{ activeTab, pageDescriptor }">
-        <ModuleOpenApiView
-          v-if="isModuleOpenApiPage(pageDescriptor)"
-          :module-alias="pageDescriptor?.target.moduleAlias ?? ''"
-          @title-resolved="
-            resolveModuleOpenApiTitle(activeTab.key, pageDescriptor?.target.moduleAlias ?? '', $event)
-          "
-        />
-        <PlatformAdminRouteOutlet
-          v-else-if="isPlatformAdminRoutePage(pageDescriptor)"
-          :descriptor="pageDescriptor"
-        />
-        <WorkbenchOutlet v-else :descriptor="pageDescriptor" />
+      <template #default>
+        <RouterView v-slot="{ Component, route }">
+          <KeepAlive>
+            <StaticRoutePageHost
+              v-if="route.meta.cacheable !== false"
+              :key="pageCacheKey(route)"
+              :component="Component"
+              :route="route"
+            />
+          </KeepAlive>
+          <StaticRoutePageHost
+            v-if="route.meta.cacheable === false"
+            :key="pageCacheKey(route)"
+            :component="Component"
+            :route="route"
+          />
+        </RouterView>
       </template>
     </Workbench>
     <ChangeOwnPasswordDialog

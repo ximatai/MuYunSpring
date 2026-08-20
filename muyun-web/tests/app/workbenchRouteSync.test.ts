@@ -30,8 +30,8 @@ it('does not create a duplicate history entry for the active tab URL', () => {
   assert.equal(workbenchRouteWriteFor(state, tab.fullPath!, 'push'), undefined);
 });
 
-it('restores workbench state for browser navigation but not self-written or special routes', () => {
-  assert.equal(shouldRestoreWorkbenchFromRoute('/crm/customers', undefined, false), true);
-  assert.equal(shouldRestoreWorkbenchFromRoute('/crm/customers', '/crm/customers', false), false);
-  assert.equal(shouldRestoreWorkbenchFromRoute('/openapi', undefined, true), false);
+it('restores workbench state for browser navigation but not self-written routes', () => {
+  assert.equal(shouldRestoreWorkbenchFromRoute('/crm/customers', undefined), true);
+  assert.equal(shouldRestoreWorkbenchFromRoute('/crm/customers', '/crm/customers'), false);
+  assert.equal(shouldRestoreWorkbenchFromRoute('/openapi', undefined), true);
 });

@@ -3,7 +3,15 @@ import { computed, type Component } from 'vue';
 import type { RouteLocationNormalizedLoaded } from 'vue-router';
 import { ModuleContextProvider } from '@muyun/web-core';
 import { providePageLayout } from '@muyun/platform-components';
-import type { PageLayoutMode } from '@muyun/web-contracts';
+import { provideModulePageNavigation, type ModulePageWorkspaceView } from '@muyun/dynamic-page-runtime';
+import type { BusinessRoutePageDescriptor, PageLayoutMode } from '@muyun/web-contracts';
+import {
+  createWorkspaceViewDescriptor,
+  resolveWorkspaceView,
+  syncModulePageWorkspaceViewContributions,
+  useWorkbenchNavigation,
+  WorkspaceViewOutlet,
+} from '@muyun/platform-workbench';
 import { providePageRoute } from './pageRouteContext';
 
 const props = defineProps<{
@@ -15,14 +23,52 @@ const moduleAlias = computed(() => String(props.route.meta.moduleAlias ?? ''));
 const layout = computed<PageLayoutMode>(() =>
   props.route.meta.layout === 'workspace' ? 'workspace' : 'flow',
 );
+const navigation = useWorkbenchNavigation();
+const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => ({
+  pageType: 'business-route',
+  openMode: 'workbench-route',
+  hostType: 'business-route-host',
+  title: typeof props.route.meta.title === 'string' ? props.route.meta.title : undefined,
+  layout: layout.value,
+  target: {
+    route: props.route.path,
+    moduleAlias: moduleAlias.value || undefined,
+    query: props.route.query,
+  },
+  params: props.route.query,
+  tabPolicy: { identity: 'by-params', closable: true, cacheable: true },
+}));
+const workspaceView = computed(() => resolveWorkspaceView(workspaceDescriptor.value));
+
+syncModulePageWorkspaceViewContributions();
+provideModulePageNavigation(
+  navigation && {
+    openPage: navigation.openPage,
+    openWorkspaceTab(view, input, title) {
+      navigation.openPage(
+        createWorkspaceViewDescriptor(workspaceViewDefinitionForModulePage(view), input, 'tab', title),
+      );
+    },
+  },
+);
 
 providePageLayout(layout);
 providePageRoute(() => props.route);
+
+function workspaceViewDefinitionForModulePage(view: ModulePageWorkspaceView) {
+  return {
+    ...view,
+    route: view.route ?? `/_workspace/${encodeURIComponent(view.type)}`,
+    presentations: ['tab'] as const,
+  };
+}
 </script>
 
 <template>
   <ModuleContextProvider v-if="moduleAlias" :module-alias="moduleAlias">
-    <component :is="component" />
+    <WorkspaceViewOutlet v-if="workspaceView" :descriptor="workspaceDescriptor" />
+    <component :is="component" v-else />
   </ModuleContextProvider>
+  <WorkspaceViewOutlet v-else-if="workspaceView" :descriptor="workspaceDescriptor" />
   <component :is="component" v-else />
 </template>

@@ -51,5 +51,5 @@ export function provideWorkbenchNavigation(navigation: WorkbenchNavigation) {
 }
 
 export function useWorkbenchNavigation() {
-  return inject(workbenchNavigationKey);
+  return inject(workbenchNavigationKey, undefined);
 }

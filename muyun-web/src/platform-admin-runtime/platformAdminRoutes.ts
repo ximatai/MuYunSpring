@@ -1,19 +1,21 @@
-import type { Component } from 'vue';
+import { defineAsyncComponent, type Component } from 'vue';
 import type {
   BusinessRoutePageDescriptor,
   PageDescriptor,
   PageLayoutMode,
   RoutePageTarget,
 } from '@muyun/web-contracts';
-import FieldUiControlManagementView from '../views/FieldUiControlManagementView.vue';
-import DictionaryManagementView from '../views/DictionaryManagementView.vue';
-import EmployeeManagementView from '../views/EmployeeManagementView.vue';
-import MenuManagementView from '../views/MenuManagementView.vue';
-import RoleManagementView from '../views/RoleManagementView.vue';
-import RoleAuthorizationView from '../views/RoleAuthorizationView.vue';
-import SystemUserManagementView from '../views/SystemUserManagementView.vue';
-import TenantManagementView from '../views/TenantManagementView.vue';
-import UserManagementView from '../views/UserManagementView.vue';
+const FieldUiControlManagementView = defineAsyncComponent(
+  () => import('../views/FieldUiControlManagementView.vue'),
+);
+const DictionaryManagementView = defineAsyncComponent(() => import('../views/DictionaryManagementView.vue'));
+const EmployeeManagementView = defineAsyncComponent(() => import('../views/EmployeeManagementView.vue'));
+const MenuManagementView = defineAsyncComponent(() => import('../views/MenuManagementView.vue'));
+const RoleManagementView = defineAsyncComponent(() => import('../views/RoleManagementView.vue'));
+const RoleAuthorizationView = defineAsyncComponent(() => import('../views/RoleAuthorizationView.vue'));
+const SystemUserManagementView = defineAsyncComponent(() => import('../views/SystemUserManagementView.vue'));
+const TenantManagementView = defineAsyncComponent(() => import('../views/TenantManagementView.vue'));
+const UserManagementView = defineAsyncComponent(() => import('../views/UserManagementView.vue'));
 
 export interface PlatformAdminRoute {
   route: string;

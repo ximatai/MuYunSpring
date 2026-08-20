@@ -1887,18 +1887,15 @@ it('platform error feedback respects global error presentation slots', () => {
   assert.match(dictionaryStateSource, /handlePlatformActionSuccess/);
 });
 
-it('workbench keeps cacheable tab pages mounted behind their stable tab keys', () => {
+it('workbench delegates page lifetime to the single Vue Router outlet', () => {
   const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
 
   assert.match(workbenchSource, /const openedTabs = computed\(\(\) => props\.startup\?\.tabs \?\? \[\]\)/);
-  assert.match(workbenchSource, /function shouldKeepTabMounted\(tab: MenuTab\)/);
-  assert.match(workbenchSource, /pageDescriptorOf\(tab\)\?\.tabPolicy\.cacheable !== false/);
-  assert.match(workbenchSource, /<template v-for="tab in openedTabs" :key="tab\.key">/);
-  assert.match(
-    workbenchSource,
-    /<UiSidePanelHost[\s\S]*v-if="shouldKeepTabMounted\(tab\)"[\s\S]*v-show="tab\.key === activeTabKey"/,
-  );
-  assert.match(workbenchSource, /:active-tab="tab"[\s\S]*:page-descriptor="pageDescriptorOf\(tab\)"/);
+  assert.notMatch(workbenchSource, /UiSidePanelHost/);
+  assert.notMatch(workbenchSource, /shouldKeepTabMounted|tabHostKey/);
+  assert.notMatch(workbenchSource, /<template v-for="tab in openedTabs"/);
+  assert.match(workbenchSource, /<div v-else-if="activeTab" class="tab-panel-host">/);
+  assert.match(workbenchSource, /:active-tab="activeTab"[\s\S]*:page-descriptor="activePageDescriptor"/);
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
   assert.match(workbenchSource, /\.tab-page \{[\s\S]*padding: 10px;[\s\S]*overflow: auto;/);
   assert.match(workbenchSource, /tab-page--workspace/);
@@ -1941,7 +1938,7 @@ it('tenant form statically owns its mode-dependent branding experience while reu
   assert.notMatch(tenantSource, /saveTenant/);
 });
 
-it('side panels use an explicit tab host and fixed drawer action regions', () => {
+it('side panels use page-owned containers and fixed drawer action regions', () => {
   const uiIndexSource = readSource('src/vue-ui-antdv/index.ts');
   const sidePanelSource = readSource('src/vue-ui-antdv/components/UiSidePanel.vue');
   const sidePanelHostSource = readSource('src/vue-ui-antdv/components/UiSidePanelHost.vue');
@@ -1971,7 +1968,7 @@ it('side panels use an explicit tab host and fixed drawer action regions', () =>
   assert.match(sidePanelSource, /props\.scope === 'viewport'/);
   assert.match(sidePanelSource, /sidePanelHost\?\.value \?\? false/);
   assert.match(sidePanelHostSource, /position: relative/);
-  assert.match(workbenchSource, /<UiSidePanelHost[\s\S]*class="tab-panel-host"/);
+  assert.notMatch(workbenchSource, /UiSidePanelHost/);
   assert.match(detailDrawerSource, /promotion\?: DrawerPromotion/);
   assert.match(detailDrawerSource, /promotion\.promote\(\)/);
   assert.match(detailDrawerSource, /<template #title-actions>/);

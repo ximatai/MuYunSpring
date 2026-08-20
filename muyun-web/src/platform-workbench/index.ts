@@ -33,6 +33,7 @@ export {
   pageDescriptorToUrl,
   pageInstanceKeyOf,
   resolvePageDescriptor,
+  tabIdentityKeyOf,
   tabKeyOf,
   tryPageDescriptorFromUrl,
   withPageInstanceKey,

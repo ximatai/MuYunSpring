@@ -25,7 +25,6 @@ export function workbenchRouteWriteFor(
 export function shouldRestoreWorkbenchFromRoute(
   url: string,
   pendingWorkbenchNavigation: string | undefined,
-  isSpecialRoute: boolean,
 ): boolean {
-  return !isSpecialRoute && pendingWorkbenchNavigation !== url;
+  return pendingWorkbenchNavigation !== url;
 }

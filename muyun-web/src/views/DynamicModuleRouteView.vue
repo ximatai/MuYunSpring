@@ -13,7 +13,9 @@ const descriptor = computed<DynamicModulePageDescriptor>(() => ({
   menuId: String(route.value.meta.menuId),
   target: {
     moduleAlias: String(route.value.meta.moduleAlias ?? route.value.params.moduleAlias),
-    pageMode: String(route.value.meta.pageMode ?? route.value.params.pageMode).toUpperCase() as MenuPageMode,
+    pageMode: String(
+      route.value.meta.pageMode ?? route.value.params.pageMode ?? 'LIST',
+    ).toUpperCase() as MenuPageMode,
     defaultUiConfigId:
       typeof route.value.meta.defaultUiConfigId === 'string' ? route.value.meta.defaultUiConfigId : undefined,
     defaultQueryTemplateId:
