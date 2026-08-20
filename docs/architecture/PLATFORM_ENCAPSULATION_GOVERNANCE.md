@@ -39,6 +39,16 @@
 
 后一个治理单元可以做准备性设计，但不应绕过前置契约直接展开大规模重构。
 
+## 当前实施阶段
+
+本文定义的是完整目标，不应把一次 PR 中的结构性收口表述为全部完成。当前阶段优先完成字段控件值语义、来源无关页面契约、Execution Plan 和 capability 的可执行事实收口，并将已验证的 Query、Mutation、Action、Relation 协作者从动态门面中拆出。
+
+以下仍属于后续阶段验收，不能因已有 wrapper 或文件拆分而视为完成：
+
+1. `ModulePageHost` 继续拆出 template renderer 与剩余页面编排，确保 renderer 不管理 HTTP、权限或页面启动。
+2. `DynamicRecordActionRuntime` 与 `DynamicRecordRelationRuntime` 按实际协作需求收窄为 gateway，逐步消除对完整 `DynamicRecordService` 门面的回持。
+3. 仅在上述边界和独立契约测试完成后，才可将“平台大运行时职责拆分”标记为完成。
+
 ## 最高优先级 1：字段 UI 控件执行闭环
 
 ### 要解决的问题

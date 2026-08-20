@@ -409,11 +409,11 @@ class DynamicRecordWebControllerTest {
         ArgumentCaptor<DynamicRecord> createRecord = ArgumentCaptor.forClass(DynamicRecord.class);
         verify(mainEntity).insert(createRecord.capture());
         assertThat(createRecord.getValue().getValue("code")).isEqualTo("C-001");
-        assertThat(createRecord.getValue().getValue("amount")).isEqualTo(12);
+        assertThat(createRecord.getValue().getValue("amount")).isEqualTo(BigDecimal.valueOf(12));
         assertThat(createRecord.getValue().getChildren("lines")).singleElement()
                 .satisfies(line -> {
                     assertThat(line.getValue("lineNo")).isEqualTo("L-001");
-                    assertThat(line.getValue("lineAmount")).isEqualTo(7);
+                    assertThat(line.getValue("lineAmount")).isEqualTo(BigDecimal.valueOf(7));
                 });
 
         mvc.perform(post("/{moduleAlias}/update/{recordId}", MODULE, "contract-1")
@@ -427,7 +427,7 @@ class DynamicRecordWebControllerTest {
         verify(mainEntity).update(updateRecord.capture());
         assertThat(updateRecord.getValue().getId()).isEqualTo("contract-1");
         assertThat(updateRecord.getValue().getVersion()).isEqualTo(3);
-        assertThat(updateRecord.getValue().getValue("amount")).isEqualTo(10);
+        assertThat(updateRecord.getValue().getValue("amount")).isEqualTo(BigDecimal.TEN);
     }
 
     @Test

@@ -733,6 +733,7 @@ public class PlatformPageConfigPublishService {
         if (!hasLocalEditBinding(targetConfig, actionCode)) {
             throw layoutException(uiConfigId, path + ".targetUiConfigId must bind local edit action");
         }
+        uiConfigFieldService.validateLocalEditExecutableFields(targetUiConfigId);
     }
 
     private boolean hasLocalEditBinding(PlatformUiConfig uiConfig, String actionCode) {

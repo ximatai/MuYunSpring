@@ -28,6 +28,13 @@ function createRuntime() {
             refreshStrategy: { detail: false, list: true },
             localEditForm: {
               uiConfigId: 'rename-form',
+              fieldUiControls: [
+                {
+                  alias: 'date',
+                  rendererType: 'DATE',
+                  valueShape: 'SCALAR',
+                },
+              ],
               submitContract: {
                 recordRequired: true,
                 recordVersionRequired: true,
@@ -35,7 +42,7 @@ function createRuntime() {
                 uiConfigIdPayloadKey: 'uiConfigId',
               },
               fields: [
-                { fieldName: 'title', fieldTitle: '名称' },
+                { fieldName: 'title', fieldTitle: '名称', fieldUiControlAlias: 'date' },
                 { fieldName: 'hidden', visible: false },
               ],
             },
@@ -75,6 +82,16 @@ describe('module page detail action runtime', () => {
     expect(resolveLoad).not.toHaveBeenCalled();
     expect(refreshList).toHaveBeenCalledOnce();
     expect(presentSuccess).toHaveBeenCalledWith({ message: '已提交' }, '改名成功', 'module-local-edit');
+  });
+
+  it('binds the published resolved control to each local-edit field instead of re-inferring uiType', () => {
+    const { runtime } = createRuntime();
+    runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+
+    expect(runtime.localEditFields.value.get('title')).toMatchObject({
+      uiType: 'date',
+      fieldControl: { alias: 'date', rendererType: 'DATE', valueShape: 'SCALAR' },
+    });
   });
 
   it('keeps failed action effects inside the runtime boundary', async () => {

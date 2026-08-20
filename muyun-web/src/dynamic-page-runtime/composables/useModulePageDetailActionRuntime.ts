@@ -66,6 +66,7 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
   const localEditDraft = ref<RecordFormRecord>();
   const localEditFields = computed<Map<string, RecordFormFieldDescriptor>>(() => {
     const form = localEditBlock.value?.localEditForm;
+    const controlsByAlias = new Map((form?.fieldUiControls ?? []).map((control) => [control.alias, control]));
     return new Map(
       (form?.fields ?? [])
         .filter((field) => field.visible !== false && !field.relationAlias)
@@ -77,6 +78,10 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
             visible: { constant: true },
             required: { constant: field.requiredOverride === true },
             readOnly: { constant: field.readOnly === true },
+            // The published local-edit form carries resolved controls separately so the
+            // editor consumes the same semantic renderer facts as its target FORM.
+            // `uiType` remains only as a compatibility fallback for older bootstraps.
+            fieldControl: controlsByAlias.get(field.fieldUiControlAlias ?? ''),
             uiType: field.fieldUiControlAlias,
             columnSpan: field.columnSpan,
           },

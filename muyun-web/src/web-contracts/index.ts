@@ -330,6 +330,13 @@ export interface PageBootstrapActionBlock {
 export interface PageBootstrapLocalEditForm {
   uiConfigId: string;
   fields: PageBootstrapLocalEditField[];
+  /**
+   * Authoritative controls resolved from the published target FORM config.
+   * Local edit must consume these facts rather than falling back to the
+   * field's legacy alias, otherwise a control can drift from the page that
+   * was actually published.
+   */
+  fieldUiControls: ResolvedFieldControlDescriptor[];
   submitContract: {
     recordRequired: true;
     recordVersionRequired: true;

@@ -28,7 +28,20 @@ export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewField
   formGroup?: FormGroupDescriptor;
 };
 export type RecordFormRecord = Record<string, unknown>;
-export type RecordFormFieldValue = string | number | boolean | OptionValueList | string[] | undefined;
+/**
+ * Transport values emitted by the standard editor. JSON is deliberately represented as parsed
+ * objects/arrays rather than a display string, so dynamic records retain their JSON column
+ * semantics all the way to the HTTP request.
+ */
+export type RecordFormFieldValue =
+  | string
+  | number
+  | boolean
+  | OptionValueList
+  | string[]
+  | JsonValue
+  | undefined;
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 /** A business boolean does not inherit the lifecycle field's implicit enabled default. */
 export type RecordBooleanStatusValue = boolean | undefined;
 export type RecordFormFieldControlType =
@@ -67,7 +80,9 @@ export const recordFieldRendererRegistry: readonly RecordFieldRenderer[] = [
   { rendererType: 'DATETIME', controlType: 'dateTimeInput', supports: () => true },
   { rendererType: 'JSON', controlType: 'textarea', supports: () => true },
   { rendererType: 'SWITCH', controlType: 'switch', supports: () => true },
-  { rendererType: 'SELECT', controlType: 'select', supports: () => true },
+  // Both select variants depend on a published option binding. A missing binding must not
+  // silently become a free-text field, otherwise configured enum semantics are lost.
+  { rendererType: 'SELECT', controlType: 'select', supports: (field) => field.option != null },
   // A collection has no scalar fallback.  Without its option binding, a select renderer cannot
   // preserve the array transport contract, so reject the editor rather than degrading to UiInput.
   { rendererType: 'MULTI_SELECT', controlType: 'select', supports: (field) => field.option != null },
@@ -130,6 +145,7 @@ export interface RecordFormFieldState {
   readOnly: boolean;
   visible: boolean;
   controlType: RecordFormFieldControlType;
+  fieldControl?: ResolvedFieldControlDescriptor;
   /** Set only when an authoritative field-control descriptor cannot be executed safely. */
   rendererDiagnostic?: string;
   columnSpan: number;
@@ -291,6 +307,7 @@ export function resolveRecordFormFieldState(
     readOnly,
     visible,
     controlType,
+    ...(field?.fieldControl ? { fieldControl: field.fieldControl } : {}),
     columnSpan: field?.columnSpan === 2 ? 2 : 1,
     hasOption,
     pickerConfig,
@@ -413,6 +430,52 @@ function fieldControlSelectionMode(field: RecordFormFieldDescriptor | undefined)
     return 'MULTIPLE' as const;
   }
   return undefined;
+}
+
+/** Native number inputs emit text; standard record payloads must retain JSON numeric values. */
+export function decodeNumberEditorValue(value: string): number | undefined {
+  if (!value.trim()) return undefined;
+  const decoded = Number(value);
+  return Number.isFinite(decoded) ? decoded : undefined;
+}
+
+/** Converts the canonical UTC-second record value to the browser-local datetime-local value. */
+export function formatDateTimeLocalEditorValue(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return value;
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return (
+    `${instant.getFullYear()}-${pad(instant.getMonth() + 1)}-${pad(instant.getDate())}` +
+    `T${pad(instant.getHours())}:${pad(instant.getMinutes())}:${pad(instant.getSeconds())}`
+  );
+}
+
+/** Converts browser-local datetime-local input to the dynamic-record UTC-second wire contract. */
+export function decodeDateTimeLocalEditorValue(value: string): string | undefined {
+  if (!value.trim()) return undefined;
+  const local = new Date(value);
+  if (Number.isNaN(local.getTime())) return undefined;
+  return local.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+export function formatJsonEditorValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
+export function decodeJsonEditorValue(value: string): JsonValue | undefined {
+  if (!value.trim()) return undefined;
+  const decoded = JSON.parse(value) as JsonValue;
+  if (!Array.isArray(decoded) && (decoded === null || typeof decoded !== 'object')) {
+    throw new Error('JSON 字段必须是对象或数组');
+  }
+  return decoded;
 }
 
 /**

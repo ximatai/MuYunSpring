@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.JsonNode;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 
@@ -77,10 +79,43 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
             }
             try (JsonParser valueParser = field.getValue().traverse(parser.getCodec())) {
                 valueParser.nextToken();
-                record.setValue(field.getKey(), context.readValue(valueParser, Object.class));
+                record.setValue(field.getKey(), readFieldValue(record, field.getKey(), field.getValue(), valueParser, context));
             }
         }
         return record;
+    }
+
+    /**
+     * JSON parsers cannot infer an editor's target field type from an untyped record map. Decode
+     * number nodes by the published entity field fact before DynamicRecord applies its invariant
+     * validation, rather than requiring browser number inputs to send quoted Java values.
+     */
+    private Object readFieldValue(DynamicRecord record,
+                                  String fieldName,
+                                  JsonNode value,
+                                  JsonParser valueParser,
+                                  DeserializationContext context) throws IOException {
+        FieldType type = record.getEntity().fields().stream()
+                .filter(field -> field.fieldName().equals(fieldName))
+                .map(FieldDefinition::type)
+                .findFirst()
+                .orElse(null);
+        if (type == FieldType.INTEGER && value.isIntegralNumber()) {
+            if (!value.canConvertToInt()) {
+                throw new IllegalArgumentException("integer dynamic field exceeds supported range: " + fieldName);
+            }
+            return value.intValue();
+        }
+        if (type == FieldType.LONG && value.isIntegralNumber()) {
+            if (!value.canConvertToLong()) {
+                throw new IllegalArgumentException("long dynamic field exceeds supported range: " + fieldName);
+            }
+            return value.longValue();
+        }
+        if (type == FieldType.DECIMAL && value.isNumber()) {
+            return value.decimalValue();
+        }
+        return context.readValue(valueParser, Object.class);
     }
 
     private void readOriginContext(DynamicRecord record,

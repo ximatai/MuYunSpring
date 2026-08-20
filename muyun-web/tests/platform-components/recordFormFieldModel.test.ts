@@ -231,6 +231,22 @@ it('refuses a multi-select descriptor without its option binding instead of degr
   assert.match(state.rendererDiagnostic ?? '', /multi_select/);
 });
 
+it('refuses a select descriptor without its option binding instead of degrading enum transport to input', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'status',
+      {
+        ...field('状态', { uiType: 'text' }),
+        fieldControl: { alias: 'select', rendererType: 'SELECT', valueShape: 'SCALAR' },
+      },
+    ],
+  ]);
+
+  const state = resolveRecordFormFieldState('status', { fields });
+  assert.equal(state.controlType, 'unsupported');
+  assert.match(state.rendererDiagnostic ?? '', /select/);
+});
+
 it('an unknown resolved field-control renderer refuses editing instead of falling back to input', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
     [
