@@ -15,10 +15,15 @@ import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.ActionWeb;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
+import net.ximatai.muyun.spring.platform.web.RecycleBinPurgeWeb;
 import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
 import net.ximatai.muyun.spring.platform.web.PageContextServerValueResolver;
 import net.ximatai.muyun.spring.platform.web.PageContextSource;
 import net.ximatai.muyun.spring.platform.web.PageContextTarget;
+import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.ModuleMutationFieldValidation;
+import net.ximatai.muyun.spring.platform.web.ModuleQueryFormField;
+import net.ximatai.muyun.spring.platform.web.ModuleQueryTemplatePlan;
 import net.ximatai.muyun.spring.web.EnableWeb;
 import net.ximatai.muyun.spring.web.ReferenceWeb;
 import net.ximatai.muyun.spring.web.TreeSortWebRequest;
@@ -74,7 +79,6 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
-import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.openapi.DynamicOpenApiGenerator;
@@ -90,6 +94,7 @@ import net.ximatai.muyun.spring.dynamic.descriptor.DynamicQuerySchemas;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicQueryCondition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceMatchMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveRequest;
@@ -103,10 +108,10 @@ import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationMove;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationService;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator;
-import net.ximatai.muyun.spring.platform.ui.PlatformPageContextBinding;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigField;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
+import net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -139,6 +144,7 @@ public class DynamicRecordWebController implements
         CrudWeb<DynamicRecord, DynamicEntityOperations>,
         EnableWeb<DynamicRecord, DynamicEntityOperations>,
         TreeWeb<DynamicRecord, DynamicEntityOperations>,
+        RecycleBinPurgeWeb<DynamicRecord, DynamicEntityOperations>,
         ActionWeb<DynamicEntityOperations,
                 DynamicWebActionRequest,
                 DynamicActionDescriptor,
@@ -159,7 +165,9 @@ public class DynamicRecordWebController implements
     private final RecordDuplicateCheckService duplicateCheckService;
     private final PlatformRecordNavigationService navigationService;
     private final DynamicRelationProjectionReadService dynamicRelationProjectionReadService;
+    private final ModuleExecutionPlanCatalog executionPlanCatalog;
     private final TenantRequestScope tenantRequestScope;
+    private RecycleBinFacade recycleBinFacade;
     private final DynamicOpenApiGenerator openApiGenerator = new DynamicOpenApiGenerator();
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int SUMMARY_MAX_RECORDS = 10_000;
@@ -183,7 +191,21 @@ public class DynamicRecordWebController implements
         this.duplicateCheckService = actionServices.duplicateCheckService();
         this.navigationService = actionServices.navigationService();
         this.dynamicRelationProjectionReadService = queryServices.relationProjectionReadService();
+        this.executionPlanCatalog = queryServices.executionPlanCatalog();
         this.tenantRequestScope = tenantRequestScope;
+    }
+
+    @Autowired(required = false)
+    void setRecycleBinFacade(RecycleBinFacade recycleBinFacade) {
+        this.recycleBinFacade = recycleBinFacade;
+    }
+
+    @Override
+    public RecycleBinFacade recycleBinFacade() {
+        if (recycleBinFacade == null) {
+            throw new PlatformException("RecycleBinFacade is not configured for dynamic recycle-bin operations");
+        }
+        return recycleBinFacade;
     }
 
     @Override
@@ -196,6 +218,11 @@ public class DynamicRecordWebController implements
     @ActionEndpoint(PlatformAction.QUERY)
     public QuerySchema querySchema(@RequestParam(required = false) String uiConfigId) {
         return webScope(() -> {
+            if (executionPlanCatalog != null) {
+                var plan = requireExecutionPlan(DynamicWebRequest.moduleAlias());
+                requirePlanListUiConfig(plan, uiConfigId);
+                return plan.querySchema();
+            }
             String queryTemplateId = DynamicWebRequest.queryParameter("queryTemplateId");
             if (hasText(queryTemplateId)) {
                 validateQueryTemplateBelongsToModule(DynamicWebRequest.moduleAlias(), queryTemplateId);
@@ -213,6 +240,9 @@ public class DynamicRecordWebController implements
 
     @Override
     public Criteria queryCriteria(WebQueryRequest request) {
+        if (executionPlanCatalog != null) {
+            return plannedQueryCriteria(DynamicWebRequest.moduleAlias(), request);
+        }
         Criteria templateCriteria = Criteria.of();
         if (request != null && hasText(request.queryTemplateId())) {
             requireLowCodeQueryServices();
@@ -233,12 +263,145 @@ public class DynamicRecordWebController implements
         return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria, quickCriteria, navigatorCriteria);
     }
 
+    /** Standard list paths consume only the installed immutable plan; snapshots remain legacy-only. */
+    private Criteria plannedQueryCriteria(String moduleAlias, WebQueryRequest request) {
+        var plan = requireExecutionPlan(moduleAlias);
+        requirePlanListUiConfig(plan, request == null ? null : request.uiConfigId());
+        Criteria templateCriteria = Criteria.of();
+        if (request != null && hasText(request.queryTemplateId())) {
+            if (!plan.queryTemplateIds().contains(request.queryTemplateId())) {
+                throw new PlatformException("Query template is not enabled by module execution plan: "
+                        + request.queryTemplateId());
+            }
+            ModuleQueryTemplatePlan template = plan.queryTemplates().stream()
+                    .filter(candidate -> candidate.templateId().equals(request.queryTemplateId())).findFirst()
+                    .orElseThrow(() -> new PlatformException("Query template has no compiled execution facts: "
+                            + request.queryTemplateId()));
+            templateCriteria = compiledTemplateCriteria(template, request.externalQueryValues());
+        }
+        List<DynamicQueryCondition> conditions = request == null ? List.of()
+                : DynamicWebQueryMapper.queryConditions(request.conditions());
+        validatePlanConditions(plan.querySchema(), conditions);
+        Criteria manualCriteria = conditions.isEmpty() ? Criteria.of() : service().queryCriteria(conditions);
+        Criteria treeCriteria = request == null || request.criteria() == null ? Criteria.of()
+                : DynamicWebQueryMapper.queryCriteria(request.criteria(), nested -> {
+                    validatePlanConditions(plan.querySchema(), nested);
+                    return service().queryCriteria(nested);
+                });
+        Criteria queryFormCriteria = plannedQueryFormCriteria(request, plan.queryFormFields());
+        Criteria quickCriteria = plannedQuickSearchCriteria(request, plan.querySchema());
+        Criteria navigatorCriteria = navigatorCriteria(moduleAlias, request);
+        return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria, quickCriteria, navigatorCriteria);
+    }
+
+    private void validatePlanConditions(QuerySchema schema, List<DynamicQueryCondition> conditions) {
+        Map<String, QuerySchema.Field> fields = schema.fields().stream()
+                .collect(java.util.stream.Collectors.toMap(QuerySchema.Field::name, field -> field, (left, right) -> left));
+        for (DynamicQueryCondition condition : conditions) {
+            QuerySchema.Field field = fields.get(condition.fieldName());
+            if (field == null) throw new PlatformException("Query field is not enabled by module execution plan: "
+                    + condition.fieldName());
+            if (condition.operator() != null && !field.operators().contains(
+                    net.ximatai.muyun.spring.ability.query.QueryOperator.valueOf(condition.operator().name()))) {
+                throw new PlatformException("Query operator is not enabled by module execution plan: "
+                        + condition.fieldName() + "." + condition.operator());
+            }
+        }
+    }
+
+    private Criteria plannedQueryFormCriteria(WebQueryRequest request, List<ModuleQueryFormField> fields) {
+        if (request == null || request.queryForm().isEmpty()) return Criteria.of();
+        Map<String, ModuleQueryFormField> byName = fields.stream().collect(java.util.stream.Collectors.toMap(
+                ModuleQueryFormField::fieldName, field -> field, (left, right) -> left));
+        List<DynamicQueryCondition> conditions = new ArrayList<>();
+        for (Map.Entry<String, Object> entry : request.queryForm().entrySet()) {
+            if (entry.getValue() == null || entry.getValue() instanceof String text && text.isBlank()) continue;
+            ModuleQueryFormField field = byName.get(entry.getKey() == null ? null : entry.getKey().trim());
+            if (field == null) throw new PlatformException("Query form field is not enabled by module execution plan: " + entry.getKey());
+            List<?> values = plannedQueryValues(field, entry.getValue());
+            if (!values.isEmpty()) conditions.add(new DynamicQueryCondition(field.fieldName(),
+                    field.mode() == ModuleQueryFormField.Mode.BETWEEN
+                            ? net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator.BETWEEN : null, values));
+        }
+        return conditions.isEmpty() ? Criteria.of() : service().queryCriteria(conditions);
+    }
+
+    private List<?> plannedQueryValues(ModuleQueryFormField field, Object value) {
+        if (field.mode() == ModuleQueryFormField.Mode.BETWEEN && value instanceof Map<?, ?> values) {
+            List<Object> range = new ArrayList<>();
+            range.add(values.get("start"));
+            for (String key : field.bindingKeys()) range.add(values.get(key));
+            range.removeIf(Objects::isNull);
+            if (range.isEmpty()) return List.of();
+            if (range.size() != 2) throw new PlatformException("Query form range requires start and end values: " + field.fieldName());
+            return range;
+        }
+        if (value instanceof java.util.Collection<?> values) return values.stream().filter(Objects::nonNull).toList();
+        return List.of(value);
+    }
+
+    private Criteria plannedQuickSearchCriteria(WebQueryRequest request, QuerySchema schema) {
+        if (request == null || !hasText(request.quickSearch())) return Criteria.of();
+        List<String> fields = request.quickSearchFields().isEmpty() ? schema.quickSearch().fields()
+                : request.quickSearchFields();
+        if (fields.isEmpty() || fields.stream().anyMatch(field -> !schema.quickSearch().fields().contains(field))) {
+            throw new PlatformException("Quick search field is not enabled by module execution plan");
+        }
+        Criteria criteria = Criteria.of();
+        criteria.andGroup(group -> fields.forEach(field -> group.or(field, CriteriaOperator.LIKE, request.quickSearch().trim())));
+        return criteria;
+    }
+
+    private Criteria compiledTemplateCriteria(ModuleQueryTemplatePlan template, Map<String, ?> externalValues) {
+        return compiledTemplateGroup(template.nodes(), net.ximatai.muyun.spring.platform.ui.PlatformQueryGroupOperator.AND,
+                externalValues == null ? Map.of() : externalValues);
+    }
+
+    private Criteria compiledTemplateGroup(List<ModuleQueryTemplatePlan.Node> nodes,
+                                           net.ximatai.muyun.spring.platform.ui.PlatformQueryGroupOperator operator,
+                                           Map<String, ?> externalValues) {
+        Criteria criteria = Criteria.of();
+        boolean first = true;
+        for (ModuleQueryTemplatePlan.Node node : nodes) {
+            Criteria child = node.group() ? compiledTemplateGroup(node.children(), node.groupOperator(), externalValues)
+                    : compiledTemplateLeaf(node, externalValues);
+            if (child.isEmpty()) continue;
+            if (first || operator == net.ximatai.muyun.spring.platform.ui.PlatformQueryGroupOperator.AND) {
+                criteria.andGroup(child.getRoot());
+            } else {
+                criteria.orGroup(child.getRoot());
+            }
+            first = false;
+        }
+        return criteria;
+    }
+
+    private Criteria compiledTemplateLeaf(ModuleQueryTemplatePlan.Node node, Map<String, ?> externalValues) {
+        Object value = node.externalValueKey() != null && externalValues.containsKey(node.externalValueKey())
+                ? externalValues.get(node.externalValueKey()) : node.defaultValue();
+        boolean noValue = node.operator() == net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator.NULL
+                || node.operator() == net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator.NOT_NULL
+                || node.operator() == net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator.EMPTY
+                || node.operator() == net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator.NOT_EMPTY;
+        if (!noValue && (value == null || value instanceof String text && text.isBlank())) return Criteria.of();
+        return service().queryCriteria(List.of(new DynamicQueryCondition(node.fieldName(), node.operator(),
+                value instanceof java.util.Collection<?> values ? List.copyOf(values) : List.of(value), node.timeZone())));
+    }
+
+    private void requirePlanListUiConfig(net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan plan,
+                                         String uiConfigId) {
+        if (plan.listUiConfigId() != null && !plan.listUiConfigId().equals(uiConfigId)) {
+            throw new PlatformException("Query requires published LIST uiConfigId from module execution plan: "
+                    + plan.listUiConfigId());
+        }
+    }
+
     private List<String> querySchemaExternalCriteriaKeys(String moduleAlias, String uiConfigId,
                                                           String queryTemplateId) {
         java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>();
         navigatorQueryBindings(moduleAlias, uiConfigId).stream()
-                .filter(binding -> !"SESSION".equals(binding.source()))
-                .map(PlatformPageContextBinding::targetKey)
+                .filter(binding -> binding.source() != PageContextSource.SESSION)
+                .map(PageContextBindingDefinition::targetKey)
                 .forEach(keys::add);
         if (queryItemService != null && hasText(queryTemplateId)) {
             keys.addAll(queryItemService.externalValueKeys(queryTemplateId));
@@ -251,8 +414,8 @@ public class DynamicRecordWebController implements
             return Criteria.of();
         }
         Criteria criteria = Criteria.of();
-        for (PlatformPageContextBinding binding : navigatorQueryBindings(moduleAlias, request.uiConfigId())) {
-            Object selectedValue = PageContextServerValueResolver.resolve(toWebBinding(binding)).orElseGet(() ->
+        for (PageContextBindingDefinition binding : navigatorQueryBindings(moduleAlias, request.uiConfigId())) {
+            Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->
                     request.externalQueryValues() == null ? null : request.externalQueryValues().get(binding.targetKey()));
             if (selectedValue != null) {
                 criteria.eq(binding.targetKey(), selectedValue);
@@ -261,20 +424,29 @@ public class DynamicRecordWebController implements
         return criteria;
     }
 
-    private List<PlatformPageContextBinding> navigatorQueryBindings(String moduleAlias, String uiConfigId) {
-        if (!hasText(uiConfigId) || pageConfigSnapshotService == null) {
+    private List<PageContextBindingDefinition> navigatorQueryBindings(String moduleAlias, String uiConfigId) {
+        if (!hasText(uiConfigId)) {
             return List.of();
         }
+        if (executionPlanCatalog != null) {
+            return requireExecutionPlan(moduleAlias).pageContextBindings().stream()
+                    .filter(binding -> binding.target() == PageContextTarget.LIST_QUERY)
+                    .toList();
+        }
+        // Compatibility only for standalone controller fixtures assembled without the platform runtime.
+        if (pageConfigSnapshotService == null) return List.of();
         PlatformUiConfig uiConfig = publishedUiConfig(pageConfigSnapshotService.snapshot(moduleAlias), uiConfigId);
         return PlatformPageLayoutNavigator.contextBindings(uiConfig).stream()
                 .filter(binding -> "LIST_QUERY".equals(binding.target()))
+                .map(binding -> new PageContextBindingDefinition(PageContextSource.valueOf(binding.source()), binding.sourceKey(),
+                        PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey(),
+                        binding.targetPickerFieldKey()))
                 .toList();
     }
 
-    private PageContextBindingDefinition toWebBinding(PlatformPageContextBinding binding) {
-        return new PageContextBindingDefinition(PageContextSource.valueOf(binding.source()), binding.sourceKey(),
-                PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey(),
-                binding.targetPickerFieldKey());
+    private net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan requireExecutionPlan(String moduleAlias) {
+        return executionPlanCatalog.find(moduleAlias).orElseThrow(() -> new PlatformException(
+                "Dynamic module has no executable published page plan: " + moduleAlias));
     }
 
     private Criteria andCriteria(Criteria... criteriaList) {
@@ -306,7 +478,11 @@ public class DynamicRecordWebController implements
         if (request == null || request.sorts().isEmpty()) {
             return new Sort[0];
         }
-        DynamicWebQueryFieldSupport.validatePhysicalSorts(service(), request.sorts());
+        if (executionPlanCatalog != null) {
+            validatePlanSorts(requireExecutionPlan(DynamicWebRequest.moduleAlias()).querySchema(), request.sorts(), Set.of());
+        } else {
+            DynamicWebQueryFieldSupport.validatePhysicalSorts(service(), request.sorts());
+        }
         return DynamicWebQueryMapper.sorts(request.sorts());
     }
 
@@ -339,8 +515,24 @@ public class DynamicRecordWebController implements
         if (request == null || request.sorts().isEmpty()) {
             return new Sort[0];
         }
-        DynamicWebQueryFieldSupport.validatePhysicalSorts(service(), request.sorts(), additionalSortableFields);
+        if (executionPlanCatalog != null) {
+            validatePlanSorts(requireExecutionPlan(DynamicWebRequest.moduleAlias()).querySchema(), request.sorts(), additionalSortableFields);
+        } else {
+            DynamicWebQueryFieldSupport.validatePhysicalSorts(service(), request.sorts(), additionalSortableFields);
+        }
         return DynamicWebQueryMapper.sorts(request.sorts());
+    }
+
+    private void validatePlanSorts(QuerySchema schema, List<net.ximatai.muyun.spring.web.WebSort> sorts,
+                                   Set<String> projectionSorts) {
+        Set<String> sortable = new LinkedHashSet<>(projectionSorts == null ? Set.of() : projectionSorts);
+        schema.fields().stream().filter(QuerySchema.Field::sortable).map(QuerySchema.Field::name).forEach(sortable::add);
+        for (var sort : sorts) {
+            if (sort == null || !sortable.contains(sort.field())) {
+                throw new PlatformException("Sort field is not enabled by module execution plan: "
+                        + (sort == null ? null : sort.field()));
+            }
+        }
     }
 
     private ProjectionQueryDescriptor projectionListQueryDescriptor(Set<String> projectionFields) {
@@ -892,6 +1084,15 @@ public class DynamicRecordWebController implements
     }
 
     private List<String> quickSearchFields(String moduleAlias, WebQueryRequest request) {
+        if (executionPlanCatalog != null) {
+            QuerySchema schema = requireExecutionPlan(moduleAlias).querySchema();
+            List<String> fields = request.quickSearchFields().isEmpty() ? schema.quickSearch().fields()
+                    : request.quickSearchFields();
+            if (fields.stream().anyMatch(field -> !schema.quickSearch().fields().contains(field))) {
+                throw new PlatformException("Quick search field is not enabled by module execution plan");
+            }
+            return List.copyOf(fields);
+        }
         requireLowCodePageServices();
         PlatformPageConfigSnapshot snapshot = pageConfigSnapshotService.snapshot(moduleAlias);
         PlatformUiConfig uiConfig = publishedUiConfig(snapshot, request.uiConfigId());
@@ -952,6 +1153,12 @@ public class DynamicRecordWebController implements
     }
 
     private Set<String> projectionFields(String moduleAlias, WebQueryRequest request) {
+        if (executionPlanCatalog != null) {
+            return requireExecutionPlan(moduleAlias).readModel().fields().stream()
+                    .filter(field -> field.relationCode() == null || field.relationCode().isBlank())
+                    .map(net.ximatai.muyun.spring.platform.web.ResolvedModuleReadField::fieldName)
+                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        }
         requireLowCodePageServices();
         PlatformPageConfigSnapshot snapshot = pageConfigSnapshotService.snapshot(moduleAlias);
         PlatformUiConfig uiConfig = publishedUiConfig(snapshot, request.uiConfigId());
@@ -994,6 +1201,17 @@ public class DynamicRecordWebController implements
 
     private void validateUiSave(String moduleAlias, DynamicRecord record) {
         Object uiConfigIdValue = record.mutationMetadata().get("uiConfigId");
+        if (executionPlanCatalog != null) {
+            var plan = requireExecutionPlan(moduleAlias);
+            String uiConfigId = uiConfigIdValue instanceof String value && hasText(value) ? value : null;
+            if (plan.formUiConfigId() != null && !plan.formUiConfigId().equals(uiConfigId)) {
+                throw PlatformErrors.config(PlatformErrorCodes.CONFIG_MISSING,
+                        "Save requires published FORM uiConfigId from module execution plan: " + plan.formUiConfigId(),
+                        ErrorScope.module(moduleAlias));
+            }
+            validatePlanUiSave(moduleAlias, record, plan.mutationFieldValidations());
+            return;
+        }
         if (!(uiConfigIdValue instanceof String uiConfigId) || !hasText(uiConfigId)) {
             return;
         }
@@ -1018,6 +1236,38 @@ public class DynamicRecordWebController implements
                         resolved.fieldName());
             } else if (resolved.relationRole() == RelationRole.CHILD) {
                 validateUiChildField(moduleAlias, record, uiField, resolved);
+            }
+        }
+    }
+
+    private void validatePlanUiSave(String moduleAlias, DynamicRecord record,
+                                    List<ModuleMutationFieldValidation> validations) {
+        for (ModuleMutationFieldValidation validation : validations) {
+            if (validation.relationAlias() == null) {
+                validatePlanUiRecordField(moduleAlias, record, validation, validation.fieldName(), null);
+                continue;
+            }
+            List<DynamicRecord> rows = record.getChildren(validation.relationAlias());
+            if (rows == null) continue;
+            for (int index = 0; index < rows.size(); index++) {
+                validatePlanUiRecordField(moduleAlias, rows.get(index), validation,
+                        validation.relationAlias() + "." + validation.fieldName(), index);
+            }
+        }
+    }
+
+    private void validatePlanUiRecordField(String moduleAlias, DynamicRecord record,
+                                            ModuleMutationFieldValidation validation, String fieldPath,
+                                            Integer rowIndex) {
+        if (validation.readOnly() && record.isExplicitlySet(validation.fieldName())) {
+            throw PlatformErrors.validation(PlatformErrorCodes.VALIDATION_FAILED,
+                    "UI read-only field cannot be saved: " + fieldPath, uiFieldTarget(moduleAlias, fieldPath, rowIndex));
+        }
+        if (validation.required()) {
+            Object value = record.getValues().get(validation.fieldName());
+            if (value == null || value instanceof String text && text.isBlank()) {
+                throw PlatformErrors.validation(PlatformErrorCodes.VALIDATION_FAILED,
+                        "UI required field is missing: " + fieldPath, uiFieldTarget(moduleAlias, fieldPath, rowIndex));
             }
         }
     }
@@ -1202,6 +1452,11 @@ public class DynamicRecordWebController implements
         return value != null && !value.isBlank();
     }
 
+    private boolean actionIsHttpOnly(PlatformAction action) {
+        return CapabilityModuleRegistry.defaultRegistry().actionOwner(action)
+                .map(contribution -> contribution.isHttpOnlyDynamicAction(action)).orElse(false);
+    }
+
     private String text(Object value) {
         if (value == null) {
             return null;
@@ -1232,28 +1487,9 @@ public class DynamicRecordWebController implements
                                  @RequestBody(required = false) TreeSortWebRequest request) {
         return webScope(() -> {
             TreeSortWebRequest normalized = request == null ? new TreeSortWebRequest(null, null, null) : request;
-            DynamicEntityOperations operations = service();
-            Set<String> capabilities = operations.describe().capabilities();
-            if (capabilities.contains(EntityCapability.TREE.name())) {
-                requireSortInput(normalized);
-                operations.moveInTree(id, normalized.previousId(), normalized.nextId(), normalized.parentId());
-                return 1;
-            }
-            if (!capabilities.contains(EntityCapability.SORT.name())) {
-                throw new PlatformException("dynamic entity does not support capability: SORT");
-            }
-            if (normalized.parentId() != null && !normalized.parentId().isBlank()) {
-                throw new IllegalArgumentException("sort parentId requires TREE capability");
-            }
-            if (normalized.previousId() != null && !normalized.previousId().isBlank()) {
-                operations.moveAfter(id, normalized.previousId());
-                return 1;
-            }
-            if (normalized.nextId() != null && !normalized.nextId().isBlank()) {
-                operations.moveBefore(id, normalized.nextId());
-                return 1;
-            }
-            throw new IllegalArgumentException("sort requires previousId or nextId");
+            String moduleAlias = DynamicWebRequest.moduleAlias();
+            return DynamicCapabilityWebActionAdapter.sort(recordService, service(), moduleAlias, mainEntityAlias(moduleAlias), id,
+                    normalized, net.ximatai.muyun.spring.common.web.RequestTraceContext.currentTraceId().orElse(null));
         });
     }
 
@@ -1268,8 +1504,9 @@ public class DynamicRecordWebController implements
     public Map<String, Object> openApi(@PathVariable String moduleAlias) {
         return tenantScope(moduleAlias, () -> OpenApi31Projector.project(openApiGenerator.generate(
                 permissionScopedDescriptor(moduleAlias),
-                action -> recordService.actionAuthorizationAvailability(
-                        moduleAlias, action.code(), Set.of()).available())));
+                action -> actionIsHttpOnly(action)
+                        ? recordService.httpOnlyCapabilityAuthorizationAvailability(moduleAlias, action, Set.of()).available()
+                        : recordService.actionAuthorizationAvailability(moduleAlias, action.code(), Set.of()).available())));
     }
 
     @GetMapping("/navigation/{sessionId}/{recordId}")
@@ -1552,7 +1789,8 @@ public class DynamicRecordWebController implements
         if (normalized.version() != null) {
             record.setVersion(normalized.version());
         }
-        normalized.values().forEach(record::setValue);
+        normalized.values().forEach((fieldName, value) ->
+                record.setValue(fieldName, webRecordValue(record, fieldName, value)));
         normalized.children().forEach((relationCode, rows) -> {
             if (rows == null) {
                 throw new PlatformException("dynamic child relation must be array: " + relationCode);
@@ -1566,6 +1804,44 @@ public class DynamicRecordWebController implements
             );
         });
         return record;
+    }
+
+    /**
+     * DTO-backed Web entries (formula preview, action payloads and generated drafts) do not use
+     * {@link DynamicRecordJsonDeserializer}. Decode their numeric editor values at this adapter
+     * boundary before passing them to the strongly typed DynamicRecord domain model.
+     */
+    private Object webRecordValue(DynamicRecord record, String fieldName, Object value) {
+        FieldType type = record.getEntity().fields().stream()
+                .filter(field -> field.fieldName().equals(fieldName))
+                .map(FieldDefinition::type)
+                .findFirst()
+                .orElse(null);
+        if (type == FieldType.LONG && value instanceof String text) {
+            try {
+                return Long.valueOf(text);
+            } catch (NumberFormatException exception) {
+                throw new PlatformException("invalid lossless long wire value: " + fieldName, exception);
+            }
+        }
+        if (type == FieldType.LONG && value instanceof Number number && !(number instanceof Long)) {
+            try {
+                return new BigDecimal(number.toString()).longValueExact();
+            } catch (NumberFormatException | ArithmeticException exception) {
+                throw new PlatformException("invalid long wire value: " + fieldName, exception);
+            }
+        }
+        if (type == FieldType.DECIMAL && value instanceof String text) {
+            try {
+                return new BigDecimal(text);
+            } catch (NumberFormatException exception) {
+                throw new PlatformException("invalid lossless decimal wire value: " + fieldName, exception);
+            }
+        }
+        if (type == FieldType.DECIMAL && value instanceof Number number && !(number instanceof BigDecimal)) {
+            return new BigDecimal(number.toString());
+        }
+        return value;
     }
 
     private void validateWritableSaveFields(DynamicRecord record, String pathPrefix) {
@@ -1649,14 +1925,6 @@ public class DynamicRecordWebController implements
                 .filter(action -> recordService.actionAuthorizationAvailability(
                         moduleAlias, entityAlias, action.code(), Set.of()).available())
                 .toList();
-    }
-
-    private void requireSortInput(TreeSortWebRequest request) {
-        if ((request.previousId() == null || request.previousId().isBlank())
-                && (request.nextId() == null || request.nextId().isBlank())
-                && (request.parentId() == null || request.parentId().isBlank())) {
-            throw new IllegalArgumentException("tree sort requires previousId, nextId, or parentId");
-        }
     }
 
     private <T> T tenantScope(String moduleAlias, Supplier<T> action) {

@@ -71,11 +71,11 @@ it('delegates a readable module route to the dynamic module host when the route 
   assert.equal(restored.menuId, 'organization');
 });
 
-it('restores the canonical module-management URL through the dynamic module host', () => {
+it('resolves the canonical module-management URL through the neutral module host', () => {
   const descriptor = pageDescriptorFromUrl('/platform/dynamic/platform.module/list');
 
   assertPageType(descriptor, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.hostType, 'module-page-host');
   assert.equal(descriptor.target.moduleAlias, 'platform.module');
   assert.equal(descriptor.menuId, undefined);
   assert.equal(tabKeyOf(descriptor), 'dynamic-module:platform.module:LIST');
@@ -274,7 +274,7 @@ it('resolvePageDescriptor resolves MODULE targets as dynamic module descriptors'
 
   assertPageType(descriptor, 'dynamic-module');
   assert.equal(descriptor.openMode, 'dynamic-runner');
-  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.hostType, 'module-page-host');
   assert.equal(descriptor.target.moduleAlias, 'crm.customer');
   assert.equal(descriptor.target.pageMode, 'LIST');
   assert.equal(descriptor.entryParamsJson, '{"source":"menu"}');
@@ -306,7 +306,7 @@ it('resolvePageDescriptor resolves unconfigured MODULE targets through the stand
   );
 
   assertPageType(descriptor, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.hostType, 'module-page-host');
   assert.equal(descriptor.title, '应用管理');
   assert.equal(descriptor.target.moduleAlias, 'platform.application');
   assert.equal(tabKeyOf(descriptor), 'menu:platform.menu.module.platform.application');

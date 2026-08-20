@@ -51,7 +51,7 @@ function isPageDescriptor(value: unknown): boolean {
   if (value.pageType === 'dynamic-module')
     return (
       value.openMode === 'dynamic-runner' &&
-      value.hostType === 'dynamic-module-host' &&
+      (value.hostType === 'module-page-host' || value.hostType === 'dynamic-module-host') &&
       typeof value.target.moduleAlias === 'string'
     );
   if (value.pageType === 'remote-url')

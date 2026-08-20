@@ -3,12 +3,18 @@ package net.ximatai.muyun.spring.dynamic.runtime;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
+import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
+import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTargetProvider;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
@@ -23,7 +29,9 @@ import java.util.Map;
 public final class DynamicEntityOperations implements
         TreeAbility<DynamicRecord>,
         EnableAbility<DynamicRecord>,
-        SoftDeleteAbility<DynamicRecord> {
+        SoftDeleteAbility<DynamicRecord>,
+        RecycleBinAbility<DynamicRecord>,
+        ReferenceTargetProvider {
     private final DynamicRecordService service;
     private final String moduleAlias;
     private final String entityAlias;
@@ -42,6 +50,54 @@ public final class DynamicEntityOperations implements
     @Override
     public String getModuleAlias() {
         return moduleAlias;
+    }
+
+    /** Dynamic modules may have multiple entities; recovery identity must not infer main entity from module alias. */
+    @Override
+    public ReferenceTarget referenceTarget() {
+        return ReferenceTarget.of(moduleAlias, entityAlias);
+    }
+
+    @Override
+    public void beforeRecycleBinQuery() {
+        requireRecycleBinCapability();
+    }
+
+    @Override
+    public void beforeRecycleBinRestore() {
+        requireRecycleBinCapability();
+    }
+
+    @Override
+    public boolean isRecycleBinPurgeEnabled() {
+        return supportsRecycleBinCapability();
+    }
+
+    @Override
+    public void beforeRecycleBinPurge(String id) {
+        requireRecycleBinCapability();
+    }
+
+    @Override
+    public boolean canAccessRecycleBinRecord(String id) {
+        requireRecycleBinCapability();
+        return service.canAccessRecycleBinRecordForAction(moduleAlias, entityAlias, id);
+    }
+
+    @Override
+    public boolean canAccessRecycleBinSourceRecord(String id) {
+        requireRecycleBinCapability();
+        return service.canAccessRecycleBinSourceForAction(moduleAlias, entityAlias, id);
+    }
+
+    private boolean supportsRecycleBinCapability() {
+        return describe().capabilities().contains(EntityCapability.RECYCLE_BIN.name());
+    }
+
+    private void requireRecycleBinCapability() {
+        if (!supportsRecycleBinCapability()) {
+            throw new PlatformException("dynamic entity does not support capability: " + EntityCapability.RECYCLE_BIN);
+        }
     }
 
     public DynamicRecord newRecord() {
@@ -158,6 +214,12 @@ public final class DynamicEntityOperations implements
 
     public PageResult<DynamicRecord> page(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
         return service.page(moduleAlias, entityAlias, criteria, pageRequest, sorts);
+    }
+
+    @Override
+    public PageResult<DynamicRecord> pageRecycleBin(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
+        requireRecycleBinCapability();
+        return service.pageRecycleBinForAction(moduleAlias, entityAlias, criteria, pageRequest, sorts);
     }
 
     @Override

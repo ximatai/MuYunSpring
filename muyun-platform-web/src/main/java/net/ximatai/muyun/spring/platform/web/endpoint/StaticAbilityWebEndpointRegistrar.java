@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.platform.web.PlatformStaticActionContribution;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticActionContributionSupport;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticWebProjection;
 import net.ximatai.muyun.spring.platform.module.StaticServiceAbilityCompiler;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.web.RecordWebProjectionPolicy;
 import net.ximatai.muyun.spring.web.ScopedWeb;
 import net.ximatai.muyun.spring.platform.web.StaticAbilityOperationRuntime;
@@ -173,7 +174,7 @@ public class StaticAbilityWebEndpointRegistrar implements SmartInitializingSingl
                             Set<PlatformAction> disabledOperations,
                             String endpointIdNamespace) {
         List<PlatformOperationDefinition> operations =
-                StaticServiceAbilityCompiler.standardOperations(service);
+                StaticServiceAbilityCompiler.standardOperations(service, CapabilityModuleRegistry.defaultRegistry());
         if (operations.stream()
                 .anyMatch(operation -> operation.action().name().startsWith("RECYCLE_BIN"))
                 && recycleBinFacade.getIfAvailable() == null) {

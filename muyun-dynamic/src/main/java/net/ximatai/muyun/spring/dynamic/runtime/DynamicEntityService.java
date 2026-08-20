@@ -48,6 +48,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityStandardActionCatalog;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 
 import java.util.Collection;
 import java.util.ArrayList;
@@ -84,6 +85,7 @@ public class DynamicEntityService implements
     private final FieldProtectionPlan<DynamicRecord> fieldProtectionPlan;
     private final PlatformTimeService timeService;
     private final DynamicOptionLoadPopulator optionLoadPopulator;
+    private final DynamicEntityCapabilityRuntimeBundle capabilityRuntimes;
 
     DynamicEntityService(DynamicRecordDao dao, String moduleAlias) {
         this(dao, moduleAlias, DynamicRecordLifecycle.NONE, null, unsupportedRelationResolver(),
@@ -154,6 +156,8 @@ public class DynamicEntityService implements
                 .filter(field -> field.protection().enabled())
                 .map(field -> (ProtectedFieldAccessor<DynamicRecord>) new DynamicProtectedFieldAccessor(field))
                 .toList());
+        this.capabilityRuntimes = DynamicEntityCapabilityRuntimeBundle.create(this, this.moduleAlias,
+                dao.getEntity(), module);
     }
 
     private static Function<String, DynamicEntityService> unsupportedRelationResolver() {
@@ -205,8 +209,7 @@ public class DynamicEntityService implements
 
     /** Exposes the dynamic entity through the shared reference-read contract. */
     public net.ximatai.muyun.spring.ability.reference.ReferenceAbility<?> referenceAbility() {
-        requireCapability(EntityCapability.REFERENCE);
-        return referenceRuntime();
+        return capabilityRuntimes.reference();
     }
 
     public DynamicActionAvailability actionAvailability(String actionCode, DynamicRecord record) {
@@ -282,7 +285,7 @@ public class DynamicEntityService implements
         record.applyDefaultsForInsert();
         prepareDynamicAbilityDefaults(record);
         lifecycle.beforeInsert(record);
-        record.formulaReport(formulaRuntime().beforeInsert(record));
+        record.formulaReport(capabilityRuntimes.formula().beforeInsert(record));
         validateChildPayload(record);
         record.validateForInsert();
         validateFieldValues(record);
@@ -294,7 +297,7 @@ public class DynamicEntityService implements
     public void beforeUpdate(DynamicRecord record) {
         rejectWriteProtectedFields(record);
         lifecycle.beforeUpdate(record);
-        DynamicFormulaRuntime formulaRuntime = formulaRuntime();
+        DynamicFormulaRuntime formulaRuntime = capabilityRuntimes.formula();
         if (formulaRuntime.hasBeforeUpdateRules(record)) {
             FormulaRuntimeReport report = formulaRuntime.beforeUpdate(
                     record,
@@ -328,13 +331,13 @@ public class DynamicEntityService implements
     public DynamicFormulaPreviewResult previewFormula(DynamicRecord record) {
         DynamicRecord working = record == null ? new DynamicRecord(dao.getEntity()) : record.copy();
         if (working.getId() == null || working.getId().isBlank()) {
-            return formulaRuntime().preview(working, null, Map.of());
+            return capabilityRuntimes.formula().preview(working, null, Map.of());
         }
         DynamicRecord existing = activeRaw(working.getId());
         if (existing == null) {
             throw new IllegalArgumentException("dynamic record not found: " + working.getId());
         }
-        return formulaRuntime().preview(working, existing, existingChildrenForFormula(working));
+        return capabilityRuntimes.formula().preview(working, existing, existingChildrenForFormula(working));
     }
 
     @Override
@@ -351,7 +354,7 @@ public class DynamicEntityService implements
     @Override
     public void afterChanged(DynamicRecord record) {
         if (dao.getEntity().supports(EntityCapability.REFERENCE) && record != null && record.getId() != null) {
-            referenceRuntime().clearReferenceReferrers(record.getId());
+            capabilityRuntimes.reference().clearReferenceReferrers(record.getId());
         }
     }
 
@@ -372,8 +375,10 @@ public class DynamicEntityService implements
                 && (record.parentId() == null || record.parentId().isBlank())) {
             record.parentId(DynamicTreeRuntime.ROOT_ID);
         }
-        if (dao.getEntity().supports(EntityCapability.ENABLE) && record.enabled() == null) {
-            record.enabled(Boolean.TRUE);
+        if (dao.getEntity().supports(EntityCapability.ENABLE)) {
+            CapabilityModuleRegistry.defaultRegistry().require(EntityCapability.ENABLE,
+                            net.ximatai.muyun.spring.dynamic.capability.EnableCapabilityModule.class).definition()
+                    .applyCreateDefault(record.enabled(), record::enabled);
         }
         if (dao.getEntity().supports(EntityCapability.SORT) && record.sortOrder() == null) {
             record.sortOrder(nextSortOrder(record));
@@ -411,7 +416,7 @@ public class DynamicEntityService implements
     }
 
     public int enable(String id, Integer expectedVersion) {
-        requireCapability(EntityCapability.ENABLE);
+        capabilityRuntimes.require(EntityCapability.ENABLE);
         return updateEnabled(id, Boolean.TRUE, expectedVersion);
     }
 
@@ -420,18 +425,18 @@ public class DynamicEntityService implements
     }
 
     public int disable(String id, Integer expectedVersion) {
-        requireCapability(EntityCapability.ENABLE);
+        capabilityRuntimes.require(EntityCapability.ENABLE);
         return updateEnabled(id, Boolean.FALSE, expectedVersion);
     }
 
     public boolean isEnabled(String id) {
-        requireCapability(EntityCapability.ENABLE);
+        capabilityRuntimes.require(EntityCapability.ENABLE);
         DynamicRecord entity = selectActiveRaw(id);
         return entity != null && Boolean.TRUE.equals(entity.enabled());
     }
 
     public Criteria enabledCriteria(Criteria criteria) {
-        requireCapability(EntityCapability.ENABLE);
+        capabilityRuntimes.require(EntityCapability.ENABLE);
         Criteria scoped = Criteria.of();
         if (criteria != null && !criteria.isEmpty()) {
             scoped.andGroup(criteria.getRoot());
@@ -467,60 +472,57 @@ public class DynamicEntityService implements
     }
 
     public List<DynamicRecord> sortedList(Criteria criteria) {
-        requireCapability(EntityCapability.SORT);
+        capabilityRuntimes.require(EntityCapability.SORT);
         List<DynamicRecord> records;
         if (dao.getEntity().supports(EntityCapability.TREE)) {
-            records = treeRuntime().sortedList(criteria).stream().map(DynamicTreeRecord::record).toList();
+            records = capabilityRuntimes.tree().sortedList(criteria).stream().map(DynamicTreeRecord::record).toList();
         } else {
-            records = sortRuntime().sortedList(criteria).stream().map(DynamicSortRecord::record).toList();
+            records = capabilityRuntimes.sort().sortedList(criteria).stream().map(DynamicSortRecord::record).toList();
         }
         applyReadPipeline(records);
         return records;
     }
 
     public void reorder(List<String> orderedIds) {
-        requireCapability(EntityCapability.SORT);
+        capabilityRuntimes.require(EntityCapability.SORT);
         if (dao.getEntity().supports(EntityCapability.TREE)) {
-            treeRuntime().reorder(orderedIds);
+            capabilityRuntimes.tree().reorder(orderedIds);
             return;
         }
-        sortRuntime().reorder(orderedIds);
+        capabilityRuntimes.sort().reorder(orderedIds);
     }
 
     public void moveBefore(String id, String beforeId) {
-        requireCapability(EntityCapability.SORT);
+        capabilityRuntimes.require(EntityCapability.SORT);
         if (dao.getEntity().supports(EntityCapability.TREE)) {
-            treeRuntime().moveBefore(id, beforeId);
+            capabilityRuntimes.tree().moveBefore(id, beforeId);
             return;
         }
-        sortRuntime().moveBefore(id, beforeId);
+        capabilityRuntimes.sort().moveBefore(id, beforeId);
     }
 
     public void moveAfter(String id, String afterId) {
-        requireCapability(EntityCapability.SORT);
+        capabilityRuntimes.require(EntityCapability.SORT);
         if (dao.getEntity().supports(EntityCapability.TREE)) {
-            treeRuntime().moveAfter(id, afterId);
+            capabilityRuntimes.tree().moveAfter(id, afterId);
             return;
         }
-        sortRuntime().moveAfter(id, afterId);
+        capabilityRuntimes.sort().moveAfter(id, afterId);
     }
 
     public void moveInTree(String id, String previousId, String nextId, String parentId) {
-        requireCapability(EntityCapability.TREE);
-        treeRuntime().moveInTree(id, previousId, nextId, parentId);
+        capabilityRuntimes.tree().moveInTree(id, previousId, nextId, parentId);
     }
 
     public List<DynamicRecord> children(String parentId) {
-        requireCapability(EntityCapability.TREE);
-        return treeRuntime().children(parentId).stream()
+        return capabilityRuntimes.tree().children(parentId).stream()
                 .map(DynamicTreeRecord::record)
                 .peek(this::applyReadPipeline)
                 .toList();
     }
 
     public List<DynamicRecord> children(Criteria scopeCriteria, String parentId) {
-        requireCapability(EntityCapability.TREE);
-        return treeRuntime().children(scopeCriteria, parentId).stream()
+        return capabilityRuntimes.tree().children(scopeCriteria, parentId).stream()
                 .map(DynamicTreeRecord::record)
                 .peek(this::applyReadPipeline)
                 .toList();
@@ -539,23 +541,20 @@ public class DynamicEntityService implements
     }
 
     public List<String> ancestorIds(String id) {
-        requireCapability(EntityCapability.TREE);
-        return treeRuntime().ancestorIds(id);
+        return capabilityRuntimes.tree().ancestorIds(id);
     }
 
     public List<String> ancestorIdsAndSelf(String id) {
-        requireCapability(EntityCapability.TREE);
-        return treeRuntime().ancestorIdsAndSelf(id);
+        return capabilityRuntimes.tree().ancestorIdsAndSelf(id);
     }
 
     public List<String> descendantIds(String id) {
-        requireCapability(EntityCapability.TREE);
-        return treeRuntime().descendantIds(id);
+        return capabilityRuntimes.tree().descendantIds(id);
     }
 
     public void validateTreePlacement(DynamicRecord record) {
         if (dao.getEntity().supports(EntityCapability.TREE)) {
-            treeRuntime().validateTreePlacement(new DynamicTreeRecord(record));
+            capabilityRuntimes.tree().validateTreePlacement(new DynamicTreeRecord(record));
         }
     }
 
@@ -595,12 +594,11 @@ public class DynamicEntityService implements
     }
 
     public String title(String id) {
-        requireCapability(EntityCapability.REFERENCE);
-        return referenceRuntime().title(id);
+        return capabilityRuntimes.reference().title(id);
     }
 
     public String referenceTitle(DynamicRecord entity) {
-        requireCapability(EntityCapability.REFERENCE);
+        capabilityRuntimes.require(EntityCapability.REFERENCE);
         if (entity == null) {
             return null;
         }
@@ -609,12 +607,11 @@ public class DynamicEntityService implements
     }
 
     public Map<String, String> titles(Collection<String> ids) {
-        requireCapability(EntityCapability.REFERENCE);
-        return referenceRuntime().titles(ids);
+        return capabilityRuntimes.reference().titles(ids);
     }
 
     public Map<String, Map<String, Object>> projections(Collection<String> ids, Collection<String> fieldNames) {
-        requireCapability(EntityCapability.REFERENCE);
+        capabilityRuntimes.require(EntityCapability.REFERENCE);
         if (ids == null || ids.isEmpty() || fieldNames == null || fieldNames.isEmpty()) {
             return Map.of();
         }
@@ -642,8 +639,7 @@ public class DynamicEntityService implements
     }
 
     public PageResult<ReferenceOption> referenceOptions(Criteria criteria, PageRequest pageRequest) {
-        requireCapability(EntityCapability.REFERENCE);
-        return referenceRuntime().referenceOptions(criteria, pageRequest);
+        return capabilityRuntimes.reference().referenceOptions(criteria, pageRequest);
     }
 
     public DynamicReferenceResolveResponse resolveReference(String sourceField,
@@ -840,22 +836,6 @@ public class DynamicEntityService implements
                 .orElse(null);
     }
 
-    private DynamicTreeRuntime treeRuntime() {
-        return new DynamicTreeRuntime(this);
-    }
-
-    private DynamicSortRuntime sortRuntime() {
-        return new DynamicSortRuntime(this);
-    }
-
-    private DynamicReferenceRuntime referenceRuntime() {
-        return new DynamicReferenceRuntime(this);
-    }
-
-    private DynamicFormulaRuntime formulaRuntime() {
-        return new DynamicFormulaRuntime(moduleAlias, dao.getEntity(), module);
-    }
-
     private EntityActionDefinition actionDefinition(String actionCode) {
         if (actionCode == null || actionCode.isBlank()) {
             throw new IllegalArgumentException("dynamic action code must not be blank");
@@ -904,12 +884,6 @@ public class DynamicEntityService implements
             ));
         }
         return values;
-    }
-
-    private void requireCapability(EntityCapability capability) {
-        if (!dao.getEntity().supports(capability)) {
-            throw new PlatformException("dynamic entity does not support capability: " + capability);
-        }
     }
 
     private int updateEnabled(String id, Boolean enabled, Integer expectedVersion) {

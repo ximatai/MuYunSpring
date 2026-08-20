@@ -6,6 +6,7 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                           UiRule<Boolean> required,
                                           UiRule<Boolean> readOnly,
                                           String uiType,
+                                          ResolvedFieldControlDescriptor fieldControl,
                                           FieldValueType valueType,
                                           FieldValuePresentation valuePresentation,
                                           String width,
@@ -27,6 +28,9 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
         required = required == null ? UiRule.constant(Boolean.FALSE) : required;
         readOnly = readOnly == null ? UiRule.constant(Boolean.FALSE) : readOnly;
         uiType = uiType == null || uiType.isBlank() ? null : uiType.trim();
+        if (fieldControl != null && uiType != null && !uiType.equals(fieldControl.alias())) {
+            throw new IllegalArgumentException("resolved field control alias must match uiType");
+        }
         if (valuePresentation == FieldValuePresentation.FILE_SIZE && uiType != null) {
             throw new IllegalArgumentException("file size presentation cannot declare an input uiType");
         }
@@ -59,7 +63,7 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                        ResolvedOptionFieldDescriptor option,
                                        ResolvedReferenceFieldDescriptor reference,
                                        ResolvedReferenceSummaryFieldDescriptor referenceSummary) {
-        this(fieldRef, label, visible, required, readOnly, uiType, valueType, null, width, columnSpan, align, fixed,
+        this(fieldRef, label, visible, required, readOnly, uiType, null, valueType, null, width, columnSpan, align, fixed,
                 booleanStatus, option, reference, referenceSummary, null, null);
     }
 
@@ -73,7 +77,7 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                        Integer columnSpan,
                                        String align,
                                        Boolean fixed) {
-        this(fieldRef, label, visible, required, readOnly, uiType, null, null, width, columnSpan, align, fixed,
+        this(fieldRef, label, visible, required, readOnly, uiType, null, null, null, width, columnSpan, align, fixed,
                 null, null, null, null, null, null);
     }
 
@@ -89,7 +93,7 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                        String align,
                                        Boolean fixed,
                                        ResolvedOptionFieldDescriptor option) {
-        this(fieldRef, label, visible, required, readOnly, uiType, null, null, width, columnSpan, align, fixed,
+        this(fieldRef, label, visible, required, readOnly, uiType, null, null, null, width, columnSpan, align, fixed,
                 null, option, null, null, null, null);
     }
 
@@ -103,7 +107,7 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                        String width,
                                        String align,
                                        Boolean fixed) {
-        this(fieldRef, label, visible, required, readOnly, uiType, null, null, width, 1, align, fixed,
+        this(fieldRef, label, visible, required, readOnly, uiType, null, null, null, width, 1, align, fixed,
                 null, null, null, null, null, null);
     }
 
@@ -119,7 +123,7 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                        String align,
                                        Boolean fixed,
                                        BooleanStatusPresentation booleanStatus) {
-        this(fieldRef, label, visible, required, readOnly, uiType, null, null, width, columnSpan, align, fixed,
+        this(fieldRef, label, visible, required, readOnly, uiType, null, null, null, width, columnSpan, align, fixed,
                 booleanStatus, null, null, null, null, null);
     }
 

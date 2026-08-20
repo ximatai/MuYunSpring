@@ -1,23 +1,19 @@
 import { moduleAbilityCodes, type ModuleAbilityCode } from './abilityCodes';
 import { isRuntimeAbilityAvailable, type ModuleRuntimeContextState } from './runtimeContext';
-import type {
-  ModuleEnableClient,
-  StaticModuleCrudClient,
-  StaticModuleTreeClient,
-} from './staticModuleClient';
+import type { ModuleEnableClient, ModuleCrudClient, ModuleTreeClient } from './staticModuleClient';
 
 export interface ModuleAbilityClients<TRecord> {
-  crud: StaticModuleCrudClient<TRecord>;
-  tree: StaticModuleTreeClient<TRecord>;
+  crud: ModuleCrudClient<TRecord>;
+  tree: ModuleTreeClient<TRecord>;
   enable: ModuleEnableClient;
 }
 
 export interface ModuleAbilities<TRecord> {
-  crud(): StaticModuleCrudClient<TRecord>;
-  tree(): StaticModuleTreeClient<TRecord>;
+  crud(): ModuleCrudClient<TRecord>;
+  tree(): ModuleTreeClient<TRecord>;
   enable(): ModuleEnableClient;
-  tryCrud(): StaticModuleCrudClient<TRecord> | undefined;
-  tryTree(): StaticModuleTreeClient<TRecord> | undefined;
+  tryCrud(): ModuleCrudClient<TRecord> | undefined;
+  tryTree(): ModuleTreeClient<TRecord> | undefined;
   tryEnable(): ModuleEnableClient | undefined;
   has(ability: ModuleAbilityCode | string): boolean | undefined;
   hasCrud(): boolean | undefined;

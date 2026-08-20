@@ -10,6 +10,9 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleRegistrationSource;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceCompiler;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
 import net.ximatai.muyun.spring.platform.module.StaticServiceAbilityCompiler;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityDeclarationCatalog;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.platform.module.StaticModuleServiceDeclaration;
 import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.spring.web.EnableWeb;
@@ -21,6 +24,8 @@ import net.ximatai.muyun.spring.web.ScopedWeb;
 import net.ximatai.muyun.spring.web.SortWeb;
 import net.ximatai.muyun.spring.web.TreeWeb;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.query.QueryAbility;
+import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.reference.ModuleReadProjectionContributor;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
@@ -50,9 +55,17 @@ import java.util.Set;
 
 public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSource {
     private final ApplicationContext applicationContext;
+    private final StaticCapabilityRegistry staticCapabilityRegistry;
 
     public StaticModuleDefinitionScanner(ApplicationContext applicationContext) {
+        this(applicationContext, CapabilityModuleRegistry.defaultRegistry());
+    }
+
+    /** Allows scanner contracts to prove a newly registered static facet needs no scanner branch. */
+    public StaticModuleDefinitionScanner(ApplicationContext applicationContext,
+                                         StaticCapabilityRegistry staticCapabilityRegistry) {
         this.applicationContext = applicationContext;
+        this.staticCapabilityRegistry = staticCapabilityRegistry;
     }
 
     public List<StaticModuleDefinition> scan() {
@@ -71,7 +84,21 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         addActionContributions(definitions);
         addActionDeclarations(definitions);
         addActionScopes(definitions);
+        validateUiCompilation(definitions.values());
         return List.copyOf(definitions.values());
+    }
+
+    /**
+     * A static module has all model and UI declaration facts at scan time. Compile it here so a
+     * mistyped field or invalid binding prevents the module from entering the executable catalog,
+     * rather than surfacing only when a page bootstrap is requested.
+     */
+    private void validateUiCompilation(Iterable<StaticModuleDefinition> definitions) {
+        for (StaticModuleDefinition definition : definitions) {
+            if (definition.uiDefinition() != null) {
+                ModuleUiDescriptorCompiler.compileModule(definition);
+            }
+        }
     }
 
     private void validateActionEndpointOrigins() {
@@ -134,20 +161,24 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .readProjections(readProjections(bean, module.alias()))
                 .modelClass(modelClass(bean))
                 .projectionJoins(projectionJoins)
+                .queryDescriptor(queryDescriptor(bean, module.alias()))
                 .openApiAvailable(AnnotationUtils.findAnnotation(beanClass, StaticModuleOpenApi.class) != null)
+                .legacyReadProjectionCompatibility(bean instanceof LegacyStaticReadProjectionCompatibility)
                 .build();
     }
 
     private java.util.Set<EntityCapability> capabilities(Object bean, PlatformStaticModule module) {
         java.util.EnumSet<EntityCapability> capabilities = java.util.EnumSet.noneOf(EntityCapability.class);
+        java.util.Set<EntityCapability> serviceCapabilities =
+                StaticServiceAbilityCompiler.compile(service(bean), staticCapabilityRegistry);
         for (EntityCapability declared : module.capabilities()) {
-            if (StaticServiceAbilityCompiler.isServiceDeclared(declared)) {
+            if (StaticCapabilityDeclarationCatalog.isServiceOnly(declared, staticCapabilityRegistry)) {
                 throw new IllegalStateException("@PlatformStaticModule must not redeclare service ability: "
                         + module.alias() + "." + declared.name());
             }
             capabilities.add(declared);
         }
-        capabilities.addAll(StaticServiceAbilityCompiler.compile(service(bean)));
+        capabilities.addAll(serviceCapabilities);
         return java.util.Set.copyOf(capabilities);
     }
 
@@ -325,6 +356,15 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             return declaration.staticModuleService();
         }
         return null;
+    }
+
+    /** Captures the service query contract while static modules are compiled, never per request. */
+    private QueryDescriptor queryDescriptor(Object bean, String moduleAlias) {
+        Object service = service(bean);
+        if (service instanceof QueryAbility<?> queryAbility) {
+            return queryAbility.queryDescriptor();
+        }
+        return QueryDescriptor.builder(moduleAlias).build();
     }
 
     private ApplicationDeclaration application(PlatformStaticModule module) {
@@ -661,7 +701,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addPlatformUnlessDisabled(actions, PlatformAction.DELETE, disabledActions);
             addPlatformUnlessDisabled(actions, PlatformAction.QUERY, disabledActions);
         }
-        StaticServiceAbilityCompiler.standardActions(service).forEach(action -> addPlatform(actions, action));
+        StaticServiceAbilityCompiler.standardActions(service, staticCapabilityRegistry)
+                .forEach(action -> addPlatform(actions, action));
         if (service == null) {
             addUnwiredLegacyAbilityActions(actions, beanClass);
         }
@@ -682,23 +723,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
 
     private void addUnwiredLegacyAbilityActions(Map<String, StaticModuleActionDefinition> actions,
                                                 Class<?> beanClass) {
-        if (TreeWeb.class.isAssignableFrom(beanClass)) {
-            addPlatform(actions, PlatformAction.TREE);
-            addPlatform(actions, PlatformAction.SORT);
-        } else if (SortWeb.class.isAssignableFrom(beanClass)) {
-            addPlatform(actions, PlatformAction.SORT);
-        }
-        if (EnableWeb.class.isAssignableFrom(beanClass)) {
-            addPlatform(actions, PlatformAction.ENABLE);
-            addPlatform(actions, PlatformAction.DISABLE);
-        }
-        if (RecycleBinWeb.class.isAssignableFrom(beanClass)) {
-            addPlatform(actions, PlatformAction.RECYCLE_BIN_QUERY);
-            addPlatform(actions, PlatformAction.RECYCLE_BIN_RESTORE);
-        }
-        if (RecycleBinPurgeWeb.class.isAssignableFrom(beanClass)) {
-            addPlatform(actions, PlatformAction.RECYCLE_BIN_PURGE);
-        }
+        legacyCapabilityActions(beanClass).forEach(action -> addPlatform(actions, action));
     }
 
     private void addContributionStandardActions(Map<String, StaticModuleActionDefinition> actions,
@@ -717,26 +742,11 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addContributionUnlessDisabled(actions, contribution, PlatformAction.VIEW, disabledActions);
             addContributionUnlessDisabled(actions, contribution, PlatformAction.QUERY, disabledActions);
         }
-        StaticServiceAbilityCompiler.standardActions(service)
+        StaticServiceAbilityCompiler.standardActions(service, staticCapabilityRegistry)
                 .forEach(action -> addContributionPlatform(actions, contribution, action));
         if (service == null) {
-            if (TreeWeb.class.isAssignableFrom(beanClass)) {
-                addContributionPlatform(actions, contribution, PlatformAction.TREE);
-                addContributionPlatform(actions, contribution, PlatformAction.SORT);
-            } else if (SortWeb.class.isAssignableFrom(beanClass)) {
-                addContributionPlatform(actions, contribution, PlatformAction.SORT);
-            }
-            if (EnableWeb.class.isAssignableFrom(beanClass)) {
-                addContributionPlatform(actions, contribution, PlatformAction.ENABLE);
-                addContributionPlatform(actions, contribution, PlatformAction.DISABLE);
-            }
-            if (RecycleBinWeb.class.isAssignableFrom(beanClass)) {
-                addContributionPlatform(actions, contribution, PlatformAction.RECYCLE_BIN_QUERY);
-                addContributionPlatform(actions, contribution, PlatformAction.RECYCLE_BIN_RESTORE);
-            }
-            if (RecycleBinPurgeWeb.class.isAssignableFrom(beanClass)) {
-                addContributionPlatform(actions, contribution, PlatformAction.RECYCLE_BIN_PURGE);
-            }
+            legacyCapabilityActions(beanClass)
+                    .forEach(action -> addContributionPlatform(actions, contribution, action));
         }
         if (ReferenceWeb.class.isAssignableFrom(beanClass)
                 || NavigatorReferenceWeb.class.isAssignableFrom(beanClass)
@@ -752,6 +762,29 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         if (!disabledActions.contains(action)) {
             addContributionPlatform(actions, contribution, action);
         }
+    }
+
+    /** Legacy Web markers only select capabilities; action facts stay owned by their registry facets. */
+    private java.util.List<PlatformAction> legacyCapabilityActions(Class<?> beanClass) {
+        java.util.LinkedHashSet<EntityCapability> capabilities = new java.util.LinkedHashSet<>();
+        if (TreeWeb.class.isAssignableFrom(beanClass)) {
+            capabilities.add(EntityCapability.TREE);
+            capabilities.add(EntityCapability.SORT);
+        } else if (SortWeb.class.isAssignableFrom(beanClass)) {
+            capabilities.add(EntityCapability.SORT);
+        }
+        if (EnableWeb.class.isAssignableFrom(beanClass)) capabilities.add(EntityCapability.ENABLE);
+        if (RecycleBinWeb.class.isAssignableFrom(beanClass) || RecycleBinPurgeWeb.class.isAssignableFrom(beanClass)) {
+            capabilities.add(EntityCapability.RECYCLE_BIN);
+        }
+        boolean allowPurge = RecycleBinPurgeWeb.class.isAssignableFrom(beanClass);
+        boolean queryRecycleBin = RecycleBinWeb.class.isAssignableFrom(beanClass);
+        return capabilities.stream()
+                .flatMap(capability -> CapabilityModuleRegistry.defaultRegistry().find(capability).stream())
+                .flatMap(module -> module.actionContribution().standardActions().stream())
+                .filter(action -> action != PlatformAction.RECYCLE_BIN_PURGE || allowPurge)
+                .filter(action -> action != PlatformAction.RECYCLE_BIN_QUERY || queryRecycleBin)
+                .toList();
     }
 
     private void addWorkflowActions(Map<String, StaticModuleActionDefinition> actions,

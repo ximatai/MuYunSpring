@@ -2,6 +2,9 @@ package net.ximatai.muyun.spring.iam.web;
 
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.ModuleUiBindingKey;
+import net.ximatai.muyun.spring.platform.web.ModuleUiField;
+import net.ximatai.muyun.spring.platform.web.ModuleUiNavigatorKey;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorInitialSelectionPolicy;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
@@ -10,9 +13,9 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
+import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
-import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.iam.position.Position;
 import net.ximatai.muyun.spring.iam.position.PositionCategory;
 import net.ximatai.muyun.spring.iam.position.PositionCategoryService;
@@ -30,10 +33,20 @@ import java.util.Optional;
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, title = "岗位管理", order = 40)
 @RequestMapping("/iam.position")
-public class PositionWebController extends WebSupport<PositionService> implements
+public class PositionWebController extends StaticModuleWebControllerAdapter<PositionService> implements
         CrudWeb<Position, PositionService>,
         MutationTenantScopeResolver<Position>,
         StaticModuleUiContributor {
+
+    private static final ModuleUiNavigatorKey TENANT_NAVIGATOR = ModuleUiNavigatorKey.of("tenant");
+    private static final ModuleUiNavigatorKey CATEGORY_NAVIGATOR = ModuleUiNavigatorKey.of("category");
+    private static final ModuleUiBindingKey SESSION_TENANT_ID = ModuleUiBindingKey.of("tenantId");
+    private static final ModuleUiField TENANT_ID = ModuleUiField.of("tenantId");
+    private static final ModuleUiField CATEGORY_ID = ModuleUiField.of("categoryId");
+    private static final ModuleUiField CODE = ModuleUiField.of("code");
+    private static final ModuleUiField TITLE = ModuleUiField.of("title");
+    private static final ModuleUiField DESCRIPTION = ModuleUiField.of("description");
+    private static final ModuleUiField ENABLED = ModuleUiField.of("enabled");
 
     private PositionCategoryService positionCategoryService;
 
@@ -75,30 +88,31 @@ public class PositionWebController extends WebSupport<PositionService> implement
         return ModuleUiDefinition.builder(PositionService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page
                         .navigator(navigator -> navigator
-                                .level("tenant", level -> level
+                                .level(TENANT_NAVIGATOR, level -> level
                                         .microList("iam.tenant", "租户", "搜索租户")
                                         .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
                                         .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
-                                .level("category", level -> level
+                                .level(CATEGORY_NAVIGATOR, level -> level
                                         .tree(PositionCategoryService.MODULE_ALIAS, "岗位分类", "搜索岗位分类")
                                         .manageable()
                                         .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
-                                .bindNavigatorToNavigator("tenant", "category", "tenantId")
-                                .bindNavigatorToList("category", "categoryId"))
+                                .bindSessionToList(SESSION_TENANT_ID, TENANT_ID)
+                                .bindNavigatorToNavigator(TENANT_NAVIGATOR, CATEGORY_NAVIGATOR, TENANT_ID)
+                                .bindNavigatorToList(CATEGORY_NAVIGATOR, CATEGORY_ID))
                         .list(list -> list.fields(fields -> fields
                                 .title("岗位列表")
-                                .field("code", field -> field.label("岗位编码").width("160px"))
-                                .field("title", field -> field.label("岗位名称").width("180px"))
-                                .field("description", field -> field.label("说明"))
-                                .field("enabled", field -> field.label("状态").uiType("enabledStatus")
+                                .field(CODE, field -> field.label("岗位编码").width("160px"))
+                                .field(TITLE, field -> field.label("岗位名称").width("180px"))
+                                .field(DESCRIPTION, field -> field.label("说明"))
+                                .field(ENABLED, field -> field.label("状态").uiType("enabledStatus")
                                         .width("90px").align("center"))))
                         .detail(detail -> detail.editor(form -> form
                                 .title("岗位档案")
-                                .field("categoryId", field -> field.label("所属分类").required().readOnly())
-                                .field("code", field -> field.label("岗位编码").required())
-                                .field("title", field -> field.label("岗位名称").required())
-                                .field("description", field -> field.label("说明"))
-                                .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
+                                .field(CATEGORY_ID, field -> field.label("所属分类").required().readOnly())
+                                .field(CODE, field -> field.label("岗位编码").required())
+                                .field(TITLE, field -> field.label("岗位名称").required())
+                                .field(DESCRIPTION, field -> field.label("说明"))
+                                .field(ENABLED, field -> field.label("启用状态").uiType("enabledStatus"))))
                         .traits(traits -> traits.standardCrud().enabledStatus().responsiveDetailSurface())))
                 .build();
     }

@@ -1,9 +1,10 @@
 import type { PageHostType } from '@muyun/web-contracts';
+import { isLegacyModulePageHostType } from './legacyPageHostTypeCompatibility';
 
 export type PageHostComponentName =
   | 'PlatformRouteHost'
   | 'BusinessRouteHost'
-  | 'DynamicModuleHost'
+  | 'ModulePageHost'
   | 'ExternalPageHost';
 
 export function resolvePageHostComponentName(hostType: PageHostType): PageHostComponentName {
@@ -12,11 +13,12 @@ export function resolvePageHostComponentName(hostType: PageHostType): PageHostCo
       return 'PlatformRouteHost';
     case 'business-route-host':
       return 'BusinessRouteHost';
-    case 'dynamic-module-host':
-      return 'DynamicModuleHost';
+    case 'module-page-host':
+      return 'ModulePageHost';
     case 'external-page-host':
       return 'ExternalPageHost';
     default:
+      if (isLegacyModulePageHostType(hostType)) return 'ModulePageHost';
       return exhaustiveHostType(hostType);
   }
 }

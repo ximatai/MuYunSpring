@@ -1,0 +1,25 @@
+import { assert, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+it('is the implementation owner for neutral module page descriptors', () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
+    'utf8',
+  );
+
+  assert.match(source, /defineOptions\(\{ name: 'ModulePageHost' \}\)/);
+  assert.match(source, /descriptor: StandardModulePageDescriptor/);
+});
+
+it('blocks the main save boundary on RecordFormFields validity and forwards that fact from every form surface', () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
+    'utf8',
+  );
+
+  assert.match(source, /if \(!mainFormValid\.value\) return;/);
+  assert.match(source, /@validity-change="updateMainFormValidity"/);
+  assert.match(source, /localEditValid: localEditFormValid/);
+  assert.match(source, /@validity-change="updateLocalEditFormValidity"/);
+});

@@ -330,6 +330,13 @@ export interface PageBootstrapActionBlock {
 export interface PageBootstrapLocalEditForm {
   uiConfigId: string;
   fields: PageBootstrapLocalEditField[];
+  /**
+   * Authoritative controls resolved from the published target FORM config.
+   * Local edit must consume these facts rather than falling back to the
+   * field's legacy alias, otherwise a control can drift from the page that
+   * was actually published.
+   */
+  fieldUiControls: ResolvedFieldControlDescriptor[];
   submitContract: {
     recordRequired: true;
     recordVersionRequired: true;
@@ -343,6 +350,8 @@ export interface PageBootstrapLocalEditField {
   fieldName: string;
   fieldTitle?: string;
   fieldUiControlAlias?: string;
+  /** Authoritative storage type of this resolved field; editors use it for lossless codecs. */
+  valueType?: ViewFieldValueType;
   visible?: boolean;
   readOnly?: boolean;
   requiredOverride?: boolean;
@@ -484,6 +493,9 @@ export type OpenMode = 'workbench-route' | 'dynamic-runner' | 'iframe' | 'new-wi
 export type PageHostType =
   | 'platform-route-host'
   | 'business-route-host'
+  /** Source-neutral standard CRUD page host. */
+  | 'module-page-host'
+  /** Persisted compatibility identifier for the standard module page host. */
   | 'dynamic-module-host'
   | 'external-page-host';
 
@@ -557,12 +569,23 @@ export interface DynamicModulePageTarget {
   defaultQueryTemplateId?: string;
 }
 
+export type ModulePageDescriptor = PageDescriptorBase<
+  'dynamic-module',
+  'dynamic-runner',
+  'module-page-host',
+  DynamicModulePageTarget
+>;
+
+/** Compatibility descriptor accepted when restoring existing workbench state. */
 export type DynamicModulePageDescriptor = PageDescriptorBase<
   'dynamic-module',
   'dynamic-runner',
   'dynamic-module-host',
   DynamicModulePageTarget
 >;
+
+/** Source-neutral descriptor accepted by the standard module page runner. */
+export type StandardModulePageDescriptor = ModulePageDescriptor | DynamicModulePageDescriptor;
 
 export interface UrlPageTarget {
   url: string;
@@ -586,6 +609,7 @@ export type ExternalLinkPageDescriptor = PageDescriptorBase<
 export type PageDescriptor =
   | PlatformRoutePageDescriptor
   | BusinessRoutePageDescriptor
+  | ModulePageDescriptor
   | DynamicModulePageDescriptor
   | RemoteUrlPageDescriptor
   | ExternalLinkPageDescriptor;
@@ -788,6 +812,23 @@ export type ViewFieldValueType =
   | 'DECIMAL'
   | 'JSON';
 
+/**
+ * Source-neutral field-control fact compiled by the platform. `renderer` is a platform semantic
+ * renderer type, never a Vue component name or front-end module path.
+ */
+export interface ResolvedFieldControlDescriptor {
+  alias: string;
+  rendererType: string;
+  valueShape: 'SCALAR' | 'COLLECTION' | 'COMPOSITE';
+  properties?: Record<string, string>;
+  bindings?: ResolvedFieldControlBindingDescriptor[];
+}
+
+export interface ResolvedFieldControlBindingDescriptor {
+  key: string;
+  valueType: string;
+}
+
 export interface ResolvedViewFieldDescriptor {
   fieldRef: ViewFieldRef;
   label?: string;
@@ -795,6 +836,8 @@ export interface ResolvedViewFieldDescriptor {
   required?: UiRule<boolean>;
   readOnly?: UiRule<boolean>;
   uiType?: string;
+  /** Optional while older descriptors still publish only `uiType`. When present it is authoritative. */
+  fieldControl?: ResolvedFieldControlDescriptor;
   valueType?: ViewFieldValueType;
   valuePresentation?: FieldValuePresentation;
   width?: string;
@@ -821,9 +864,13 @@ export interface ResolvedReferenceSummaryFieldDescriptor {
 export interface ResolvedReferenceFieldDescriptor {
   targetModuleAlias: string;
   cardinality: 'ONE' | 'MANY';
+  /** Server-resolved standard picker transport. AUTO exists only for descriptors issued before an explicit mode. */
+  pickerMode?: ReferencePickerMode;
   /** Read-side title projection for this scalar reference, when supplied by the server. */
   titleField?: string;
 }
+
+export type ReferencePickerMode = 'LIST' | 'TREE' | 'AUTO';
 
 export interface OptionBindingDescriptor {
   sourceType: string;

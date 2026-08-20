@@ -11,6 +11,8 @@ import {
   createPageBootstrapClient,
   createModuleContext,
   createModuleTreeContext,
+  createModuleCrudClient,
+  createModuleTreeClient,
   createStaticModuleCrudClient,
   createStaticModuleTreeClient,
   canQueryRecycleBin,
@@ -894,7 +896,7 @@ it('static module client normalizes backend action envelopes', async () => {
   };
 
   try {
-    const client = createStaticModuleCrudClient(createHttpClient({ baseUrl: 'http://api.local' }), {
+    const client = createModuleCrudClient(createHttpClient({ baseUrl: 'http://api.local' }), {
       moduleAlias: 'iam.organization',
     });
 
@@ -949,7 +951,7 @@ it('static module tree client maps standard CRUD and tree endpoints by module al
   };
 
   try {
-    const client = createStaticModuleTreeClient(createHttpClient({ baseUrl: 'http://api.local' }), {
+    const client = createModuleTreeClient(createHttpClient({ baseUrl: 'http://api.local' }), {
       moduleAlias: 'iam.organization',
     });
 
@@ -983,6 +985,11 @@ it('static module tree client maps standard CRUD and tree endpoints by module al
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+it('retains static module client factories as compatibility aliases', () => {
+  assert.equal(createStaticModuleCrudClient, createModuleCrudClient);
+  assert.equal(createStaticModuleTreeClient, createModuleTreeClient);
 });
 
 it('module context creates standard CRUD capabilities from configured http factory', async () => {

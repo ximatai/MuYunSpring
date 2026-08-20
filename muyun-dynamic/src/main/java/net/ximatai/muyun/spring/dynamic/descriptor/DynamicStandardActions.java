@@ -3,6 +3,8 @@ package net.ximatai.muyun.spring.dynamic.descriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityStandardActionCatalog;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,10 +19,11 @@ final class DynamicStandardActions {
                                               List<EntityActionDefinition> configuredActions) {
         Map<String, DynamicActionDescriptor> actions = new LinkedHashMap<>();
         for (EntityActionDefinition standard : EntityStandardActionCatalog.from(entity)) {
+            if (isHttpOnly(standard.actionCode())) continue;
             put(actions, action(moduleAlias, entity.alias(), standard, null));
         }
         for (EntityActionDefinition configured : configuredActions) {
-            if (entity.alias().equals(configured.entityAlias())) {
+            if (entity.alias().equals(configured.entityAlias()) && !isHttpOnly(configured.actionCode())) {
                 actions.put(configured.actionCode(), action(moduleAlias, entity.alias(), configured,
                         actions.get(configured.actionCode())));
             }
@@ -57,6 +60,13 @@ final class DynamicStandardActions {
 
     private static void put(Map<String, DynamicActionDescriptor> actions, DynamicActionDescriptor action) {
         actions.put(action.code(), action);
+    }
+
+    private static boolean isHttpOnly(String actionCode) {
+        return PlatformAction.fromCode(actionCode)
+                .flatMap(action -> CapabilityModuleRegistry.defaultRegistry().actionOwner(action)
+                        .map(contribution -> contribution.isHttpOnlyDynamicAction(action)))
+                .orElse(false);
     }
 
 }

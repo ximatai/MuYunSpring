@@ -4,13 +4,12 @@ import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
-import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.PlatformOperation;
 import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
-import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityOperationContext;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityModule;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
@@ -29,89 +28,47 @@ import java.util.Set;
 
 /** Compiles static service interface composition into the shared platform capability vocabulary. */
 public final class StaticServiceAbilityCompiler {
-    private static final Set<EntityCapability> SERVICE_DECLARED_CAPABILITIES = Set.of(
-            EntityCapability.CRUD,
-            EntityCapability.SOFT_DELETE,
-            EntityCapability.CACHE,
-            EntityCapability.TREE,
-            EntityCapability.SORT,
-            EntityCapability.REFERENCE,
-            EntityCapability.ENABLE,
-            EntityCapability.DATA_SCOPE,
-            EntityCapability.RECYCLE_BIN,
-            EntityCapability.CHILD_RELATION,
-            EntityCapability.REFERENCE_DEPENDENCY
-    );
-
     private StaticServiceAbilityCompiler() {
     }
 
-    public static Set<EntityCapability> compile(Object service) {
+    /**
+     * Compiles baseline service abilities plus registered static facets.  The registry is a
+     * source-neutral input, so this compiler never knows a dynamic capability implementation.
+     */
+    public static Set<EntityCapability> compile(Object service, StaticCapabilityRegistry registry) {
         EnumSet<EntityCapability> capabilities = EnumSet.noneOf(EntityCapability.class);
         if (service instanceof CrudAbility<?>) capabilities.add(EntityCapability.CRUD);
         if (service instanceof SoftDeleteAbility<?>) capabilities.add(EntityCapability.SOFT_DELETE);
         if (service instanceof CacheAbility<?>) capabilities.add(EntityCapability.CACHE);
-        if (service instanceof TreeAbility<?>) {
-            capabilities.add(EntityCapability.TREE);
-            capabilities.add(EntityCapability.SORT);
-        } else if (service instanceof SortAbility<?>) {
-            capabilities.add(EntityCapability.SORT);
-        }
+        registry.staticModules().forEach(module -> module.staticFacet()
+                .filter(facet -> facet.supports(service))
+                .ifPresent(facet -> capabilities.add(module.capability())));
         if (service instanceof ReferenceAbility<?>) capabilities.add(EntityCapability.REFERENCE);
         if (service instanceof ReferencerAbility<?>) capabilities.add(EntityCapability.REFERENCE_DEPENDENCY);
-        if (service instanceof EnableAbility<?>) capabilities.add(EntityCapability.ENABLE);
         if (service instanceof DataScopeAbility<?>) capabilities.add(EntityCapability.DATA_SCOPE);
-        if (service instanceof RecycleBinAbility<?>) capabilities.add(EntityCapability.RECYCLE_BIN);
         if (service instanceof ChildrenAbility<?>) capabilities.add(EntityCapability.CHILD_RELATION);
+        validateDependencies(capabilities, registry.staticModules(), service);
         return Set.copyOf(capabilities);
     }
 
-    public static boolean isServiceDeclared(EntityCapability capability) {
-        return SERVICE_DECLARED_CAPABILITIES.contains(capability);
-    }
-
-    public static List<PlatformOperationDefinition> standardOperations(Object service) {
+    /** Registry overload is used by capability-contract tests and platform composition. */
+    public static List<PlatformOperationDefinition> standardOperations(Object service, StaticCapabilityRegistry registry) {
         List<PlatformOperationDefinition> operations = new ArrayList<>();
-        if (service instanceof TreeAbility<?>) {
-            operations.add(operation("tree", "tree", PlatformAction.TREE));
-            operations.add(operation("tree", "treeQuery", PlatformAction.TREE));
-            operations.add(operation("tree", "subtree", PlatformAction.TREE));
-            operations.add(operation("tree", "sort", PlatformAction.SORT));
-        } else if (service instanceof SortAbility<?>) {
-            operations.add(operation("sort", "sort", PlatformAction.SORT));
-        }
-        if (service instanceof EnableAbility<?>) {
-            Set<PlatformAction> directOperations = operationMethods(service).keySet();
-            if (directOperations.contains(PlatformAction.ENABLE)) {
-                operations.add(operation("enable", "enable", PlatformAction.ENABLE));
-            }
-            if (directOperations.contains(PlatformAction.DISABLE)) {
-                operations.add(operation("enable", "disable", PlatformAction.DISABLE));
-            }
-        }
-        if (service instanceof RecycleBinAbility<?> recycleBinAbility) {
-            operations.add(operation("recycleBin", "query", PlatformAction.RECYCLE_BIN_QUERY));
-            operations.add(operation("recycleBin", "view", PlatformAction.RECYCLE_BIN_QUERY));
-            operations.add(operation("recycleBin", "restore", PlatformAction.RECYCLE_BIN_RESTORE));
-            if (recycleBinAbility.isRecycleBinPurgeEnabled()) {
-                operations.add(operation("recycleBin", "purge", PlatformAction.RECYCLE_BIN_PURGE));
-            }
-        }
+        Set<EntityCapability> capabilities = compile(service, registry);
+        StaticCapabilityOperationContext context = new StaticCapabilityOperationContext(service, capabilities,
+                operationMethods(service));
+        registry.staticModules().forEach(module -> module.staticFacet()
+                .filter(facet -> capabilities.contains(module.capability()))
+                .ifPresent(facet -> operations.addAll(facet.standardOperations(context))));
         Set<PlatformAction> disabled = disabledActions(service);
         return operations.stream().filter(operation -> !disabled.contains(operation.action())).toList();
     }
 
-    public static List<PlatformAction> standardActions(Object service) {
-        return standardOperations(service).stream()
+    public static List<PlatformAction> standardActions(Object service, StaticCapabilityRegistry registry) {
+        return standardOperations(service, registry).stream()
                 .map(PlatformOperationDefinition::action)
                 .distinct()
                 .toList();
-    }
-
-    private static PlatformOperationDefinition operation(String abilityCode,
-                                                         String operationCode,
-                                                         PlatformAction action) {
-        return new PlatformOperationDefinition(abilityCode, operationCode, action);
     }
 
     public static Map<PlatformAction, Method> operationMethods(Object service) {
@@ -148,6 +105,23 @@ public final class StaticServiceAbilityCompiler {
         EnumSet<PlatformAction> actions = EnumSet.noneOf(PlatformAction.class);
         java.util.Collections.addAll(actions, annotation.value());
         return Set.copyOf(actions);
+    }
+
+    private static void validateDependencies(Set<EntityCapability> capabilities,
+                                             List<? extends StaticCapabilityModule> modules,
+                                             Object service) {
+        for (StaticCapabilityModule module : modules) {
+            if (!capabilities.contains(module.capability())) {
+                continue;
+            }
+            for (EntityCapability dependency : module.dependencies()) {
+                if (!capabilities.contains(dependency)) {
+                    throw new IllegalStateException("static capability " + module.capability()
+                            + " requires " + dependency + " capability: "
+                            + (service == null ? "<none>" : service.getClass().getName()));
+                }
+            }
+        }
     }
 
     private static Set<Class<?>> allInterfaces(Class<?> type) {

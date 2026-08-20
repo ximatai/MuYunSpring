@@ -21,7 +21,7 @@ public record PageListDefinition(String searchPlaceholder, ViewDefinition list) 
             // The list slot is the module's standard query projection.  Keep its
             // stable view code so the existing query/action protocol need not
             // invent a page-local identifier.
-            ViewDefinition.Builder builder = ViewDefinition.list("default_list");
+            ViewDefinition.Builder builder = ViewDefinition.list(ModuleUiViewCodes.DEFAULT_LIST);
             if (customizer != null) customizer.accept(builder);
             list = builder.build();
             return this;

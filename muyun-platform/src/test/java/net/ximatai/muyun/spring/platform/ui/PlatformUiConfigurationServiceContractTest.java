@@ -23,6 +23,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
+import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.menu.MenuOpenMode;
@@ -1041,6 +1042,29 @@ class PlatformUiConfigurationServiceContractTest {
         uiSetService.update(targetSet);
 
         assertThatCode(() -> publishService.publishUiConfig(sourceConfigId)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void shouldRejectLocalEditControlsThatNeedUnpublishedOptionOrReferenceDescriptors() {
+        seedFieldType("json_set", FieldType.JSON, DynamicQueryOperator.CONTAINS_ANY);
+        seedUiType("multi_select", "json_set");
+        FieldUiControl multiSelect = fieldUiTypeService.requireFieldUiControl("multi_select");
+        multiSelect.setRendererType(ViewControlType.MULTI_SELECT);
+        multiSelect.setValueShape(FieldUiControlValueShape.COLLECTION);
+        fieldUiTypeService.update(multiSelect);
+        String tagsField = seedModuleField("crm.customer", "customer", "tags", "tags", "json_set");
+        String formSetId = uiSetService.insert(uiSet("crm.customer", "local_edit", PlatformUiSetType.FORM, false));
+        String formConfigId = uiConfigService.insert(uiConfig(formSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(formConfigId, tagsField, "multi_select"));
+        PlatformUiConfig formConfig = uiConfigService.select(formConfigId);
+        formConfig.setLayoutJson("""
+                {"blocks":[{"type":"localEdit","actionCode":"editTags","targetUiConfigId":"%s"}]}
+                """.formatted(formConfigId));
+        uiConfigService.update(formConfig);
+
+        assertThatThrownBy(() -> publishService.publishUiConfig(formConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("Local edit field control requires an option/reference descriptor");
     }
 
     @Test

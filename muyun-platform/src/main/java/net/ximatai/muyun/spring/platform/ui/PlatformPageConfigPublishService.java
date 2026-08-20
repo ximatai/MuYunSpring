@@ -4,6 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
+import net.ximatai.muyun.spring.ability.event.RuntimeEvent;
+import net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher;
+import net.ximatai.muyun.spring.ability.event.RuntimeEventType;
+import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
@@ -18,6 +22,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
@@ -38,6 +43,8 @@ public class PlatformPageConfigPublishService {
     private final PlatformQueryItemService queryItemService;
     private final DynamicRecordService recordService;
     private final PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver;
+    private final RuntimeEventPublisher runtimeEventPublisher;
+    private final PublishedPageExecutionCoordinator pageExecutionCoordinator;
 
     public PlatformPageConfigPublishService(PlatformUiSetService uiSetService,
                                             PlatformUiConfigService uiConfigService,
@@ -45,7 +52,8 @@ public class PlatformPageConfigPublishService {
                                             PlatformQueryTemplateService queryTemplateService,
                                             PlatformQueryItemService queryItemService) {
         this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, null,
-                (PageNavigatorSourceCapabilityResolver) null);
+                (PageNavigatorSourceCapabilityResolver) null, RuntimeEventPublisher.noop(),
+                PublishedPageExecutionCoordinator.noop());
     }
 
     @Autowired
@@ -55,9 +63,15 @@ public class PlatformPageConfigPublishService {
                                             PlatformQueryTemplateService queryTemplateService,
                                             PlatformQueryItemService queryItemService,
                                             DynamicRecordService recordService,
-                                            ObjectProvider<PageNavigatorSourceCapabilityResolver> navigatorSourceCapabilityResolver) {
+                                            ObjectProvider<PageNavigatorSourceCapabilityResolver> navigatorSourceCapabilityResolver,
+                                            ObjectProvider<RuntimeEventPublisher> runtimeEventPublisher,
+                                            ObjectProvider<PublishedPageExecutionCoordinator> pageExecutionCoordinator) {
         this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, recordService,
-                navigatorSourceCapabilityResolver == null ? null : navigatorSourceCapabilityResolver.getIfAvailable());
+                navigatorSourceCapabilityResolver == null ? null : navigatorSourceCapabilityResolver.getIfAvailable(),
+                runtimeEventPublisher == null ? RuntimeEventPublisher.noop()
+                        : runtimeEventPublisher.getIfAvailable(RuntimeEventPublisher::noop),
+                pageExecutionCoordinator == null ? PublishedPageExecutionCoordinator.noop()
+                        : pageExecutionCoordinator.getIfAvailable(PublishedPageExecutionCoordinator::noop));
     }
 
     public PlatformPageConfigPublishService(PlatformUiSetService uiSetService,
@@ -67,7 +81,8 @@ public class PlatformPageConfigPublishService {
                                             PlatformQueryItemService queryItemService,
                                             DynamicRecordService recordService) {
         this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, recordService,
-                (PageNavigatorSourceCapabilityResolver) null);
+                (PageNavigatorSourceCapabilityResolver) null, RuntimeEventPublisher.noop(),
+                PublishedPageExecutionCoordinator.noop());
     }
 
     public PlatformPageConfigPublishService(PlatformUiSetService uiSetService,
@@ -77,6 +92,31 @@ public class PlatformPageConfigPublishService {
                                             PlatformQueryItemService queryItemService,
                                             DynamicRecordService recordService,
                                             PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver) {
+        this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, recordService,
+                navigatorSourceCapabilityResolver, RuntimeEventPublisher.noop(), PublishedPageExecutionCoordinator.noop());
+    }
+
+    public PlatformPageConfigPublishService(PlatformUiSetService uiSetService,
+                                            PlatformUiConfigService uiConfigService,
+                                            PlatformUiConfigFieldService uiConfigFieldService,
+                                            PlatformQueryTemplateService queryTemplateService,
+                                            PlatformQueryItemService queryItemService,
+                                            DynamicRecordService recordService,
+                                            PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver,
+                                            RuntimeEventPublisher runtimeEventPublisher) {
+        this(uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService, recordService,
+                navigatorSourceCapabilityResolver, runtimeEventPublisher, PublishedPageExecutionCoordinator.noop());
+    }
+
+    public PlatformPageConfigPublishService(PlatformUiSetService uiSetService,
+                                            PlatformUiConfigService uiConfigService,
+                                            PlatformUiConfigFieldService uiConfigFieldService,
+                                            PlatformQueryTemplateService queryTemplateService,
+                                            PlatformQueryItemService queryItemService,
+                                            DynamicRecordService recordService,
+                                            PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver,
+                                            RuntimeEventPublisher runtimeEventPublisher,
+                                            PublishedPageExecutionCoordinator pageExecutionCoordinator) {
         this.uiSetService = uiSetService;
         this.uiConfigService = uiConfigService;
         this.uiConfigFieldService = uiConfigFieldService;
@@ -84,20 +124,27 @@ public class PlatformPageConfigPublishService {
         this.queryItemService = queryItemService;
         this.recordService = recordService;
         this.navigatorSourceCapabilityResolver = navigatorSourceCapabilityResolver;
+        this.runtimeEventPublisher = runtimeEventPublisher == null ? RuntimeEventPublisher.noop() : runtimeEventPublisher;
+        this.pageExecutionCoordinator = pageExecutionCoordinator == null
+                ? PublishedPageExecutionCoordinator.noop() : pageExecutionCoordinator;
     }
 
+    @Transactional
     public void publishUiConfig(String uiConfigId) {
         PlatformUiConfig uiConfig = validateUiConfigPublishable(uiConfigId);
         try (PlatformPageConfigPublishContext.Scope ignored = PlatformPageConfigPublishContext.open()) {
             uiConfigService.update(copyForPublish(uiConfig, Boolean.TRUE));
         }
+        publishedConfigurationChanged(uiSetService.requireUiSet(uiConfig.getUiSetId()).getModuleAlias());
     }
 
+    @Transactional
     public void unpublishUiConfig(String uiConfigId) {
         PlatformUiConfig uiConfig = uiConfigService.requireUiConfig(uiConfigId);
         try (PlatformPageConfigPublishContext.Scope ignored = PlatformPageConfigPublishContext.open()) {
             uiConfigService.update(copyForPublish(uiConfig, Boolean.FALSE));
         }
+        publishedConfigurationChanged(uiSetService.requireUiSet(uiConfig.getUiSetId()).getModuleAlias());
     }
 
     public PlatformUiConfig validateUiConfigPublishable(String uiConfigId) {
@@ -250,18 +297,36 @@ public class PlatformPageConfigPublishService {
         }
     }
 
+    @Transactional
     public void publishQueryTemplate(String queryTemplateId) {
         PlatformQueryTemplate template = validateQueryTemplatePublishable(queryTemplateId);
         try (PlatformPageConfigPublishContext.Scope ignored = PlatformPageConfigPublishContext.open()) {
             queryTemplateService.update(copyForPublish(template, Boolean.TRUE));
         }
+        publishedConfigurationChanged(template.getModuleAlias());
     }
 
+    @Transactional
     public void unpublishQueryTemplate(String queryTemplateId) {
         PlatformQueryTemplate template = queryTemplateService.requireQueryTemplate(queryTemplateId);
         try (PlatformPageConfigPublishContext.Scope ignored = PlatformPageConfigPublishContext.open()) {
             queryTemplateService.update(copyForPublish(template, Boolean.FALSE));
         }
+        publishedConfigurationChanged(template.getModuleAlias());
+    }
+
+    private void publishedConfigurationChanged(String moduleAlias) {
+        // Compile against the transaction's candidate snapshot before emitting the after-commit
+        // event. A failed compilation rolls the configuration update back and leaves the old
+        // installed execution plan untouched.
+        pageExecutionCoordinator.prepareAfterPublishedConfigurationChange(moduleAlias);
+        publishPlanInvalidation(moduleAlias);
+    }
+
+    private void publishPlanInvalidation(String moduleAlias) {
+        runtimeEventPublisher.publishAfterCommit(RuntimeEvent.of(RuntimeEventType.MODULE_PAGE_CONFIG_PUBLISHED,
+                moduleAlias, null, null, null, null, true, "published page configuration",
+                RuntimeMutationSource.SYSTEM, Map.of()));
     }
 
     public PlatformQueryTemplate validateQueryTemplatePublishable(String queryTemplateId) {
@@ -668,6 +733,7 @@ public class PlatformPageConfigPublishService {
         if (!hasLocalEditBinding(targetConfig, actionCode)) {
             throw layoutException(uiConfigId, path + ".targetUiConfigId must bind local edit action");
         }
+        uiConfigFieldService.validateLocalEditExecutableFields(targetUiConfigId);
     }
 
     private boolean hasLocalEditBinding(PlatformUiConfig uiConfig, String actionCode) {

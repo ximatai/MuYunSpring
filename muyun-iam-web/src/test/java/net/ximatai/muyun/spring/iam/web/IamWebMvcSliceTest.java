@@ -31,6 +31,7 @@ import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
 import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceCompiler;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
+import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.platform.web.ActionEndpointWebConfiguration;
 import net.ximatai.muyun.spring.web.ActionResultResponseAdvice;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
@@ -150,6 +151,10 @@ class IamWebMvcSliceTest {
 
     @MockitoBean
     private StaticModuleDefinitionCatalog staticModuleDefinitionCatalog;
+
+    /** The migrated position endpoint must receive the standard execution-plan runtime from Spring. */
+    @MockitoBean
+    private StandardModuleWebRuntime standardModuleWebRuntime;
 
     @MockitoBean
     private PositionService positionService;
@@ -804,6 +809,8 @@ class IamWebMvcSliceTest {
                 .andExpect(jsonPath("$.message.text").value("「Sales Manager」新增成功"))
                 .andExpect(jsonPath("$.changes[?(@.type == 'record-created' && @.moduleAlias == 'iam.position' && @.recordId == 'position-1')]")
                         .exists());
+
+        verify(standardModuleWebRuntime, atLeastOnce()).requirePlan("iam.position");
     }
 
     @Test

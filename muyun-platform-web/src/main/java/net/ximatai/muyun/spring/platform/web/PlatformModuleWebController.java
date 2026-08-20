@@ -10,7 +10,6 @@ import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
 import net.ximatai.muyun.spring.web.ScopedTreeWebProjectionPolicy;
 import net.ximatai.muyun.spring.web.TreeScope;
 import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
-import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
@@ -37,13 +36,25 @@ import java.util.List;
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.MODELING, title = "模块管理", order = 20)
 @RequestMapping("/platform.module")
-public class PlatformModuleWebController extends WebSupport<PlatformModuleService> implements
+public class PlatformModuleWebController extends StaticModuleWebControllerAdapter<PlatformModuleService> implements
         CrudWeb<PlatformModule, PlatformModuleService>,
         NavigatorReferenceWeb<PlatformModule, PlatformModuleService>,
         NavigatorReferenceTreeWeb<PlatformModule, PlatformModuleService>,
         ScopedTreeWebProjectionPolicy<PlatformModule, PlatformModuleService>,
         SystemScope<PlatformModuleService>,
         StaticModuleUiContributor {
+
+    private static final ModuleUiNavigatorKey APPLICATION_NAVIGATOR = ModuleUiNavigatorKey.of("application");
+    private static final ModuleUiField APPLICATION_ALIAS = ModuleUiField.of("applicationAlias");
+    private static final ModuleUiField ID = ModuleUiField.of("id");
+    private static final ModuleUiField ALIAS = ModuleUiField.of("alias");
+    private static final ModuleUiField TITLE = ModuleUiField.of("title");
+    private static final ModuleUiField PARENT_ID = ModuleUiField.of("parentId");
+    private static final ModuleUiField MODULE_KIND = ModuleUiField.of("moduleKind");
+    private static final ModuleUiField ENTRY_TYPE = ModuleUiField.of("entryType");
+    private static final ModuleUiField ENTRY_ROUTE = ModuleUiField.of("entryRoute");
+    private static final ModuleUiField ENTRY_EXTERNAL_URL = ModuleUiField.of("entryExternalUrl");
+    private static final ModuleUiField ENABLED = ModuleUiField.of("enabled");
 
     private PlatformDynamicRuntimeRefreshService runtimeRefreshService;
     private PlatformOpenApiCatalogService openApiCatalogService;
@@ -67,43 +78,43 @@ public class PlatformModuleWebController extends WebSupport<PlatformModuleServic
         return ModuleUiDefinition.builder(PlatformModuleService.MODULE_ALIAS)
                 .page(PageTemplates.treeManagement(page -> page
                         .navigator(navigator -> navigator
-                                .level("application", level -> level.microList(ApplicationService.MODULE_ALIAS,
+                                .level(APPLICATION_NAVIGATOR, level -> level.microList(ApplicationService.MODULE_ALIAS,
                                         "应用", "搜索应用")
                                         .manageable(PageNavigatorManagementAction.CREATE)
                                         .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
-                                .bindNavigatorToList("application", "applicationAlias")
-                                .bindNavigatorToPickerQuery("application", "parentId", "applicationAlias"))
+                                .bindNavigatorToList(APPLICATION_NAVIGATOR, APPLICATION_ALIAS)
+                                .bindNavigatorToPickerQuery(APPLICATION_NAVIGATOR, PARENT_ID, APPLICATION_ALIAS))
                         .detail(detail -> detail
                                 .emptyDescription("请选择模块，或新建根模块")
                                 .createTitle("新建模块")
                                 .display(form -> form.title("模块信息")
-                                        .field("applicationAlias", field -> field.label("所属应用"))
-                                        .field("alias", field -> field.label("模块 alias"))
-                                        .field("title", field -> field.label("模块名称"))
-                                        .field("parentId", field -> field.label("上级模块").treeRootTitle("根模块"))
-                                        .field("moduleKind", field -> field.label("模块类型"))
-                                        .field("entryType", field -> field.label("入口类型"))
-                                        .field("entryRoute", field -> field.label("内部路由")
+                                        .field(APPLICATION_ALIAS, field -> field.label("所属应用"))
+                                        .field(ALIAS, field -> field.label("模块 alias"))
+                                        .field(TITLE, field -> field.label("模块名称"))
+                                        .field(PARENT_ID, field -> field.label("上级模块").treeRootTitle("根模块"))
+                                        .field(MODULE_KIND, field -> field.label("模块类型"))
+                                        .field(ENTRY_TYPE, field -> field.label("入口类型"))
+                                        .field(ENTRY_ROUTE, field -> field.label("内部路由")
                                                 .visible(UiRule.formula(UiFormula.booleanExpression(
-                                                        "{entryType} == 'route'"))))
-                                        .field("entryExternalUrl", field -> field.label("外部链接")
+                                                        "{" + ENTRY_TYPE.name() + "} == 'route'"))))
+                                        .field(ENTRY_EXTERNAL_URL, field -> field.label("外部链接")
                                                 .visible(UiRule.formula(UiFormula.booleanExpression(
-                                                        "{entryType} == 'link'")))))
+                                                        "{" + ENTRY_TYPE.name() + "} == 'link'")))))
                                 .editor(form -> form.title("模块")
-                                        .field("alias", field -> field.label("模块 alias").required()
-                                                .enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
-                                        .field("title", field -> field.label("模块名称").required())
-                                        .field("applicationAlias", field -> field.label("所属应用").required().hidden())
-                                        .field("parentId", field -> field.label("上级模块").uiType("recordPicker"))
-                                        .field("moduleKind", field -> field.label("模块类型").required().uiType("select"))
-                                        .field("entryType", field -> field.label("入口类型").required().uiType("select"))
-                                        .field("entryRoute", field -> field.label("内部路由")
+                                        .field(ALIAS, field -> field.label("模块 alias").required()
+                                                .enabledWhen(UiFormula.booleanExpression("!(PRESENT({" + ID.name() + "}))")))
+                                        .field(TITLE, field -> field.label("模块名称").required())
+                                        .field(APPLICATION_ALIAS, field -> field.label("所属应用").required().hidden())
+                                        .field(PARENT_ID, field -> field.label("上级模块").uiType("recordPicker"))
+                                        .field(MODULE_KIND, field -> field.label("模块类型").required().uiType("select"))
+                                        .field(ENTRY_TYPE, field -> field.label("入口类型").required().uiType("select"))
+                                        .field(ENTRY_ROUTE, field -> field.label("内部路由")
                                                 .visible(UiRule.formula(UiFormula.booleanExpression(
-                                                        "{entryType} == 'route'"))))
-                                        .field("entryExternalUrl", field -> field.label("外部链接")
+                                                        "{" + ENTRY_TYPE.name() + "} == 'route'"))))
+                                        .field(ENTRY_EXTERNAL_URL, field -> field.label("外部链接")
                                                 .visible(UiRule.formula(UiFormula.booleanExpression(
-                                                        "{entryType} == 'link'"))))
-                                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
+                                                        "{" + ENTRY_TYPE.name() + "} == 'link'"))))
+                                        .field(ENABLED, field -> field.label("启用状态").uiType("enabledStatus"))))
                         .traits(traits -> traits.standardCrud().enabledStatus())))
                 .build();
     }
@@ -129,7 +140,7 @@ public class PlatformModuleWebController extends WebSupport<PlatformModuleServic
         if (applicationAlias == null || applicationAlias.isBlank()) {
             return TreeScope.none();
         }
-        return TreeScope.of(Criteria.of().eq("applicationAlias",
+        return TreeScope.of(Criteria.of().eq(APPLICATION_ALIAS.name(),
                 PlatformNameRules.requireApplicationAlias(applicationAlias)));
     }
 
@@ -160,12 +171,12 @@ public class PlatformModuleWebController extends WebSupport<PlatformModuleServic
     }
 
     private TreeScope applicationTreeScope(String applicationAlias) {
-        return TreeScope.of(Criteria.of().eq("applicationAlias",
+        return TreeScope.of(Criteria.of().eq(APPLICATION_ALIAS.name(),
                 PlatformNameRules.requireApplicationAlias(applicationAlias)));
     }
 
     private String requestedApplicationAlias(HttpServletRequest request) {
-        String queryValue = TreeWebQuerySupport.externalQueryText(request, "applicationAlias");
+        String queryValue = TreeWebQuerySupport.externalQueryText(request, APPLICATION_ALIAS.name());
         return queryValue != null && !queryValue.isBlank() ? queryValue : null;
     }
 

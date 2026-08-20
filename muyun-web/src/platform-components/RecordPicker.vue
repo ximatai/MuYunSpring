@@ -23,7 +23,7 @@ const props = withDefaults(
     context: ModuleContext<RecordPickerRecord>;
     value?: string;
     reloadKey?: number;
-    mode?: 'list' | 'tree';
+    mode?: RecordPickerMode;
     placeholder?: string;
     disabled?: boolean;
     allowClear?: boolean;
@@ -35,7 +35,7 @@ const props = withDefaults(
   {
     value: undefined,
     reloadKey: undefined,
-    mode: 'tree',
+    mode: 'auto',
     placeholder: '请选择',
     disabled: false,
     allowClear: true,

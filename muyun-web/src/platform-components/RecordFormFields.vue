@@ -22,6 +22,11 @@ import {
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
   resolveRecordBooleanStatusValue,
+  decodeDateTimeLocalEditorValue,
+  decodeJsonEditorValue,
+  decodeNumberEditorValue,
+  formatDateTimeLocalEditorValue,
+  formatJsonEditorValue,
   type RecordFormFieldDescriptor,
   type RecordFormFieldFallback,
   type RecordFormFieldPickerConfig,
@@ -33,6 +38,11 @@ import { hasOptionHierarchy, optionItemsToOptions, optionItemsToTree } from './o
 import { loadOptionFieldItems } from './optionFieldOptionCache';
 
 defineOptions({ name: 'RecordFormFields' });
+
+export interface RecordFormValidity {
+  valid: boolean;
+  errors: Record<string, string>;
+}
 
 const props = withDefaults(
   defineProps<{
@@ -73,6 +83,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:field': [fieldName: string, value: RecordFormFieldValue];
+  'validity-change': [validity: RecordFormValidity];
 }>();
 
 const resolvedFieldNames = computed(
@@ -87,6 +98,16 @@ const fieldStates = computed<RecordFormFieldState[]>(() =>
 const optionItems = ref<Record<string, OptionItemDescriptor[]>>({});
 const loadingOptionFields = ref(new Set<string>());
 const optionFieldErrors = ref<Record<string, string>>({});
+const editorFieldErrors = ref<Record<string, string>>({});
+const formValidity = computed<RecordFormValidity>(() => {
+  const errors = { ...optionFieldErrors.value, ...editorFieldErrors.value };
+  for (const field of fieldStates.value) {
+    if (field.controlType === 'unsupported') {
+      errors[field.fieldName] = field.rendererDiagnostic ?? '该字段控件当前不可编辑';
+    }
+  }
+  return { valid: Object.keys(errors).length === 0, errors };
+});
 
 onMounted(() => {
   void loadOptionFields();
@@ -99,6 +120,11 @@ watch(
     initializeRequiredColorFields();
   },
 );
+watch([() => props.record.id, () => props.formSessionKey], () => {
+  // A new record/session must never inherit parser failures from its predecessor.
+  editorFieldErrors.value = {};
+});
+watch(formValidity, (validity) => emit('validity-change', validity), { immediate: true });
 
 function fieldState(fieldName: string): RecordFormFieldState {
   return resolveRecordFormFieldState(fieldName, {
@@ -120,6 +146,17 @@ function optionFieldValue(fieldName: string) {
 
 function scalarFieldValue(fieldName: string) {
   const value = props.record[fieldName];
+  return value === undefined || value === null ? undefined : String(value);
+}
+
+function editorFieldValue(field: RecordFormFieldState) {
+  const value = props.record[field.fieldName];
+  if (field.controlType === 'dateTimeInput') {
+    return formatDateTimeLocalEditorValue(value);
+  }
+  if (field.fieldControl?.rendererType === 'JSON') {
+    return formatJsonEditorValue(value);
+  }
   return value === undefined || value === null ? undefined : String(value);
 }
 
@@ -221,6 +258,52 @@ function resolvedFileTransferContext() {
 
 function updateField(fieldName: string, value: RecordFormFieldValue) {
   emit('update:field', fieldName, value);
+}
+
+function updateEditorField(field: RecordFormFieldState, value: string) {
+  try {
+    const decoded = decodeEditorValue(field, value);
+    clearEditorFieldError(field.fieldName);
+    emit('update:field', field.fieldName, decoded);
+  } catch (error) {
+    setEditorFieldError(field.fieldName, error instanceof Error ? error.message : '字段值格式无效');
+  }
+}
+
+function decodeEditorValue(field: RecordFormFieldState, value: string): RecordFormFieldValue {
+  if (field.controlType === 'numberInput') {
+    const decoded = decodeNumberEditorValue(value, field.valueType);
+    if (decoded === undefined && value.trim()) throw new Error('请输入有效数字');
+    return decoded;
+  }
+  if (field.controlType === 'dateTimeInput') {
+    const decoded = decodeDateTimeLocalEditorValue(value);
+    if (decoded === undefined && value.trim()) throw new Error('请输入有效日期时间');
+    return decoded;
+  }
+  if (field.fieldControl?.rendererType === 'JSON') {
+    try {
+      return decodeJsonEditorValue(value);
+    } catch {
+      throw new Error('请输入有效 JSON');
+    }
+  }
+  return value;
+}
+
+function setEditorFieldError(fieldName: string, message: string) {
+  editorFieldErrors.value = { ...editorFieldErrors.value, [fieldName]: message };
+}
+
+function clearEditorFieldError(fieldName: string) {
+  if (!editorFieldErrors.value[fieldName]) return;
+  const errors = { ...editorFieldErrors.value };
+  delete errors[fieldName];
+  editorFieldErrors.value = errors;
+}
+
+function editorFieldError(field: RecordFormFieldState) {
+  return editorFieldErrors.value[field.fieldName];
 }
 
 /** Required color fields must persist the same default color that the picker presents. */
@@ -377,18 +460,36 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
       />
       <UiTextArea
         v-else-if="field.controlType === 'textarea'"
-        :value="scalarFieldValue(field.fieldName)"
+        :value="editorFieldValue(field)"
         :disabled="fieldDisabled(field)"
         :placeholder="field.placeholder"
-        @update:value="updateField(field.fieldName, $event)"
+        @update:value="updateEditorField(field, $event)"
       />
       <UiInput
         v-else-if="field.controlType === 'numberInput'"
-        :value="scalarFieldValue(field.fieldName)"
+        :value="editorFieldValue(field)"
         type="number"
+        step="any"
         :disabled="fieldDisabled(field)"
         :placeholder="field.placeholder"
-        @update:value="updateField(field.fieldName, $event)"
+        @update:value="updateEditorField(field, $event)"
+      />
+      <UiInput
+        v-else-if="field.controlType === 'dateInput'"
+        :value="editorFieldValue(field)"
+        type="date"
+        :disabled="fieldDisabled(field)"
+        :placeholder="field.placeholder"
+        @update:value="updateEditorField(field, $event)"
+      />
+      <UiInput
+        v-else-if="field.controlType === 'dateTimeInput'"
+        :value="editorFieldValue(field)"
+        type="datetime-local"
+        step="1"
+        :disabled="fieldDisabled(field)"
+        :placeholder="field.placeholder"
+        @update:value="updateEditorField(field, $event)"
       />
       <UiColorPicker
         v-else-if="field.controlType === 'colorPicker'"
@@ -400,6 +501,9 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         v-else-if="field.valuePresentation === 'FILE_SIZE'"
         :value="fileSizeValue(field.fieldName)"
       />
+      <div v-else-if="field.controlType === 'unsupported'" class="record-form-field-diagnostic" role="alert">
+        {{ field.rendererDiagnostic }}
+      </div>
       <UiInput
         v-else
         :value="scalarFieldValue(field.fieldName)"
@@ -412,6 +516,9 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         <UiButton type="link" :disabled="optionFieldLoading(field)" @click="retryOptionField(field)">
           重试
         </UiButton>
+      </div>
+      <div v-if="editorFieldError(field)" class="record-form-field-error" role="alert">
+        {{ editorFieldError(field) }}
       </div>
     </label>
     <div v-if="groupEndsAt(field, index)" class="record-form-group-divider" aria-hidden="true" />
@@ -479,6 +586,14 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
   gap: 4px;
   color: var(--muyun-danger-base);
   font-size: 12px;
+}
+
+.record-form-field-diagnostic {
+  border: 1px solid var(--muyun-danger-base);
+  border-radius: 4px;
+  color: var(--muyun-danger-base);
+  line-height: 1.5;
+  padding: 8px 10px;
 }
 
 @media (max-width: 720px) {

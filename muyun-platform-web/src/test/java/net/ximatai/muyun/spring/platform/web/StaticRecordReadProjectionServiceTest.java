@@ -42,6 +42,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -51,6 +52,59 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class StaticRecordReadProjectionServiceTest {
+    @Test
+    void shouldRejectRequestTimeDslCompilationWhenMigratedModulePlanIsMissing() {
+        StaticModuleDefinition definition = staticDefinition();
+        ModuleExecutionPlanCatalog executionPlans = mock(ModuleExecutionPlanCatalog.class);
+        when(executionPlans.find("iam.employee")).thenReturn(Optional.empty());
+        StaticRecordReadProjectionService service = new StaticRecordReadProjectionService(
+                new StaticModuleDefinitionCatalog(List.of(definition)), executionPlans, null, null);
+
+        assertThatThrownBy(() -> service.projectDefaultList("iam.employee",
+                WebPageResponse.fromList(List.of(new ProjectionEmployee())), null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("compiled module execution plan is required")
+                .hasMessageContaining("iam.employee");
+    }
+
+    @Test
+    void shouldPermitRequestTimeDslCompilationOnlyForExplicitLegacyCompatibility() {
+        StaticModuleDefinition definition = staticDefinition().toBuilder()
+                .legacyReadProjectionCompatibility(true)
+                .build();
+        ModuleExecutionPlanCatalog executionPlans = mock(ModuleExecutionPlanCatalog.class);
+        when(executionPlans.find("iam.employee")).thenReturn(Optional.empty());
+        StaticRecordReadProjectionService service = new StaticRecordReadProjectionService(
+                new StaticModuleDefinitionCatalog(List.of(definition)), executionPlans, null, null);
+        ProjectionEmployee record = new ProjectionEmployee();
+        record.setEmployeeNo("E001");
+        record.setTitle("Alice");
+
+        WebPageResponse<?> response = service.projectDefaultList("iam.employee",
+                WebPageResponse.fromList(List.of(record)), null);
+
+        assertThat(response.records()).hasSize(1);
+        assertThat(response.records().getFirst()).isInstanceOf(Map.class);
+    }
+
+    @Test
+    void shouldRejectDefaultListFallbackWhenDeclaredReadProjectionHasNoExecutor() {
+        StaticModuleDefinition user = userReferenceProjectionDefinition().toBuilder()
+                .uiDefinition(TestModulePages.listDetail("iam.user", list -> {
+                    list.field("username");
+                    list.field("employeeTitle");
+                }))
+                .build();
+        StaticRecordReadProjectionService service = new StaticRecordReadProjectionService(
+                new StaticModuleDefinitionCatalog(List.of(user, employeeAccountReferenceDefinition(),
+                        employeeReferenceDefinition())));
+
+        assertThatThrownBy(() -> service.supportsDefaultListQuery("iam.user", null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("declared static read projection cannot execute")
+                .hasMessageContaining("MISSING_EXECUTOR");
+    }
+
     @Test
     @SuppressWarnings({"rawtypes", "unchecked"})
     void shouldApplyDataScopeBeforeExplicitRecordVisibilityInSharedListPipeline() {

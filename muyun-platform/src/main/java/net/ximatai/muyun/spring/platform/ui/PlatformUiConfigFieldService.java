@@ -22,6 +22,7 @@ import net.ximatai.muyun.spring.platform.metadata.FieldSpecService;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
 import net.ximatai.muyun.spring.platform.metadata.ResolvedModuleMetadataField;
+import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -108,6 +109,26 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
         PlatformUiConfig uiConfig = uiConfigService.requireUiConfig(uiConfigId);
         for (PlatformUiConfigField field : listByUiConfigIds(List.of(uiConfig.getId()))) {
             normalizeAndValidate(field);
+        }
+    }
+
+    /**
+     * A local-edit action currently transports only the resolved control fact;
+     * it deliberately does not create a second option/reference descriptor
+     * protocol.  Reject controls that need either descriptor while publishing
+     * the action, instead of allowing the browser to silently downgrade them.
+     */
+    public void validateLocalEditExecutableFields(String uiConfigId) {
+        for (PlatformUiConfigField field : listByUiConfigIds(List.of(uiConfigId))) {
+            if (Boolean.FALSE.equals(field.getVisible())) {
+                continue;
+            }
+            FieldUiControl control = fieldUiTypeService.requireFieldUiControl(field.getFieldUiControlAlias());
+            if (control.getRendererType() == ViewControlType.SELECT
+                    || control.getRendererType() == ViewControlType.MULTI_SELECT) {
+                throw new PlatformException("Local edit field control requires an option/reference descriptor: "
+                        + uiConfigId + "." + field.getFieldUiControlAlias());
+            }
         }
     }
 

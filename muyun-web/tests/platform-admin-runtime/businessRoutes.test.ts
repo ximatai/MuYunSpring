@@ -63,7 +63,7 @@ it('module management has no static route and resolves through the canonical dyn
   const descriptor = pageDescriptorFromUrl('/platform/dynamic/platform.module/list');
 
   assert.equal(descriptor.pageType, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.hostType, 'module-page-host');
   assert.equal(descriptor.target.moduleAlias, 'platform.module');
   assert.equal(descriptor.menuId, undefined);
 });
@@ -74,7 +74,7 @@ it('legacy module management URL restores through the dynamic host', () => {
   });
 
   assert.equal(descriptor.pageType, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.hostType, 'module-page-host');
   assert.equal(descriptor.target.moduleAlias, 'platform.module');
   assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/platform.module/list');
 });
@@ -100,7 +100,7 @@ it('legacy password management URL restores through the standard module runner',
   });
 
   assert.equal(descriptor.pageType, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'dynamic-module-host');
+  assert.equal(descriptor.hostType, 'module-page-host');
   assert.equal(descriptor.target.moduleAlias, 'iam.password_policy_rule');
   assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/iam.password_policy_rule/list');
 });

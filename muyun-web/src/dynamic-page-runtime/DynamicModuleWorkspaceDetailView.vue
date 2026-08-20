@@ -5,6 +5,7 @@ import {
   confirmAction,
   handlePlatformActionSuccess,
   presentPlatformError,
+  recordPickerModeOf,
   RecordDetailExtensionSection,
   DrawerTitleActions,
   RecordDetailFields,
@@ -28,7 +29,7 @@ import {
   type ModulePageRecordActionContribution,
 } from './modulePageEnhancements';
 import { useModulePageNavigation } from './modulePageNavigation';
-import DynamicRecordDetailActions from './DynamicRecordDetailActions.vue';
+import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import { useRecordDetailController } from './recordDetailController';
 
 defineOptions({ name: 'DynamicModuleWorkspaceDetailView' });
@@ -67,7 +68,7 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
     if (!field.reference) continue;
     configs[field.fieldRef.fieldName] = {
       context: createModuleContext({ http: context.http, moduleAlias: field.reference.targetModuleAlias }),
-      mode: 'tree',
+      mode: recordPickerModeOf(field.reference.pickerMode),
       allowClear: !field.required?.constant,
     };
   }
@@ -273,7 +274,7 @@ async function toggleEnabled() {
 <template>
   <RecordDetailPanel class="dynamic-module-workspace-detail" :title="title">
     <template #actions>
-      <DynamicRecordDetailActions
+      <ModuleRecordDetailActions
         :context="context"
         :record="record"
         :mode="mode"

@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.web.RecordActionWebRequest;
 import net.ximatai.muyun.spring.web.BusinessMutation;
 import net.ximatai.muyun.spring.web.SortWebRequest;
 import net.ximatai.muyun.spring.platform.web.StaticAbilityOperationRuntime;
+import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.web.TreeSortWebRequest;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
 import org.springframework.web.bind.annotation.ResponseBody;
@@ -44,21 +45,30 @@ public final class PlatformWebOperationDispatcher {
     }
 
     private Object readBody(RegisteredWebEndpoint endpoint, HttpServletRequest request) throws IOException {
-        Class<?> bodyType = switch (endpoint.definition().action()) {
-            case ENABLE, DISABLE -> RecordActionWebRequest.class;
-            case SORT -> endpoint.staticTarget() != null
-                    && endpoint.staticTarget().service() instanceof TreeAbility<?>
-                    ? TreeSortWebRequest.class
-                    : SortWebRequest.class;
-            case RECYCLE_BIN_QUERY -> "query".equals(endpoint.definition().operationCode())
-                    ? WebQueryRequest.class : null;
+        var actionOwner = CapabilityModuleRegistry.defaultRegistry().actionOwner(endpoint.definition().action());
+        Class<?> bodyType = actionOwner
+                .flatMap(contribution -> contribution.webActionContract(endpoint.definition().action(),
+                        endpoint.staticTarget() != null && endpoint.staticTarget().service() instanceof TreeAbility<?>))
+                .<Class<?>>map(contract -> switch (contract.requestBody()) {
+                    case RECORD_ACTION -> RecordActionWebRequest.class;
+                    case SORT -> SortWebRequest.class;
+                    case TREE_SORT -> TreeSortWebRequest.class;
+                    case WEB_QUERY -> WebQueryRequest.class;
+                    case NONE -> null;
+                })
+                .orElseGet(() -> actionOwner.isEmpty() ? legacyRequestBody(endpoint) : null);
+        if (bodyType == null) return null;
+        byte[] content = request.getInputStream().readAllBytes();
+        return content.length == 0 ? null : objectMapper.readValue(content, bodyType);
+    }
+
+    /** Compatibility only for actions not yet owned by a registered capability contract. */
+    private static Class<?> legacyRequestBody(RegisteredWebEndpoint endpoint) {
+        return switch (endpoint.definition().action()) {
             case TREE -> "treeQuery".equals(endpoint.definition().operationCode())
                     ? WebQueryRequest.class : null;
             default -> null;
         };
-        if (bodyType == null) return null;
-        byte[] content = request.getInputStream().readAllBytes();
-        return content.length == 0 ? null : objectMapper.readValue(content, bodyType);
     }
 
     private static Method dispatchMethod() {

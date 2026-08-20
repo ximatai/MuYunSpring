@@ -180,6 +180,7 @@ npm run check --prefix muyun-web
 
 - [开发原则](docs/DEVELOPMENT_PRINCIPLES.md)：长期路线、推进方式和测试策略。
 - [动静一体核心设计](docs/architecture/DYNAMIC_STATIC_UNIFIED_CORE.md)：静态模块与动态模块如何共享平台底座。
+- [平台封装与业务轻量化专项治理](docs/architecture/PLATFORM_ENCAPSULATION_GOVERNANCE.md)：Service、Web DSL 与前端标准页面宿主的近期治理顺序和验收口径。
 - [命名与边界](docs/architecture/NAMING_AND_BOUNDARIES.md)：Gradle 子项目、Java 包、平台模块别名和动态边界。
 - [平台文档入口](docs/platform/README.md)：按业务专题整理的平台能力和 Web 接口交接入口。
 - [前端技术架构](docs/frontend/TECHNICAL_ARCHITECTURE.md)：Vue 前端技术路线、组件契约、运行器边界和协作方式。

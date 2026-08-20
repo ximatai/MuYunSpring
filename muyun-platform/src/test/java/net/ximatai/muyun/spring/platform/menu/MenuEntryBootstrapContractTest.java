@@ -11,6 +11,8 @@ import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.AssociationViewDisplayMode;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
+import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldForm;
@@ -20,6 +22,8 @@ import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
+import net.ximatai.muyun.spring.platform.metadata.FieldSpec;
+import net.ximatai.muyun.spring.platform.metadata.FieldSpecService;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.metadata.ResolvedModuleMetadataField;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
@@ -42,6 +46,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigField;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigFieldService;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigService;
 import net.ximatai.muyun.spring.platform.ui.PlatformResolvedUiField;
+import net.ximatai.muyun.spring.platform.ui.PlatformResolvedFieldUiControl;
 import net.ximatai.muyun.spring.platform.ui.PlatformTaskBlock;
 import net.ximatai.muyun.spring.platform.ui.PlatformTaskCheckType;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
@@ -319,10 +324,18 @@ class MenuEntryBootstrapContractTest {
         MenuService mockedMenuService = mock(MenuService.class);
         PlatformPageConfigSnapshotService mockedSnapshotService = mock(PlatformPageConfigSnapshotService.class);
         ModuleMetadataFieldService mockedModuleFieldService = mock(ModuleMetadataFieldService.class);
+        FieldUiControlService mockedFieldUiControlService = mock(FieldUiControlService.class);
+        FieldUiControlPropertyService mockedAttributeService = mock(FieldUiControlPropertyService.class);
+        FieldUiControlBindingService mockedMappingService = mock(FieldUiControlBindingService.class);
         DynamicRecordService mockedRecordService = mock(DynamicRecordService.class);
+        FieldSpecService mockedFieldSpecService = mock(FieldSpecService.class);
         PlatformPageBootstrapService service = new PlatformPageBootstrapService(
-                mockedMenuService, mockedSnapshotService, mockedModuleFieldService, null, null, null,
-                mockedRecordService);
+                mockedMenuService, mockedSnapshotService, mockedModuleFieldService, mockedFieldUiControlService,
+                mockedAttributeService, mockedMappingService,
+                mockedRecordService, mockedFieldSpecService);
+        FieldSpec textSpec = new FieldSpec();
+        textSpec.setFieldType(FieldType.STRING);
+        when(mockedFieldSpecService.requireFieldType("text")).thenReturn(textSpec);
         Menu menu = moduleMenu("scheme-1", "客户", "crm.customer");
         menu.setId("menu-1");
         menu.setPageMode(MenuPageMode.DETAIL);
@@ -413,6 +426,15 @@ class MenuEntryBootstrapContractTest {
                 .thenReturn(resolvedContractField("contract-summary-field", "summary"));
         when(mockedModuleFieldService.resolve("customer-base-field"))
                 .thenReturn(resolvedField("customer-base-field", "customerName"));
+        FieldUiControl textControl = new FieldUiControl();
+        textControl.setAlias("text");
+        textControl.setRendererType(ViewControlType.TEXT);
+        when(mockedFieldUiControlService.listEnabledByAliases(java.util.List.of("text")))
+                .thenReturn(java.util.List.of(textControl));
+        when(mockedAttributeService.listByFieldUiControlAliases(java.util.List.of("text")))
+                .thenReturn(java.util.List.of());
+        when(mockedMappingService.listByFieldUiControlAliases(java.util.List.of("text")))
+                .thenReturn(java.util.List.of());
         when(mockedRecordService.describe("crm.customer")).thenReturn(new DynamicModuleDescriptor(
                 "crm.customer", "客户", "customer", java.util.List.of(), java.util.List.of(), java.util.List.of(),
                 java.util.List.of(), java.util.List.of(new DynamicAssociationViewDescriptor("contracts", "customer",
@@ -460,8 +482,11 @@ class MenuEntryBootstrapContractTest {
         assertThat(localEditBlock.localEditForm()).isNotNull();
         assertThat(localEditBlock.localEditForm().uiConfigId()).isEqualTo("ui-local-edit-web");
         assertThat(localEditBlock.localEditForm().fields())
-                .extracting(PlatformResolvedUiField::fieldName)
-                .containsExactly("customerName");
+                .extracting(PlatformResolvedUiField::fieldName, PlatformResolvedUiField::valueType)
+                .containsExactly(tuple("customerName", "STRING"));
+        assertThat(localEditBlock.localEditForm().fieldUiControls())
+                .extracting(PlatformResolvedFieldUiControl::alias, PlatformResolvedFieldUiControl::rendererType)
+                .containsExactly(tuple("text", ViewControlType.TEXT));
         assertThat(localEditBlock.localEditForm().submitContract().recordVersionRequired()).isTrue();
         assertThat(localEditBlock.localEditForm().submitContract().fieldNamesRequired()).isTrue();
         assertThat(localEditBlock.localEditForm().submitContract().uiConfigIdPayloadKey()).isEqualTo("uiConfigId");
