@@ -25,6 +25,7 @@ const props = defineProps<{
   mode: 'create' | 'edit' | 'view';
   formSessionKey: number;
   optionContext: ModuleContext<QueryListRecord>;
+  fileTransferContext: ModuleContext<QueryListRecord>;
   pickerConfigs: Record<string, RecordFormFieldPickerConfig>;
   disabled: boolean;
   excludeFieldNames?: string[];
@@ -103,6 +104,7 @@ watch(
       :field-names="fieldNames"
       :form-session-key="formSessionKey"
       :option-context="optionContext"
+      :file-transfer-context="fileTransferContext"
       :picker-configs="pickerConfigs"
       :disabled="disabled"
       :exclude-field-names="excludeFieldNames"

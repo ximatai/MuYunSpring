@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.iam.web.OrganizationWebController;
 import net.ximatai.muyun.spring.iam.web.PasswordPolicyRuleWebController;
 import net.ximatai.muyun.spring.iam.web.PositionCategoryWebController;
 import net.ximatai.muyun.spring.iam.web.PositionWebController;
+import net.ximatai.muyun.spring.iam.web.TenantWebController;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
@@ -195,6 +196,22 @@ class PlatformMenuInitialDataDeclarationProviderTest {
                 assertThat(menu.getOpenMode()).isEqualTo(MenuOpenMode.TAB);
                 assertThat(menu.getModuleAlias()).isEqualTo("iam.organization");
                 assertThat(menu.getRoute()).isNull();
+                assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
+            });
+        }
+    }
+
+    @Test
+    void shouldRegisterTenantMenuAsStandardModuleEntry() {
+        try (GenericApplicationContext context = context(TenantWebController.class)) {
+            registerStaticModules(context);
+            initializePlatformMenus(context);
+
+            assertThat(moduleMenu("iam.tenant")).satisfies(menu -> {
+                assertThat(menu.getOpenMode()).isEqualTo(MenuOpenMode.TAB);
+                assertThat(menu.getModuleAlias()).isEqualTo("iam.tenant");
+                assertThat(menu.getRoute()).isNull();
+                assertThat(menu.getExternalUrl()).isNull();
                 assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
             });
         }

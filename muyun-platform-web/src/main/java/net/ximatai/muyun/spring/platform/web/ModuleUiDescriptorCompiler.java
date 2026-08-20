@@ -562,11 +562,15 @@ public final class ModuleUiDescriptorCompiler {
                                                             Map<String, ResolvedFieldControlDescriptor> fieldControls) {
         ResolvedReferenceSummaryFieldDescriptor referenceSummary = field.fieldRef().relationCode() == null
                 ? referenceSummaryFields.get(field.fieldRef().fieldName()) : null;
+        ResolvedOptionFieldDescriptor option = field.fieldRef().relationCode() == null
+                ? optionFields.get(field.fieldRef().fieldName()) : null;
+        ResolvedReferenceFieldDescriptor reference = field.fieldRef().relationCode() == null
+                ? referenceFields.get(field.fieldRef().fieldName()) : null;
         FieldValueType resolvedValueType = valueType(field.fieldRef(), fieldTypes);
         validateBooleanStatus(viewKind, field);
         validateTagList(viewKind, field, referenceSummary);
         validateValuePresentation(viewKind, field, resolvedValueType);
-        String resolvedUiType = resolvedUiType(viewKind, field, resolvedValueType);
+        String resolvedUiType = resolvedUiType(viewKind, field, resolvedValueType, option);
         return new ResolvedViewFieldDescriptor(
                 field.fieldRef(),
                 field.label(),
@@ -582,8 +586,8 @@ public final class ModuleUiDescriptorCompiler {
                 field.align(),
                 field.fixed(),
                 field.booleanStatus(),
-                field.fieldRef().relationCode() == null ? optionFields.get(field.fieldRef().fieldName()) : null,
-                field.fieldRef().relationCode() == null ? referenceFields.get(field.fieldRef().fieldName()) : null,
+                option,
+                reference,
                 referenceSummary,
                 field.maxDisplayLines(),
                 field.treeRootTitle()
@@ -632,9 +636,13 @@ public final class ModuleUiDescriptorCompiler {
      */
     private static String resolvedUiType(ModuleViewKind viewKind,
                                          ViewFieldDefinition field,
-                                         FieldValueType valueType) {
+                                         FieldValueType valueType,
+                                         ResolvedOptionFieldDescriptor option) {
         if (field.uiType() != null) {
             return field.uiType();
+        }
+        if (viewKind == ModuleViewKind.FORM && option != null) {
+            return option.selectionMode() == OptionSelectionMode.MULTIPLE ? "multi_select" : "select";
         }
         if (viewKind != ModuleViewKind.FORM || valueType != FieldValueType.BOOLEAN) {
             return null;

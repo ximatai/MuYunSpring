@@ -1,7 +1,6 @@
 import type { ModulePageEnhancement, ModulePageFormContributionState } from '@muyun/dynamic-page-runtime';
 import TenantApplicationsDetailSection from './tenant/TenantApplicationsDetailSection.vue';
 import TenantApplicationConfigurationDrawer from './tenant/TenantApplicationConfigurationDrawer.vue';
-import TenantBrandingFormSection from './tenant/TenantBrandingFormSection.vue';
 
 /**
  * IAM-specific presentation around the descriptor-owned tenant CRUD surface.
@@ -12,13 +11,7 @@ export const tenantModulePageEnhancement: ModulePageEnhancement = {
   id: 'iam-tenant-standard-page-enhancement',
   target: { moduleAlias: 'iam.tenant' },
   form: {
-    contributions: [
-      {
-        key: 'tenant-branding-heading',
-        component: TenantBrandingFormSection,
-        location: { surface: 'flat-main', fieldName: 'workbenchBrandMode', placement: 'before' },
-      },
-    ],
+    contributions: [],
     fieldPolicies: [
       {
         fieldName: 'workbenchTitle',

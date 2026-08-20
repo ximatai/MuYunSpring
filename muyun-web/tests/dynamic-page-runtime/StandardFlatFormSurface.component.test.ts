@@ -12,7 +12,10 @@ describe('standard flat form surface', () => {
     });
     const RecordFormFieldsStub = defineComponent({
       name: 'RecordFormFields',
-      props: { fieldNames: { type: Array, default: () => [] } },
+      props: {
+        fieldNames: { type: Array, default: () => [] },
+        fileTransferContext: { type: Object, required: false, default: undefined },
+      },
       emits: ['validity-change'],
       template: '<section />',
     });
@@ -26,6 +29,7 @@ describe('standard flat form surface', () => {
         mode: 'edit',
         formSessionKey: 1,
         optionContext: {} as never,
+        fileTransferContext: {} as never,
         pickerConfigs: {},
         disabled: false,
         contributions: [
@@ -43,6 +47,7 @@ describe('standard flat form surface', () => {
     const contribution = wrapper.findComponent(Contribution);
 
     expect(form.props('fieldNames')).toEqual(['title']);
+    expect(form.props('fileTransferContext')).toEqual({});
     contribution.props('context').reportValidity({ valid: false });
     await nextTick();
     expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: false }]);

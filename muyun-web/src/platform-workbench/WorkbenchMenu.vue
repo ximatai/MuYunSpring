@@ -1206,6 +1206,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   padding: 0;
   grid-template-rows: minmax(0, 1fr) auto;
   border: var(--workbench-menu-border-width) solid var(--workbench-menu-border);
+  background: var(--workbench-menu-surface);
   gap: 0;
   border-radius: 0 0 4px 4px;
   box-shadow: 0 14px 28px rgb(15 23 42 / 13%);

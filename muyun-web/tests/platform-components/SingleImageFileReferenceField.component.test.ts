@@ -32,3 +32,20 @@ it('keeps image upload guidance visible before a file is selected', () => {
   );
   expect(wrapper.text()).toContain('仅支持正方形图片（建议 128 × 128 px，最大 512 KB）');
 });
+
+it('clears an existing image binding from the draft without deleting the asset immediately', async () => {
+  const wrapper = mount(SingleImageFileReferenceField, {
+    props: {
+      label: 'Logo',
+      value: 'logo-1',
+      record: { alias: 'tenant-a' },
+      context: { moduleAlias: 'iam.tenant' } as ModuleContext<unknown>,
+      definition: singleInlineImage,
+    },
+  });
+
+  const clearButton = wrapper.findAll('button').find((button) => button.attributes('aria-label') === '清除');
+  expect(clearButton).toBeDefined();
+  await clearButton!.trigger('click');
+  expect(wrapper.emitted('update:value')?.at(-1)).toEqual([undefined]);
+});
