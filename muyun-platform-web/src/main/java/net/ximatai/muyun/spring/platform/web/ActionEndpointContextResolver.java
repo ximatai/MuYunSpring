@@ -19,6 +19,7 @@ import net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
+import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerMapping;
 
@@ -135,6 +136,16 @@ public class ActionEndpointContextResolver {
                 moduleAlias, normalized, recordIds, CurrentUserContext.currentUser()).actionPolicy();
         return ActionExecutionContext.ofPolicy(moduleAlias, resolvedPolicy(moduleAlias, fallback),
                 recordIds, CurrentUserContext.currentUser());
+    }
+
+    /** Resolves a complete compiled action definition, then applies the persisted policy override. */
+    public ActionExecutionContext resolveAction(String moduleAlias,
+                                                StaticModuleActionDefinition action,
+                                                Set<String> recordIds) {
+        java.util.Objects.requireNonNull(action, "action must not be null");
+        requireActionPublished(moduleAlias, action.actionCode());
+        ActionExecutionPolicy policy = resolvedPolicy(moduleAlias, action.executionPolicy());
+        return ActionExecutionContext.ofPolicy(moduleAlias, policy, recordIds, CurrentUserContext.currentUser());
     }
 
     /** Resolves a compiled endpoint for projections such as OpenAPI. */

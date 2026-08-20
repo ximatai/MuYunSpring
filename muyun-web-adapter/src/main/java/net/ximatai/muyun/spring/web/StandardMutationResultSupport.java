@@ -1,5 +1,9 @@
 package net.ximatai.muyun.spring.web;
 
+import net.ximatai.muyun.spring.ability.action.ActionMessage;
+import net.ximatai.muyun.spring.ability.action.DataChange;
+import net.ximatai.muyun.spring.ability.action.MutationContextHolder;
+
 import java.util.function.IntSupplier;
 
 public final class StandardMutationResultSupport {
@@ -96,6 +100,30 @@ public final class StandardMutationResultSupport {
 
     public static void sorted(String moduleAlias) {
         StaticCrudActionResultSupport.sorted(moduleAlias);
+    }
+
+    /** Reports a child-resource change scoped to its persisted parent without impersonating a root record. */
+    public static void resourceCreated(String moduleAlias, String resourceKey, String parentScope, String recordId) {
+        reportResource("platform.crud.created", "新增成功",
+                DataChange.resourceRecordCreated(moduleAlias, resourceKey, parentScope, recordId));
+    }
+
+    public static void resourceUpdated(String moduleAlias, String resourceKey, String parentScope, String recordId) {
+        reportResource("platform.crud.updated", "修改成功",
+                DataChange.resourceRecordUpdated(moduleAlias, resourceKey, parentScope, recordId));
+    }
+
+    public static int resourceDeleted(String moduleAlias, String resourceKey, String parentScope, String recordId,
+                                      IntSupplier action) {
+        return countMutation(recordId, action, id -> reportResource("platform.crud.deleted", "删除成功",
+                DataChange.resourceRecordDeleted(moduleAlias, resourceKey, parentScope, id)));
+    }
+
+    private static void reportResource(String code, String text, DataChange change) {
+        MutationContextHolder.current().ifPresent(context -> {
+            context.message(ActionMessage.success(code, text));
+            context.record(change);
+        });
     }
 
     private static int countMutation(String recordId,

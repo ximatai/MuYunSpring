@@ -23,7 +23,14 @@ const props = defineProps<{
 
 const visibleRelations = computed(() =>
   props.relations.filter((relation) => {
+    if (props.parentRecord.id == null) return false;
     if (!hasExecutableDetailRelationQueryContract(relation)) return false;
+    const actionCode = relation.queryContract.actionCode;
+    if (
+      relation.queryContract.managedGateway &&
+      (!actionCode || props.sourceContext.can(actionCode) !== true)
+    )
+      return false;
     const constraint = relation.parentConstraint;
     return (
       constraint == null ||

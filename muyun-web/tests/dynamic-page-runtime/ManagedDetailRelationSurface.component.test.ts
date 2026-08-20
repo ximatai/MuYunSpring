@@ -84,6 +84,35 @@ describe('managed detail relation surface', () => {
     });
     expect(composite.findComponent({ name: 'ManagedDetailRelationSurface' }).exists()).toBe(true);
   });
+
+  it('does not expose a relation surface without a persisted parent or query authorization', () => {
+    const managed = relation('properties');
+    const noParentRequest = vi.fn();
+    const noParent = shallowMount(ModulePageDetailRelations, {
+      props: {
+        sourceContext: context(noParentRequest),
+        uiDescriptor: descriptor(),
+        relations: [managed],
+        parentRecord: {},
+      },
+    });
+    expect(noParent.findComponent({ name: 'ManagedDetailRelationSurface' }).exists()).toBe(false);
+    expect(noParentRequest).not.toHaveBeenCalled();
+
+    const deniedRequest = vi.fn();
+    const deniedContext = context(deniedRequest);
+    deniedContext.can = () => false;
+    const denied = shallowMount(ModulePageDetailRelations, {
+      props: {
+        sourceContext: deniedContext,
+        uiDescriptor: descriptor(),
+        relations: [managed],
+        parentRecord: { id: 'select' },
+      },
+    });
+    expect(denied.findComponent({ name: 'ManagedDetailRelationSurface' }).exists()).toBe(false);
+    expect(deniedRequest).not.toHaveBeenCalled();
+  });
 });
 
 function context(request: ReturnType<typeof vi.fn>): ModuleContext<Record<string, unknown>> {

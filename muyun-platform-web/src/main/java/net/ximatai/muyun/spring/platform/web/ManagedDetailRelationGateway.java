@@ -10,8 +10,11 @@ import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
+import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.web.RecordActionWebRequest;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
 import net.ximatai.muyun.spring.web.WebPageRequest;
@@ -98,7 +101,8 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
                 || !runtime.relation().queryContract().managedGateway()) {
             throw new IllegalStateException("managed detail relation query is not declared: " + relationCode);
         }
-        requireRelationAction(runtime, runtime.relation().queryContract().actionCode(), null);
+        ActionExecutionContext action = requireRelationAction(
+                runtime, runtime.relation().queryContract().actionCode(), null);
         Criteria criteria = runtime.handler().criteriaFor(runtime.parent());
         QueryAbility<?> queryAbility = runtime.handler().childService() instanceof QueryAbility<?> ability ? ability : null;
         if (queryAbility != null) {
@@ -111,8 +115,11 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
         WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
         PageResult<?> result;
         if (runtime.handler().childService() instanceof DataScopeAbility<?> scoped) {
-            result = scoped.pageQueryForAction(PlatformAction.QUERY, criteria,
-                    PageRequest.of(page.pageNum(), page.pageSize()), sorts == null ? new Sort[0] : sorts);
+            DataScopeCriteriaResult scope = scoped.readScopeByPolicy(runtime.relation().sourceModuleAlias(),
+                    action.actionPolicy(), criteria);
+            Sort[] resolvedSorts = sorts == null ? new Sort[0] : sorts;
+            result = scoped.withDataScopeTenant(scope, () -> runtime.handler().childService().pageQuery(
+                    scope.criteria(), PageRequest.of(page.pageNum(), page.pageSize()), resolvedSorts));
         } else {
             result = runtime.handler().childService().pageQuery(criteria,
                     PageRequest.of(page.pageNum(), page.pageSize()), sorts == null ? new Sort[0] : sorts);
@@ -127,32 +134,36 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
                 PlatformAction.CREATE, "createAllowed");
         EntityContract child = convertForCreate(runtime, payload);
         runtime.handler().bindParent(child, runtime.parent());
+        child.setTenantId(runtime.parent().getTenantId());
         requireRelationAction(runtime, runtime.relation().mutationContract().createActionCode(), null);
         String id = runtime.handler().childService().insert(child);
-        return outputRecord(runtime, id);
+        return outputRecord(runtime, id, runtime.parentScope());
     }
 
     public Object update(String moduleAlias, CrudAbility<?> parentService, String parentId, String relationCode,
                          String childId, Map<String, Object> payload) {
         RelationRuntime runtime = requireMutableRuntime(moduleAlias, parentService, parentId, relationCode,
                 PlatformAction.UPDATE, "updateAllowed");
-        EntityContract persisted = requireChild(runtime, childId, PlatformAction.UPDATE);
+        ScopedChild persistedChild = requireChild(runtime, childId, PlatformAction.UPDATE);
+        EntityContract persisted = persistedChild.child();
         if (payload == null || payload.get("version") == null) {
             throw new IllegalArgumentException("managed relation update requires record version: " + childId);
         }
         EntityContract child = mergeForUpdate(runtime, persisted, payload);
         child.setId(persisted.getId());
         runtime.handler().bindParent(child, runtime.parent());
-        runtime.handler().childService().update(child);
-        return outputRecord(runtime, childId);
+        child.setTenantId(persisted.getTenantId());
+        runtime.handler().childService().updateWithinResolvedScope(child, persistedChild.scope());
+        return outputRecord(runtime, childId, persistedChild.scope());
     }
 
     public int delete(String moduleAlias, CrudAbility<?> parentService, String parentId, String relationCode,
                       String childId, RecordActionWebRequest request) {
         RelationRuntime runtime = requireMutableRuntime(moduleAlias, parentService, parentId, relationCode,
                 PlatformAction.DELETE, "deleteAllowed");
-        requireChild(runtime, childId, PlatformAction.DELETE);
-        return runtime.handler().childService().delete(childId, request == null ? null : request.version());
+        ScopedChild child = requireChild(runtime, childId, PlatformAction.DELETE);
+        return runtime.handler().childService().deleteWithinResolvedScope(childId,
+                request == null ? null : request.version(), null, child.scope());
     }
 
     private RelationRuntime requireRuntime(String moduleAlias, CrudAbility<?> parentService, String parentId,
@@ -165,7 +176,8 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
         StaticManagedDetailRelationHandler<?, ?> raw = handlers.get(new RelationKey(moduleAlias, relationCode));
         if (raw == null) throw new IllegalStateException("no managed detail relation handler: " + moduleAlias + "." + relationCode);
         validateBinding(new RelationKey(moduleAlias, relationCode), relation, raw);
-        EntityContract parent = selectParent(parentService, parentAction, parentId);
+        ScopedParent scopedParent = selectParent(plan, moduleAlias, parentService, parentAction, parentId);
+        EntityContract parent = scopedParent.parent();
         if (!availableFor(raw, parent)) {
             throw new IllegalStateException("managed detail relation is not applicable to parent: " + relationCode);
         }
@@ -175,7 +187,7 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
                 .map(contribution -> contribution.editor().fields().stream()
                         .map(field -> field.fieldRef().fieldName()).collect(java.util.stream.Collectors.toUnmodifiableSet()))
                 .orElseThrow(() -> new IllegalStateException("managed detail relation editor is missing: " + relationCode));
-        return RelationRuntime.of(relation, raw, parent, editableFields);
+        return RelationRuntime.of(plan, relation, raw, parent, scopedParent.scope(), editableFields);
     }
 
     private RelationRuntime requireMutableRuntime(String moduleAlias, CrudAbility<?> parentService, String parentId,
@@ -199,42 +211,71 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static EntityContract selectParent(CrudAbility<?> service, PlatformAction action, String parentId) {
+    private ScopedParent selectParent(ModuleExecutionPlan plan, String moduleAlias, CrudAbility<?> service,
+                                      PlatformAction action, String parentId) {
+        var actionDefinition = plan.actions().stream()
+                .filter(candidate -> candidate.actionCode().equals(action.code()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("managed detail relation parent action is missing: "
+                        + moduleAlias + "." + action.code()));
+        ActionExecutionContext context = actionContextResolver.resolveAction(
+                moduleAlias, actionDefinition, Set.of(parentId));
+        actionPolicyService.requireAuthorized(context);
         EntityContract parent;
+        DataScopeCriteriaResult resolvedScope = DataScopeCriteriaResult.unrestricted(Criteria.of());
         if (service instanceof DataScopeAbility<?> scoped) {
-            parent = (EntityContract) ((DataScopeAbility) scoped).selectForAction(action, parentId);
+            resolvedScope = ((DataScopeAbility) scoped).readScopeByPolicy(moduleAlias,
+                    context.actionPolicy(), Criteria.of().eq(StandardEntitySchema.ID_FIELD, parentId));
+            DataScopeCriteriaResult scope = resolvedScope;
+            parent = (EntityContract) ((DataScopeAbility) scoped).withDataScopeTenant(scope, () ->
+                    service.count(scope.criteria()) == 0 ? null : service.select(parentId));
         } else {
             parent = (EntityContract) service.select(parentId);
         }
         if (parent == null) throw new IllegalArgumentException("managed relation parent is not visible: " + parentId);
-        return parent;
+        return new ScopedParent(parent, resolvedScope);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private EntityContract requireChild(RelationRuntime runtime, String childId, PlatformAction action) {
+    private ScopedChild requireChild(RelationRuntime runtime, String childId, PlatformAction action) {
         String actionCode = switch (action) {
             case UPDATE -> runtime.relation().mutationContract().updateActionCode();
             case DELETE -> runtime.relation().mutationContract().deleteActionCode();
             default -> throw new IllegalArgumentException("unsupported managed child action: " + action);
         };
-        requireRelationAction(runtime, actionCode, childId);
+        ActionExecutionContext actionContext = requireRelationAction(runtime, actionCode, childId);
         CrudAbility service = runtime.handler().childService();
-        EntityContract child = service instanceof DataScopeAbility<?> scoped
-                ? (EntityContract) ((DataScopeAbility) scoped).selectForAction(action, childId)
-                : (EntityContract) service.select(childId);
+        EntityContract child;
+        DataScopeCriteriaResult mutationScope = DataScopeCriteriaResult.unrestricted(Criteria.of());
+        if (service instanceof DataScopeAbility<?> scoped) {
+            mutationScope = scoped.readScopeByPolicy(runtime.relation().sourceModuleAlias(),
+                    actionContext.actionPolicy(), Criteria.of().eq(StandardEntitySchema.ID_FIELD, childId));
+            DataScopeCriteriaResult resolvedScope = mutationScope;
+            child = (EntityContract) scoped.withDataScopeTenant(resolvedScope, () ->
+                    service.count(resolvedScope.criteria()) == 0 ? null : service.select(childId));
+        } else {
+            child = (EntityContract) service.select(childId);
+        }
         if (child == null || !runtime.handler().belongsTo(child, runtime.parent())) {
             throw new IllegalArgumentException("managed relation child does not belong to parent: " + childId);
         }
-        return child;
+        return new ScopedChild(child, mutationScope);
     }
 
-    private void requireRelationAction(RelationRuntime runtime, String actionCode, String childId) {
+    private ActionExecutionContext requireRelationAction(RelationRuntime runtime, String actionCode, String childId) {
         if (actionCode == null || actionCode.isBlank()) {
             throw new IllegalStateException("managed detail relation action is not compiled");
         }
-        actionPolicyService.requireAuthorized(actionContextResolver.resolveActionCode(
-                runtime.relation().sourceModuleAlias(), actionCode,
-                childId == null ? Set.of() : Set.of(childId)));
+        var action = runtime.plan().actions().stream()
+                .filter(candidate -> candidate.actionCode().equals(actionCode))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("managed detail relation action definition is missing: "
+                        + runtime.relation().sourceModuleAlias() + "." + actionCode));
+        ActionExecutionContext context = actionContextResolver.resolveAction(
+                runtime.relation().sourceModuleAlias(), action,
+                childId == null ? Set.of() : Set.of(childId));
+        actionPolicyService.requireAuthorized(context);
+        return context;
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -267,9 +308,13 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static EntityContract outputRecord(RelationRuntime runtime, String id) {
+    private static EntityContract outputRecord(RelationRuntime runtime, String id,
+                                               DataScopeCriteriaResult mutationScope) {
         CrudAbility service = runtime.handler().childService();
-        return WebOutputSupport.record(service, (EntityContract) service.select(id), FieldOutputContext.VIEW);
+        EntityContract record = service instanceof DataScopeAbility<?> scoped
+                ? (EntityContract) scoped.withDataScopeTenant(mutationScope, () -> service.select(id))
+                : (EntityContract) service.select(id);
+        return WebOutputSupport.record(service, record, FieldOutputContext.VIEW);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -279,15 +324,23 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
 
     private record RelationKey(String moduleAlias, String relationCode) { }
 
+    private record ScopedChild(EntityContract child, DataScopeCriteriaResult scope) { }
+
+    private record ScopedParent(EntityContract parent, DataScopeCriteriaResult scope) { }
+
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private record RelationRuntime(net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor relation,
+    private record RelationRuntime(ModuleExecutionPlan plan,
+                                   net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor relation,
                                    StaticManagedDetailRelationHandler handler,
                                    EntityContract parent,
+                                   DataScopeCriteriaResult parentScope,
                                    Set<String> editableFields) {
-        static RelationRuntime of(net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor relation,
+        static RelationRuntime of(ModuleExecutionPlan plan,
+                                  net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor relation,
                                   StaticManagedDetailRelationHandler<?, ?> handler, EntityContract parent,
+                                  DataScopeCriteriaResult parentScope,
                                   Set<String> editableFields) {
-            return new RelationRuntime(relation, handler, parent, Set.copyOf(editableFields));
+            return new RelationRuntime(plan, relation, handler, parent, parentScope, Set.copyOf(editableFields));
         }
     }
 }

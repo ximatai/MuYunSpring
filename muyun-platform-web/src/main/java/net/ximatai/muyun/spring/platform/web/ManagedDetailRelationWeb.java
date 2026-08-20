@@ -9,7 +9,7 @@ import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.web.StandardMutation;
 import net.ximatai.muyun.spring.web.StandardMutationKind;
-import net.ximatai.muyun.spring.web.StaticStandardMutationSupport;
+import net.ximatai.muyun.spring.web.StandardMutationResultSupport;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -52,7 +52,9 @@ public interface ManagedDetailRelationWeb<P extends EntityContract, S extends Cr
                                                @RequestBody Map<String, Object> payload) {
         return webScope(() -> {
             Object saved = requireManagedDetailRelationGateway().insert(webScopeName(), service(), parentId, relationCode, payload);
-            if (saved instanceof EntityContract entity) StaticStandardMutationSupport.created(this, entity.getId());
+            if (saved instanceof EntityContract entity) {
+                StandardMutationResultSupport.resourceCreated(webScopeName(), relationCode, parentId, entity.getId());
+            }
             return managedRelationWireResponse(relationCode, saved);
         });
     }
@@ -65,7 +67,7 @@ public interface ManagedDetailRelationWeb<P extends EntityContract, S extends Cr
                                                @PathVariable String childId, @RequestBody Map<String, Object> payload) {
         return webScope(() -> {
             Object saved = requireManagedDetailRelationGateway().update(webScopeName(), service(), parentId, relationCode, childId, payload);
-            StaticStandardMutationSupport.updated(this, childId);
+            StandardMutationResultSupport.resourceUpdated(webScopeName(), relationCode, parentId, childId);
             return managedRelationWireResponse(relationCode, saved);
         });
     }
@@ -76,7 +78,8 @@ public interface ManagedDetailRelationWeb<P extends EntityContract, S extends Cr
     @Transactional
     default int deleteManagedDetailRelation(@PathVariable String parentId, @PathVariable String relationCode,
                                             @PathVariable String childId, @RequestBody(required = false) RecordActionWebRequest request) {
-        return webScope(() -> StaticStandardMutationSupport.deleted(this, childId,
+        return webScope(() -> StandardMutationResultSupport.resourceDeleted(
+                webScopeName(), relationCode, parentId, childId,
                 () -> requireManagedDetailRelationGateway().delete(webScopeName(), service(), parentId,
                         relationCode, childId, request)));
     }

@@ -689,6 +689,20 @@ const flatManagementDetailActions = computed<RecordActionItem[]>(() => [
 const recycleBinDetailActive = computed(
   () => flatManagementRecycleBin.active.value || listMode.value === 'recycleBin',
 );
+const detailRelationsAvailable = computed(() => {
+  const selectedId = selectedRecord.value?.id;
+  const editingId = editingRecord.value?.id;
+  return (
+    detailOpen.value &&
+    editorMode.value === 'view' &&
+    !recycleBinDetailActive.value &&
+    !detailLoading.value &&
+    !detailLoadFailed.value &&
+    selectedId != null &&
+    editingId != null &&
+    String(selectedId) === String(editingId)
+  );
+});
 const treeParentPickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() => {
   if (!treeModule.value || !formFields.value.has('parentId')) {
     return {} as Record<string, RecordFormFieldPickerConfig>;
@@ -2000,7 +2014,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             <component :is="section.component" :context="detailSectionContext(editingRecord)" />
           </RecordDetailExtensionSection>
           <ModulePageDetailRelations
-            v-if="runtimeUiDescriptor"
+            v-if="runtimeUiDescriptor && detailRelationsAvailable"
             :source-context="context"
             :ui-descriptor="runtimeUiDescriptor"
             :relations="executableDetailRelations"
@@ -2238,7 +2252,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
             </RecordDetailExtensionSection>
             <ModulePageDetailRelations
-              v-if="runtimeUiDescriptor"
+              v-if="runtimeUiDescriptor && detailRelationsAvailable"
               :source-context="context"
               :ui-descriptor="runtimeUiDescriptor"
               :relations="executableDetailRelations"
@@ -2481,7 +2495,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
             </RecordDetailExtensionSection>
             <ModulePageDetailRelations
-              v-if="runtimeUiDescriptor"
+              v-if="runtimeUiDescriptor && detailRelationsAvailable"
               :source-context="context"
               :ui-descriptor="runtimeUiDescriptor"
               :relations="executableDetailRelations"
@@ -2640,7 +2654,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
             </RecordDetailExtensionSection>
             <ModulePageDetailRelations
-              v-if="runtimeUiDescriptor"
+              v-if="runtimeUiDescriptor && detailRelationsAvailable"
               :source-context="context"
               :ui-descriptor="runtimeUiDescriptor"
               :relations="executableDetailRelations"

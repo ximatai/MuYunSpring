@@ -18,6 +18,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -128,7 +129,8 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
                     pageContextBindings(definition.uiDefinition()), queryDescriptor(definition),
                     QuerySchema.from(queryDescriptor(definition), definition.modelClass()),
                     mutationConstraints(definition.uiDefinition()), definition.actions(),
-                    definition.supports(EntityCapability.DATA_SCOPE), responseWireFieldTypes(definition)));
+                    definition.supports(EntityCapability.DATA_SCOPE), responseWireFieldTypes(definition),
+                    detailRelationWireFieldTypes(definition, compilation.uiDescriptor())));
         }
         return Map.copyOf(plans);
     }
@@ -143,6 +145,29 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
         definition.entities().stream().findFirst().map(entity -> entity.fields()).orElse(List.of()).stream()
                 .forEach(field -> addResponseWireType(types, field));
         return Map.copyOf(types);
+    }
+
+    /** Complete child model wire facts keyed by the compiled relation code. */
+    private static Map<String, Map<String, FieldValueType>> detailRelationWireFieldTypes(
+            StaticModuleDefinition definition, ResolvedModuleUiDescriptor descriptor) {
+        Map<String, EntityDefinition> entities = definition.entities().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        EntityDefinition::alias,
+                        java.util.function.Function.identity()));
+        LinkedHashMap<String, Map<String, FieldValueType>> relationTypes = new LinkedHashMap<>();
+        descriptor.detailRelations().stream()
+                .filter(relation -> relation.queryContract() != null && relation.queryContract().managedGateway())
+                .forEach(relation -> {
+                    var entity = entities.get(relation.targetEntityAlias());
+                    if (entity == null) {
+                        throw new IllegalStateException("detail relation target entity is not declared: "
+                                + definition.moduleAlias() + "." + relation.code());
+                    }
+                    LinkedHashMap<String, FieldValueType> types = new LinkedHashMap<>();
+                    entity.fields().forEach(field -> addResponseWireType(types, field));
+                    relationTypes.put(relation.code(), Map.copyOf(types));
+                });
+        return Map.copyOf(relationTypes);
     }
 
     private static void addResponseWireType(Map<String, FieldValueType> target, FieldDefinition field) {

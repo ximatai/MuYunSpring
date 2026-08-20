@@ -47,13 +47,6 @@ public record ResolvedDetailRelationQueryContract(
         this(queryPath, targetUiConfigId, queryTemplateId, pageable, queryable, null, null, false, null);
     }
 
-    /** A managed relation uses the platform's fixed parent association gateway, never a declared business URL. */
-    public ResolvedDetailRelationQueryContract(String targetUiConfigId, boolean pageable, boolean queryable,
-                                               ResolvedDetailRelationListProjection listProjection,
-                                               QuerySchema querySchema) {
-        this(null, targetUiConfigId, null, pageable, queryable, listProjection, querySchema, true, null);
-    }
-
     /** Managed gateway constructor with the compiled parent-module action code. */
     public ResolvedDetailRelationQueryContract(String targetUiConfigId, boolean pageable, boolean queryable,
                                                ResolvedDetailRelationListProjection listProjection,
@@ -72,12 +65,6 @@ public record ResolvedDetailRelationQueryContract(
         if (managedGateway && actionCode == null) {
             throw new IllegalArgumentException("managed detail relation query action code must not be blank");
         }
-    }
-
-    private static String requireText(String value, String name) {
-        String normalized = normalize(value);
-        if (normalized == null) throw new IllegalArgumentException(name + " must not be blank");
-        return normalized;
     }
 
     private static String normalize(String value) {

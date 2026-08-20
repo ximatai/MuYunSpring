@@ -107,9 +107,16 @@ public interface DataScopeAbility<T extends EntityContract> extends CrudAbility<
     }
 
     default DataScopeCriteriaResult readScopeByPolicy(ActionExecutionPolicy policy, Criteria criteria) {
+        return readScopeByPolicy(getModuleAlias(), policy, criteria);
+    }
+
+    /** Resolves data scope for an action governed by a source aggregate rather than this child service alias. */
+    default DataScopeCriteriaResult readScopeByPolicy(String moduleAlias,
+                                                      ActionExecutionPolicy policy,
+                                                      Criteria criteria) {
         java.util.Objects.requireNonNull(policy, "policy must not be null");
         return getDataScopeCriteriaService().resolveReadScope(
-                getModuleAlias(),
+                java.util.Objects.requireNonNull(moduleAlias, "moduleAlias must not be null"),
                 policy,
                 criteria == null ? Criteria.of() : criteria,
                 CurrentUserContext.currentUser(),

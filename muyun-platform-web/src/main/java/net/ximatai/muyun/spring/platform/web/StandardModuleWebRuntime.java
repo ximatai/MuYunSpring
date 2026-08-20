@@ -99,16 +99,11 @@ public class StandardModuleWebRuntime {
     /** Field semantics for one compiled child relation, isolated from similarly named parent fields. */
     public Map<String, FieldValueType> relationWireFieldTypes(String moduleAlias, String relationCode) {
         ModuleExecutionPlan plan = requirePlan(moduleAlias);
-        var relation = plan.uiDescriptor().detailRelations().stream()
-                .filter(candidate -> candidate.code().equals(relationCode))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("unknown detail relation: " + relationCode));
-        LinkedHashMap<String, FieldValueType> types = new LinkedHashMap<>();
-        plan.uiDescriptor().editorContributions().stream()
-                .filter(contribution -> contribution.resource().equals(relation.targetEntityAlias()))
-                .findFirst()
-                .ifPresent(contribution -> collectFieldTypes(types, contribution.editor()));
-        return Map.copyOf(types);
+        Map<String, FieldValueType> types = plan.detailRelationWireFieldTypes().get(relationCode);
+        if (types == null) {
+            throw new IllegalArgumentException("unknown detail relation wire facts: " + relationCode);
+        }
+        return types;
     }
 
     /** Marks the current HTTP response for managed serialization-time numeric adaptation. */
