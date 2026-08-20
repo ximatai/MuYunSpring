@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityFacet;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityDeclarationPolicy;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityModule;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityOperationContext;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
@@ -52,6 +53,9 @@ class StaticServiceAbilityCompilerTest {
 
     private static final class ApprovalCapabilityModule implements StaticCapabilityModule {
         @Override public EntityCapability capability() { return EntityCapability.APPROVAL; }
+        @Override public StaticCapabilityDeclarationPolicy declarationPolicy() {
+            return StaticCapabilityDeclarationPolicy.ANNOTATION_OWNED;
+        }
         @Override public Optional<StaticCapabilityFacet> staticFacet() {
             return Optional.of(new StaticCapabilityFacet() {
                 @Override public boolean supports(Object service) { return service instanceof ApprovalService; }
@@ -64,6 +68,9 @@ class StaticServiceAbilityCompilerTest {
 
     private static final class MissingDependencyCapabilityModule implements StaticCapabilityModule {
         @Override public EntityCapability capability() { return EntityCapability.APPROVAL; }
+        @Override public StaticCapabilityDeclarationPolicy declarationPolicy() {
+            return StaticCapabilityDeclarationPolicy.ANNOTATION_OWNED;
+        }
         @Override public java.util.Set<EntityCapability> dependencies() { return java.util.Set.of(EntityCapability.CRUD); }
         @Override public Optional<StaticCapabilityFacet> staticFacet() {
             return Optional.of(new StaticCapabilityFacet() {

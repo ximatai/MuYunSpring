@@ -133,30 +133,11 @@ public final class DynamicFieldValueSupport {
         if (value instanceof Long longValue) {
             return longValue;
         }
-        if (value instanceof String text) {
-            try {
-                return Long.valueOf(text);
-            } catch (NumberFormatException exception) {
-                throw new IllegalArgumentException("invalid value type for dynamic field type: " + FieldType.LONG,
-                        exception);
-            }
-        }
         throw new IllegalArgumentException("invalid value type for dynamic field type: " + FieldType.LONG);
     }
 
     private static Object decimalValue(Object value) {
         if (value instanceof BigDecimal) {
-            return value;
-        }
-        if (value instanceof String text) {
-            try {
-                return new BigDecimal(text);
-            } catch (NumberFormatException exception) {
-                throw new IllegalArgumentException("invalid value type for dynamic field type: " + FieldType.DECIMAL,
-                        exception);
-            }
-        }
-        if (value instanceof Number) {
             return value;
         }
         throw new IllegalArgumentException("invalid value type for dynamic field type: " + FieldType.DECIMAL);

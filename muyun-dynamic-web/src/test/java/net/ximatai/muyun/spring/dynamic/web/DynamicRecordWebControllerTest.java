@@ -283,7 +283,8 @@ class DynamicRecordWebControllerTest {
         ArgumentCaptor<DynamicRecord> recordCaptor = ArgumentCaptor.forClass(DynamicRecord.class);
         verify(service).previewFormula(eq(MODULE), eq(ENTITY), recordCaptor.capture());
         assertThat(recordCaptor.getValue().getValue("code")).isEqualTo("draft");
-        assertThat(recordCaptor.getValue().getValue("amount")).isEqualTo(15);
+        assertThat((BigDecimal) recordCaptor.getValue().getValue("amount"))
+                .isEqualByComparingTo(new BigDecimal("15"));
     }
 
     @Test
@@ -383,7 +384,8 @@ class DynamicRecordWebControllerTest {
 
     @Test
     void shouldCreateAndUpdateMainEntityThroughAliasRootContract() throws Exception {
-        DynamicRecord created = new DynamicRecord(entity()).setValue("code", "C-001").setValue("amount", 12);
+        DynamicRecord created = new DynamicRecord(entity()).setValue("code", "C-001")
+                .setValue("amount", BigDecimal.valueOf(12));
         created.setId("contract-1");
         DynamicRecord updated = new DynamicRecord(entity()).setValue("amount", BigDecimal.TEN);
         updated.setId("contract-1");

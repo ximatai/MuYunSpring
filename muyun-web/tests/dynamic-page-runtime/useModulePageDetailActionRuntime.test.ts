@@ -9,7 +9,13 @@ function createRuntime(localEditValid?: Ref<boolean>) {
   const refreshList = vi.fn();
   const presentSuccess = vi.fn();
   const presentError = vi.fn();
-  const selectedRecord = ref({ id: 'record-1', version: 1, title: '旧标题', hidden: '不提交' });
+  const selectedRecord = ref({
+    id: 'record-1',
+    version: 1,
+    title: '旧标题',
+    amount: '0.123456789012345678',
+    hidden: '不提交',
+  });
   const runtime = useModulePageDetailActionRuntime({
     context: {
       moduleAlias: 'crm.customer',
@@ -42,7 +48,18 @@ function createRuntime(localEditValid?: Ref<boolean>) {
                 uiConfigIdPayloadKey: 'uiConfigId',
               },
               fields: [
-                { fieldName: 'title', fieldTitle: '名称', fieldUiControlAlias: 'date' },
+                {
+                  fieldName: 'title',
+                  fieldTitle: '名称',
+                  fieldUiControlAlias: 'date',
+                  valueType: 'LONG',
+                },
+                {
+                  fieldName: 'amount',
+                  fieldTitle: '金额',
+                  fieldUiControlAlias: 'date',
+                  valueType: 'DECIMAL',
+                },
                 { fieldName: 'hidden', visible: false },
               ],
             },
@@ -74,8 +91,12 @@ describe('module page detail action runtime', () => {
       path: '/crm.customer/rename/record-1',
       body: {
         recordId: 'record-1',
-        record: { id: 'record-1', version: 1, values: { title: '新名称' } },
-        fieldNames: ['title'],
+        record: {
+          id: 'record-1',
+          version: 1,
+          values: { title: '新名称', amount: '0.123456789012345678' },
+        },
+        fieldNames: ['title', 'amount'],
         payload: { uiConfigId: 'rename-form' },
       },
     });
@@ -92,7 +113,27 @@ describe('module page detail action runtime', () => {
     expect(runtime.localEditFields.value.get('title')).toMatchObject({
       uiType: 'date',
       fieldControl: { alias: 'date', rendererType: 'DATE', valueShape: 'SCALAR' },
+      valueType: 'LONG',
     });
+  });
+
+  it('preserves canonical LONG and DECIMAL editor strings in local-edit payloads', async () => {
+    const { runtime, request } = createRuntime();
+    runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+    runtime.localEditDraft.value!.title = '9007199254740993';
+    runtime.localEditDraft.value!.amount = '9999999999999999.99';
+
+    await runtime.submitLocalEdit();
+
+    expect(request).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          record: expect.objectContaining({
+            values: { title: '9007199254740993', amount: '9999999999999999.99' },
+          }),
+        }),
+      }),
+    );
   });
 
   it('keeps failed action effects inside the runtime boundary', async () => {

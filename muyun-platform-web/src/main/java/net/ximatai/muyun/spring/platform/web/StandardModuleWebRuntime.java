@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.web.WebPageResponse;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -76,6 +77,26 @@ public class StandardModuleWebRuntime {
     }
 
     /**
+     * Field semantics consumed by the standard-module HTTP adapter.  They are compiled with the
+     * execution plan, so request handling never infers wire types from Java reflection.
+     */
+    public Map<String, FieldValueType> wireFieldTypes(String moduleAlias) {
+        ModuleExecutionPlan plan = requirePlan(moduleAlias);
+        LinkedHashMap<String, FieldValueType> types = new LinkedHashMap<>();
+        collectFieldTypes(types, plan.uiDescriptor().defaultEditor());
+        if (plan.uiDescriptor().page() != null) {
+            ResolvedModulePageDescriptor page = plan.uiDescriptor().page();
+            if (page.list() != null) collectFieldTypes(types, page.list().fields());
+            if (page.detail() != null) {
+                collectFieldTypes(types, page.detail().display());
+                collectFieldTypes(types, page.detail().editor());
+            }
+        }
+        plan.uiDescriptor().editorSurfaces().forEach(surface -> collectFieldTypes(types, surface.editor()));
+        return Map.copyOf(types);
+    }
+
+    /**
      * Executes the compiled plan's default list projection without consulting a controller
      * declaration.  This is the only read-projection entry point for migrated static modules.
      */
@@ -102,5 +123,14 @@ public class StandardModuleWebRuntime {
 
     private Optional<ModuleExecutionPlan> plan(String moduleAlias) {
         return executionPlans.find(moduleAlias);
+    }
+
+    private static void collectFieldTypes(Map<String, FieldValueType> target, ResolvedViewDescriptor view) {
+        if (view == null) return;
+        view.fields().forEach(field -> {
+            if (field.valueType() != null && field.fieldRef().relationCode() == null) {
+                target.putIfAbsent(field.fieldRef().fieldName(), field.valueType());
+            }
+        });
     }
 }

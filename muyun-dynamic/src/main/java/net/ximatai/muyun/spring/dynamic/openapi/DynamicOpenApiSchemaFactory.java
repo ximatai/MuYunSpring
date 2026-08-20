@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
+import net.ximatai.muyun.spring.common.web.PlatformWebWireContract;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -169,19 +170,8 @@ final class DynamicOpenApiSchemaFactory {
         if (OptionSelectionMode.MULTIPLE == selectionMode) {
             return new FieldShape("array", null);
         }
-        return switch (type) {
-            case STRING, TEXT -> new FieldShape("string", null);
-            case INTEGER -> new FieldShape("integer", "int32");
-            // JavaScript clients must not parse enterprise int64 values through Number. Dynamic
-            // record HTTP therefore transports LONG/DECIMAL as canonical text in both requests
-            // and responses; the runtime parses them by FieldType.
-            case LONG -> new FieldShape("string", "int64");
-            case BOOLEAN -> new FieldShape("boolean", null);
-            case DATE -> new FieldShape("string", "date");
-            case TIMESTAMP, ZONED_TIMESTAMP -> new FieldShape("string", "date-time");
-            case DECIMAL -> new FieldShape("string", "decimal");
-            case JSON -> new FieldShape("object", null);
-        };
+        PlatformWebWireContract.WireShape shape = PlatformWebWireContract.openApiShape(type.name());
+        return new FieldShape(shape.type(), shape.format());
     }
 
     private DynamicOpenApiDocument.Schema moduleDescriptorSchema() {

@@ -85,6 +85,7 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
             // `uiType` remains only as a compatibility fallback for older bootstraps.
             fieldControl: controlsByAlias.get(field.fieldUiControlAlias ?? ''),
             uiType: field.fieldUiControlAlias,
+            valueType: field.valueType,
             columnSpan: field.columnSpan,
           },
         ]),

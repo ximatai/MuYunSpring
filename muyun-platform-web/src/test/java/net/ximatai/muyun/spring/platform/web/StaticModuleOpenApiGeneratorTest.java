@@ -160,7 +160,9 @@ class StaticModuleOpenApiGeneratorTest {
                 new StaticModuleDefinitionCatalog(List.of(
                         StaticModuleDefinition.builder("education", "education.teacher", "教师")
                                 .entities(List.of(new EntityDefinition("teacher", "teacher", "教师",
-                                        List.of(FieldDefinition.titleField()))))
+                                        List.of(FieldDefinition.titleField(),
+                                                FieldDefinition.longInteger("employeeNumber", "工号"),
+                                                FieldDefinition.decimal("annualSalary", "年薪")))))
                                 .build())),
                 endpointCatalog);
 
@@ -175,6 +177,12 @@ class StaticModuleOpenApiGeneratorTest {
                 .containsKeys("id", "tenantId", "version", "deleted", "createdAt", "updatedAt");
         assertThat(document.schemas().get("Teacher").properties().get("version").optionSource())
                 .contains("Optimistic lock");
+        assertThat(document.schemas().get("Teacher").properties().get("employeeNumber"))
+                .extracting(property -> property.type(), property -> property.format())
+                .containsExactly("string", "int64");
+        assertThat(document.schemas().get("Teacher").properties().get("annualSalary"))
+                .extracting(property -> property.type(), property -> property.format())
+                .containsExactly("string", "decimal");
         assertThat(document.operations()).filteredOn(operation -> PlatformAction.CREATE.code().equals(operation.actionCode()))
                 .singleElement().extracting(operation -> operation.successStatus()).isEqualTo(201);
         assertThat(document.operations()).filteredOn(operation -> PlatformAction.CREATE.code().equals(operation.actionCode()))

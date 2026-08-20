@@ -1789,7 +1789,8 @@ public class DynamicRecordWebController implements
         if (normalized.version() != null) {
             record.setVersion(normalized.version());
         }
-        normalized.values().forEach(record::setValue);
+        normalized.values().forEach((fieldName, value) ->
+                record.setValue(fieldName, webRecordValue(record, fieldName, value)));
         normalized.children().forEach((relationCode, rows) -> {
             if (rows == null) {
                 throw new PlatformException("dynamic child relation must be array: " + relationCode);
@@ -1803,6 +1804,44 @@ public class DynamicRecordWebController implements
             );
         });
         return record;
+    }
+
+    /**
+     * DTO-backed Web entries (formula preview, action payloads and generated drafts) do not use
+     * {@link DynamicRecordJsonDeserializer}. Decode their numeric editor values at this adapter
+     * boundary before passing them to the strongly typed DynamicRecord domain model.
+     */
+    private Object webRecordValue(DynamicRecord record, String fieldName, Object value) {
+        FieldType type = record.getEntity().fields().stream()
+                .filter(field -> field.fieldName().equals(fieldName))
+                .map(FieldDefinition::type)
+                .findFirst()
+                .orElse(null);
+        if (type == FieldType.LONG && value instanceof String text) {
+            try {
+                return Long.valueOf(text);
+            } catch (NumberFormatException exception) {
+                throw new PlatformException("invalid lossless long wire value: " + fieldName, exception);
+            }
+        }
+        if (type == FieldType.LONG && value instanceof Number number && !(number instanceof Long)) {
+            try {
+                return new BigDecimal(number.toString()).longValueExact();
+            } catch (NumberFormatException | ArithmeticException exception) {
+                throw new PlatformException("invalid long wire value: " + fieldName, exception);
+            }
+        }
+        if (type == FieldType.DECIMAL && value instanceof String text) {
+            try {
+                return new BigDecimal(text);
+            } catch (NumberFormatException exception) {
+                throw new PlatformException("invalid lossless decimal wire value: " + fieldName, exception);
+            }
+        }
+        if (type == FieldType.DECIMAL && value instanceof Number number && !(number instanceof BigDecimal)) {
+            return new BigDecimal(number.toString());
+        }
+        return value;
     }
 
     private void validateWritableSaveFields(DynamicRecord record, String pathPrefix) {

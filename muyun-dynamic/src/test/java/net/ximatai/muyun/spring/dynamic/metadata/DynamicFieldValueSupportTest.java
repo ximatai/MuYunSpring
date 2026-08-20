@@ -6,7 +6,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -55,10 +54,12 @@ class DynamicFieldValueSupportTest {
     }
 
     @Test
-    void shouldParseLosslessLongAndDecimalWireValuesWithoutDoubleConversion() {
-        assertThat(DynamicFieldValueSupport.normalize(FieldType.LONG, "9007199254740993"))
-                .isEqualTo(9007199254740993L);
-        assertThat((BigDecimal) DynamicFieldValueSupport.normalize(FieldType.DECIMAL, "0.123456789012345678"))
-                .isEqualByComparingTo(new BigDecimal("0.123456789012345678"));
+    void shouldRejectLosslessNumericWireTextOutsideWebAdapter() {
+        assertThatThrownBy(() -> DynamicFieldValueSupport.normalize(FieldType.LONG, "9007199254740993"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("LONG");
+        assertThatThrownBy(() -> DynamicFieldValueSupport.normalize(FieldType.DECIMAL, "0.123456789012345678"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("DECIMAL");
     }
 }

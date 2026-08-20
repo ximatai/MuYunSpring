@@ -87,6 +87,7 @@ import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityFacet;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityDeclarationPolicy;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityModule;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityOperationContext;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
@@ -1611,6 +1612,9 @@ class StaticModuleDefinitionScannerTest {
 
     private static class ApprovalStaticFacetModule implements StaticCapabilityModule {
         @Override public EntityCapability capability() { return EntityCapability.APPROVAL; }
+        @Override public StaticCapabilityDeclarationPolicy declarationPolicy() {
+            return StaticCapabilityDeclarationPolicy.ANNOTATION_OWNED;
+        }
         @Override public java.util.Optional<StaticCapabilityFacet> staticFacet() {
             return java.util.Optional.of(new StaticCapabilityFacet() {
                 @Override public boolean supports(Object service) { return service instanceof FacetOnlyService; }

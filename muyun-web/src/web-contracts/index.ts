@@ -350,6 +350,8 @@ export interface PageBootstrapLocalEditField {
   fieldName: string;
   fieldTitle?: string;
   fieldUiControlAlias?: string;
+  /** Authoritative storage type of this resolved field; editors use it for lossless codecs. */
+  valueType?: ViewFieldValueType;
   visible?: boolean;
   readOnly?: boolean;
   requiredOverride?: boolean;

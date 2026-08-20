@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.context.request.RequestContextHolder;
 
 import java.util.List;
 import java.util.Map;
@@ -132,7 +133,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
                 Optional<WebPageResponse<Map<String, Object>>> projected = queryStaticProjectedList(
                         request, RecordReadVisibility.ACTIVE);
                 if (projected.isPresent()) {
-                    return (WebPageResponse<T>) (WebPageResponse<?>) projected.get();
+                    return (WebPageResponse<T>) (WebPageResponse<?>) standardWirePage(projected.get());
                 }
             }
             WebPageResponse<T> response;
@@ -142,7 +143,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             } else {
                 response = WebPageResponse.from(WebOutputSupport.page(service(), queryRecords(request), FieldOutputContext.LIST));
             }
-            return projectStaticDefaultList(response);
+            return (WebPageResponse<T>) standardWirePage(projectStaticDefaultList(response));
         });
     }
 
@@ -204,14 +205,39 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return null;
     }
 
+    private WebPageResponse<?> standardWirePage(WebPageResponse<?> response) {
+        if (RequestContextHolder.getRequestAttributes() == null) {
+            return response;
+        }
+        StandardModuleWebRuntime runtime = executionRuntime();
+        String moduleAlias = moduleAliasForRuntime();
+        if (runtime == null || moduleAlias == null || !runtime.hasPlan(moduleAlias)) {
+            return response;
+        }
+        return StaticModuleWebWireValues.page(response, runtime.wireFieldTypes(moduleAlias));
+    }
+
+    @SuppressWarnings("unchecked")
+    private T standardWireRecord(T record) {
+        if (RequestContextHolder.getRequestAttributes() == null) {
+            return record;
+        }
+        StandardModuleWebRuntime runtime = executionRuntime();
+        String moduleAlias = moduleAliasForRuntime();
+        if (runtime == null || moduleAlias == null || !runtime.hasPlan(moduleAlias)) {
+            return record;
+        }
+        return (T) StaticModuleWebWireValues.record(record, runtime.wireFieldTypes(moduleAlias));
+    }
+
     @GetMapping("/view/{id}")
     @ActionEndpoint(PlatformAction.VIEW)
     default T view(@PathVariable String id) {
         return webScope(() -> {
             requireExecutionPlanAtRequest();
-            return WebOutputSupport.record(service(),
+            return standardWireRecord(WebOutputSupport.record(service(),
                     StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),
-                    FieldOutputContext.VIEW);
+                    FieldOutputContext.VIEW));
         });
     }
 
@@ -233,7 +259,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             String id = service().insert(record);
             T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
             StandardMutationResultSupport.created(this, id, recordLabel(saved));
-            return saved;
+            return standardWireRecord(saved);
         }));
     }
 
@@ -258,7 +284,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
                     StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),
                     FieldOutputContext.VIEW);
             StandardMutationResultSupport.updated(this, id, recordLabel(saved));
-            return saved;
+            return standardWireRecord(saved);
         }));
     }
 

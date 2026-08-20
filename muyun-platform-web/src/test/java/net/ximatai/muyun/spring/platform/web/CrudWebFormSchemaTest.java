@@ -38,6 +38,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Set;
+import java.math.BigDecimal;
 
 import static org.mockito.Mockito.mock;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -211,6 +212,42 @@ class CrudWebFormSchemaTest {
     }
 
     @Test
+    void shouldUseLosslessLongAndDecimalWireValuesForStaticCrudResponsesAndMutations() throws Exception {
+        DemoRecordService service = new DemoRecordService();
+        HighPrecisionDemoRecordController controller = new HighPrecisionDemoRecordController(service);
+        StaticModuleDefinition definition = highPrecisionStaticModuleDefinition();
+        controller.setStandardModuleWebRuntime(new StandardModuleWebRuntime(
+                new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of(definition))),
+                new StaticRecordReadProjectionService(new StaticModuleDefinitionCatalog(List.of(definition)))));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/demo.record.high/query").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.records[0].longValue").value("9007199254740993"))
+                    .andExpect(jsonPath("$.records[0].amount").value("9999999999999999.99"));
+            mvc.perform(get("/demo.record.high/view/demo-1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.longValue").value("9007199254740993"))
+                    .andExpect(jsonPath("$.amount").value("9999999999999999.99"));
+            mvc.perform(post("/demo.record.high/insert").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"title\":\"Inserted\",\"longValue\":\"9007199254740993\",\"amount\":\"0.123456789012345678\"}"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.longValue").value("9007199254740993"))
+                    .andExpect(jsonPath("$.amount").value("0.123456789012345678"));
+            assertThat(service.persisted.longValue).isEqualTo(9007199254740993L);
+            assertThat(service.persisted.amount).isEqualByComparingTo("0.123456789012345678");
+            mvc.perform(post("/demo.record.high/update/demo-1").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"title\":\"Updated\",\"longValue\":\"9999999999999999\",\"amount\":\"9999999999999999.99\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.longValue").value("9999999999999999"))
+                    .andExpect(jsonPath("$.amount").value("9999999999999999.99"));
+            assertThat(service.persisted.longValue).isEqualTo(9999999999999999L);
+            assertThat(service.persisted.amount).isEqualByComparingTo("9999999999999999.99");
+        }
+    }
+
+    @Test
     void shouldRejectMigratedCrudEndpointWhenItsExecutionRuntimeIsMissing() {
         StrictDemoRecordController controller = new StrictDemoRecordController(new DemoRecordService());
 
@@ -281,6 +318,20 @@ class CrudWebFormSchemaTest {
                 throw new AssertionError("request runtime must not call moduleUiDefinition");
             }
             return demoStaticModuleDefinition().uiDefinition();
+        }
+    }
+
+    @RestController
+    @RequestMapping("/demo.record.high")
+    private static final class HighPrecisionDemoRecordController extends StaticModuleWebControllerAdapter<DemoRecordService>
+            implements CrudWeb<DemoRecord, DemoRecordService>, StaticModuleUiContributor {
+        private HighPrecisionDemoRecordController(DemoRecordService service) {
+            this.service = service;
+        }
+
+        @Override
+        public ModuleUiDefinition moduleUiDefinition() {
+            return highPrecisionStaticModuleDefinition().uiDefinition();
         }
     }
 
@@ -401,6 +452,7 @@ class CrudWebFormSchemaTest {
 
     private static final class DemoRecordService extends AbstractAbilityService<DemoRecord>
             implements FormAbility<DemoRecord> {
+        private DemoRecord persisted;
         private DemoRecordService() {
             super("demo.record", DemoRecord.class, dao());
         }
@@ -415,11 +467,36 @@ class CrudWebFormSchemaTest {
 
         @Override
         public PageResult<DemoRecord> pageQuery(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
+            DemoRecord record = persisted == null ? defaultRecord() : persisted;
+            return PageResult.of(List.of(record), 1, pageRequest);
+        }
+
+        @Override
+        public DemoRecord select(String id) {
+            return persisted == null ? defaultRecord() : persisted;
+        }
+
+        @Override
+        public String insert(DemoRecord record) {
+            record.setId("demo-1");
+            persisted = record;
+            return record.getId();
+        }
+
+        @Override
+        public int update(DemoRecord record) {
+            persisted = record;
+            return 1;
+        }
+
+        private static DemoRecord defaultRecord() {
             DemoRecord record = new DemoRecord();
             record.setId("demo-1");
             record.setTitle("Demo One");
             record.setStatus("draft");
-            return PageResult.of(List.of(record), 1, pageRequest);
+            record.setLongValue(9007199254740993L);
+            record.setAmount(new BigDecimal("9999999999999999.99"));
+            return record;
         }
     }
 
@@ -447,6 +524,30 @@ class CrudWebFormSchemaTest {
                        .build();
     }
 
+    private static StaticModuleDefinition highPrecisionStaticModuleDefinition() {
+        return StaticModuleDefinition.builder("demo", "demo.record.high", "High precision demo")
+                .entry(ModuleEntryType.ROUTE, "/demo-record-high", null)
+                .capabilities(Set.of(EntityCapability.CRUD))
+                .actions(List.of())
+                .entities(List.of(new EntityDefinition("demo_record", "demo_record", "Demo Record", List.of(
+                        FieldDefinition.string("title", "名称"),
+                        FieldDefinition.longInteger("longValue", "长整型"),
+                        FieldDefinition.decimal("amount", "金额")
+                ))))
+                .uiDefinition(ModuleUiDefinition.builder("demo.record.high")
+                        .page(PageTemplates.listDetailCard(page -> page
+                                .list(list -> list.fields(fields -> fields
+                                        .field("title")
+                                        .field("longValue")
+                                        .field("amount")))
+                                .detail(detail -> detail.editor(form -> form
+                                        .field("title")
+                                        .field("longValue")
+                                        .field("amount")))))
+                        .build())
+                .build();
+    }
+
     @Table(name = "demo_record", comment = "Demo Record")
     private static final class DemoRecord extends StandardEntity {
         @Column(name = "title", comment = "名称")
@@ -461,6 +562,10 @@ class CrudWebFormSchemaTest {
 
         @OptionLoad(source = "status")
         private String statusTitle;
+
+        private Long longValue;
+
+        private BigDecimal amount;
 
         public String getTitle() {
             return title;
@@ -493,6 +598,14 @@ class CrudWebFormSchemaTest {
         public void setStatusTitle(String statusTitle) {
             this.statusTitle = statusTitle;
         }
+
+        public Long getLongValue() { return longValue; }
+
+        public void setLongValue(Long longValue) { this.longValue = longValue; }
+
+        public BigDecimal getAmount() { return amount; }
+
+        public void setAmount(BigDecimal amount) { this.amount = amount; }
     }
 
     @SuppressWarnings("unchecked")

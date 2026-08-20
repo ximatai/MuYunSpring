@@ -23,9 +23,7 @@ public interface StaticCapabilityModule {
      * Identifies whether a static module may declare this capability itself or must derive it
      * from the service's ability composition.
      */
-    default StaticCapabilityDeclarationPolicy declarationPolicy() {
-        return StaticCapabilityDeclarationPolicy.ANNOTATION_OWNED;
-    }
+    StaticCapabilityDeclarationPolicy declarationPolicy();
 
     default Optional<StaticCapabilityFacet> staticFacet() {
         return Optional.empty();

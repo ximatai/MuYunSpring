@@ -4,6 +4,8 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionRequest;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutor;
@@ -15,6 +17,7 @@ import net.ximatai.muyun.spring.platform.impact.RecordOriginContext;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -209,9 +212,25 @@ public class RecordGenerationActionExecutor implements DynamicActionExecutor {
                 value = fieldMapping.getDefaultValue();
             }
             if (value != null) {
-                draft.setValue(fieldMapping.getTargetField(), value);
+                draft.setValue(fieldMapping.getTargetField(), generatedFieldValue(draft, fieldMapping.getTargetField(), value));
             }
         }
+    }
+
+    /** Formula and constant mappings are adapter values; normalize them before entering DynamicRecord. */
+    private Object generatedFieldValue(DynamicRecord draft, String fieldName, Object value) {
+        FieldType type = draft.getEntity().fields().stream()
+                .filter(field -> field.fieldName().equals(fieldName))
+                .map(FieldDefinition::type)
+                .findFirst()
+                .orElse(null);
+        if (type == FieldType.LONG && value instanceof Number number && !(value instanceof Long)) {
+            return new BigDecimal(number.toString()).longValueExact();
+        }
+        if (type == FieldType.DECIMAL && value instanceof Number number && !(value instanceof BigDecimal)) {
+            return new BigDecimal(number.toString());
+        }
+        return value;
     }
 
     private RecordGenerationDraft recordDraft(RecordGenerationRule rule,

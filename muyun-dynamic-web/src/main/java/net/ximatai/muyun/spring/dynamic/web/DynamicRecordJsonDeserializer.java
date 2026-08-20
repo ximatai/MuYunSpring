@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -88,8 +89,8 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
     /**
      * JSON parsers cannot infer an editor's target field type from an untyped record map. Decode
      * numeric JSON nodes by the published entity field fact before DynamicRecord applies its
-     * invariant validation. LONG and DECIMAL also accept their lossless textual wire form; the
-     * DynamicFieldValueSupport invariant then parses it without a browser Number round-trip.
+     * invariant validation. LONG and DECIMAL lossless textual wire values are decoded here,
+     * at the Web boundary, so DynamicRecord itself remains strictly domain typed.
      */
     private Object readFieldValue(DynamicRecord record,
                                   String fieldName,
@@ -113,10 +114,32 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
             }
             return value.longValue();
         }
+        if (type == FieldType.LONG && value.isTextual()) {
+            return losslessLong(fieldName, value.textValue());
+        }
         if (type == FieldType.DECIMAL && value.isNumber()) {
             return value.decimalValue();
         }
+        if (type == FieldType.DECIMAL && value.isTextual()) {
+            return losslessDecimal(fieldName, value.textValue());
+        }
         return context.readValue(valueParser, Object.class);
+    }
+
+    private Long losslessLong(String fieldName, String value) {
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("invalid lossless long wire value: " + fieldName, exception);
+        }
+    }
+
+    private BigDecimal losslessDecimal(String fieldName, String value) {
+        try {
+            return new BigDecimal(value);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("invalid lossless decimal wire value: " + fieldName, exception);
+        }
     }
 
     private void readOriginContext(DynamicRecord record,

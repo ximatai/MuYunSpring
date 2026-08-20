@@ -13,14 +13,13 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionResult;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionResultBody;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicFormulaPreviewResult;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
-import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceMatchMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveMode;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.platform.impact.RecordOriginContext;
+import net.ximatai.muyun.spring.common.web.PlatformWebWireContract;
 
 import java.util.Collection;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -296,12 +295,7 @@ final class DynamicWebValues {
             if (value == null) {
                 return;
             }
-            if (field.type() == FieldType.LONG && value instanceof Number number) {
-                converted.put(field.fieldName(), number.toString());
-            }
-            if (field.type() == FieldType.DECIMAL && value instanceof BigDecimal decimal) {
-                converted.put(field.fieldName(), decimal.toPlainString());
-            }
+            converted.put(field.fieldName(), PlatformWebWireContract.responseValue(field.type().name(), value));
         });
         return converted;
     }
