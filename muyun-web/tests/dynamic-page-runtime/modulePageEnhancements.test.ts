@@ -91,6 +91,37 @@ describe('module page enhancements', () => {
     expect(() =>
       createModulePageEnhancementRegistry([
         {
+          id: 'first-form-contribution',
+          target: { moduleAlias: 'crm.customer' },
+          form: {
+            contributions: [
+              {
+                key: 'brand-mode',
+                component: {},
+                location: { surface: 'main', section: 'before-fields' },
+              },
+            ],
+          },
+        },
+        {
+          id: 'second-form-contribution',
+          target: { moduleAlias: 'crm.customer' },
+          form: {
+            contributions: [
+              {
+                key: 'brand-mode',
+                component: {},
+                location: { surface: 'main', section: 'before-fields' },
+              },
+            ],
+          },
+        },
+      ]),
+    ).toThrow('同一页面区域存在重复的贡献 key');
+
+    expect(() =>
+      createModulePageEnhancementRegistry([
+        {
           id: 'first-target-action',
           target: { moduleAlias: 'crm.customer' },
           detail: { actions: [{ key: 'timeline', title: '时间线', run: () => undefined }] },

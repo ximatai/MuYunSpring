@@ -56,6 +56,16 @@ final class CrudWebRuntimeSupport {
         Criteria workspaceCriteria = navigatorCriteria(controller, request);
         StandardModuleWebRuntime runtime = executionRuntime(controller);
         if (controller.requiresModuleExecutionPlan() || runtime != null && runtime.hasPlan(controller.webScopeName())) {
+            // A static service without QueryAbility compiles an explicit empty query contract.
+            // Keep the public rejection semantics instead of letting normalization silently drop
+            // caller supplied filters before QueryCompiler sees them.
+            QuerySchema schema = runtime.querySchema(controller.webScopeName(), controller.service()).orElseThrow();
+            if (schema.fields().isEmpty() && request != null && request.criteria() != null && !request.criteria().isEmpty()) {
+                throw new IllegalArgumentException("query criteria are not supported by " + controller.webScopeName());
+            }
+            if (schema.fields().isEmpty() && request != null && !request.conditions().isEmpty()) {
+                throw new IllegalArgumentException("query conditions are not supported by " + controller.webScopeName());
+            }
             return andCriteria(runtime.queryCriteria(controller.webScopeName(), controller.service(),
                     WebQueryRequests.from(withoutNavigatorExternalValues(controller, request))).orElseThrow(), workspaceCriteria);
         }

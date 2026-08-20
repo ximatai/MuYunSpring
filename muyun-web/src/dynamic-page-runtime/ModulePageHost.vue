@@ -67,6 +67,8 @@ import {
   type ModulePageColumnContribution,
   type ModulePageDetailDrawer,
   type ModulePageDetailSection,
+  type ModulePageFormContributionState,
+  type ModulePageFormFieldPolicy,
   type ModulePageDetailSectionContext,
   type ModulePageDrawer,
   type ModulePageDrawerContext,
@@ -84,6 +86,7 @@ import {
 } from './detailSurfacePreference';
 import { normalizeListPageSize, restoreListPageSize, saveListPageSize } from './listPageSizePreference';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
+import ModulePageFormContributionRenderer from './ModulePageFormContributionRenderer.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { useRecordDetailController } from './recordDetailController';
@@ -95,6 +98,7 @@ import { useModulePageActions } from './composables/useModulePageActions';
 import { useRecordEditingSession } from './composables/useRecordEditingSession';
 import { useModulePageListSession } from './composables/useModulePageListSession';
 import { useModulePageDetailActionRuntime } from './composables/useModulePageDetailActionRuntime';
+import { useModulePageFormContributionRuntime } from './composables/useModulePageFormContributionRuntime';
 
 /**
  * Descriptor-driven CRUD runner for every standard platform module page.
@@ -395,6 +399,37 @@ const treeRootTitle = computed(
 const pageEnhancement = computed(() =>
   resolveModulePageEnhancement(context.moduleAlias, activeListView.value?.viewCode),
 );
+const formContributions = computed(() => pageEnhancement.value?.form?.contributions ?? []);
+const formFieldPolicies = computed(() => pageEnhancement.value?.form?.fieldPolicies ?? []);
+const {
+  valid: mainFormContributionValid,
+  contextFor: mainFormContributionContextFor,
+  stateSnapshot: mainFormStateSnapshot,
+} = useModulePageFormContributionRuntime({
+  contributions: formContributions,
+  mode: editorMode,
+  draft: editingRecord,
+  fields: formFields,
+  formSessionKey,
+  setField: updateDraftField,
+});
+const mainFormFieldNames = computed(() =>
+  [...formFields.value.keys()].filter((fieldName) =>
+    formFieldPolicyVisible(fieldName, mainFormStateSnapshot()),
+  ),
+);
+function formFieldPolicyVisible(fieldName: string, state: ModulePageFormContributionState) {
+  return formFieldPolicy(fieldName)?.visible?.(state) !== false;
+}
+function formFieldPolicy(fieldName: string): ModulePageFormFieldPolicy | undefined {
+  return formFieldPolicies.value.find((policy) => policy.fieldName === fieldName);
+}
+function mainFormImageUploadHint(fieldName: string) {
+  return formFieldPolicy(fieldName)?.imageUploadHint?.(mainFormStateSnapshot());
+}
+function mainFormImageUploadAdvisory(fieldName: string) {
+  return formFieldPolicy(fieldName)?.imageUploadAdvisory?.(mainFormStateSnapshot());
+}
 let disposePageEnhancement: (() => void) | undefined;
 watch(
   pageEnhancement,
@@ -1435,7 +1470,7 @@ async function editRecord(record: QueryListRecord) {
 async function saveRecord() {
   const record = editingRecord.value;
   if (!record) return;
-  if (!mainFormValid.value) return;
+  if (!mainFormValid.value || !mainFormContributionValid.value) return;
   if (editorMode.value === 'create' ? context.can('create') !== true : context.can('update') !== true) {
     return;
   }
@@ -1979,16 +2014,50 @@ function recordTitle(record: QueryListRecord | undefined) {
           :exclude-field-names="['enabled']"
         />
         <div v-else class="module-form">
+          <ModulePageFormContributionRenderer
+            :contributions="formContributions"
+            surface="main"
+            position="before-fields"
+            :context-for="mainFormContributionContextFor"
+          />
           <RecordFormFields
             :record="editingRecord as RecordFormRecord"
             :fields="formFields"
+            :field-names="mainFormFieldNames"
             :form-session-key="formSessionKey"
             :option-context="context"
             :picker-configs="referencePickerConfigs"
             :disabled="saving"
             :exclude-field-names="['enabled']"
+            :image-upload-hint-of="mainFormImageUploadHint"
+            :image-upload-advisory-of="mainFormImageUploadAdvisory"
             @update:field="updateDraftField"
             @validity-change="updateMainFormValidity"
+          >
+            <template #before-field="{ field }">
+              <ModulePageFormContributionRenderer
+                :contributions="formContributions"
+                surface="main"
+                position="before"
+                :field="field"
+                :context-for="mainFormContributionContextFor"
+              />
+            </template>
+            <template #after-field="{ field }">
+              <ModulePageFormContributionRenderer
+                :contributions="formContributions"
+                surface="main"
+                position="after"
+                :field="field"
+                :context-for="mainFormContributionContextFor"
+              />
+            </template>
+          </RecordFormFields>
+          <ModulePageFormContributionRenderer
+            :contributions="formContributions"
+            surface="main"
+            position="after-fields"
+            :context-for="mainFormContributionContextFor"
           />
         </div>
         <template v-if="editorMode === 'view'">
@@ -2255,6 +2324,12 @@ function recordTitle(record: QueryListRecord | undefined) {
             </RecordDetailExtensionSection>
           </template>
           <div v-else class="module-form">
+            <ModulePageFormContributionRenderer
+              :contributions="formContributions"
+              surface="main"
+              position="before-fields"
+              :context-for="mainFormContributionContextFor"
+            />
             <RecordFormFields
               :record="editingRecord as RecordFormRecord"
               :fields="formFields"
@@ -2265,6 +2340,31 @@ function recordTitle(record: QueryListRecord | undefined) {
               :exclude-field-names="['enabled']"
               @update:field="updateDraftField"
               @validity-change="updateMainFormValidity"
+            >
+              <template #before-field="{ field }">
+                <ModulePageFormContributionRenderer
+                  :contributions="formContributions"
+                  surface="main"
+                  position="before"
+                  :field="field"
+                  :context-for="mainFormContributionContextFor"
+                />
+              </template>
+              <template #after-field="{ field }">
+                <ModulePageFormContributionRenderer
+                  :contributions="formContributions"
+                  surface="main"
+                  position="after"
+                  :field="field"
+                  :context-for="mainFormContributionContextFor"
+                />
+              </template>
+            </RecordFormFields>
+            <ModulePageFormContributionRenderer
+              :contributions="formContributions"
+              surface="main"
+              position="after-fields"
+              :context-for="mainFormContributionContextFor"
             />
           </div>
           <RecordMetaSection
@@ -2502,6 +2602,12 @@ function recordTitle(record: QueryListRecord | undefined) {
             </RecordDetailExtensionSection>
           </template>
           <div v-else class="module-form">
+            <ModulePageFormContributionRenderer
+              :contributions="formContributions"
+              surface="main"
+              position="before-fields"
+              :context-for="mainFormContributionContextFor"
+            />
             <RecordFormFields
               :record="editingRecord as RecordFormRecord"
               :fields="formFields"
@@ -2511,6 +2617,31 @@ function recordTitle(record: QueryListRecord | undefined) {
               :exclude-field-names="['enabled']"
               @update:field="updateDraftField"
               @validity-change="updateMainFormValidity"
+            >
+              <template #before-field="{ field }">
+                <ModulePageFormContributionRenderer
+                  :contributions="formContributions"
+                  surface="main"
+                  position="before"
+                  :field="field"
+                  :context-for="mainFormContributionContextFor"
+                />
+              </template>
+              <template #after-field="{ field }">
+                <ModulePageFormContributionRenderer
+                  :contributions="formContributions"
+                  surface="main"
+                  position="after"
+                  :field="field"
+                  :context-for="mainFormContributionContextFor"
+                />
+              </template>
+            </RecordFormFields>
+            <ModulePageFormContributionRenderer
+              :contributions="formContributions"
+              surface="main"
+              position="after-fields"
+              :context-for="mainFormContributionContextFor"
             />
           </div>
           <RecordMetaSection
@@ -2668,6 +2799,12 @@ function recordTitle(record: QueryListRecord | undefined) {
       </template>
       <template #form>
         <div v-if="editingRecord" class="module-form">
+          <ModulePageFormContributionRenderer
+            :contributions="formContributions"
+            surface="main"
+            position="before-fields"
+            :context-for="mainFormContributionContextFor"
+          />
           <RecordFormFields
             :record="editingRecord as RecordFormRecord"
             :fields="formFields"
@@ -2677,6 +2814,31 @@ function recordTitle(record: QueryListRecord | undefined) {
             :exclude-field-names="['enabled']"
             @update:field="updateDraftField"
             @validity-change="updateMainFormValidity"
+          >
+            <template #before-field="{ field }">
+              <ModulePageFormContributionRenderer
+                :contributions="formContributions"
+                surface="main"
+                position="before"
+                :field="field"
+                :context-for="mainFormContributionContextFor"
+              />
+            </template>
+            <template #after-field="{ field }">
+              <ModulePageFormContributionRenderer
+                :contributions="formContributions"
+                surface="main"
+                position="after"
+                :field="field"
+                :context-for="mainFormContributionContextFor"
+              />
+            </template>
+          </RecordFormFields>
+          <ModulePageFormContributionRenderer
+            :contributions="formContributions"
+            surface="main"
+            position="after-fields"
+            :context-for="mainFormContributionContextFor"
           />
         </div>
       </template>

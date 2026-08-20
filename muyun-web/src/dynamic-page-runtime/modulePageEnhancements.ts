@@ -1,7 +1,13 @@
 import type { Component } from 'vue';
 import type { PageDescriptor, PageLayoutMode, RouteQueryValue } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
-import type { RecordActionItem, RecordQueryListColumn, QueryListRecord } from '@muyun/platform-components';
+import type {
+  RecordActionItem,
+  RecordFormFieldState,
+  RecordFormFieldValue,
+  RecordQueryListColumn,
+  QueryListRecord,
+} from '@muyun/platform-components';
 import type { DrawerTitleAction } from '@muyun/platform-components';
 
 /**
@@ -22,6 +28,11 @@ export interface ModulePageEnhancement {
   activate?(context: ModulePageEnhancementActivationContext): void | (() => void);
   list?: ModuleListEnhancement;
   detail?: ModuleDetailEnhancement;
+  /**
+   * Frontend-owned editor content mounted at a typed standard-form boundary.
+   * The backend descriptor never selects a component or supplies executable UI.
+   */
+  form?: ModulePageFormEnhancement;
   /** Frontend-owned assistant persistently mounted in the standard record card. */
   card?: ModuleCardEnhancement;
   /**
@@ -60,6 +71,77 @@ export interface ModuleListEnhancement {
 export interface ModuleDetailEnhancement {
   actions?: ModulePageRecordActionContribution[];
   sections?: ModulePageDetailSection[];
+}
+
+/** A controlled addition to the descriptor-owned editor, not a replacement editor. */
+export interface ModulePageFormEnhancement {
+  contributions: ModulePageFormContribution[];
+  fieldPolicies?: ModulePageFormFieldPolicy[];
+}
+
+export type ModulePageFormSurface = 'main' | 'local-edit';
+
+/**
+ * A contribution can target an entire semantic form section or the immediate
+ * boundary before/after one descriptor-owned field. The host owns all other
+ * rendering, codecs, permissions, requests and save lifecycle.
+ */
+export interface ModulePageFormContribution {
+  key: string;
+  component: Component;
+  location: ModulePageFormContributionLocation;
+}
+
+export type ModulePageFormContributionLocation =
+  | {
+      surface: ModulePageFormSurface;
+      section: 'before-fields' | 'after-fields';
+    }
+  | {
+      surface: ModulePageFormSurface;
+      fieldName: string;
+      placement: 'before' | 'after';
+    };
+
+/** The only form state exposed to application-owned editor contributions. */
+export interface ModulePageFormContributionContext {
+  mode: 'create' | 'edit' | 'view';
+  /** A detached, deeply frozen draft snapshot. */
+  draft: Readonly<Record<string, unknown>>;
+  /** Descriptor-resolved field states; never a mutable draft or HTTP client. */
+  fields: readonly Readonly<RecordFormFieldState>[];
+  /** The field at a field-boundary location, otherwise undefined. */
+  field?: Readonly<RecordFormFieldState>;
+  setField(fieldName: string, value: RecordFormFieldValue): void;
+  formSessionKey: number;
+  /** Reports only this contribution's validation fact to the standard save boundary. */
+  reportValidity(validity: ModulePageFormContributionValidity): void;
+}
+
+export interface ModulePageFormContributionValidity {
+  valid: boolean;
+  errors?: Record<string, string>;
+}
+
+/** Read-only facts consumable by a descriptor-field presentation policy. */
+export interface ModulePageFormContributionState {
+  mode: 'create' | 'edit' | 'view';
+  draft: Readonly<Record<string, unknown>>;
+  fields: readonly Readonly<RecordFormFieldState>[];
+  formSessionKey: number;
+}
+
+/**
+ * A typed visual policy around one descriptor-owned field. The platform keeps
+ * transport, file upload and field codecs inside the standard renderer.
+ */
+export interface ModulePageFormFieldPolicy {
+  fieldName: string;
+  visible?(state: ModulePageFormContributionState): boolean;
+  imageUploadHint?(state: ModulePageFormContributionState): string | undefined;
+  imageUploadAdvisory?(
+    state: ModulePageFormContributionState,
+  ): ((file: File) => string | undefined | Promise<string | undefined>) | undefined;
 }
 
 /** Frontend-owned auxiliary UI adjacent to the descriptor-owned record card. */
@@ -392,11 +474,13 @@ function composeModulePageEnhancements(
   }
   const list = composeListEnhancement(enhancements, actionColumnWidths[0]);
   const detail = composeDetailEnhancement(enhancements);
+  const form = composeFormEnhancement(enhancements);
   const composed: ModulePageEnhancement = {
     id: enhancements.map((enhancement) => enhancement.id).join(', '),
     target,
     ...(list ? { list } : {}),
     ...(detail ? { detail } : {}),
+    ...(form ? { form } : {}),
     ...(cards[0] ? { card: cards[0] } : {}),
     ...(recordViews[0] ? { recordView: recordViews[0] } : {}),
     workspaceViews: enhancements.flatMap((enhancement) => enhancement.workspaceViews ?? []),
@@ -466,6 +550,14 @@ function composeDetailEnhancement(
   return detail.actions.length > 0 || detail.sections.length > 0 ? detail : undefined;
 }
 
+function composeFormEnhancement(
+  enhancements: readonly ModulePageEnhancement[],
+): ModulePageFormEnhancement | undefined {
+  const contributions = enhancements.flatMap((enhancement) => enhancement.form?.contributions ?? []);
+  const fieldPolicies = enhancements.flatMap((enhancement) => enhancement.form?.fieldPolicies ?? []);
+  return contributions.length > 0 || fieldPolicies.length > 0 ? { contributions, fieldPolicies } : undefined;
+}
+
 function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
   const regions = [
     enhancement.list?.actions ?? [],
@@ -475,6 +567,7 @@ function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
     enhancement.list?.batchActions ?? [],
     enhancement.detail?.actions ?? [],
     enhancement.detail?.sections ?? [],
+    enhancement.form?.contributions ?? [],
   ];
   if (
     regions.some(
@@ -483,6 +576,10 @@ function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
     )
   ) {
     throw new Error(`模块页面增强 ${enhancement.id} 在同一页面区域存在重复的贡献 key`);
+  }
+  const fieldPolicies = enhancement.form?.fieldPolicies ?? [];
+  if (new Set(fieldPolicies.map((policy) => policy.fieldName)).size !== fieldPolicies.length) {
+    throw new Error(`模块页面增强 ${enhancement.id} 对同一表单字段重复声明展示策略`);
   }
   assertNoReservedActionKeys(enhancement.id, enhancement.list?.actions ?? [], ['create']);
   assertNoReservedActionKeys(enhancement.id, enhancement.list?.rowActions ?? [], ['view', 'edit', 'delete']);
