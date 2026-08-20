@@ -491,7 +491,7 @@ class PlatformModuleRuntimeContextServiceTest {
                 List.of()
         );
         PlatformResolvedPageConfig resolvedConfig = new PlatformResolvedPageConfig(List.of(
-                resolvedField("ui-list-web", "field-name", null, "name", "客户名称", "160", "left", "date_range"),
+                resolvedField("ui-list-web", "field-name", null, "name", "客户名称", "160", "left", "text"),
                 resolvedField("ui-list-web", "field-enabled", null, "enabled", "启用状态", "120", "center"),
                 resolvedField("ui-list-web", "field-created-at", null, "createdAt", "创建时间", "180", "left"),
                 resolvedField("ui-list-web", "field-storage-bytes", null, "storageBytes", "存储大小", "120", "right",
@@ -501,25 +501,6 @@ class PlatformModuleRuntimeContextServiceTest {
         ), List.of());
         when(snapshotService.snapshot("crm.customer")).thenReturn(snapshot);
         when(bootstrapService.resolveConfig(snapshot, PlatformUiClientType.WEB)).thenReturn(resolvedConfig);
-        FieldUiControlService fieldUiControlService = mock(FieldUiControlService.class);
-        FieldUiControlPropertyService propertyService = mock(FieldUiControlPropertyService.class);
-        FieldUiControlBindingService bindingService = mock(FieldUiControlBindingService.class);
-        FieldUiControl dateRange = new FieldUiControl();
-        dateRange.setAlias("date_range");
-        dateRange.setEnabled(Boolean.TRUE);
-        dateRange.setValueShape(FieldUiControlValueShape.COMPOSITE);
-        dateRange.setRendererType(ViewControlType.DATE);
-        FieldUiControlProperty property = new FieldUiControlProperty();
-        property.setFieldUiControlAlias("date_range");
-        property.setAttributeAlias("format");
-        property.setDefaultValue("YYYY-MM-DD");
-        FieldUiControlBinding binding = new FieldUiControlBinding();
-        binding.setFieldUiControlAlias("date_range");
-        binding.setValueKey("end");
-        binding.setValueFieldSpecAlias("date");
-        when(fieldUiControlService.listEnabledByAliases(List.of("date_range"))).thenReturn(List.of(dateRange));
-        when(propertyService.listByFieldUiControlAliases(List.of("date_range"))).thenReturn(List.of(property));
-        when(bindingService.listByFieldUiControlAliases(List.of("date_range"))).thenReturn(List.of(binding));
         AtomicReference<PageNavigatorResolutionContext> resolvedNavigator = new AtomicReference<>();
         PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
                 moduleService,
@@ -535,7 +516,7 @@ class PlatformModuleRuntimeContextServiceTest {
                     return navigatorContext.candidate().navigator().levels().stream()
                             .map(ResolvedPageNavigatorLevelDescriptor::key)
                             .collect(java.util.stream.Collectors.toUnmodifiableSet());
-                }, null, fieldUiControlService, propertyService, bindingService
+                }, null, null, null, null
         );
 
         PlatformModuleRuntimeContext context = service.context("crm.customer");
@@ -551,8 +532,7 @@ class PlatformModuleRuntimeContextServiceTest {
         });
         ResolvedViewDescriptor pageList = context.uiDescriptor().page().list().fields();
         assertThat(pageList.fields().getFirst().fieldControl()).isEqualTo(new ResolvedFieldControlDescriptor(
-                "date_range", "DATE", "COMPOSITE", java.util.Map.of("format", "YYYY-MM-DD"),
-                List.of(new ResolvedFieldControlBindingDescriptor("end", "date"))));
+                "text", "TEXT", "SCALAR", java.util.Map.of(), List.of()));
         assertThat(context.uiDescriptor().page().navigator().levels()).singleElement().satisfies(level -> {
             assertThat(level.sourceModuleAlias()).isEqualTo("base.product");
         });

@@ -53,7 +53,7 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
-    void shouldCompileConfiguredControlPropertiesAndCompositeBindings() {
+    void shouldRejectConfiguredControlWithoutExecutableWebRenderer() {
         FieldUiControl control = new FieldUiControl();
         control.setAlias("period");
         control.setEnabled(Boolean.TRUE);
@@ -68,9 +68,23 @@ class ModuleUiDescriptorCompilerTest {
         binding.setValueKey("end");
         binding.setValueFieldSpecAlias("date");
 
-        assertThat(FieldControlDescriptorCatalog.fromConfigured(List.of(control), List.of(property), List.of(binding)))
-                .containsEntry("period", new ResolvedFieldControlDescriptor("period", "DATE", "COMPOSITE",
-                        Map.of("format", "YYYY-MM-DD"), List.of(new ResolvedFieldControlBindingDescriptor("end", "date"))));
+        assertThatThrownBy(() -> FieldControlDescriptorCatalog.fromConfigured(List.of(control), List.of(property), List.of(binding)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no executable web value shape: period.COMPOSITE");
+    }
+
+    @Test
+    void shouldRejectUnimplementedCompositeDateRangeBeforeStaticModuleStarts() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor.field("deliveryPeriod",
+                                field -> field.uiType("date_range"))))))
+                .build();
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, ModuleKind.STATIC, "订单", Map.of(),
+                Map.of(), null, Map.of(ViewFieldRef.main("deliveryPeriod"), FieldValueType.DATE)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsupported field control alias: date_range");
     }
 
     @Test
@@ -146,7 +160,9 @@ class ModuleUiDescriptorCompilerTest {
                 .page(PageTemplates.flatManagement(page -> page
                         .explorer(explorer -> explorer.title("订单"))
                         .detail(detail -> detail.editor(editor -> editor
-                                .field("payload")
+                                // JSON has no executable standard editor; make this test exercise
+                                // the compute-program type guard rather than the form renderer gate.
+                                .field("payload", field -> field.uiType("text"))
                                 .field("amount")
                                 .formCompute("amountFromPayload", "amount", List.of("payload"),
                                         "{amount} = {payload}")))))

@@ -1,15 +1,19 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.form.FormSchema;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
-import net.ximatai.muyun.spring.ability.query.QueryRequest;
 import net.ximatai.muyun.spring.ability.query.QueryCompiler;
+import net.ximatai.muyun.spring.ability.query.QueryRequest;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.web.WebPageResponse;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -69,6 +73,31 @@ public class StandardModuleWebRuntime {
     /** Server-authoritative create/update fields from the compiled execution plan. */
     public List<PageContextBindingDefinition> mutationConstraints(String moduleAlias) {
         return plan(moduleAlias).map(ModuleExecutionPlan::mutationConstraints).orElse(List.of());
+    }
+
+    /**
+     * Executes the compiled plan's default list projection without consulting a controller
+     * declaration.  This is the only read-projection entry point for migrated static modules.
+     */
+    public Optional<WebPageResponse<Map<String, Object>>> queryProjectedDefaultList(
+            String moduleAlias,
+            QueryRequest request,
+            Criteria additionalCriteria,
+            PageRequest pageRequest,
+            CrudAbility<?> service,
+            ActionExecutionPolicy actionPolicy,
+            RecordReadVisibility visibility) {
+        requirePlan(moduleAlias);
+        return readProjectionService.queryDefaultList(moduleAlias, request, additionalCriteria, pageRequest,
+                service, actionPolicy, visibility);
+    }
+
+    /** Applies the compiled plan's default response projection for a migrated static module. */
+    public <T> WebPageResponse<T> projectDefaultList(String moduleAlias,
+                                                      WebPageResponse<T> response,
+                                                      CrudAbility<?> service) {
+        requirePlan(moduleAlias);
+        return readProjectionService.projectDefaultList(moduleAlias, response, service);
     }
 
     private Optional<ModuleExecutionPlan> plan(String moduleAlias) {

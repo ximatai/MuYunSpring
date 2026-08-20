@@ -5,10 +5,23 @@ import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 
 import java.util.List;
+import java.util.Set;
 
 public final class FieldUiControlPresetCatalog {
     private FieldUiControlPresetCatalog() {
     }
+
+    /**
+     * The single platform support matrix for persisted field controls.  A control being seeded is
+     * not enough to make it publishable: only renderer kinds in this set have a source-neutral
+     * web form implementation and transport contract.  The web descriptor compiler consumes this
+     * matrix before publishing a dynamic page or accepting a static form at startup.
+     */
+    public static final Set<ViewControlType> WEB_FORM_EXECUTABLE_RENDERERS = Set.of(
+            ViewControlType.TEXT, ViewControlType.TEXTAREA, ViewControlType.NUMBER,
+            ViewControlType.DECIMAL, ViewControlType.SWITCH, ViewControlType.SELECT,
+            ViewControlType.MULTI_SELECT, ViewControlType.DATE, ViewControlType.DATETIME,
+            ViewControlType.JSON);
 
     public static List<FieldUiControl> fieldUiControls() {
         return List.of(
@@ -101,6 +114,11 @@ public final class FieldUiControlPresetCatalog {
         type.setDefaultFieldSpecAlias(defaultFieldSpecAlias);
         type.setValueShape(valueShape);
         type.setPrimaryValueKey(primaryValueKey);
+        // Keep the metadata vocabulary visible for future delivery, but do not advertise an
+        // editor that the published web runtime cannot execute yet.
+        type.setEnabled(WEB_FORM_EXECUTABLE_RENDERERS.contains(controlType)
+                && (valueShape == FieldUiControlValueShape.SCALAR
+                || (controlType == ViewControlType.MULTI_SELECT && valueShape == FieldUiControlValueShape.COLLECTION)));
         if ("date_range".equals(alias) || "date_time_range".equals(alias)) {
             type.setQueryMode(FieldUiControlQueryMode.BETWEEN);
         }

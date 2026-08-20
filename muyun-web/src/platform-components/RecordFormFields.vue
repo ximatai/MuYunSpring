@@ -390,6 +390,22 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         :placeholder="field.placeholder"
         @update:value="updateField(field.fieldName, $event)"
       />
+      <UiInput
+        v-else-if="field.controlType === 'dateInput'"
+        :value="scalarFieldValue(field.fieldName)"
+        type="date"
+        :disabled="fieldDisabled(field)"
+        :placeholder="field.placeholder"
+        @update:value="updateField(field.fieldName, $event)"
+      />
+      <UiInput
+        v-else-if="field.controlType === 'dateTimeInput'"
+        :value="scalarFieldValue(field.fieldName)"
+        type="datetime-local"
+        :disabled="fieldDisabled(field)"
+        :placeholder="field.placeholder"
+        @update:value="updateField(field.fieldName, $event)"
+      />
       <UiColorPicker
         v-else-if="field.controlType === 'colorPicker'"
         :value="scalarFieldValue(field.fieldName)"

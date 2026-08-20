@@ -517,7 +517,7 @@ public final class ModuleUiDescriptorCompiler {
                 field.required(),
                 field.readOnly(),
                 resolvedUiType,
-                resolveFieldControl(resolvedUiType, resolvedValueType, field.valuePresentation(), fieldControls),
+                resolveFieldControl(viewKind, resolvedUiType, resolvedValueType, field.valuePresentation(), fieldControls),
                 resolvedValueType,
                 field.valuePresentation(),
                 field.width(),
@@ -538,7 +538,8 @@ public final class ModuleUiDescriptorCompiler {
      * always carries the adapter-neutral execution fact. A missing or unsupported alias is a
      * compilation error rather than a browser-side text-input fallback.
      */
-    private static ResolvedFieldControlDescriptor resolveFieldControl(String uiType,
+    private static ResolvedFieldControlDescriptor resolveFieldControl(ModuleViewKind viewKind,
+                                                                       String uiType,
                                                                        FieldValueType valueType,
                                                                        FieldValuePresentation presentation,
                                                                        Map<String, ResolvedFieldControlDescriptor> fieldControls) {
@@ -547,6 +548,9 @@ public final class ModuleUiDescriptorCompiler {
         if (alias == null) return null;
         ResolvedFieldControlDescriptor descriptor = fieldControls.get(alias);
         if (descriptor == null) {
+            // List and read-only projection renderers do not execute form controls.  Form fields,
+            // however, must be executable before a static module starts or a dynamic UI publishes.
+            if (viewKind != ModuleViewKind.FORM) return null;
             throw new IllegalArgumentException("unsupported field control alias: " + alias);
         }
         return descriptor;

@@ -6,7 +6,7 @@ defineOptions({ name: 'UiInput', inheritAttrs: false });
 
 defineProps<{
   value?: Primitive;
-  type?: 'text' | 'password' | 'email' | 'search' | 'number' | 'url';
+  type?: 'text' | 'password' | 'email' | 'search' | 'number' | 'url' | 'date' | 'datetime-local';
   placeholder?: string;
   disabled?: boolean;
   autofocus?: boolean;

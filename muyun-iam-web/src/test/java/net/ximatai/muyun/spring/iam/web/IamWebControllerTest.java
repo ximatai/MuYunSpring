@@ -20,7 +20,6 @@ import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler;
-import net.ximatai.muyun.spring.platform.web.RecordReadVisibility;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import net.ximatai.muyun.spring.web.WebPageResponse;
@@ -420,7 +419,7 @@ class IamWebControllerTest {
                         ))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].id").value("pos-1"))
-                .andExpect(jsonPath("$.records[0].categoryId").value("category-1"));
+                .andExpect(jsonPath("$.records[0].code").value("DEV"));
 
         ArgumentCaptor<Criteria> criteriaCaptor = ArgumentCaptor.captor();
         verify(positionDao).pageQuery(criteriaCaptor.capture(), any(PageRequest.class), any(Sort[].class));
@@ -1545,51 +1544,6 @@ class IamWebControllerTest {
                                 """))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.message").value("系统暂时不可用，请稍后重试"));
-    }
-
-    @Test
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    void shouldDelegateActiveVisibilityAndActionPolicyToUserProjectionQuery() throws Exception {
-        RecordingUserAccountService userAccountService = new RecordingUserAccountService();
-        StaticRecordReadProjectionService projectionService = mock(StaticRecordReadProjectionService.class);
-        UserAccountWebController controller = new UserAccountWebController();
-        ReflectionTestUtils.setField(controller, "service", userAccountService);
-        controller.setStaticRecordReadProjectionService(projectionService);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new PlatformWebExceptionHandler())
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
-                .addFilters(new CurrentUserWebFilter(() ->
-                        java.util.Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
-                .build();
-        when(projectionService.queryDefaultList(
-                any(),
-                any(net.ximatai.muyun.spring.ability.query.QueryRequest.class),
-                any(Criteria.class),
-                any(PageRequest.class),
-                any(),
-                any(ActionExecutionPolicy.class),
-                eq(RecordReadVisibility.ACTIVE)
-        )).thenReturn(java.util.Optional.of(WebPageResponse.from(PageResult.of(List.of(Map.of(
-                "id", "user-2",
-                "username", "alice"
-        )), 1, PageRequest.of(1, 20)))));
-
-        mvc.perform(post("/iam.user/query"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.records[0].username").value("alice"));
-
-        ArgumentCaptor<ActionExecutionPolicy> policyCaptor = ArgumentCaptor.captor();
-        verify(projectionService).queryDefaultList(
-                any(),
-                any(net.ximatai.muyun.spring.ability.query.QueryRequest.class),
-                any(Criteria.class),
-                any(PageRequest.class),
-                any(),
-                policyCaptor.capture(),
-                eq(RecordReadVisibility.ACTIVE)
-        );
-        assertThat(policyCaptor.getValue().actionCode()).isEqualTo("query");
-        verify(userAccountDao, never()).pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class));
     }
 
     private Tenant tenant(String alias, String title) {

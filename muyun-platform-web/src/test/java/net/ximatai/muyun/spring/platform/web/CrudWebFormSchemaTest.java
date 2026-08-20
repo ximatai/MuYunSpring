@@ -191,6 +191,26 @@ class CrudWebFormSchemaTest {
     }
 
     @Test
+    void shouldProjectMigratedCrudQueryThroughRuntimeWithoutControllerProjectionSeamOrDslLookup() throws Exception {
+        MigratedDemoRecordController controller = new MigratedDemoRecordController(new DemoRecordService());
+        StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(demoStaticModuleDefinition()));
+        controller.setStandardModuleWebRuntime(new StandardModuleWebRuntime(
+                new ModuleExecutionPlanCatalog(catalog), new StaticRecordReadProjectionService(catalog)));
+        controller.rejectDefinitionLookup();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/demo.record.ui/query")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.records[0].id").value("demo-1"))
+                    .andExpect(jsonPath("$.records[0].title").value("Demo One"))
+                    .andExpect(jsonPath("$.records[0].status").doesNotExist());
+        }
+    }
+
+    @Test
     void shouldRejectMigratedCrudEndpointWhenItsExecutionRuntimeIsMissing() {
         StrictDemoRecordController controller = new StrictDemoRecordController(new DemoRecordService());
 
@@ -243,8 +263,32 @@ class CrudWebFormSchemaTest {
 
     @RestController
     @RequestMapping("/demo.record.ui")
-    private static final class DemoRecordUiController extends WebSupport<DemoRecordService>
+    private static final class MigratedDemoRecordController extends StaticModuleWebControllerAdapter<DemoRecordService>
             implements CrudWeb<DemoRecord, DemoRecordService>, StaticModuleUiContributor {
+        private boolean rejectDefinitionLookup;
+
+        private MigratedDemoRecordController(DemoRecordService service) {
+            this.service = service;
+        }
+
+        private void rejectDefinitionLookup() {
+            rejectDefinitionLookup = true;
+        }
+
+        @Override
+        public ModuleUiDefinition moduleUiDefinition() {
+            if (rejectDefinitionLookup) {
+                throw new AssertionError("request runtime must not call moduleUiDefinition");
+            }
+            return demoStaticModuleDefinition().uiDefinition();
+        }
+    }
+
+    @RestController
+    @RequestMapping("/demo.record.ui")
+    private static final class DemoRecordUiController extends WebSupport<DemoRecordService>
+            implements CrudWeb<DemoRecord, DemoRecordService>, StaticModuleUiContributor,
+            LegacyStaticReadProjectionCompatibility {
         private StaticRecordReadProjectionService staticRecordReadProjectionService;
         private StandardModuleWebRuntime standardModuleWebRuntime;
         private boolean rejectDefinitionLookup;

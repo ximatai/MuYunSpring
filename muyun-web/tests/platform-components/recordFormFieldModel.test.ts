@@ -1,4 +1,4 @@
-import { assert, it } from 'vitest';
+import { assert, expect, it } from 'vitest';
 import {
   childResourceDefaultFormViewCode,
   resolveRecordDetailFields,
@@ -8,6 +8,7 @@ import {
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
   evaluateUiFormula,
+  recordFieldRendererRegistry,
   type RecordFormFieldDescriptor,
   type RecordFormFieldFallback,
 } from '@/platform-components/recordFormFieldModel.ts';
@@ -17,6 +18,26 @@ import {
   optionItemsToTree,
 } from '@/platform-components/optionFieldOptions.ts';
 import type { ResolvedModuleUiDescriptor } from '@/web-contracts/index.ts';
+
+it('registers every renderer kind promised by the persisted web-form support matrix', () => {
+  const rendererTypes = new Set(recordFieldRendererRegistry.map((renderer) => renderer.rendererType));
+  // Keep this aligned with FieldUiControlPresetCatalog.WEB_FORM_EXECUTABLE_RENDERERS.  The
+  // backend rejects any configured renderer outside that matrix before descriptor publication.
+  expect([...rendererTypes]).toEqual(
+    expect.arrayContaining([
+      'TEXT',
+      'TEXTAREA',
+      'NUMBER',
+      'DECIMAL',
+      'SWITCH',
+      'SELECT',
+      'MULTI_SELECT',
+      'DATE',
+      'DATETIME',
+      'JSON',
+    ]),
+  );
+});
 
 it('record form field names prefer descriptor order and fill missing fallback fields', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
@@ -181,6 +202,10 @@ it('resolved field controls take precedence over legacy uiType and use the regis
       {
         ...field('分类', { uiType: 'text' }),
         fieldControl: { alias: 'multi_select', rendererType: 'MULTI_SELECT', valueShape: 'COLLECTION' },
+        option: {
+          binding: { sourceType: 'dictionary', source: 'crm.category' },
+          selectionMode: 'MULTIPLE',
+        },
       },
     ],
   ]);
@@ -188,6 +213,22 @@ it('resolved field controls take precedence over legacy uiType and use the regis
   const state = resolveRecordFormFieldState('categoryCodes', { fields });
   assert.equal(state.controlType, 'select');
   assert.equal(state.optionSelectionMode, 'MULTIPLE');
+});
+
+it('refuses a multi-select descriptor without its option binding instead of degrading collection transport to input', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'categoryCodes',
+      {
+        ...field('分类', { uiType: 'text' }),
+        fieldControl: { alias: 'multi_select', rendererType: 'MULTI_SELECT', valueShape: 'COLLECTION' },
+      },
+    ],
+  ]);
+
+  const state = resolveRecordFormFieldState('categoryCodes', { fields });
+  assert.equal(state.controlType, 'unsupported');
+  assert.match(state.rendererDiagnostic ?? '', /multi_select/);
 });
 
 it('an unknown resolved field-control renderer refuses editing instead of falling back to input', () => {

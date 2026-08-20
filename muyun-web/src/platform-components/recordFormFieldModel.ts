@@ -34,6 +34,8 @@ export type RecordBooleanStatusValue = boolean | undefined;
 export type RecordFormFieldControlType =
   | 'input'
   | 'numberInput'
+  | 'dateInput'
+  | 'dateTimeInput'
   | 'textarea'
   | 'colorPicker'
   | 'select'
@@ -61,9 +63,14 @@ export const recordFieldRendererRegistry: readonly RecordFieldRenderer[] = [
   { rendererType: 'TEXTAREA', controlType: 'textarea', supports: () => true },
   { rendererType: 'NUMBER', controlType: 'numberInput', supports: () => true },
   { rendererType: 'DECIMAL', controlType: 'numberInput', supports: () => true },
+  { rendererType: 'DATE', controlType: 'dateInput', supports: () => true },
+  { rendererType: 'DATETIME', controlType: 'dateTimeInput', supports: () => true },
+  { rendererType: 'JSON', controlType: 'textarea', supports: () => true },
   { rendererType: 'SWITCH', controlType: 'switch', supports: () => true },
   { rendererType: 'SELECT', controlType: 'select', supports: () => true },
-  { rendererType: 'MULTI_SELECT', controlType: 'select', supports: () => true },
+  // A collection has no scalar fallback.  Without its option binding, a select renderer cannot
+  // preserve the array transport contract, so reject the editor rather than degrading to UiInput.
+  { rendererType: 'MULTI_SELECT', controlType: 'select', supports: (field) => field.option != null },
   { rendererType: 'ENABLED_STATUS', controlType: 'enabledStatus', supports: () => true },
   {
     rendererType: 'BOOLEAN_STATUS',

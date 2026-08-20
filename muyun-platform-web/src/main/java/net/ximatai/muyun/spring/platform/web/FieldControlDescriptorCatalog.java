@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.web;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlProperty;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPresetCatalog;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,6 +14,12 @@ import java.util.stream.Collectors;
 final class FieldControlDescriptorCatalog {
     private FieldControlDescriptorCatalog() { }
 
+    /**
+     * The browser form runtime can execute only these renderer facts.  This is deliberately kept
+     * next to the bootstrap catalog: publishing a control is an execution promise, not merely a
+     * metadata preference.  New renderer kinds must be added here and to the web registry in the
+     * same change, with component and payload-contract coverage.
+     */
     static Map<String, ResolvedFieldControlDescriptor> fromConfigured(List<FieldUiControl> controls,
                                                                         List<FieldUiControlProperty> properties,
                                                                         List<FieldUiControlBinding> bindings) {
@@ -25,6 +32,16 @@ final class FieldControlDescriptorCatalog {
             if (control == null || !Boolean.TRUE.equals(control.getEnabled())) continue;
             if (control.getRendererType() == null) {
                 throw new IllegalArgumentException("enabled field control requires renderer type: " + control.getAlias());
+            }
+            if (!FieldUiControlPresetCatalog.WEB_FORM_EXECUTABLE_RENDERERS.contains(control.getRendererType())) {
+                throw new IllegalArgumentException("enabled field control has no executable web renderer: "
+                        + control.getAlias() + "." + control.getRendererType().name());
+            }
+            if (control.getValueShape() != net.ximatai.muyun.spring.platform.metadata.FieldUiControlValueShape.SCALAR
+                    && !(control.getRendererType() == net.ximatai.muyun.spring.dynamic.metadata.ViewControlType.MULTI_SELECT
+                    && control.getValueShape() == net.ximatai.muyun.spring.platform.metadata.FieldUiControlValueShape.COLLECTION)) {
+                throw new IllegalArgumentException("enabled field control has no executable web value shape: "
+                        + control.getAlias() + "." + control.getValueShape());
             }
             Map<String, String> resolvedProperties = propertiesByAlias.getOrDefault(control.getAlias(), List.of()).stream()
                     .filter(property -> property.getDefaultValue() != null)
@@ -45,27 +62,10 @@ final class FieldControlDescriptorCatalog {
                 Map.entry("integer", "NUMBER"), Map.entry("amount", "DECIMAL"), Map.entry("percentage", "DECIMAL"),
                 Map.entry("switch", "SWITCH"), Map.entry("select", "SELECT"), Map.entry("multi_select", "MULTI_SELECT"),
                 Map.entry("date", "DATE"), Map.entry("datetime", "DATETIME"), Map.entry("json", "JSON"),
-                Map.entry("date_range", "DATE"), Map.entry("date_time_range", "DATETIME"),
-                Map.entry("date_time_with_time_zone", "DATETIME"),
                 Map.entry("recordPicker", "RECORD_PICKER"), Map.entry("reference", "RECORD_PICKER"), Map.entry("enabledStatus", "ENABLED_STATUS"),
                 Map.entry("booleanStatus", "BOOLEAN_STATUS"), Map.entry("tagList", "TAG_LIST"));
         return renderers.entrySet().stream().collect(Collectors.toUnmodifiableMap(Map.Entry::getKey,
                 entry -> new ResolvedFieldControlDescriptor(entry.getKey(), entry.getValue(),
-                        "multi_select".equals(entry.getKey()) ? "COLLECTION"
-                                : composite(entry.getKey()) ? "COMPOSITE" : "SCALAR", Map.of(), standardBindings(entry.getKey()))));
-    }
-
-    private static boolean composite(String alias) {
-        return "date_range".equals(alias) || "date_time_range".equals(alias)
-                || "date_time_with_time_zone".equals(alias);
-    }
-
-    private static List<ResolvedFieldControlBindingDescriptor> standardBindings(String alias) {
-        return switch (alias) {
-            case "date_range" -> List.of(new ResolvedFieldControlBindingDescriptor("end", "date"));
-            case "date_time_range" -> List.of(new ResolvedFieldControlBindingDescriptor("end", "datetime"));
-            case "date_time_with_time_zone" -> List.of(new ResolvedFieldControlBindingDescriptor("timeZone", "string"));
-            default -> List.of();
-        };
+                        "multi_select".equals(entry.getKey()) ? "COLLECTION" : "SCALAR", Map.of(), List.of())));
     }
 }

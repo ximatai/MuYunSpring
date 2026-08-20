@@ -148,15 +148,15 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
 
     default Optional<WebPageResponse<Map<String, Object>>> queryStaticProjectedList(
             WebQueryRequest request, RecordReadVisibility visibility) {
-        StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
-        if (projectionService == null || visibility == null) {
+        if (visibility == null) {
             return Optional.empty();
         }
         String moduleAlias = moduleAliasForRuntime();
         if (moduleAlias == null) return Optional.empty();
         WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
-        if (!allowsLegacyReadProjectionCompatibility()) {
-            return projectionService.queryDefaultList(
+        StandardModuleWebRuntime runtime = executionRuntime();
+        if (requiresModuleExecutionPlan() || runtime != null && runtime.hasPlan(webScopeName())) {
+            return runtime.queryProjectedDefaultList(
                     moduleAlias,
                     WebQueryRequests.from(request),
                     CrudWebRuntimeSupport.navigatorCriteria(this, request),
@@ -166,6 +166,11 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
                     visibility
             );
         }
+        if (!allowsLegacyReadProjectionCompatibility()) {
+            return Optional.empty();
+        }
+        StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
+        if (projectionService == null) return Optional.empty();
         return projectionService.queryDefaultList(
                 moduleAlias,
                 WebQueryRequests.from(request),
@@ -179,15 +184,16 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     default WebPageResponse<T> projectStaticDefaultList(WebPageResponse<T> response) {
-        StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
-        if (projectionService == null) {
-            return response;
-        }
         String moduleAlias = moduleAliasForRuntime();
         if (moduleAlias == null) return response;
-        return allowsLegacyReadProjectionCompatibility()
-                ? projectionService.projectDefaultList(moduleAlias, response, service(), true)
-                : projectionService.projectDefaultList(moduleAlias, response, service());
+        StandardModuleWebRuntime runtime = executionRuntime();
+        if (requiresModuleExecutionPlan() || runtime != null && runtime.hasPlan(webScopeName())) {
+            return runtime.projectDefaultList(moduleAlias, response, service());
+        }
+        if (!allowsLegacyReadProjectionCompatibility()) return response;
+        StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
+        return projectionService == null ? response
+                : projectionService.projectDefaultList(moduleAlias, response, service(), true);
     }
 
     private String moduleAliasForRuntime() {
