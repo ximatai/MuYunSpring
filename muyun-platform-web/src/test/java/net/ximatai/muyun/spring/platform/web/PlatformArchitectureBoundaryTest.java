@@ -63,15 +63,16 @@ class PlatformArchitectureBoundaryTest {
         try (Stream<Path> files = Files.walk(REPOSITORY_ROOT)) {
             for (Path path : files
                     .filter(path -> path.toString().endsWith(".java"))
-                    .filter(path -> !path.toString().contains("/src/test/"))
+                    .filter(path -> !path.toString().replace('\\', '/').contains("/src/test/"))
                     .toList()) {
                 if (Files.readString(path).contains("LegacyStaticReadProjectionCompatibility")) {
                     consumers.add(path);
                 }
             }
         }
-        assertThat(consumers)
-                .extracting(path -> REPOSITORY_ROOT.relativize(path).toString())
+        assertThat(consumers.stream()
+                .map(path -> REPOSITORY_ROOT.relativize(path).toString().replace('\\', '/'))
+                .toList())
                 .containsExactlyInAnyOrder(
                         "muyun-platform-web/src/main/java/net/ximatai/muyun/spring/platform/web/CrudWeb.java",
                         "muyun-platform-web/src/main/java/net/ximatai/muyun/spring/platform/web/LegacyStaticReadProjectionCompatibility.java",
