@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.ability;
 
+import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -31,13 +32,7 @@ public final class VerifiedMutationScopeExecutor {
         Deque<VerifiedMutationScope> scopes = CURRENT.get();
         scopes.addLast(scope);
         try {
-            if (scope.criteriaResult().crossTenant()) {
-                try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter(
-                        "verified aggregate mutation scope allows cross-tenant access")) {
-                    return mutation.get();
-                }
-            }
-            return mutation.get();
+            return withinTenantScope(scope, mutation);
         } finally {
             VerifiedMutationScope removed = scopes.pollLast();
             if (removed != scope) {
@@ -47,6 +42,29 @@ public final class VerifiedMutationScopeExecutor {
             }
             if (scopes.isEmpty()) CURRENT.remove();
         }
+    }
+
+    /** Reads the exact verified record without exposing criteria or a general tenant-bypass callback. */
+    public static <T extends EntityContract> T select(CrudAbility<T> service, PlatformAction action,
+                                                      String recordId, VerifiedMutationScope scope) {
+        java.util.Objects.requireNonNull(service, "service must not be null");
+        java.util.Objects.requireNonNull(action, "action must not be null");
+        java.util.Objects.requireNonNull(recordId, "recordId must not be null");
+        java.util.Objects.requireNonNull(scope, "scope must not be null");
+        if (!scope.matches(service, action, normalize(Set.of(recordId)))) {
+            throw new IllegalStateException("read does not match its verified service, operation, or record");
+        }
+        return withinTenantScope(scope, () -> service.select(recordId));
+    }
+
+    private static <R> R withinTenantScope(VerifiedMutationScope scope, Supplier<R> operation) {
+        if (scope.criteriaResult().crossTenant()) {
+            try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter(
+                    "verified aggregate mutation scope allows cross-tenant access")) {
+                return operation.get();
+            }
+        }
+        return operation.get();
     }
 
     static Optional<DataScopeCriteriaResult> current(CrudAbility<?> service, PlatformAction action,

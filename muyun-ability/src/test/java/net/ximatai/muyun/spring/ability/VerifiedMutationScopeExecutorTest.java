@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
 
@@ -20,6 +21,12 @@ class VerifiedMutationScopeExecutorTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+    }
+
+    @Test
+    void shouldKeepResolvedCriteriaOpaqueOutsideTheAbilityPackage() {
+        assertThat(Arrays.stream(VerifiedMutationScope.class.getMethods()).map(java.lang.reflect.Method::getName))
+                .doesNotContain("criteriaResult");
     }
 
     @Test
@@ -70,6 +77,22 @@ class VerifiedMutationScopeExecutorTest {
         assertThatThrownBy(() -> VerifiedMutationScopeExecutor.execute(service, PlatformAction.UPDATE,
                 Set.of("record-2"), verified(service, "record-1"), () -> 1))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("invalid");
+    }
+
+    @Test
+    void shouldLimitCompanionReadToTheVerifiedServiceOperationAndRecord() {
+        ScopeAwareService service = serviceWith("record-1", "record-2");
+        ScopeAwareService other = serviceWith("record-1");
+        VerifiedMutationScope scope = verified(service, "record-1");
+
+        assertThat(VerifiedMutationScopeExecutor.select(
+                service, PlatformAction.UPDATE, "record-1", scope).getId()).isEqualTo("record-1");
+        assertThatThrownBy(() -> VerifiedMutationScopeExecutor.select(
+                service, PlatformAction.UPDATE, "record-2", scope)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> VerifiedMutationScopeExecutor.select(
+                service, PlatformAction.DELETE, "record-1", scope)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> VerifiedMutationScopeExecutor.select(
+                other, PlatformAction.UPDATE, "record-1", scope)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test

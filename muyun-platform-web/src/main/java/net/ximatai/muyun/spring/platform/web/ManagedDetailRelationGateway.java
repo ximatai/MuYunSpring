@@ -158,7 +158,7 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
         executeMutation(runtime.handler().childService(), PlatformAction.UPDATE, childId,
                 persistedChild.verifiedScope(),
                 () -> runtime.handler().childService().update(child));
-        return outputRecord(runtime, childId, persistedChild.scope());
+        return outputRecord(runtime, childId, persistedChild.verifiedScope());
     }
 
     public int delete(String moduleAlias, CrudAbility<?> parentService, String parentId, String relationCode,
@@ -252,22 +252,19 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
         ActionExecutionContext actionContext = requireRelationAction(runtime, actionCode, childId);
         CrudAbility service = runtime.handler().childService();
         EntityContract child;
-        DataScopeCriteriaResult mutationScope = DataScopeCriteriaResult.unrestricted(Criteria.of());
         VerifiedMutationScope verifiedScope = null;
         if (service instanceof DataScopeAbility<?> scoped) {
             verifiedScope = scoped.verifyMutationScope(runtime.relation().sourceModuleAlias(),
                     actionContext.actionPolicy(), action, List.of(childId));
-            mutationScope = verifiedScope.criteriaResult();
-            DataScopeCriteriaResult resolvedScope = mutationScope;
-            child = (EntityContract) scoped.withDataScopeTenant(resolvedScope, () ->
-                    service.count(resolvedScope.criteria()) == 0 ? null : service.select(childId));
+            child = (EntityContract) VerifiedMutationScopeExecutor.select(
+                    service, action, childId, verifiedScope);
         } else {
             child = (EntityContract) service.select(childId);
         }
         if (child == null || !runtime.handler().belongsTo(child, runtime.parent())) {
             throw new IllegalArgumentException("managed relation child does not belong to parent: " + childId);
         }
-        return new ScopedChild(child, mutationScope, verifiedScope);
+        return new ScopedChild(child, verifiedScope);
     }
 
     private ActionExecutionContext requireRelationAction(RelationRuntime runtime, String actionCode, String childId) {
@@ -325,6 +322,17 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
         return WebOutputSupport.record(service, record, FieldOutputContext.VIEW);
     }
 
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static EntityContract outputRecord(RelationRuntime runtime, String id,
+                                               VerifiedMutationScope mutationScope) {
+        CrudAbility service = runtime.handler().childService();
+        EntityContract record = mutationScope == null
+                ? (EntityContract) service.select(id)
+                : (EntityContract) VerifiedMutationScopeExecutor.select(
+                        service, PlatformAction.UPDATE, id, mutationScope);
+        return WebOutputSupport.record(service, record, FieldOutputContext.VIEW);
+    }
+
     private static <R> R executeMutation(CrudAbility<?> service, PlatformAction action, String recordId,
                                          VerifiedMutationScope scope,
                                          java.util.function.Supplier<R> mutation) {
@@ -339,8 +347,7 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
 
     private record RelationKey(String moduleAlias, String relationCode) { }
 
-    private record ScopedChild(EntityContract child, DataScopeCriteriaResult scope,
-                               VerifiedMutationScope verifiedScope) { }
+    private record ScopedChild(EntityContract child, VerifiedMutationScope verifiedScope) { }
 
     private record ScopedParent(EntityContract parent, DataScopeCriteriaResult scope) { }
 

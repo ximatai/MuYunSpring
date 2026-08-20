@@ -26,7 +26,7 @@ public final class VerifiedMutationScope {
                 "criteriaResult must not be null");
     }
 
-    public DataScopeCriteriaResult criteriaResult() {
+    DataScopeCriteriaResult criteriaResult() {
         return criteriaResult;
     }
 
