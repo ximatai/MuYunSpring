@@ -17,6 +17,24 @@ describe('ModulePageHost', () => {
   });
 
   it('executes a declared detail action block through the standard record action endpoint', async () => {
+    const ExtensionDrawer = defineComponent({ name: 'ExtensionDrawer', template: '<section>扩展</section>' });
+    configureModulePageEnhancements([
+      {
+        id: 'customer-flat-detail-extension',
+        target: { moduleAlias: 'crm.customer' },
+        detail: {
+          actions: [
+            {
+              key: 'configure-extension',
+              title: '配置扩展',
+              run({ openDrawer }) {
+                openDrawer({ title: '配置扩展', component: ExtensionDrawer });
+              },
+            },
+          ],
+        },
+      },
+    ]);
     const requests: Request[] = [];
     globalThis.fetch = async (input, init) => {
       const request = new Request(input, init);
@@ -100,6 +118,18 @@ describe('ModulePageHost', () => {
     await flushPromises();
 
     expect(requests.some((request) => request.url.endsWith('/crm.customer/submit/customer-1'))).toBe(true);
+
+    const flatActionBar = wrapper
+      .findAllComponents({ name: 'RecordActionBar' })
+      .find((item) =>
+        (item.props('actions') as Array<{ key?: string }>).some(
+          (action) => action.key === 'configure-extension',
+        ),
+      );
+    expect(flatActionBar).toBeDefined();
+    flatActionBar!.vm.$emit('action', { key: 'configure-extension' });
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).props('title')).toBe('配置扩展');
   });
 
   it('submits a signed local-edit form with its versioned action contract', async () => {
@@ -473,8 +503,10 @@ describe('ModulePageHost', () => {
     wrapper.findComponent({ name: 'ModuleActionButton' }).vm.$emit('click');
     await flushPromises();
 
-    expect(wrapper.findComponent({ name: 'RecordFormFields' }).props('fields')).toEqual(expect.any(Map));
-    expect(wrapper.findComponent({ name: 'RecordFormFields' }).props('fields').get('title')).toEqual(
+    expect(wrapper.findComponent({ name: 'StandardFlatFormSurface' }).props('fields')).toEqual(
+      expect.any(Map),
+    );
+    expect(wrapper.findComponent({ name: 'StandardFlatFormSurface' }).props('fields').get('title')).toEqual(
       expect.objectContaining({ label: '应用名称' }),
     );
 
@@ -484,8 +516,8 @@ describe('ModulePageHost', () => {
       expect.arrayContaining([expect.objectContaining({ key: 'save', actionCode: 'create' })]),
     );
 
-    // RecordFormFields emits this only after its JSON/number/date codec has rejected input.
-    const form = wrapper.findComponent({ name: 'RecordFormFields' });
+    // The isolated flat surface propagates descriptor parser validity to the host save boundary.
+    const form = wrapper.findComponent({ name: 'StandardFlatFormSurface' });
     form.vm.$emit('validity-change', { valid: false, errors: { payload: '请输入有效 JSON' } });
     actionBar.vm.$emit('action', { key: 'save', actionCode: 'create' });
     await flushPromises();
@@ -1632,7 +1664,7 @@ describe('ModulePageHost', () => {
 
     wrapper.findComponent({ name: 'ModuleActionButton' }).vm.$emit('click');
     await flushPromises();
-    const form = wrapper.findComponent({ name: 'RecordFormFields' });
+    const form = wrapper.findComponent({ name: 'StandardFlatFormSurface' });
     const assistant = wrapper.findComponent(Assistant);
     expect(assistant.exists()).toBe(true);
     expect(assistant.props('context')).toMatchObject({ mode: 'create', record: {} });

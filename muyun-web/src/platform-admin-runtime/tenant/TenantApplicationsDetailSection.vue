@@ -17,7 +17,7 @@ const columns: UiDataTableColumn[] = [{ key: 'applicationAlias', title: '已开�
 const rows = computed(() => records.value as unknown as UiDataTableRecord[]);
 
 watch(
-  () => props.context.record.id,
+  () => [props.context.record.id, props.context.refreshKey],
   () => void load(),
   { immediate: true },
 );

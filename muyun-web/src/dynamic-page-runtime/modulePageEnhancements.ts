@@ -79,7 +79,12 @@ export interface ModulePageFormEnhancement {
   fieldPolicies?: ModulePageFormFieldPolicy[];
 }
 
-export type ModulePageFormSurface = 'main' | 'local-edit';
+/**
+ * The first controlled-editor seam is intentionally limited to the flat
+ * management editor. Other page layouts keep their existing descriptor-only
+ * form surface until they are migrated as a complete, tested unit.
+ */
+export type ModulePageFormSurface = 'flat-main';
 
 /**
  * A contribution can target an entire semantic form section or the immediate
@@ -288,6 +293,10 @@ export interface ModulePageDrawerContext {
   scope?: ModulePageScopeContext;
   /** Reloads only the current list query and preserves its query and editor state. */
   refreshList(): void;
+  /** Invalidates frontend-owned detail sections for the current record. */
+  refreshDetailExtensions(): void;
+  /** Blocks the drawer shell's close affordances while a contributed operation is in flight. */
+  setCloseBlocked(blocked: boolean): void;
   close(): void;
   reload(): void;
   /** Replaces contextual actions beside the drawer title; actions are cleared with the drawer. */
@@ -336,6 +345,8 @@ export interface ModulePageDetailSectionContext {
   record: QueryListRecord;
   /** Reloads only the current list query and preserves its query and editor state. */
   refreshList(): void;
+  /** Monotonic invalidation fact for frontend-owned detail data. */
+  refreshKey: number;
   reload(): void;
 }
 

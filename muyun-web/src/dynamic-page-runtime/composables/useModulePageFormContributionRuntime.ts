@@ -47,10 +47,22 @@ export function useModulePageFormContributionRuntime(options: UseModulePageFormC
     field?: Readonly<RecordFormFieldState>,
   ): ModulePageFormContributionContext {
     const state = stateSnapshot();
+    const resolvedField = field
+      ? state.fields.find((candidate) => candidate.fieldName === field.fieldName)
+      : undefined;
     return {
       ...state,
-      ...(field ? { field } : {}),
-      setField: options.setField,
+      ...(resolvedField ? { field: resolvedField } : {}),
+      setField(fieldName, value) {
+        const target = stateSnapshot().fields.find((candidate) => candidate.fieldName === fieldName);
+        if (!target) {
+          throw new Error(`表单增强不能写入未声明字段：${fieldName}`);
+        }
+        if (target.readOnly) {
+          throw new Error(`表单增强不能写入只读字段：${fieldName}`);
+        }
+        options.setField(fieldName, value);
+      },
       formSessionKey: options.formSessionKey.value,
       reportValidity(validity) {
         validityByContribution.value = new Map(validityByContribution.value).set(
@@ -67,7 +79,7 @@ export function useModulePageFormContributionRuntime(options: UseModulePageFormC
       mode: options.mode.value,
       draft: createReadonlyCardRecordSnapshot(draft),
       fields: [...options.fields.value.keys()].map((fieldName) =>
-        Object.freeze(
+        detachedReadonlyFieldState(
           resolveRecordFormFieldState(fieldName, {
             fields: options.fields.value,
             record: draft,
@@ -79,6 +91,12 @@ export function useModulePageFormContributionRuntime(options: UseModulePageFormC
   }
 
   return { valid, contextFor, stateSnapshot };
+}
+
+function detachedReadonlyFieldState(state: RecordFormFieldState): Readonly<RecordFormFieldState> {
+  return createReadonlyCardRecordSnapshot(
+    state as unknown as Record<string, unknown>,
+  ) as Readonly<RecordFormFieldState>;
 }
 
 function normalizeValidity(validity: ModulePageFormContributionValidity): ModulePageFormContributionValidity {

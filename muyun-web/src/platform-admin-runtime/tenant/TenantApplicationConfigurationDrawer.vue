@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { UiDataTable } from '@muyun/vue-ui-antdv';
 import type { UiDataTableColumn, UiDataTableRecord } from '@muyun/vue-ui-antdv';
 import type { Application, TenantApplication, WebPageResponse } from '@muyun/web-contracts';
@@ -28,19 +28,34 @@ const selection = computed(() => ({
   },
 }));
 
-onMounted(() => {
+function syncTitleActions() {
+  props.context.setCloseBlocked(saving.value);
   props.context.setTitleActions([
-    { key: 'cancel', label: '取消', disabled: computed(() => saving.value).value, run: props.context.close },
+    {
+      key: 'cancel',
+      label: '取消',
+      disabled: saving.value,
+      run: () => {
+        if (!saving.value) props.context.close();
+      },
+    },
     {
       key: 'confirm',
       label: '确认',
       emphasis: 'primary',
-      loading: computed(() => saving.value).value,
+      disabled: saving.value,
+      loading: saving.value,
       run: save,
     },
   ]);
+}
+
+onMounted(() => {
+  syncTitleActions();
   void load();
 });
+
+watch(saving, syncTitleActions);
 
 async function load() {
   const tenantId = String(props.context.record?.id ?? '');
@@ -84,6 +99,7 @@ async function save() {
       path: tenantApplicationsPath(tenantId, 'configure'),
       body: { applicationAliases: [...enabledAliases.value] },
     });
+    props.context.refreshDetailExtensions();
     props.context.refreshList();
     props.context.close();
   } catch (error) {

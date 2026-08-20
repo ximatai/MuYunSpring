@@ -67,11 +67,7 @@ import {
   type ModulePageColumnContribution,
   type ModulePageDetailDrawer,
   type ModulePageDetailSection,
-  type ModulePageFormContributionState,
-  type ModulePageFormFieldPolicy,
-  type ModulePageDetailSectionContext,
   type ModulePageDrawer,
-  type ModulePageDrawerContext,
   type ModulePageCardAssistantContext,
   type ModulePageRecordActionContribution,
   type ModulePageWorkspaceView,
@@ -86,7 +82,7 @@ import {
 } from './detailSurfacePreference';
 import { normalizeListPageSize, restoreListPageSize, saveListPageSize } from './listPageSizePreference';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
-import ModulePageFormContributionRenderer from './ModulePageFormContributionRenderer.vue';
+import StandardFlatFormSurface from './StandardFlatFormSurface.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { useRecordDetailController } from './recordDetailController';
@@ -98,7 +94,7 @@ import { useModulePageActions } from './composables/useModulePageActions';
 import { useRecordEditingSession } from './composables/useRecordEditingSession';
 import { useModulePageListSession } from './composables/useModulePageListSession';
 import { useModulePageDetailActionRuntime } from './composables/useModulePageDetailActionRuntime';
-import { useModulePageFormContributionRuntime } from './composables/useModulePageFormContributionRuntime';
+import { useModulePageDetailExtensionRuntime } from './composables/useModulePageDetailExtensionRuntime';
 
 /**
  * Descriptor-driven CRUD runner for every standard platform module page.
@@ -167,6 +163,19 @@ const {
   loadRuntimeForm,
 } = useNavigatorRuntime(context);
 const detailRelationReloadKey = ref(0);
+const {
+  drawer: enhancementDrawer,
+  sectionContext: detailSectionContext,
+  detailDrawerContext,
+  openDrawer: openEnhancementDrawer,
+  closeDrawer: closeEnhancementDrawer,
+} = useModulePageDetailExtensionRuntime({
+  module: context,
+  scope: () => modulePageActionStateContext().scope,
+  refreshList,
+  reload: reloadModulePage,
+  closeDetail,
+});
 const treeReloadKey = ref(0);
 const selectedTreeRecord = ref<QueryListRecord>();
 const treeSearchKeyword = ref('');
@@ -215,11 +224,6 @@ const listPageSize = ref(
   normalizeListPageSize(userPreferences.get(`module-page.list-page-size.${context.moduleAlias}`, 20)),
 );
 const workspaceElement = ref<HTMLElement>();
-const enhancementDrawer = ref<{
-  definition: ModulePageDrawer;
-  context: ModulePageDrawerContext;
-  titleActions: import('./modulePageEnhancements').ModulePageDrawerAction[];
-}>();
 let unregisterListRefresh: (() => void) | undefined;
 let workspaceResizeObserver: ResizeObserver | undefined;
 let removeWorkspaceResizeFallback: (() => void) | undefined;
@@ -399,37 +403,8 @@ const treeRootTitle = computed(
 const pageEnhancement = computed(() =>
   resolveModulePageEnhancement(context.moduleAlias, activeListView.value?.viewCode),
 );
-const formContributions = computed(() => pageEnhancement.value?.form?.contributions ?? []);
-const formFieldPolicies = computed(() => pageEnhancement.value?.form?.fieldPolicies ?? []);
-const {
-  valid: mainFormContributionValid,
-  contextFor: mainFormContributionContextFor,
-  stateSnapshot: mainFormStateSnapshot,
-} = useModulePageFormContributionRuntime({
-  contributions: formContributions,
-  mode: editorMode,
-  draft: editingRecord,
-  fields: formFields,
-  formSessionKey,
-  setField: updateDraftField,
-});
-const mainFormFieldNames = computed(() =>
-  [...formFields.value.keys()].filter((fieldName) =>
-    formFieldPolicyVisible(fieldName, mainFormStateSnapshot()),
-  ),
-);
-function formFieldPolicyVisible(fieldName: string, state: ModulePageFormContributionState) {
-  return formFieldPolicy(fieldName)?.visible?.(state) !== false;
-}
-function formFieldPolicy(fieldName: string): ModulePageFormFieldPolicy | undefined {
-  return formFieldPolicies.value.find((policy) => policy.fieldName === fieldName);
-}
-function mainFormImageUploadHint(fieldName: string) {
-  return formFieldPolicy(fieldName)?.imageUploadHint?.(mainFormStateSnapshot());
-}
-function mainFormImageUploadAdvisory(fieldName: string) {
-  return formFieldPolicy(fieldName)?.imageUploadAdvisory?.(mainFormStateSnapshot());
-}
+const flatFormContributions = computed(() => pageEnhancement.value?.form?.contributions ?? []);
+const flatFormFieldPolicies = computed(() => pageEnhancement.value?.form?.fieldPolicies ?? []);
 let disposePageEnhancement: (() => void) | undefined;
 watch(
   pageEnhancement,
@@ -686,6 +661,7 @@ const flatManagementActions = computed<RecordActionItem[]>(() => {
 });
 const flatManagementDetailActions = computed<RecordActionItem[]>(() => [
   ...flatManagementActions.value,
+  ...enhancementDetailActions.value,
   ...detailPageActions.value,
 ]);
 const recycleBinDetailActive = computed(
@@ -883,6 +859,12 @@ function openFlatManagementRecord(record: QueryListRecord) {
 }
 
 function handleFlatManagementAction(action: RecordActionItem) {
+  const record = selectedRecord.value;
+  const contribution = enhancementDetailActions.value.find((item) => item.key === action.key);
+  if (record && contribution) {
+    void runEnhancementAction(contribution, { ...modulePageActionContext(record), record });
+    return;
+  }
   if (detailPageActions.value.some((item) => item.key === action.key)) {
     handleConfiguredAction(action);
     return;
@@ -1470,7 +1452,7 @@ async function editRecord(record: QueryListRecord) {
 async function saveRecord() {
   const record = editingRecord.value;
   if (!record) return;
-  if (!mainFormValid.value || !mainFormContributionValid.value) return;
+  if (!mainFormValid.value) return;
   if (editorMode.value === 'create' ? context.can('create') !== true : context.can('update') !== true) {
     return;
   }
@@ -1631,22 +1613,6 @@ function handleBatchAction(action: { key?: string }, records: QueryListRecord[],
   }
 }
 
-function detailSectionContext(record: QueryListRecord): ModulePageDetailSectionContext {
-  return { module: context, record, refreshList, reload: reloadModulePage };
-}
-
-function detailDrawerContext(record: QueryListRecord): ModulePageDrawerContext {
-  return {
-    module: context,
-    record,
-    scope: modulePageActionStateContext().scope,
-    refreshList,
-    close: closeDetail,
-    reload: reloadModulePage,
-    setTitleActions: () => undefined,
-  };
-}
-
 /** Opens the declared detail workspace independently of the current card/drawer surface. */
 function openDetailWorkspaceView() {
   const view = detailWorkspaceView.value;
@@ -1662,28 +1628,7 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
     scope: modulePageActionStateContext().scope,
     refreshList,
     reload: reloadModulePage,
-    openDrawer: (definition: ModulePageDrawer) => {
-      const runtime = {
-        definition,
-        titleActions: [] as import('./modulePageEnhancements').ModulePageDrawerAction[],
-        context: undefined as unknown as ModulePageDrawerContext,
-      };
-      const drawerContext: ModulePageDrawerContext = {
-        module: context,
-        record,
-        scope: modulePageActionStateContext().scope,
-        refreshList,
-        close: closeEnhancementDrawer,
-        reload: reloadModulePage,
-        setTitleActions: (actions) => {
-          const activeDrawer = enhancementDrawer.value;
-          if (activeDrawer && toRaw(activeDrawer.context) === drawerContext)
-            activeDrawer.titleActions = actions;
-        },
-      };
-      runtime.context = drawerContext;
-      enhancementDrawer.value = runtime;
-    },
+    openDrawer: (definition: ModulePageDrawer) => openEnhancementDrawer(definition, record),
     openWorkspaceTab: (view, input) => {
       if (!modulePageNavigation) {
         throw new Error('模块页面工作视图需要 Workbench 导航承载');
@@ -1710,10 +1655,6 @@ function modulePageActionStateContext(): ModulePageActionStateContext {
         },
       }
     : { module: context };
-}
-
-function closeEnhancementDrawer() {
-  enhancementDrawer.value = undefined;
 }
 
 function reloadModulePage() {
@@ -2013,53 +1954,21 @@ function recordTitle(record: QueryListRecord | undefined) {
           :option-context="context"
           :exclude-field-names="['enabled']"
         />
-        <div v-else class="module-form">
-          <ModulePageFormContributionRenderer
-            :contributions="formContributions"
-            surface="main"
-            position="before-fields"
-            :context-for="mainFormContributionContextFor"
-          />
-          <RecordFormFields
-            :record="editingRecord as RecordFormRecord"
-            :fields="formFields"
-            :field-names="mainFormFieldNames"
-            :form-session-key="formSessionKey"
-            :option-context="context"
-            :picker-configs="referencePickerConfigs"
-            :disabled="saving"
-            :exclude-field-names="['enabled']"
-            :image-upload-hint-of="mainFormImageUploadHint"
-            :image-upload-advisory-of="mainFormImageUploadAdvisory"
-            @update:field="updateDraftField"
-            @validity-change="updateMainFormValidity"
-          >
-            <template #before-field="{ field }">
-              <ModulePageFormContributionRenderer
-                :contributions="formContributions"
-                surface="main"
-                position="before"
-                :field="field"
-                :context-for="mainFormContributionContextFor"
-              />
-            </template>
-            <template #after-field="{ field }">
-              <ModulePageFormContributionRenderer
-                :contributions="formContributions"
-                surface="main"
-                position="after"
-                :field="field"
-                :context-for="mainFormContributionContextFor"
-              />
-            </template>
-          </RecordFormFields>
-          <ModulePageFormContributionRenderer
-            :contributions="formContributions"
-            surface="main"
-            position="after-fields"
-            :context-for="mainFormContributionContextFor"
-          />
-        </div>
+        <StandardFlatFormSurface
+          v-else
+          :record="editingRecord as RecordFormRecord"
+          :fields="formFields"
+          :mode="editorMode"
+          :form-session-key="formSessionKey"
+          :option-context="context"
+          :picker-configs="referencePickerConfigs"
+          :disabled="saving"
+          :exclude-field-names="['enabled']"
+          :contributions="flatFormContributions"
+          :field-policies="flatFormFieldPolicies"
+          @update:field="updateDraftField"
+          @validity-change="updateMainFormValidity"
+        />
         <template v-if="editorMode === 'view'">
           <RecordDetailExtensionSection
             v-for="section in enhancementDetailSections"
@@ -2324,12 +2233,6 @@ function recordTitle(record: QueryListRecord | undefined) {
             </RecordDetailExtensionSection>
           </template>
           <div v-else class="module-form">
-            <ModulePageFormContributionRenderer
-              :contributions="formContributions"
-              surface="main"
-              position="before-fields"
-              :context-for="mainFormContributionContextFor"
-            />
             <RecordFormFields
               :record="editingRecord as RecordFormRecord"
               :fields="formFields"
@@ -2340,31 +2243,6 @@ function recordTitle(record: QueryListRecord | undefined) {
               :exclude-field-names="['enabled']"
               @update:field="updateDraftField"
               @validity-change="updateMainFormValidity"
-            >
-              <template #before-field="{ field }">
-                <ModulePageFormContributionRenderer
-                  :contributions="formContributions"
-                  surface="main"
-                  position="before"
-                  :field="field"
-                  :context-for="mainFormContributionContextFor"
-                />
-              </template>
-              <template #after-field="{ field }">
-                <ModulePageFormContributionRenderer
-                  :contributions="formContributions"
-                  surface="main"
-                  position="after"
-                  :field="field"
-                  :context-for="mainFormContributionContextFor"
-                />
-              </template>
-            </RecordFormFields>
-            <ModulePageFormContributionRenderer
-              :contributions="formContributions"
-              surface="main"
-              position="after-fields"
-              :context-for="mainFormContributionContextFor"
             />
           </div>
           <RecordMetaSection
@@ -2602,12 +2480,6 @@ function recordTitle(record: QueryListRecord | undefined) {
             </RecordDetailExtensionSection>
           </template>
           <div v-else class="module-form">
-            <ModulePageFormContributionRenderer
-              :contributions="formContributions"
-              surface="main"
-              position="before-fields"
-              :context-for="mainFormContributionContextFor"
-            />
             <RecordFormFields
               :record="editingRecord as RecordFormRecord"
               :fields="formFields"
@@ -2617,31 +2489,6 @@ function recordTitle(record: QueryListRecord | undefined) {
               :exclude-field-names="['enabled']"
               @update:field="updateDraftField"
               @validity-change="updateMainFormValidity"
-            >
-              <template #before-field="{ field }">
-                <ModulePageFormContributionRenderer
-                  :contributions="formContributions"
-                  surface="main"
-                  position="before"
-                  :field="field"
-                  :context-for="mainFormContributionContextFor"
-                />
-              </template>
-              <template #after-field="{ field }">
-                <ModulePageFormContributionRenderer
-                  :contributions="formContributions"
-                  surface="main"
-                  position="after"
-                  :field="field"
-                  :context-for="mainFormContributionContextFor"
-                />
-              </template>
-            </RecordFormFields>
-            <ModulePageFormContributionRenderer
-              :contributions="formContributions"
-              surface="main"
-              position="after-fields"
-              :context-for="mainFormContributionContextFor"
             />
           </div>
           <RecordMetaSection
@@ -2799,12 +2646,6 @@ function recordTitle(record: QueryListRecord | undefined) {
       </template>
       <template #form>
         <div v-if="editingRecord" class="module-form">
-          <ModulePageFormContributionRenderer
-            :contributions="formContributions"
-            surface="main"
-            position="before-fields"
-            :context-for="mainFormContributionContextFor"
-          />
           <RecordFormFields
             :record="editingRecord as RecordFormRecord"
             :fields="formFields"
@@ -2814,31 +2655,6 @@ function recordTitle(record: QueryListRecord | undefined) {
             :exclude-field-names="['enabled']"
             @update:field="updateDraftField"
             @validity-change="updateMainFormValidity"
-          >
-            <template #before-field="{ field }">
-              <ModulePageFormContributionRenderer
-                :contributions="formContributions"
-                surface="main"
-                position="before"
-                :field="field"
-                :context-for="mainFormContributionContextFor"
-              />
-            </template>
-            <template #after-field="{ field }">
-              <ModulePageFormContributionRenderer
-                :contributions="formContributions"
-                surface="main"
-                position="after"
-                :field="field"
-                :context-for="mainFormContributionContextFor"
-              />
-            </template>
-          </RecordFormFields>
-          <ModulePageFormContributionRenderer
-            :contributions="formContributions"
-            surface="main"
-            position="after-fields"
-            :context-for="mainFormContributionContextFor"
           />
         </div>
       </template>

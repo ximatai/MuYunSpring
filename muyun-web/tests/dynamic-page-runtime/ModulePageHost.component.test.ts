@@ -12,15 +12,17 @@ it('is the implementation owner for neutral module page descriptors', () => {
   assert.match(source, /descriptor: StandardModulePageDescriptor/);
 });
 
-it('blocks the main save boundary on descriptor and contributed form validity from every form surface', () => {
+it('delegates the flat standard editor to its isolated contribution surface', () => {
   const source = readFileSync(
     resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
     'utf8',
   );
 
-  assert.match(source, /if \(!mainFormValid\.value \|\| !mainFormContributionValid\.value\) return;/);
-  assert.match(source, /useModulePageFormContributionRuntime/);
-  assert.match(source, /ModulePageFormContributionRenderer/);
+  assert.match(source, /if \(!mainFormValid\.value\) return;/);
+  assert.match(source, /StandardFlatFormSurface/);
+  assert.notMatch(source, /ModulePageFormContributionRenderer/);
+  assert.match(source, /flatManagementDetailActions[\s\S]*\.\.\.enhancementDetailActions\.value/);
+  assert.match(source, /function handleFlatManagementAction[\s\S]*runEnhancementAction/);
   assert.match(source, /@validity-change="updateMainFormValidity"/);
   assert.match(source, /localEditValid: localEditFormValid/);
   assert.match(source, /@validity-change="updateLocalEditFormValidity"/);

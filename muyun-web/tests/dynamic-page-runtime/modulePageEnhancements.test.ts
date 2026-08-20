@@ -10,6 +10,7 @@ import {
 import { createWorkspaceViewDescriptor } from '@/platform-workbench/workspaceViews.ts';
 import { platformModulePageEnhancement } from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
 import { passwordPolicyPageEnhancement } from '@/platform-admin-runtime/passwordPolicyPageEnhancement.ts';
+import { tenantModulePageEnhancement } from '@/platform-admin-runtime/tenantModulePageEnhancement.ts';
 
 describe('module page enhancements', () => {
   afterEach(() => {
@@ -17,6 +18,7 @@ describe('module page enhancements', () => {
     configureModulePageEnhancementContributions('platform-admin-runtime', [
       platformModulePageEnhancement,
       passwordPolicyPageEnhancement,
+      tenantModulePageEnhancement,
     ]);
   });
 
@@ -98,7 +100,7 @@ describe('module page enhancements', () => {
               {
                 key: 'brand-mode',
                 component: {},
-                location: { surface: 'main', section: 'before-fields' },
+                location: { surface: 'flat-main', section: 'before-fields' },
               },
             ],
           },
@@ -111,7 +113,7 @@ describe('module page enhancements', () => {
               {
                 key: 'brand-mode',
                 component: {},
-                location: { surface: 'main', section: 'before-fields' },
+                location: { surface: 'flat-main', section: 'before-fields' },
               },
             ],
           },

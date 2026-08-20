@@ -9,7 +9,7 @@ describe('tenant module page enhancement', () => {
     );
 
     expect(enhancement?.form?.contributions.map((item) => item.location)).toContainEqual({
-      surface: 'main',
+      surface: 'flat-main',
       fieldName: 'workbenchBrandMode',
       placement: 'before',
     });
@@ -30,7 +30,29 @@ describe('tenant module page enhancement', () => {
         formSessionKey: 1,
       }),
     ).toBe(true);
-    expect(enhancement?.detail?.sections.map((item) => item.key)).toContain('tenant-applications');
-    expect(enhancement?.detail?.actions.map((item) => item.key)).toContain('tenant-configure-applications');
+    expect(enhancement?.detail?.sections?.map((item) => item.key)).toContain('tenant-applications');
+    expect(enhancement?.detail?.actions?.map((item) => item.key)).toContain('tenant-configure-applications');
+  });
+
+  it('opens the configured-application drawer through the standard detail action context', async () => {
+    const action = tenantModulePageEnhancement.detail?.actions?.find(
+      (candidate) => candidate.key === 'tenant-configure-applications',
+    );
+    const drawers: unknown[] = [];
+
+    await action?.run({
+      record: { id: 'tenant-a' },
+      module: {} as never,
+      refreshList: () => undefined,
+      reload: () => undefined,
+      openDrawer(drawer) {
+        drawers.push(drawer);
+      },
+      openWorkspaceTab: () => undefined,
+      openPage: () => undefined,
+    });
+
+    expect(drawers).toHaveLength(1);
+    expect(drawers[0]).toMatchObject({ title: '配置应用', width: 760 });
   });
 });

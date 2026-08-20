@@ -16,7 +16,7 @@ export const tenantModulePageEnhancement: ModulePageEnhancement = {
       {
         key: 'tenant-branding-heading',
         component: TenantBrandingFormSection,
-        location: { surface: 'main', fieldName: 'workbenchBrandMode', placement: 'before' },
+        location: { surface: 'flat-main', fieldName: 'workbenchBrandMode', placement: 'before' },
       },
     ],
     fieldPolicies: [
