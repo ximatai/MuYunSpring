@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.dynamic.capability;
 
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityFacet;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityDeclarationPolicy;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityOperationContext;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 
@@ -22,6 +23,11 @@ public final class EnableCapabilityModule implements CapabilityModule {
     @Override
     public Set<EntityCapability> dependencies() {
         return Set.of(EntityCapability.CRUD);
+    }
+
+    @Override
+    public StaticCapabilityDeclarationPolicy declarationPolicy() {
+        return StaticCapabilityDeclarationPolicy.SERVICE_ONLY;
     }
 
     @Override

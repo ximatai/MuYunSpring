@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.dynamic.capability;
 
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityFacet;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityDeclarationPolicy;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityOperationContext;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
@@ -22,6 +23,11 @@ public final class TreeCapabilityModule implements CapabilityModule {
     @Override
     public Set<EntityCapability> dependencies() {
         return Set.of(EntityCapability.CRUD, EntityCapability.SORT);
+    }
+
+    @Override
+    public StaticCapabilityDeclarationPolicy declarationPolicy() {
+        return StaticCapabilityDeclarationPolicy.SERVICE_ONLY;
     }
 
     @Override

@@ -863,7 +863,7 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @Test
-    void shouldAssembleWorkflowActionsFromStaticModuleCapabilities() {
+    void shouldAllowAnnotationOwnedCapabilitiesAndAssembleWorkflowActions() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(WorkflowEnabledWeb.class);
             context.refresh();
@@ -1193,6 +1193,34 @@ class StaticModuleDefinitionScannerTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("must not redeclare service ability")
                     .hasMessageContaining("demo.redeclared.ENABLE");
+        }
+    }
+
+    @Test
+    void shouldRejectServiceOnlyCapabilitiesDeclaredByPlainServiceAnnotation() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(PlainServiceOnlyCapabilityDeclarationWeb.class,
+                    () -> new PlainServiceOnlyCapabilityDeclarationWeb(new Object()));
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("must not redeclare service ability")
+                    .hasMessageContaining("demo.plain_declared.CRUD");
+        }
+    }
+
+    @Test
+    void shouldRejectRegisteredServiceOnlyCapabilityDeclaredByPlainServiceAnnotation() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(PlainEnableCapabilityDeclarationWeb.class,
+                    () -> new PlainEnableCapabilityDeclarationWeb(new Object()));
+            context.refresh();
+
+            assertThatThrownBy(() -> new StaticModuleDefinitionScanner(context).scan())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("must not redeclare service ability")
+                    .hasMessageContaining("demo.plain_enable.ENABLE");
         }
     }
 
@@ -1541,11 +1569,30 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @RestController
-@PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class, alias = "demo.redeclared", title = "Redeclared",
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class, alias = "demo.redeclared", title = "Redeclared",
             capabilities = EntityCapability.ENABLE)
     @RequestMapping("/demo.redeclared")
     static class RedeclaredServiceAbilityWeb extends net.ximatai.muyun.spring.web.WebSupport<Object> {
         RedeclaredServiceAbilityWeb(Object service) {
+            this.service = service;
+        }
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.plain_declared", title = "Plain declared",
+            capabilities = {EntityCapability.CRUD, EntityCapability.ENABLE})
+    static class PlainServiceOnlyCapabilityDeclarationWeb extends net.ximatai.muyun.spring.web.WebSupport<Object> {
+        PlainServiceOnlyCapabilityDeclarationWeb(Object service) {
+            this.service = service;
+        }
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
+            alias = "demo.plain_enable", title = "Plain enable", capabilities = EntityCapability.ENABLE)
+    static class PlainEnableCapabilityDeclarationWeb extends net.ximatai.muyun.spring.web.WebSupport<Object> {
+        PlainEnableCapabilityDeclarationWeb(Object service) {
             this.service = service;
         }
     }

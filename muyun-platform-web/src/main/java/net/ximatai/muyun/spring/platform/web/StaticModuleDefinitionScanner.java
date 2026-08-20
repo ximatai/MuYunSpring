@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.platform.module.StaticReferenceCompiler;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
 import net.ximatai.muyun.spring.platform.module.StaticServiceAbilityCompiler;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityDeclarationCatalog;
 import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.platform.module.StaticModuleServiceDeclaration;
 import net.ximatai.muyun.database.core.annotation.Table;
@@ -171,7 +172,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         java.util.Set<EntityCapability> serviceCapabilities =
                 StaticServiceAbilityCompiler.compile(service(bean), staticCapabilityRegistry);
         for (EntityCapability declared : module.capabilities()) {
-            if (serviceCapabilities.contains(declared)) {
+            if (StaticCapabilityDeclarationCatalog.isServiceOnly(declared, staticCapabilityRegistry)) {
                 throw new IllegalStateException("@PlatformStaticModule must not redeclare service ability: "
                         + module.alias() + "." + declared.name());
             }

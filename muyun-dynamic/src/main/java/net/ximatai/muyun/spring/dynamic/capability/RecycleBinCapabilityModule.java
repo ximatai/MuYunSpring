@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.dynamic.capability;
 
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityFacet;
+import net.ximatai.muyun.spring.ability.capability.StaticCapabilityDeclarationPolicy;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityOperationContext;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
@@ -23,6 +24,11 @@ public final class RecycleBinCapabilityModule implements CapabilityModule {
         // Dynamic entities have the standard deleted/deletedAt runtime fields even though SOFT_DELETE
         // is not a separately declared metadata capability.
         return Set.of(EntityCapability.CRUD);
+    }
+
+    @Override
+    public StaticCapabilityDeclarationPolicy declarationPolicy() {
+        return StaticCapabilityDeclarationPolicy.SERVICE_ONLY;
     }
 
     @Override
