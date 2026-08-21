@@ -26,6 +26,7 @@ import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
+import net.ximatai.muyun.spring.ability.child.ChildAbility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -93,6 +94,20 @@ class DataScopeAbilityTest {
                     .hasSize(2)
                     .containsAllEntriesOf(java.util.Map.of(ownId, "Own", othersId, "Others"));
         }
+    }
+
+    @Test
+    void shouldRejectGenericChildReadsForIndependentlyDataScopedService() {
+        DataScopedChildRecordService service = new DataScopedChildRecordService(new OwnerDataScopeCriteriaService());
+
+        assertThatThrownBy(() -> service.selectChildRows(Criteria.of()))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("generic child reads do not support independent DataScopeAbility")
+                .hasMessageContaining("demo.dataScopedChild");
+        assertThatThrownBy(() -> service.selectDeletedChildRows(Criteria.of()))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("generic child reads do not support independent DataScopeAbility")
+                .hasMessageContaining("demo.dataScopedChild");
     }
 
     @Test
@@ -440,6 +455,21 @@ class DataScopeAbilityTest {
                                                                                               net.ximatai.muyun.database.core.orm.Sort... sorts) {
             pageQueryOverrideCount++;
             return DataScopeAbility.super.pageQuery(criteria, pageRequest, sorts);
+        }
+    }
+
+    private static final class DataScopedChildRecordService extends AbstractAbilityService<DemoDataScopedRecord>
+            implements ChildAbility<DemoDataScopedRecord>, DataScopeAbility<DemoDataScopedRecord> {
+        private final DataScopeCriteriaService dataScopeCriteriaService;
+
+        private DataScopedChildRecordService(DataScopeCriteriaService dataScopeCriteriaService) {
+            super("demo.dataScopedChild", DemoDataScopedRecord.class, new InMemoryBaseDao<>());
+            this.dataScopeCriteriaService = dataScopeCriteriaService;
+        }
+
+        @Override
+        public DataScopeCriteriaService getDataScopeCriteriaService() {
+            return dataScopeCriteriaService;
         }
     }
 

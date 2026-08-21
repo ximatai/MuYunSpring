@@ -713,6 +713,16 @@ class PlatformMetadataServiceContractTest {
                         assertThat(value.getTitle()).isEqualTo("恢复后的值");
                         assertThat(value.getDeleted()).isFalse();
                     });
+
+            restored.setValueShape(FieldUiControlValueShape.SCALAR);
+            restored.setPrimaryValueKey("value");
+            aggregateService.update(restored);
+
+            FieldUiControl scalar = aggregateService.select(id);
+            assertThat(scalar.getPrimaryValueKey()).isNull();
+            assertThat(scalar.getBindings()).isEmpty();
+            assertThat(fieldUiTypeFieldMappingService.selectIgnoreSoftDeleteIfPossible(originalBindingId).getDeleted())
+                    .isTrue();
         } finally {
             PlatformAbilityRuntime.resetChildAbilityResolver();
         }

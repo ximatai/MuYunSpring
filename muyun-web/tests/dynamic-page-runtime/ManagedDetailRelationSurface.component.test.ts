@@ -65,6 +65,59 @@ describe('managed detail relation surface', () => {
     expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([false]);
   });
 
+  it('retains aggregate child drafts when a visibility formula hides their relation', async () => {
+    const aggregate = relation('properties');
+    aggregate.embeddedField = 'properties';
+    aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    aggregate.visible = {
+      formula: {
+        expression: "{valueShape} == 'COMPOSITE'",
+        program: {
+          schemaVersion: 1,
+          profile: 'WEB_UI',
+          referencedFields: ['valueShape'],
+          root: {
+            kind: 'BINARY',
+            operator: '==',
+            arguments: [
+              { kind: 'FIELD', field: 'valueShape', arguments: [] },
+              { kind: 'VALUE', value: 'COMPOSITE', arguments: [] },
+            ],
+          },
+        },
+      },
+    };
+    const wrapper = shallowMount(ModulePageDetailRelations, {
+      props: {
+        sourceContext: context(vi.fn()),
+        uiDescriptor: descriptor(),
+        relations: [aggregate],
+        parentRecord: {
+          id: 'select',
+          valueShape: 'COMPOSITE',
+          properties: [{ id: 'property-1', attributeAlias: 'rows', version: 1 }],
+        },
+        mutationEnabled: true,
+      },
+      global: {
+        stubs: {
+          RecordDetailExtensionSection: { template: '<section><slot /></section>' },
+        },
+      },
+    });
+
+    await wrapper.setProps({
+      parentRecord: {
+        id: 'select',
+        valueShape: 'SCALAR',
+        properties: [{ id: 'property-1', attributeAlias: 'rows', version: 1 }],
+      },
+    });
+
+    expect(wrapper.findComponent(ManagedDetailRelationInlineSurface).exists()).toBe(false);
+    expect(wrapper.emitted('children-change')).toBeUndefined();
+  });
+
   it('keeps a wholly blank new row silent and excludes it from the aggregate draft', async () => {
     const request = vi.fn(async () => page([]));
     const managed = relation('properties');

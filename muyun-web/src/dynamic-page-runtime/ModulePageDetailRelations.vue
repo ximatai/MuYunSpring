@@ -135,13 +135,6 @@ watch(
     );
     relationValidity.value = validity;
     emit('validity-change', Object.values(validity).every(Boolean));
-    if (props.mutationEnabled) {
-      for (const relation of props.relations) {
-        if (relation.embeddedField && !visible.has(relation.code)) {
-          emit('children-change', relation.embeddedField, []);
-        }
-      }
-    }
   },
 );
 </script>

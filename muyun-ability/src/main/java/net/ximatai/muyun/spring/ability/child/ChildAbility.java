@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.ability.child;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.PageRequests;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
@@ -67,6 +68,7 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
     }
 
     default List<C> selectChildRows(Criteria criteria) {
+        requireGenericChildReadWithoutIndependentDataScope();
         if (this instanceof SortAbility<?> sortAbility) {
             return sortedChildRows(sortAbility, criteria);
         }
@@ -75,6 +77,7 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
 
     /** Complete retained children for a parent-scoped, platform-declared recycle-bin view. */
     default List<C> selectDeletedChildRows(Criteria criteria) {
+        requireGenericChildReadWithoutIndependentDataScope();
         if (!(this instanceof SoftDeleteAbility<?> softDeleteAbility)) {
             throw new PlatformException("Child recycle bin requires soft-delete ability: " + getModuleAlias());
         }
@@ -95,5 +98,12 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private List<C> sortedChildRows(SortAbility<?> sortAbility, Criteria criteria) {
         return ((SortAbility) sortAbility).sortedList(criteria);
+    }
+
+    private void requireGenericChildReadWithoutIndependentDataScope() {
+        if (this instanceof DataScopeAbility<?>) {
+            throw new PlatformException("generic child reads do not support independent DataScopeAbility: "
+                    + getModuleAlias() + ", use an explicitly scoped child reader");
+        }
     }
 }
