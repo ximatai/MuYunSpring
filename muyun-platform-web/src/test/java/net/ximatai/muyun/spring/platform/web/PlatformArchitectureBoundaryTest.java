@@ -77,9 +77,10 @@ class PlatformArchitectureBoundaryTest {
                         "muyun-platform-web/src/main/java/net/ximatai/muyun/spring/platform/web/LegacyStaticReadProjectionCompatibility.java",
                         "muyun-platform-web/src/main/java/net/ximatai/muyun/spring/platform/web/StaticModuleDefinitionScanner.java",
                         "muyun-iam-web/src/main/java/net/ximatai/muyun/spring/iam/web/EmployeeWebController.java");
-        assertThat(Files.readString(Path.of("../docs/architecture/PLATFORM_ENCAPSULATION_GOVERNANCE.md")))
+        assertThat(Files.readString(Path.of("../docs/TECHNICAL_DEBT.md")))
+                .contains("| TD-049 | 职员模块仍依赖静态读投影兼容路径 |")
                 .contains("LegacyStaticReadProjectionCompatibility")
-                .contains("删除条件");
+                .contains("计划缺失启动失败、请求期不重解 DSL");
     }
 
     private List<Path> javaSources(Path sourceRoot) throws IOException {
