@@ -106,10 +106,43 @@ public interface DataScopeAbility<T extends EntityContract> extends CrudAbility<
         return scope;
     }
 
+    /** Issues an opaque, one-shot mutation scope for an aggregate-owned child operation. */
+    default VerifiedMutationScope verifyMutationScope(String sourceModuleAlias,
+                                                      ActionExecutionPolicy policy,
+                                                      PlatformAction action,
+                                                      Collection<String> ids) {
+        java.util.Objects.requireNonNull(policy, "policy must not be null");
+        if (action != PlatformAction.UPDATE && action != PlatformAction.DELETE) {
+            throw new IllegalArgumentException("verified mutation scope only supports update/delete");
+        }
+        Set<String> normalized = normalizeRecordIds(ids);
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("verified mutation scope requires record ids: " + sourceModuleAlias);
+        }
+        Criteria criteria = normalized.size() == 1
+                ? Criteria.of().eq(StandardEntitySchema.ID_FIELD, normalized.iterator().next())
+                : Criteria.of().in(StandardEntitySchema.ID_FIELD, List.copyOf(normalized));
+        DataScopeCriteriaResult scope = readScopeByPolicy(sourceModuleAlias, policy, criteria);
+        long visible = withDataScopeTenant(scope, () -> count(scope.criteria()));
+        if (visible != normalized.size()) {
+            throw new PlatformAccessDeniedException(
+                    "record data permission denied: " + sourceModuleAlias + "." + policy.actionCode(),
+                    ErrorScope.module(sourceModuleAlias).action(policy.actionCode()));
+        }
+        return new VerifiedMutationScope(this, action, normalized, scope);
+    }
+
     default DataScopeCriteriaResult readScopeByPolicy(ActionExecutionPolicy policy, Criteria criteria) {
+        return readScopeByPolicy(getModuleAlias(), policy, criteria);
+    }
+
+    /** Resolves data scope for an action governed by a source aggregate rather than this child service alias. */
+    default DataScopeCriteriaResult readScopeByPolicy(String moduleAlias,
+                                                      ActionExecutionPolicy policy,
+                                                      Criteria criteria) {
         java.util.Objects.requireNonNull(policy, "policy must not be null");
         return getDataScopeCriteriaService().resolveReadScope(
-                getModuleAlias(),
+                java.util.Objects.requireNonNull(moduleAlias, "moduleAlias must not be null"),
                 policy,
                 criteria == null ? Criteria.of() : criteria,
                 CurrentUserContext.currentUser(),

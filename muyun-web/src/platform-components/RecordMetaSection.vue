@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { StandardSortableEntity } from '@muyun/web-contracts';
 import DateTimeText from './DateTimeText.vue';
+import RecordContentSectionHeading from './RecordContentSectionHeading.vue';
 
 defineOptions({ name: 'RecordMetaSection' });
 
@@ -12,7 +13,7 @@ defineProps<{
 
 <template>
   <section class="record-meta">
-    <h3>系统信息</h3>
+    <RecordContentSectionHeading title="系统信息" />
     <dl>
       <div>
         <dt>ID</dt>
@@ -41,14 +42,15 @@ defineProps<{
 <style scoped>
 .record-meta {
   display: grid;
-  gap: 10px;
-  padding-top: 4px;
+  gap: var(--muyun-detail-section-inner-gap, 8px);
+  margin-top: var(--muyun-detail-section-block-gap, 16px);
+  padding-top: var(--muyun-detail-section-inner-gap, 8px);
+  border-top: 1px solid var(--muyun-border-subtle);
 }
 
-.record-meta h3 {
-  margin: 0;
-  color: var(--muyun-support-text);
-  font-size: 14px;
+:global(.record-detail-extension-section--relation + .record-meta) {
+  border-top: 0;
+  padding-top: 0;
 }
 
 dl {

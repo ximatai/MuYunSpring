@@ -11,6 +11,7 @@ import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.capability.SortCapable;
@@ -72,6 +73,8 @@ import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCo
 import net.ximatai.muyun.spring.platform.runtime.PlatformModuleDefinitionCompiler;
 import net.ximatai.muyun.spring.platform.initialdata.InitialDataExecutor;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
@@ -127,6 +130,24 @@ class PlatformMetadataServiceContractTest {
             new FieldUiControlPropertyService(fieldUiTypeAttributeDao, fieldUiTypeService, fieldTypeService);
     private final FieldUiControlBindingService fieldUiTypeFieldMappingService =
             new FieldUiControlBindingService(fieldUiTypeFieldMappingDao, fieldUiTypeService, fieldTypeService);
+
+    @BeforeEach
+    void configureStaticChildAbilities() {
+        PlatformAbilityRuntime.configureChildAbilityResolver(request -> {
+            if (request.staticModel().equals(FieldUiControlProperty.class)) {
+                return Optional.of(fieldUiTypeAttributeService);
+            }
+            if (request.staticModel().equals(FieldUiControlBinding.class)) {
+                return Optional.of(fieldUiTypeFieldMappingService);
+            }
+            return Optional.empty();
+        });
+    }
+
+    @AfterEach
+    void resetStaticChildAbilities() {
+        PlatformAbilityRuntime.resetChildAbilityResolver();
+    }
     private final PlatformMetadataSchemaEnsureService schemaEnsureService = mock(PlatformMetadataSchemaEnsureService.class);
     private final PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator =
             mock(PlatformDynamicRuntimeRefreshCoordinator.class);
@@ -586,6 +607,21 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
+    void shouldDiscardAStalePrimaryValueKeyWhenSwitchingAwayFromCompositeShape() {
+        FieldUiControl uiType = fieldUiType("shape_switch", "形态切换", "string", ViewControlType.TEXT);
+        uiType.setValueShape(FieldUiControlValueShape.COMPOSITE);
+        uiType.setPrimaryValueKey("value");
+        fieldUiTypeService.insert(uiType);
+
+        FieldUiControl update = fieldUiTypeService.select("shape_switch");
+        update.setValueShape(FieldUiControlValueShape.SCALAR);
+        update.setPrimaryValueKey("value");
+        fieldUiTypeService.update(update);
+
+        assertThat(fieldUiTypeService.select("shape_switch").getPrimaryValueKey()).isNull();
+    }
+
+    @Test
     void shouldRegisterFieldUiControlsAsReferenceTargets() {
         StaticAbilityCatalog catalog = new StaticAbilityCatalog(java.util.List.of(fieldUiTypeService));
 
@@ -619,6 +655,81 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
+    void shouldPersistAndPopulateFieldUiControlChildrenThroughStandardCrud() {
+        FieldUiControlService aggregateService = new FieldUiControlService(
+                fieldUiTypeDao, fieldTypeService, null);
+        PlatformAbilityRuntime.configureChildAbilityResolver(request -> {
+            if (FieldUiControlProperty.class.equals(request.staticModel())) {
+                return Optional.of(fieldUiTypeAttributeService);
+            }
+            if (FieldUiControlBinding.class.equals(request.staticModel())) {
+                return Optional.of(fieldUiTypeFieldMappingService);
+            }
+            return Optional.empty();
+        });
+        try {
+            FieldSpec string = fieldType("aggregate_string", FieldType.STRING, 128);
+            fieldTypeService.insert(string);
+            FieldUiControl control = fieldUiType("aggregate_control", "组合控件", "aggregate_string",
+                    ViewControlType.TEXT);
+            control.setValueShape(FieldUiControlValueShape.COMPOSITE);
+            control.setPrimaryValueKey("value");
+            FieldUiControlProperty property = fieldUiTypeAttribute(null, "placeholder", "占位提示",
+                    "aggregate_string", null);
+            FieldUiControlBinding binding = fieldUiTypeMapping(null, "value", "值");
+            binding.setValueFieldSpecAlias("aggregate_string");
+            control.setProperties(List.of(property));
+            control.setBindings(List.of(binding));
+
+            String id = aggregateService.insert(control);
+            FieldUiControl saved = aggregateService.select(id);
+
+            assertThat(saved.getProperties()).extracting(FieldUiControlProperty::getAttributeAlias)
+                    .containsExactly("placeholder");
+            assertThat(saved.getBindings()).extracting(FieldUiControlBinding::getValueKey)
+                    .containsExactly("value");
+            assertThat(saved.getProperties().getFirst().getFieldUiControlAlias()).isEqualTo(id);
+            assertThat(saved.getBindings().getFirst().getFieldUiControlAlias()).isEqualTo(id);
+            String originalBindingId = saved.getBindings().getFirst().getId();
+
+            saved.setTitle("更新后的组合控件");
+            saved.setBindings(List.of());
+            aggregateService.update(saved);
+
+            FieldUiControl updated = aggregateService.select(id);
+            assertThat(updated.getTitle()).isEqualTo("更新后的组合控件");
+            assertThat(updated.getProperties()).hasSize(1);
+            assertThat(updated.getBindings()).isEmpty();
+
+            FieldUiControlBinding replacement = fieldUiTypeMapping(null, "value", "恢复后的值");
+            replacement.setValueFieldSpecAlias("aggregate_string");
+            updated.setBindings(List.of(replacement));
+            aggregateService.update(updated);
+
+            FieldUiControl restored = aggregateService.select(id);
+            assertThat(restored.getBindings()).singleElement()
+                    .satisfies(value -> {
+                        assertThat(value.getId()).isEqualTo(originalBindingId);
+                        assertThat(value.getTitle()).isEqualTo("恢复后的值");
+                        assertThat(value.getDeleted()).isFalse();
+                    });
+
+            restored.setValueShape(FieldUiControlValueShape.SCALAR);
+            restored.setPrimaryValueKey("value");
+            restored.setBindings(null);
+            aggregateService.update(restored);
+
+            FieldUiControl scalar = aggregateService.select(id);
+            assertThat(scalar.getPrimaryValueKey()).isNull();
+            assertThat(scalar.getBindings()).isEmpty();
+            assertThat(fieldUiTypeFieldMappingService.selectIgnoreSoftDeleteIfPossible(originalBindingId).getDeleted())
+                    .isTrue();
+        } finally {
+            PlatformAbilityRuntime.resetChildAbilityResolver();
+        }
+    }
+
+    @Test
     void shouldReconcileMissingSemanticDefaultsForPlatformFieldUiControls() {
         FieldUiControl historicText = new FieldUiControl();
         historicText.setId("text");
@@ -641,6 +752,10 @@ class PlatformMetadataServiceContractTest {
         assertThat(dateRange.getDefaultFieldSpecAlias()).isEqualTo("date");
         assertThat(dateRange.getPrimaryValueKey()).isEqualTo("start");
         assertThat(dateRange.getQueryMode()).isEqualTo(FieldUiControlQueryMode.BETWEEN);
+
+        Integer textVersion = text.getVersion();
+        new InitialDataExecutor(List.of(), List.of(provider)).initializeAll();
+        assertThat(fieldUiTypeService.requireFieldUiControl("text").getVersion()).isEqualTo(textVersion);
     }
 
     @Test

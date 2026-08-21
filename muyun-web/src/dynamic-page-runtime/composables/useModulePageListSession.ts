@@ -26,9 +26,11 @@ export function useModulePageListSession(options: ModulePageListSessionOptions) 
   function handleLoaded(records: QueryListRecord[]) {
     if (listMode.value !== 'recycleBin') cardAssistantRecords.value = records;
     if (options.selectedRecord.value) {
-      options.selectedRecord.value =
-        records.find((record) => record.id === options.selectedRecord.value?.id) ??
-        options.selectedRecord.value;
+      const current = options.selectedRecord.value;
+      const listProjection = records.find((record) => record.id === current.id);
+      // A list row is intentionally narrower than a detail projection. Refreshing the list may
+      // update shared fields, but it must never erase fields/children required by a later edit.
+      options.selectedRecord.value = listProjection ? { ...current, ...listProjection } : current;
     }
   }
 

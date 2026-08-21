@@ -67,6 +67,16 @@ public interface ChildrenAbility<P extends EntityContract> extends CrudAbility<P
     }
 
     default void afterChildrenInsert(String id, P parent) {
+        if (usesAutomaticChildRelations()) {
+            for (StaticChildResolver.ChildRule rule : StaticChildResolver.rules(
+                    requireModelClass("afterChildrenInsert(...)"))) {
+                List<? extends EntityContract> children = rule.children(parent);
+                if (children != null && !children.isEmpty()) {
+                    autoChildRelation(rule).insertChildren(id, parent);
+                }
+            }
+            return;
+        }
         for (ChildRelation<? extends EntityContract, P> relation : childRelations()) {
             relation.insertChildren(id, parent);
         }
@@ -74,6 +84,15 @@ public interface ChildrenAbility<P extends EntityContract> extends CrudAbility<P
 
     default void afterChildrenUpdate(P parent, int updated) {
         if (updated <= 0) {
+            return;
+        }
+        if (usesAutomaticChildRelations()) {
+            for (StaticChildResolver.ChildRule rule : StaticChildResolver.rules(
+                    requireModelClass("afterChildrenUpdate(...)"))) {
+                if (rule.children(parent) != null) {
+                    autoChildRelation(rule).replaceChildren(parent.getId(), parent);
+                }
+            }
             return;
         }
         for (ChildRelation<? extends EntityContract, P> relation : childRelations()) {

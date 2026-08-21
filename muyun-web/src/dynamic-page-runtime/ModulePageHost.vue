@@ -11,7 +11,6 @@ import {
   RecordDetailPanel,
   RecordActionBar,
   RecordDetailExtensionSection,
-  DetailRelationListPanel,
   RecordDetailFields,
   RecordExplorerPanel,
   RecordFormFields,
@@ -83,6 +82,7 @@ import {
 import { normalizeListPageSize, restoreListPageSize, saveListPageSize } from './listPageSizePreference';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import StandardFlatFormSurface from './StandardFlatFormSurface.vue';
+import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { useRecordDetailController } from './recordDetailController';
@@ -136,15 +136,31 @@ const {
 // RecordFormFields owns parser and renderer diagnostics. Persist only its
 // validity fact here; the host remains responsible for the save boundary.
 const mainFormValid = ref(true);
+const relationDraftValid = ref(true);
+const formValidationRequestKey = ref(0);
 const localEditFormValid = ref(true);
 function updateMainFormValidity(validity: { valid: boolean }) {
   mainFormValid.value = validity.valid;
+}
+function updateEmbeddedChildren(relationField: string, records: QueryListRecord[]) {
+  if (!editingRecord.value) return;
+  if (JSON.stringify(editingRecord.value[relationField] ?? []) === JSON.stringify(records)) return;
+  editingRecord.value = { ...editingRecord.value, [relationField]: records };
+}
+function updateRelationDraftValidity(valid: boolean) {
+  relationDraftValid.value = valid;
 }
 function updateLocalEditFormValidity(validity: { valid: boolean }) {
   localEditFormValid.value = validity.valid;
 }
 watch([() => editingRecord.value?.id, formSessionKey], () => {
   mainFormValid.value = true;
+  relationDraftValid.value = true;
+});
+watch(editorMode, (mode) => {
+  if (mode !== 'edit') {
+    relationDraftValid.value = true;
+  }
 });
 const { pageBootstrap, pageBootstrapError, loadPageBootstrap } = useModulePageBootstrap(
   context,
@@ -153,6 +169,7 @@ const { pageBootstrap, pageBootstrapError, loadPageBootstrap } = useModulePageBo
 const {
   formFields,
   detailDisplayFields,
+  runtimeUiDescriptor,
   runtimePage,
   treeModule,
   navigatorLevels,
@@ -317,16 +334,20 @@ watch(localEditOpen, () => {
 });
 /** Only server-issued executable contracts may mount a relation-list runner. */
 const executableDetailRelations = computed<ResolvedDetailRelationDescriptor[]>(() =>
-  (pageBootstrap.value?.resolvedConfig.associationBlocks ?? []).flatMap((block) =>
-    hasExecutableDetailRelationQueryContract(block.relation) ? [block.relation] : [],
+  [
+    ...(runtimeUiDescriptor.value?.detailRelations ?? []),
+    ...(pageBootstrap.value?.resolvedConfig.associationBlocks ?? []).flatMap((block) =>
+      block.relation ? [block.relation] : [],
+    ),
+  ].filter(
+    (relation, index, values) =>
+      (Boolean(relation.embeddedField) || hasExecutableDetailRelationQueryContract(relation)) &&
+      values.findIndex(
+        (candidate) =>
+          candidate.sourceModuleAlias === relation.sourceModuleAlias && candidate.code === relation.code,
+      ) === index,
   ),
 );
-const detailRelationRecordId = computed(() => {
-  if (!detailOpen.value || editorMode.value !== 'view' || detailLoading.value || detailLoadFailed.value) {
-    return undefined;
-  }
-  return selectedRecord.value?.id == null ? undefined : String(selectedRecord.value.id);
-});
 const configuredPageMode = computed<MenuPageMode>(() => props.descriptor.target.pageMode ?? 'LIST');
 const pageMode = computed<MenuPageMode>(
   () => pageBootstrap.value?.entry.pageMode ?? configuredPageMode.value,
@@ -643,6 +664,7 @@ const flatManagementActions = computed<RecordActionItem[]>(() => {
         actionCode: editorMode.value === 'create' ? 'create' : 'update',
         title: saving.value ? '保存中' : '保存',
         loading: saving.value,
+        disabled: saving.value,
         primary: true,
       },
     ];
@@ -684,6 +706,18 @@ const flatManagementDetailActions = computed<RecordActionItem[]>(() => [
 const recycleBinDetailActive = computed(
   () => flatManagementRecycleBin.active.value || listMode.value === 'recycleBin',
 );
+const detailRelationsAvailable = computed(() => {
+  const selectedId = selectedRecord.value?.id;
+  const editingId = editingRecord.value?.id;
+  return (
+    detailOpen.value &&
+    !recycleBinDetailActive.value &&
+    !detailLoading.value &&
+    !detailLoadFailed.value &&
+    (editorMode.value === 'create' ||
+      (editingId != null && selectedId != null && String(selectedId) === String(editingId)))
+  );
+});
 const treeParentPickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() => {
   if (!treeModule.value || !formFields.value.has('parentId')) {
     return {} as Record<string, RecordFormFieldPickerConfig>;
@@ -1290,13 +1324,29 @@ async function saveNavigatorRecord() {
     const id = record.id == null ? undefined : String(record.id);
     const result =
       !creating && id ? await level.context.crud.update(id, record) : await level.context.crud.insert(record);
-    if (id) level.context.invalidateRecordActions?.([id]);
-    navigatorManagementDetail.applySaved(result.record);
+    const savedId = result.record.id == null ? undefined : String(result.record.id);
+    let persistedRecord = result.record;
+    let refreshFailure: unknown;
+    if (savedId) {
+      try {
+        persistedRecord = await level.context.crud.view(savedId);
+      } catch (cause) {
+        refreshFailure = cause;
+      }
+    }
+    if (savedId) {
+      level.context.invalidateRecordActions?.([savedId]);
+      void level.context.recordActions(savedId).catch(() => undefined);
+    }
+    navigatorManagementDetail.applySaved(persistedRecord);
     scopeReloadKey.value += 1;
     await presentModuleActionSuccess(result, '保存成功');
     // This is an in-panel, single-record editing session. Once persistence succeeds,
     // returning to the navigator keeps the workspace focused and avoids stale drafts.
     closeNavigatorManagementEditor();
+    if (refreshFailure) {
+      presentPlatformError(refreshFailure, { source: 'navigator-management', phase: 'load' });
+    }
   } catch (cause) {
     presentPlatformError(cause, { source: 'navigator-management', phase: 'action' });
   } finally {
@@ -1469,7 +1519,10 @@ async function editRecord(record: QueryListRecord) {
 async function saveRecord() {
   const record = editingRecord.value;
   if (!record) return;
-  if (!mainFormValid.value) return;
+  if (!mainFormValid.value || !relationDraftValid.value) {
+    formValidationRequestKey.value += 1;
+    return;
+  }
   if (editorMode.value === 'create' ? context.can('create') !== true : context.can('update') !== true) {
     return;
   }
@@ -1490,16 +1543,35 @@ async function saveRecord() {
       editorMode.value === 'edit' && id
         ? await context.crud.update(id, record)
         : await context.crud.insert(record);
-    if (id) context.invalidateRecordActions?.([id]);
-    selectedRecord.value = result.record;
-    if (treeModule.value) {
-      selectedTreeRecord.value = result.record;
+    const savedId = result.record.id == null ? undefined : String(result.record.id);
+    // Mutation output is an acknowledgement, not a guaranteed editable projection. Reload the
+    // canonical view (including managed children and display-enriched fields) before retaining it.
+    let persistedRecord = result.record;
+    let refreshFailure: unknown;
+    if (savedId) {
+      try {
+        persistedRecord = await context.crud.view(savedId);
+      } catch (cause) {
+        refreshFailure = cause;
+      }
     }
-    detail.applySaved(result.record);
+    if (savedId) {
+      context.invalidateRecordActions?.([savedId]);
+      void context.recordActions(savedId).catch(() => undefined);
+    }
+    selectedRecord.value = persistedRecord;
+    if (treeModule.value) {
+      selectedTreeRecord.value = persistedRecord;
+    }
+    detail.applySaved(persistedRecord);
+    relationDraftValid.value = true;
     detailRelationReloadKey.value += 1;
     refreshList();
     formSessionKey.value += 1;
     await presentModuleActionSuccess(result, '保存成功');
+    if (refreshFailure) {
+      presentPlatformError(refreshFailure, { source: 'module-action', phase: 'load' });
+    }
   } catch (cause) {
     presentPlatformError(cause, { source: 'module-action', phase: 'action' });
   } finally {
@@ -1709,13 +1781,17 @@ function closeDetail() {
  * Cancelling an edit returns to the already-open record view. Only a create
  * draft has no existing detail to return to, so it closes the detail surface.
  */
-function cancelDetailEditing() {
+async function cancelDetailEditing() {
   if (saving.value) return;
   invalidatePendingRequests();
   detail.cancelEdit();
+  const record = selectedRecord.value;
+  if (record?.id != null) {
+    await loadRecord(record, 'view');
+  }
 }
 
-function closeTreeCardEditor() {
+async function closeTreeCardEditor() {
   if (saving.value) return;
   invalidatePendingRequests();
   // Tree management uses a persistent card rather than a drawer, but its
@@ -1723,6 +1799,11 @@ function closeTreeCardEditor() {
   // In particular a create started from a selected tree node must return to
   // that node's loaded detail instead of leaving the card empty.
   detail.cancelEdit();
+  const record = selectedRecord.value;
+  if (record?.id != null) {
+    await loadRecord(record, 'view');
+    selectedTreeRecord.value = selectedRecord.value;
+  }
 }
 
 function retryLoadDetail() {
@@ -1978,6 +2059,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :fields="formFields"
           :mode="editorMode"
           :form-session-key="formSessionKey"
+          :validation-request-key="formValidationRequestKey"
           :option-context="context"
           :file-transfer-context="context"
           :picker-configs="referencePickerConfigs"
@@ -1996,19 +2078,19 @@ function recordTitle(record: QueryListRecord | undefined) {
           >
             <component :is="section.component" :context="detailSectionContext(editingRecord)" />
           </RecordDetailExtensionSection>
-          <RecordDetailExtensionSection
-            v-for="relation in executableDetailRelations"
-            :key="`relation:${relation.code}`"
-            :title="relation.title ?? relation.code"
-          >
-            <DetailRelationListPanel
-              :source-context="context"
-              :relation="relation"
-              :record-id="detailRelationRecordId"
-              :reload-key="detailRelationReloadKey"
-            />
-          </RecordDetailExtensionSection>
         </template>
+        <ModulePageDetailRelations
+          v-if="runtimeUiDescriptor && detailRelationsAvailable"
+          :source-context="context"
+          :ui-descriptor="runtimeUiDescriptor"
+          :relations="executableDetailRelations"
+          :parent-record="(editorMode === 'view' ? selectedRecord : editingRecord) as QueryListRecord"
+          :mutation-enabled="editorMode !== 'view'"
+          :reload-key="detailRelationReloadKey"
+          :validation-request-key="formValidationRequestKey"
+          @children-change="updateEmbeddedChildren"
+          @validity-change="updateRelationDraftValidity"
+        />
         <RecordMetaSection
           v-if="editorMode !== 'create' && showDetailSystemInfo"
           :record="editingRecord"
@@ -2239,24 +2321,13 @@ function recordTitle(record: QueryListRecord | undefined) {
             >
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
             </RecordDetailExtensionSection>
-            <RecordDetailExtensionSection
-              v-for="relation in executableDetailRelations"
-              :key="`relation:${relation.code}`"
-              :title="relation.title ?? relation.code"
-            >
-              <DetailRelationListPanel
-                :source-context="context"
-                :relation="relation"
-                :record-id="detailRelationRecordId"
-                :reload-key="detailRelationReloadKey"
-              />
-            </RecordDetailExtensionSection>
           </template>
           <div v-else class="module-form">
             <RecordFormFields
               :record="editingRecord as RecordFormRecord"
               :fields="formFields"
               :form-session-key="formSessionKey"
+              :validation-request-key="formValidationRequestKey"
               :option-context="context"
               :file-transfer-context="context"
               :picker-configs="referencePickerConfigs"
@@ -2266,6 +2337,18 @@ function recordTitle(record: QueryListRecord | undefined) {
               @validity-change="updateMainFormValidity"
             />
           </div>
+          <ModulePageDetailRelations
+            v-if="runtimeUiDescriptor && detailRelationsAvailable"
+            :source-context="context"
+            :ui-descriptor="runtimeUiDescriptor"
+            :relations="executableDetailRelations"
+            :parent-record="(editorMode === 'view' ? selectedRecord : editingRecord) as QueryListRecord"
+            :mutation-enabled="editorMode !== 'view'"
+            :reload-key="detailRelationReloadKey"
+            :validation-request-key="formValidationRequestKey"
+            @children-change="updateEmbeddedChildren"
+            @validity-change="updateRelationDraftValidity"
+          />
           <RecordMetaSection
             v-if="editorMode !== 'create' && showDetailSystemInfo"
             :record="editingRecord"
@@ -2488,24 +2571,13 @@ function recordTitle(record: QueryListRecord | undefined) {
             >
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
             </RecordDetailExtensionSection>
-            <RecordDetailExtensionSection
-              v-for="relation in executableDetailRelations"
-              :key="`relation:${relation.code}`"
-              :title="relation.title ?? relation.code"
-            >
-              <DetailRelationListPanel
-                :source-context="context"
-                :relation="relation"
-                :record-id="detailRelationRecordId"
-                :reload-key="detailRelationReloadKey"
-              />
-            </RecordDetailExtensionSection>
           </template>
           <div v-else class="module-form">
             <RecordFormFields
               :record="editingRecord as RecordFormRecord"
               :fields="formFields"
               :form-session-key="formSessionKey"
+              :validation-request-key="formValidationRequestKey"
               :option-context="context"
               :file-transfer-context="context"
               :picker-configs="referencePickerConfigs"
@@ -2514,6 +2586,18 @@ function recordTitle(record: QueryListRecord | undefined) {
               @validity-change="updateMainFormValidity"
             />
           </div>
+          <ModulePageDetailRelations
+            v-if="runtimeUiDescriptor && detailRelationsAvailable"
+            :source-context="context"
+            :ui-descriptor="runtimeUiDescriptor"
+            :relations="executableDetailRelations"
+            :parent-record="(editorMode === 'view' ? selectedRecord : editingRecord) as QueryListRecord"
+            :mutation-enabled="editorMode !== 'view'"
+            :reload-key="detailRelationReloadKey"
+            :validation-request-key="formValidationRequestKey"
+            @children-change="updateEmbeddedChildren"
+            @validity-change="updateRelationDraftValidity"
+          />
           <RecordMetaSection
             v-if="editorMode !== 'create' && showDetailSystemInfo"
             :record="editingRecord"
@@ -2653,18 +2737,14 @@ function recordTitle(record: QueryListRecord | undefined) {
             >
               <component :is="section.component" :context="detailSectionContext(editingRecord)" />
             </RecordDetailExtensionSection>
-            <RecordDetailExtensionSection
-              v-for="relation in executableDetailRelations"
-              :key="`relation:${relation.code}`"
-              :title="relation.title ?? relation.code"
-            >
-              <DetailRelationListPanel
-                :source-context="context"
-                :relation="relation"
-                :record-id="detailRelationRecordId"
-                :reload-key="detailRelationReloadKey"
-              />
-            </RecordDetailExtensionSection>
+            <ModulePageDetailRelations
+              v-if="runtimeUiDescriptor && detailRelationsAvailable"
+              :source-context="context"
+              :ui-descriptor="runtimeUiDescriptor"
+              :relations="executableDetailRelations"
+              :parent-record="selectedRecord as QueryListRecord"
+              :reload-key="detailRelationReloadKey"
+            />
           </template>
         </template>
       </template>
@@ -2674,12 +2754,25 @@ function recordTitle(record: QueryListRecord | undefined) {
             :record="editingRecord as RecordFormRecord"
             :fields="formFields"
             :form-session-key="formSessionKey"
+            :validation-request-key="formValidationRequestKey"
             :option-context="context"
             :file-transfer-context="context"
             :picker-configs="referencePickerConfigs"
             :exclude-field-names="['enabled']"
             @update:field="updateDraftField"
             @validity-change="updateMainFormValidity"
+          />
+          <ModulePageDetailRelations
+            v-if="runtimeUiDescriptor && detailRelationsAvailable"
+            :source-context="context"
+            :ui-descriptor="runtimeUiDescriptor"
+            :relations="executableDetailRelations"
+            :parent-record="editingRecord as QueryListRecord"
+            mutation-enabled
+            :reload-key="detailRelationReloadKey"
+            :validation-request-key="formValidationRequestKey"
+            @children-change="updateEmbeddedChildren"
+            @validity-change="updateRelationDraftValidity"
           />
         </div>
       </template>

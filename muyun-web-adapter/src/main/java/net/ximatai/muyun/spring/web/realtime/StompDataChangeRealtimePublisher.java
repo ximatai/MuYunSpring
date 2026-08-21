@@ -45,6 +45,17 @@ public class StompDataChangeRealtimePublisher implements DataChangeRealtimePubli
             messagePublisher.broadcast(RealtimeDestinations.recordDataChanges(key.moduleAlias(), key.recordId()),
                     summaryEnvelope(changeSet.changeSetId(), entry.getValue(), traceId));
         }
+        for (Map.Entry<ResourceTopicKey, List<DataChange>> entry : resourceSummaries(changeSet).entrySet()) {
+            ResourceTopicKey key = entry.getKey();
+            messagePublisher.broadcast(RealtimeDestinations.resourceDataChanges(key.moduleAlias(), key.resourceKey()),
+                    summaryEnvelope(changeSet.changeSetId(), entry.getValue(), traceId));
+        }
+        for (Map.Entry<ResourceRecordTopicKey, List<DataChange>> entry : resourceRecordSummaries(changeSet).entrySet()) {
+            ResourceRecordTopicKey key = entry.getKey();
+            messagePublisher.broadcast(RealtimeDestinations.resourceRecordDataChanges(
+                            key.moduleAlias(), key.resourceKey(), key.recordId()),
+                    summaryEnvelope(changeSet.changeSetId(), entry.getValue(), traceId));
+        }
     }
 
     private RealtimeEnvelope<CommittedChangeSet> summaryEnvelope(String changeSetId, List<DataChange> changes,
@@ -66,13 +77,42 @@ public class StompDataChangeRealtimePublisher implements DataChangeRealtimePubli
     private Map<RecordTopicKey, List<DataChange>> recordSummaries(CommittedChangeSet changeSet) {
         Map<RecordTopicKey, List<DataChange>> summaries = new LinkedHashMap<>();
         for (DataChange change : changeSet.changes()) {
-            if (change == null || change.recordId() == null) {
+            if (change == null) {
                 continue;
             }
-            summaries.computeIfAbsent(new RecordTopicKey(change.moduleAlias(), change.recordId()),
+            String rootRecordId = hasResource(change) ? change.scope() : change.recordId();
+            if (rootRecordId == null || rootRecordId.isBlank()) {
+                continue;
+            }
+            summaries.computeIfAbsent(new RecordTopicKey(change.moduleAlias(), rootRecordId),
                     ignored -> new ArrayList<>()).add(summary(change));
         }
         return summaries;
+    }
+
+    private Map<ResourceTopicKey, List<DataChange>> resourceSummaries(CommittedChangeSet changeSet) {
+        Map<ResourceTopicKey, List<DataChange>> summaries = new LinkedHashMap<>();
+        for (DataChange change : changeSet.changes()) {
+            if (!hasResource(change)) continue;
+            summaries.computeIfAbsent(new ResourceTopicKey(change.moduleAlias(), change.resourceKey()),
+                    ignored -> new ArrayList<>()).add(summary(change));
+        }
+        return summaries;
+    }
+
+    private Map<ResourceRecordTopicKey, List<DataChange>> resourceRecordSummaries(CommittedChangeSet changeSet) {
+        Map<ResourceRecordTopicKey, List<DataChange>> summaries = new LinkedHashMap<>();
+        for (DataChange change : changeSet.changes()) {
+            if (!hasResource(change) || change.recordId() == null || change.recordId().isBlank()) continue;
+            summaries.computeIfAbsent(new ResourceRecordTopicKey(
+                    change.moduleAlias(), change.resourceKey(), change.recordId()),
+                    ignored -> new ArrayList<>()).add(summary(change));
+        }
+        return summaries;
+    }
+
+    private boolean hasResource(DataChange change) {
+        return change != null && change.resourceKey() != null && !change.resourceKey().isBlank();
     }
 
     private DataChange summary(DataChange change) {
@@ -81,5 +121,11 @@ public class StompDataChangeRealtimePublisher implements DataChangeRealtimePubli
     }
 
     private record RecordTopicKey(String moduleAlias, String recordId) {
+    }
+
+    private record ResourceTopicKey(String moduleAlias, String resourceKey) {
+    }
+
+    private record ResourceRecordTopicKey(String moduleAlias, String resourceKey, String recordId) {
     }
 }

@@ -49,6 +49,11 @@ final class DemoInvoiceService extends AbstractAbilityService<DemoInvoice> imple
         );
     }
 
+    @Override
+    public boolean usesAutomaticChildRelations() {
+        return false;
+    }
+
     DemoInvoiceLineService lineService() {
         return lineService;
     }

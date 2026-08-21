@@ -118,6 +118,32 @@ class RealtimePublisherTest {
     }
 
     @Test
+    void shouldRouteResourceChangesToResourceChildAndOwningParentTopics() {
+        RecordingRealtimeMessagePublisher messagePublisher = new RecordingRealtimeMessagePublisher();
+        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher);
+        DataChange resourceChange = DataChange.resourceRecordUpdated(
+                "platform.field_ui_control", "properties", "control-1", "property-1");
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
+                CurrentUser.tenantUser("source-1", "Source", "tenant-a"))) {
+            publisher.publish(new CommittedChangeSet("change-set-1", List.of(resourceChange)));
+        }
+
+        assertThat(messagePublisher.broadcasts)
+                .extracting(BroadcastMessage::topic)
+                .containsExactly(
+                        RealtimeDestinations.moduleDataChanges("platform.field_ui_control"),
+                        RealtimeDestinations.recordDataChanges("platform.field_ui_control", "control-1"),
+                        RealtimeDestinations.resourceDataChanges("platform.field_ui_control", "properties"),
+                        RealtimeDestinations.resourceRecordDataChanges(
+                                "platform.field_ui_control", "properties", "property-1"));
+        assertThat(messagePublisher.broadcasts)
+                .extracting(BroadcastMessage::topic)
+                .doesNotContain(RealtimeDestinations.recordDataChanges(
+                        "platform.field_ui_control", "property-1"));
+    }
+
+    @Test
     void shouldSkipDataChangeWithoutCurrentUser() {
         RecordingRealtimeMessagePublisher messagePublisher = new RecordingRealtimeMessagePublisher();
         StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher);

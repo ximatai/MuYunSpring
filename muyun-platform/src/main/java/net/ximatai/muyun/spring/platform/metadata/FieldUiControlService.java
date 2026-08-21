@@ -4,8 +4,9 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
-import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
+import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -20,9 +21,10 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
 public class FieldUiControlService extends AbstractAbilityService<FieldUiControl> implements
-        SoftDeleteAbility<FieldUiControl>,
+        RecycleBinAbility<FieldUiControl>,
         EnableAbility<FieldUiControl>,
         SortAbility<FieldUiControl>,
+        ChildrenAbility<FieldUiControl>,
         ReferenceAbility<FieldUiControl>,
         QueryAbility<FieldUiControl> {
     public static final String MODULE_ALIAS = "platform.field_ui_control";
@@ -103,6 +105,12 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
             fieldUiType.setValueShape(FieldUiControlValueShape.SCALAR);
         }
         normalizePrimaryValueKey(fieldUiType);
+        if (fieldUiType.getValueShape() != FieldUiControlValueShape.COMPOSITE) {
+            // Bindings are composite components, not merely a conditionally visible UI section.
+            // An explicit empty aggregate lets ChildrenAbility retire existing rows on every
+            // standard write path, including callers that do not originate from the web form.
+            fieldUiType.setBindings(List.of());
+        }
         if (fieldUiType.getQueryMode() == null) fieldUiType.setQueryMode(FieldUiControlQueryMode.DEFAULT);
         if (fieldUiType.getQueryMode() == FieldUiControlQueryMode.BETWEEN
                 && fieldUiType.getValueShape() != FieldUiControlValueShape.COMPOSITE) {
@@ -119,10 +127,9 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
 
     private void normalizePrimaryValueKey(FieldUiControl fieldUiControl) {
         if (fieldUiControl.getValueShape() != FieldUiControlValueShape.COMPOSITE) {
-            if (fieldUiControl.getPrimaryValueKey() != null && !fieldUiControl.getPrimaryValueKey().isBlank()) {
-                throw new PlatformException("primaryValueKey is only allowed for COMPOSITE field UI controls: "
-                        + fieldUiControl.getAlias());
-            }
+            // Switching away from COMPOSITE makes the former primary component irrelevant.
+            // Treat the hidden stale value as input to normalize instead of forcing clients to
+            // understand and clear this internal invariant before a standard save.
             fieldUiControl.setPrimaryValueKey(null);
             return;
         }

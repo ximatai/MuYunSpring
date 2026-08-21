@@ -5,8 +5,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import net.ximatai.muyun.spring.common.web.PlatformWebWireContract;
 import net.ximatai.muyun.spring.web.WebPageResponse;
-import org.springframework.beans.BeanWrapper;
-import org.springframework.beans.BeanWrapperImpl;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 
@@ -41,15 +39,7 @@ final class StaticModuleWebWireValues {
         if (!(serialized instanceof ObjectNode values)) {
             return record;
         }
-        fieldTypes.forEach((fieldName, fieldType) -> {
-            JsonNode value = values.get(fieldName);
-            if (value != null && !value.isNull() && fieldType != null && isLosslessNumeric(fieldType)) {
-                Object wireValue = PlatformWebWireContract.responseValue(fieldType.name(), sourceValue(record, fieldName));
-                if (wireValue instanceof String text) {
-                    values.put(fieldName, text);
-                }
-            }
-        });
+        fieldTypes.forEach((fieldName, fieldType) -> adaptPath(values, fieldName.split("\\."), 0, fieldType));
         return objectMapper.convertValue(values, Map.class);
     }
 
@@ -70,11 +60,22 @@ final class StaticModuleWebWireValues {
         return fieldType == FieldValueType.LONG || fieldType == FieldValueType.DECIMAL;
     }
 
-    private static Object sourceValue(Object record, String fieldName) {
-        if (record instanceof Map<?, ?> values) {
-            return values.get(fieldName);
+    private static void adaptPath(JsonNode node, String[] path, int index, FieldValueType fieldType) {
+        if (node == null || index >= path.length || fieldType == null || !isLosslessNumeric(fieldType)) {
+            return;
         }
-        BeanWrapper bean = new BeanWrapperImpl(record);
-        return bean.isReadableProperty(fieldName) ? bean.getPropertyValue(fieldName) : null;
+        if (node.isArray()) {
+            node.forEach(item -> adaptPath(item, path, index, fieldType));
+            return;
+        }
+        if (!(node instanceof ObjectNode object)) return;
+        String segment = path[index];
+        JsonNode value = object.get(segment);
+        if (index + 1 < path.length) {
+            adaptPath(value, path, index + 1, fieldType);
+        } else if (value != null && !value.isNull()) {
+            Object wireValue = PlatformWebWireContract.responseValue(fieldType.name(), value.asText());
+            if (wireValue instanceof String text) object.put(segment, text);
+        }
     }
 }

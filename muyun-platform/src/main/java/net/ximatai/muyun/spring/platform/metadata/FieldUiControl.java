@@ -8,7 +8,13 @@ import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.initialdata.InitialDataFields;
 import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEntity;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.common.option.OptionField;
+import net.ximatai.muyun.spring.common.option.OptionSourceType;
 import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
+import net.ximatai.muyun.spring.ability.child.Children;
+
+import java.util.List;
 
 @Getter
 @Setter
@@ -24,10 +30,12 @@ public class FieldUiControl extends StandardEnabledSortableEntity {
     private String alias;
 
     @Column(name = "default_field_spec_alias", type = ColumnType.VARCHAR, length = 64, comment = "Default field type alias")
+    @ReferenceTo(target = FieldSpecService.class)
     private String defaultFieldSpecAlias;
 
     @Column(name = "value_shape", type = ColumnType.VARCHAR, length = 16, nullable = false,
             comment = "Control value shape")
+    @OptionField(type = OptionSourceType.ENUM)
     private FieldUiControlValueShape valueShape;
 
     @Column(name = "primary_value_key", type = ColumnType.VARCHAR, length = 64,
@@ -36,11 +44,19 @@ public class FieldUiControl extends StandardEnabledSortableEntity {
 
     @Column(name = "query_mode", type = ColumnType.VARCHAR, length = 16, nullable = false,
             comment = "Query value interpretation")
+    @OptionField(type = OptionSourceType.ENUM)
     private FieldUiControlQueryMode queryMode;
 
     @Column(name = "renderer_type", type = ColumnType.VARCHAR, length = 32, comment = "Built-in UI adapter renderer type")
+    @OptionField(type = OptionSourceType.ENUM)
     private ViewControlType rendererType;
 
     @Column(name = "icon", type = ColumnType.VARCHAR, length = 128, comment = "Icon")
     private String icon;
+
+    @Children(relationCode = "properties")
+    private List<FieldUiControlProperty> properties;
+
+    @Children(relationCode = "bindings")
+    private List<FieldUiControlBinding> bindings;
 }

@@ -83,6 +83,20 @@ withDefaults(
 
 <style scoped>
 .record-detail-layout {
+  --muyun-detail-section-inner-gap: 8px;
+  --muyun-detail-section-block-gap: 16px;
+  --muyun-content-section-heading-color: var(--muyun-text);
+  --muyun-content-section-heading-font-size: 14px;
+  --muyun-content-section-heading-font-weight: 600;
+  --muyun-content-section-heading-line-height: 20px;
+  --muyun-content-section-subtitle-color: var(--muyun-text-muted);
+  --muyun-content-section-subtitle-font-size: 12px;
+  --muyun-content-section-subtitle-line-height: 18px;
+  --muyun-detail-relation-header-font-size: 12px;
+  --muyun-detail-relation-body-font-size: 12px;
+  --muyun-detail-relation-header-row-height: 34px;
+  --muyun-detail-relation-body-row-height: 30px;
+
   display: grid;
   align-content: start;
   gap: 12px;

@@ -5,7 +5,6 @@ import type {
   PageLayoutMode,
   RoutePageTarget,
 } from '@muyun/web-contracts';
-import FieldUiControlManagementView from '../views/FieldUiControlManagementView.vue';
 import DictionaryManagementView from '../views/DictionaryManagementView.vue';
 import EmployeeManagementView from '../views/EmployeeManagementView.vue';
 import MenuManagementView from '../views/MenuManagementView.vue';
@@ -25,12 +24,6 @@ export interface PlatformAdminRoute {
 }
 
 export const platformAdminRoutes: PlatformAdminRoute[] = [
-  {
-    route: '/config/field-ui-controls',
-    moduleAlias: 'platform.field_ui_control',
-    component: FieldUiControlManagementView,
-    layout: 'workspace',
-  },
   {
     route: '/config/dictionaries',
     moduleAlias: 'platform.dictionary_category',
@@ -85,6 +78,7 @@ export const platformAdminRoutePrefixes = Array.from(
  * canonical `/platform/dynamic/<moduleAlias>/list` URL directly.
  */
 export const platformAdminDynamicModuleRoutes: Record<string, string> = {
+  '/config/field-ui-controls': 'platform.field_ui_control',
   // Tenant management is descriptor-owned. Keep the former static URL for
   // bookmarks and menus; page serialization canonicalizes it to the module host.
   '/iam/tenants': 'iam.tenant',

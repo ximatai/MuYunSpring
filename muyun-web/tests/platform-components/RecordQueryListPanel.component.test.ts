@@ -65,6 +65,42 @@ describe('RecordQueryListPanel', () => {
     expect(wrapper.find('[aria-label="下一页"]').exists()).toBe(true);
   });
 
+  it('lets an embedding section own the visible title while preserving refresh access', async () => {
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1' }),
+        title: '控件属性',
+        showTitle: false,
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.find('.record-query-list-title').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="刷新控件属性"]').exists()).toBe(true);
+  });
+
+  it('renders embedded read mode without operational chrome or a standalone border', async () => {
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1' }),
+        title: '控件属性',
+        showTitle: false,
+        headerVisible: false,
+        showRecycleBin: false,
+        pageable: false,
+        embedded: true,
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.find('.record-query-list-header').exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'RecycleBinModeButton' }).exists()).toBe(false);
+    expect(wrapper.find('.record-query-list-panel').classes()).toContain('is-embedded');
+    expect(wrapper.find('.record-query-list-panel').classes()).toContain('is-chrome-free');
+  });
+
   it('reloads the central list when an upstream navigator changes its criteria', async () => {
     const requests: WebQueryRequest[] = [];
     const wrapper = shallowMount(RecordQueryListPanel, {

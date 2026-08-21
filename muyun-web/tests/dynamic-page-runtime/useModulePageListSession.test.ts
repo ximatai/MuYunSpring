@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { useModulePageListSession } from '@/dynamic-page-runtime/composables/useModulePageListSession.ts';
 
 function createSession() {
-  const selectedRecord = ref<{ id?: string; title?: string }>();
+  const selectedRecord = ref<{ id?: string; title?: string; rendererType?: string }>();
   const saving = ref(false);
   const resetDetail = vi.fn();
   const invalidateDetailLoad = vi.fn();
@@ -34,12 +34,12 @@ function createSession() {
 describe('module page list session', () => {
   it('owns active-list snapshots while preserving the loaded detail projection', () => {
     const { session, selectedRecord } = createSession();
-    selectedRecord.value = { id: '1', title: '详情字段' };
+    selectedRecord.value = { id: '1', title: '详情字段', rendererType: 'TEXTAREA' };
 
     session.handleLoaded([{ id: '1', title: '列表字段' }]);
 
     expect(session.cardAssistantRecords.value).toEqual([{ id: '1', title: '列表字段' }]);
-    expect(selectedRecord.value).toEqual({ id: '1', title: '列表字段' });
+    expect(selectedRecord.value).toEqual({ id: '1', title: '列表字段', rendererType: 'TEXTAREA' });
     session.listMode.value = 'recycleBin';
     session.handleLoaded([{ id: '2', title: '已删除' }]);
     expect(session.cardAssistantRecords.value).toEqual([{ id: '1', title: '列表字段' }]);

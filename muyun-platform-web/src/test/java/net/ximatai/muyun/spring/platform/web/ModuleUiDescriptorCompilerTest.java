@@ -1103,10 +1103,10 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
-    void shouldResolveExplicitStaticDetailRelationWithoutInventingQueryContract() {
+    void shouldResolveReadOnlyStaticDetailRelationWithoutInventingQueryOrMutationContract() {
         ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.position_category")
                 .page(emptyEditorPage())
-                .detailRelation("positions", "岗位", "position", "categoryId", false)
+                .detailRelation("positions", "岗位", "position", "categoryId", true)
                 .build();
 
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
@@ -1118,8 +1118,59 @@ class ModuleUiDescriptorCompilerTest {
             assertThat(relation.sourceEntityAlias()).isEqualTo("position_category");
             assertThat(relation.targetEntityAlias()).isEqualTo("position");
             assertThat(relation.parentBinding()).isEqualTo("categoryId");
-            assertThat(relation.readOnly()).isFalse();
+            assertThat(relation.readOnly()).isTrue();
             assertThat(relation.hasExecutableQueryContract()).isFalse();
+            assertThat(relation.hasExecutableMutationContract()).isFalse();
+        });
+    }
+
+    @Test
+    void shouldRequireAnExplicitMutationContractForManagedStaticDetailRelation() {
+        ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.position_category")
+                .page(emptyEditorPage())
+                .editorContribution("position", form -> form.field("position", "title", field -> field.label("岗位")))
+                .managedDetailRelation("positions", "岗位", "position", "categoryId",
+                        PageDetailRelationMutationDefinition.standardCrud(),
+                        PageDetailRelationPaginationDefinition.unpaged())
+                .build();
+
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
+                staticDefinition(uiDefinition, positionEntities()));
+
+        assertThat(descriptor.detailRelations()).singleElement().satisfies(relation -> {
+            assertThat(relation.readOnly()).isFalse();
+            assertThat(relation.hasExecutableQueryContract()).isTrue();
+            assertThat(relation.queryContract().managedGateway()).isTrue();
+            assertThat(relation.queryContract().actionCode()).isEqualTo("position_query");
+            assertThat(relation.queryContract().pageable()).isFalse();
+            assertThat(relation.queryContract().pageSize()).isNull();
+            assertThat(relation.queryContract().pageSizeOptions()).isEmpty();
+            assertThat(relation.hasExecutableMutationContract()).isTrue();
+            assertThat(relation.mutationContract()).satisfies(mutation -> {
+                assertThat(mutation.createActionCode()).isEqualTo("position_create");
+                assertThat(mutation.updateActionCode()).isEqualTo("position_update");
+                assertThat(mutation.deleteActionCode()).isEqualTo("position_delete");
+            });
+        });
+    }
+
+    @Test
+    void shouldCompileManagedQueryWithoutImplicitMutationCapability() {
+        ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.position_category")
+                .page(emptyEditorPage())
+                .editorContribution("position", form -> form.field("position", "title", field -> field.label("岗位")))
+                .managedReadOnlyDetailRelation("positions", "岗位", "position", "categoryId", null)
+                .build();
+
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
+                staticDefinition(uiDefinition, positionEntities()));
+
+        assertThat(descriptor.detailRelations()).singleElement().satisfies(relation -> {
+            assertThat(relation.readOnly()).isTrue();
+            assertThat(relation.queryContract().actionCode()).isEqualTo("position_query");
+            assertThat(relation.hasExecutableQueryContract()).isTrue();
+            assertThat(relation.hasExecutableMutationContract()).isFalse();
+            assertThat(relation.mutationContract()).isNull();
         });
     }
 
@@ -1169,11 +1220,26 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     private StaticModuleDefinition staticDefinition(ModuleUiDefinition uiDefinition, List<EntityDefinition> entities) {
+        List<net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition> relationActions =
+                uiDefinition.detailRelations().stream()
+                        .filter(PageDetailRelationDefinition::managedQuery)
+                        .flatMap(relation -> {
+                            java.util.ArrayList<String> operations = new java.util.ArrayList<>();
+                            operations.add("query");
+                            if (relation.mutation() != null) {
+                                if (relation.mutation().createAllowed()) operations.add("create");
+                                if (relation.mutation().updateAllowed()) operations.add("update");
+                                if (relation.mutation().deleteAllowed()) operations.add("delete");
+                            }
+                            return operations.stream().map(operation ->
+                                    net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition.recordAction(
+                                            relation.targetEntityAlias() + "_" + operation, operation));
+                        }).toList();
         return StaticModuleDefinition.builder("iam", uiDefinition.moduleAlias(), "职员管理")
                        .parentModuleAlias(null)
                        .entry(ModuleEntryType.ROUTE, "/iam/employees", null)
                        .capabilities(Set.of(EntityCapability.CRUD))
-                       .actions(List.of())
+                       .actions(relationActions)
                        .entities(entities)
                        .uiDefinition(uiDefinition)
                        .build();

@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.ability.child.ChildAbilityRequest;
 import net.ximatai.muyun.spring.ability.child.ChildAbilityResolver;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.child.StaticChildResolver;
+import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 
 import java.util.Objects;
@@ -36,10 +37,17 @@ public final class PlatformChildAbilityResolver implements ChildAbilityResolver 
                 continue;
             }
             for (StaticChildResolver.ChildRule rule : StaticChildResolver.rules(parentAbility.modelClass())) {
-                if (resolve(ChildAbilityRequest.forStaticModel(rule.childModel())).isEmpty()) {
+                ChildAbility<?> childAbility = resolve(ChildAbilityRequest.forStaticModel(rule.childModel()))
+                        .orElse(null);
+                if (childAbility == null) {
                     throw new PlatformException("@Children child service is not registered: "
                             + parentAbility.modelClass().getName() + "." + rule.plan().relationCode()
                             + " -> " + rule.childModel().getName());
+                }
+                if (childAbility instanceof DataScopeAbility<?>) {
+                    throw new PlatformException("automatic @Children aggregate reads do not support independent "
+                            + "DataScopeAbility: " + parentAbility.modelClass().getName() + "."
+                            + rule.plan().relationCode() + ", use an explicitly scoped child reader");
                 }
             }
         }

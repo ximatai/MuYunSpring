@@ -1,8 +1,8 @@
 import { flushPromises, shallowMount } from '@vue/test-utils';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent } from 'vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
-import { configureModuleContext, createHttpClient } from '@muyun/web-core';
+import { configureModuleContext, createHttpClient, type ModuleContext } from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefresh.ts';
 
@@ -207,7 +207,7 @@ describe('ModulePageHost', () => {
         stubs: {
           StaticManagementLayout: {
             template:
-              '<section><slot name="explorer" /><slot name="explorer-footer" /><slot name="detail-actions" /><slot /></section>',
+              '<section><slot name="explorer-actions" /><slot name="explorer" /><slot name="explorer-footer" /><slot name="detail-actions" /><slot /></section>',
           },
           RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
           UiModal: { name: 'UiModal', template: '<section><slot /></section>' },
@@ -360,8 +360,8 @@ describe('ModulePageHost', () => {
   });
 
   it('merges frontend-owned list enhancements into the standard descriptor runner', async () => {
-    globalThis.fetch = async (input) => {
-      const request = new Request(input);
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
       if (request.url.endsWith('/platform.module/crm.customer/context')) {
         return Response.json({
           moduleAlias: 'crm.customer',
@@ -632,9 +632,16 @@ describe('ModulePageHost', () => {
     // The isolated flat surface propagates descriptor parser validity to the host save boundary.
     const form = wrapper.findComponent({ name: 'StandardFlatFormSurface' });
     form.vm.$emit('validity-change', { valid: false, errors: { payload: '请输入有效 JSON' } });
+    await flushPromises();
+    expect(
+      (actionBar.props('actions') as Array<{ key: string; disabled?: boolean }>).find(
+        (action) => action.key === 'save',
+      )?.disabled,
+    ).toBe(false);
     actionBar.vm.$emit('action', { key: 'save', actionCode: 'create' });
     await flushPromises();
     expect(requests.some((request) => request.url.endsWith('/platform.application/create'))).toBe(false);
+    expect(form.props('validationRequestKey')).toBe(1);
   });
 
   it('uses the same record grant for the standard view row action and double-click', async () => {
@@ -1792,7 +1799,366 @@ describe('ModulePageHost', () => {
     expect(Reflect.set(updatedContext.record, 'title', '越界修改')).toBe(false);
     expect(form.props('record')).toMatchObject({ title: '新客户' });
   });
+
+  it('loads and saves embedded child relations through the parent standard CRUD contract', async () => {
+    const requestedPaths: string[] = [];
+    let updatePayload: Record<string, unknown> | undefined;
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requestedPaths.push(new URL(request.url).pathname);
+      if (request.url.endsWith('/platform.module/platform.field_ui_control/context')) {
+        return Response.json({
+          moduleAlias: 'platform.field_ui_control',
+          moduleKind: 'STATIC',
+          capabilities: ['RECYCLE_BIN'],
+          actions: ['create', 'update', 'recycleBinQuery'].map((actionCode) => ({
+            actionCode,
+            authorized: true,
+          })),
+          uiDescriptor: {
+            schemaVersion: 'module-ui.v6',
+            moduleAlias: 'platform.field_ui_control',
+            page: page({ template: 'FLAT_MANAGEMENT' }),
+            editorContributions: [
+              childEditor('field_ui_control_property', 'attributeAlias'),
+              childEditor('field_ui_control_binding', 'valueKey'),
+            ],
+            detailRelations: [
+              embeddedRelation('properties', 'field_ui_control_property', 'attributeAlias'),
+              {
+                ...embeddedRelation('bindings', 'field_ui_control_binding', 'valueKey'),
+                visible: {
+                  formula: {
+                    expression: "{valueShape} == 'COMPOSITE'",
+                    program: {
+                      schemaVersion: 1,
+                      profile: 'WEB_UI',
+                      referencedFields: ['valueShape'],
+                      root: {
+                        kind: 'BINARY',
+                        operator: '==',
+                        arguments: [
+                          { kind: 'FIELD', field: 'valueShape', arguments: [] },
+                          { kind: 'VALUE', value: 'COMPOSITE', arguments: [] },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.field_ui_control/view/select')) {
+        return Response.json({
+          id: 'select',
+          alias: 'select',
+          title: '下拉',
+          valueShape: 'COMPOSITE',
+          version: 1,
+          properties: [{ id: 'property-1', attributeAlias: 'placeholder', version: 1 }],
+          bindings: [{ id: 'binding-1', valueKey: 'options', version: 1 }],
+        });
+      }
+      if (request.url.endsWith('/platform.field_ui_control/recycle-bin/view/deleted-select')) {
+        return Response.json({
+          id: 'deleted-select',
+          alias: 'deleted-select',
+          title: '已删除下拉',
+          valueShape: 'COMPOSITE',
+          version: 2,
+        });
+      }
+      if (new URL(request.url).pathname.endsWith('/platform.field_ui_control/actions/select')) {
+        return Response.json({
+          recordId: 'select',
+          actions: [
+            { actionCode: 'update', available: true },
+            { actionCode: 'delete', available: true },
+          ],
+        });
+      }
+      if (new URL(request.url).pathname.endsWith('/platform.field_ui_control/update/select')) {
+        updatePayload = (await request.clone().json()) as Record<string, unknown>;
+        return Response.json(updatePayload);
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-target' },
+          target: { moduleAlias: 'platform.field_ui_control', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          StaticManagementLayout: {
+            template:
+              '<section><slot name="explorer-actions" /><slot name="explorer" /><slot name="explorer-footer" /><slot name="detail-actions" /><slot /></section>',
+          },
+          ModulePageDetailRelations: false,
+          ManagedDetailRelationSurface: false,
+          RecordDetailExtensionSection: { template: '<section><slot /></section>' },
+          RecordQueryListPanel: {
+            name: 'RecordQueryListPanel',
+            props: ['context'],
+            template:
+              '<section><slot name="toolbarActions" /><slot name="rowActions" :record="{ id: \'row-1\', version: 1 }" /></section>',
+          },
+          UiModal: { name: 'UiModal', props: ['open'], template: '<section><slot v-if="open" /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+    wrapper.findComponent({ name: 'CrudRecordListExplorer' }).vm.$emit('select', { id: 'select' });
+    await flushPromises();
+
+    const relations = wrapper.findComponent({ name: 'ModulePageDetailRelations' });
+    expect(relations.exists()).toBe(true);
+    expect(relations.props('relations')).toMatchObject([{ code: 'properties' }, { code: 'bindings' }]);
+    expect(relations.props('parentRecord')).toMatchObject({ id: 'select', alias: 'select' });
+
+    expect(relations.props('mutationEnabled')).toBe(false);
+    expect(wrapper.findAllComponents({ name: 'ManagedDetailRelationInlineSurface' })).toHaveLength(2);
+
+    const createButton = wrapper
+      .findAllComponents({ name: 'ModuleActionButton' })
+      .find((button) => button.props('actionCode') === 'create');
+    expect(createButton).toBeDefined();
+    createButton!.vm.$emit('click');
+    await flushPromises();
+
+    const createRelations = wrapper.findComponent({ name: 'ModulePageDetailRelations' });
+    expect(createRelations.props('mutationEnabled')).toBe(true);
+    expect(createRelations.props('parentRecord')).not.toHaveProperty('id');
+
+    wrapper.findComponent({ name: 'RecordActionBar' }).vm.$emit('action', { key: 'cancel' });
+    await flushPromises();
+
+    wrapper.findComponent({ name: 'RecordActionBar' }).vm.$emit('action', { key: 'edit' });
+    await flushPromises();
+
+    const editableRelations = wrapper.findComponent({ name: 'ModulePageDetailRelations' });
+    expect(editableRelations.props('mutationEnabled')).toBe(true);
+    editableRelations.vm.$emit('children-change', 'properties', [
+      { id: 'property-1', attributeAlias: 'rows', version: 1 },
+    ]);
+    editableRelations.vm.$emit('children-change', 'bindings', []);
+    await flushPromises();
+    wrapper.findComponent({ name: 'RecordActionBar' }).vm.$emit('action', { key: 'save' });
+    await flushPromises();
+    await vi.waitFor(() => expect(updatePayload).toBeDefined());
+
+    const updateRequest = requestedPaths.filter((path) => path.endsWith('/update/select'));
+    expect(updateRequest).toHaveLength(1);
+    expect(updatePayload).toMatchObject({
+      properties: [{ id: 'property-1', attributeAlias: 'rows', version: 1 }],
+      bindings: [],
+    });
+    await vi.waitFor(() =>
+      expect(wrapper.findComponent({ name: 'RecordActionBar' }).props('actions')).toEqual(
+        expect.arrayContaining([expect.objectContaining({ key: 'edit', disabled: false })]),
+      ),
+    );
+    expect(wrapper.findComponent({ name: 'StandardFlatFormSurface' }).exists()).toBe(false);
+    expect(requestedPaths).toContain('/platform.field_ui_control/actions/select');
+    expect(requestedPaths.some((path) => path.includes('/relations/'))).toBe(false);
+
+    wrapper.findComponent({ name: 'RecycleBinModeButton' }).vm.$emit('click');
+    await flushPromises();
+    wrapper.findComponent({ name: 'CrudRecordListExplorer' }).vm.$emit('select', { id: 'deleted-select' });
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: 'ModulePageDetailRelations' }).exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'ManagedDetailRelationInlineSurface' }).exists()).toBe(false);
+    expect(requestedPaths.some((path) => path.includes('/relations/'))).toBe(false);
+  });
+
+  it('unmounts managed relations when a retained record drawer closes', async () => {
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 700,
+      height: 600,
+      top: 0,
+      left: 0,
+      right: 700,
+      bottom: 600,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    let relationRequests = 0;
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) {
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          moduleKind: 'STATIC',
+          capabilities: [],
+          actions: [
+            { actionCode: 'view', authorized: true },
+            { actionCode: 'child_query', authorized: true },
+          ],
+          uiDescriptor: {
+            schemaVersion: 'module-ui.v6',
+            moduleAlias: 'crm.customer',
+            page: page(),
+            editorContributions: [childEditor('child', 'title')],
+            detailRelations: [
+              {
+                ...managedRelation('children', 'child', 'title'),
+                sourceModuleAlias: 'crm.customer',
+                sourceEntityAlias: 'customer',
+                targetModuleAlias: 'crm.customer',
+                queryContract: {
+                  ...managedRelation('children', 'child', 'title').queryContract,
+                  actionCode: 'child_query',
+                },
+                mutationContract: undefined,
+                readOnly: true,
+              },
+            ],
+          },
+        });
+      }
+      if (request.url.endsWith('/crm.customer/actions/customer-1')) {
+        return Response.json({
+          recordId: 'customer-1',
+          actions: [{ actionCode: 'view', available: true }],
+        });
+      }
+      if (request.url.endsWith('/crm.customer/view/customer-1')) {
+        return Response.json({ id: 'customer-1', title: '客户一号', version: 1 });
+      }
+      if (request.url.endsWith('/crm.customer/view/customer-1/relations/children/query')) {
+        relationRequests += 1;
+        return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-target' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          RecordModeDrawer: {
+            name: 'RecordModeDrawer',
+            props: ['open'],
+            emits: ['close'],
+            template: '<aside v-if="open"><slot name="view" /></aside>',
+          },
+          ModulePageDetailRelations: false,
+          ManagedDetailRelationSurface: false,
+          RecordDetailExtensionSection: { template: '<section><slot /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+
+    wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('rowDblclick', { id: 'customer-1' });
+    await flushPromises();
+    const drawer = wrapper.findComponent({ name: 'RecordModeDrawer' });
+    expect(drawer.props('open')).toBe(true);
+    expect(wrapper.findComponent({ name: 'ModulePageDetailRelations' }).exists()).toBe(true);
+    const panels = wrapper.findAllComponents({ name: 'RecordQueryListPanel' });
+    const relationPanel = panels.at(-1)!;
+    await (relationPanel.props('context') as ModuleContext<Record<string, unknown>>).crud.query();
+    expect(relationRequests).toBe(1);
+
+    drawer.vm.$emit('close');
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'ModulePageDetailRelations' }).exists()).toBe(false);
+    expect(relationRequests).toBe(1);
+    rect.mockRestore();
+  });
 });
+
+function childEditor(resource: string, fieldName: string) {
+  return {
+    resource,
+    editor: {
+      viewCode: `${resource}-editor`,
+      viewKind: 'FORM',
+      fields: [
+        {
+          fieldRef: { relationCode: resource, fieldName },
+          label: fieldName,
+          visible: { constant: true },
+          required: { constant: true },
+          readOnly: { constant: false },
+        },
+      ],
+    },
+  };
+}
+
+function managedRelation(code: string, resource: string, fieldName: string) {
+  return {
+    code,
+    title: code,
+    readOnly: false,
+    sourceModuleAlias: 'platform.field_ui_control',
+    sourceEntityAlias: 'field_ui_control',
+    targetModuleAlias: 'platform.field_ui_control',
+    targetEntityAlias: resource,
+    parentBinding: 'fieldUiControlAlias',
+    refreshOnDetailReload: true,
+    queryContract: {
+      managedGateway: true,
+      actionCode: `${resource}_query`,
+      pageable: true,
+      queryable: false,
+      querySchema: {
+        scopeName: resource,
+        quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+        fields: [],
+        externalCriteria: [],
+        defaultSorts: [],
+      },
+      listProjection: { fields: [{ fieldName, title: fieldName }] },
+    },
+    mutationContract: {
+      createAllowed: true,
+      updateAllowed: true,
+      deleteAllowed: true,
+      createActionCode: `${resource}_create`,
+      updateActionCode: `${resource}_update`,
+      deleteActionCode: `${resource}_delete`,
+    },
+  };
+}
+
+function embeddedRelation(code: string, resource: string, fieldName: string) {
+  return {
+    code,
+    title: code,
+    readOnly: false,
+    sourceModuleAlias: 'platform.field_ui_control',
+    sourceEntityAlias: 'field_ui_control',
+    targetModuleAlias: 'platform.field_ui_control',
+    targetEntityAlias: resource,
+    parentBinding: 'fieldUiControlAlias',
+    embeddedField: code,
+    refreshOnDetailReload: false,
+    visible: { constant: true },
+    listProjection: { fields: [{ fieldName, title: fieldName }] },
+    editing: { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' },
+  };
+}
 
 function page(overrides: Record<string, unknown> = {}) {
   return {

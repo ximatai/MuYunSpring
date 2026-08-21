@@ -22,6 +22,9 @@ import net.ximatai.muyun.database.core.orm.Sort;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
+import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
 
 class ModuleExecutionPlanCatalogTest {
     @Test
@@ -51,6 +54,42 @@ class ModuleExecutionPlanCatalogTest {
         assertThatThrownBy(catalog::plans)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unknownField");
+    }
+
+    @Test
+    void shouldCompileCompleteChildWireFactsIndependentlyFromRelationEditorProjection() {
+        String moduleAlias = "test.parent";
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("test", moduleAlias, "Parent")
+                .actions(List.of(
+                        relationAction("child_query", "child_view", true),
+                        relationAction("child_create", "child_create", false),
+                        relationAction("child_update", "child_update", true),
+                        relationAction("child_delete", "child_delete", true)))
+                .entities(List.of(
+                        new EntityDefinition("parent", "test_parent", "Parent",
+                                List.of(FieldDefinition.string("title", "Title"))),
+                        new EntityDefinition("child", "test_child", "Child", List.of(
+                                FieldDefinition.string("parentId", "Parent id"),
+                                FieldDefinition.string("title", "Title"),
+                                FieldDefinition.longInteger("hiddenLong", "Hidden long"),
+                                FieldDefinition.decimal("hiddenDecimal", "Hidden decimal")))))
+                .uiDefinition(ModuleUiDefinition.builder(moduleAlias)
+                        .editorContribution("child", form -> form.field("child", "title", field -> { }))
+                        .managedDetailRelation("children", "Children", "child", "parentId",
+                                PageDetailRelationMutationDefinition.standardCrud())
+                        .build())
+                .build();
+
+        ModuleExecutionPlan plan = new ModuleExecutionPlanCatalog(
+                new StaticModuleDefinitionCatalog(List.of(definition))).find(moduleAlias).orElseThrow();
+
+        assertThat(plan.detailRelationWireFieldTypes().get("children"))
+                .containsEntry("hiddenLong", FieldValueType.LONG)
+                .containsEntry("hiddenDecimal", FieldValueType.DECIMAL)
+                .containsEntry("title", FieldValueType.STRING);
+        assertThat(plan.uiDescriptor().editorContributions().getFirst().editor().fields())
+                .extracting(field -> field.fieldRef().fieldName())
+                .containsExactly("title");
     }
 
     @Test
@@ -169,5 +208,12 @@ class ModuleExecutionPlanCatalogTest {
                         List.of(FieldDefinition.string("username", "用户名").column("username")))))
                 .uiDefinition(TestModulePages.listDetail(alias, list -> list.field(field)))
                 .build();
+    }
+
+    private static StaticModuleActionDefinition relationAction(String actionCode, String permissionActionCode,
+                                                               boolean dataAuth) {
+        return new StaticModuleActionDefinition(actionCode, permissionActionCode, actionCode,
+                dataAuth ? EntityActionLevel.RECORD : EntityActionLevel.LIST,
+                EntityActionAccessMode.AUTH_REQUIRED, true, dataAuth, ActionDefaultGrantPolicy.NONE);
     }
 }

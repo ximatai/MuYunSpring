@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.reference;
 
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.child.ChildAbility;
 import net.ximatai.muyun.spring.ability.child.ChildAbilityRequest;
 import net.ximatai.muyun.spring.ability.child.ChildOf;
@@ -10,6 +11,7 @@ import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -35,6 +37,15 @@ class PlatformChildAbilityResolverTest {
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("@Children child service is not registered")
                 .hasMessageContaining(ChildRecord.class.getName());
+    }
+
+    @Test
+    void shouldRejectAutomaticChildrenWithIndependentlyDataScopedChildAtStartup() {
+        assertThatThrownBy(() -> new PlatformChildAbilityResolver(
+                new StaticAbilityCatalog(List.of(new ParentRecordAbility(), new DataScopedChildRecordAbility()))))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("automatic @Children aggregate reads do not support independent DataScopeAbility")
+                .hasMessageContaining("children");
     }
 
     @Test
@@ -90,6 +101,29 @@ class PlatformChildAbilityResolverTest {
         @Override
         public Class<?> modelClass() {
             return ChildRecord.class;
+        }
+    }
+
+    private record DataScopedChildRecordAbility()
+            implements CrudAbility<StandardEntity>, ChildAbility<StandardEntity>, DataScopeAbility<StandardEntity> {
+        @Override
+        public BaseDao<StandardEntity, String> getDao() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String getModuleAlias() {
+            return "test.childRecord";
+        }
+
+        @Override
+        public Class<?> modelClass() {
+            return ChildRecord.class;
+        }
+
+        @Override
+        public DataScopeCriteriaService getDataScopeCriteriaService() {
+            throw new UnsupportedOperationException();
         }
     }
 

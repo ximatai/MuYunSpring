@@ -30,7 +30,8 @@ public record ModuleExecutionPlan(String moduleAlias,
                                   List<ModuleMutationFieldValidation> mutationFieldValidations,
                                   List<StaticModuleActionDefinition> actions,
                                   boolean dataScopeEnabled,
-                                  Map<String, FieldValueType> responseWireFieldTypes) {
+                                  Map<String, FieldValueType> responseWireFieldTypes,
+                                  Map<String, Map<String, FieldValueType>> detailRelationWireFieldTypes) {
     /** Source-compatible constructor for callers that do not yet provide response wire facts. */
     public ModuleExecutionPlan(String moduleAlias, String versionKey, ResolvedModuleUiDescriptor uiDescriptor,
                                ResolvedModuleReadModel readModel,
@@ -48,7 +49,7 @@ public record ModuleExecutionPlan(String moduleAlias,
                                boolean dataScopeEnabled) {
         this(moduleAlias, versionKey, uiDescriptor, readModel, pageContextBindings, queryDescriptor, querySchema,
                 queryTemplateIds, queryTemplates, listUiConfigId, formUiConfigId, queryFormFields,
-                mutationConstraints, mutationFieldValidations, actions, dataScopeEnabled, Map.of());
+                mutationConstraints, mutationFieldValidations, actions, dataScopeEnabled, Map.of(), Map.of());
     }
     /** Compatibility constructor for plans created before query and mutation facts were explicit. */
     public ModuleExecutionPlan(String moduleAlias, String versionKey, ResolvedModuleUiDescriptor uiDescriptor,
@@ -63,7 +64,7 @@ public record ModuleExecutionPlan(String moduleAlias,
                 pageContextBindings == null ? List.of() : pageContextBindings.stream()
                         .filter(binding -> binding.target() == PageContextTarget.MUTATION_CONSTRAINT).toList(),
                 List.of(),
-                List.of(), false, Map.of());
+                List.of(), false, Map.of(), Map.of());
     }
 
     /** Compatibility constructor for callers that already provide compiled query and mutation facts. */
@@ -74,7 +75,7 @@ public record ModuleExecutionPlan(String moduleAlias,
                                List<StaticModuleActionDefinition> actions, boolean dataScopeEnabled) {
         this(moduleAlias, versionKey, uiDescriptor, readModel, pageContextBindings, queryDescriptor, querySchema,
                 List.of(), List.of(), null, null, List.of(), mutationConstraints, List.of(), actions, dataScopeEnabled,
-                Map.of());
+                Map.of(), Map.of());
     }
 
     /** Compatibility constructor with explicit model-derived response wire facts. */
@@ -86,7 +87,20 @@ public record ModuleExecutionPlan(String moduleAlias,
                                Map<String, FieldValueType> responseWireFieldTypes) {
         this(moduleAlias, versionKey, uiDescriptor, readModel, pageContextBindings, queryDescriptor, querySchema,
                 List.of(), List.of(), null, null, List.of(), mutationConstraints, List.of(), actions, dataScopeEnabled,
-                responseWireFieldTypes);
+                responseWireFieldTypes, Map.of());
+    }
+
+    /** Compatibility constructor with complete main and detail-relation response wire facts. */
+    public ModuleExecutionPlan(String moduleAlias, String versionKey, ResolvedModuleUiDescriptor uiDescriptor,
+                               ResolvedModuleReadModel readModel, List<PageContextBindingDefinition> pageContextBindings,
+                               QueryDescriptor queryDescriptor, QuerySchema querySchema,
+                               List<PageContextBindingDefinition> mutationConstraints,
+                               List<StaticModuleActionDefinition> actions, boolean dataScopeEnabled,
+                               Map<String, FieldValueType> responseWireFieldTypes,
+                               Map<String, Map<String, FieldValueType>> detailRelationWireFieldTypes) {
+        this(moduleAlias, versionKey, uiDescriptor, readModel, pageContextBindings, queryDescriptor, querySchema,
+                List.of(), List.of(), null, null, List.of(), mutationConstraints, List.of(), actions, dataScopeEnabled,
+                responseWireFieldTypes, detailRelationWireFieldTypes);
     }
 
     public ModuleExecutionPlan {
@@ -122,5 +136,10 @@ public record ModuleExecutionPlan(String moduleAlias,
         mutationFieldValidations = mutationFieldValidations == null ? List.of() : List.copyOf(mutationFieldValidations);
         actions = actions == null ? List.of() : List.copyOf(actions);
         responseWireFieldTypes = responseWireFieldTypes == null ? Map.of() : Map.copyOf(responseWireFieldTypes);
+        detailRelationWireFieldTypes = detailRelationWireFieldTypes == null ? Map.of()
+                : detailRelationWireFieldTypes.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        Map.Entry::getKey,
+                        entry -> entry.getValue() == null ? Map.of() : Map.copyOf(entry.getValue())
+                ));
     }
 }
