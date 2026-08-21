@@ -30,6 +30,7 @@
 | TD-037 | 动态表单及配置资源的 HTTP URL 体系尚未定稿 | 当前 `@PlatformStaticWebScope(CUSTOM)` 仅明确模块身份与嵌套资源路径可以不同，已覆盖模块、元数据、字段、UI 配置等现有父资源路径；这些 URL 仍是阶段性接口，不应据此固化前端路由、外部集成或自动生成规则 | 进入动态表单页面交付、配置管理 API 整理或外部开放 API 治理时，统一模块入口、父资源上下文、版本策略、兼容迁移和 endpoint descriptor，再收敛现有 `CUSTOM` 路径 |
 | TD-038 | 动态选项投影尚未进入配置持久化与发布链路 | `FieldDefinition.optionLoad` 已能表达字典选项字段到只读虚拟字段的属性投影，并已接入运行态读取、descriptor 与页面 schema；但配置管理侧尚无对应的字段事实、保存校验和 metadata compiler 输入，因此不能视为动态表单可配置能力 | 出现真实动态模块需要在配置界面声明字典标题或其他稳定 `OptionItem` 属性投影时，成套建设配置定义、来源/输出字段校验、compiler、运行态 refresh、发布快照与页面交付；保持输出字段只读、虚拟，且不参与查询、排序或写入 |
 | TD-041 | 动态文件引用尚未进入配置持久化与发布链路 | `EntityDefinition.fileReferences` 已能表达单文件或多文件字段的约束，并由动态运行态、保存生命周期和 descriptor 使用；但平台 metadata 配置尚无对应的持久化事实、compiler 输入和发布治理，不能将它视为低代码可配置能力 | 出现真实动态模块需要配置文件字段时，成套建设文件字段配置、保存校验、metadata compiler、运行态 refresh、发布快照和标准页面交付；继续复用同一份 `FileReferenceDefinition`，不在页面侧推断字段语义 |
+| TD-048 | 动态 Action/Relation 协作者仍回持完整记录门面 | `DynamicRecordService` 已拆出 Query、Mutation、Action 和 Relation 协作者，但 `DynamicRecordActionRuntime`、`DynamicRecordRelationRuntime` 仍依赖完整 `DynamicRecordService`，使动作或关系能力继续增长时容易穿透门面边界并形成隐式递归协作 | 下一次扩展动态动作、关系或安全/数据范围运行时前，按实际所需查询与变更能力收窄为类型化 gateway；保留 `DynamicRecordService` 作为按模块、实体定位的外部门面，并为 Action/Relation 协作者补独立权限、事务和失败契约 |
 
 ### 待决策
 
@@ -43,6 +44,7 @@
 | --- | --- | --- | --- |
 | TD-042 | 表单型自定义动作尚无统一输入与提交协议 | 当前 editor surface 已可声明默认或具名编辑字段，并可由页面承载面选择；但 `CustomActionEndpoint` 的请求 DTO、记录上下文、提交 URL/方法和成功后的数据变化语义仍由各业务接口自行定义。若仅增加 `actionEditor(actionCode, ...)`，会形成能展示字段却无法可靠提交或刷新的一半能力 | 出现第二个需要“独立动作仅编辑少数字段”的标准页面场景时，定义动作输入 descriptor、actionEditor 与已发布动作的编译校验、前端提交/权限/记录上下文和统一数据变化回执，再开放 DSL |
 | TD-043 | 静态读 transport 的投影与 navigator 适配尚未形成专用门面 | 当前 `CrudWeb` 与 `StaticQueryViewWeb` 都要将静态 descriptor 的查询投影、navigator 条件和 `DataScopeAbility` 接入标准查询；二者已共用 `QueryViewWeb.queryRecords`，避免数据范围漂移，但其余适配逻辑仍各自表达。现在仅有两种 transport，提前抽成万能基类会抹平 schema、投影与 mutation surface 的真实差异 | 出现第三种需要静态 descriptor 驱动读投影的 transport 时，提炼仅负责 projection、navigator 和 action-aware query 的静态读投影门面；各 transport 继续独立决定 endpoint 与 mutation surface，禁止复制新的查询链路 |
+| TD-049 | 职员模块仍依赖静态读投影兼容路径 | `LegacyStaticReadProjectionCompatibility` 目前只由 `EmployeeWebController` 使用；兼容 marker、扫描目录字段和 `CrudWeb` fallback 允许该模块绕开严格的 `StandardModuleWebRuntime` 计划路径，若长期保留会形成第二套请求期读投影语义 | 将 `EmployeeWebController` 迁到由 `StandardModuleWebRuntime` 消费已编译 `ModuleExecutionPlan` 的路径，并以“计划缺失启动失败、请求期不重解 DSL”的契约测试替代兼容测试；随后同时删除 marker、目录字段和 fallback |
 
 ## 前端工作台关注
 
@@ -50,6 +52,7 @@
 | --- | --- | --- | --- |
 | TD-046 | 静态管理页面向标准模块宿主的迁移仍是分阶段工作 | 租户管理已作为“标准宿主 + 受控表单/详情扩展”样板迁入；字段 UI 控件也已迁入，并沉淀一层直接子资源的受管 query/CRUD relation。字典、用户、职员、菜单、系统用户与角色仍保留各自静态页面；角色授权等复杂 workspace 不应为迁移而降级为普通 CRUD | 后续逐个页面具备标准 CRUD/详情/回收站边界，并已定义必要的来源无关 extension、受管 relation 或 workspace 契约时，按样板迁移；多层嵌套、树、批量和组合范围导航另行立项 |
 | TD-040 | 管理工作台尚无浏览器级布局回归测试 | 当前 `workspace` 路由、面板高度传递和内容滚动已有组件契约测试，但 Node 源码测试不能验证真实 DOM 中 `clientHeight`、`scrollHeight` 与实际滚动所有者；布局链调整后仍可能出现内容被裁切、滚动条消失或窄屏回退失效 | 下一次涉及工作台滚动、复杂多栏页面或前端端到端测试基础设施建设时，引入最小浏览器测试入口：以 Demo 启动为固定数据源，覆盖树、列表/表格、详情三类区域的桌面滚动和 980px 窄屏回退 |
+| TD-047 | 标准模块页面宿主仍集中承载模板渲染与剩余编排 | `ModulePageHost.vue` 已拆出列表会话、编辑会话和详情动作运行时，但单文件仍同时组合平铺、树、列表详情等模板及较多页面状态；继续叠加模板会扩大公共改动的回归面，也会模糊 renderer 与 HTTP、权限、页面启动的边界 | 下一次新增标准页面模板或大幅调整现有模板前，按页面启动、导航、record surface 与 template renderer 的稳定职责继续拆分；renderer 只消费已解析状态和发出意图，不直接管理 HTTP、权限或全局页面启动，并以应用、模块、岗位三个样板锁定行为 |
 
 ## 平台执行底座前关注
 

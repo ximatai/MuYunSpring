@@ -1,6 +1,6 @@
 # 动静一体核心设计
 
-Service Ability、Web 交付 DSL 和前端标准页面宿主都以运行正确性、来源无关执行计划和业务轻量接入为目标，不改变本文定义的长期核心边界。
+平台封装遵循“平台做重、业务做轻”：Service 层以 Ability 和类型化贡献承接公共能力，Web 层以 DSL 声明模块交付事实，前端以来源无关 descriptor 驱动标准页面并通过受控扩展点注入个性逻辑。平台负责把三层声明编译、校验并运行，业务模块只保留领域不变量、交付表达和真正个性化的实现。
 
 ## 目标
 
@@ -22,6 +22,10 @@ Service 与 Web Controller 都是业务接入平台的边界。公共业务不�
 跨领域 Web 模块共享的请求生命周期、scope 或协议能力必须位于 `muyun-web-adapter` 或更低层的稳定契约中。某个 `*-web` 模块的模块专属 Controller、业务 Service 或业务策略不能成为另一个领域 Web 模块的生产依赖；平台配置类 Web 服务可以编排平台模块事实，但不拥有通用请求范围或领域规则。
 
 页面交付阶段的“动静一体”不表示要建设两套静态/动态页面内核。动态 UI 配置和静态模块声明可以有不同来源，但进入运行态前应编译到来源无关的 resolved descriptor，并继续共享同一套数据访问、能力语义、生命周期、权限、审计、租户和事务边界，不能为了页面配置或静态声明另起平行基础内核。
+
+Definition 和 Web DSL 只负责声明，不能成为请求期重复解释的第二事实源。静态声明和动态已发布快照应在启动、发布或刷新阶段编译为面向前端的 `ResolvedModuleUiDescriptor` 与面向服务端的 `ModuleExecutionPlan`；标准 Web Runtime 只消费已编译计划执行查询、页面上下文绑定、读投影和变更约束。缺少计划、字段越界或约束不可执行应在编译阶段失败，不能在请求期静默降级。
+
+这是标准交付路径的稳定契约，不表示存量兼容已经全部清零。当前静态读 transport 的剩余适配和职员模块的兼容路径分别登记为 `TD-043`、`TD-049`；它们不是新的业务接入方式，在完成迁移前也不能被描述为已经满足严格执行计划边界。
 
 标准页面允许前端以 `ModulePageEnhancement` 在受控区域补充业务表达，但扩展只能声明模块/视图/表面/字段位置并接收冻结 draft、字段状态、受控 `setField`、session 与 validity 回报。标准宿主仍独占保存、字段 wire codec、上传传输、权限、刷新和 CRUD 请求；后端 DSL 不携带 Vue 组件名、脚本或 URL。
 
@@ -142,7 +146,11 @@ UI 配置、查询模板、菜单入口、页面 bootstrap、引用候选、附�
 
 标准模块管理页也属于这条收敛链：列表、详情抽屉、表单和动作区由同一 descriptor 驱动的模块运行器交付，不因模块来自 Java 静态声明或动态元数据而分出两套页面壳。`dynamic-module-host` 是既有菜单/页签 descriptor 的兼容标识；其运行器实际承载的是来源无关的标准模块 CRUD 页面，不应据此在业务 App 复制动态专用页面。
 
+字段控件是从配置、descriptor、渲染、校验到 wire value 的完整协议。可发布控件必须具备前后端一致的值形态和可执行 renderer，否则应在静态启动或动态发布阶段拒绝；后端 descriptor 不携带 Vue 组件名、脚本或模块路径。业务个性 UI 通过前端登记的 enhancement、稳定 slot 或 field renderer 接入，不复制标准页面宿主。
+
 静态模块的列表和表单字段是对外 UI 暴露策略，不从 Java 实体自动推断。需要通过标准管理页交付的静态 Controller 应实现 `StaticModuleUiContributor` 并声明 `ModuleUiDefinition`；这样字段顺序、标签、必填、控件和敏感字段可见性都有显式边界。业务 App 只写本模块的 UI 声明，继续复用平台的列表、抽屉和表单组件。
+
+应用管理、模块管理和岗位管理分别作为系统级平铺模块、平台树形自举模块和普通租户业务模块的长期样板。新增静态业务应从这三个样板判断领域逻辑、Web policy、UI Definition 与前端 enhancement 的归属，并以契约测试证明接入，而不是复制平台运行时编排。
 
 静态模块引用和 service 级读投影的当前稳定契约见 [静态模块引用与读投影契约](STATIC_REFERENCE_READ_PROJECTION.md)。静态与动态列表读取都按 `ReferenceTarget` 聚合引用 ID，复用同一 `ReferenceAbility` 批量补齐标题和字段投影；静态可安全编译的 SQL join 只是该统一语义的优化路径。
 静态 `@ReferenceLoad` 的多跳声明会先编译为只含 `ReferenceTarget` 与字段 hop 的 `ReferenceLoadPath`，再通过同一引用投影契约执行；动态元数据接入多跳读取时应产出该路径契约，不得另建动态专用读取内核。
