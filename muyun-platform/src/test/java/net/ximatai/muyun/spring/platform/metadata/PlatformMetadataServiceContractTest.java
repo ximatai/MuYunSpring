@@ -716,6 +716,7 @@ class PlatformMetadataServiceContractTest {
 
             restored.setValueShape(FieldUiControlValueShape.SCALAR);
             restored.setPrimaryValueKey("value");
+            restored.setBindings(null);
             aggregateService.update(restored);
 
             FieldUiControl scalar = aggregateService.select(id);

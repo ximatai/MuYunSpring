@@ -105,9 +105,7 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
             fieldUiType.setValueShape(FieldUiControlValueShape.SCALAR);
         }
         normalizePrimaryValueKey(fieldUiType);
-        if (fieldUiType.getValueShape() != FieldUiControlValueShape.COMPOSITE
-                && fieldUiType.getBindings() != null
-                && !fieldUiType.getBindings().isEmpty()) {
+        if (fieldUiType.getValueShape() != FieldUiControlValueShape.COMPOSITE) {
             // Bindings are composite components, not merely a conditionally visible UI section.
             // An explicit empty aggregate lets ChildrenAbility retire existing rows on every
             // standard write path, including callers that do not originate from the web form.
