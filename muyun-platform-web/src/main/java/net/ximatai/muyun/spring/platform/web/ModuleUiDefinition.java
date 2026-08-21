@@ -81,6 +81,75 @@ public record ModuleUiDefinition(String moduleAlias,
             return this;
         }
 
+        /** Declares a directly managed relation; relation reads alone never imply this capability. */
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
+                                             String parentBinding,
+                                             PageDetailRelationMutationDefinition mutations) {
+            return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, null,
+                    PageDetailRelationPaginationDefinition.DEFAULT, PageDetailRelationEditingDefinition.DEFAULT);
+        }
+
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
+                                             String parentBinding,
+                                             PageDetailRelationMutationDefinition mutations,
+                                             PageDetailRelationParentConstraintDefinition parentConstraint) {
+            return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, parentConstraint,
+                    PageDetailRelationPaginationDefinition.DEFAULT, PageDetailRelationEditingDefinition.DEFAULT);
+        }
+
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
+                                             String parentBinding,
+                                             PageDetailRelationMutationDefinition mutations,
+                                             PageDetailRelationPaginationDefinition pagination) {
+            return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, null, pagination);
+        }
+
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
+                                             String parentBinding,
+                                             PageDetailRelationMutationDefinition mutations,
+                                             PageDetailRelationParentConstraintDefinition parentConstraint,
+                                             PageDetailRelationPaginationDefinition pagination) {
+            return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, parentConstraint,
+                    pagination, PageDetailRelationEditingDefinition.DEFAULT);
+        }
+
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
+                                             String parentBinding,
+                                             PageDetailRelationMutationDefinition mutations,
+                                             PageDetailRelationParentConstraintDefinition parentConstraint,
+                                             PageDetailRelationPaginationDefinition pagination,
+                                             PageDetailRelationEditingDefinition editing) {
+            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
+                    false, true, mutations, parentConstraint, pagination, editing, true, false,
+                    UiRule.constant(Boolean.TRUE)));
+            return this;
+        }
+
+        /** Declares a gateway-backed query while deliberately exposing no mutation capability. */
+        public Builder managedReadOnlyDetailRelation(String code, String title, String targetEntityAlias,
+                                                     String parentBinding,
+                                                     PageDetailRelationParentConstraintDefinition parentConstraint) {
+            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
+                    true, true, null, parentConstraint, PageDetailRelationPaginationDefinition.DEFAULT,
+                    PageDetailRelationEditingDefinition.DEFAULT, true, false, UiRule.constant(Boolean.TRUE)));
+            return this;
+        }
+
+        /** Declares a child collection carried by the parent entity and persisted by ChildrenAbility. */
+        public Builder aggregateChildRelation(String code, String title, String targetEntityAlias,
+                                              String parentBinding, UiRule<Boolean> visible) {
+            return aggregateChildRelation(code, title, targetEntityAlias, parentBinding, visible, false);
+        }
+
+        public Builder aggregateChildRelation(String code, String title, String targetEntityAlias,
+                                              String parentBinding, UiRule<Boolean> visible,
+                                              boolean recycleBinEnabled) {
+            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
+                    false, false, null, null, PageDetailRelationPaginationDefinition.unpaged(),
+                    PageDetailRelationEditingDefinition.aggregateInline(recycleBinEnabled), true, true, visible));
+            return this;
+        }
+
         /** Declares one default editor plus optional named editors owned by this module. */
         public Builder editors(Consumer<EditorSurfacesBuilder> customizer) {
             EditorSurfacesBuilder builder = new EditorSurfacesBuilder();

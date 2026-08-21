@@ -83,6 +83,10 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
         return childAbility.selectChildRows(Criteria.of().eq(childForeignKeyField, parentId));
     }
 
+    public List<C> selectDeletedChildren(String parentId) {
+        return childAbility.selectDeletedChildRows(Criteria.of().eq(childForeignKeyField, parentId));
+    }
+
     public void insertChildren(String parentId, P parent) {
         List<C> children = extractChildren.apply(parent);
         if (children == null || children.isEmpty()) {
@@ -106,7 +110,11 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
         for (C child : children) {
             setParentId.accept(child, parentId);
             if (child.getId() == null || child.getId().isBlank()) {
-                childAbility.insert(child);
+                if (childAbility.restoreDeletedReplacement(child)) {
+                    childAbility.update(child);
+                } else {
+                    childAbility.insert(child);
+                }
             } else if (remainingIds.remove(child.getId())) {
                 childAbility.update(child);
             } else {

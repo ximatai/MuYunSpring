@@ -93,12 +93,33 @@ public class StandardModuleWebRuntime {
             }
         }
         plan.uiDescriptor().editorSurfaces().forEach(surface -> collectFieldTypes(types, surface.editor()));
+        plan.uiDescriptor().detailRelations().stream()
+                .filter(relation -> relation.embeddedField() != null)
+                .forEach(relation -> plan.detailRelationWireFieldTypes()
+                        .getOrDefault(relation.code(), Map.of())
+                        .forEach((fieldName, fieldType) ->
+                                types.put(relation.embeddedField() + "." + fieldName, fieldType)));
         return Map.copyOf(types);
+    }
+
+    /** Field semantics for one compiled child relation, isolated from similarly named parent fields. */
+    public Map<String, FieldValueType> relationWireFieldTypes(String moduleAlias, String relationCode) {
+        ModuleExecutionPlan plan = requirePlan(moduleAlias);
+        Map<String, FieldValueType> types = plan.detailRelationWireFieldTypes().get(relationCode);
+        if (types == null) {
+            throw new IllegalArgumentException("unknown detail relation wire facts: " + relationCode);
+        }
+        return types;
     }
 
     /** Marks the current HTTP response for managed serialization-time numeric adaptation. */
     public void markWireResponse(String moduleAlias) {
         StaticModuleWebWireValues.markCurrentResponse(wireFieldTypes(moduleAlias));
+    }
+
+    /** Marks a managed relation response without leaking child field types into the parent record contract. */
+    public void markRelationWireResponse(String moduleAlias, String relationCode) {
+        StaticModuleWebWireValues.markCurrentResponse(relationWireFieldTypes(moduleAlias, relationCode));
     }
 
     /**

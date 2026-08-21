@@ -6,6 +6,7 @@ import net.ximatai.muyun.database.core.orm.CriteriaGroup;
 import net.ximatai.muyun.database.core.orm.CriteriaOperator;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -64,6 +65,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -1048,23 +1050,36 @@ class PlatformUiConfigurationServiceContractTest {
     void shouldRejectLocalEditControlsThatNeedUnpublishedOptionOrReferenceDescriptors() {
         seedFieldType("json_set", FieldType.JSON, DynamicQueryOperator.CONTAINS_ANY);
         seedUiType("multi_select", "json_set");
-        FieldUiControl multiSelect = fieldUiTypeService.requireFieldUiControl("multi_select");
-        multiSelect.setRendererType(ViewControlType.MULTI_SELECT);
-        multiSelect.setValueShape(FieldUiControlValueShape.COLLECTION);
-        fieldUiTypeService.update(multiSelect);
-        String tagsField = seedModuleField("crm.customer", "customer", "tags", "tags", "json_set");
-        String formSetId = uiSetService.insert(uiSet("crm.customer", "local_edit", PlatformUiSetType.FORM, false));
-        String formConfigId = uiConfigService.insert(uiConfig(formSetId, PlatformUiClientType.WEB, false));
-        uiConfigFieldService.insert(uiField(formConfigId, tagsField, "multi_select"));
-        PlatformUiConfig formConfig = uiConfigService.select(formConfigId);
-        formConfig.setLayoutJson("""
-                {"blocks":[{"type":"localEdit","actionCode":"editTags","targetUiConfigId":"%s"}]}
-                """.formatted(formConfigId));
-        uiConfigService.update(formConfig);
+        PlatformAbilityRuntime.configureChildAbilityResolver(request -> {
+            if (FieldUiControlProperty.class.equals(request.staticModel())) {
+                return Optional.of(fieldUiTypeAttributeService);
+            }
+            if (FieldUiControlBinding.class.equals(request.staticModel())) {
+                return Optional.of(fieldUiTypeFieldMappingService);
+            }
+            return Optional.empty();
+        });
+        try {
+            FieldUiControl multiSelect = fieldUiTypeService.requireFieldUiControl("multi_select");
+            multiSelect.setRendererType(ViewControlType.MULTI_SELECT);
+            multiSelect.setValueShape(FieldUiControlValueShape.COLLECTION);
+            fieldUiTypeService.update(multiSelect);
+            String tagsField = seedModuleField("crm.customer", "customer", "tags", "tags", "json_set");
+            String formSetId = uiSetService.insert(uiSet("crm.customer", "local_edit", PlatformUiSetType.FORM, false));
+            String formConfigId = uiConfigService.insert(uiConfig(formSetId, PlatformUiClientType.WEB, false));
+            uiConfigFieldService.insert(uiField(formConfigId, tagsField, "multi_select"));
+            PlatformUiConfig formConfig = uiConfigService.select(formConfigId);
+            formConfig.setLayoutJson("""
+                    {"blocks":[{"type":"localEdit","actionCode":"editTags","targetUiConfigId":"%s"}]}
+                    """.formatted(formConfigId));
+            uiConfigService.update(formConfig);
 
-        assertThatThrownBy(() -> publishService.publishUiConfig(formConfigId))
-                .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("Local edit field control requires an option/reference descriptor");
+            assertThatThrownBy(() -> publishService.publishUiConfig(formConfigId))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("Local edit field control requires an option/reference descriptor");
+        } finally {
+            PlatformAbilityRuntime.resetChildAbilityResolver();
+        }
     }
 
     @Test

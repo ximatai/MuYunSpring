@@ -1010,6 +1010,34 @@ describe('Workbench compact menu', () => {
     expect(wrapper.get('[aria-label="刷新当前页"]').attributes('title')).toBe('刷新当前页暂未实现');
   });
 
+  it('presents the shared module host without leaking its legacy dynamic route name', () => {
+    const wrapper = shallowMount(Workbench, {
+      props: {
+        startup: {
+          session: { currentUser: { userId: 'user-1', system: true } },
+          menus: [],
+          tabs: [
+            {
+              key: 'field-ui-controls',
+              title: '字段 UI 控件',
+              pageDescriptor: {
+                pageType: 'dynamic-module',
+                openMode: 'dynamic-runner',
+                hostType: 'dynamic-module-host',
+                target: { moduleAlias: 'platform.field_ui_control', pageMode: 'LIST' },
+                tabPolicy: { identity: 'by-menu' },
+              },
+            },
+          ],
+          activeTabKey: 'field-ui-controls',
+        },
+      },
+    });
+
+    expect(wrapper.text()).toContain('标准模块 / platform.field_ui_control');
+    expect(wrapper.text()).not.toContain('动态模块 / platform.field_ui_control');
+  });
+
   it('selects a dark tenant logo first and falls back to the default logo in light mode', () => {
     const startup = {
       session: {

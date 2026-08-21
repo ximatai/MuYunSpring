@@ -16,6 +16,7 @@ import {
   LockOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  MinusOutlined,
   QuestionCircleOutlined,
   PlusOutlined,
   PoweroffOutlined,
@@ -45,6 +46,7 @@ export type UiIconName =
   | 'lock'
   | 'menu-collapse'
   | 'menu-expand'
+  | 'minus'
   | 'notification'
   | 'open-in-new'
   | 'plus'
@@ -78,6 +80,7 @@ const icons = {
   lock: LockOutlined,
   'menu-collapse': MenuFoldOutlined,
   'menu-expand': MenuUnfoldOutlined,
+  minus: MinusOutlined,
   notification: BellOutlined,
   'open-in-new': ExternalLink,
   plus: PlusOutlined,

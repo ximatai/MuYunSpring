@@ -29,19 +29,24 @@ const emit = defineEmits<{
         <slot name="title-prefix" />
       </div>
       <div class="management-panel-header-title-copy">
-        <UiButton
-          v-if="titleActionIcon"
-          class="management-panel-header-title-action"
-          :aria-label="titleActionTitle"
-          :icon-name="titleActionIcon"
-          icon-position="end"
-          type="text"
-          :title="titleActionTitle"
-          @click="emit('titleAction')"
+        <h2
+          class="management-panel-header-title"
+          :class="{ 'management-panel-header-title--action': titleActionIcon }"
         >
-          {{ title }}
-        </UiButton>
-        <h2 v-else class="management-panel-header-title">{{ title }}</h2>
+          <UiButton
+            v-if="titleActionIcon"
+            class="management-panel-header-title-action"
+            :aria-label="titleActionTitle"
+            :icon-name="titleActionIcon"
+            icon-position="end"
+            type="text"
+            :title="titleActionTitle"
+            @click="emit('titleAction')"
+          >
+            {{ title }}
+          </UiButton>
+          <template v-else>{{ title }}</template>
+        </h2>
         <p v-if="subtitle" class="management-panel-header-subtitle">{{ subtitle }}</p>
       </div>
       <div v-if="$slots.status" class="management-panel-header-status">
@@ -83,14 +88,13 @@ const emit = defineEmits<{
   align-items: center;
 }
 
-.management-panel-header-title,
-.management-panel-header-title-action {
+.management-panel-header-title {
   display: inline-flex;
   align-items: center;
   margin: 0;
   min-width: 0;
   height: var(--muyun-management-panel-header-height, 30px);
-  padding: 0 4px;
+  padding: 0;
   color: var(--muyun-text);
   font-size: var(--muyun-management-panel-title-font-size, 16px);
   font-weight: 700;
@@ -114,31 +118,60 @@ const emit = defineEmits<{
 }
 
 .management-panel-header-title-action {
+  position: relative;
+  z-index: 0;
+  height: 100%;
+  padding: 0;
   border: 0;
   background: transparent;
   border-radius: 4px;
+  color: inherit;
+  font: inherit;
+}
+
+.management-panel-header-title--action {
+  overflow: visible;
+}
+
+.management-panel-header-title-action::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0 -24px 0 -4px;
+  border-radius: 4px;
+  background: var(--muyun-hover);
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
 }
 
 :deep(.management-panel-header-title-action.ant-btn-text:not(:disabled):hover) {
-  background: var(--muyun-hover);
+  background: transparent;
 }
 
 .management-panel-header-title-action :deep(.ui-button-trailing-icon) {
-  width: 0;
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 6px);
+  width: 14px;
   margin-inline: 0;
   color: var(--muyun-text-muted);
   opacity: 0;
   overflow: hidden;
+  transform: translate(-4px, -50%);
   transition:
-    width 120ms ease,
-    margin-inline-start 120ms ease,
-    opacity 120ms ease;
+    opacity 120ms ease,
+    transform 120ms ease;
 }
 
 .management-panel-header-title-action:hover :deep(.ui-button-trailing-icon),
 .management-panel-header-title-action:focus-visible :deep(.ui-button-trailing-icon) {
-  width: 14px;
-  margin-inline-start: 6px;
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+.management-panel-header-title-action:hover::before,
+.management-panel-header-title-action:focus-visible::before {
   opacity: 1;
 }
 

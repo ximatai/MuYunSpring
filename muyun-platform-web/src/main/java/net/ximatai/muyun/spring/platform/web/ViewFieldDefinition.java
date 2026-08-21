@@ -99,6 +99,12 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
             return this;
         }
 
+        /** Makes requiredness follow the same draft-aware rule model as visibility and editability. */
+        public Builder required(UiRule<Boolean> required) {
+            this.required = required == null ? UiRule.constant(Boolean.FALSE) : required;
+            return this;
+        }
+
         public Builder visible(UiRule<Boolean> visible) {
             this.visible = visible == null ? UiRule.constant(Boolean.TRUE) : visible;
             return this;

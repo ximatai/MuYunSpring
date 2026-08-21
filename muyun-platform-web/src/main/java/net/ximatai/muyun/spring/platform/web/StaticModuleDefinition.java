@@ -18,6 +18,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Map;
 
 public final class StaticModuleDefinition implements StaticModuleRegistration {
     private final String applicationAlias;
@@ -35,6 +36,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     private final List<StaticReferenceDefinition> references;
     private final List<StaticModuleReadProjectionDefinition> readProjections;
     private final Class<?> modelClass;
+    private final Map<String, Class<?>> entityModelClasses;
     private final List<RelationProjectionJoinDefinition> projectionJoins;
     private final QueryDescriptor queryDescriptor;
     private final boolean openApiAvailable;
@@ -55,6 +57,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                                    List<StaticReferenceDefinition> references,
                                    List<StaticModuleReadProjectionDefinition> readProjections,
                                    Class<?> modelClass,
+                                   Map<String, Class<?>> entityModelClasses,
                                    List<RelationProjectionJoinDefinition> projectionJoins,
                                    QueryDescriptor queryDescriptor,
                                    boolean openApiAvailable,
@@ -105,6 +108,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         this.references = references;
         this.readProjections = readProjections;
         this.modelClass = modelClass;
+        this.entityModelClasses = entityModelClasses == null ? Map.of() : Map.copyOf(entityModelClasses);
         this.projectionJoins = projectionJoins;
         this.queryDescriptor = queryDescriptor;
         this.openApiAvailable = openApiAvailable;
@@ -126,6 +130,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public List<StaticReferenceDefinition> references() { return references; }
     public List<StaticModuleReadProjectionDefinition> readProjections() { return readProjections; }
     public Class<?> modelClass() { return modelClass; }
+    public Map<String, Class<?>> entityModelClasses() { return entityModelClasses; }
     public List<RelationProjectionJoinDefinition> projectionJoins() { return projectionJoins; }
     public QueryDescriptor queryDescriptor() { return queryDescriptor; }
     public boolean openApiAvailable() { return openApiAvailable; }
@@ -146,6 +151,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public List<StaticReferenceDefinition> getReferences() { return references; }
     public List<StaticModuleReadProjectionDefinition> getReadProjections() { return readProjections; }
     public Class<?> getModelClass() { return modelClass; }
+    public Map<String, Class<?>> getEntityModelClasses() { return entityModelClasses; }
     public List<RelationProjectionJoinDefinition> getProjectionJoins() { return projectionJoins; }
     public QueryDescriptor getQueryDescriptor() { return queryDescriptor; }
     public boolean isOpenApiAvailable() { return openApiAvailable; }
@@ -170,6 +176,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 && Objects.equals(references, that.references)
                 && Objects.equals(readProjections, that.readProjections)
                 && Objects.equals(modelClass, that.modelClass)
+                && Objects.equals(entityModelClasses, that.entityModelClasses)
                 && Objects.equals(projectionJoins, that.projectionJoins)
                 && Objects.equals(queryDescriptor, that.queryDescriptor)
                 && openApiAvailable == that.openApiAvailable
@@ -180,7 +187,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public int hashCode() {
         return Objects.hash(applicationAlias, moduleAlias, title, parentModuleAlias, entryType, entryRoute,
                 entryExternalUrl, capabilities, navigatorSourceCapabilities, actions, entities, uiDefinition, references, readProjections,
-                modelClass, projectionJoins, queryDescriptor, openApiAvailable, legacyReadProjectionCompatibility);
+                modelClass, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
+                legacyReadProjectionCompatibility);
     }
 
     @Override
@@ -200,6 +208,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 + ", references=" + references
                 + ", readProjections=" + readProjections
                 + ", modelClass=" + modelClass
+                + ", entityModelClasses=" + entityModelClasses
                 + ", projectionJoins=" + projectionJoins
                 + ", queryDescriptor=" + queryDescriptor
                 + ", openApiAvailable=" + openApiAvailable + "]";
@@ -225,6 +234,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 .references(references)
                 .readProjections(readProjections)
                 .modelClass(modelClass)
+                .entityModelClasses(entityModelClasses)
                 .projectionJoins(projectionJoins)
                 .queryDescriptor(queryDescriptor)
                 .openApiAvailable(openApiAvailable)
@@ -247,6 +257,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         private List<StaticReferenceDefinition> references = List.of();
         private List<StaticModuleReadProjectionDefinition> readProjections = List.of();
         private Class<?> modelClass;
+        private Map<String, Class<?>> entityModelClasses = Map.of();
         private List<RelationProjectionJoinDefinition> projectionJoins = List.of();
         private QueryDescriptor queryDescriptor;
         private boolean openApiAvailable;
@@ -310,6 +321,11 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
             return this;
         }
 
+        public Builder entityModelClasses(Map<String, Class<?>> value) {
+            this.entityModelClasses = value == null ? Map.of() : Map.copyOf(value);
+            return this;
+        }
+
         public Builder projectionJoins(List<RelationProjectionJoinDefinition> projectionJoins) {
             this.projectionJoins = projectionJoins;
             return this;
@@ -333,7 +349,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         public StaticModuleDefinition build() {
             return new StaticModuleDefinition(applicationAlias, moduleAlias, title, parentModuleAlias, entryType,
                     entryRoute, entryExternalUrl, capabilities, navigatorSourceCapabilities, actions, entities, uiDefinition, references,
-                    readProjections, modelClass, projectionJoins, queryDescriptor, openApiAvailable,
+                    readProjections, modelClass, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
                     legacyReadProjectionCompatibility);
         }
     }

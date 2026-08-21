@@ -131,9 +131,21 @@ function editRecord() {
   detail.beginEdit();
 }
 
-function cancelEditing() {
+async function cancelEditing() {
   if (saving.value) return;
   detail.cancelEdit();
+  const current = record.value;
+  const id = current?.id == null ? undefined : String(current.id);
+  if (!current || !id) return;
+  detail.beginLoad(current, 'view');
+  try {
+    detail.resolveLoad(await context.crud.view(id));
+  } catch (cause) {
+    detail.failLoad();
+    presentPlatformError(cause, { source: 'module-workspace-detail', phase: 'load' });
+  } finally {
+    detail.finishLoad();
+  }
 }
 
 function updateDraftField(fieldName: string, value: RecordFormFieldValue) {
@@ -149,13 +161,23 @@ async function saveRecord() {
   saving.value = true;
   try {
     const result = await context.crud.update(id, next);
-    detail.applySaved(result.record);
+    let persistedRecord = result.record;
+    let refreshFailure: unknown;
+    try {
+      persistedRecord = await context.crud.view(id);
+    } catch (cause) {
+      refreshFailure = cause;
+    }
+    detail.applySaved(persistedRecord);
     refreshModulePageList(context.moduleAlias);
     await handlePlatformActionSuccess(result, {
       source: 'module-workspace-detail',
       phase: 'action',
       fallbackMessage: '保存成功',
     });
+    if (refreshFailure) {
+      presentPlatformError(refreshFailure, { source: 'module-workspace-detail', phase: 'load' });
+    }
   } catch (cause) {
     presentPlatformError(cause, { source: 'module-workspace-detail', phase: 'action' });
   } finally {

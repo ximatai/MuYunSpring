@@ -36,6 +36,21 @@ public record DataChange(
         return new DataChange(DataChangeTypes.COLLECTION_CHANGED, moduleAlias, null, null, null, Map.of());
     }
 
+    public static DataChange resourceRecordCreated(String moduleAlias, String resourceKey,
+                                                   String scope, String recordId) {
+        return new DataChange(DataChangeTypes.RECORD_CREATED, moduleAlias, recordId, resourceKey, scope, Map.of());
+    }
+
+    public static DataChange resourceRecordUpdated(String moduleAlias, String resourceKey,
+                                                   String scope, String recordId) {
+        return new DataChange(DataChangeTypes.RECORD_UPDATED, moduleAlias, recordId, resourceKey, scope, Map.of());
+    }
+
+    public static DataChange resourceRecordDeleted(String moduleAlias, String resourceKey,
+                                                   String scope, String recordId) {
+        return new DataChange(DataChangeTypes.RECORD_DELETED, moduleAlias, recordId, resourceKey, scope, Map.of());
+    }
+
     private static Map<String, Object> normalizeFacts(Map<String, Object> facts) {
         if (facts == null || facts.isEmpty()) {
             return Map.of();

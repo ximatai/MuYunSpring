@@ -68,21 +68,55 @@ it('record explorer panel uses a single title contract', () => {
   assert.match(headerSource, /--muyun-management-panel-header-height/);
   assert.match(
     headerSource,
-    /\.management-panel-header-title,[\s\S]*?\.management-panel-header-title-action \{[\s\S]*?display: inline-flex;[\s\S]*?align-items: center;/,
+    /<h2[\s\S]*?class="management-panel-header-title"[\s\S]*?<UiButton[\s\S]*?class="management-panel-header-title-action"/,
   );
+  assert.notMatch(headerSource, /<h2 v-else/);
   assert.notMatch(headerSource, /record-status-switch-offset-y/);
   assert.notMatch(statusSwitchSource, /translateY\(/);
+  assert.match(headerSource, /\.management-panel-header-title-action::before/);
+  assert.match(headerSource, /left: calc\(100% \+ 6px\)/);
+  assert.match(headerSource, /top: 50%/);
+  assert.match(headerSource, /transform: translate\(-4px, -50%\)/);
+  assert.match(headerSource, /transform: translate\(0, -50%\)/);
+  assert.match(headerSource, /position: absolute/);
+  assert.notMatch(headerSource, /margin-inline-start: 6px/);
   assert.match(layoutSource, /<RecordDetailPanel[\s\S]*<slot name="detail-status"/);
   assert.match(workspaceSource, /--muyun-management-panel-padding-block/);
 });
 
-it('record metadata uses semantic text colors so dark skins preserve hierarchy', () => {
+it('content sections share one semantic heading language so dark skins preserve hierarchy', () => {
   const metaSource = readSource('src/platform-components/RecordMetaSection.vue');
+  const extensionSource = readSource('src/platform-components/RecordDetailExtensionSection.vue');
+  const formSource = readSource('src/platform-components/RecordFormFields.vue');
+  const headingSource = readSource('src/platform-components/RecordContentSectionHeading.vue');
+  const layoutSource = readSource('src/platform-components/RecordDetailLayout.vue');
 
-  assert.match(metaSource, /\.record-meta h3[\s\S]*color: var\(--muyun-support-text\)/);
+  assert.match(metaSource, /<RecordContentSectionHeading title="系统信息"/);
+  assert.match(extensionSource, /<RecordContentSectionHeading :title="title"/);
+  assert.match(formSource, /<RecordContentSectionHeading[\s\S]*class="record-form-group-heading"/);
+  assert.match(headingSource, /color: var\(--muyun-content-section-heading-color, var\(--muyun-text\)\)/);
+  assert.match(layoutSource, /--muyun-content-section-heading-font-size: 14px/);
+  assert.match(layoutSource, /--muyun-content-section-heading-font-weight: 600/);
+  assert.match(layoutSource, /--muyun-content-section-heading-line-height: 20px/);
   assert.match(metaSource, /dt \{[\s\S]*color: var\(--muyun-support-text-muted\)/);
   assert.match(metaSource, /dd \{[\s\S]*color: var\(--muyun-support-text-body\)/);
-  assert.notMatch(metaSource, /#334155|#64748b|#243447/);
+  assert.notMatch(`${headingSource}\n${metaSource}`, /#334155|#64748b|#243447/);
+});
+
+it('detail sections share one internal and inter-section spacing rhythm', () => {
+  const layoutSource = readSource('src/platform-components/RecordDetailLayout.vue');
+  const extensionSource = readSource('src/platform-components/RecordDetailExtensionSection.vue');
+  const metaSource = readSource('src/platform-components/RecordMetaSection.vue');
+
+  assert.match(layoutSource, /--muyun-detail-section-inner-gap: 8px/);
+  assert.match(layoutSource, /--muyun-detail-section-block-gap: 16px/);
+  assert.match(extensionSource, /gap: var\(--muyun-detail-section-inner-gap, 8px\)/);
+  assert.match(extensionSource, /margin-top: var\(--muyun-detail-section-block-gap, 16px\)/);
+  assert.match(extensionSource, /padding-top: var\(--muyun-detail-section-inner-gap, 8px\)/);
+  assert.match(metaSource, /gap: var\(--muyun-detail-section-inner-gap, 8px\)/);
+  assert.match(metaSource, /margin-top: var\(--muyun-detail-section-block-gap, 16px\)/);
+  assert.match(metaSource, /padding-top: var\(--muyun-detail-section-inner-gap, 8px\)/);
+  assert.match(metaSource, /border-top: 1px solid var\(--muyun-border-subtle\)/);
 });
 
 it('reference summary tags keep visual rendering inside the UI adapter', () => {
@@ -2021,7 +2055,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   );
   assert.match(panelSource, /refreshRecycleBinSummary\(\)/);
   assert.match(panelSource, /if \(canQueryRecycleBinAvailable\.value\)/);
-  assert.match(panelSource, /<footer class="record-query-list-pagination">[\s\S]*recycleBinEnabled/);
+  assert.match(panelSource, /<footer[\s\S]*class="record-query-list-pagination"[\s\S]*recycleBinEnabled/);
   assert.match(panelSource, /record-query-list-pagination-controls/);
   assert.match(panelSource, /RecycleBinModeButton/);
   assert.match(recycleBinButtonSource, /props\.hasRecords === true/);

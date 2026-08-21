@@ -119,6 +119,8 @@ const props = withDefaults(
       action: RecordActionItem,
     ) => Partial<RecordActionItem> | undefined;
     rowActionsTitle?: string;
+    /** Allows an embedding lifecycle to suppress an otherwise-declared row action slot. */
+    rowActionsVisible?: boolean;
     /** Width of the fixed right-side action column. Defaults to the platform compact width. */
     actionColumnWidth?: string | number;
     cellRenderers?: Record<string, (record: QueryListRecord) => string>;
@@ -127,7 +129,16 @@ const props = withDefaults(
     expandedRowKeys?: string[];
     reloadKey?: number;
     refreshTitle?: string;
+    /** Embedded section hosts may own the visible heading while this panel keeps an icon-only refresh. */
+    showTitle?: boolean;
+    /** Lets a parent lifecycle suppress the complete operation toolbar in read mode. */
+    headerVisible?: boolean;
+    /** Recycle-bin navigation is operational chrome and may be hidden by an embedding lifecycle. */
+    showRecycleBin?: boolean;
+    /** Removes the standalone card shell when a section already owns the visual boundary. */
+    embedded?: boolean;
     pageSize?: number;
+    pageSizeOptions?: number[];
     uiConfigId?: string;
     queryTemplateId?: string;
     /** A source-owned query schema avoids forcing embedded relation lists through target-module access. */
@@ -161,13 +172,19 @@ const props = withDefaults(
     extraRowActionsOf: undefined,
     rowActionStateOf: undefined,
     rowActionsTitle: '操作',
+    rowActionsVisible: true,
     actionColumnWidth: 92,
     cellRenderers: () => ({}),
     selectedKey: undefined,
     expandedRowKeys: () => [],
     reloadKey: undefined,
     refreshTitle: undefined,
+    showTitle: true,
+    headerVisible: true,
+    showRecycleBin: true,
+    embedded: false,
     pageSize: 20,
+    pageSizeOptions: () => [10, 20, 50],
     uiConfigId: undefined,
     queryTemplateId: undefined,
     querySchema: undefined,
@@ -293,12 +310,13 @@ const selection = computed<UiDataTableSelection | undefined>(() =>
 );
 const hasRowActions = computed(
   () =>
-    (props.mode === 'recycleBin' &&
+    props.rowActionsVisible &&
+    ((props.mode === 'recycleBin' &&
       (props.context.can('recycleBinRestore') === true || props.context.can('recycleBinPurge') === true)) ||
-    props.rowActionsOf !== undefined ||
-    (props.standardCrudRowActions && standardCrudRowActionsOf().length > 0) ||
-    props.extraRowActionsOf !== undefined ||
-    Boolean(slots.rowActions),
+      props.rowActionsOf !== undefined ||
+      (props.standardCrudRowActions && standardCrudRowActionsOf().length > 0) ||
+      props.extraRowActionsOf !== undefined ||
+      Boolean(slots.rowActions)),
 );
 const hasExpandedRow = computed(() => props.expandedRowKeys.length > 0 || Boolean(slots.expandedRow));
 const rows = computed<QueryListRow[]>(() => records.value.map(resolveRow));
@@ -317,11 +335,9 @@ const dataTableColumns = computed<UiDataTableColumn[]>(() =>
     align: column.align,
   })),
 );
-const pageSizeOptions: Option[] = [
-  { label: '10 条/页', value: 10 },
-  { label: '20 条/页', value: 20 },
-  { label: '50 条/页', value: 50 },
-];
+const pageSizeOptions = computed<Option[]>(() =>
+  props.pageSizeOptions.map((value) => ({ label: `${value} 条/页`, value })),
+);
 const booleanOptions: Option[] = [
   { label: '是', value: 'true' },
   { label: '否', value: 'false' },
@@ -1108,9 +1124,16 @@ defineExpose({ clearSelection, refresh });
 </script>
 
 <template>
-  <main class="record-query-list-panel">
-    <header class="record-query-list-header">
+  <main
+    class="record-query-list-panel"
+    :class="{
+      'is-embedded': embedded,
+      'is-chrome-free': !headerVisible && !pageable && !showRecycleBin,
+    }"
+  >
+    <header v-if="headerVisible" class="record-query-list-header">
       <UiButton
+        v-if="showTitle"
         class="record-query-list-title"
         icon-name="reload"
         icon-position="end"
@@ -1122,6 +1145,15 @@ defineExpose({ clearSelection, refresh });
         <span>{{ title }}</span>
       </UiButton>
       <div class="record-query-list-actions">
+        <UiButton
+          v-if="!showTitle"
+          type="text"
+          icon-name="reload"
+          :disabled="queryActionsDisabled"
+          :aria-label="refreshTitle ?? `刷新${title}`"
+          :title="refreshTitle ?? `刷新${title}`"
+          @click="refresh"
+        />
         <RecordActionBar
           v-if="panelActions.length > 0"
           :context="context"
@@ -1368,9 +1400,9 @@ defineExpose({ clearSelection, refresh });
       </UiDataTable>
     </section>
 
-    <footer class="record-query-list-pagination">
+    <footer v-if="pageable || (showRecycleBin && recycleBinEnabled)" class="record-query-list-pagination">
       <RecycleBinModeButton
-        v-if="recycleBinEnabled && (mode === 'recycleBin' || canQueryRecycleBinAvailable)"
+        v-if="showRecycleBin && recycleBinEnabled && (mode === 'recycleBin' || canQueryRecycleBinAvailable)"
         :active="mode === 'recycleBin'"
         :has-records="recycleBinHasRecords"
         :count="recycleBinState.summaryTotal.value"
@@ -1425,6 +1457,23 @@ defineExpose({ clearSelection, refresh });
   border: 1px solid var(--muyun-border);
   border-radius: 8px;
   background: var(--muyun-surface);
+}
+
+.record-query-list-panel.is-embedded {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.record-query-list-panel.is-chrome-free {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: 'body';
+  gap: 0;
+}
+
+.record-query-list-panel.is-embedded .record-query-list-table {
+  border-radius: 0;
 }
 
 .record-query-list-header {

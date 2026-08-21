@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.module;
 
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
+import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -93,6 +95,19 @@ public record StaticModuleActionDefinition(
                 ActionDefaultGrantPolicy.NONE,
                 EntityActionExecutorType.SERVICE,
                 "platform.workflow"
+        );
+    }
+
+    /** Complete executable fallback consumed by HTTP authorization and data-scope resolution. */
+    public ActionExecutionPolicy executionPolicy() {
+        return new ActionExecutionPolicy(
+                actionCode,
+                actionLevel == null ? PlatformActionLevel.ANY : PlatformActionLevel.valueOf(actionLevel.name()),
+                accessMode == null ? ActionAccessMode.AUTH_REQUIRED : ActionAccessMode.valueOf(accessMode.name()),
+                actionAuth,
+                dataAuth,
+                defaultGrantPolicy,
+                actionAuth && !actionCode.equals(permissionActionCode) ? permissionActionCode : null
         );
     }
 

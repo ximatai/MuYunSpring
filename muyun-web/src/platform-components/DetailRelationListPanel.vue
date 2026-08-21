@@ -47,7 +47,10 @@ const relationContext = computed<ModuleContext<QueryListRecord> | undefined>(() 
   const contract = queryContract.value;
   const recordId = props.recordId;
   if (!relation || !contract || !recordId) return undefined;
-  const queryPath = relationQueryPath(contract.queryPath, recordId);
+  const queryPath =
+    contract.managedGateway === true
+      ? `/${props.sourceContext.moduleAlias}/view/${encodeURIComponent(recordId)}/relations/${encodeURIComponent(relation.code)}/query`
+      : relationQueryPath(contract.queryPath, recordId);
   return {
     ...props.sourceContext,
     moduleAlias: relation.targetModuleAlias,
@@ -63,7 +66,8 @@ const relationContext = computed<ModuleContext<QueryListRecord> | undefined>(() 
   };
 });
 
-function relationQueryPath(pathTemplate: string, recordId: string) {
+function relationQueryPath(pathTemplate: string | undefined, recordId: string) {
+  if (!pathTemplate) return '';
   return pathTemplate.replace('{id}', encodeURIComponent(recordId));
 }
 
@@ -77,6 +81,10 @@ function normalizeAlign(value: string | undefined): RecordQueryListColumn['align
     v-if="relationContext && queryContract"
     :context="relationContext"
     :title="relation.title ?? relation.code"
+    :show-title="false"
+    :header-visible="false"
+    :show-recycle-bin="false"
+    embedded
     :columns="columns"
     :reload-key="reloadKey"
     :ui-config-id="queryContract.targetUiConfigId"

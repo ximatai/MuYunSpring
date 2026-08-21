@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 public interface CrudAbility<T extends EntityContract> {
@@ -152,11 +153,11 @@ public interface CrudAbility<T extends EntityContract> {
         if (id == null || id.isBlank()) {
             return 0;
         }
+        DataScopeCriteriaResult mutationScope = mutationRecordScope(PlatformAction.DELETE, id);
         return PlatformAbilityDispatcher.inDeletionTransaction(() -> {
             DeletionContext context = PlatformAbilityDispatcher.resolveDeletionContext(
                     getModuleAlias(), id, deletionContext);
             beforeDelete(id, context);
-            DataScopeCriteriaResult mutationScope = mutationRecordScope(PlatformAction.DELETE, id);
             return withTenantScope(mutationScope, () -> {
             T entity = selectActiveRaw(id);
             if (entity == null) {
@@ -351,6 +352,10 @@ public interface CrudAbility<T extends EntityContract> {
         if (id == null || id.isBlank()) {
             return DataScopeCriteriaResult.unrestricted(Criteria.of());
         }
+        Optional<DataScopeCriteriaResult> verified = VerifiedMutationScopeExecutor.current(this, action, List.of(id));
+        if (verified.isPresent()) {
+            return verified.get();
+        }
         if (this instanceof DataScopeAbility dataScopeAbility) {
             return dataScopeAbility.requireRecordScopeResult(mutationPolicy(action), List.of(id));
         }
@@ -361,6 +366,10 @@ public interface CrudAbility<T extends EntityContract> {
     private DataScopeCriteriaResult mutationRecordScope(PlatformAction action, Collection<String> ids) {
         if (ids == null || ids.isEmpty()) {
             return DataScopeCriteriaResult.unrestricted(Criteria.of());
+        }
+        Optional<DataScopeCriteriaResult> verified = VerifiedMutationScopeExecutor.current(this, action, ids);
+        if (verified.isPresent()) {
+            return verified.get();
         }
         if (this instanceof DataScopeAbility dataScopeAbility) {
             return dataScopeAbility.requireRecordScopeResult(mutationPolicy(action), ids);

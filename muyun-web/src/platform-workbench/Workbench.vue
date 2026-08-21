@@ -276,7 +276,7 @@ onUnmounted(() => {
 
 function pageTypeLabelOf(pageType: string | undefined) {
   if (pageType === 'dynamic-module') {
-    return '动态模块';
+    return '标准模块';
   }
   if (pageType === 'business-route') {
     return '业务页面';

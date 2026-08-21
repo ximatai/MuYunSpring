@@ -18,7 +18,10 @@ it('delegates the flat standard editor to its isolated contribution surface', ()
     'utf8',
   );
 
-  assert.match(source, /if \(!mainFormValid\.value\) return;/);
+  assert.match(
+    source,
+    /if \(!mainFormValid\.value \|\| !relationDraftValid\.value\) \{[\s\S]*formValidationRequestKey\.value \+= 1;[\s\S]*return;/,
+  );
   assert.match(source, /StandardFlatFormSurface/);
   assert.notMatch(source, /ModulePageFormContributionRenderer/);
   assert.match(source, /function flatManagementAllowsDetailEnhancement[\s\S]*editorMode\.value === 'view'/);
