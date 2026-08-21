@@ -1130,7 +1130,8 @@ class ModuleUiDescriptorCompilerTest {
                 .page(emptyEditorPage())
                 .editorContribution("position", form -> form.field("position", "title", field -> field.label("岗位")))
                 .managedDetailRelation("positions", "岗位", "position", "categoryId",
-                        PageDetailRelationMutationDefinition.standardCrud())
+                        PageDetailRelationMutationDefinition.standardCrud(),
+                        PageDetailRelationPaginationDefinition.unpaged())
                 .build();
 
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
@@ -1141,6 +1142,9 @@ class ModuleUiDescriptorCompilerTest {
             assertThat(relation.hasExecutableQueryContract()).isTrue();
             assertThat(relation.queryContract().managedGateway()).isTrue();
             assertThat(relation.queryContract().actionCode()).isEqualTo("position_query");
+            assertThat(relation.queryContract().pageable()).isFalse();
+            assertThat(relation.queryContract().pageSize()).isNull();
+            assertThat(relation.queryContract().pageSizeOptions()).isEmpty();
             assertThat(relation.hasExecutableMutationContract()).isTrue();
             assertThat(relation.mutationContract()).satisfies(mutation -> {
                 assertThat(mutation.createActionCode()).isEqualTo("position_create");

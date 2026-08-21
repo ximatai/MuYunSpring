@@ -24,6 +24,7 @@ const props = defineProps<{
   fields: Map<string, RecordFormFieldDescriptor>;
   mode: 'create' | 'edit' | 'view';
   formSessionKey: number;
+  validationRequestKey?: number;
   optionContext: ModuleContext<QueryListRecord>;
   fileTransferContext: ModuleContext<QueryListRecord>;
   pickerConfigs: Record<string, RecordFormFieldPickerConfig>;
@@ -103,6 +104,7 @@ watch(
       :fields="fields"
       :field-names="fieldNames"
       :form-session-key="formSessionKey"
+      :validation-request-key="validationRequestKey"
       :option-context="optionContext"
       :file-transfer-context="fileTransferContext"
       :picker-configs="pickerConfigs"

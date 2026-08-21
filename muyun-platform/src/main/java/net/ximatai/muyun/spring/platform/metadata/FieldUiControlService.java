@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -23,6 +24,7 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
         RecycleBinAbility<FieldUiControl>,
         EnableAbility<FieldUiControl>,
         SortAbility<FieldUiControl>,
+        ChildrenAbility<FieldUiControl>,
         ReferenceAbility<FieldUiControl>,
         QueryAbility<FieldUiControl> {
     public static final String MODULE_ALIAS = "platform.field_ui_control";
@@ -119,10 +121,9 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
 
     private void normalizePrimaryValueKey(FieldUiControl fieldUiControl) {
         if (fieldUiControl.getValueShape() != FieldUiControlValueShape.COMPOSITE) {
-            if (fieldUiControl.getPrimaryValueKey() != null && !fieldUiControl.getPrimaryValueKey().isBlank()) {
-                throw new PlatformException("primaryValueKey is only allowed for COMPOSITE field UI controls: "
-                        + fieldUiControl.getAlias());
-            }
+            // Switching away from COMPOSITE makes the former primary component irrelevant.
+            // Treat the hidden stale value as input to normalize instead of forcing clients to
+            // understand and clear this internal invariant before a standard save.
             fieldUiControl.setPrimaryValueKey(null);
             return;
         }

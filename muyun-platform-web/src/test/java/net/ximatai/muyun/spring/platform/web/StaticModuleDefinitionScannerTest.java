@@ -1065,7 +1065,80 @@ class StaticModuleDefinitionScannerTest {
                     .extracting(net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition::alias)
                     .contains("field_ui_control", "field_ui_control_property", "field_ui_control_binding");
             assertThat(byAlias.get("platform.field_ui_control").uiDefinition().detailRelations())
-                    .allSatisfy(relation -> assertThat(relation.mutation()).isNotNull());
+                    .allSatisfy(relation -> {
+                        assertThat(relation.embedded()).isTrue();
+                        assertThat(relation.managedQuery()).isFalse();
+                        assertThat(relation.mutation()).isNull();
+                    });
+
+            ResolvedModuleUiDescriptor resolvedFieldControl = ModuleUiDescriptorCompiler
+                    .compileModule(byAlias.get("platform.field_ui_control")).uiDescriptor();
+            assertThat(resolvedFieldControl.detailRelations())
+                    .allSatisfy(relation -> {
+                        assertThat(relation.editing().mode())
+                                .isEqualTo(net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing.Mode.INLINE);
+                        assertThat(relation.editing().saveMode())
+                                .isEqualTo(net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing.SaveMode.AGGREGATE_DRAFT);
+                        assertThat(relation.editing().recycleBinEnabled()).isTrue();
+                    });
+            assertThat(resolvedFieldControl.detailRelations())
+                    .filteredOn(relation -> relation.code().equals("properties"))
+                    .singleElement()
+                    .satisfies(relation -> {
+                        assertThat(relation.embeddedField()).isEqualTo("properties");
+                        assertThat(relation.queryContract()).isNull();
+                        assertThat(relation.visible().constant()).isTrue();
+                        assertThat(relation.listProjection().fields())
+                            .extracting(field -> Map.entry(field.fieldName(), field.width()))
+                            .containsExactly(
+                                    Map.entry("attributeAlias", 180),
+                                    Map.entry("title", 220),
+                                    Map.entry("valueFieldSpecAlias", 180),
+                                    Map.entry("defaultValue", 240));
+                    });
+            assertThat(resolvedFieldControl.detailRelations())
+                    .filteredOn(relation -> relation.code().equals("bindings"))
+                    .singleElement()
+                    .satisfies(relation -> {
+                        assertThat(relation.embeddedField()).isEqualTo("bindings");
+                        assertThat(relation.queryContract()).isNull();
+                        assertThat(relation.visible().formula().expression())
+                                .isEqualTo("{valueShape} == 'COMPOSITE'");
+                        assertThat(relation.visible().formula().program()).isNotNull();
+                        assertThat(relation.listProjection().fields())
+                            .extracting(field -> Map.entry(field.fieldName(), field.width()))
+                            .containsExactly(
+                                    Map.entry("valueKey", 220),
+                                    Map.entry("valueFieldSpecAlias", 220),
+                                    Map.entry("title", 360));
+                    });
+            assertThat(resolvedFieldControl.editorContributions())
+                    .flatExtracting(contribution -> contribution.editor().fields())
+                    .filteredOn(field -> field.fieldRef().fieldName().equals("valueFieldSpecAlias"))
+                    .allSatisfy(field -> {
+                        assertThat(field.uiType()).isEqualTo("recordPicker");
+                        assertThat(field.reference()).isNotNull();
+                        assertThat(field.reference().targetModuleAlias()).isEqualTo(FieldSpecService.MODULE_ALIAS);
+                    });
+
+            Map<String, ResolvedViewFieldDescriptor> editorFields = ModuleUiDescriptorCompiler
+                    .compileModule(byAlias.get("platform.field_ui_control"))
+                    .uiDescriptor().page().detail().editor().fields().stream()
+                    .collect(Collectors.toMap(field -> field.fieldRef().fieldName(), Function.identity()));
+            assertThat(editorFields.get("defaultFieldSpecAlias")).satisfies(field -> {
+                assertThat(field.uiType()).isEqualTo("recordPicker");
+                assertThat(field.reference()).isNotNull();
+            });
+            assertThat(editorFields.get("primaryValueKey")).satisfies(field -> {
+                assertThat(field.visible().formula().expression()).isEqualTo("{valueShape} == 'COMPOSITE'");
+                assertThat(field.required().formula().expression()).isEqualTo("{valueShape} == 'COMPOSITE'");
+            });
+            assertThat(editorFields).extractingByKeys("rendererType", "valueShape", "queryMode")
+                    .allSatisfy(field -> {
+                        assertThat(field.uiType()).isEqualTo("select");
+                        assertThat(field.option()).isNotNull();
+                        assertThat(field.option().inlineItems()).isNotEmpty();
+                    });
         }
     }
 

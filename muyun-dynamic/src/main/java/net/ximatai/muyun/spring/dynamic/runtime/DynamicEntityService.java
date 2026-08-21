@@ -664,6 +664,11 @@ public class DynamicEntityService implements
     }
 
     @Override
+    public boolean usesAutomaticChildRelations() {
+        return false;
+    }
+
+    @Override
     public Map<ReferenceTarget, Set<String>> collectReferenceIdsByTarget(DynamicRecord record) {
         if (record == null || module == null) {
             return Map.of();

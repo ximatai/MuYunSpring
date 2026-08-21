@@ -10,7 +10,7 @@ export interface ManagedDetailRelationRuntimeOptions<TRecord extends Record<stri
   relation: Ref<ResolvedDetailRelationDescriptor | undefined>;
   parentId: Ref<string | undefined>;
   parentPersisted: Ref<boolean>;
-  parentDirty: Ref<boolean>;
+  mutationEnabled: Ref<boolean>;
   can?: (actionCode: string) => boolean;
   clientOf(parentId: string, relationCode: string): ManagedDetailRelationClient<TRecord>;
 }
@@ -37,15 +37,16 @@ export function useManagedDetailRelationRuntime<TRecord extends Record<string, u
       typeof actionCode === 'string' &&
       actionCode.length > 0 &&
       options.can?.(actionCode) !== false &&
-      options.parentPersisted.value &&
-      !options.parentDirty.value
+      options.parentPersisted.value
       ? relation
       : undefined;
   });
-  const mutable = computed(() => executable.value?.mutationContract);
+  const mutable = computed(() =>
+    options.mutationEnabled.value ? executable.value?.mutationContract : undefined,
+  );
   const sessionIdentity = computed(
     () =>
-      `${options.parentId.value ?? ''}:${executable.value?.code ?? ''}:${options.parentDirty.value ? 'dirty' : 'clean'}`,
+      `${options.parentId.value ?? ''}:${executable.value?.code ?? ''}:${options.mutationEnabled.value ? 'mutable' : 'readonly'}`,
   );
   const busy = computed(() => loading.value || saving.value);
 

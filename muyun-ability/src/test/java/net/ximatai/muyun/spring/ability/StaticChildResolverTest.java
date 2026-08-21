@@ -105,7 +105,26 @@ class StaticChildResolverTest {
                 .hasMessageContaining("parentModelClass");
     }
 
+    @Test
+    void childrenShouldRejectAChildOwnershipReferenceToAnotherParent() {
+        assertThatThrownBy(() -> StaticChildResolver.plans(MismatchedParent.class))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("exactly one @ChildOf @ReferenceTo foreign key")
+                .hasMessageContaining(MismatchedParent.class.getName());
+    }
+
     private static final class NoChildRecord extends StandardEntity {
+    }
+
+    private static final class MismatchedParent extends StandardEntity {
+        @Children
+        private List<MismatchedItem> items;
+    }
+
+    private static final class MismatchedItem extends StandardEntity {
+        @ChildOf
+        @ReferenceTo(target = OwnedParentService.class)
+        private String parentId;
     }
 
     private static final class OwnedParent extends StandardEntity {

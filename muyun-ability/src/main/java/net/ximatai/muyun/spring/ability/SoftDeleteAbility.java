@@ -180,6 +180,13 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
         return scoped;
     }
 
+    /** Tenant-aware retained-row scope for platform-owned recycle-bin projections. */
+    default Criteria deletedCriteria(Criteria criteria) {
+        Criteria scoped = CrudAbility.super.activeCriteria(criteria);
+        scoped.eq(StandardEntitySchema.DELETED_FIELD, Boolean.TRUE);
+        return scoped;
+    }
+
     private boolean isSoftDeleted(T entity) {
         return entity == null || Boolean.TRUE.equals(entity.getDeleted());
     }

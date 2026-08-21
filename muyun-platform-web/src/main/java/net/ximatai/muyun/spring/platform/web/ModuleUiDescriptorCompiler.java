@@ -87,6 +87,16 @@ public final class ModuleUiDescriptorCompiler {
         ResolvedModuleUiDescriptor descriptor = compileResolved(uiDefinition, ModuleKind.STATIC, definition.title(),
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
                         staticRecordLabelField(definition), fieldTypes(definition.entities()), FieldControlDescriptorCatalog.standard());
+        List<ResolvedPageDetailEditorContribution> resolvedContributions = uiDefinition.editorContributions().stream()
+                .map(contribution -> {
+                    Class<?> modelClass = definition.entityModelClasses().get(contribution.resource());
+                    return new ResolvedPageDetailEditorContribution(contribution.resource(),
+                            compileView(contribution.editor(), staticOptionFields(modelClass),
+                                    staticReferenceFields(modelClass, referencePickerModeResolver),
+                                    staticReferenceSummaryFields(modelClass), fieldTypes(definition.entities()),
+                                    FieldControlDescriptorCatalog.standard(), true));
+                }).toList();
+        descriptor = descriptor.withEditorContributions(resolvedContributions);
         return new ModuleUiCompilationResult(
                 descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
                         .withDetailRelations(staticDetailRelations(definition, descriptor)),
@@ -225,8 +235,10 @@ public final class ModuleUiDescriptorCompiler {
                 throw new IllegalArgumentException("static detail relation target entity is not declared by model facts: "
                         + relation.targetEntityAlias());
             }
+            ResolvedDetailRelationListProjection listProjection = relation.managedQuery() || relation.embedded()
+                    ? relationListProjection(descriptor, relation) : null;
             ResolvedDetailRelationQueryContract queryContract = !relation.managedQuery() ? null
-                    : managedDetailRelationQueryContract(definition, descriptor, relation);
+                    : managedDetailRelationQueryContract(definition, relation, listProjection);
             ResolvedDetailRelationMutationContract mutationContract = relation.mutation() == null ? null
                     : managedDetailRelationMutationContract(definition, relation);
             ResolvedDetailRelationParentConstraint parentConstraint = relation.parentConstraint() == null ? null
@@ -235,28 +247,64 @@ public final class ModuleUiDescriptorCompiler {
             return new ResolvedDetailRelationDescriptor(relation.code(), relation.title(), relation.readOnly(),
                     definition.moduleAlias(), sourceEntityAlias, definition.moduleAlias(), relation.targetEntityAlias(),
                     relation.parentBinding(), queryContract, mutationContract, parentConstraint,
-                    relation.refreshOnDetailReload());
+                    new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing(
+                            net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing.Mode.valueOf(
+                                    relation.editing().mode().name()),
+                            net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing.SaveMode.valueOf(
+                                    relation.editing().saveMode().name()),
+                            relation.editing().recycleBinEnabled()),
+                    relation.refreshOnDetailReload(), relation.embedded() ? relation.code() : null,
+                    listProjection, resolvedRule(relation.visible()));
         }).toList();
     }
 
-    private static ResolvedDetailRelationQueryContract managedDetailRelationQueryContract(
-            StaticModuleDefinition definition, ResolvedModuleUiDescriptor descriptor,
-            PageDetailRelationDefinition relation) {
+    private static ResolvedDetailRelationListProjection relationListProjection(
+            ResolvedModuleUiDescriptor descriptor, PageDetailRelationDefinition relation) {
         ResolvedPageDetailEditorContribution editor = descriptor.editorContributions().stream()
                 .filter(candidate -> candidate.resource().equals(relation.targetEntityAlias()))
                 .findFirst().orElseThrow(() -> new IllegalArgumentException(
-                        "managed detail relation requires an editor contribution: " + relation.code()));
+                        "detail relation requires an editor contribution: " + relation.code()));
         List<ResolvedDetailRelationListField> fields = editor.editor().fields().stream()
                 .map(field -> new ResolvedDetailRelationListField(field.fieldRef().fieldName(), field.label(),
                         null, field.fieldControl() == null ? null : field.fieldControl().alias(),
-                        null, null, null))
+                        relationColumnWidth(field.width()), field.align(), field.maxDisplayLines()))
                 .toList();
+        return new ResolvedDetailRelationListProjection(null, fields);
+    }
+
+    private static ResolvedDetailRelationQueryContract managedDetailRelationQueryContract(
+            StaticModuleDefinition definition, PageDetailRelationDefinition relation,
+            ResolvedDetailRelationListProjection listProjection) {
         String actionCode = requireRelationAction(definition, relation, "query");
-        return new ResolvedDetailRelationQueryContract(null, true, false,
-                new ResolvedDetailRelationListProjection(null, fields),
+        return new ResolvedDetailRelationQueryContract(null, null, null,
+                relation.pagination().pageable(), false,
+                listProjection,
                 net.ximatai.muyun.spring.ability.query.QuerySchema.from(
                         net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder(relation.targetEntityAlias()).build()),
-                actionCode);
+                true, actionCode, relation.pagination().pageSize(), relation.pagination().pageSizeOptions());
+    }
+
+    private static net.ximatai.muyun.spring.platform.ui.ResolvedUiRule<Boolean> resolvedRule(
+            UiRule<Boolean> rule) {
+        if (rule == null) {
+            return net.ximatai.muyun.spring.platform.ui.ResolvedUiRule.constant(Boolean.TRUE);
+        }
+        return new net.ximatai.muyun.spring.platform.ui.ResolvedUiRule<>(rule.constant(),
+                rule.formula() == null ? null : new net.ximatai.muyun.spring.platform.ui.ResolvedUiFormula(
+                        rule.formula().expression(), rule.formula().program()));
+    }
+
+    private static Integer relationColumnWidth(String width) {
+        if (width == null || width.isBlank()) return null;
+        String normalized = width.trim().toLowerCase(java.util.Locale.ROOT);
+        if (normalized.endsWith("px")) normalized = normalized.substring(0, normalized.length() - 2).trim();
+        try {
+            int pixels = Integer.parseInt(normalized);
+            if (pixels < 1) throw new IllegalArgumentException("relation column width must be positive: " + width);
+            return pixels;
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("relation column width must use pixels: " + width, exception);
+        }
     }
 
     private static ResolvedDetailRelationMutationContract managedDetailRelationMutationContract(
@@ -426,9 +474,20 @@ public final class ModuleUiDescriptorCompiler {
                                                       Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
                                                       Map<ViewFieldRef, FieldValueType> fieldTypes,
                                                       Map<String, ResolvedFieldControlDescriptor> fieldControls) {
+        return compileView(view, optionFields, referenceFields, referenceSummaryFields, fieldTypes,
+                fieldControls, false);
+    }
+
+    private static ResolvedViewDescriptor compileView(ViewDefinition view,
+                                                      Map<String, ResolvedOptionFieldDescriptor> optionFields,
+                                                      Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
+                                                      Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
+                                                      Map<ViewFieldRef, FieldValueType> fieldTypes,
+                                                      Map<String, ResolvedFieldControlDescriptor> fieldControls,
+                                                      boolean relationFacts) {
         List<ResolvedViewFieldDescriptor> fields = view.fields().stream()
                 .map(field -> compileField(view.viewKind(), field, optionFields, referenceFields,
-                        referenceSummaryFields, fieldTypes, fieldControls))
+                        referenceSummaryFields, fieldTypes, fieldControls, relationFacts))
                 .toList();
         return new ResolvedViewDescriptor(
                 view.viewCode(),
@@ -559,12 +618,13 @@ public final class ModuleUiDescriptorCompiler {
                                                             Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                                             Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
                                                             Map<ViewFieldRef, FieldValueType> fieldTypes,
-                                                            Map<String, ResolvedFieldControlDescriptor> fieldControls) {
-        ResolvedReferenceSummaryFieldDescriptor referenceSummary = field.fieldRef().relationCode() == null
+                                                            Map<String, ResolvedFieldControlDescriptor> fieldControls,
+                                                            boolean relationFacts) {
+        ResolvedReferenceSummaryFieldDescriptor referenceSummary = field.fieldRef().relationCode() == null || relationFacts
                 ? referenceSummaryFields.get(field.fieldRef().fieldName()) : null;
-        ResolvedOptionFieldDescriptor option = field.fieldRef().relationCode() == null
+        ResolvedOptionFieldDescriptor option = field.fieldRef().relationCode() == null || relationFacts
                 ? optionFields.get(field.fieldRef().fieldName()) : null;
-        ResolvedReferenceFieldDescriptor reference = field.fieldRef().relationCode() == null
+        ResolvedReferenceFieldDescriptor reference = field.fieldRef().relationCode() == null || relationFacts
                 ? referenceFields.get(field.fieldRef().fieldName()) : null;
         FieldValueType resolvedValueType = valueType(field.fieldRef(), fieldTypes);
         validateBooleanStatus(viewKind, field);

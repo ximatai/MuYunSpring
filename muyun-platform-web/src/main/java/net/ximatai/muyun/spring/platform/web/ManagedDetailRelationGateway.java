@@ -8,6 +8,8 @@ import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
+import net.ximatai.muyun.spring.ability.child.ChildRelation;
+import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.VerifiedMutationScope;
 import net.ximatai.muyun.spring.ability.VerifiedMutationScopeExecutor;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
@@ -114,7 +116,28 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
             throw new IllegalArgumentException("managed relation query conditions are not supported: " + relationCode);
         }
         Sort[] sorts = queryAbility == null ? new Sort[0] : queryAbility.querySorts(WebQueryRequests.from(request));
-        WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
+        var queryContract = runtime.relation().queryContract();
+        if (!queryContract.pageable()) {
+            List<?> records;
+            if (runtime.handler().childService() instanceof DataScopeAbility<?> scoped) {
+                DataScopeCriteriaResult scope = scoped.readScopeByPolicy(runtime.relation().sourceModuleAlias(),
+                        action.actionPolicy(), criteria);
+                Sort[] resolvedSorts = sorts == null ? new Sort[0] : sorts;
+                records = scoped.withDataScopeTenant(scope,
+                        () -> runtime.handler().childService().list(scope.criteria(), resolvedSorts));
+            } else {
+                records = runtime.handler().childService().list(criteria, sorts == null ? new Sort[0] : sorts);
+            }
+            return WebPageResponse.fromList(WebOutputSupport.records((CrudAbility) runtime.handler().childService(),
+                    (List) records, FieldOutputContext.LIST));
+        }
+        WebPageRequest requestedPage = request == null || request.page() == null
+                ? new WebPageRequest(1, queryContract.pageSize()) : request.page();
+        if (!queryContract.pageSizeOptions().contains(requestedPage.pageSize())) {
+            throw new IllegalArgumentException("managed relation page size is not allowed: "
+                    + requestedPage.pageSize());
+        }
+        WebPageRequest page = requestedPage;
         PageResult<?> result;
         if (runtime.handler().childService() instanceof DataScopeAbility<?> scoped) {
             DataScopeCriteriaResult scope = scoped.readScopeByPolicy(runtime.relation().sourceModuleAlias(),
@@ -128,6 +151,37 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
         }
         return WebPageResponse.from(WebOutputSupport.page((CrudAbility) runtime.handler().childService(),
                 (PageResult) result, FieldOutputContext.LIST));
+    }
+
+    /** Reads retained aggregate children; recovery itself remains part of the parent aggregate draft save. */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public WebPageResponse<?> queryRecycleBin(String moduleAlias, CrudAbility<?> parentService, String parentId,
+                                              String relationCode) {
+        ModuleExecutionPlan plan = planCatalog.find(moduleAlias)
+                .orElseThrow(() -> new IllegalStateException(
+                        "managed detail relation requires compiled plan: " + moduleAlias));
+        var relation = plan.uiDescriptor().detailRelations().stream()
+                .filter(candidate -> candidate.code().equals(relationCode))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                        "unknown managed detail relation: " + relationCode));
+        if (relation.embeddedField() == null || !relation.editing().recycleBinEnabled()) {
+            throw new IllegalStateException("managed detail relation recycle bin is not declared: " + relationCode);
+        }
+        ScopedParent scopedParent = selectParent(
+                plan, moduleAlias, parentService, PlatformAction.UPDATE, parentId);
+        if (!(parentService instanceof ChildrenAbility<?> childrenAbility)) {
+            throw new IllegalStateException("aggregate relation requires ChildrenAbility: " + moduleAlias);
+        }
+        List<ChildRelation<?, ?>> childRelations = (List<ChildRelation<?, ?>>) (List<?>)
+                ((ChildrenAbility) childrenAbility).childRelations();
+        ChildRelation childRelation = childRelations.stream()
+                .filter(candidate -> relationCode.equals(candidate.relationCode()))
+                .findFirst().orElseThrow(() -> new IllegalStateException(
+                        "aggregate child relation is not registered: " + moduleAlias + "." + relationCode));
+        List<?> records = childRelation.selectDeletedChildren(parentId);
+        CrudAbility childService = childRelation.childAbility();
+        return WebPageResponse.fromList(WebOutputSupport.records(
+                childService, (List) records, FieldOutputContext.LIST));
     }
 
     public Object insert(String moduleAlias, CrudAbility<?> parentService, String parentId,

@@ -13,7 +13,7 @@ describe('managed detail relation runtime', () => {
       relation: ref(relation()),
       parentId,
       parentPersisted: ref(true),
-      parentDirty: ref(false),
+      mutationEnabled: ref(true),
       clientOf: () => client,
     });
 
@@ -37,7 +37,7 @@ describe('managed detail relation runtime', () => {
       relation: ref(relation()),
       parentId,
       parentPersisted: ref(true),
-      parentDirty: ref(false),
+      mutationEnabled: ref(true),
       clientOf: () => clientOf({ insert }),
     });
 
@@ -51,21 +51,26 @@ describe('managed detail relation runtime', () => {
     expect(runtime.saving.value).toBe(false);
   });
 
-  it('fails closed for an unsaved or dirty parent without issuing HTTP', async () => {
+  it('keeps queries executable in view mode while mutations fail closed', async () => {
     const client = clientOf({});
-    const parentDirty = ref(true);
+    const mutationEnabled = ref(false);
     const runtime = useManagedDetailRelationRuntime({
       relation: ref(relation()),
       parentId: ref('parent-a'),
       parentPersisted: ref(true),
-      parentDirty,
+      mutationEnabled,
       clientOf: () => client,
     });
 
     await expect(runtime.create({ title: 'blocked' })).rejects.toThrow('not allowed');
     expect(client.insert).not.toHaveBeenCalled();
     expect((await runtime.query()).records).toEqual([]);
-    expect(client.query).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledTimes(1);
+
+    mutationEnabled.value = true;
+    await nextTick();
+    await expect(runtime.create({ title: 'allowed' })).resolves.toBe(true);
+    expect(client.insert).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed for server-issued action permissions and sends delete version exactly once', async () => {
@@ -74,7 +79,7 @@ describe('managed detail relation runtime', () => {
       relation: ref(relation()),
       parentId: ref('parent-a'),
       parentPersisted: ref(true),
-      parentDirty: ref(false),
+      mutationEnabled: ref(true),
       can: () => false,
       clientOf: () => client,
     });
@@ -88,7 +93,7 @@ describe('managed detail relation runtime', () => {
       relation: ref(relation()),
       parentId: ref('parent-a'),
       parentPersisted: ref(true),
-      parentDirty: ref(false),
+      mutationEnabled: ref(true),
       can: () => true,
       clientOf: () => client,
     });
@@ -111,7 +116,7 @@ describe('managed detail relation runtime', () => {
       relation: ref(relation()),
       parentId,
       parentPersisted: ref(true),
-      parentDirty: ref(false),
+      mutationEnabled: ref(true),
       clientOf: () => client,
     });
 

@@ -1961,6 +1961,11 @@ class AbilityContractTest {
         public List<ChildRelation<? extends EntityContract, SingleChildInvoice>> childRelations() {
             return List.of(childRelation(lineService));
         }
+
+        @Override
+        public boolean usesAutomaticChildRelations() {
+            return false;
+        }
     }
 
     private static final class SingleChildInvoiceLine extends StandardEntity {

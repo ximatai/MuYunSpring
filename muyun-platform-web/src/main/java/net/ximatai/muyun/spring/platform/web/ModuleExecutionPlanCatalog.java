@@ -156,7 +156,8 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
                         java.util.function.Function.identity()));
         LinkedHashMap<String, Map<String, FieldValueType>> relationTypes = new LinkedHashMap<>();
         descriptor.detailRelations().stream()
-                .filter(relation -> relation.queryContract() != null && relation.queryContract().managedGateway())
+                .filter(relation -> relation.embeddedField() != null
+                        || relation.queryContract() != null && relation.queryContract().managedGateway())
                 .forEach(relation -> {
                     var entity = entities.get(relation.targetEntityAlias());
                     if (entity == null) {

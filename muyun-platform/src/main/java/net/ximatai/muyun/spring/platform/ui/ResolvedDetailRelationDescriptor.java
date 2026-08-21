@@ -18,7 +18,11 @@ public record ResolvedDetailRelationDescriptor(
         ResolvedDetailRelationQueryContract queryContract,
         ResolvedDetailRelationMutationContract mutationContract,
         ResolvedDetailRelationParentConstraint parentConstraint,
-        boolean refreshOnDetailReload
+        ResolvedDetailRelationEditing editing,
+        boolean refreshOnDetailReload,
+        String embeddedField,
+        ResolvedDetailRelationListProjection listProjection,
+        ResolvedUiRule<Boolean> visible
 ) {
     /** Source-compatible constructor for read-only relations. */
     public ResolvedDetailRelationDescriptor(String code, String title, boolean readOnly,
@@ -28,7 +32,9 @@ public record ResolvedDetailRelationDescriptor(
                                             ResolvedDetailRelationQueryContract queryContract,
                                             boolean refreshOnDetailReload) {
         this(code, title, readOnly, sourceModuleAlias, sourceEntityAlias, targetModuleAlias,
-                targetEntityAlias, parentBinding, queryContract, null, null, refreshOnDetailReload);
+                targetEntityAlias, parentBinding, queryContract, null, null,
+                ResolvedDetailRelationEditing.DEFAULT, refreshOnDetailReload, null, null,
+                ResolvedUiRule.constant(Boolean.TRUE));
     }
 
     /** Source-compatible constructor for mutable relations before parent applicability was explicit. */
@@ -40,7 +46,41 @@ public record ResolvedDetailRelationDescriptor(
                                             ResolvedDetailRelationMutationContract mutationContract,
                                             boolean refreshOnDetailReload) {
         this(code, title, readOnly, sourceModuleAlias, sourceEntityAlias, targetModuleAlias,
-                targetEntityAlias, parentBinding, queryContract, mutationContract, null, refreshOnDetailReload);
+                targetEntityAlias, parentBinding, queryContract, mutationContract, null,
+                ResolvedDetailRelationEditing.DEFAULT, refreshOnDetailReload, null, null,
+                ResolvedUiRule.constant(Boolean.TRUE));
+    }
+
+    /** Source-compatible constructor before editing semantics became explicit. */
+    public ResolvedDetailRelationDescriptor(String code, String title, boolean readOnly,
+                                            String sourceModuleAlias, String sourceEntityAlias,
+                                            String targetModuleAlias, String targetEntityAlias,
+                                            String parentBinding,
+                                            ResolvedDetailRelationQueryContract queryContract,
+                                            ResolvedDetailRelationMutationContract mutationContract,
+                                            ResolvedDetailRelationParentConstraint parentConstraint,
+                                            boolean refreshOnDetailReload) {
+        this(code, title, readOnly, sourceModuleAlias, sourceEntityAlias, targetModuleAlias,
+                targetEntityAlias, parentBinding, queryContract, mutationContract, parentConstraint,
+                ResolvedDetailRelationEditing.DEFAULT, refreshOnDetailReload, null, null,
+                ResolvedUiRule.constant(Boolean.TRUE));
+    }
+
+    /** Source-compatible canonical constructor before embedded child relations were explicit. */
+    public ResolvedDetailRelationDescriptor(String code, String title, boolean readOnly,
+                                            String sourceModuleAlias, String sourceEntityAlias,
+                                            String targetModuleAlias, String targetEntityAlias,
+                                            String parentBinding,
+                                            ResolvedDetailRelationQueryContract queryContract,
+                                            ResolvedDetailRelationMutationContract mutationContract,
+                                            ResolvedDetailRelationParentConstraint parentConstraint,
+                                            ResolvedDetailRelationEditing editing,
+                                            boolean refreshOnDetailReload) {
+        this(code, title, readOnly, sourceModuleAlias, sourceEntityAlias, targetModuleAlias,
+                targetEntityAlias, parentBinding, queryContract, mutationContract, parentConstraint,
+                editing, refreshOnDetailReload, null,
+                queryContract == null ? null : queryContract.listProjection(),
+                ResolvedUiRule.constant(Boolean.TRUE));
     }
     public ResolvedDetailRelationDescriptor {
         code = PlatformNameRules.requireIdentifier(code, "detail relation code");
@@ -50,6 +90,9 @@ public record ResolvedDetailRelationDescriptor(
         targetModuleAlias = PlatformNameRules.requireModuleAlias(targetModuleAlias);
         targetEntityAlias = PlatformNameRules.requireIdentifier(targetEntityAlias, "target entity alias");
         parentBinding = requireText(parentBinding, "detail relation parent binding");
+        editing = editing == null ? ResolvedDetailRelationEditing.DEFAULT : editing;
+        embeddedField = normalize(embeddedField);
+        visible = visible == null ? ResolvedUiRule.constant(Boolean.TRUE) : visible;
         if (readOnly && mutationContract != null) {
             throw new IllegalArgumentException("read-only detail relation must not declare mutations");
         }
@@ -69,7 +112,7 @@ public record ResolvedDetailRelationDescriptor(
     public ResolvedDetailRelationDescriptor withTitle(String value) {
         return new ResolvedDetailRelationDescriptor(code, value, readOnly, sourceModuleAlias, sourceEntityAlias,
                 targetModuleAlias, targetEntityAlias, parentBinding, queryContract, mutationContract,
-                parentConstraint, refreshOnDetailReload);
+                parentConstraint, editing, refreshOnDetailReload, embeddedField, listProjection, visible);
     }
 
     private static String normalize(String value) {

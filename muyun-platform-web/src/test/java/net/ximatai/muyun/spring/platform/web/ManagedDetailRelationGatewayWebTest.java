@@ -9,6 +9,8 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.child.ChildRelation;
+import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlProperty;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService;
@@ -20,6 +22,7 @@ import net.ximatai.muyun.spring.common.platform.DataScopeFieldMapping;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationMutationContract;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationQueryContract;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
@@ -57,6 +60,68 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ManagedDetailRelationGatewayWebTest {
     @Test
+    void shouldExposeRetainedAggregateChildrenOnlyThroughTheParentRelationBoundary() throws Exception {
+        FieldUiControlService parentService = mock(FieldUiControlService.class);
+        ManagedDetailRelationGateway gateway = mock(ManagedDetailRelationGateway.class);
+        FieldUiControlProperty retained = property("retained-1", "select");
+        retained.setDeleted(Boolean.TRUE);
+        org.mockito.Mockito.doReturn(net.ximatai.muyun.spring.web.WebPageResponse.fromList(List.of(retained)))
+                .when(gateway).queryRecycleBin(FieldUiControlService.MODULE_ALIAS, parentService,
+                        "select", "properties");
+
+        mvc(parentService, gateway, new AllowAllPolicyService()).perform(post(
+                        "/platform.field_ui_control/view/select/relations/properties/recycle-bin/query")
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].id").value("retained-1"))
+                .andExpect(jsonPath("$.records[0].fieldUiControlAlias").value("select"));
+
+        verify(gateway).queryRecycleBin(FieldUiControlService.MODULE_ALIAS, parentService,
+                "select", "properties");
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void shouldQueryOnlyTheDeclaredAggregateChildRelationRecycleBin() {
+        FieldUiControlService parentService = mock(FieldUiControlService.class,
+                org.mockito.Mockito.withSettings().extraInterfaces(ChildrenAbility.class));
+        ChildrenAbility<FieldUiControl> children = (ChildrenAbility<FieldUiControl>) (Object) parentService;
+        FieldUiControlPropertyService childService = mock(FieldUiControlPropertyService.class);
+        FieldUiControl parent = parent("select");
+        FieldUiControlProperty retained = property("retained-1", "select");
+        retained.setDeleted(Boolean.TRUE);
+        when(parentService.select("select")).thenReturn(parent);
+        when(childService.selectDeletedChildRows(any(Criteria.class))).thenReturn(List.of(retained));
+        ChildRelation<FieldUiControlProperty, FieldUiControl> childRelation = new ChildRelation<>(
+                "properties", childService, FieldUiControlProperty::setFieldUiControlAlias,
+                "fieldUiControlAlias", FieldUiControl::getProperties);
+        when(children.childRelations()).thenReturn((List) List.of(childRelation));
+
+        ModuleExecutionPlanCatalog catalog = mock(ModuleExecutionPlanCatalog.class);
+        ModuleExecutionPlan plan = mock(ModuleExecutionPlan.class);
+        ResolvedModuleUiDescriptor descriptor = mock(ResolvedModuleUiDescriptor.class);
+        ResolvedDetailRelationDescriptor relation = mock(ResolvedDetailRelationDescriptor.class);
+        when(catalog.find(FieldUiControlService.MODULE_ALIAS)).thenReturn(Optional.of(plan));
+        when(plan.uiDescriptor()).thenReturn(descriptor);
+        when(plan.actions()).thenReturn(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.UPDATE)));
+        when(descriptor.detailRelations()).thenReturn(List.of(relation));
+        when(relation.code()).thenReturn("properties");
+        when(relation.embeddedField()).thenReturn("properties");
+        when(relation.editing()).thenReturn(new ResolvedDetailRelationEditing(
+                ResolvedDetailRelationEditing.Mode.INLINE,
+                ResolvedDetailRelationEditing.SaveMode.AGGREGATE_DRAFT, true));
+        ManagedDetailRelationGateway gateway = new ManagedDetailRelationGateway(
+                catalog, new AllowAllPolicyService(), new ObjectMapper(), List.of());
+
+        var response = gateway.queryRecycleBin(
+                FieldUiControlService.MODULE_ALIAS, parentService, "select", "properties");
+
+        assertThat(response.records()).singleElement().satisfies(value ->
+                assertThat(((EntityContract) value).getId()).isEqualTo("retained-1"));
+        verify(childService).selectDeletedChildRows(any(Criteria.class));
+    }
+
+    @Test
     void shouldRunCompiledManagedRelationThroughParentHttpBoundary() throws Exception {
         FieldUiControlService parentService = mock(FieldUiControlService.class);
         FieldUiControlPropertyService childService = mock(FieldUiControlPropertyService.class);
@@ -64,6 +129,8 @@ class ManagedDetailRelationGatewayWebTest {
         FieldUiControlProperty property = property("property-1", "select");
         property.setTitle("Original title");
         when(parentService.select("select")).thenReturn(parent);
+        when(childService.list(any(Criteria.class), any(net.ximatai.muyun.database.core.orm.Sort[].class)))
+                .thenReturn(List.of(property));
         when(childService.pageQuery(any(Criteria.class), any(PageRequest.class), any(net.ximatai.muyun.database.core.orm.Sort[].class))).thenReturn(
                 PageResult.of(List.of(property), 1, PageRequest.of(1, 20)));
         when(childService.insert(any(FieldUiControlProperty.class))).thenReturn("property-2");
@@ -77,6 +144,8 @@ class ManagedDetailRelationGatewayWebTest {
         mvc.perform(post(base + "/query").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].fieldUiControlAlias").value("select"));
+        verify(childService).list(any(Criteria.class),
+                any(net.ximatai.muyun.database.core.orm.Sort[].class));
         mvc.perform(post(base + "/insert").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"fieldUiControlAlias\":\"forged\",\"tenantId\":\"forged\",\"deleted\":true,\"attributeAlias\":\"placeholder\"}"))
                 .andExpect(status().isCreated())
@@ -282,7 +351,7 @@ class ManagedDetailRelationGatewayWebTest {
                 .thenReturn(property("property-1", "select"));
         when(gateway.delete(eq(FieldUiControlService.MODULE_ALIAS), eq(parentService), eq("select"),
                 eq("properties"), eq("property-1"), any())).thenReturn(1);
-        FieldUiControlWebController controller = new FieldUiControlWebController();
+        ManagedGatewayFieldUiControlWebController controller = new ManagedGatewayFieldUiControlWebController();
         ReflectionTestUtils.setField(controller, "service", parentService);
         ReflectionTestUtils.setField(controller, "managedDetailRelationGateway", gateway);
         ActionExecutionPolicyService allowAll = new AllowAllPolicyService();
@@ -320,7 +389,7 @@ class ManagedDetailRelationGatewayWebTest {
 
     private static MockMvc mvc(FieldUiControlService parentService, ManagedDetailRelationGateway gateway,
                                ActionExecutionPolicyService policy) {
-        FieldUiControlWebController controller = new FieldUiControlWebController();
+        ManagedGatewayFieldUiControlWebController controller = new ManagedGatewayFieldUiControlWebController();
         ReflectionTestUtils.setField(controller, "service", parentService);
         ReflectionTestUtils.setField(controller, "managedDetailRelationGateway", gateway);
         return MockMvcBuilders.standaloneSetup(controller)
@@ -349,11 +418,13 @@ class ManagedDetailRelationGatewayWebTest {
         when(descriptor.detailRelations()).thenReturn(List.of(new ResolvedDetailRelationDescriptor(
                 "properties", "控件属性", false, FieldUiControlService.MODULE_ALIAS, "field_ui_control",
                 FieldUiControlPropertyService.MODULE_ALIAS, "field_ui_control_property", "fieldUiControlAlias",
-                new ResolvedDetailRelationQueryContract(null, true, false, null,
+                new ResolvedDetailRelationQueryContract(null, null, null, false, false, null,
                         net.ximatai.muyun.spring.ability.query.QuerySchema.from(
                                 net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder("field_ui_control_property").build()),
-                        "field_ui_control_property_query"),
-                mutation, true)));
+                        true, "field_ui_control_property_query", null, List.of()),
+                mutation, null,
+                new ResolvedDetailRelationEditing(ResolvedDetailRelationEditing.Mode.INLINE,
+                        ResolvedDetailRelationEditing.SaveMode.AGGREGATE_DRAFT), true)));
         ResolvedPageDetailEditorContribution contribution = mock(ResolvedPageDetailEditorContribution.class);
         ResolvedViewDescriptor editor = mock(ResolvedViewDescriptor.class);
         ResolvedViewFieldDescriptor field = mock(ResolvedViewFieldDescriptor.class);
@@ -498,6 +569,11 @@ class ManagedDetailRelationGatewayWebTest {
             return record.getId().equals(id) ? record : null;
         }
 
+    }
+
+    /** Test-only host for the independent association gateway contract. */
+    private static final class ManagedGatewayFieldUiControlWebController extends FieldUiControlWebController
+            implements ManagedDetailRelationWeb<FieldUiControl, FieldUiControlService> {
     }
 
     private static final class OverridingPropertyService extends ScopedPropertyService {

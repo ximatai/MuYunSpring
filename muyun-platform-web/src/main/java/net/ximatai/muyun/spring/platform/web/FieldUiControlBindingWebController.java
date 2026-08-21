@@ -26,9 +26,12 @@ public class FieldUiControlBindingWebController
         return ModuleUiDefinition.builder(FieldUiControlService.MODULE_ALIAS)
                 .editorContribution("field_ui_control_binding", form -> form.title("字段绑定")
                         .field("field_ui_control_binding", "valueKey", field -> field.label("值键")
+                                .width("220px")
                                 .required().enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
-                        .field("field_ui_control_binding", "valueFieldSpecAlias", field -> field.label("值字段规格").required())
-                        .field("field_ui_control_binding", "title", field -> field.label("标题").required()))
+                        .field("field_ui_control_binding", "valueFieldSpecAlias", field -> field.label("值字段规格")
+                                .width("220px").uiType("recordPicker").required())
+                        .field("field_ui_control_binding", "title", field -> field.label("标题")
+                                .width("360px").required()))
                 .build();
     }
 

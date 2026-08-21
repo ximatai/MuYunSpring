@@ -85,17 +85,43 @@ public record ModuleUiDefinition(String moduleAlias,
         public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
                                              String parentBinding,
                                              PageDetailRelationMutationDefinition mutations) {
-            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
-                    false, true, mutations, null, true));
-            return this;
+            return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, null,
+                    PageDetailRelationPaginationDefinition.DEFAULT, PageDetailRelationEditingDefinition.DEFAULT);
         }
 
         public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
                                              String parentBinding,
                                              PageDetailRelationMutationDefinition mutations,
                                              PageDetailRelationParentConstraintDefinition parentConstraint) {
+            return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, parentConstraint,
+                    PageDetailRelationPaginationDefinition.DEFAULT, PageDetailRelationEditingDefinition.DEFAULT);
+        }
+
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
+                                             String parentBinding,
+                                             PageDetailRelationMutationDefinition mutations,
+                                             PageDetailRelationPaginationDefinition pagination) {
+            return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, null, pagination);
+        }
+
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
+                                             String parentBinding,
+                                             PageDetailRelationMutationDefinition mutations,
+                                             PageDetailRelationParentConstraintDefinition parentConstraint,
+                                             PageDetailRelationPaginationDefinition pagination) {
+            return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, parentConstraint,
+                    pagination, PageDetailRelationEditingDefinition.DEFAULT);
+        }
+
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
+                                             String parentBinding,
+                                             PageDetailRelationMutationDefinition mutations,
+                                             PageDetailRelationParentConstraintDefinition parentConstraint,
+                                             PageDetailRelationPaginationDefinition pagination,
+                                             PageDetailRelationEditingDefinition editing) {
             detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
-                    false, true, mutations, parentConstraint, true));
+                    false, true, mutations, parentConstraint, pagination, editing, true, false,
+                    UiRule.constant(Boolean.TRUE)));
             return this;
         }
 
@@ -104,7 +130,23 @@ public record ModuleUiDefinition(String moduleAlias,
                                                      String parentBinding,
                                                      PageDetailRelationParentConstraintDefinition parentConstraint) {
             detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
-                    true, true, null, parentConstraint, true));
+                    true, true, null, parentConstraint, PageDetailRelationPaginationDefinition.DEFAULT,
+                    PageDetailRelationEditingDefinition.DEFAULT, true, false, UiRule.constant(Boolean.TRUE)));
+            return this;
+        }
+
+        /** Declares a child collection carried by the parent entity and persisted by ChildrenAbility. */
+        public Builder aggregateChildRelation(String code, String title, String targetEntityAlias,
+                                              String parentBinding, UiRule<Boolean> visible) {
+            return aggregateChildRelation(code, title, targetEntityAlias, parentBinding, visible, false);
+        }
+
+        public Builder aggregateChildRelation(String code, String title, String targetEntityAlias,
+                                              String parentBinding, UiRule<Boolean> visible,
+                                              boolean recycleBinEnabled) {
+            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
+                    false, false, null, null, PageDetailRelationPaginationDefinition.unpaged(),
+                    PageDetailRelationEditingDefinition.aggregateInline(recycleBinEnabled), true, true, visible));
             return this;
         }
 

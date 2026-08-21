@@ -218,6 +218,17 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     }
 
     @Test
+    void shouldRegisterFieldUiControlMenuAsStandardModuleEntry() {
+        PlatformStaticModule module = FieldUiControlWebController.class
+                .getAnnotation(PlatformStaticModule.class);
+
+        assertThat(module).isNotNull();
+        assertThat(module.alias()).isEqualTo("platform.field_ui_control");
+        assertThat(module.route()).isBlank();
+        assertThat(module.externalUrl()).isBlank();
+    }
+
+    @Test
     void shouldKeepModuleMenuUnchangedWhenReinitializing() {
         try (GenericApplicationContext context = context(PlatformModuleWeb.class)) {
             registerStaticModules(context);

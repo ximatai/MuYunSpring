@@ -81,6 +81,10 @@ function normalizeAlign(value: string | undefined): RecordQueryListColumn['align
     v-if="relationContext && queryContract"
     :context="relationContext"
     :title="relation.title ?? relation.code"
+    :show-title="false"
+    :header-visible="false"
+    :show-recycle-bin="false"
+    embedded
     :columns="columns"
     :reload-key="reloadKey"
     :ui-config-id="queryContract.targetUiConfigId"

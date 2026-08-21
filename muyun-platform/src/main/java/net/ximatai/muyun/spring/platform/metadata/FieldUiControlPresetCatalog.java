@@ -114,6 +114,7 @@ public final class FieldUiControlPresetCatalog {
         type.setDefaultFieldSpecAlias(defaultFieldSpecAlias);
         type.setValueShape(valueShape);
         type.setPrimaryValueKey(primaryValueKey);
+        type.setQueryMode(FieldUiControlQueryMode.DEFAULT);
         // Keep the metadata vocabulary visible for future delivery, but do not advertise an
         // editor that the published web runtime cannot execute yet.
         type.setEnabled(WEB_FORM_EXECUTABLE_RENDERERS.contains(controlType)

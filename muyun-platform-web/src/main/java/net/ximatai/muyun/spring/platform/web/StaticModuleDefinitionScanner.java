@@ -149,17 +149,21 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         validateScopeAlias(bean, beanClass, module);
         List<RelationProjectionJoinDefinition> projectionJoins = projectionJoins(bean);
         java.util.Set<EntityCapability> capabilities = capabilities(bean, module);
+        Class<?> modelClass = modelClass(bean);
+        List<EntityDefinition> entities = entities(bean, module, projectionJoins);
         return StaticModuleDefinition.builder(application.alias(), module.alias(), module.title())
                 .parentModuleAlias(module.parent().isBlank() ? null : module.parent())
                 .entry(entryType(module), module.route(), module.externalUrl())
                 .capabilities(capabilities)
                 .navigatorSourceCapabilities(navigatorSourceCapabilities(beanClass))
                 .actions(actions(bean, beanClass, capabilities))
-                .entities(entities(bean, module, projectionJoins))
+                .entities(entities)
                 .uiDefinition(uiDefinition(bean, module))
                 .references(references(bean))
                 .readProjections(readProjections(bean, module.alias()))
-                .modelClass(modelClass(bean))
+                .modelClass(modelClass)
+                .entityModelClasses(entities.isEmpty() || modelClass == null
+                        ? Map.of() : Map.of(entities.getFirst().alias(), modelClass))
                 .projectionJoins(projectionJoins)
                 .queryDescriptor(queryDescriptor(bean, module.alias()))
                 .openApiAvailable(AnnotationUtils.findAnnotation(beanClass, StaticModuleOpenApi.class) != null)
@@ -456,6 +460,12 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                             beanClass, merged, action));
             List<EntityDefinition> entities = mergeContributionEntities(
                     target.moduleAlias(), beanClass, target.entities(), contributionEntities(bean, contribution));
+            LinkedHashMap<String, Class<?>> entityModelClasses = new LinkedHashMap<>(target.entityModelClasses());
+            Object contributionService = service(bean);
+            if (contributionService instanceof CrudAbility<?> ability
+                    && ability.modelClass() != null && ability.modelClass() != Object.class) {
+                entityModelClasses.put(contribution.resource(), ability.modelClass());
+            }
             ModuleUiDefinition uiDefinition = mergeContributionUiDefinition(
                     target.moduleAlias(),
                     beanClass,
@@ -465,6 +475,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             definitions.put(targetModule, target.toBuilder()
                     .actions(List.copyOf(merged.values()))
                     .entities(entities)
+                    .entityModelClasses(entityModelClasses)
                     .uiDefinition(uiDefinition)
                     .build());
         }

@@ -26,10 +26,14 @@ public class FieldUiControlPropertyWebController
         return ModuleUiDefinition.builder(FieldUiControlService.MODULE_ALIAS)
                 .editorContribution("field_ui_control_property", form -> form.title("控件属性")
                         .field("field_ui_control_property", "attributeAlias", field -> field.label("属性 alias")
+                                .width("180px")
                                 .required().enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
-                        .field("field_ui_control_property", "title", field -> field.label("属性名称").required())
-                        .field("field_ui_control_property", "valueFieldSpecAlias", field -> field.label("值字段规格"))
-                        .field("field_ui_control_property", "defaultValue", field -> field.label("默认值")))
+                        .field("field_ui_control_property", "title", field -> field.label("属性名称")
+                                .width("220px").required())
+                        .field("field_ui_control_property", "valueFieldSpecAlias", field -> field.label("值字段规格")
+                                .width("180px").uiType("recordPicker"))
+                        .field("field_ui_control_property", "defaultValue", field -> field.label("默认值")
+                                .width("240px")))
                 .build();
     }
 

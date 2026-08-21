@@ -13,6 +13,7 @@ import java.lang.reflect.Type;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class StaticChildResolver {
@@ -112,13 +113,14 @@ public final class StaticChildResolver {
         }
         @SuppressWarnings("unchecked")
         Class<? extends EntityContract> childModel = (Class<? extends EntityContract>) childClass;
-        String parentAlias = defaultEntityAlias(parentModelClass);
+        Set<String> parentAliases = parentEntityAliases(parentModelClass);
         List<ReferencePlan> referencePlans = StaticReferenceResolver.plans(childModel);
         List<Field> foreignKeys = fields(childModel).stream()
                 .filter(candidate -> candidate.getAnnotation(ChildOf.class) != null)
                 .filter(candidate -> candidate.getAnnotation(ReferenceTo.class) != null)
                 .filter(candidate -> referencePlans.stream().anyMatch(plan ->
-                        plan.sourceField().equals(candidate.getName()) && parentAlias.equals(plan.target().entityAlias())))
+                        plan.sourceField().equals(candidate.getName())
+                                && parentAliases.contains(plan.target().entityAlias())))
                 .toList();
         if (foreignKeys.size() != 1) {
             throw new PlatformException("@Children requires exactly one @ChildOf @ReferenceTo foreign key to "
@@ -132,6 +134,7 @@ public final class StaticChildResolver {
                 .filter(plan -> plan.sourceField().equals(foreignKey.getName()))
                 .findFirst()
                 .orElseThrow();
+        String parentAlias = referencePlan.target().entityAlias();
         String relationCode = children.relationCode().isBlank() ? field.getName() : children.relationCode();
         return new ChildRule(field, new ChildPlan(relationCode, parentAlias, defaultEntityAlias(childModel),
                 foreignKey.getName(), true,
@@ -190,6 +193,13 @@ public final class StaticChildResolver {
             throw new PlatformException("model simple name must not be blank");
         }
         return Character.toLowerCase(simpleName.charAt(0)) + simpleName.substring(1);
+    }
+
+    private static Set<String> parentEntityAliases(Class<?> modelClass) {
+        String defaultAlias = defaultEntityAlias(modelClass);
+        String snakeAlias = defaultAlias.replaceAll("([a-z0-9])([A-Z])", "$1_$2")
+                .toLowerCase(java.util.Locale.ROOT);
+        return defaultAlias.equals(snakeAlias) ? Set.of(defaultAlias) : Set.of(defaultAlias, snakeAlias);
     }
 
     public record ChildRule(Field field,

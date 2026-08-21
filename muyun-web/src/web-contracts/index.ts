@@ -379,7 +379,20 @@ export interface ResolvedDetailRelationDescriptor {
   mutationContract?: ResolvedDetailRelationMutationContract;
   /** Optional client-visible applicability fact; the server remains authoritative. */
   parentConstraint?: ResolvedDetailRelationParentConstraint;
+  /** Parent entity field carrying the complete child collection for standard CRUD. */
+  embeddedField?: string;
+  /** Shared column projection for gateway-backed and embedded relations. */
+  listProjection?: ResolvedDetailRelationListProjection;
+  /** Server-compiled visibility rule; clients execute only its FormulaProgram. */
+  visible?: UiRule<boolean>;
+  editing?: ResolvedDetailRelationEditing;
   refreshOnDetailReload: boolean;
+}
+
+export interface ResolvedDetailRelationEditing {
+  mode: 'DIALOG' | 'INLINE';
+  saveMode: 'INDEPENDENT' | 'AGGREGATE_DRAFT';
+  recycleBinEnabled?: boolean;
 }
 
 export interface ResolvedDetailRelationParentConstraint {
@@ -406,6 +419,10 @@ export interface ResolvedDetailRelationQueryContract {
   targetUiConfigId?: string;
   queryTemplateId?: string;
   pageable: boolean;
+  /** Initial page size; absent when the relation explicitly loads its complete result. */
+  pageSize?: number;
+  /** Server-approved choices. Empty for a non-pageable relation. */
+  pageSizeOptions?: number[];
   queryable: boolean;
   listProjection?: ResolvedDetailRelationListProjection;
   /** Source-owned query schema; the relation runner must not load target-module schema directly. */

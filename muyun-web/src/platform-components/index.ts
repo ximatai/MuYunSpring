@@ -24,6 +24,7 @@ export { default as ManagementExplorerColumn } from './ManagementExplorerColumn.
 export { MANAGEMENT_WORKSPACE_LAYOUT, listDetailWorkspaceMinWidth } from './managementWorkspaceLayout';
 export { providePageLayout, usePageLayout } from './pageLayoutContext';
 export { default as RecordActionBar } from './RecordActionBar.vue';
+export { default as RecordContentSectionHeading } from './RecordContentSectionHeading.vue';
 export { default as RecordDetailDrawer } from './RecordDetailDrawer.vue';
 export type { DrawerPromotion } from './drawerPromotion';
 export { default as RecordExternalChangeNotice } from './RecordExternalChangeNotice.vue';
@@ -32,6 +33,7 @@ export { default as RecordDetailExtensionSection } from './RecordDetailExtension
 export { default as DetailRelationListPanel } from './DetailRelationListPanel.vue';
 export { default as RecordDetailPanel } from './RecordDetailPanel.vue';
 export { default as RecordPanelButton } from './RecordPanelButton.vue';
+export { default as RecordSelectionCheckbox } from './RecordSelectionCheckbox.vue';
 export { default as RecordPanelState } from './RecordPanelState.vue';
 export { default as RecordExpandedSubtable } from './RecordExpandedSubtable.vue';
 export { default as UserSessionExpandedSubtable } from './UserSessionExpandedSubtable.vue';
@@ -147,6 +149,7 @@ export {
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
   resolveRecordFormFields,
+  evaluateUiFormula,
   recordFieldRendererRegistry,
 } from './recordFormFieldModel';
 export {

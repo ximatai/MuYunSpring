@@ -93,6 +93,12 @@ public class StandardModuleWebRuntime {
             }
         }
         plan.uiDescriptor().editorSurfaces().forEach(surface -> collectFieldTypes(types, surface.editor()));
+        plan.uiDescriptor().detailRelations().stream()
+                .filter(relation -> relation.embeddedField() != null)
+                .forEach(relation -> plan.detailRelationWireFieldTypes()
+                        .getOrDefault(relation.code(), Map.of())
+                        .forEach((fieldName, fieldType) ->
+                                types.put(relation.embeddedField() + "." + fieldName, fieldType)));
         return Map.copyOf(types);
     }
 

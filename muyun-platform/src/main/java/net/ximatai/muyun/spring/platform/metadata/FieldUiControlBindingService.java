@@ -5,6 +5,8 @@ import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.PageRequests;
+import net.ximatai.muyun.spring.ability.child.ChildAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
@@ -19,6 +21,7 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 public class FieldUiControlBindingService extends AbstractAbilityService<FieldUiControlBinding> implements
         SoftDeleteAbility<FieldUiControlBinding>,
         SortAbility<FieldUiControlBinding>,
+        ChildAbility<FieldUiControlBinding>,
         QueryAbility<FieldUiControlBinding> {
     public static final String MODULE_ALIAS = "platform.field_ui_control_binding";
 
@@ -59,6 +62,20 @@ public class FieldUiControlBindingService extends AbstractAbilityService<FieldUi
         return list(Criteria.of().in("fieldUiControlAlias", aliases),
                 new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE),
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"));
+    }
+
+    @Override
+    public FieldUiControlBinding findDeletedReplacement(FieldUiControlBinding incoming) {
+        if (incoming == null || incoming.getFieldUiControlAlias() == null || incoming.getValueKey() == null) {
+            return null;
+        }
+        return getDao().query(Criteria.of()
+                        .eq("fieldUiControlAlias", incoming.getFieldUiControlAlias().trim())
+                        .eq("valueKey", incoming.getValueKey().trim()), PageRequests.all())
+                .stream()
+                .filter(value -> Boolean.TRUE.equals(value.getDeleted()))
+                .findFirst()
+                .orElse(null);
     }
 
     private void normalizeAndValidate(FieldUiControlBinding mapping) {

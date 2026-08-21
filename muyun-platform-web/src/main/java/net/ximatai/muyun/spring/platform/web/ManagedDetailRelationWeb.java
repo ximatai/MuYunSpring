@@ -43,6 +43,15 @@ public interface ManagedDetailRelationWeb<P extends EntityContract, S extends Cr
                 requireManagedDetailRelationGateway().query(webScopeName(), service(), parentId, relationCode, request)));
     }
 
+    @PostMapping("/view/{parentId}/relations/{relationCode}/recycle-bin/query")
+    @ActionEndpoint(PlatformAction.UPDATE)
+    default WebPageResponse<?> queryManagedDetailRelationRecycleBin(@PathVariable String parentId,
+                                                                    @PathVariable String relationCode) {
+        return webScope(() -> managedRelationWireResponse(relationCode,
+                requireManagedDetailRelationGateway().queryRecycleBin(
+                        webScopeName(), service(), parentId, relationCode)));
+    }
+
     @PostMapping("/view/{parentId}/relations/{relationCode}/insert")
     @ActionEndpoint(PlatformAction.UPDATE)
     @StandardMutation(StandardMutationKind.CREATE)

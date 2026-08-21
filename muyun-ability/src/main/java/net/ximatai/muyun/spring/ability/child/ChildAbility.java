@@ -13,6 +13,35 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
+    /**
+     * Optional domain identity hook for aggregate children whose former row is
+     * soft-deleted. Returning that row lets the relation lifecycle restore and
+     * update it instead of attempting a duplicate insert.
+     */
+    default C findDeletedReplacement(C incoming) {
+        return null;
+    }
+
+    default boolean restoreDeletedReplacement(C incoming) {
+        C deleted = findDeletedReplacement(incoming);
+        if (deleted == null) {
+            return false;
+        }
+        if (!Boolean.TRUE.equals(deleted.getDeleted())) {
+            throw new PlatformException("Child replacement must be soft-deleted: " + deleted.getId());
+        }
+        if (!(this instanceof SoftDeleteAbility<?> softDeleteAbility)) {
+            throw new PlatformException("Child replacement requires soft-delete ability: " + getModuleAlias());
+        }
+        @SuppressWarnings("unchecked")
+        SoftDeleteAbility<C> typed = (SoftDeleteAbility<C>) softDeleteAbility;
+        typed.restore(deleted.getId(), deleted.getVersion());
+        C restored = typed.selectIgnoreSoftDelete(deleted.getId());
+        incoming.setId(restored.getId());
+        incoming.setVersion(restored.getVersion());
+        return true;
+    }
+
     default <P extends EntityContract> ChildRelation<C, P> toChildRelation(BiConsumer<C, String> setParentId,
                                                                            String childForeignKeyField,
                                                                            Function<P, List<C>> extractChildren) {
@@ -42,6 +71,16 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
             return sortedChildRows(sortAbility, criteria);
         }
         return getDao().query(activeCriteria(criteria), PageRequests.all());
+    }
+
+    /** Complete retained children for a parent-scoped, platform-declared recycle-bin view. */
+    default List<C> selectDeletedChildRows(Criteria criteria) {
+        if (!(this instanceof SoftDeleteAbility<?> softDeleteAbility)) {
+            throw new PlatformException("Child recycle bin requires soft-delete ability: " + getModuleAlias());
+        }
+        @SuppressWarnings("unchecked")
+        SoftDeleteAbility<C> typed = (SoftDeleteAbility<C>) softDeleteAbility;
+        return getDao().query(typed.deletedCriteria(criteria), PageRequests.all());
     }
 
     default C selectIgnoreSoftDeleteIfPossible(String id) {

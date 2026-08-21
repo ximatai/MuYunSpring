@@ -27,19 +27,19 @@ const props = defineProps<{
   uiDescriptor: ResolvedModuleUiDescriptor;
   relation: ResolvedDetailRelationDescriptor;
   parentRecord: QueryListRecord;
-  parentDirty?: boolean;
+  mutationEnabled?: boolean;
   reloadKey?: number;
 }>();
 
 const relationRef = computed(() => props.relation);
 const parentId = computed(() => (props.parentRecord.id == null ? undefined : String(props.parentRecord.id)));
 const parentPersisted = computed(() => Boolean(parentId.value));
-const parentDirty = computed(() => props.parentDirty === true);
+const mutationEnabled = computed(() => props.mutationEnabled === true);
 const runtime = useManagedDetailRelationRuntime<QueryListRecord>({
   relation: relationRef,
   parentId,
   parentPersisted,
-  parentDirty,
+  mutationEnabled,
   can: (actionCode) => props.sourceContext.can(actionCode) === true,
   clientOf(id, relationCode) {
     return createManagedDetailRelationClient(props.sourceContext.http, {
@@ -179,13 +179,21 @@ watch(
 
 <template>
   <RecordQueryListPanel
+    class="managed-detail-relation-view"
     :context="relationContext"
     :title="relation.title ?? relation.code"
+    :show-title="false"
+    :header-visible="mutationEnabled"
+    :show-recycle-bin="mutationEnabled"
+    :row-actions-visible="mutationEnabled"
+    embedded
     :columns="columns"
     :reload-key="listReloadKey"
     :query-schema="relation.queryContract?.querySchema"
     :queryable="relation.queryContract?.queryable ?? false"
     :pageable="relation.queryContract?.pageable ?? true"
+    :page-size="relation.queryContract?.pageSize ?? 20"
+    :page-size-options="relation.queryContract?.pageSizeOptions ?? [10, 20, 50]"
     :ready="runtime.executable.value != null"
     empty-description="暂无关联记录"
   >
@@ -249,3 +257,35 @@ watch(
     />
   </UiModal>
 </template>
+
+<style scoped>
+.managed-detail-relation-view {
+  height: auto;
+}
+
+.managed-detail-relation-view :deep(.record-query-list-body),
+.managed-detail-relation-view :deep(.record-query-list-table),
+.managed-detail-relation-view :deep(.ant-spin-nested-loading),
+.managed-detail-relation-view :deep(.ant-spin-container),
+.managed-detail-relation-view :deep(.ant-table),
+.managed-detail-relation-view :deep(.ant-table-container) {
+  height: auto;
+}
+
+.managed-detail-relation-view :deep(.ant-table-thead > tr > th) {
+  font-size: var(--muyun-detail-relation-header-font-size, 12px);
+  height: var(--muyun-detail-relation-header-row-height, 30px);
+  overflow: hidden;
+  padding-block: 0 !important;
+  padding-inline: 4px !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.managed-detail-relation-view :deep(.ant-table-tbody > tr > td) {
+  font-size: var(--muyun-detail-relation-body-font-size, 12px);
+  height: var(--muyun-detail-relation-body-row-height, 30px);
+  padding-block: 0 !important;
+  padding-inline: 4px !important;
+}
+</style>

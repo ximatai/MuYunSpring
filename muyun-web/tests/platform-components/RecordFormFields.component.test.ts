@@ -4,6 +4,54 @@ import RecordFormFields from '@/platform-components/RecordFormFields.vue';
 import type { RecordFormFieldDescriptor } from '@/platform-components/recordFormFieldModel.ts';
 
 describe('RecordFormFields', () => {
+  it('publishes and presents draft-aware required-field errors before submission', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'primaryValueKey',
+        {
+          fieldRef: { fieldName: 'primaryValueKey' },
+          label: '主分量键',
+          required: {
+            formula: {
+              expression: "{valueShape} == 'COMPOSITE'",
+              program: {
+                schemaVersion: 1,
+                profile: 'WEB_UI',
+                referencedFields: ['valueShape'],
+                root: {
+                  kind: 'BINARY',
+                  operator: '==',
+                  arguments: [
+                    { kind: 'FIELD', field: 'valueShape', arguments: [] },
+                    { kind: 'VALUE', value: 'COMPOSITE', arguments: [] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: { record: { valueShape: 'COMPOSITE', primaryValueKey: '' }, fields },
+    });
+
+    expect(wrapper.find('.record-form-field--validation-pulse').exists()).toBe(false);
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([
+      { valid: false, errors: { primaryValueKey: '请填写主分量键' } },
+    ]);
+
+    await wrapper.setProps({ validationRequestKey: 1 });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('.record-form-field--validation-pulse').exists()).toBe(true);
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+
+    await wrapper.setProps({ record: { valueShape: 'COMPOSITE', primaryValueKey: 'value' } });
+    expect(wrapper.find('.record-form-field--validation-pulse').exists()).toBe(false);
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: true, errors: {} }]);
+  });
+
   it('renders one divider between adjacent semantic groups', () => {
     const firstGroup = {
       groupCode: 'identity',
@@ -306,5 +354,44 @@ describe('RecordFormFields', () => {
     expect(select.props('mode')).toBe('multiple');
     select.vm.$emit('update:value', ['vip', 'new']);
     expect(wrapper.emitted('update:field')).toContainEqual(['categoryCodes', ['vip', 'new']]);
+  });
+
+  it('restores editor identities from display-enriched mutation response values', () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'valueShape',
+        {
+          fieldRef: { fieldName: 'valueShape' },
+          label: '值形态',
+          fieldControl: { alias: 'select', rendererType: 'SELECT', valueShape: 'SCALAR' },
+          option: {
+            binding: { sourceType: 'enum', source: 'ValueShape' },
+            selectionMode: 'SINGLE',
+            inlineItems: [{ code: 'SCALAR', title: '标量', enabled: true }],
+          },
+        },
+      ],
+      [
+        'defaultFieldSpecAlias',
+        {
+          fieldRef: { fieldName: 'defaultFieldSpecAlias' },
+          label: '默认字段规格',
+          uiType: 'recordPicker',
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: {
+          valueShape: { code: 'SCALAR', title: '标量' },
+          defaultFieldSpecAlias: { id: 'text', title: '长文本' },
+        },
+        fields,
+        pickerConfigs: { defaultFieldSpecAlias: { context: {} as never } },
+      },
+    });
+
+    expect(wrapper.findComponent({ name: 'UiSelect' }).props('value')).toBe('SCALAR');
+    expect(wrapper.findComponent({ name: 'RecordPicker' }).props('value')).toBe('text');
   });
 });
