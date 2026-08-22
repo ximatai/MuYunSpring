@@ -131,6 +131,8 @@ export interface RecordFormFieldFallback {
 
 export interface RecordFormFieldPickerConfig {
   context: ModuleContext<RecordPickerRecord>;
+  loadOptions?: (keyword: string) => Promise<RecordPickerRecord[]>;
+  resolveOptions?: (values: string[]) => Promise<RecordPickerRecord[]>;
   reloadKey?: number;
   mode?: RecordPickerMode;
   placeholder?: string;
@@ -434,6 +436,12 @@ function resolveFieldControlType(
 }
 
 function rendererDiagnostic(fieldControl: ResolvedFieldControlDescriptor) {
+  const rendererRegistered = recordFieldRendererRegistry.some(
+    (candidate) => candidate.rendererType === fieldControl.rendererType,
+  );
+  if (rendererRegistered) {
+    return `字段控件“${fieldControl.alias}”的 renderer“${fieldControl.rendererType}”缺少可执行的字段契约，已拒绝编辑。`;
+  }
   return `字段控件“${fieldControl.alias}”的 renderer“${fieldControl.rendererType}”未在当前页面运行器登记，已拒绝编辑。`;
 }
 

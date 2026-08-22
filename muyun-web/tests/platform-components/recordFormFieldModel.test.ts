@@ -311,6 +311,7 @@ it('refuses a multi-select descriptor without its option binding instead of degr
   const state = resolveRecordFormFieldState('categoryCodes', { fields });
   assert.equal(state.controlType, 'unsupported');
   assert.match(state.rendererDiagnostic ?? '', /multi_select/);
+  assert.match(state.rendererDiagnostic ?? '', /缺少可执行的字段契约/);
 });
 
 it('refuses a select descriptor without its option binding instead of degrading enum transport to input', () => {
@@ -327,6 +328,7 @@ it('refuses a select descriptor without its option binding instead of degrading 
   const state = resolveRecordFormFieldState('status', { fields });
   assert.equal(state.controlType, 'unsupported');
   assert.match(state.rendererDiagnostic ?? '', /select/);
+  assert.match(state.rendererDiagnostic ?? '', /缺少可执行的字段契约/);
 });
 
 it('an unknown resolved field-control renderer refuses editing instead of falling back to input', () => {
@@ -351,6 +353,7 @@ it('an unknown resolved field-control renderer refuses editing instead of fallin
   const state = resolveRecordFormFieldState('range', { fields });
   assert.equal(state.controlType, 'unsupported');
   assert.match(state.rendererDiagnostic ?? '', /range/);
+  assert.match(state.rendererDiagnostic ?? '', /未在当前页面运行器登记/);
 });
 
 it.each(['number', 'integer', 'amount', 'percentage'])(

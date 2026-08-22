@@ -54,7 +54,13 @@ import type {
   RouteQueryValue,
 } from '@muyun/web-contracts';
 import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
-import { createModuleContext, userPreferences, useModuleContext, type ModuleContext } from '@muyun/web-core';
+import {
+  createModuleContext,
+  createReferenceResolveClient,
+  userPreferences,
+  useModuleContext,
+  type ModuleContext,
+} from '@muyun/web-core';
 import { canMutateModuleDetail } from './moduleDetailStateModel';
 import {
   createReadonlyCardRecordSnapshot,
@@ -754,8 +760,47 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
     const pickerContext = createModuleContext<RecordPickerRecord>({
       http: context.http,
       moduleAlias: reference.targetModuleAlias,
+      runtimeAccess: 'REFERENCE',
     });
     const hasPickerQueryScope = pickerQueryFieldNames.value.has(pickerFieldName);
+    const usesSourceReferenceResolver = reference.candidateDelivery === 'SOURCE_FIELD';
+    const sourceReferencePickerConfig: Pick<RecordFormFieldPickerConfig, 'loadOptions' | 'resolveOptions'> =
+      {};
+    if (usesSourceReferenceResolver) {
+      const referenceResolver = createReferenceResolveClient(
+        context.http,
+        context.moduleAlias,
+        reference.resolvePath,
+      );
+      const pickerRecord = (item: {
+        id: string;
+        title?: string;
+        projections?: Record<string, unknown>;
+        affectPatch?: Record<string, unknown>;
+      }): RecordPickerRecord => ({
+        id: item.id,
+        title: item.title,
+        ...(item.projections ?? {}),
+        affectPatch: item.affectPatch,
+      });
+      sourceReferencePickerConfig.loadOptions = async (keyword: string) => {
+        const response = await referenceResolver.resolve(pickerFieldName, {
+          mode: 'QUERY',
+          fuzzy: keyword || undefined,
+          page: { pageNum: 1, pageSize: 50 },
+          formValues: { ...(editingRecord.value ?? {}) },
+        });
+        return response.options.map(pickerRecord);
+      };
+      sourceReferencePickerConfig.resolveOptions = async (values: string[]) => {
+        const response = await referenceResolver.resolve(pickerFieldName, {
+          mode: 'TRANSLATE',
+          values,
+          formValues: { ...(editingRecord.value ?? {}) },
+        });
+        return response.results.flatMap((result) => (result.item ? [pickerRecord(result.item)] : []));
+      };
+    }
     configs[pickerFieldName] = {
       context: hasPickerQueryScope
         ? createQueryScopedTreeModuleContext(pickerContext, {
@@ -763,8 +808,9 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
             treePath: `/${reference.targetModuleAlias}/tree`,
           })
         : pickerContext,
-      mode: recordPickerModeOf(reference.pickerMode),
+      mode: usesSourceReferenceResolver ? 'list' : recordPickerModeOf(reference.pickerMode),
       allowClear: !field.required?.constant,
+      ...sourceReferencePickerConfig,
     };
   }
   return configs;

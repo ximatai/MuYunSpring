@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.common.option.DictionaryField;
 import net.ximatai.muyun.spring.common.option.OptionLoad;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.model.title.TitleField;
+import net.ximatai.muyun.spring.iam.department.Department;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.reference.ReferenceHop;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
@@ -814,6 +815,50 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldPublishTreeParentAsSelfReferenceForTheSharedRecordPicker() {
+        ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.organization")
+                .page(PageTemplates.treeManagement(page -> page
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("parentId", field -> field.label("上级机构").uiType("recordPicker"))))
+                        .traits(traits -> traits.standardCrud())))
+                .build();
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.organization", "机构管理")
+                .capabilities(Set.of(EntityCapability.CRUD, EntityCapability.TREE))
+                .uiDefinition(uiDefinition)
+                .build();
+
+        ResolvedViewFieldDescriptor field = ModuleUiDescriptorCompiler.compile(definition).page().detail().editor()
+                .fields().getFirst();
+
+        assertThat(field.fieldControl().rendererType()).isEqualTo("RECORD_PICKER");
+        assertThat(field.reference()).isEqualTo(new ResolvedReferenceFieldDescriptor("iam.organization",
+                ReferenceCardinality.ONE, null, ReferencePickerMode.AUTO));
+    }
+
+    @Test
+    void shouldPublishDepartmentOrganizationReferenceTitleForDetailRendering() {
+        ModuleUiDefinition uiDefinition = editorPage("iam.department", form -> form
+                .field("organizationId", field -> field.label("所属机构").readOnly()));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.department", "部门管理")
+                .capabilities(Set.of(EntityCapability.CRUD, EntityCapability.TREE))
+                .entities(List.of(new EntityDefinition("department", "iam_department", "Department",
+                        List.of(FieldDefinition.string("organizationId", "所属机构")))))
+                .uiDefinition(uiDefinition)
+                .modelClass(Department.class)
+                .build();
+
+        ResolvedViewFieldDescriptor field = ModuleUiDescriptorCompiler.compile(definition).page().detail().editor()
+                .fields().getFirst();
+
+        assertThat(field.uiType()).isEqualTo("recordPicker");
+        assertThat(field.fieldControl().rendererType()).isEqualTo("RECORD_PICKER");
+        assertThat(field.reference()).isEqualTo(new ResolvedReferenceFieldDescriptor("iam.organization",
+                ReferenceCardinality.ONE, "organizationTitle", ReferencePickerMode.AUTO,
+                ReferenceCandidateDelivery.SOURCE_FIELD,
+                "/platform.module/iam.department/references/organizationId/resolve"));
+    }
+
+    @Test
     void shouldCompileReferencePickerModeFromResolvedTargetFacts() {
         ModuleUiDefinition uiDefinition = editorPage("sales.order", form -> form
                 .field("customerId", field -> field.label("客户"))
@@ -840,6 +885,8 @@ class ModuleUiDescriptorCompilerTest {
                 "crm.category", ReferenceCardinality.ONE, "categoryTitle", ReferencePickerMode.TREE));
 
         assertThat(new ObjectMapper().readTree(json).path("pickerMode").asText()).isEqualTo("TREE");
+        assertThat(new ObjectMapper().readTree(json).path("candidateDelivery").asText())
+                .isEqualTo("TARGET_NAVIGATOR");
     }
 
     @Test

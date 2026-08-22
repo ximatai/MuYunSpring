@@ -310,6 +310,27 @@ function updateField(fieldName: string, value: RecordFormFieldValue) {
   emit('update:field', fieldName, value);
 }
 
+function applyPickerSelection(
+  fieldName: string,
+  record: import('./recordPickerConstraints').RecordPickerRecord | undefined,
+) {
+  if (!record?.affectPatch) return;
+  for (const [patchField, patchValue] of Object.entries(record.affectPatch)) {
+    if (patchField !== fieldName) {
+      emit('update:field', patchField, patchValue as RecordFormFieldValue);
+    }
+  }
+}
+
+function applyMultiPickerSelection(
+  fieldName: string,
+  records: import('./recordPickerConstraints').RecordPickerRecord[],
+) {
+  for (const record of records) {
+    applyPickerSelection(fieldName, record);
+  }
+}
+
 function updateEditorField(field: RecordFormFieldState, value: string) {
   try {
     const decoded = decodeEditorValue(field, value);
@@ -446,6 +467,8 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           v-else-if="field.controlType === 'recordPicker' && field.pickerConfig"
           :value="recordPickerFieldValue(field.fieldName)"
           :context="field.pickerConfig.context"
+          :load-options="field.pickerConfig.loadOptions"
+          :resolve-options="field.pickerConfig.resolveOptions"
           :reload-key="field.pickerConfig.reloadKey"
           :mode="field.pickerConfig.mode"
           :placeholder="field.placeholder"
@@ -456,11 +479,14 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           :description-of="field.pickerConfig.descriptionOf"
           :filter-option="field.pickerConfig.filterOption"
           @update:value="updateField(field.fieldName, $event)"
+          @select="applyPickerSelection(field.fieldName, $event)"
         />
         <RecordMultiPicker
           v-else-if="field.controlType === 'recordMultiPicker' && field.pickerConfig"
           :value="stringArrayFieldValue(field.fieldName)"
           :context="field.pickerConfig.context"
+          :load-options="field.pickerConfig.loadOptions"
+          :resolve-options="field.pickerConfig.resolveOptions"
           :reload-key="field.pickerConfig.reloadKey"
           :mode="field.pickerConfig.mode"
           :placeholder="field.placeholder"
@@ -471,6 +497,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           :description-of="field.pickerConfig.descriptionOf"
           :filter-option="field.pickerConfig.filterOption"
           @update:value="updateField(field.fieldName, $event)"
+          @select="applyMultiPickerSelection(field.fieldName, $event)"
         />
         <SingleImageFileReferenceField
           v-else-if="

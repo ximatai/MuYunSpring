@@ -4,6 +4,8 @@ export interface RecordPickerRecord {
   title?: string;
   code?: string;
   enabled?: boolean;
+  /** Server-authorized values applied after choosing this candidate. */
+  affectPatch?: Record<string, unknown>;
 }
 
 export interface PickerConstraintContext<TRecord extends RecordPickerRecord> {

@@ -34,6 +34,13 @@ import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebQueryCondition;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
+import net.ximatai.muyun.spring.web.WebReferenceMatchMode;
+import net.ximatai.muyun.spring.web.WebReferenceResolveItem;
+import net.ximatai.muyun.spring.web.WebReferenceResolveMode;
+import net.ximatai.muyun.spring.web.WebReferenceResolveRequest;
+import net.ximatai.muyun.spring.web.WebReferenceResolveResponse;
+import net.ximatai.muyun.spring.web.WebReferenceResolveResult;
+import net.ximatai.muyun.spring.web.WebReferenceResolveStatus;
 import net.ximatai.muyun.spring.web.WebTreeNode;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
 import net.ximatai.muyun.spring.web.TenantRequestScope;
@@ -150,8 +157,8 @@ public class DynamicRecordWebController implements
                 DynamicActionDescriptor,
                 DynamicWebActionExecutionResponse>,
         ReferenceWeb<DynamicEntityOperations,
-                DynamicWebReferenceRequest,
-                DynamicReferenceResolveResponse> {
+                WebReferenceResolveRequest,
+                WebReferenceResolveResponse> {
     private final DynamicRecordService recordService;
     private final CodeBusinessPreviewService codeBusinessPreviewService;
     private final ReferenceRecordGenerationFacade referenceRecordGenerationFacade;
@@ -1368,7 +1375,7 @@ public class DynamicRecordWebController implements
 
     private void validateReferenceUiContexts(String sourceModuleAlias,
                                              DynamicReferenceDescriptor reference,
-                                             DynamicWebReferenceRequest request) {
+                                             WebReferenceResolveRequest request) {
         if (request == null || (!hasText(request.sourceUiConfigId())
                 && !hasText(request.uiConfigId())
                 && !hasText(request.queryTemplateId()))) {
@@ -1623,8 +1630,8 @@ public class DynamicRecordWebController implements
     @Override
     @PostMapping("/references/{fieldName}/resolve")
     @ActionEndpoint(PlatformAction.REFERENCE)
-    public DynamicReferenceResolveResponse reference(@PathVariable String fieldName,
-                                                     @RequestBody(required = false) DynamicWebReferenceRequest request) {
+    public WebReferenceResolveResponse reference(@PathVariable String fieldName,
+                                                 @RequestBody(required = false) WebReferenceResolveRequest request) {
         return ReferenceWeb.super.reference(fieldName, request);
     }
 
@@ -1681,15 +1688,16 @@ public class DynamicRecordWebController implements
     }
 
     @Override
-    public DynamicReferenceResolveResponse resolveReference(String fieldName, DynamicWebReferenceRequest request) {
+    public WebReferenceResolveResponse resolveReference(String fieldName, WebReferenceResolveRequest request) {
         String moduleAlias = DynamicWebRequest.moduleAlias();
         String entityAlias = mainEntityAlias(moduleAlias);
-        DynamicWebReferenceRequest normalized = request == null ? DynamicWebReferenceRequest.empty() : request;
+        WebReferenceResolveRequest normalized = request == null ? WebReferenceResolveRequest.empty() : request;
         DynamicReferenceDescriptor reference = recordService.reference(moduleAlias, entityAlias, fieldName);
         validateReferenceUiContexts(moduleAlias, reference, normalized);
-        return recordService.resolveFieldReference(moduleAlias, entityAlias, fieldName, new DynamicReferenceResolveRequest(
-                normalized.mode(),
-                normalized.matchMode(),
+        DynamicReferenceResolveResponse response = recordService.resolveFieldReference(moduleAlias, entityAlias, fieldName,
+                new DynamicReferenceResolveRequest(
+                dynamicResolveMode(normalized.mode()),
+                dynamicMatchMode(normalized.matchMode()),
                 normalized.fuzzy(),
                 normalized.values(),
                 referenceCriteria(reference, normalized),
@@ -1697,10 +1705,11 @@ public class DynamicRecordWebController implements
                 normalized.includeProjections(),
                 normalized.formValues()
         ));
+        return webReferenceResponse(response);
     }
 
     private Criteria referenceCriteria(DynamicReferenceDescriptor reference,
-                                       DynamicWebReferenceRequest request) {
+                                       WebReferenceResolveRequest request) {
         Criteria templateCriteria = Criteria.of();
         String queryTemplateId = hasText(request.queryTemplateId())
                 ? request.queryTemplateId()
@@ -1715,6 +1724,36 @@ public class DynamicRecordWebController implements
         Criteria treeCriteria = criteria(reference.targetModuleAlias(), reference.targetEntityAlias(),
                 request.criteria());
         return andCriteria(templateCriteria, manualCriteria, treeCriteria);
+    }
+
+    private DynamicReferenceMatchMode dynamicMatchMode(WebReferenceMatchMode value) {
+        return value == null ? null : DynamicReferenceMatchMode.valueOf(value.name());
+    }
+
+    private DynamicReferenceResolveMode dynamicResolveMode(WebReferenceResolveMode value) {
+        return value == null ? null : DynamicReferenceResolveMode.valueOf(value.name());
+    }
+
+    private WebReferenceResolveResponse webReferenceResponse(DynamicReferenceResolveResponse response) {
+        return new WebReferenceResolveResponse(
+                WebReferenceResolveStatus.valueOf(response.status().name()),
+                WebReferenceResolveMode.valueOf(response.mode().name()),
+                response.options().stream().map(this::webReferenceItem).toList(),
+                response.results().stream().map(result -> new WebReferenceResolveResult(
+                        result.input(),
+                        WebReferenceResolveStatus.valueOf(result.status().name()),
+                        result.matchedBy() == null ? null : WebReferenceMatchMode.valueOf(result.matchedBy().name()),
+                        result.item() == null ? null : webReferenceItem(result.item()),
+                        result.candidates().stream().map(this::webReferenceItem).toList()
+                )).toList(),
+                response.offset(), response.limit(), response.total());
+    }
+
+    private WebReferenceResolveItem webReferenceItem(net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveItem item) {
+        return new WebReferenceResolveItem(
+                item.id(), item.title(),
+                item.matchedBy() == null ? null : WebReferenceMatchMode.valueOf(item.matchedBy().name()),
+                item.projections(), item.affectPatch());
     }
 
     private ReferenceRecordGenerationFacade referenceGenerationFacade() {

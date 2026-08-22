@@ -4,7 +4,6 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebQueryCondition;
-import net.ximatai.muyun.spring.web.WebQueryCriteria;
 import net.ximatai.muyun.spring.web.WebSort;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeReport;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionContext;
@@ -13,8 +12,6 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionResult;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionResultBody;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicFormulaPreviewResult;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
-import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceMatchMode;
-import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveMode;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.platform.impact.RecordOriginContext;
 import net.ximatai.muyun.spring.common.web.PlatformWebWireContract;
@@ -73,33 +70,6 @@ record DynamicWebActionRequest(String recordId,
     static DynamicWebActionRequest empty() {
         return new DynamicWebActionRequest(null, null, List.of(), List.of(), null, null, null,
                 List.of(), null, List.of(), List.of(), Map.of());
-    }
-}
-
-record DynamicWebReferenceRequest(DynamicReferenceResolveMode mode,
-                                  DynamicReferenceMatchMode matchMode,
-                                  String fuzzy,
-                                  List<Object> values,
-                                  List<WebQueryCondition> conditions,
-                                  WebQueryCriteria criteria,
-                                  WebPageRequest page,
-                                  Boolean includeProjections,
-                                  Map<String, Object> formValues,
-                                  String sourceUiConfigId,
-                                  String uiConfigId,
-                                  String queryTemplateId,
-                                  Map<String, Object> externalQueryValues) {
-    DynamicWebReferenceRequest {
-        values = values == null ? List.of() : List.copyOf(values);
-        conditions = conditions == null ? List.of() : List.copyOf(conditions);
-        includeProjections = includeProjections == null || includeProjections;
-        formValues = formValues == null ? Map.of() : Map.copyOf(formValues);
-        externalQueryValues = externalQueryValues == null ? Map.of() : Map.copyOf(externalQueryValues);
-    }
-
-    static DynamicWebReferenceRequest empty() {
-        return new DynamicWebReferenceRequest(null, null, null, List.of(), List.of(), null,
-                WebPageRequest.DEFAULT, true, Map.of(), null, null, null, Map.of());
     }
 }
 

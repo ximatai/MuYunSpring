@@ -13,6 +13,7 @@ import {
   createModuleTreeContext,
   createModuleCrudClient,
   createModuleTreeClient,
+  createReferenceResolveClient,
   createStaticModuleCrudClient,
   createStaticModuleTreeClient,
   canQueryRecycleBin,
@@ -91,6 +92,70 @@ it('business notification record action uses the standard module action and reco
     });
     assert.equal(requests[0].url, 'http://api.local/mr.remote_support/rejectKnowledge/support-1');
     assert.deepEqual(await requests[0].json(), { payload: { reason: '不采纳' } });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('reference resolve client addresses the source field contract', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return Response.json({
+      status: 'OK',
+      mode: 'QUERY',
+      options: [],
+      results: [],
+      offset: 0,
+      limit: 20,
+      total: 0,
+    });
+  };
+
+  try {
+    await createReferenceResolveClient(
+      createHttpClient({ baseUrl: 'http://api.local' }),
+      'crm.contract',
+    ).resolve('customerId', { fuzzy: '星云', page: { pageNum: 1, pageSize: 20 } });
+
+    assert.equal(requests[0].url, 'http://api.local/crm.contract/references/customerId/resolve');
+    assert.deepEqual(await requests[0].json(), {
+      fuzzy: '星云',
+      page: { pageNum: 1, pageSize: 20 },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('reference resolve client honours a server-issued isolated resolve path', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return Response.json({
+      status: 'OK',
+      mode: 'QUERY',
+      options: [],
+      results: [],
+      offset: 0,
+      limit: 20,
+      total: 0,
+    });
+  };
+
+  try {
+    await createReferenceResolveClient(
+      createHttpClient({ baseUrl: 'http://api.local' }),
+      'iam.department',
+      '/platform.module/iam.department/references/organizationId/resolve',
+    ).resolve('organizationId', { fuzzy: '总部' });
+
+    assert.equal(
+      requests[0].url,
+      'http://api.local/platform.module/iam.department/references/organizationId/resolve',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
