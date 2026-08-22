@@ -164,7 +164,10 @@ function updateValue(value: string | number | (string | number)[] | null) {
   const values = Array.isArray(value) ? value : value == null ? [] : [value];
   const selected = values.filter((item): item is string => typeof item === 'string');
   emit('update:value', selected);
-  emit('select', selected.flatMap((id) => records.value.filter((record) => record.id === id)));
+  emit(
+    'select',
+    selected.flatMap((id) => records.value.filter((record) => record.id === id)),
+  );
 }
 </script>
 

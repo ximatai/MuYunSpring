@@ -426,7 +426,11 @@ describe('RecordFormFields', () => {
       ],
     ]);
     const wrapper = mount(RecordFormFields, {
-      props: { record: { customerIds: [] }, fields, pickerConfigs: { customerIds: { context: {} as never } } },
+      props: {
+        record: { customerIds: [] },
+        fields,
+        pickerConfigs: { customerIds: { context: {} as never } },
+      },
     });
 
     wrapper.findComponent({ name: 'RecordMultiPicker' }).vm.$emit('select', [
