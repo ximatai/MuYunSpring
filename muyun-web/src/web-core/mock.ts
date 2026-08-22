@@ -44,7 +44,9 @@ function createMockMenuNode(path: number[], maxLevel: number): MockMenuNode {
       title: `菜单 ${path.join('-')}`,
       enabled: true,
       sortOrder: path.at(-1)! * 10,
-      ...(carriesModule ? { openMode: 'tab' as const, moduleAlias: 'platform.application' } : {}),
+      ...(carriesModule
+        ? { entryType: 'module' as const, openMode: 'tab' as const, moduleAlias: 'platform.application' }
+        : {}),
     },
     children: leaf
       ? []

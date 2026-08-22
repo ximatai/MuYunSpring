@@ -101,7 +101,13 @@ function normalizeMenuTreeNode(node: unknown): MenuTreeNode {
   const record = node.record;
   return {
     ...node,
-    record: isRecord(record) ? { ...record, openMode: normalizeMenuOpenMode(record.openMode) } : record,
+    record: isRecord(record)
+      ? {
+          ...record,
+          openMode: normalizeMenuOpenMode(record.openMode),
+          entryType: normalizeMenuEntryType(record.entryType),
+        }
+      : record,
     children: Array.isArray(node.children) ? node.children.map(normalizeMenuTreeNode) : [],
   } as MenuTreeNode;
 }
@@ -113,6 +119,15 @@ function normalizeMenuOpenMode(value: unknown): MenuOpenMode | undefined {
 
   const normalized = value.toLowerCase();
   return normalized === 'tab' || normalized === 'window' ? normalized : undefined;
+}
+
+function normalizeMenuEntryType(value: unknown): 'module' | 'route' | 'link' | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = value.toLowerCase();
+  return normalized === 'module' || normalized === 'route' || normalized === 'link' ? normalized : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

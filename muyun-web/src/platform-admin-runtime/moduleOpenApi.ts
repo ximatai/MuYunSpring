@@ -29,6 +29,18 @@ export function createModuleOpenApiPageDescriptor(moduleAlias: string, moduleTit
   };
 }
 
+/** Creates the authenticated OpenAPI directory as an ordinary workbench page. */
+export function createOpenApiCatalogPageDescriptor(): PageDescriptor {
+  return {
+    pageType: 'platform-route',
+    openMode: 'workbench-route',
+    hostType: 'platform-route-host',
+    title: '开放模块 API',
+    target: { route: '/openapi' },
+    tabPolicy: { identity: 'by-target', closable: true, cacheable: true },
+  };
+}
+
 /** Recognizes the app-owned OpenAPI tab without teaching the shared route resolver about this feature. */
 export function isModuleOpenApiPage(descriptor?: PageDescriptor): boolean {
   if (descriptor?.pageType !== 'platform-route') {

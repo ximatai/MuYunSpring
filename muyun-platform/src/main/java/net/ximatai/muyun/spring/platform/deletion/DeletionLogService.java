@@ -209,6 +209,10 @@ public class DeletionLogService {
         Comparator<DeletionLifecycleEntry> recency = Comparator
                 .comparing((DeletionLifecycleEntry item) -> item.entry().getCompletedAt(),
                         Comparator.nullsLast(Comparator.naturalOrder()))
+                // A restore can start after the source delete but complete in the same clock tick.
+                // Preserve that factual order before falling back to the opaque entry id.
+                .thenComparing(item -> item.entry().getStartedAt(),
+                        Comparator.nullsLast(Comparator.naturalOrder()))
                 .thenComparing(item -> item.entry().getId());
         Map<String, DeletionLifecycleEntry> latest = new LinkedHashMap<>();
         for (DeletionEntry entry : entries) {

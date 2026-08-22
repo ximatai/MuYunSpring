@@ -422,7 +422,7 @@ it('page navigator renders levels through the standard module runner', () => {
 });
 
 it('static edit draft normalizers preserve standard record fields', () => {
-  const userSource = readSource('src/views/UserManagementView.vue');
+  const userSource = readSource('src/views/UserDetailRouteView.vue');
   const systemUserSource = readSource('src/views/SystemUserManagementView.vue');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
@@ -547,22 +547,17 @@ it('system user management fills the constrained work area and leaves scrolling 
     systemUserSource,
     /@media \(max-width: 980px\) \{[\s\S]*\.system-user-management-page \{[\s\S]*height: auto;[\s\S]*overflow: visible;/,
   );
-  assert.match(routesSource, /route: '\/iam\/system-users'[\s\S]*layout: 'workspace'/);
+  assert.match(routesSource, /route: '\/iam\/system-user'[\s\S]*layout: 'workspace'/);
 });
 
 it('user management fills the constrained work area and leaves scrolling to its scope and list panels', () => {
   const userSource = readSource('src/views/UserManagementView.vue');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
 
-  assert.match(
-    userSource,
-    /\.user-management-page \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/,
-  );
-  assert.match(
-    userSource,
-    /@media \(max-width: 980px\) \{[\s\S]*\.user-management-page \{[\s\S]*height: auto;[\s\S]*overflow: visible;/,
-  );
-  assert.match(routesSource, /route: '\/iam\/users'[\s\S]*layout: 'workspace'/);
+  assert.match(userSource, /\.user-management-page \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
+  assert.match(userSource, /<UserManagementListView v-else-if="!pageState\.action" \/>/);
+  assert.match(userSource, /<UserDetailRouteView v-else/);
+  assert.match(routesSource, /route: '\/iam\/user'[\s\S]*layout: 'workspace'/);
 });
 
 it('record picker delegates single-value interaction to the standard select adapters', () => {
@@ -604,7 +599,7 @@ it('static management explorers use unified item descriptors', () => {
     'DictionaryManagementView.vue',
     'MenuManagementView.vue',
     'EmployeeManagementView.vue',
-    'UserManagementView.vue',
+    'UserManagementListView.vue',
     'RoleManagementView.vue',
   ];
 
@@ -957,7 +952,7 @@ it('employee management uses organization scope and platform query list panel', 
   assert.notMatch(panelSource, /props\.mode === 'normal' && \(props\.expandedRowKeys/);
   assert.match(employmentRowsSource, /handleEmployeeRowExpand/);
   assert.match(employeeViewSource, /<RecordExpandedSubtable[\s\S]*title="任职信息"/);
-  const userViewSource = readSource('src/views/UserManagementView.vue');
+  const userViewSource = readSource('src/views/UserManagementListView.vue');
   assert.match(userViewSource, /<UserSessionExpandedSubtable/);
   const expandedSubtableSource = readSource('src/platform-components/RecordExpandedSubtable.vue');
   assert.match(expandedSubtableSource, /defineOptions\(\{ name: 'RecordExpandedSubtable' \}\)/);
@@ -1197,7 +1192,7 @@ it('role management keeps basic scope management separate from binding and autho
   const panelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
 
   assert.match(routesSource, /moduleAlias: 'iam\.role'/);
-  assert.match(routesSource, /route: '\/iam\/roles'/);
+  assert.match(routesSource, /route: '\/iam\/role'/);
   assert.match(roleViewSource, /defineOptions\(\{ name: 'RoleManagementView' \}\)/);
   assert.match(roleViewSource, /moduleAlias: 'iam\.tenant'/);
   assert.match(roleViewSource, /moduleAlias: 'iam\.organization'/);
@@ -1349,7 +1344,11 @@ it('role management keeps basic scope management separate from binding and autho
 });
 
 it('user management keeps account basics separate from employment binding and role authorization', () => {
-  const userViewSource = readSource('src/views/UserManagementView.vue');
+  const userViewSource = [
+    readSource('src/views/UserManagementView.vue'),
+    readSource('src/views/UserManagementListView.vue'),
+    readSource('src/views/UserDetailRouteView.vue'),
+  ].join('\n');
   const userDetailContentSource = readSource('src/views/UserDetailContent.vue');
   const userSessionRowsSource = readSource('src/views/useUserSessionRows.ts');
   const userSessionExpandedSource = readSource('src/platform-components/UserSessionExpandedSubtable.vue');
@@ -1359,7 +1358,7 @@ it('user management keeps account basics separate from employment binding and ro
   const iconSource = readSource('src/vue-ui-antdv/components/UiIcon.vue');
 
   assert.match(routesSource, /moduleAlias: 'iam\.user'/);
-  assert.match(routesSource, /route: '\/iam\/users'/);
+  assert.match(routesSource, /route: '\/iam\/user'/);
   assert.match(userViewSource, /defineOptions\(\{ name: 'UserManagementView' \}\)/);
   assert.match(userViewSource, /moduleAlias: 'iam\.tenant'/);
   assert.match(userViewSource, /moduleAlias: 'iam\.user'/);
@@ -1404,7 +1403,10 @@ it('user management keeps account basics separate from employment binding and ro
   assert.match(userSessionExpandedSource, /user-session-expanded-main strong/);
   assert.match(userSessionExpandedSource, /text-overflow: ellipsis/);
   assert.match(userSessionExpandedSource, /@media \(max-width: 980px\)/);
-  assert.match(userViewSource, /useUserSessionRows\(\{ context: userContext, source: 'user-management' \}\)/);
+  assert.match(
+    userViewSource,
+    /useUserSessionRows\(\{ context: userContext, source: 'user-management-(list|detail)' \}\)/,
+  );
   assert.match(userViewSource, /usePageBusinessEventHandler\(handleUserSessionBusinessEvent\)/);
   assert.match(userViewSource, /:cell-renderers="\{ onlineStatus: userOnlineStatusTitle \}"/);
   assert.match(userSessionRowsSource, /function handleUserListLoaded\(records: Array<\{ id\?: string \}>\)/);
@@ -1430,7 +1432,7 @@ it('user management keeps account basics separate from employment binding and ro
   assert.match(userDetailContentSource, /temporaryPassword/);
   assert.match(
     userViewSource,
-    /userDetailMode\.value === 'resetPassword'[\s\S]*const userId = selectedUser\.value\?\.id[\s\S]*userContext\.can\('changePassword', userId\)/,
+    /detailMode\.value === 'resetPassword'[\s\S]*const userId = selectedUser\.value\?\.id[\s\S]*userContext\.can\('changePassword', userId\)/,
   );
   assert.match(userViewSource, /:record-id="selectedUser\?\.id"/);
   assert.match(userViewSource, /path: `\/iam\.user\/changePassword\/\$\{encodeURIComponent\(user\.id!\)\}`/);
@@ -1483,7 +1485,7 @@ it('system user management is a separate root account entry', () => {
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
 
   assert.match(routesSource, /moduleAlias: 'iam\.system_user'/);
-  assert.match(routesSource, /route: '\/iam\/system-users'/);
+  assert.match(routesSource, /route: '\/iam\/system-user'/);
   assert.match(systemUserViewSource, /defineOptions\(\{ name: 'SystemUserManagementView' \}\)/);
   assert.match(systemUserViewSource, /moduleAlias: 'iam\.user'/);
   assert.match(systemUserViewSource, /system-user-management-page/);
@@ -1579,7 +1581,7 @@ it('password management uses the standard module runner with a source-owned card
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
   const contractsSource = readSource('src/web-contracts/index.ts');
 
-  assert.match(routesSource, /'\/platform\/security\/passwords': 'iam\.password_policy_rule'/);
+  assert.notMatch(routesSource, /platformAdminDynamicModuleRoutes/);
   assert.match(enhancementSource, /moduleAlias: 'iam\.password_policy_rule'/);
   assert.match(enhancementSource, /card:\s*\{/);
   assert.match(enhancementSource, /component: PasswordPolicyPreview/);
@@ -1906,29 +1908,29 @@ it('platform error feedback respects global error presentation slots', () => {
   assert.match(dictionaryStateSource, /handlePlatformActionSuccess/);
 });
 
-it('workbench keeps cacheable tab pages mounted behind their stable tab keys', () => {
+it('production workbench delegates page lifetime to the Vue Router outlet', () => {
+  const appSource = readSource('src/App.vue');
   const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
 
   assert.match(workbenchSource, /const openedTabs = computed\(\(\) => props\.startup\?\.tabs \?\? \[\]\)/);
-  assert.match(workbenchSource, /function shouldKeepTabMounted\(tab: MenuTab\)/);
-  assert.match(workbenchSource, /pageDescriptorOf\(tab\)\?\.tabPolicy\.cacheable !== false/);
-  assert.match(workbenchSource, /<template v-for="tab in openedTabs" :key="tab\.key">/);
-  assert.match(
-    workbenchSource,
-    /<UiSidePanelHost[\s\S]*v-if="shouldKeepTabMounted\(tab\)"[\s\S]*v-show="tab\.key === activeTabKey"/,
-  );
-  assert.match(workbenchSource, /:active-tab="tab"[\s\S]*:page-descriptor="pageDescriptorOf\(tab\)"/);
+  assert.notMatch(workbenchSource, /UiSidePanelHost/);
+  assert.notMatch(workbenchSource, /shouldKeepTabMounted|tabHostKey/);
+  assert.notMatch(workbenchSource, /<template v-for="tab in openedTabs"/);
+  assert.match(workbenchSource, /<div v-else-if="activeTab" class="tab-panel-host">[\s\S]*?<slot/);
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
-  assert.match(workbenchSource, /\.tab-page \{[\s\S]*padding: 10px;[\s\S]*overflow: auto;/);
-  assert.match(workbenchSource, /tab-page--workspace/);
-  assert.match(workbenchSource, /\.tab-page--workspace \{\s*overflow-x: auto;\s*overflow-y: hidden;/);
+  assert.match(appSource, /<RouterView v-slot="\{ Component, route \}">/);
+  assert.match(appSource, /<KeepAlive>[\s\S]*<StaticRoutePageHost/);
+  assert.match(appSource, /:key="pageCacheKey\(route, activeTabKey\)"/);
+  assert.notMatch(appSource, /PlatformAdminRouteOutlet|WorkbenchOutlet/);
 });
 
-it('side panels use an explicit tab host and fixed drawer action regions', () => {
+it('pages own their drawer containers and fixed drawer action regions', () => {
   const uiIndexSource = readSource('src/vue-ui-antdv/index.ts');
   const sidePanelSource = readSource('src/vue-ui-antdv/components/UiSidePanel.vue');
   const sidePanelHostSource = readSource('src/vue-ui-antdv/components/UiSidePanelHost.vue');
-  const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
+  const dynamicWorkspaceDetailSource = readSource(
+    'src/dynamic-page-runtime/DynamicModuleWorkspaceDetailView.vue',
+  );
   const detailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
   const workspaceViewOutletSource = readSource('src/platform-workbench/WorkspaceViewOutlet.vue');
   const workspaceViewContributionsSource = readSource(
@@ -1936,7 +1938,11 @@ it('side panels use an explicit tab host and fixed drawer action regions', () =>
   );
   const workspaceViewsSource = readSource('src/platform-workbench/workspaceViews.ts');
   const viewPromotionSource = readSource('src/platform-admin-runtime/useWorkspaceViewPromotion.ts');
-  const userSource = readSource('src/views/UserManagementView.vue');
+  const userSource = [
+    readSource('src/views/UserManagementView.vue'),
+    readSource('src/views/UserManagementListView.vue'),
+    readSource('src/views/UserDetailRouteView.vue'),
+  ].join('\n');
   const userDetailContentSource = readSource('src/views/UserDetailContent.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
   const employeeSource = readSource('src/views/EmployeeManagementView.vue');
@@ -1949,7 +1955,9 @@ it('side panels use an explicit tab host and fixed drawer action regions', () =>
   assert.match(sidePanelSource, /props\.scope === 'viewport'/);
   assert.match(sidePanelSource, /sidePanelHost\?\.value \?\? false/);
   assert.match(sidePanelHostSource, /position: relative/);
-  assert.match(workbenchSource, /<UiSidePanelHost[\s\S]*class="tab-panel-host"/);
+  assert.match(dynamicWorkspaceDetailSource, /const workspaceElement = ref<HTMLElement>\(\)/);
+  assert.match(dynamicWorkspaceDetailSource, /<section ref="workspaceElement"/);
+  assert.match(dynamicWorkspaceDetailSource, /:container="workspaceElement \?\? null"/);
   assert.match(detailDrawerSource, /promotion\?: DrawerPromotion/);
   assert.match(detailDrawerSource, /promotion\.promote\(\)/);
   assert.match(detailDrawerSource, /<template #title-actions>/);
@@ -1976,14 +1984,15 @@ it('side panels use an explicit tab host and fixed drawer action regions', () =>
     readSource('src/platform-admin-runtime/PlatformAdminOutlet.vue'),
     /workspaceViewPresentation === 'drawer'/,
   );
-  assert.match(userSource, /useWorkspaceViewHost/);
-  assert.match(userSource, /isDrawerWorkspaceTask/);
+  assert.match(userSource, /useWorkbenchNavigation/);
+  assert.match(userSource, /navigation\?\.openRoute\('/);
+  assert.match(userSource, /navigation\?\.replaceRoute\(`/);
+  assert.match(userSource, /navigation\?\.closeCurrentTab\('/);
   assert.match(employeeSource, /useWorkspaceViewHost/);
   assert.match(employeeSource, /isDrawerWorkspaceView/);
-  assert.match(userSource, /userDetailOperationActions/);
-  assert.match(userSource, /userDetailPromotion/);
+  assert.match(userSource, /const detailActions = computed<RecordActionItem\[\]>/);
   assert.match(userSource, /<UserDetailContent/);
-  assert.match(userSource, /<RecordDetailPanel v-else/);
+  assert.match(userSource, /<RecordDetailPanel :title="userDetailTitle"/);
   assert.match(userDetailContentSource, /defineOptions\(\{ name: 'UserDetailContent' \}\)/);
   assert.notMatch(userSource, /userDetailHeaderActions/);
   assert.match(roleSource, /roleDetailOperationActions/);
@@ -2001,7 +2010,7 @@ it('public management and drawer contracts use business roles instead of layout 
   const recordDetailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
   const recordModeDrawerSource = readSource('src/platform-components/RecordModeDrawer.vue');
   const standardDrawerSources = [
-    readSource('src/views/UserManagementView.vue'),
+    readSource('src/views/UserDetailRouteView.vue'),
     readSource('src/views/RoleManagementView.vue'),
     readSource('src/views/EmployeeManagementView.vue'),
     readSource('src/views/SystemUserManagementView.vue'),

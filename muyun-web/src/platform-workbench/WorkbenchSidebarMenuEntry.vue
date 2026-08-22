@@ -63,6 +63,7 @@ function handleMainClick() {
   >
     <button
       class="sidebar-menu-entry-main navigable"
+      :data-testid="`menu-${node.record.id}`"
       type="button"
       :aria-current="selected ? 'page' : undefined"
       @click="emit('select', node)"
@@ -95,6 +96,7 @@ function handleMainClick() {
     type="button"
     :disabled="!node.navigable && !controlsChildren"
     :aria-current="selected ? 'page' : undefined"
+    :data-testid="node.navigable ? `menu-${node.record.id}` : undefined"
     :aria-expanded="controlsChildren ? active : undefined"
     :aria-controls="controlsChildren ? 'workbench-sidebar-submenu-panel' : undefined"
     @mouseenter="openChildren"

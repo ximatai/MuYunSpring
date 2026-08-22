@@ -5,13 +5,16 @@ import { expect, it, vi } from 'vitest';
 import AppWorkbenchShell from '@/consumer/AppWorkbenchShell.vue';
 import type { AppWorkbenchNavigation } from '@/consumer/workbenchNavigation';
 import Workbench from '@/platform-workbench/Workbench.vue';
+import { useWorkbenchNavigation, type WorkbenchNavigation } from '@/platform-workbench/workbenchNavigation';
 import type { WorkbenchStartupState } from '@/web-contracts';
 import { configureUserPreferenceBackend } from '@/web-core/userPreferences';
 
 const tabs = [
   {
+    instanceKey: 'menu:A',
     key: 'menu:A',
     title: 'A',
+    fullPath: '/a?InstanceKey=menu%3AA',
     target: { menuId: 'A', menuType: 'route' as const, openMode: 'tab' as const, route: '/a' },
     pageDescriptor: {
       pageType: 'business-route' as const,
@@ -23,8 +26,10 @@ const tabs = [
     closable: true,
   },
   {
+    instanceKey: 'menu:B',
     key: 'menu:B',
     title: 'B',
+    fullPath: '/b?InstanceKey=menu%3AB',
     target: { menuId: 'B', menuType: 'route' as const, openMode: 'tab' as const, route: '/b' },
     pageDescriptor: {
       pageType: 'business-route' as const,
@@ -55,6 +60,29 @@ function mountShell() {
       themeAppearance: 'dark',
     },
   });
+}
+
+function mountShellWithNavigation() {
+  let navigation: WorkbenchNavigation | undefined;
+  // eslint-disable-next-line vue/one-component-per-file -- The probe only exposes the shell's provided navigation to this test.
+  const NavigationProbe = defineComponent({
+    setup() {
+      navigation = useWorkbenchNavigation();
+      return () => h('div');
+    },
+  });
+  const wrapper = mount(AppWorkbenchShell, {
+    props: {
+      startup: startup(),
+      location: '/a',
+      realtimeStatus: 'connected',
+      themeAppearance: 'dark',
+    },
+    slots: {
+      default: () => h(NavigationProbe),
+    },
+  });
+  return { wrapper, navigation: () => navigation };
 }
 
 async function syncStartup(wrapper: ReturnType<typeof mountShell>) {
@@ -140,7 +168,68 @@ it('uses the consumer router to apply an active tab change', async () => {
   await workbench.vm.$emit('changeTab', 'menu:B');
   await flushPromises();
 
-  expect(router.currentRoute.value.fullPath).toBe('/b');
+  expect(router.currentRoute.value.fullPath).toBe('/b?InstanceKey=menu%3AB');
+});
+
+it('creates independent tabs when the same user page opens twice', async () => {
+  const { wrapper, navigation } = mountShellWithNavigation();
+  await flushPromises();
+  await syncStartup(wrapper);
+  const workbenchNavigation = navigation();
+  expect(workbenchNavigation).toBeDefined();
+
+  expect(workbenchNavigation?.openRoute('/iam/users/form/user-1?action=view', { newInstance: true })).toEqual(
+    {
+      created: true,
+    },
+  );
+  await syncStartup(wrapper);
+  expect(workbenchNavigation?.openRoute('/iam/users/form/user-1?action=view', { newInstance: true })).toEqual(
+    {
+      created: true,
+    },
+  );
+
+  const state = wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState;
+  expect(state.tabs?.filter((tab) => tab.fullPath?.startsWith('/iam/users/form/user-1'))).toHaveLength(2);
+  wrapper.unmount();
+});
+
+it('replaces the current tab address and closes it into the fallback address', async () => {
+  const { wrapper, navigation } = mountShellWithNavigation();
+  await flushPromises();
+  await syncStartup(wrapper);
+  const workbenchNavigation = navigation();
+  expect(workbenchNavigation).toBeDefined();
+
+  workbenchNavigation?.openRoute('/iam/users/form?action=add', { newInstance: true });
+  await syncStartup(wrapper);
+  expect(
+    workbenchNavigation?.replaceRoute('/iam/users/form/user-1?action=view', {
+      tabTitle: '浏览用户：alice',
+    }),
+  ).toEqual({ created: false });
+  await syncStartup(wrapper);
+
+  let state = wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState;
+  const activeTabUrl = new URL(
+    state.tabs?.find((tab) => tab.key === state.activeTabKey)?.fullPath ?? '',
+    'http://muyun.local',
+  );
+  expect(activeTabUrl.pathname).toBe('/iam/users/form/user-1');
+  expect(activeTabUrl.searchParams.get('action')).toBe('view');
+  expect(activeTabUrl.searchParams.get('InstanceKey')).toBeNull();
+  expect(state.tabs?.find((tab) => tab.key === state.activeTabKey)?.instanceKey).toMatch(/^[0-9a-f-]{36}$/i);
+  expect(state.tabs?.find((tab) => tab.key === state.activeTabKey)?.title).toBe('浏览用户：alice');
+  expect(wrapper.emitted('navigate')?.at(-1)?.[0]).toMatchObject({ mode: 'replace' });
+
+  expect(workbenchNavigation?.closeCurrentTab('/a')).toEqual({ created: false });
+  await syncStartup(wrapper);
+  state = wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState;
+  expect(state.tabs?.some((tab) => tab.fullPath?.includes('/iam/users/form/user-1'))).toBe(false);
+  expect(state.activeTabKey).toBe('menu:A');
+  expect(wrapper.emitted('navigate')?.at(-1)?.[0]).toMatchObject({ mode: 'replace' });
+  wrapper.unmount();
 });
 
 it('preserves descriptor URL semantics when a menu opens in a new window', async () => {
@@ -151,6 +240,7 @@ it('preserves descriptor URL semantics when a menu opens in a new window', async
     id: 'external-bi',
     schemeId: 'default',
     title: 'External BI',
+    entryType: 'link' as const,
     moduleAlias: 'ops.report',
     openMode: 'window' as const,
     externalUrl: 'https://bi.example.com/report',
@@ -165,10 +255,6 @@ it('preserves descriptor URL semantics when a menu opens in a new window', async
 
   await workbench.vm.$emit('selectMenu', menu, target);
 
-  expect(open).toHaveBeenCalledWith(
-    '/platform/external?_muyunMenuId=external-bi&_muyunTitle=External+BI&mode=new-window&url=https%3A%2F%2Fbi.example.com%2Freport',
-    '_blank',
-    'noopener,noreferrer',
-  );
+  expect(open).toHaveBeenCalledWith('https://bi.example.com/report', '_blank', 'noopener,noreferrer');
   open.mockRestore();
 });

@@ -62,12 +62,12 @@ export {
   UiButton,
   confirmAction,
   UiDataTable,
-  UiInput,
   UiSidePanel,
-  UiSwitch,
-  UiTextArea,
   UiTree,
   UiTreeSelect,
+  UiInput,
+  UiSwitch,
+  UiTextArea,
 } from '../vue-ui-antdv/index';
 export { default as PlatformAdminOutlet } from './PlatformAdminOutlet.vue';
 export { default as AppWorkbenchShell } from './AppWorkbenchShell.vue';

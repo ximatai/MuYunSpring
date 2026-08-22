@@ -33,6 +33,7 @@ const menus = [
           id: 'metadata',
           schemeId: 'default',
           title: '元数据管理',
+          entryType: 'module' as const,
           openMode: 'tab' as const,
           moduleAlias: 'platform.metadata',
         },
@@ -49,6 +50,7 @@ const mixedRootMenus = [
       id: 'runtime',
       schemeId: 'default',
       title: '动态运行态',
+      entryType: 'module' as const,
       openMode: 'tab' as const,
       moduleAlias: 'platform.runtime',
     },
@@ -68,6 +70,7 @@ const nestedMenus = [
               id: 'application',
               schemeId: 'default',
               title: '应用管理',
+              entryType: 'module' as const,
               openMode: 'tab' as const,
               moduleAlias: 'platform.application',
             },
@@ -78,6 +81,7 @@ const nestedMenus = [
               id: 'metadata',
               schemeId: 'default',
               title: '元数据管理',
+              entryType: 'module' as const,
               openMode: 'tab' as const,
               moduleAlias: 'platform.metadata',
             },
@@ -87,6 +91,7 @@ const nestedMenus = [
                   id: 'field-spec',
                   schemeId: 'default',
                   title: '字段规格',
+                  entryType: 'module' as const,
                   openMode: 'tab' as const,
                   moduleAlias: 'platform.field_spec',
                 },
@@ -96,6 +101,7 @@ const nestedMenus = [
                       id: 'field-validation',
                       schemeId: 'default',
                       title: '字段校验规则',
+                      entryType: 'module' as const,
                       openMode: 'tab' as const,
                       moduleAlias: 'platform.application',
                     },
@@ -110,6 +116,7 @@ const nestedMenus = [
               id: 'disabled-entry',
               schemeId: 'default',
               title: '停用入口',
+              entryType: 'module' as const,
               openMode: 'tab' as const,
               moduleAlias: 'platform.disabled',
               enabled: false,
@@ -130,6 +137,7 @@ const navigableSecondLevelMenus = [
         ...nestedMenus[0].children[0],
         record: {
           ...nestedMenus[0].children[0].record,
+          entryType: 'module' as const,
           openMode: 'tab' as const,
           moduleAlias: 'platform.configuration',
         },
@@ -143,6 +151,7 @@ const navigableRootBranchMenus = [
     ...nestedMenus[0],
     record: {
       ...nestedMenus[0].record,
+      entryType: 'module' as const,
       openMode: 'tab' as const,
       moduleAlias: 'platform.root',
     },
@@ -979,23 +988,26 @@ describe('Workbench compact menu', () => {
     expect(wrapper.emitted('userCommand')).toEqual([['themeSkin']]);
   });
 
-  it('remounts only the active tab page host when refreshing', async () => {
+  it('keeps the refresh entry visible but disabled until page refresh has an independent contract', () => {
     const wrapper = shallowMount(Workbench, {
       props: {
         startup: {
           session: { currentUser: { userId: 'user-1', tenantId: 'tenant-a', system: false } },
           menus: [],
-          tabs: [{ key: 'application', title: '应用管理' }],
+          tabs: [
+            {
+              instanceKey: 'application',
+              key: 'application',
+              title: '应用管理',
+              fullPath: '/platform/application?InstanceKey=application',
+            },
+          ],
           activeTabKey: 'application',
         },
       },
     });
-    const hostBeforeRefresh = wrapper.findComponent({ name: 'UiSidePanelHost' });
-    const hostKeyBeforeRefresh = hostBeforeRefresh.vm.$.vnode.key;
-
-    await wrapper.get('[aria-label="刷新当前页"]').trigger('click');
-
-    expect(wrapper.findComponent({ name: 'UiSidePanelHost' }).vm.$.vnode.key).not.toBe(hostKeyBeforeRefresh);
+    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('title')).toBe('刷新当前页暂未实现');
   });
 
   it('presents the shared module host without leaking its legacy dynamic route name', () => {
@@ -1223,6 +1235,7 @@ describe('WorkbenchMenuTree', () => {
                   id: 'module-leaf',
                   schemeId: 'default',
                   title: '模块叶子',
+                  entryType: 'module' as const,
                   openMode: 'tab' as const,
                   moduleAlias: 'platform.application',
                 },

@@ -14,7 +14,7 @@ import {
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
 } from '@/app/workbenchStartup.ts';
-import { getMenuNavigationTarget } from '@/platform-workbench/menuNavigation.ts';
+import { createMenuTab, getMenuNavigationTarget } from '@/platform-workbench/menuNavigation.ts';
 import { presentWorkbenchRealtimeStatus } from '@/platform-workbench/realtimeStatus.ts';
 import {
   configureWorkspaceViewContributions,
@@ -67,6 +67,7 @@ const menus: MenuTreeNode[] = [
               schemeId: 'default',
               parentId: 'nested',
               title: 'Metadata',
+              entryType: 'route',
               openMode: 'tab',
               moduleAlias: 'platform.metadata',
               route: '/platform/metadata',
@@ -82,6 +83,7 @@ const menus: MenuTreeNode[] = [
       id: 'runtime',
       schemeId: 'default',
       title: 'Runtime',
+      entryType: 'module',
       openMode: 'tab',
       moduleAlias: 'platform.runtime',
       pageMode: 'LIST',
@@ -94,6 +96,7 @@ const menus: MenuTreeNode[] = [
       id: 'metadata-shortcut',
       schemeId: 'default',
       title: 'Metadata Shortcut',
+      entryType: 'route',
       openMode: 'tab',
       moduleAlias: 'platform.metadata',
       route: '/platform/metadata',
@@ -129,6 +132,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.config',
               title: '应用管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'platform.application',
               pageMode: 'LIST',
@@ -143,6 +147,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.config',
               title: '模块管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'platform.module',
               pageMode: 'LIST',
@@ -157,6 +162,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.config',
               title: '字典管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'platform.dictionary_category',
               pageMode: 'LIST',
@@ -183,6 +189,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.identity',
               title: '租户管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'iam.tenant',
               pageMode: 'LIST',
@@ -197,6 +204,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.identity',
               title: '职员管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'iam.employee',
               pageMode: 'LIST',
@@ -211,6 +219,7 @@ const platformAdminMenus: MenuTreeNode[] = [
               schemeId: 'platform.menu_scheme.admin',
               parentId: 'platform.menu.group.identity',
               title: '角色管理',
+              entryType: 'module',
               openMode: 'tab',
               moduleAlias: 'iam.role',
               pageMode: 'LIST',
@@ -430,10 +439,10 @@ it('loadWorkbenchStartupState resolves backend tenant module menu to business ro
   assert.equal(state.activeTabKey, 'menu:platform.menu.module.iam.tenant');
   assert.equal(state.tabs?.[0]?.title, '租户管理');
   assert.equal(state.tabs?.[0]?.pageDescriptor?.pageType, 'business-route');
-  assert.deepEqual(state.tabs?.[0]?.pageDescriptor?.target, {
-    route: '/iam/tenants',
-    moduleAlias: 'iam.tenant',
-  });
+  const tenantTarget = businessRouteTargetOf(state.tabs?.[0]);
+  assert.equal(tenantTarget.route, '/iam/tenants');
+  assert.equal(tenantTarget.moduleAlias, 'iam.tenant');
+  assert.match(String(tenantTarget.query?.InstanceKey ?? ''), /^[0-9a-f-]{36}$/i);
 });
 
 it('openMenuTab reuses an existing tab instead of duplicating it', () => {
@@ -455,6 +464,29 @@ it('openMenuTab reuses an existing tab instead of duplicating it', () => {
     second.tabs.map((tab) => tab.key),
     ['menu:metadata', 'menu:runtime'],
   );
+});
+
+it('openMenuTab repairs a direct tab with the selected menu title without replacing its page instance', () => {
+  const tenant = platformAdminMenus[0].children[1].children[0].record;
+  const target = getMenuNavigationTarget(tenant);
+  assert.ok(target);
+
+  const direct = openDirectTab([], {
+    pageType: 'dynamic-module',
+    openMode: 'dynamic-runner',
+    hostType: 'module-page-host',
+    menuId: tenant.id,
+    target: { moduleAlias: 'iam.tenant', pageMode: 'LIST' },
+    params: { InstanceKey: 'tenant-page-instance' },
+    tabPolicy: { identity: 'by-menu', closable: true, cacheable: true },
+  });
+  const repaired = openMenuTab(direct.tabs, tenant, target);
+
+  assert.equal(repaired.tabs.length, 1);
+  assert.equal(repaired.tabs[0]?.title, '租户管理');
+  assert.equal(repaired.tabs[0]?.instanceKey, 'tenant-page-instance');
+  assert.equal(repaired.tabs[0]?.pageDescriptor?.title, '租户管理');
+  assert.equal(repaired.tabs[0]?.fullPath, '/iam/tenant');
 });
 
 it('closeMenuTab keeps active tab when closing an inactive tab', () => {
@@ -548,6 +580,28 @@ it('keeps persisted locked tabs on the left and preserves their own ordering', (
   );
 });
 
+it('uses rebuilt locked menu facts to repair a shared URL tab while preserving its page instance', () => {
+  const tenant = platformAdminMenus[0].children[1].children[0].record;
+  const target = getMenuNavigationTarget(tenant);
+  assert.ok(target);
+  const lockedTab = createMenuTab(tenant, target);
+  const sharedUrlTab = openDirectTab([], {
+    pageType: 'dynamic-module',
+    openMode: 'dynamic-runner',
+    hostType: 'module-page-host',
+    menuId: tenant.id,
+    target: { moduleAlias: 'iam.tenant', pageMode: 'LIST' },
+    params: { InstanceKey: 'shared-tenant-instance' },
+    tabPolicy: { identity: 'by-menu', closable: true, cacheable: true },
+  }).tabs;
+
+  const arranged = arrangeLockedMenuTabs(sharedUrlTab, [lockedTab]);
+
+  assert.equal(arranged[0]?.title, '租户管理');
+  assert.equal(arranged[0]?.instanceKey, 'shared-tenant-instance');
+  assert.equal(arranged[0]?.pageDescriptor?.title, '租户管理');
+});
+
 it('restores locked tabs only when their tab menu remains visible to the current account', () => {
   const available = restoreLockedWorkbenchTabs(
     [
@@ -631,7 +685,7 @@ it('activeTabUrlOf returns the active tab descriptor URL', () => {
       tabs: [tab],
       activeTabKey: tab.key,
     }),
-    '/platform/metadata?_muyunMenuId=metadata',
+    '/platform/metadata',
   );
 });
 
@@ -656,7 +710,7 @@ it('activeTabUrlOf keeps new-window external links on workbench-owned URLs', () 
       tabs: [tab],
       activeTabKey: tab.key,
     }),
-    '/platform/external?_muyunMenuId=external-bi&mode=new-window&url=https%3A%2F%2Fbi.example.com%2Freport',
+    '/_platform/external?mode=new-window&url=https%3A%2F%2Fbi.example.com%2Freport',
   );
 });
 
@@ -687,7 +741,7 @@ it('restoreWorkbenchStartupStateFromUrl matches dynamic module menus with module
           schemeId: 'default',
           title: '机构管理',
           openMode: 'tab' as const,
-          route: '/iam/organizations',
+          entryType: 'module' as const,
           moduleAlias: 'iam.organization',
         },
         children: [],
@@ -696,16 +750,13 @@ it('restoreWorkbenchStartupStateFromUrl matches dynamic module menus with module
     tabs: [],
   };
 
-  const restored = restoreWorkbenchStartupStateFromUrl(
-    state,
-    '/platform/dynamic/iam.organization/LIST?_muyunMenuId=organization',
-  );
+  const restored = restoreWorkbenchStartupStateFromUrl(state, '/iam/organization');
 
   assert.equal(restored.activeTabKey, 'menu:organization');
-  assert.equal(restored.tabs?.[0]?.title, 'iam.organization');
+  assert.equal(restored.tabs?.[0]?.title, '机构管理');
   assert.equal(restored.tabs?.[0]?.pageDescriptor?.pageType, 'dynamic-module');
   assert.equal(restored.tabs?.[0]?.pageDescriptor?.target.moduleAlias, 'iam.organization');
-  assert.equal(activeTabUrlOf(restored), '/platform/dynamic/iam.organization/list?_muyunMenuId=organization');
+  assert.equal(activeTabUrlOf(restored), '/iam/organization');
 });
 
 it('restoreWorkbenchStartupStateFromUrl preserves query when URL matches a menu tab', () => {
@@ -725,11 +776,8 @@ it('restoreWorkbenchStartupStateFromUrl preserves query when URL matches a menu 
 
   assert.equal(restored.activeTabKey, 'menu:metadata');
   assert.equal(restored.tabs?.length, 1);
-  assert.equal(platformRouteTargetOf(restored.tabs?.[0]).query?.view, 'advanced');
-  assert.equal(
-    activeTabUrlOf(restored),
-    '/platform/metadata?_muyunMenuId=metadata&_muyunTitle=Metadata&view=advanced',
-  );
+  assert.equal(restored.tabs?.[0]?.pageDescriptor?.params?.view, 'advanced');
+  assert.equal(activeTabUrlOf(restored), '/platform/metadata?view=advanced');
 });
 
 it('restoreWorkbenchStartupStateFromUrl prefers explicit menu id when routes are duplicated', () => {
@@ -739,10 +787,7 @@ it('restoreWorkbenchStartupStateFromUrl prefers explicit menu id when routes are
     tabs: [],
   };
 
-  const restored = restoreWorkbenchStartupStateFromUrl(
-    state,
-    '/platform/metadata?_muyunMenuId=metadata-shortcut',
-  );
+  const restored = restoreWorkbenchStartupStateFromUrl(state, '/platform/metadata?menu=metadata-shortcut');
 
   assert.equal(restored.activeTabKey, 'menu:metadata-shortcut');
   assert.equal(restored.tabs?.[0]?.title, 'Metadata Shortcut');
@@ -797,7 +842,10 @@ it('openDirectTab keeps authorization pages for different roles separate', () =>
 
   assert.equal(second.tabs.length, 2);
   assert.notEqual(first.activeTabKey, second.activeTabKey);
-  assert.equal(second.activeTabKey, 'business-route:/iam/role-authorization:roleId=role-b');
+  assert.match(
+    second.activeTabKey,
+    /^business-route:\/iam\/role-authorization:roleId=role-b:InstanceKey:[0-9a-f-]{36}$/i,
+  );
 });
 
 it('openDirectTab reports reuse when the stable work view tab already exists', () => {
@@ -821,6 +869,22 @@ it('openDirectTab reports reuse when the stable work view tab already exists', (
   assert.equal(reused.tabs.length, 1);
 });
 
+it('openDirectTab keeps the InstanceKey internal to the workbench tab', () => {
+  const opened = openDirectTab([], {
+    pageType: 'business-route',
+    openMode: 'workbench-route',
+    hostType: 'business-route-host',
+    title: '角色授权',
+    target: { route: '/iam/role-authorization', query: { roleId: 'role-a' } },
+    params: { roleId: 'role-a' },
+    tabPolicy: { identity: 'by-params' },
+  });
+
+  const tab = opened.tabs[0];
+  assert.match(tab?.instanceKey ?? '', /^[0-9a-f-]{36}$/i);
+  assert.equal(new URL(tab?.fullPath ?? '', 'http://muyun.local').searchParams.get('InstanceKey'), null);
+});
+
 it('restoreWorkbenchStartupStateFromUrl creates direct tab when URL has no menu match', () => {
   const state = {
     session: { currentUser },
@@ -833,6 +897,22 @@ it('restoreWorkbenchStartupStateFromUrl creates direct tab when URL has no menu 
   assert.equal(restored.activeTabKey, 'platform-route:/crm/customer/list');
   assert.equal(restored.tabs?.[0]?.target, undefined);
   assert.equal(platformRouteTargetOf(restored.tabs?.[0]).route, '/crm/customer/list');
+});
+
+it('restores a readable module URL through the matching visible menu without an instance marker', () => {
+  const restored = restoreWorkbenchStartupStateFromUrl(
+    {
+      session: { currentUser },
+      menus: platformAdminMenus,
+      tabs: [],
+    },
+    '/config/modules',
+    { dynamicModuleRoutes: { '/config/modules': 'platform.module' } },
+  );
+
+  assert.equal(restored.activeTabKey, 'menu:platform.menu.module.platform.module');
+  assert.equal(restored.tabs?.[0]?.title, '模块管理');
+  assert.equal(restored.tabs?.[0]?.fullPath, '/config/modules');
 });
 
 it('restoreWorkbenchStartupStateFromUrl restores a module OpenAPI document as a direct tab', () => {
@@ -878,9 +958,9 @@ it('restoreWorkbenchStartupStateFromUrl restores a declared workspace view ahead
 
   assert.equal(
     restored.activeTabKey,
-    'business-route:/iam/employees:recordId=employee-1&workspacePresentation=tab&workspaceView=iam.employee.detail',
+    'business-route:/iam/employee:recordId=employee-1&workspacePresentation=tab&workspaceView=iam.employee.detail',
   );
-  assert.equal(restored.tabs?.[0]?.title, 'Alice');
+  assert.equal(restored.tabs?.[0]?.title, '职员详情');
   assert.equal(restored.tabs?.[0]?.target, undefined);
   assert.equal(businessRouteTargetOf(restored.tabs?.[0]).query?.workspaceView, 'iam.employee.detail');
 });
@@ -906,7 +986,7 @@ it('restoreWorkbenchStartupStateFromUrl does not restore window menus as workben
 
   const restored = restoreWorkbenchStartupStateFromUrl(
     state,
-    '/platform/external?_muyunMenuId=external-bi&_muyunTitle=External%20BI&mode=new-window&url=https%3A%2F%2Fbi.example.com%2Freport',
+    '/_platform/external?_muyunMenuId=external-bi&_muyunTitle=External%20BI&mode=new-window&url=https%3A%2F%2Fbi.example.com%2Freport',
   );
 
   assert.equal(restored.activeTabKey, 'menu:external-bi');
@@ -928,7 +1008,7 @@ it('restoreWorkbenchStartupStateFromUrl keeps current state for invalid workbenc
     activeTabKey: defaultTab.key,
   };
 
-  for (const url of ['/platform/external', '/platform/workspace']) {
+  for (const url of ['/_platform/external', '/_platform/workspace']) {
     const restored = restoreWorkbenchStartupStateFromUrl(state, url);
 
     assert.equal(restored.activeTabKey, 'menu:metadata');
@@ -960,12 +1040,37 @@ it('restoreWorkbenchStartupStateFromUrl matches dynamic menu without title query
     tabs: [],
   };
 
-  const restored = restoreWorkbenchStartupStateFromUrl(
-    state,
-    '/platform/dynamic/platform.runtime/list?uiConfigId=runtime-list-v1',
-  );
+  const restored = restoreWorkbenchStartupStateFromUrl(state, '/platform/runtime');
 
   assert.equal(restored.activeTabKey, 'menu:runtime');
   assert.equal(restored.tabs?.[0]?.title, 'Runtime');
   assert.equal(restored.tabs?.[0]?.target?.menuId, 'runtime');
+});
+
+it('restoreWorkbenchStartupStateFromUrl retains the visible menu title for a canonical dynamic URL', () => {
+  const restored = restoreWorkbenchStartupStateFromUrl(
+    {
+      session: { currentUser },
+      menus,
+      tabs: [],
+    },
+    '/platform/runtime',
+  );
+
+  assert.equal(restored.tabs?.[0]?.title, 'Runtime');
+  assert.equal(restored.tabs?.[0]?.pageDescriptor?.title, 'Runtime');
+});
+
+it('restoreWorkbenchStartupStateFromUrl does not trust a shared dynamic URL title over the visible menu title', () => {
+  const restored = restoreWorkbenchStartupStateFromUrl(
+    {
+      session: { currentUser },
+      menus: platformAdminMenus,
+      tabs: [],
+    },
+    '/iam/tenant?_muyunTitle=Forged',
+  );
+
+  assert.equal(restored.tabs?.[0]?.title, '租户管理');
+  assert.equal(restored.tabs?.[0]?.pageDescriptor?.title, '租户管理');
 });

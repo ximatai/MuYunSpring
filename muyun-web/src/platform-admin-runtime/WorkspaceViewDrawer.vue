@@ -9,6 +9,7 @@ const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
+    container: HTMLElement | null;
     subtitle?: string;
     profile?: WorkspaceDrawerProfile;
     promotion?: DrawerPromotion;
@@ -31,6 +32,7 @@ const width = computed(() => (props.profile === 'wide-work' ? 'min(600px, 100vw)
   <RecordDetailDrawer
     :open="open"
     :title="title"
+    :container="container"
     :subtitle="subtitle"
     :width="width"
     :promotion="promotion"

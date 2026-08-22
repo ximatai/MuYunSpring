@@ -20,17 +20,17 @@ public class MenuWebController {
     }
 
     @GetMapping("/mine")
-    public WebListResponse<WebTreeNode<Menu>> mine() {
+    public WebListResponse<WebTreeNode<MenuNavigationView>> mine() {
         return new WebListResponse<>(menuService.currentUserVisibleRootMenus().stream()
                 .map(this::node)
                 .toList());
     }
 
-    private WebTreeNode<Menu> node(Menu menu) {
-        List<WebTreeNode<Menu>> children = menuService.visibleChildren(menu.getSchemeId(), menu.getId())
+    private WebTreeNode<MenuNavigationView> node(Menu menu) {
+        List<WebTreeNode<MenuNavigationView>> children = menuService.visibleChildren(menu.getSchemeId(), menu.getId())
                 .stream()
                 .map(this::node)
                 .toList();
-        return new WebTreeNode<>(menu, children);
+        return new WebTreeNode<>(MenuNavigationView.from(menu, menuService.navigationEntryType(menu)), children);
     }
 }

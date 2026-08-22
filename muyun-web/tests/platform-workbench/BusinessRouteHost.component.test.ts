@@ -69,7 +69,7 @@ describe('BusinessRouteHost', () => {
   it('restores the generated workspace URL as a business route', () => {
     expect(
       pageDescriptorFromUrl(
-        '/_workspace/crm.customer.conversation?workspaceView=crm.customer.conversation&workspacePresentation=tab&customerId=customer-1',
+        '/_platform/workspace/crm.customer.conversation?workspaceView=crm.customer.conversation&workspacePresentation=tab&customerId=customer-1',
       ),
     ).toMatchObject({ pageType: 'business-route', hostType: 'business-route-host' });
   });

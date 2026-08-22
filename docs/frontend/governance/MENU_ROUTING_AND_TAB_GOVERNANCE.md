@@ -84,7 +84,7 @@ MenuRecord
 | 字段        | 含义                                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------------------- |
 | `pageType`  | 页面是什么，例如 `platform-route`、`business-route`、`dynamic-module`、`remote-url`、`micro-app`、`external-link`。 |
-| `openMode`  | Workbench 怎么承载，例如 `workbench-route`、`dynamic-runner`、`iframe`、`micro-app`、`new-window`。                     |
+| `openMode`  | Workbench 怎么承载，例如 `workbench-route`、`dynamic-runner`、`iframe`、`micro-app`、`new-window`。                 |
 | `target`    | 具体目标，例如 route name/path、moduleAlias、remote url、micro app entry。                                          |
 | `params`    | 页面入参，例如 route params/query、entryParams、动态模块配置 id。                                                   |
 | `tabPolicy` | tab 打开策略，例如单例、多实例、是否可关闭、刷新策略。                                                              |
@@ -96,17 +96,17 @@ MenuRecord
 
 前端 resolver 不应长期替后端模型弥补语义缺口。推进本专项时需要同步观察后端菜单模型是否能稳定表达页面入口：
 
-| 字段或语义                                     | 当前作用                                                  | 风险与观察点                                                                                                         |
-| ---------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 字段或语义                                     | 当前作用                                                               | 风险与观察点                                                                                                         |
+| ---------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `moduleAlias`                                  | 后端菜单绑定模块入口的锚点，也是权限和模块上下文锚点；为空时只是容器。 | 菜单是否可点击由是否绑定模块入口推导；一个绑定了模块的菜单仍可继续拥有子菜单。                                       |
-| `MenuNavigationTarget.menuType`                | 前端 resolver 的解析结果，区分 `module`、`route`、`link`。 | 这是前端承载和页签治理语义，不是后端菜单模型字段；不要把它反向作为权限或菜单配置主体。                               |
-| `route`                                        | 表达平台 route、offline 业务 path、routeName 或 pageKey。 | 字段容易过载；新增能力应通过结构化 target 或 resolver 规则区分语义。                                                 |
-| `openMode`                                     | 表达菜单入口在 Workbench 页签还是外部窗口打开。           | 使用 `tab` / `window`，不按 URL 形态隐式推断承载方式；`group` 不配置。                                               |
-| `externalUrl`                                  | 表达 online 业务页面或外部系统 URL。                      | URL 只表达目标，不表达打开方式；`link + tab` 由前端编译为 iframe，`link + window` 打开新窗口。                       |
-| `pageMode`                                     | 表达动态模块列表、表单、详情等模式。                      | 应与动态运行器支持的页面模式保持枚举一致。                                                                           |
-| `defaultUiConfigId` / `defaultQueryTemplateId` | 表达默认页面配置和查询模板。                              | 如果页面入口长期由 alias 管理，后续可能需要 alias 或版本语义，避免跨环境 ID 不稳定。                                 |
-| `entryParamsJson`                              | 表达入口参数。                                            | JSON 字符串适合兼容阶段；如果参数需要校验、展示或配置治理，应收敛成结构化参数模型。                                  |
-| `id` / `schemeId`                              | 支撑菜单身份和菜单方案。                                  | `menuId` 适合当前菜单树内的 tab identity；跨菜单方案、跨租户或跨环境恢复时，应纳入菜单方案上下文或 descriptor 版本。 |
+| `MenuNavigationTarget.menuType`                | 前端 resolver 的解析结果，区分 `module`、`route`、`link`。             | 这是前端承载和页签治理语义，不是后端菜单模型字段；不要把它反向作为权限或菜单配置主体。                               |
+| `route`                                        | 表达平台 route、offline 业务 path、routeName 或 pageKey。              | 字段容易过载；新增能力应通过结构化 target 或 resolver 规则区分语义。                                                 |
+| `openMode`                                     | 表达菜单入口在 Workbench 页签还是外部窗口打开。                        | 使用 `tab` / `window`，不按 URL 形态隐式推断承载方式；`group` 不配置。                                               |
+| `externalUrl`                                  | 表达 online 业务页面或外部系统 URL。                                   | URL 只表达目标，不表达打开方式；`link + tab` 由前端编译为 iframe，`link + window` 打开新窗口。                       |
+| `pageMode`                                     | 表达动态模块列表、表单、详情等模式。                                   | 应与动态运行器支持的页面模式保持枚举一致。                                                                           |
+| `defaultUiConfigId` / `defaultQueryTemplateId` | 表达默认页面配置和查询模板。                                           | 如果页面入口长期由 alias 管理，后续可能需要 alias 或版本语义，避免跨环境 ID 不稳定。                                 |
+| `entryParamsJson`                              | 表达入口参数。                                                         | JSON 字符串适合兼容阶段；如果参数需要校验、展示或配置治理，应收敛成结构化参数模型。                                  |
+| `id` / `schemeId`                              | 支撑菜单身份和菜单方案。                                               | `menuId` 适合当前菜单树内的 tab identity；跨菜单方案、跨租户或跨环境恢复时，应纳入菜单方案上下文或 descriptor 版本。 |
 
 第一阶段可以继续由前端把现有 `Menu` 字段编译成 `MenuNavigationTarget` 和 `PageDescriptor`。一旦出现以下情况，应优先提醒并评估后端字段或模型调整：
 

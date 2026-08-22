@@ -123,25 +123,33 @@ TypeScript/Vue 源码中，不进入后端 DSL，也不允许 DSL 携带前端�
 
 ```ts
 const conversationView = {
-  type: 'crm.customer.conversation',
-  moduleAlias: 'crm.customer',
+  type: "crm.customer.conversation",
+  moduleAlias: "crm.customer",
   component: CustomerConversationView,
   titleOf: ({ customerId }) => `客户对话 ${customerId}`,
-  parse: (query) => (typeof query.customerId === 'string' ? { customerId: query.customerId } : undefined),
+  parse: (query) =>
+    typeof query.customerId === "string"
+      ? { customerId: query.customerId }
+      : undefined,
 };
 
 configureModulePageEnhancements([
   {
-    id: 'customer-conversation',
-    target: { moduleAlias: 'crm.customer' },
+    id: "customer-conversation",
+    target: { moduleAlias: "crm.customer" },
     workspaceViews: [conversationView],
     list: {
-      rowActions: [{
-        key: 'conversation',
-        actionCode: 'crm.customer.conversation',
-        title: '对话',
-        run: ({ record, openWorkspaceTab }) => openWorkspaceTab(conversationView, { customerId: String(record.id) }),
-      }],
+      rowActions: [
+        {
+          key: "conversation",
+          actionCode: "crm.customer.conversation",
+          title: "对话",
+          run: ({ record, openWorkspaceTab }) =>
+            openWorkspaceTab(conversationView, {
+              customerId: String(record.id),
+            }),
+        },
+      ],
     },
   },
 ]);

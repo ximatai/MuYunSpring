@@ -19,34 +19,34 @@
 
 ## 专题地图
 
-| 专题 | 内容范围 |
-| --- | --- |
-| `configuration` | 应用、模块、元数据、字段、字典、菜单基础配置，以及配置刷新到运行态。 |
-| `runtime` | 动态记录运行态、模块描述、CRUD、查询、引用、动作基础和动态 OpenAPI。 |
-| `identity-permission` | 租户、组织、用户、角色、登录、动作授权、数据权限、菜单剪枝和当前用户上下文；角色授权目标见 `topics/identity-permission/ROLE_AUTHORIZATION_DESIGN.md`。 |
-| `workflow-task` | 工作流定义、发布、实例、审批、任务、分支汇聚、待办、历史、委托和插件挂点。 |
-| `workflow-task/workbench` | 待办、已办、知会、发起跟踪、委托视角和工作台统计。 |
-| `business-automation` | 平台业务自动化能力的总入口。 |
-| `business-automation/code-rule` | 编码规则、预览、取号、台账、回收池和动态记录赋码。 |
-| `business-automation/data-exchange` | 导入模板、导入执行、错误文件、导出、子表导出和引用 title 往返。 |
-| `business-automation/record-linkage` | 生单、目标草稿、来源关系、回写规则、贡献台账和失败诊断。 |
-| `page` | 页面交付与页面交互能力的总入口。 |
-| `page/delivery` | 菜单入口、页面 bootstrap、列表查询、汇总、表单保存、附件、查重和引用候选。 |
-| `page/interaction` | 关联视图、局部编辑、动态弹窗、动作区块、模块任务和任务检查。 |
-| `governance` | 配置包、健康检查、版本归档、指针切换、迁移 dry-run、导入草稿和模板复用。 |
+| 专题                                 | 内容范围                                                                                                                                               |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `configuration`                      | 应用、模块、元数据、字段、字典、菜单基础配置，以及配置刷新到运行态。                                                                                   |
+| `runtime`                            | 动态记录运行态、模块描述、CRUD、查询、引用、动作基础和动态 OpenAPI。                                                                                   |
+| `identity-permission`                | 租户、组织、用户、角色、登录、动作授权、数据权限、菜单剪枝和当前用户上下文；角色授权目标见 `topics/identity-permission/ROLE_AUTHORIZATION_DESIGN.md`。 |
+| `workflow-task`                      | 工作流定义、发布、实例、审批、任务、分支汇聚、待办、历史、委托和插件挂点。                                                                             |
+| `workflow-task/workbench`            | 待办、已办、知会、发起跟踪、委托视角和工作台统计。                                                                                                     |
+| `business-automation`                | 平台业务自动化能力的总入口。                                                                                                                           |
+| `business-automation/code-rule`      | 编码规则、预览、取号、台账、回收池和动态记录赋码。                                                                                                     |
+| `business-automation/data-exchange`  | 导入模板、导入执行、错误文件、导出、子表导出和引用 title 往返。                                                                                        |
+| `business-automation/record-linkage` | 生单、目标草稿、来源关系、回写规则、贡献台账和失败诊断。                                                                                               |
+| `page`                               | 页面交付与页面交互能力的总入口。                                                                                                                       |
+| `page/delivery`                      | 菜单入口、页面 bootstrap、列表查询、汇总、表单保存、附件、查重和引用候选。                                                                             |
+| `page/interaction`                   | 关联视图、局部编辑、动态弹窗、动作区块、模块任务和任务检查。                                                                                           |
+| `governance`                         | 配置包、健康检查、版本归档、指针切换、迁移 dry-run、导入草稿和模板复用。                                                                               |
 
 ## 跨专题边界
 
-| 文档 | 内容范围 |
-| --- | --- |
-| [审计与专题流水边界](AUDIT_AND_PROCESS_LOG_BOUNDARY.md) | 说明平台运行审计、工作流事件、导入导出结果、配置治理事实、记录联动台账、外部写入和后台任务流水的取舍口径。 |
-| [软删除、回收站与删除日志治理](SOFT_DELETION_AND_RECYCLE_BIN_GOVERNANCE.md) | 说明软删除、业务回收站、递归级联、恢复、唯一键冲突提示与删除运维审计的统一边界。 |
-| [外部写入接入边界](EXTERNAL_WRITE_BOUNDARY.md) | 说明外部写入应复用标准模块动作、权限、租户、校验、生命周期和运行审计；幂等、回执、重试和报文治理按触发条件后续建设。 |
-| [后台任务与异步批次边界](BACKGROUND_JOB_AND_BATCH_BOUNDARY.md) | 说明同步批量动作、异步导入、补偿任务、进度查询、重试和批次模型的建设触发条件。 |
-| [动作结果与数据变更契约](ACTION_RESULT_AND_DATA_CHANGE.md) | 说明业务动作成功回执、可读消息、数据变化事实、HTTP 包装和异步广播之间的统一契约。 |
-| [平台实时通信设计](REALTIME_COMMUNICATION.md) | 说明 WebSocket/STOMP 实时通信底座、前后端封装边界、数据变化广播、双向通信预留和后续可靠性演进。 |
-| [实时业务提醒后端接入](BUSINESS_NOTIFICATION_BACKEND_INTEGRATION.md) | 说明业务服务发布在线提醒、按 IAM 范围接收、导航/命令动作和可靠性边界。 |
-| [MuYunFileServer 与文件引用生命周期](FILE_REFERENCE_LIFECYCLE.md) | 说明关联文件服务、记录附件、字段文件引用、临时上传、转正和显式物理删除的职责边界。 |
+| 文档                                                                        | 内容范围                                                                                                             |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| [审计与专题流水边界](AUDIT_AND_PROCESS_LOG_BOUNDARY.md)                     | 说明平台运行审计、工作流事件、导入导出结果、配置治理事实、记录联动台账、外部写入和后台任务流水的取舍口径。           |
+| [软删除、回收站与删除日志治理](SOFT_DELETION_AND_RECYCLE_BIN_GOVERNANCE.md) | 说明软删除、业务回收站、递归级联、恢复、唯一键冲突提示与删除运维审计的统一边界。                                     |
+| [外部写入接入边界](EXTERNAL_WRITE_BOUNDARY.md)                              | 说明外部写入应复用标准模块动作、权限、租户、校验、生命周期和运行审计；幂等、回执、重试和报文治理按触发条件后续建设。 |
+| [后台任务与异步批次边界](BACKGROUND_JOB_AND_BATCH_BOUNDARY.md)              | 说明同步批量动作、异步导入、补偿任务、进度查询、重试和批次模型的建设触发条件。                                       |
+| [动作结果与数据变更契约](ACTION_RESULT_AND_DATA_CHANGE.md)                  | 说明业务动作成功回执、可读消息、数据变化事实、HTTP 包装和异步广播之间的统一契约。                                    |
+| [平台实时通信设计](REALTIME_COMMUNICATION.md)                               | 说明 WebSocket/STOMP 实时通信底座、前后端封装边界、数据变化广播、双向通信预留和后续可靠性演进。                      |
+| [实时业务提醒后端接入](BUSINESS_NOTIFICATION_BACKEND_INTEGRATION.md)        | 说明业务服务发布在线提醒、按 IAM 范围接收、导航/命令动作和可靠性边界。                                               |
+| [MuYunFileServer 与文件引用生命周期](FILE_REFERENCE_LIFECYCLE.md)           | 说明关联文件服务、记录附件、字段文件引用、临时上传、转正和显式物理删除的职责边界。                                   |
 
 ## 平台运行模式
 

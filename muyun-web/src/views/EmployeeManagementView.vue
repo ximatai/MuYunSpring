@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, type ComponentPublicInstance, watch } from 'vue';
 import {
   ManagementWorkspace,
   ManagementExplorerColumn,
@@ -105,6 +105,8 @@ const userContext = useModuleContext<UserAccount>({ moduleAlias: 'iam.user' });
 const tenantContext = useModuleContext<Tenant>({ moduleAlias: 'iam.tenant' });
 const currentUser = useCurrentUserContext();
 const employeeFormFieldDefinitions = ref(resolveRecordFormFields(undefined));
+const pageHost = ref<ComponentPublicInstance | null>(null);
+const pageRoot = computed(() => (pageHost.value?.$el instanceof HTMLElement ? pageHost.value.$el : null));
 const isWorkspaceView = computed(() => Boolean(props.recordId));
 const isDrawerWorkspaceView = computed(
   () => isWorkspaceView.value && workspaceViewHost?.presentation === 'drawer',
@@ -1305,6 +1307,7 @@ const employeeFormFieldFallback: Record<EmployeeFormFieldName, RecordFormFieldFa
 <template>
   <ManagementWorkspace
     v-if="!isWorkspaceView || isDrawerWorkspaceView"
+    ref="pageHost"
     class="employee-management-page"
     :explorer-count="canBrowseTenants ? 2 : 1"
   >
@@ -1424,6 +1427,7 @@ const employeeFormFieldFallback: Record<EmployeeFormFieldName, RecordFormFieldFa
       v-if="shouldRenderEmployeeDetailDrawer"
       :open="employeeDetailOpen"
       :title="employeeDetailTitle"
+      :container="pageRoot"
       :subtitle="employeeDetailSubtitle"
       :close-on-outside="employeeDetailMode === 'view'"
       :promotion="employeeDetailPromotion"
@@ -1494,6 +1498,7 @@ const employeeFormFieldFallback: Record<EmployeeFormFieldName, RecordFormFieldFa
     <EmployeeEmploymentDrawer
       :open="employeeEmploymentDrawerOpen"
       :employee="employeeEmploymentDrawerEmployee"
+      :container="pageRoot"
       @close="closeEmployeeEmploymentDrawer"
       @saved="handleEmployeeEmploymentSaved"
     />

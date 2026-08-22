@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import {
-  Workbench,
-  WorkbenchOutlet,
-  pageDescriptorToUrl,
-  type WorkbenchRealtimeStatus,
-} from '@muyun/platform-workbench';
+import { RouterView } from 'vue-router';
+import { Workbench, pageDescriptorToUrl, type WorkbenchRealtimeStatus } from '@muyun/platform-workbench';
 import {
   UiThemeProvider,
   confirmAction,
@@ -58,25 +54,16 @@ import { provideCurrentUserContext } from './platform-admin-runtime/currentUserC
 import { loadAppWorkbenchStartupState, usesMockStartup } from './app/appWorkbenchStartup';
 import { createBackendHttpClient } from './platform-admin-runtime/backendHttp';
 import {
-  platformAdminDynamicModuleRoutes,
   platformAdminModuleRoutes,
   platformAdminRouteLayouts,
   platformAdminRoutePrefixes,
-  isPlatformAdminRoutePage,
 } from './platform-admin-runtime/platformAdminRoutes';
 import { connectAppRealtime } from './platform-admin-runtime/realtime';
+import './platform-admin-runtime/workspaceViews';
 import ChangeOwnPasswordDialog from './app/ChangeOwnPasswordDialog.vue';
 import CurrentUserProfileDialog from './app/CurrentUserProfileDialog.vue';
 import LoginView from './app/LoginView.vue';
 import ThemeSkinPreferencesDialog from './app/ThemeSkinPreferencesDialog.vue';
-import PlatformAdminRouteOutlet from './platform-admin-runtime/PlatformAdminOutlet.vue';
-import {
-  createModuleOpenApiPageDescriptor,
-  isModuleOpenApiPage,
-  isOpenApiCatalogPath,
-} from './platform-admin-runtime/moduleOpenApi';
-import ModuleOpenApiView from './views/ModuleOpenApiView.vue';
-import OpenApiCatalogView from './views/OpenApiCatalogView.vue';
 import {
   closeMenuTab,
   closeMenuTabs,
@@ -90,10 +77,17 @@ import {
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
 } from './app/workbenchStartup';
+import { withPageInstanceKey } from './platform-workbench/menuNavigation';
 import { restoreLockedTabPreference, saveLockedTabPreference } from './app/lockedTabPreference';
-import { provideWorkbenchNavigation } from './platform-workbench/workbenchNavigation';
+import {
+  provideWorkbenchNavigation,
+  routeUrlWithOpenOptions,
+  type OpenRouteOptions,
+} from './platform-workbench/workbenchNavigation';
 import { syncModulePageWorkspaceViewContributions } from './platform-workbench/modulePageWorkspaceViews';
-import { router } from './app/router';
+import { pageCacheKey } from './platform-workbench/pageCacheKey';
+import StaticRoutePageHost from './app/StaticRoutePageHost.vue';
+import { ensureMenuRoutes, resetMenuRoutes, router } from './app/router';
 import { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from './app/workbenchRouteSync';
 import {
   restoreThemeSkinPreference,
@@ -154,12 +148,10 @@ const confirmPassword = ref('');
 const securityNotification = ref<WebUserNotification>();
 const businessNotifications = ref<WebBusinessNotification[]>([]);
 const securityLogoutCountdown = ref(0);
-const openApiCatalogOpen = ref(isOpenApiCatalogPath(window.location.pathname));
 const realtimeStatus = ref<WorkbenchRealtimeStatus>('unavailable');
 const platformAdminRouteResolveOptions = {
   businessRoutePrefixes: platformAdminRoutePrefixes,
   businessModuleRoutes: platformAdminModuleRoutes,
-  dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
   businessRouteLayouts: platformAdminRouteLayouts,
 };
 let realtimeConnection: ReturnType<typeof connectAppRealtime> | undefined;
@@ -175,9 +167,13 @@ const employeeProfileContext = createModuleContext({ moduleAlias: 'iam.employee'
 provideCurrentUserContext(currentUser);
 providePlatformTimeZoneContext(currentTimeZone);
 provideWorkbenchNavigation({
+  openRoute: handleOpenRoute,
+  replaceRoute: handleReplaceRoute,
+  closeCurrentTab: handleCloseCurrentTab,
   openPage: handleOpenPage,
   replacePage: handleReplacePage,
   closePage: handleCloseTab,
+  setTabName: handleSetTabName,
 });
 
 const anonymousHttpClient = createBackendHttpClient({ withAuth: false });
@@ -234,13 +230,12 @@ async function loadWorkbench() {
     lockedTabs.value = restoredLockedTabs;
     const arrangedState = { ...state, tabs: arrangeLockedMenuTabs(state.tabs ?? [], restoredLockedTabs) };
     startup.value = arrangedState;
+    await ensureMenuRoutes(arrangedState.menus);
     activeTabKey.value = arrangedState.activeTabKey;
     loginRequired.value = false;
     void restoreThemeSkinFromBackend();
     reconnectRealtime();
-    if (!openApiCatalogOpen.value) {
-      syncBrowserUrl(arrangedState, 'replace');
-    }
+    syncBrowserUrl(arrangedState, 'replace');
   } catch (cause) {
     if (isPasswordChangeRequiredError(cause)) {
       openChangeOwnPasswordDialog();
@@ -482,6 +477,7 @@ async function handleLogout() {
     // Local logout should still be possible if the token is already expired or the backend is unavailable.
   } finally {
     clearAuthToken();
+    resetMenuRoutes();
     businessNotifications.value = [];
     startup.value = undefined;
     activeTabKey.value = undefined;
@@ -637,6 +633,7 @@ function forceLocalLogout() {
   }
   clearSecurityLogoutTimer();
   clearAuthToken();
+  resetMenuRoutes();
   businessNotifications.value = [];
   startup.value = undefined;
   activeTabKey.value = undefined;
@@ -677,11 +674,115 @@ function handleOpenPage(descriptor: import('@muyun/web-contracts').PageDescripto
   if (!current) {
     return { created: false };
   }
-  const result = openDirectTab(current.tabs ?? [], descriptor);
+  const result = openDirectTab(current.tabs ?? [], descriptor, platformAdminRouteResolveOptions);
   startup.value = { ...current, tabs: result.tabs, activeTabKey: result.activeTabKey };
   activeTabKey.value = result.activeTabKey;
   syncBrowserUrl(startup.value, 'push');
   return { created: result.created };
+}
+
+function handleOpenRoute(path: string, options: OpenRouteOptions = {}) {
+  return navigateWorkbenchRoute(
+    routeUrlWithOpenOptions(path, options),
+    'push',
+    startup.value,
+    options.tabTitle,
+    false,
+    options.newInstance,
+  );
+}
+
+function handleReplaceRoute(path: string, options: OpenRouteOptions = {}) {
+  const current = startup.value;
+  if (!current) return { created: false };
+  return navigateWorkbenchRoute(
+    routeUrlWithOpenOptions(path, options),
+    'replace',
+    current,
+    options.tabTitle,
+    true,
+    false,
+  );
+}
+
+function handleCloseCurrentTab(fallbackPath: string) {
+  const current = startup.value;
+  const currentTabKey = activeTabKey.value ?? current?.activeTabKey;
+  if (!current || !currentTabKey) return { created: false };
+  const result = closeMenuTab(current.tabs ?? [], currentTabKey, currentTabKey);
+  if (lockedTabs.value.some((tab) => tab.key === currentTabKey)) {
+    updateLockedTabs(removeLockedMenuTabs(lockedTabs.value, [currentTabKey]));
+  }
+  const fallback = result.tabs.find((tab) => {
+    const url = tab.fullPath ?? (tab.pageDescriptor ? pageDescriptorToUrl(tab.pageDescriptor) : undefined);
+    return url && new URL(url, window.location.origin).pathname === fallbackPath;
+  });
+  if (fallback) {
+    startup.value = { ...current, tabs: result.tabs, activeTabKey: fallback.key };
+    activeTabKey.value = fallback.key;
+    syncBrowserUrl(startup.value, 'replace');
+    return { created: false };
+  }
+  return navigateWorkbenchRoute(routeUrlWithOpenOptions(fallbackPath), 'replace', {
+    ...current,
+    tabs: result.tabs,
+    activeTabKey: result.activeTabKey,
+  });
+}
+
+function navigateWorkbenchRoute(
+  url: string,
+  mode: 'push' | 'replace',
+  state: WorkbenchStartupState | undefined,
+  tabTitle?: string,
+  replaceCurrent = false,
+  newInstance = false,
+) {
+  if (!state) return { created: false };
+  const previousKeys = new Set((state.tabs ?? []).map((tab) => tab.key));
+  let next = restoreWorkbenchStartupStateFromUrl(state, url, platformAdminRouteResolveOptions, newInstance);
+  const replacement = next.tabs?.find((tab) => tab.key === next.activeTabKey);
+  if (replaceCurrent && state.activeTabKey && replacement) {
+    const currentTab = state.tabs?.find((tab) => tab.key === state.activeTabKey);
+    if (currentTab) {
+      const title = tabTitle ?? replacement.title;
+      const pageDescriptor =
+        replacement.pageDescriptor && currentTab.instanceKey
+          ? withPageInstanceKey(replacement.pageDescriptor, currentTab.instanceKey)
+          : replacement.pageDescriptor;
+      const fullPath = pageDescriptor
+        ? pageDescriptorToUrl(pageDescriptor, platformAdminRouteResolveOptions)
+        : replacement.fullPath;
+      const tabs = (next.tabs ?? [])
+        .filter((tab) => tab.key !== replacement.key)
+        .map((tab) =>
+          tab.key === currentTab.key
+            ? {
+                ...currentTab,
+                ...replacement,
+                key: currentTab.key,
+                instanceKey: currentTab.instanceKey,
+                pageDescriptor,
+                fullPath,
+                restoreState: fullPath ? { url: fullPath } : replacement.restoreState,
+                title,
+              }
+            : tab,
+        );
+      next = { ...next, tabs, activeTabKey: currentTab.key };
+    }
+  } else if (tabTitle && next.activeTabKey) {
+    next = {
+      ...next,
+      tabs: (next.tabs ?? []).map((tab) =>
+        tab.key === next.activeTabKey ? { ...tab, title: tabTitle } : tab,
+      ),
+    };
+  }
+  startup.value = next;
+  activeTabKey.value = next.activeTabKey;
+  syncBrowserUrl(next, mode);
+  return { created: Boolean(next.activeTabKey && !previousKeys.has(next.activeTabKey)) };
 }
 
 function handleReplacePage(pageKey: string, descriptor: import('@muyun/web-contracts').PageDescriptor) {
@@ -694,8 +795,9 @@ function handleReplacePage(pageKey: string, descriptor: import('@muyun/web-contr
       ? {
           ...tab,
           title: descriptor.title ?? tab.title,
+          fullPath: pageDescriptorToUrl(descriptor, platformAdminRouteResolveOptions),
           pageDescriptor: descriptor,
-          restoreState: { url: pageDescriptorToUrl(descriptor) },
+          restoreState: { url: pageDescriptorToUrl(descriptor, platformAdminRouteResolveOptions) },
         }
       : tab,
   );
@@ -705,6 +807,16 @@ function handleReplacePage(pageKey: string, descriptor: import('@muyun/web-contr
     updateLockedTabs(updateLockedMenuTabs(lockedTabs.value, replacement));
   }
   syncBrowserUrl(startup.value, 'replace');
+}
+
+function handleSetTabName(instanceKey: string, name: string) {
+  const current = startup.value;
+  const title = name.trim();
+  if (!current || !instanceKey || !title) return;
+  startup.value = {
+    ...current,
+    tabs: (current.tabs ?? []).map((tab) => (tab.instanceKey === instanceKey ? { ...tab, title } : tab)),
+  };
 }
 
 function openWindow(url: string) {
@@ -828,16 +940,10 @@ function currentBrowserPath() {
   return router.currentRoute.value.fullPath;
 }
 
-function returnToWorkbench() {
-  if (startup.value) syncBrowserUrl(startup.value, 'replace');
-}
-
-function openModuleOpenApi(moduleAlias: string, moduleTitle?: string) {
-  handleOpenPage(createModuleOpenApiPageDescriptor(moduleAlias, moduleTitle));
-}
-
-function resolveModuleOpenApiTitle(tabKey: string, moduleAlias: string, moduleTitle: string) {
-  handleReplacePage(tabKey, createModuleOpenApiPageDescriptor(moduleAlias, moduleTitle));
+function pageDescriptorForRoute() {
+  const current = startup.value;
+  if (!current) return undefined;
+  return (current.tabs ?? []).find((tab) => tab.key === current.activeTabKey)?.pageDescriptor;
 }
 
 function syncBrowserUrl(state: WorkbenchStartupState, mode: 'push' | 'replace') {
@@ -855,8 +961,7 @@ function syncBrowserUrl(state: WorkbenchStartupState, mode: 'push' | 'replace') 
 }
 
 function restoreWorkbenchFromRoute(url: string) {
-  openApiCatalogOpen.value = isOpenApiCatalogPath(router.currentRoute.value.path);
-  if (!shouldRestoreWorkbenchFromRoute(url, pendingWorkbenchNavigation, openApiCatalogOpen.value)) {
+  if (!shouldRestoreWorkbenchFromRoute(url, pendingWorkbenchNavigation)) {
     pendingWorkbenchNavigation = undefined;
     return;
   }
@@ -889,7 +994,6 @@ function requiresLogin(cause: unknown) {
       :error="error"
       @authenticated="handleAuthenticated"
     />
-    <OpenApiCatalogView v-else-if="openApiCatalogOpen" @open="openModuleOpenApi" @back="returnToWorkbench" />
     <Workbench
       v-else
       v-model:active-tab-key="activeTabKey"
@@ -907,19 +1011,25 @@ function requiresLogin(cause: unknown) {
       @reorder-tabs="handleReorderTabs"
       @user-command="handleUserCommand"
     >
-      <template #default="{ activeTab, pageDescriptor }">
-        <ModuleOpenApiView
-          v-if="isModuleOpenApiPage(pageDescriptor)"
-          :module-alias="pageDescriptor?.target.moduleAlias ?? ''"
-          @title-resolved="
-            resolveModuleOpenApiTitle(activeTab.key, pageDescriptor?.target.moduleAlias ?? '', $event)
-          "
-        />
-        <PlatformAdminRouteOutlet
-          v-else-if="isPlatformAdminRoutePage(pageDescriptor)"
-          :descriptor="pageDescriptor"
-        />
-        <WorkbenchOutlet v-else :descriptor="pageDescriptor" />
+      <template #default>
+        <RouterView v-slot="{ Component, route }">
+          <KeepAlive>
+            <StaticRoutePageHost
+              v-if="route.meta.cacheable !== false"
+              :key="pageCacheKey(route, activeTabKey)"
+              :component="Component"
+              :route="route"
+              :page-descriptor="pageDescriptorForRoute()"
+            />
+          </KeepAlive>
+          <StaticRoutePageHost
+            v-if="route.meta.cacheable === false"
+            :key="pageCacheKey(route, activeTabKey)"
+            :component="Component"
+            :route="route"
+            :page-descriptor="pageDescriptorForRoute()"
+          />
+        </RouterView>
       </template>
     </Workbench>
     <ChangeOwnPasswordDialog

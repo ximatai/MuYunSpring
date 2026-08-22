@@ -144,6 +144,7 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
       <button
         v-if="presentationToggleVisible"
         class="workbench-brand-presentation-toggle"
+        data-testid="workbench-menu-presentation-toggle"
         type="button"
         :aria-label="presentation === 'compact' ? '展开侧栏菜单' : '收敛侧栏菜单'"
         :title="presentation === 'compact' ? '展开侧栏菜单' : '收敛侧栏菜单'"

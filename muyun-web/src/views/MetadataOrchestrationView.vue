@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, type ComponentPublicInstance, watch } from 'vue';
 import {
   DrawerOperationBar,
   ManagementExplorerColumn,
@@ -53,6 +53,8 @@ const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
 const metadataClient = createStaticResourceCrudClient<Metadata>(moduleContext.http, '/platform.metadata');
 const state = createMetadataOrchestrationState();
 const loading = ref(false);
+const pageHost = ref<ComponentPublicInstance | null>(null);
+const pageRoot = computed(() => (pageHost.value?.$el instanceof HTMLElement ? pageHost.value.$el : null));
 const saving = ref(false);
 const searchKeyword = ref('');
 
@@ -272,7 +274,7 @@ function fieldCellValue(column: UiDataTableColumn, record: UiDataTableRecord) {
 </script>
 
 <template>
-  <ManagementWorkspace class="metadata-orchestration-workspace" :explorer-count="1">
+  <ManagementWorkspace ref="pageHost" class="metadata-orchestration-workspace" :explorer-count="1">
     <ManagementExplorerColumn>
       <RecordExplorerPanel
         v-model:search-keyword="searchKeyword"
@@ -385,6 +387,7 @@ function fieldCellValue(column: UiDataTableColumn, record: UiDataTableRecord) {
   <RecordModeDrawer
     :open="state.mainEditorOpen.value"
     title="新建主实体"
+    :container="pageRoot"
     :subtitle="moduleTitle ?? moduleAlias"
     mode="create"
     @close="state.cancelEditor"
@@ -428,6 +431,7 @@ function fieldCellValue(column: UiDataTableColumn, record: UiDataTableRecord) {
   <RecordModeDrawer
     :open="state.fieldEditorOpen.value"
     :title="state.mode.value === 'edit-field' ? '编辑字段' : '新增字段'"
+    :container="pageRoot"
     :subtitle="state.selectedMetadata.value?.title"
     mode="create"
     @close="state.cancelEditor"

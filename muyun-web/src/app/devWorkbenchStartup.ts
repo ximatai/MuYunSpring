@@ -1,7 +1,6 @@
 import { createMockMenuClient, createMockSessionClient } from '@/web-core/mock';
 import {
   platformAdminModuleRoutes,
-  platformAdminDynamicModuleRoutes,
   platformAdminRouteLayouts,
   platformAdminRoutePrefixes,
 } from '../platform-admin-runtime/platformAdminRoutes';
@@ -15,7 +14,6 @@ export function loadDevWorkbenchStartupState() {
     },
     {
       businessModuleRoutes: platformAdminModuleRoutes,
-      dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
       businessRouteLayouts: platformAdminRouteLayouts,
       businessRoutePrefixes: platformAdminRoutePrefixes,
     },

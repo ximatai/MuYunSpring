@@ -11,7 +11,7 @@ const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
-    /** Secondary business identity rendered by the platform detail header. */
+    container?: HTMLElement | null;
     subtitle?: string;
     width?: number | string;
     scope?: UiSidePanelScope;
@@ -38,6 +38,7 @@ const props = withDefaults(
     externalChangeDismissTitle?: string;
   }>(),
   {
+    container: undefined,
     subtitle: undefined,
     width: 520,
     scope: 'tab',
@@ -97,6 +98,7 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
   <RecordDetailDrawer
     :open="open"
     :title="title"
+    :container="container"
     :subtitle="subtitle"
     :width="width"
     :scope="scope"
@@ -108,9 +110,7 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
     <template v-if="$slots['title-prefix']" #title-prefix>
       <slot name="title-prefix" />
     </template>
-    <template #status>
-      <slot name="status" />
-    </template>
+    <template #status><slot name="status" /></template>
     <template v-if="$slots['title-actions']" #title-actions>
       <slot name="title-actions" />
     </template>
@@ -129,26 +129,20 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
         </UiActionButton>
       </template>
     </template>
-
     <slot />
-
-    <template v-if="loading">
-      <slot name="loading" />
-    </template>
+    <template v-if="loading"><slot name="loading" /></template>
     <template v-else-if="loadFailed">
       <slot name="error">
         <div class="record-mode-drawer-state">
-          <strong>{{ errorTitle }}</strong>
-          <span>{{ errorMessage }}</span>
+          <strong>{{ errorTitle }}</strong
+          ><span>{{ errorMessage }}</span>
           <UiActionButton emphasis="primary" icon-name="reload" @click="emit('retry')">
             {{ retryTitle }}
           </UiActionButton>
         </div>
       </slot>
     </template>
-    <template v-else-if="viewModeActive">
-      <slot name="view" />
-    </template>
+    <template v-else-if="viewModeActive"><slot name="view" /></template>
     <template v-else-if="formModeActive">
       <slot v-if="externallyChanged" name="externalChangeNotice">
         <RecordExternalChangeNotice
@@ -172,7 +166,6 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
   gap: 10px;
   color: var(--muyun-text);
 }
-
 .record-mode-drawer-state span {
   color: var(--muyun-text-muted);
   font-size: 13px;

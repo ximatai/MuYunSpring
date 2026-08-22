@@ -14,8 +14,10 @@ import {
   isTabMenuTarget,
   pageDescriptorToUrl,
   resolvePageDescriptor,
+  tabIdentityKeyOf,
   tabKeyOf,
   tryPageDescriptorFromUrl,
+  withPageInstanceKey,
   type PageDescriptorResolveOptions,
 } from '@muyun/platform-workbench';
 import {
@@ -23,7 +25,9 @@ import {
   resolveWorkspaceView,
 } from '../platform-admin-runtime/workspaceViews';
 import {
+  createOpenApiCatalogPageDescriptor,
   createModuleOpenApiPageDescriptor,
+  isOpenApiCatalogPath,
   isModuleOpenApiPage,
   moduleAliasFromOpenApiPath,
 } from '../platform-admin-runtime/moduleOpenApi';
@@ -68,8 +72,18 @@ export function openMenuTab(
   options: PageDescriptorResolveOptions = {},
 ): { tabs: MenuTab[]; activeTabKey: string } {
   const tab = createMenuTab(menu, target, options);
-  if (tabs.some((item) => item.key === tab.key)) {
-    return { tabs, activeTabKey: tab.key };
+  const existing = tabs.find((item) => item.key === tab.key);
+  if (existing) {
+    // A shared URL may have opened this key before its menu route was ready.
+    // Once the user selects the menu, let the authoritative menu entry restore
+    // its title and descriptor while retaining that page instance's URL state.
+    const refreshed = existing.pageDescriptor
+      ? createRestoredMenuTab(menu, target, existing.pageDescriptor, options)
+      : tab;
+    return {
+      tabs: tabs.map((item) => (item.key === tab.key ? refreshed : item)),
+      activeTabKey: tab.key,
+    };
   }
 
   return { tabs: [...tabs, tab], activeTabKey: tab.key };
@@ -78,18 +92,37 @@ export function openMenuTab(
 export function openDirectTab(
   tabs: MenuTab[],
   descriptor: PageDescriptor,
+  options: PageDescriptorResolveOptions = {},
 ): { tabs: MenuTab[]; activeTabKey: string; created: boolean } {
-  const tab = createDirectTab(descriptor);
-  const created = !tabs.some((item) => item.key === tab.key);
-  return { tabs: upsertTab(tabs, tab), activeTabKey: tab.key, created };
+  const tab = createDirectTab(withPageInstanceKey(descriptor), options);
+  const existing = tabs.find((item) => {
+    if (item.key === tab.key) return true;
+    return (
+      tab.pageDescriptor?.tabPolicy.identity === 'by-params' &&
+      item.pageDescriptor?.tabPolicy.identity === 'by-params' &&
+      tabIdentityKeyOf(item.pageDescriptor) === tabIdentityKeyOf(tab.pageDescriptor)
+    );
+  });
+  if (existing) return { tabs, activeTabKey: existing.key, created: false };
+  return { tabs: [...tabs, tab], activeTabKey: tab.key, created: true };
 }
 
-export function menuTargetUrl(menu: MenuRecord, target: MenuNavigationTarget): string {
-  return pageDescriptorToUrl(resolvePageDescriptor(target, { title: menu.title }));
+export function menuTargetUrl(
+  menu: MenuRecord,
+  target: MenuNavigationTarget,
+  options: PageDescriptorResolveOptions = {},
+): string {
+  if (target.menuType === 'link' && target.openMode === 'window') {
+    return target.externalUrl;
+  }
+  return pageDescriptorToUrl(resolvePageDescriptor(target, { ...options, title: menu.title }), options);
 }
 
 export function activeTabUrlOf(state: WorkbenchStartupState): string | undefined {
   const activeTab = (state.tabs ?? []).find((tab) => tab.key === state.activeTabKey);
+  if (activeTab?.fullPath) {
+    return activeTab.fullPath;
+  }
   const descriptor =
     activeTab?.pageDescriptor ??
     (activeTab?.target ? resolvePageDescriptor(activeTab.target, { title: activeTab.title }) : undefined);
@@ -107,33 +140,42 @@ export function restoreWorkbenchStartupStateFromUrl(
   state: WorkbenchStartupState,
   url: string,
   options: PageDescriptorResolveOptions = {},
+  newInstance = false,
 ): WorkbenchStartupState {
   if (url === '/' || url === '') {
     return state;
   }
 
-  const openApiModuleAlias = moduleAliasFromOpenApiPath(url.split(/[?#]/, 1)[0] ?? '');
+  const pathname = url.split(/[?#]/, 1)[0] ?? '';
+  const openApiModuleAlias = moduleAliasFromOpenApiPath(pathname);
   const descriptor = openApiModuleAlias
     ? createModuleOpenApiPageDescriptor(openApiModuleAlias)
-    : tryPageDescriptorFromUrl(url, options);
+    : isOpenApiCatalogPath(pathname)
+      ? createOpenApiCatalogPageDescriptor()
+      : tryPageDescriptorFromUrl(url, options);
   if (!descriptor) {
     return state;
   }
 
-  const workspaceDescriptor = restoredWorkspaceViewDescriptor(descriptor);
-  const effectiveDescriptor = workspaceDescriptor ?? descriptor;
-
   const explicitMenu = descriptor.menuId ? findMenuById(state.menus, descriptor.menuId) : undefined;
+  const explicitTarget = explicitMenu ? getMenuNavigationTarget(explicitMenu) : undefined;
+  const descriptorWithExplicitMenuTitle =
+    explicitMenu && explicitTarget && explicitMenuOwnsDynamicDescriptor(explicitTarget, descriptor)
+      ? { ...descriptor, title: explicitMenu.title }
+      : descriptor;
+  const workspaceDescriptor = restoredWorkspaceViewDescriptor(descriptorWithExplicitMenuTitle);
+  const effectiveDescriptor = workspaceDescriptor ?? descriptorWithExplicitMenuTitle;
+  const descriptorForOpen = newInstance ? withPageInstanceKey(effectiveDescriptor) : effectiveDescriptor;
   const menu =
-    explicitMenu && menuMatchesDescriptor(explicitMenu, effectiveDescriptor, options)
+    explicitMenu && menuMatchesDescriptor(explicitMenu, descriptorForOpen, options)
       ? explicitMenu
-      : findMenuByDescriptor(state.menus, effectiveDescriptor, options);
-  const target = menu ? getMenuNavigationTarget(menu) : undefined;
+      : findMenuByDescriptor(state.menus, descriptorForOpen, options);
+  const target = menu === explicitMenu ? explicitTarget : menu ? getMenuNavigationTarget(menu) : undefined;
   const tab = workspaceDescriptor
-    ? createDirectTab(workspaceDescriptor)
+    ? createDirectTab(workspaceDescriptor, options)
     : menu && target && isTabMenuTarget(target)
-      ? createRestoredMenuTab(menu, target, effectiveDescriptor, options)
-      : createDirectTab(effectiveDescriptor);
+      ? createRestoredMenuTab(menu, target, descriptorForOpen, options)
+      : createDirectTab(descriptorForOpen, options);
   const existingTabs = state.tabs ?? [];
   const tabs = upsertTab(existingTabs, tab);
 
@@ -155,6 +197,18 @@ function restoredWorkspaceViewDescriptor(descriptor: PageDescriptor) {
         descriptor.title,
       )
     : undefined;
+}
+
+/** A menu-id URL may arrive before its dedicated Vue route is registered. */
+function explicitMenuOwnsDynamicDescriptor(
+  target: MenuNavigationTarget,
+  descriptor: PageDescriptor,
+): boolean {
+  return (
+    descriptor.pageType === 'dynamic-module' &&
+    target.menuType === 'module' &&
+    target.moduleAlias === descriptor.target.moduleAlias
+  );
 }
 
 export function closeMenuTab(
@@ -206,9 +260,38 @@ export function arrangeLockedMenuTabs(
     if (lockedKeys.has(lockedTab.key)) return [];
     lockedKeys.add(lockedTab.key);
     const currentTab = currentTabs.get(lockedTab.key);
-    return currentTab ? [currentTab] : includeMissingLockedTabs ? [lockedTab] : [];
+    return currentTab
+      ? [refreshCurrentTabFromLockedMenu(currentTab, lockedTab)]
+      : includeMissingLockedTabs
+        ? [lockedTab]
+        : [];
   });
   return [...pinned, ...tabs.filter((tab) => !lockedKeys.has(tab.key))];
+}
+
+/**
+ * Locked menu tabs are rebuilt from the current account's visible menus.  When
+ * a shared URL opens the same tab key, keep its page instance and parameters,
+ * but never let its fallback title replace the rebuilt menu facts.
+ */
+function refreshCurrentTabFromLockedMenu(currentTab: MenuTab, lockedTab: MenuTab): MenuTab {
+  const currentDescriptor = currentTab.pageDescriptor;
+  const lockedDescriptor = lockedTab.pageDescriptor;
+  if (!currentDescriptor || !lockedDescriptor || !lockedTab.target) {
+    return currentTab;
+  }
+
+  const descriptor: PageDescriptor = {
+    ...currentDescriptor,
+    title: lockedTab.title,
+    menuId: lockedTab.target.menuId,
+    tabPolicy: lockedDescriptor.tabPolicy,
+  };
+  return {
+    ...lockedTab,
+    ...createDirectTab(descriptor),
+    target: lockedTab.target,
+  };
 }
 
 /**
@@ -225,7 +308,7 @@ export function restoreLockedWorkbenchTabs(
   collectTabMenus(menus, availableMenus);
   const restoredKeys = new Set<string>();
   return lockedTabs.flatMap((tab) => {
-    const menuId = tab.pageDescriptor?.menuId ?? tab.target?.menuId;
+    const menuId = tab.pageDescriptor?.menuId ?? tab.target?.menuId ?? menuIdFromTabKey(tab.key);
     if (menuId) {
       if (restoredKeys.has(menuId)) return [];
       const available = availableMenus.get(menuId);
@@ -239,6 +322,10 @@ export function restoreLockedWorkbenchTabs(
     restoredKeys.add(workspaceTab.key);
     return [workspaceTab];
   });
+}
+
+function menuIdFromTabKey(key: string): string | undefined {
+  return key.startsWith('menu:') ? key.slice('menu:'.length) || undefined : undefined;
 }
 
 function restoreLockedWorkspaceTab(tab: MenuTab): MenuTab | undefined {
@@ -292,14 +379,29 @@ function initialTabOf(menus: WorkbenchStartupState['menus'], options: PageDescri
   return menu && target ? createMenuTab(menu, target, options) : undefined;
 }
 
-function createDirectTab(descriptor: PageDescriptor): MenuTab {
+function createDirectTab(descriptor: PageDescriptor, options: PageDescriptorResolveOptions = {}): MenuTab {
+  const fullPath = pageDescriptorToUrl(descriptor, options);
   return {
+    ...(pageInstanceKeyOfDescriptor(descriptor)
+      ? { instanceKey: pageInstanceKeyOfDescriptor(descriptor) }
+      : {}),
     key: tabKeyOf(descriptor),
     title: descriptor.title ?? directTabTitleOf(descriptor),
+    fullPath,
     pageDescriptor: descriptor,
-    restoreState: { url: pageDescriptorToUrl(descriptor) },
+    restoreState: { url: fullPath },
     closable: true,
   };
+}
+
+function pageInstanceKeyOfDescriptor(descriptor: PageDescriptor): string | undefined {
+  const query =
+    descriptor.pageType === 'platform-route' || descriptor.pageType === 'business-route'
+      ? (descriptor.target.query ?? descriptor.params)
+      : descriptor.params;
+  const value = query?.InstanceKey;
+  const first = Array.isArray(value) ? value[0] : value;
+  return typeof first === 'string' && first ? first : undefined;
 }
 
 function upsertTab(tabs: MenuTab[], tab: MenuTab): MenuTab[] {
@@ -351,8 +453,8 @@ function createRestoredMenuTab(
 
   return {
     ...tab,
-    pageDescriptor,
-    restoreState: { url: pageDescriptorToUrl(pageDescriptor) },
+    ...createDirectTab(pageDescriptor, options),
+    target,
   };
 }
 
@@ -419,9 +521,10 @@ function matchesPageDescriptor(left: PageDescriptor, right: PageDescriptor): boo
   if (left.pageType === 'dynamic-module' && right.pageType === 'dynamic-module') {
     return (
       left.target.moduleAlias === right.target.moduleAlias &&
-      left.target.pageMode === right.target.pageMode &&
-      left.target.defaultUiConfigId === right.target.defaultUiConfigId &&
-      left.target.defaultQueryTemplateId === right.target.defaultQueryTemplateId
+      (left.target.pageMode ?? 'LIST') === (right.target.pageMode ?? 'LIST') &&
+      (!right.target.defaultUiConfigId || left.target.defaultUiConfigId === right.target.defaultUiConfigId) &&
+      (!right.target.defaultQueryTemplateId ||
+        left.target.defaultQueryTemplateId === right.target.defaultQueryTemplateId)
     );
   }
 

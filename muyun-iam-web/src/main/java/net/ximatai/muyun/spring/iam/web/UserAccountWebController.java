@@ -63,7 +63,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
-        alias = "iam.user", title = "用户管理", route = "/iam/users")
+        alias = "iam.user", title = "用户管理", route = "/iam/user")
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, order = 60)
 @RequestMapping("/iam.user")

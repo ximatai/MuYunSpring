@@ -34,9 +34,13 @@ it('routes a workspace close intent through the owning Workbench navigation', as
   const Harness = defineComponent({
     setup() {
       provideWorkbenchNavigation({
+        openRoute: () => ({ created: true }),
+        replaceRoute: () => ({ created: false }),
+        closeCurrentTab: () => ({ created: false }),
         openPage: () => ({ created: true }),
         replacePage: vi.fn(),
         closePage,
+        setTabName: vi.fn(),
       });
       return () => h(WorkspaceViewOutlet, { descriptor });
     },

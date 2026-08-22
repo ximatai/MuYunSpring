@@ -8,7 +8,6 @@
 export { default as PlatformAdminRouteOutlet } from './PlatformAdminOutlet.vue';
 export {
   isPlatformAdminRoutePage,
-  platformAdminDynamicModuleRoutes,
   platformAdminModuleRoutes,
   platformAdminRouteLayouts,
   platformAdminRoutePrefixes,

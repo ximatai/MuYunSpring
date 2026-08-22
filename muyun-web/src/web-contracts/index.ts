@@ -475,10 +475,13 @@ export function hasExecutableDetailRelationMutationContract(
   );
 }
 
+export type MenuEntryType = 'module' | 'route' | 'link';
+
 export interface MenuRecord extends StandardEnabledTreeEntity {
   id: string;
   title: string;
   schemeId: string;
+  entryType?: MenuEntryType;
   openMode?: MenuOpenMode;
   moduleAlias?: string;
   route?: string;
@@ -670,8 +673,12 @@ export type PageDescriptor =
   | ExternalLinkPageDescriptor;
 
 export interface MenuTab {
+  /** Immutable page-instance key used by route restoration and cache isolation. */
+  instanceKey?: string;
   key: string;
   title: string;
+  /** Exact browser address used to restore this tab. */
+  fullPath?: string;
   target?: MenuNavigationTarget;
   pageDescriptor?: PageDescriptor;
   restoreState?: TabRestoreState;

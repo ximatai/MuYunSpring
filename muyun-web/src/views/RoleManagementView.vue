@@ -102,6 +102,7 @@ const organizationContext = useModuleContext<Organization>({ moduleAlias: 'iam.o
 const roleContext = useModuleContext<Role>({ moduleAlias: 'iam.role' });
 const currentUser = useCurrentUserContext();
 const tenantSearchKeyword = ref('');
+const pageRoot = ref<HTMLElement | null>(null);
 const organizationSearchKeyword = ref('');
 const tenantReloadKey = ref(0);
 const organizationReloadKey = ref(0);
@@ -1272,6 +1273,7 @@ function parseRoleIds(value: unknown) {
 
 <template>
   <section
+    ref="pageRoot"
     class="role-management-page"
     :class="{
       'role-management-page-platform': !organizationPanelVisible,
@@ -1394,6 +1396,7 @@ function parseRoleIds(value: unknown) {
       v-if="shouldRenderRoleDetailDrawer"
       :open="roleDetailOpen"
       :title="roleDetailTitle"
+      :container="pageRoot"
       :subtitle="roleDetailSubtitle"
       :close-on-outside="roleDetailMode === 'view'"
       :promotion="roleDetailPromotion"
@@ -1545,6 +1548,7 @@ function parseRoleIds(value: unknown) {
       :open="bindingDrawerOpen"
       :context="roleContext"
       :role="bindingRole"
+      :container="pageRoot"
       @close="closeRoleBinding"
       @saved="roleReloadKey += 1"
     />
@@ -1552,12 +1556,14 @@ function parseRoleIds(value: unknown) {
       :open="employmentBindingDrawerOpen"
       :context="roleContext"
       :role="bindingRole"
+      :container="pageRoot"
       @close="closeRoleBinding"
       @saved="roleReloadKey += 1"
     />
     <RoleAuthorizationView
       v-if="authorizationDrawerOpen && authorizationRole?.id"
       :role-id="authorizationRole.id"
+      :container="pageRoot"
       drawer
       @close="closeRoleAuthorization"
     />

@@ -6,13 +6,13 @@
 
 ## 登录与当前身份
 
-| 方法   | URL                 | 功能                                                                                               |
-| ------ | ------------------- | -------------------------------------------------------------------------------------------------- |
-| `POST` | `/iam.auth/login`   | 用户登录。请求包含 `tenantId`、`username`、`password`；返回 Bearer token、当前登录 `sessionId`、签发时间和当前用户信息。 |
+| 方法   | URL                                           | 功能                                                                                                                                                                                                        |
+| ------ | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/iam.auth/login`                             | 用户登录。请求包含 `tenantId`、`username`、`password`；返回 Bearer token、当前登录 `sessionId`、签发时间和当前用户信息。                                                                                    |
 | `GET`  | `/iam.auth/login-context?tenantId={tenantId}` | 匿名读取 URL 锁定租户的公开登录上下文。该端点以平台 `ANONYMOUS_ALLOWED` 动作登记并经统一策略链路执行；仅返回锁定租户标识及工作台品牌投影，供标准登录页展示 Logo、主标题和副标题；目标租户必须处于启用状态。 |
-| `POST` | `/iam.auth/logout`  | 当前 Bearer token 登出。token 从 `Authorization: Bearer ...` 读取。                                |
-| `GET`  | `/iam.auth/context` | 返回当前请求解析出的用户上下文，用于前端会话恢复和启动态确认。                                     |
-| `GET`  | `/iam.auth/tenant-branding` | 返回当前租户的工作台品牌投影（`lightLogo`、可选的 `darkLogo`）；Logo 以受限 Base64 图片 data URL 保存。 |
+| `POST` | `/iam.auth/logout`                            | 当前 Bearer token 登出。token 从 `Authorization: Bearer ...` 读取。                                                                                                                                         |
+| `GET`  | `/iam.auth/context`                           | 返回当前请求解析出的用户上下文，用于前端会话恢复和启动态确认。                                                                                                                                              |
+| `GET`  | `/iam.auth/tenant-branding`                   | 返回当前租户的工作台品牌投影（`lightLogo`、可选的 `darkLogo`）；Logo 以受限 Base64 图片 data URL 保存。                                                                                                     |
 
 后续请求通过 `Authorization: Bearer <token>` 解析当前用户。服务端在 `iam_user_session` 中保存 token hash，不保存明文 token；session 使用滑动过期并受绝对过期时间约束；同一用户允许多端登录。解析成功后，Web Filter 会写入 `CurrentUserContext`；租户用户同步写入 `TenantContext`，系统用户进入系统态。登出和修改密码会撤销对应 session。
 
@@ -74,9 +74,9 @@
 
 根路径：`/iam.tenant/{tenantId}/applications`
 
-| 方法 | URL | 功能 |
-| --- | --- | --- |
-| `POST` | `/iam.tenant/{tenantId}/applications/query` | 查询租户已开通应用。 |
+| 方法   | URL                                             | 功能                                                                                                       |
+| ------ | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `POST` | `/iam.tenant/{tenantId}/applications/query`     | 查询租户已开通应用。                                                                                       |
 | `POST` | `/iam.tenant/{tenantId}/applications/configure` | 以 `applicationAliases` 全量配置租户可用应用。应用必须全局启用且允许分配给租户；`iam` 为不可移除基线应用。 |
 
 应用开通是模块动作的前置门禁。移除应用后，普通租户用户访问该应用模块会返回 `APPLICATION_NOT_OPENED`；角色授权、菜单和配置事实保留。
@@ -195,22 +195,22 @@
 
 根路径：`/iam.user`
 
-| 方法   | URL                             | 功能                                                                   |
-| ------ | ------------------------------- | ---------------------------------------------------------------------- |
-| `POST` | `/iam.user/query`               | 查询用户。                                                             |
-| `GET`  | `/iam.user/view/{id}`           | 查看用户。                                                             |
-| `POST` | `/iam.user/insert`              | 新增用户；写入密码后服务端保存密码哈希。                               |
-| `POST` | `/iam.user/update/{id}`         | 更新登录账号基础状态；人员资料不在账号表维护。                         |
-| `POST` | `/iam.user/delete/{id}`         | 删除用户。                                                             |
-| `POST` | `/iam.user/enable/{id}`         | 启用用户。                                                             |
-| `POST` | `/iam.user/disable/{id}`        | 停用用户。                                                             |
-| `POST` | `/iam.user/changePassword/{id}` | 修改用户密码；成功后撤销该用户现有 session。                           |
-| `POST` | `/iam.user/resetPassword/{id}`  | 重置用户密码并返回临时密码；成功后撤销该用户现有 session。             |
-| `POST` | `/iam.user/forceLogout/{id}`    | 管理员强制用户全部会话下线；保留为账号级兜底动作。                    |
-| `GET`  | `/iam.user/{id}/sessions`       | 查询用户当前有效登录会话；返回登录时间、最近活跃、IP、User-Agent 等。  |
-| `POST` | `/iam.user/{id}/sessions/{sessionId}/revoke` | 下线用户指定登录会话；禁止通过用户管理入口下线当前会话。 |
-| `POST` | `/iam.user/{id}/sessions/revoke` | 批量下线用户指定登录会话；请求体包含 `sessionIds`。                   |
-| `POST` | `/iam.user/selector/query`      | 用户选择器查询；支持按角色、账号关键字和启用状态过滤，返回轻量用户项。 |
+| 方法   | URL                                          | 功能                                                                   |
+| ------ | -------------------------------------------- | ---------------------------------------------------------------------- |
+| `POST` | `/iam.user/query`                            | 查询用户。                                                             |
+| `GET`  | `/iam.user/view/{id}`                        | 查看用户。                                                             |
+| `POST` | `/iam.user/insert`                           | 新增用户；写入密码后服务端保存密码哈希。                               |
+| `POST` | `/iam.user/update/{id}`                      | 更新登录账号基础状态；人员资料不在账号表维护。                         |
+| `POST` | `/iam.user/delete/{id}`                      | 删除用户。                                                             |
+| `POST` | `/iam.user/enable/{id}`                      | 启用用户。                                                             |
+| `POST` | `/iam.user/disable/{id}`                     | 停用用户。                                                             |
+| `POST` | `/iam.user/changePassword/{id}`              | 修改用户密码；成功后撤销该用户现有 session。                           |
+| `POST` | `/iam.user/resetPassword/{id}`               | 重置用户密码并返回临时密码；成功后撤销该用户现有 session。             |
+| `POST` | `/iam.user/forceLogout/{id}`                 | 管理员强制用户全部会话下线；保留为账号级兜底动作。                     |
+| `GET`  | `/iam.user/{id}/sessions`                    | 查询用户当前有效登录会话；返回登录时间、最近活跃、IP、User-Agent 等。  |
+| `POST` | `/iam.user/{id}/sessions/{sessionId}/revoke` | 下线用户指定登录会话；禁止通过用户管理入口下线当前会话。               |
+| `POST` | `/iam.user/{id}/sessions/revoke`             | 批量下线用户指定登录会话；请求体包含 `sessionIds`。                    |
+| `POST` | `/iam.user/selector/query`                   | 用户选择器查询；支持按角色、账号关键字和启用状态过滤，返回轻量用户项。 |
 
 用户列表和用户绑定职员详情可返回绑定职员摘要字段；这些摘要属于用户管理入口的读模型，权限口径跟随 `iam.user` 的查询或查看入口，不额外要求调用方具备 `iam.employee` 查看权限。
 
@@ -236,12 +236,12 @@
 | `GET`  | `/iam.role/{roleId}/employment-grants`                  | 查询任职角色授权实例。                                                                    |
 | `POST` | `/iam.role/{roleId}/employment-grants`                  | 给职员任职授予任职角色、角色组或数据授权角色。                                            |
 | `POST` | `/iam.role/{roleId}/employment-grants/{grantId}/delete` | 删除任职角色授权实例。                                                                    |
-| `POST` | `/iam.role/{roleId}/employment-selector/query`          | 分页读取可授权任职，返回职员、机构、部门、岗位和主岗信息，供角色侧“绑定任职”选择器使用。 |
+| `POST` | `/iam.role/{roleId}/employment-selector/query`          | 分页读取可授权任职，返回职员、机构、部门、岗位和主岗信息，供角色侧“绑定任职”选择器使用。  |
 | `POST` | `/iam.role/grant/{roleId}`                              | 授予角色某个 `moduleAlias + actionCode`，可携带数据权限策略、租户范围策略和引用依赖参数。 |
 | `POST` | `/iam.role/grant/{roleId}/batch`                        | 批量授予角色多个模块动作；每项请求体复用单动作授权字段。                                  |
 | `POST` | `/iam.role/revoke/{roleId}`                             | 撤销角色某个模块动作授权。                                                                |
 | `POST` | `/iam.role/revoke/{roleId}/batch`                       | 批量撤销角色多个模块动作授权。                                                            |
-| `POST` | `/iam.role/permissionMatrix/{roleId}/replace`           | 原子提交角色动作授权矩阵草稿；每项携带目标授予状态及必要的数据范围配置。                 |
+| `POST` | `/iam.role/permissionMatrix/{roleId}/replace`           | 原子提交角色动作授权矩阵草稿；每项携带目标授予状态及必要的数据范围配置。                  |
 | `POST` | `/iam.role/permissionMatrix/{roleId}`                   | 按模块列表返回角色授权矩阵，用于回显可授权动作和已授权状态。                              |
 | `GET`  | `/iam.role/dataScopePolicyCatalog/{roleId}`             | 返回当前角色可配置的数据范围策略；传入 `moduleAlias` 时同时返回该模块可用的引用依赖候选。 |
 | `GET`  | `/iam.role/menuMatrix/{roleId}/{schemeId}`              | 按菜单方案返回菜单树和角色对模块菜单的授权状态。                                          |

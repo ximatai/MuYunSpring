@@ -13,7 +13,7 @@ const roleScopeKinds = new Set<RoleOwnerScopeType>(['platform', 'tenant', 'organ
 
 export const roleDetailWorkspaceView = defineWorkspaceView<RoleDetailWorkspaceViewInput>({
   type: 'iam.role.detail',
-  route: '/iam/roles',
+  route: '/iam/role',
   moduleAlias: 'iam.role',
   component: defineAsyncComponent(() => import('./RoleDetailWorkspaceView.vue')),
   layout: 'workspace',

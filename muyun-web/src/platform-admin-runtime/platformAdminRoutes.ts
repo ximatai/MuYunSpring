@@ -1,17 +1,17 @@
-import type { Component } from 'vue';
+import { defineAsyncComponent, type Component } from 'vue';
 import type {
   BusinessRoutePageDescriptor,
   PageDescriptor,
   PageLayoutMode,
   RoutePageTarget,
 } from '@muyun/web-contracts';
-import DictionaryManagementView from '../views/DictionaryManagementView.vue';
-import EmployeeManagementView from '../views/EmployeeManagementView.vue';
-import MenuManagementView from '../views/MenuManagementView.vue';
-import RoleManagementView from '../views/RoleManagementView.vue';
-import RoleAuthorizationView from '../views/RoleAuthorizationView.vue';
-import SystemUserManagementView from '../views/SystemUserManagementView.vue';
-import UserManagementView from '../views/UserManagementView.vue';
+const DictionaryManagementView = defineAsyncComponent(() => import('../views/DictionaryManagementView.vue'));
+const EmployeeManagementView = defineAsyncComponent(() => import('../views/EmployeeManagementView.vue'));
+const MenuManagementView = defineAsyncComponent(() => import('../views/MenuManagementView.vue'));
+const RoleManagementView = defineAsyncComponent(() => import('../views/RoleManagementView.vue'));
+const RoleAuthorizationView = defineAsyncComponent(() => import('../views/RoleAuthorizationView.vue'));
+const SystemUserManagementView = defineAsyncComponent(() => import('../views/SystemUserManagementView.vue'));
+const UserManagementView = defineAsyncComponent(() => import('../views/UserManagementView.vue'));
 
 export interface PlatformAdminRoute {
   route: string;
@@ -25,43 +25,57 @@ export interface PlatformAdminRoute {
 
 export const platformAdminRoutes: PlatformAdminRoute[] = [
   {
-    route: '/config/dictionaries',
+    route: '/platform/dictionary-category',
     moduleAlias: 'platform.dictionary_category',
     component: DictionaryManagementView,
     layout: 'workspace',
   },
   {
-    route: '/config/menus',
+    route: '/platform/menu-scheme',
     moduleAlias: 'platform.menu_scheme',
     component: MenuManagementView,
     layout: 'workspace',
   },
   {
-    route: '/iam/employees',
+    route: '/iam/employee',
     moduleAlias: 'iam.employee',
     component: EmployeeManagementView,
     layout: 'workspace',
   },
   {
-    route: '/iam/users',
+    route: '/iam/user',
     moduleAlias: 'iam.user',
     component: UserManagementView,
     layout: 'workspace',
   },
   {
-    route: '/iam/system-users',
+    route: '/iam/user/form',
+    moduleAlias: 'iam.user',
+    component: UserManagementView,
+    layout: 'workspace',
+    menuEntry: false,
+  },
+  {
+    route: '/iam/user/form/:userId',
+    moduleAlias: 'iam.user',
+    component: UserManagementView,
+    layout: 'workspace',
+    menuEntry: false,
+  },
+  {
+    route: '/iam/system-user',
     moduleAlias: 'iam.system_user',
     component: SystemUserManagementView,
     layout: 'workspace',
   },
   {
-    route: '/iam/roles',
+    route: '/iam/role',
     moduleAlias: 'iam.role',
     component: RoleManagementView,
     layout: 'workspace',
   },
   {
-    route: '/iam/role-authorization',
+    route: '/iam/role/authorization',
     moduleAlias: 'iam.role',
     component: RoleAuthorizationView,
     layout: 'workspace',
@@ -70,25 +84,8 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
 ];
 
 export const platformAdminRoutePrefixes = Array.from(
-  new Set(['/_workspace', ...platformAdminRoutes.map((route) => route.route)]),
+  new Set(['/_platform/workspace', ...platformAdminRoutes.map((route) => route.route)]),
 );
-/**
- * Readable legacy URLs that are intentionally delegated to the standard module runner.
- * Module menus without a dedicated static page, including `platform.module`, use the
- * canonical `/platform/dynamic/<moduleAlias>/list` URL directly.
- */
-export const platformAdminDynamicModuleRoutes: Record<string, string> = {
-  '/config/field-ui-controls': 'platform.field_ui_control',
-  // Tenant management is descriptor-owned. Keep the former static URL for
-  // bookmarks and menus; page serialization canonicalizes it to the module host.
-  '/iam/tenants': 'iam.tenant',
-  '/iam/organizations': 'iam.organization',
-  '/iam/departments': 'iam.department',
-  // Keep the former static module-management URL as a bookmark-compatible
-  // dynamic entry. Page serialization still uses the canonical dynamic URL.
-  '/config/modules': 'platform.module',
-  '/platform/security/passwords': 'iam.password_policy_rule',
-};
 export const platformAdminModuleRoutes = Object.fromEntries(
   platformAdminRoutes
     .filter((route) => route.menuEntry !== false)
@@ -116,9 +113,18 @@ export function isPlatformAdminRoutePage(
 function routeMatchesTarget(route: PlatformAdminRoute, target: RoutePageTarget) {
   if (target.route) {
     return (
-      target.route === route.route &&
+      routePathMatches(route.route, target.route) &&
       (target.moduleAlias === undefined || target.moduleAlias === route.moduleAlias)
     );
   }
   return target.moduleAlias === route.moduleAlias;
+}
+
+function routePathMatches(pattern: string, path: string) {
+  const patternSegments = pattern.split('/').filter(Boolean);
+  const pathSegments = path.split('/').filter(Boolean);
+  return (
+    patternSegments.length === pathSegments.length &&
+    patternSegments.every((segment, index) => segment.startsWith(':') || segment === pathSegments[index])
+  );
 }

@@ -1,5 +1,6 @@
 import { assert, it } from 'vitest';
 import {
+  createOpenApiCatalogPageDescriptor,
   createOpenApiAuthenticatedFetch,
   createModuleOpenApiPageDescriptor,
   isOpenApiCatalogPath,
@@ -14,6 +15,15 @@ it('recognizes the dedicated OpenAPI viewer route for a platform module alias', 
   assert.equal(moduleAliasFromOpenApiPath('/openapi/iam.user/'), 'iam.user');
   assert.equal(moduleAliasFromOpenApiPath('/openapi/education.teacher/extra'), undefined);
   assert.equal(moduleAliasFromOpenApiPath('/openapi/Teacher'), undefined);
+});
+
+it('creates the OpenAPI catalog as a regular workbench route', () => {
+  const descriptor = createOpenApiCatalogPageDescriptor();
+  if (descriptor.pageType !== 'platform-route') {
+    throw new Error('Expected a platform route descriptor.');
+  }
+  assert.equal(descriptor.target.route, '/openapi');
+  assert.equal(descriptor.tabPolicy.identity, 'by-target');
 });
 
 it('recognizes the API catalog route independently from a module document route', () => {

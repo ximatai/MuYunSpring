@@ -319,7 +319,7 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("职员管理");
                 assertThat(definition.entryType()).isEqualTo(ModuleEntryType.ROUTE);
-                assertThat(definition.entryRoute()).isEqualTo("/iam/employees");
+                assertThat(definition.entryRoute()).isEqualTo("/iam/employee");
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                                 "sort", "enable", "disable", "employeePositions", "employeeAccounts",
@@ -407,6 +407,7 @@ class StaticModuleDefinitionScannerTest {
             assertThat(byAlias.get("iam.role")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("角色管理");
+                assertThat(definition.entryRoute()).isEqualTo("/iam/role");
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                                 "sort", "enable", "disable", "accountRoleGrants", "employmentRoleGrants",
@@ -451,6 +452,7 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.moduleAlias()).isEqualTo("iam.user");
                 assertThat(definition.title()).isEqualTo("用户管理");
+                assertThat(definition.entryRoute()).isEqualTo("/iam/user");
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                                 "enable", "disable", "userSelector", "changePassword", "resetPassword",
@@ -569,7 +571,7 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.moduleAlias()).isEqualTo("iam.system_user");
                 assertThat(definition.title()).isEqualTo("系统账号管理");
                 assertThat(definition.entryType()).isEqualTo(ModuleEntryType.ROUTE);
-                assertThat(definition.entryRoute()).isEqualTo("/iam/system-users");
+                assertThat(definition.entryRoute()).isEqualTo("/iam/system-user");
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactly("menu");
             });
@@ -681,6 +683,7 @@ class StaticModuleDefinitionScannerTest {
                     .extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                             "sort", "enable", "disable");
+            assertThat(byAlias.get("platform.menu_scheme").entryRoute()).isEqualTo("/platform/menu-scheme");
             assertThat(byAlias.get("platform.menu").actions())
                     .extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("create", "view", "update", "delete", "query",
@@ -691,6 +694,8 @@ class StaticModuleDefinitionScannerTest {
                             "tree", "sort", "enable", "disable",
                             "item_create", "item_view", "item_update", "item_delete", "item_query",
                             "item_tree", "item_sort", "item_enable", "item_disable");
+            assertThat(byAlias.get("platform.dictionary_category").entryRoute())
+                    .isEqualTo("/platform/dictionary-category");
             assertThat(byAlias.get("platform.dictionary_category").actions())
                     .filteredOn(action -> action.actionCode().equals("item_query"))
                     .singleElement()

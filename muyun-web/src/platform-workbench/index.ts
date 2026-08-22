@@ -4,7 +4,8 @@ export { default as WorkbenchOutlet } from './WorkbenchOutlet.vue';
 export { default as WorkspaceViewOutlet } from './WorkspaceViewOutlet.vue';
 export { syncModulePageWorkspaceViewContributions } from './modulePageWorkspaceViews';
 export { provideWorkbenchNavigation, useWorkbenchNavigation } from './workbenchNavigation';
-export type { WorkbenchNavigation, WorkbenchPageOpenResult } from './workbenchNavigation';
+export type { OpenRouteOptions, WorkbenchNavigation, WorkbenchPageOpenResult } from './workbenchNavigation';
+export { routeUrlWithOpenOptions } from './workbenchNavigation';
 export {
   configureWorkspaceViewContributions,
   createWorkspaceViewDescriptor,
@@ -24,15 +25,20 @@ export type {
 export type { WorkspaceViewHost } from './workspaceViewHost';
 export {
   createMenuTab,
+  canonicalDynamicModulePath,
+  dynamicModuleAliasFromPath,
   findFirstNavigationMenu,
   getMenuNavigationTarget,
   isTabMenuTarget,
   isWindowMenuTarget,
   pageDescriptorFromUrl,
   pageDescriptorToUrl,
+  pageInstanceKeyOf,
   resolvePageDescriptor,
+  tabIdentityKeyOf,
   tabKeyOf,
   tryPageDescriptorFromUrl,
+  withPageInstanceKey,
 } from './menuNavigation';
 export type { PageDescriptorResolveOptions, PageDescriptorUrlParseOptions } from './menuNavigation';
 export {

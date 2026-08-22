@@ -92,14 +92,14 @@ public class PurchaseApprovalService {
 
 `BusinessNotificationRecipients` 的所有维度按并集处理，并按 `userId` 去重：
 
-| 字段 | 含义 |
-| --- | --- |
-| `systemWide` | 跨全部租户、向所有当前在线用户发送。仅用于真正的全局平台公告。 |
-| `tenantIds` | 指定租户内的当前在线用户。 |
-| `organizationIds` | 指定机构的当前在线用户。 |
-| `departmentIds` | 指定部门任职人员的当前在线用户。 |
-| `positionIds` | 指定岗位任职人员的当前在线用户。 |
-| `userIds` | 指定用户。 |
+| 字段              | 含义                                                           |
+| ----------------- | -------------------------------------------------------------- |
+| `systemWide`      | 跨全部租户、向所有当前在线用户发送。仅用于真正的全局平台公告。 |
+| `tenantIds`       | 指定租户内的当前在线用户。                                     |
+| `organizationIds` | 指定机构的当前在线用户。                                       |
+| `departmentIds`   | 指定部门任职人员的当前在线用户。                               |
+| `positionIds`     | 指定岗位任职人员的当前在线用户。                               |
+| `userIds`         | 指定用户。                                                     |
 
 例如同时指定部门和用户时，属于该部门 **或** 在用户列表中的在线用户都会收到。空范围不会投递。
 

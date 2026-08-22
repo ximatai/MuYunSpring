@@ -191,6 +191,22 @@ public class MenuService extends AbstractAbilityService<Menu> implements
         return TreeAbility.super.children(schemeScope(schemeId), parentId);
     }
 
+    /**
+     * Resolves the entry type that the workbench must receive with a visible menu.
+     * Containers intentionally have no type; an entry with a missing module is left unresolved so
+     * the web client can report its configuration error instead of guessing a route.
+     */
+    public ModuleEntryType navigationEntryType(Menu menu) {
+        if (menu == null || !hasText(menu.getModuleAlias())) {
+            return null;
+        }
+        PlatformModule module = moduleService.resolveVisibleModule(menu.getModuleAlias());
+        if (module == null) {
+            return null;
+        }
+        return module.getEntryType() == null ? ModuleEntryType.MODULE : module.getEntryType();
+    }
+
     public List<Menu> visibleRootMenus(String schemeId) {
         return visibleChildren(schemeId, TreeAbility.ROOT_ID, new LinkedHashSet<>());
     }

@@ -9,8 +9,16 @@ import type {
 } from '../web-contracts';
 import { userPreferences } from '../web-core';
 import Workbench from '../platform-workbench/Workbench.vue';
-import { provideWorkbenchNavigation } from '../platform-workbench/workbenchNavigation';
-import { pageDescriptorToUrl, type PageDescriptorResolveOptions } from '../platform-workbench/menuNavigation';
+import {
+  provideWorkbenchNavigation,
+  routeUrlWithOpenOptions,
+  type OpenRouteOptions,
+} from '../platform-workbench/workbenchNavigation';
+import {
+  pageDescriptorToUrl,
+  withPageInstanceKey,
+  type PageDescriptorResolveOptions,
+} from '../platform-workbench/menuNavigation';
 import type { WorkbenchRealtimeStatus } from '../platform-workbench/realtimeStatus';
 import {
   arrangeLockedMenuTabs,
@@ -64,7 +72,15 @@ let lockedTabPreferenceRevision = 0;
 let lockedTabPreferenceWrite = Promise.resolve();
 let isMounted = false;
 
-provideWorkbenchNavigation({ openPage, replacePage, closePage: closeTab });
+provideWorkbenchNavigation({
+  openRoute,
+  replaceRoute,
+  closeCurrentTab,
+  openPage,
+  replacePage,
+  closePage: closeTab,
+  setTabName,
+});
 
 onMounted(() => {
   isMounted = true;
@@ -174,6 +190,115 @@ function openPage(descriptor: PageDescriptor) {
   const result = openDirectTab(props.startup.tabs ?? [], descriptor);
   update({ ...props.startup, tabs: result.tabs, activeTabKey: result.activeTabKey }, 'push');
   return { created: result.created };
+}
+
+function openRoute(path: string, options: OpenRouteOptions = {}) {
+  return navigateRoute(
+    routeUrlWithOpenOptions(path, options),
+    'push',
+    props.startup,
+    options.tabTitle,
+    options.newInstance,
+  );
+}
+
+function replaceRoute(path: string, options: OpenRouteOptions = {}) {
+  const currentTabKey = props.startup.activeTabKey;
+  const currentTab = props.startup.tabs?.find((tab) => tab.key === currentTabKey);
+  const fullPath = routeUrlWithOpenOptions(path, options);
+  if (!currentTabKey || !currentTab)
+    return navigateRoute(fullPath, 'replace', props.startup, options.tabTitle);
+  const restored = restoreWorkbenchStartupStateFromUrl(props.startup, fullPath, props.resolveOptions);
+  const replacement = restored.tabs?.find((tab) => tab.key === restored.activeTabKey);
+  if (!replacement) return { created: false };
+  const pageDescriptor =
+    replacement.pageDescriptor && currentTab.instanceKey
+      ? withPageInstanceKey(replacement.pageDescriptor, currentTab.instanceKey)
+      : replacement.pageDescriptor;
+  const publicUrl = pageDescriptor
+    ? pageDescriptorToUrl(pageDescriptor, props.resolveOptions)
+    : replacement.fullPath;
+  const tabs = (restored.tabs ?? [])
+    .filter((tab) => tab.key !== replacement.key)
+    .map((tab) =>
+      tab.key === currentTabKey
+        ? {
+            ...currentTab,
+            ...replacement,
+            key: currentTabKey,
+            instanceKey: currentTab.instanceKey,
+            pageDescriptor,
+            fullPath: publicUrl,
+            restoreState: publicUrl ? { url: publicUrl } : replacement.restoreState,
+            title: options.tabTitle ?? replacement.title,
+          }
+        : tab,
+    );
+  update({ ...restored, tabs, activeTabKey: currentTabKey }, 'replace');
+  return { created: false };
+}
+
+function closeCurrentTab(fallbackPath: string) {
+  const currentTabKey = props.startup.activeTabKey;
+  const result = currentTabKey
+    ? closeMenuTab(props.startup.tabs ?? [], currentTabKey, currentTabKey)
+    : { tabs: props.startup.tabs ?? [], activeTabKey: props.startup.activeTabKey };
+  if (currentTabKey && lockedTabs.value.some((tab) => tab.key === currentTabKey)) {
+    persistLockedTabs(removeLockedMenuTabs(lockedTabs.value, [currentTabKey]));
+  }
+  const fallback = result.tabs.find((tab) => {
+    const url = tab.fullPath ?? (tab.pageDescriptor ? pageDescriptorToUrl(tab.pageDescriptor) : undefined);
+    return url && new URL(url, 'http://muyun.local').pathname === fallbackPath;
+  });
+  if (fallback) {
+    update({ ...props.startup, tabs: result.tabs, activeTabKey: fallback.key }, 'replace');
+    return { created: false };
+  }
+  return navigateRoute(routeUrlWithOpenOptions(fallbackPath), 'replace', {
+    ...props.startup,
+    tabs: result.tabs,
+    activeTabKey: result.activeTabKey,
+  });
+}
+
+function navigateRoute(
+  url: string,
+  mode: 'push' | 'replace',
+  state: WorkbenchStartupState,
+  tabTitle?: string,
+  newInstance = false,
+) {
+  const previousKeys = new Set((state.tabs ?? []).map((tab) => tab.key));
+  let restored = restoreWorkbenchStartupStateFromUrl(
+    state,
+    url,
+    {
+      ...props.resolveOptions,
+      title: tabTitle ?? props.resolveOptions.title,
+    },
+    newInstance,
+  );
+  if (tabTitle && restored.activeTabKey) {
+    restored = {
+      ...restored,
+      tabs: (restored.tabs ?? []).map((tab) =>
+        tab.key === restored.activeTabKey ? { ...tab, title: tabTitle } : tab,
+      ),
+    };
+  }
+  update(restored, mode);
+  return { created: Boolean(restored.activeTabKey && !previousKeys.has(restored.activeTabKey)) };
+}
+
+function setTabName(instanceKey: string, name: string) {
+  const title = name.trim();
+  if (!instanceKey || !title) return;
+  update({
+    ...props.startup,
+    tabs: (props.startup.tabs ?? []).map((tab) =>
+      tab.instanceKey === instanceKey ? { ...tab, title } : tab,
+    ),
+  });
 }
 
 function replacePage(pageKey: string, descriptor: PageDescriptor) {
