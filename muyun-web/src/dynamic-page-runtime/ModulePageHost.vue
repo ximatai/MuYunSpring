@@ -763,8 +763,7 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
       runtimeAccess: 'REFERENCE',
     });
     const hasPickerQueryScope = pickerQueryFieldNames.value.has(pickerFieldName);
-    const usesSourceReferenceResolver =
-      reference.candidateDelivery === 'SOURCE_FIELD' && reference.pickerMode !== 'TREE';
+    const usesSourceReferenceResolver = reference.candidateDelivery === 'SOURCE_FIELD';
     const sourceReferencePickerConfig: Pick<RecordFormFieldPickerConfig, 'loadOptions' | 'resolveOptions'> =
       {};
     if (usesSourceReferenceResolver) {
@@ -789,11 +788,16 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
           mode: 'QUERY',
           fuzzy: keyword || undefined,
           page: { pageNum: 1, pageSize: 50 },
+          formValues: { ...(editingRecord.value ?? {}) },
         });
         return response.options.map(pickerRecord);
       };
       sourceReferencePickerConfig.resolveOptions = async (values: string[]) => {
-        const response = await referenceResolver.resolve(pickerFieldName, { mode: 'TRANSLATE', values });
+        const response = await referenceResolver.resolve(pickerFieldName, {
+          mode: 'TRANSLATE',
+          values,
+          formValues: { ...(editingRecord.value ?? {}) },
+        });
         return response.results.flatMap((result) => (result.item ? [pickerRecord(result.item)] : []));
       };
     }

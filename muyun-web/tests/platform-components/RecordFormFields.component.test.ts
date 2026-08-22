@@ -412,4 +412,30 @@ describe('RecordFormFields', () => {
     expect(wrapper.emitted('update:field')).toContainEqual(['customerCode', 'C-001']);
     expect(wrapper.emitted('update:field')).toContainEqual(['customerName', '星云科技']);
   });
+
+  it('applies affect patches from selected multi-value references in selection order', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'customerIds',
+        {
+          fieldRef: { fieldName: 'customerIds' },
+          label: '客户',
+          uiType: 'text',
+          reference: { targetModuleAlias: 'crm.customer', cardinality: 'MANY' },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: { record: { customerIds: [] }, fields, pickerConfigs: { customerIds: { context: {} as never } } },
+    });
+
+    wrapper.findComponent({ name: 'RecordMultiPicker' }).vm.$emit('select', [
+      { id: 'customer-1', affectPatch: { customerCode: 'C-001' } },
+      { id: 'customer-2', affectPatch: { customerCode: 'C-002' } },
+    ]);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.emitted('update:field')).toContainEqual(['customerCode', 'C-001']);
+    expect(wrapper.emitted('update:field')).toContainEqual(['customerCode', 'C-002']);
+  });
 });

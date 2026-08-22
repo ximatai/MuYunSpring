@@ -54,7 +54,10 @@ const props = withDefaults(
   },
 );
 
-const emit = defineEmits<{ 'update:value': [value: string[]] }>();
+const emit = defineEmits<{
+  'update:value': [value: string[]];
+  select: [records: RecordPickerRecord[]];
+}>();
 const loading = ref(false);
 const tree = ref<WebTreeNode<RecordPickerRecord>[]>([]);
 const records = ref<RecordPickerRecord[]>([]);
@@ -159,10 +162,9 @@ function toTreeNode(node: WebTreeNode<RecordPickerRecord>): UiTreeSelectNode {
 
 function updateValue(value: string | number | (string | number)[] | null) {
   const values = Array.isArray(value) ? value : value == null ? [] : [value];
-  emit(
-    'update:value',
-    values.filter((item): item is string => typeof item === 'string'),
-  );
+  const selected = values.filter((item): item is string => typeof item === 'string');
+  emit('update:value', selected);
+  emit('select', selected.flatMap((id) => records.value.filter((record) => record.id === id)));
 }
 </script>
 

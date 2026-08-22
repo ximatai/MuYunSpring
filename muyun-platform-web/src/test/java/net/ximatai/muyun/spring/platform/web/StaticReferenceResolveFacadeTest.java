@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
 import net.ximatai.muyun.spring.web.WebReferenceResolveMode;
 import net.ximatai.muyun.spring.web.WebReferenceResolveRequest;
@@ -20,6 +21,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -37,7 +39,6 @@ class StaticReferenceResolveFacadeTest {
         when(target.referenceOptions(any(), any(PageRequest.class)))
                 .thenReturn(PageResult.of(List.of(new ReferenceOption("customer-1", "星云科技")), 1,
                         PageRequest.of(1, 20)));
-        when(target.title("customer-1")).thenReturn("星云科技");
 
         StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.order", "订单")
                 .modelClass(Order.class).build();
@@ -56,15 +57,42 @@ class StaticReferenceResolveFacadeTest {
                 .isEqualTo("星云科技");
         ArgumentCaptor<Criteria> criteria = ArgumentCaptor.forClass(Criteria.class);
         ArgumentCaptor<PageRequest> page = ArgumentCaptor.forClass(PageRequest.class);
-        verify(target).referenceOptions(criteria.capture(), page.capture());
-        assertThat(criteria.getValue().getClauses()).singleElement().satisfies(clause -> {
+        verify(target, org.mockito.Mockito.times(2)).referenceOptions(criteria.capture(), page.capture());
+        assertThat(criteria.getAllValues().getFirst().getClauses()).singleElement().satisfies(clause -> {
             assertThat(clause.getField()).isEqualTo("title");
             assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.LIKE);
             assertThat(clause.getValues()).containsExactly("星云");
         });
-        assertThat(page.getValue().getOffset()).isZero();
-        assertThat(page.getValue().getLimit()).isEqualTo(20);
-        verify(target).title("customer-1");
+        assertThat(page.getAllValues().getFirst().getOffset()).isZero();
+        assertThat(page.getAllValues().getFirst().getLimit()).isEqualTo(20);
+        assertThat(criteria.getAllValues().get(1).getClauses()).singleElement().satisfies(clause -> {
+            assertThat(clause.getField()).isEqualTo("id");
+            assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.IN);
+            assertThat(clause.getValues()).containsExactly("customer-1");
+        });
+    }
+
+    @Test
+    void shouldResolveADynamicReferenceTargetThroughTheScopedDynamicService() {
+        @SuppressWarnings("unchecked") CrudAbility<Order> source = mock(CrudAbility.class);
+        doReturn(Order.class).when(source).modelClass();
+        when(source.getModuleAlias()).thenReturn("sales.order");
+        DynamicRecordService dynamicRecords = mock(DynamicRecordService.class);
+        when(dynamicRecords.mainEntityAlias("crm")).thenReturn("customer");
+        when(dynamicRecords.referenceOptions(eq("crm"), eq("customer"), any(), any(PageRequest.class)))
+                .thenReturn(PageResult.of(List.of(new ReferenceOption("customer-1", "星云科技")), 1,
+                        PageRequest.of(1, 50)));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.order", "订单")
+                .modelClass(Order.class).build();
+        StaticReferenceResolveFacade facade = new StaticReferenceResolveFacade(
+                new StaticModuleDefinitionCatalog(List.of(definition)), new StaticAbilityCatalog(List.of(source)), dynamicRecords);
+
+        var response = facade.resolve("sales.order", "customerId", new WebReferenceResolveRequest(
+                WebReferenceResolveMode.QUERY, null, null, List.of(), List.of(), null,
+                new net.ximatai.muyun.spring.web.WebPageRequest(1, 50), true, null, null, null, null, null));
+
+        assertThat(response.options()).extracting(item -> item.title()).containsExactly("星云科技");
+        verify(dynamicRecords).referenceOptions(eq("crm"), eq("customer"), any(), any(PageRequest.class));
     }
 
     private static final class Order extends StandardEntity {

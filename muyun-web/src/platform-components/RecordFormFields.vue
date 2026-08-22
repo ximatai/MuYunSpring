@@ -322,6 +322,15 @@ function applyPickerSelection(
   }
 }
 
+function applyMultiPickerSelection(
+  fieldName: string,
+  records: import('./recordPickerConstraints').RecordPickerRecord[],
+) {
+  for (const record of records) {
+    applyPickerSelection(fieldName, record);
+  }
+}
+
 function updateEditorField(field: RecordFormFieldState, value: string) {
   try {
     const decoded = decodeEditorValue(field, value);
@@ -488,6 +497,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           :description-of="field.pickerConfig.descriptionOf"
           :filter-option="field.pickerConfig.filterOption"
           @update:value="updateField(field.fieldName, $event)"
+          @select="applyMultiPickerSelection(field.fieldName, $event)"
         />
         <SingleImageFileReferenceField
           v-else-if="
