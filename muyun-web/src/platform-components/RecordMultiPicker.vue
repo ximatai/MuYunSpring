@@ -6,7 +6,12 @@ import type { WebTreeNode } from '@muyun/web-contracts';
 import type { PickerConstraint, RecordPickerRecord } from './recordPickerConstraints';
 import { firstConstraintMessage } from './recordPickerConstraints';
 import { resolveRecordPickerMode, type RecordPickerMode } from './recordPickerModel';
-import { defaultTreeRecordTitle, flattenTreeRecords } from './treeRecordModel';
+import {
+  defaultTreeRecordMatches,
+  defaultTreeRecordTitle,
+  filterTreeRecords,
+  flattenTreeRecords,
+} from './treeRecordModel';
 
 defineOptions({ name: 'RecordMultiPicker' });
 
@@ -20,6 +25,8 @@ interface UiTreeSelectNode {
 const props = withDefaults(
   defineProps<{
     context: ModuleContext<RecordPickerRecord>;
+    loadOptions?: (keyword: string) => Promise<RecordPickerRecord[]>;
+    resolveOptions?: (values: string[]) => Promise<RecordPickerRecord[]>;
     value?: string[];
     reloadKey?: number;
     mode?: RecordPickerMode;
@@ -33,6 +40,8 @@ const props = withDefaults(
   }>(),
   {
     value: () => [],
+    loadOptions: undefined,
+    resolveOptions: undefined,
     reloadKey: undefined,
     mode: 'auto',
     placeholder: '请选择',
@@ -51,9 +60,14 @@ const tree = ref<WebTreeNode<RecordPickerRecord>[]>([]);
 const records = ref<RecordPickerRecord[]>([]);
 const actualMode = ref<Exclude<RecordPickerMode, 'auto'>>('list');
 const error = ref<string>();
+const keyword = ref('');
 const pickerContext = computed(() => ({ records: records.value }));
 
-const treeData = computed<UiTreeSelectNode[]>(() => tree.value.map(toTreeNode));
+const treeData = computed<UiTreeSelectNode[]>(() =>
+  filterTreeRecords(tree.value, keyword.value, (record, normalized) =>
+    matchesKeyword(record, normalized),
+  ).map(toTreeNode),
+);
 const listOptions = computed(() =>
   records.value.map((record) => ({
     value: record.id ?? '',
@@ -66,6 +80,15 @@ onMounted(() => void loadRecords());
 watch(
   () => [props.context, props.mode, props.reloadKey] as const,
   () => void loadRecords(),
+);
+watch(keyword, () => {
+  if (actualMode.value === 'list') {
+    void loadRecords();
+  }
+});
+watch(
+  () => props.value,
+  () => void resolveSelectedOptions(),
 );
 
 async function loadRecords() {
@@ -81,9 +104,17 @@ async function loadRecords() {
       records.value = flattenTreeRecords(response.records);
       return;
     }
-    const response = await props.context.crud.query({ page: { pageNum: 1, pageSize: 100 } });
     tree.value = [];
-    records.value = response.records;
+    if (props.loadOptions) {
+      records.value = await props.loadOptions(keyword.value.trim());
+    } else {
+      const response = await props.context.crud.query({
+        page: { pageNum: 1, pageSize: 100 },
+        ...(keyword.value.trim() ? { quickSearch: keyword.value.trim() } : {}),
+      });
+      records.value = response.records;
+    }
+    await resolveSelectedOptions();
   } catch (cause) {
     error.value = normalizeError(cause).message;
   } finally {
@@ -91,8 +122,23 @@ async function loadRecords() {
   }
 }
 
+async function resolveSelectedOptions() {
+  const missing = props.value.filter((value) => !records.value.some((record) => record.id === value));
+  if (!props.resolveOptions || missing.length === 0) return;
+  const resolved = await props.resolveOptions(missing);
+  records.value = [...records.value, ...resolved.filter((record) => record.id !== undefined)];
+}
+
 function recordTitle(record: RecordPickerRecord) {
   return props.titleOf?.(record) ?? defaultTreeRecordTitle(record);
+}
+
+function matchesKeyword(record: RecordPickerRecord, value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return true;
+  return props.filterOption
+    ? props.filterOption(record, normalized)
+    : defaultTreeRecordMatches(record, normalized, recordTitle);
 }
 
 function isDisabled(record: RecordPickerRecord) {
@@ -129,7 +175,10 @@ function updateValue(value: string | number | (string | number)[] | null) {
     :placeholder="error ?? placeholder"
     :disabled="disabled"
     :allow-clear="allowClear"
+    :show-search="true"
+    :filter-tree-node="false"
     :loading="loading"
+    @search="keyword = $event"
     @update:value="updateValue"
   />
   <UiSelect
@@ -140,7 +189,10 @@ function updateValue(value: string | number | (string | number)[] | null) {
     :placeholder="error ?? placeholder"
     :disabled="disabled"
     :allow-clear="allowClear"
+    :show-search="true"
+    :filter-option="false"
     :loading="loading"
+    @search="keyword = $event"
     @update:value="updateValue"
   />
 </template>

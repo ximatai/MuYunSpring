@@ -80,8 +80,14 @@ public final class ModuleUiDescriptorCompiler {
                 ? ModuleUiDefinition.builder(definition.moduleAlias()).build()
                 : definition.uiDefinition();
         validateFields(uiDefinition, definition.entities(), definition.moduleAlias(), readOutputFields(definition));
-        Map<String, ResolvedReferenceFieldDescriptor> referenceFields = staticReferenceFields(definition.modelClass(),
-                referencePickerModeResolver == null ? ignored -> ReferencePickerMode.AUTO : referencePickerModeResolver);
+        Function<String, ReferencePickerMode> pickerModeResolver = referencePickerModeResolver == null
+                ? ignored -> ReferencePickerMode.AUTO
+                : referencePickerModeResolver;
+        Map<String, ResolvedReferenceFieldDescriptor> referenceFields = staticReferenceFields(definition.moduleAlias(), definition.modelClass(),
+                pickerModeResolver);
+        referenceFields = ReferenceFieldDescriptorCompiler.withTreeParentReference(definition.moduleAlias(),
+                definition.capabilities().contains(net.ximatai.muyun.spring.common.platform.EntityCapability.TREE),
+                referenceFields, pickerModeResolver);
         Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields =
                 staticReferenceSummaryFields(definition.modelClass());
         ResolvedModuleUiDescriptor descriptor = compileResolved(uiDefinition, ModuleKind.STATIC, definition.title(),
@@ -92,7 +98,7 @@ public final class ModuleUiDescriptorCompiler {
                     Class<?> modelClass = definition.entityModelClasses().get(contribution.resource());
                     return new ResolvedPageDetailEditorContribution(contribution.resource(),
                             compileView(contribution.editor(), staticOptionFields(modelClass),
-                                    staticReferenceFields(modelClass, referencePickerModeResolver),
+                                    staticReferenceFields(definition.moduleAlias(), modelClass, referencePickerModeResolver),
                                     staticReferenceSummaryFields(modelClass), fieldTypes(definition.entities()),
                                     FieldControlDescriptorCatalog.standard(), true));
                 }).toList();
@@ -630,7 +636,7 @@ public final class ModuleUiDescriptorCompiler {
         validateBooleanStatus(viewKind, field);
         validateTagList(viewKind, field, referenceSummary);
         validateValuePresentation(viewKind, field, resolvedValueType);
-        String resolvedUiType = resolvedUiType(viewKind, field, resolvedValueType, option);
+        String resolvedUiType = resolvedUiType(viewKind, field, resolvedValueType, option, reference);
         return new ResolvedViewFieldDescriptor(
                 field.fieldRef(),
                 field.label(),
@@ -697,9 +703,15 @@ public final class ModuleUiDescriptorCompiler {
     private static String resolvedUiType(ModuleViewKind viewKind,
                                          ViewFieldDefinition field,
                                          FieldValueType valueType,
-                                         ResolvedOptionFieldDescriptor option) {
+                                         ResolvedOptionFieldDescriptor option,
+                                         ResolvedReferenceFieldDescriptor reference) {
         if (field.uiType() != null) {
             return field.uiType();
+        }
+        // A reference is a semantic relationship, not an editable ID string. The renderer
+        // resolves its single/multiple presentation from the reference cardinality.
+        if (viewKind == ModuleViewKind.FORM && reference != null) {
+            return "recordPicker";
         }
         if (viewKind == ModuleViewKind.FORM && option != null) {
             return option.selectionMode() == OptionSelectionMode.MULTIPLE ? "multi_select" : "select";
@@ -831,7 +843,8 @@ public final class ModuleUiDescriptorCompiler {
         }
     }
 
-    private static Map<String, ResolvedReferenceFieldDescriptor> staticReferenceFields(Class<?> modelClass,
+    private static Map<String, ResolvedReferenceFieldDescriptor> staticReferenceFields(String moduleAlias,
+                                                                                         Class<?> modelClass,
                                                                                          Function<String, ReferencePickerMode> pickerModeResolver) {
         if (modelClass == null) {
             return Map.of();
@@ -841,7 +854,10 @@ public final class ModuleUiDescriptorCompiler {
                         rule -> rule.plan().sourceField(),
                         rule -> new ResolvedReferenceFieldDescriptor(rule.target().qualifiedName(), rule.cardinality(),
                                 referenceTitleField(modelClass, rule.plan().sourceField()),
-                                pickerModeResolver.apply(rule.target().qualifiedName())),
+                                pickerModeResolver.apply(rule.target().qualifiedName()),
+                                ReferenceCandidateDelivery.SOURCE_FIELD,
+                                "/platform.module/" + moduleAlias + "/references/"
+                                        + rule.plan().sourceField() + "/resolve"),
                         (left, right) -> left
                 ));
     }

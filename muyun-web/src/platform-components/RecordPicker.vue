@@ -21,6 +21,8 @@ defineOptions({ name: 'RecordPicker' });
 const props = withDefaults(
   defineProps<{
     context: ModuleContext<RecordPickerRecord>;
+    loadOptions?: (keyword: string) => Promise<RecordPickerRecord[]>;
+    resolveOptions?: (values: string[]) => Promise<RecordPickerRecord[]>;
     value?: string;
     reloadKey?: number;
     mode?: RecordPickerMode;
@@ -34,6 +36,8 @@ const props = withDefaults(
   }>(),
   {
     value: undefined,
+    loadOptions: undefined,
+    resolveOptions: undefined,
     reloadKey: undefined,
     mode: 'auto',
     placeholder: '请选择',
@@ -63,13 +67,11 @@ const treeData = computed<UiTreeSelectNode[]>(() =>
   ).map(toTreeNode),
 );
 const listOptions = computed(() =>
-  records.value
-    .filter((record) => matchesKeyword(record, keyword.value))
-    .map((record) => ({
-      value: record.id ?? '',
-      label: recordTitle(record),
-      disabled: !record.id || isRecordDisabled(record),
-    })),
+  records.value.map((record) => ({
+    value: record.id ?? '',
+    label: recordTitle(record),
+    disabled: !record.id || isRecordDisabled(record),
+  })),
 );
 
 onMounted(() => void loadRecords());
@@ -77,15 +79,24 @@ watch(
   () => [props.context, props.mode, props.reloadKey] as const,
   () => void loadRecords(),
 );
+watch(keyword, () => {
+  if (actualMode.value === 'list') {
+    void loadRecords();
+  }
+});
+watch(
+  () => props.value,
+  () => void resolveSelectedOption(),
+);
 
 async function loadRecords() {
   loading.value = true;
   error.value = undefined;
-  keyword.value = '';
   try {
     if (props.mode === 'list') {
       actualMode.value = 'list';
       await loadListRecords();
+      await resolveSelectedOption();
       return;
     }
     await props.context.runtime.ready;
@@ -98,6 +109,7 @@ async function loadRecords() {
       return;
     }
     await loadListRecords();
+    await resolveSelectedOption();
   } catch (cause) {
     error.value = normalizeError(cause).message;
   } finally {
@@ -105,8 +117,24 @@ async function loadRecords() {
   }
 }
 
+async function resolveSelectedOption() {
+  const value = props.value;
+  if (!props.resolveOptions || !value || records.value.some((record) => record.id === value)) return;
+  const resolved = await props.resolveOptions([value]);
+  records.value = [...records.value, ...resolved.filter((record) => record.id !== undefined)];
+}
+
 async function loadListRecords() {
-  const response = await props.context.crud.query({ page: { pageNum: 1, pageSize: 100 } });
+  const search = keyword.value.trim();
+  if (props.loadOptions) {
+    tree.value = [];
+    records.value = await props.loadOptions(search);
+    return;
+  }
+  const response = await props.context.crud.query({
+    page: { pageNum: 1, pageSize: 50 },
+    ...(search ? { quickSearch: search } : {}),
+  });
   tree.value = [];
   records.value = response.records;
 }

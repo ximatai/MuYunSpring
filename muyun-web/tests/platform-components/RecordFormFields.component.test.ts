@@ -394,4 +394,22 @@ describe('RecordFormFields', () => {
     expect(wrapper.findComponent({ name: 'UiSelect' }).props('value')).toBe('SCALAR');
     expect(wrapper.findComponent({ name: 'RecordPicker' }).props('value')).toBe('text');
   });
+
+  it('applies a selected reference affect patch as ordinary form field updates', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      ['customerId', { fieldRef: { fieldName: 'customerId' }, label: '客户', uiType: 'recordPicker' }],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: { record: {}, fields, pickerConfigs: { customerId: { context: {} as never } } },
+    });
+
+    wrapper.findComponent({ name: 'RecordPicker' }).vm.$emit('select', {
+      id: 'customer-1',
+      affectPatch: { customerCode: 'C-001', customerName: '星云科技' },
+    });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.emitted('update:field')).toContainEqual(['customerCode', 'C-001']);
+    expect(wrapper.emitted('update:field')).toContainEqual(['customerName', '星云科技']);
+  });
 });

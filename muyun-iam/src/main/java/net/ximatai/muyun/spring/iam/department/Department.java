@@ -6,6 +6,7 @@ import net.ximatai.muyun.database.core.annotation.Column;
 import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.ability.reference.ReferenceIntegrity;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
 import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
@@ -26,6 +27,10 @@ public class Department extends StandardEnabledTreeEntity {
     @ReferenceTo(target = OrganizationService.class,
             integrity = @ReferenceIntegrity(onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
     private String organizationId;
+
+    /** Stable read fact for detail, list and tree-node projection. */
+    @ReferenceLoad(source = "organizationId", field = "title")
+    private transient String organizationTitle;
 
     @Column(name = "code", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Department code")
     private String code;

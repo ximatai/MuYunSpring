@@ -634,14 +634,25 @@ public class PlatformModuleRuntimeContextService {
         return dynamicDescriptor.entities().stream()
                 .filter(entity -> entity.entityAlias().equals(dynamicDescriptor.mainEntityAlias()))
                 .findFirst()
-                .map(entity -> entity.fields().stream()
-                        .filter(field -> field.reference() != null)
-                        .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                                field -> field.fieldName(),
-                                field -> new ResolvedReferenceFieldDescriptor(
-                                        field.reference().targetModuleAlias(), field.reference().cardinality(), null,
-                                        referencePickerMode(field.reference().targetModuleAlias())),
-                                (left, right) -> left)))
+                .map(entity -> ReferenceFieldDescriptorCompiler.withTreeParentReference(
+                        dynamicDescriptor.moduleAlias(),
+                        entity.capabilities().contains(EntityCapability.TREE.name()),
+                        entity.fields().stream()
+                                .filter(field -> field.reference() != null)
+                                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                                        field -> field.fieldName(),
+                                        field -> new ResolvedReferenceFieldDescriptor(
+                                                field.reference().targetModuleAlias(), field.reference().cardinality(),
+                                                field.reference().projections().stream()
+                                                        .filter(projection -> "title".equals(projection.targetField()))
+                                                        .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceProjectionDescriptor::outputField)
+                                                        .findFirst().orElse(null),
+                                                referencePickerMode(field.reference().targetModuleAlias()),
+                                                ReferenceCandidateDelivery.SOURCE_FIELD,
+                                                "/" + dynamicDescriptor.moduleAlias() + "/references/"
+                                                        + field.fieldName() + "/resolve"),
+                                        (left, right) -> left)),
+                        this::referencePickerMode))
                 .orElseGet(java.util.Map::of);
     }
 

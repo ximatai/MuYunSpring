@@ -3069,11 +3069,14 @@ class DynamicRecordWebControllerTest {
                 .thenReturn(new DynamicReferenceResolveResponse(
                         DynamicReferenceResolveStatus.OK,
                         DynamicReferenceResolveMode.QUERY,
-                        List.of(),
+                        List.of(new DynamicReferenceResolveItem("customer-1", "星云科技",
+                                DynamicReferenceMatchMode.LABEL,
+                                Map.of("code", "C-001"),
+                                Map.of("salesOwner", "user-1"))),
                         List.of(),
                         0,
                         20,
-                        0
+                        1
                 ));
 
         mvc.perform(post("/{moduleAlias}/references/{fieldName}/resolve", MODULE, "customerId")
@@ -3091,7 +3094,11 @@ class DynamicRecordWebControllerTest {
                         ))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("OK"))
-                .andExpect(jsonPath("$.mode").value("QUERY"));
+                .andExpect(jsonPath("$.mode").value("QUERY"))
+                .andExpect(jsonPath("$.options[0].id").value("customer-1"))
+                .andExpect(jsonPath("$.options[0].matchedBy").value("LABEL"))
+                .andExpect(jsonPath("$.options[0].projections.code").value("C-001"))
+                .andExpect(jsonPath("$.options[0].affectPatch.salesOwner").value("user-1"));
 
         ArgumentCaptor<DynamicReferenceResolveRequest> request = ArgumentCaptor.forClass(DynamicReferenceResolveRequest.class);
         verify(service).resolveFieldReference(eq(MODULE), eq(ENTITY), eq("customerId"), request.capture());

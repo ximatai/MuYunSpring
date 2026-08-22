@@ -723,6 +723,53 @@ export interface WebQueryRequest {
   externalQueryValues?: Record<string, unknown>;
 }
 
+/** Shared field-reference delivery contract for static and metadata-backed modules. */
+export type WebReferenceResolveMode = 'QUERY' | 'TRANSLATE';
+export type WebReferenceMatchMode = 'KEY' | 'LABEL' | 'AUTO';
+export type WebReferenceResolveStatus = 'OK' | 'RESOLVED' | 'NOT_FOUND' | 'AMBIGUOUS' | 'PARTIAL';
+
+export interface WebReferenceResolveRequest {
+  mode?: WebReferenceResolveMode;
+  matchMode?: WebReferenceMatchMode;
+  fuzzy?: string;
+  values?: unknown[];
+  conditions?: WebQueryCondition[];
+  criteria?: unknown;
+  page?: WebPageRequest;
+  includeProjections?: boolean;
+  formValues?: Record<string, unknown>;
+  sourceUiConfigId?: string;
+  uiConfigId?: string;
+  queryTemplateId?: string;
+  externalQueryValues?: Record<string, unknown>;
+}
+
+export interface WebReferenceResolveItem {
+  id: string;
+  title?: string;
+  matchedBy?: WebReferenceMatchMode;
+  projections?: Record<string, unknown>;
+  affectPatch?: Record<string, unknown>;
+}
+
+export interface WebReferenceResolveResult {
+  input: unknown;
+  status: WebReferenceResolveStatus;
+  matchedBy?: WebReferenceMatchMode;
+  item?: WebReferenceResolveItem;
+  candidates: WebReferenceResolveItem[];
+}
+
+export interface WebReferenceResolveResponse {
+  status: WebReferenceResolveStatus;
+  mode: WebReferenceResolveMode;
+  options: WebReferenceResolveItem[];
+  results: WebReferenceResolveResult[];
+  offset: number;
+  limit: number;
+  total: number;
+}
+
 export type QueryValueType =
   | 'STRING'
   | 'TEXT'
@@ -928,6 +975,9 @@ export interface ResolvedReferenceFieldDescriptor {
   cardinality: 'ONE' | 'MANY';
   /** Server-resolved standard picker transport. AUTO exists only for descriptors issued before an explicit mode. */
   pickerMode?: ReferencePickerMode;
+  /** Standardized candidate transport chosen by the compiled source-field contract. */
+  candidateDelivery?: 'TARGET_NAVIGATOR' | 'SOURCE_FIELD';
+  resolvePath?: string;
   /** Read-side title projection for this scalar reference, when supplied by the server. */
   titleField?: string;
 }

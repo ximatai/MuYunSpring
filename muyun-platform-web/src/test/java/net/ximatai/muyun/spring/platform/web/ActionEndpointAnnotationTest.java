@@ -61,8 +61,8 @@ class ActionEndpointAnnotationTest {
                 HttpServletRequest.class, String.class, TreeSortWebRequest.class).value()).isEqualTo(PlatformAction.SORT);
         assertThat(endpoint(DynamicRecordWebController.class, "querySchema", String.class).value())
                 .isEqualTo(PlatformAction.QUERY);
-        Class<?> referenceRequestType = Class.forName("net.ximatai.muyun.spring.dynamic.web.DynamicWebReferenceRequest");
-        assertThat(endpoint(DynamicRecordWebController.class, "reference", String.class, referenceRequestType).value())
+        assertThat(endpoint(DynamicRecordWebController.class, "reference", String.class,
+                WebReferenceResolveRequest.class).value())
                 .isEqualTo(PlatformAction.REFERENCE);
     }
 
