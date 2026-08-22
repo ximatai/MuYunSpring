@@ -1,5 +1,6 @@
 import { assert, expect, it } from 'vitest';
 import {
+  applyReferenceDependencyClears,
   childResourceDefaultFormViewCode,
   resolveRecordDetailFields,
   resolveRecordFormFields,
@@ -19,6 +20,34 @@ import {
   optionItemsToTree,
 } from '@/platform-components/optionFieldOptions.ts';
 import type { ResolvedModuleUiDescriptor } from '@/web-contracts/index.ts';
+
+it('clears declared dependent references from the full form catalog', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    ['organizationId', descriptorField('organizationId', '所属机构')],
+    [
+      'departmentId',
+      {
+        ...descriptorField('departmentId', '所属部门'),
+        reference: {
+          targetModuleAlias: 'iam.department',
+          cardinality: 'ONE',
+          candidateDependencies: [
+            { sourceField: 'organizationId', targetField: 'organizationId', required: true },
+          ],
+        },
+      },
+    ],
+  ]);
+
+  expect(
+    applyReferenceDependencyClears(
+      { organizationId: 'organization-a', departmentId: 'department-a' },
+      'organizationId',
+      'organization-b',
+      fields,
+    ),
+  ).toEqual({ organizationId: 'organization-b', departmentId: undefined });
+});
 
 it('registers every renderer kind promised by the persisted web-form support matrix', () => {
   const rendererTypes = new Set(recordFieldRendererRegistry.map((renderer) => renderer.rendererType));

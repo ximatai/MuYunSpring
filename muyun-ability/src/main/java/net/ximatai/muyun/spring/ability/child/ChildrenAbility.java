@@ -32,7 +32,8 @@ public interface ChildrenAbility<P extends EntityContract> extends CrudAbility<P
                 rule.plan(),
                 (child, parentId) -> rule.setParentId(child, parentId),
                 rule::children,
-                rule::populate
+                rule::populate,
+                rule::parentId
         );
     }
 
@@ -46,7 +47,8 @@ public interface ChildrenAbility<P extends EntityContract> extends CrudAbility<P
                 rule.plan(),
                 rule::setParentId,
                 rule::children,
-                rule::populate
+                rule::populate,
+                rule::parentId
         );
     }
 
@@ -62,7 +64,8 @@ public interface ChildrenAbility<P extends EntityContract> extends CrudAbility<P
                 rule.plan(),
                 rule::setParentId,
                 rule::children,
-                rule::populate
+                rule::populate,
+                rule::parentId
         );
     }
 

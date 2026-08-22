@@ -148,6 +148,50 @@ describe('managed detail relation surface', () => {
     expect(wrapper.find('[title="属性 alias不能为空"]').exists()).toBe(false);
   });
 
+  it('renders relation booleans with semantic labels instead of JavaScript literals', async () => {
+    const managed = relation('properties');
+    managed.embeddedField = 'properties';
+    managed.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    managed.queryContract!.listProjection = {
+      fields: [
+        { fieldName: 'primary', title: '主项' },
+        { fieldName: 'enabled', title: '启用状态' },
+      ],
+    };
+    const uiDescriptor = descriptor();
+    uiDescriptor.editorContributions![0]!.editor.fields.push(
+      {
+        fieldRef: { relationCode: 'field_ui_control_property', fieldName: 'primary' },
+        label: '主项',
+        visible: { constant: true },
+        required: { constant: false },
+        readOnly: { constant: false },
+        uiType: 'switch',
+      },
+      {
+        fieldRef: { relationCode: 'field_ui_control_property', fieldName: 'enabled' },
+        label: '启用状态',
+        visible: { constant: true },
+        required: { constant: false },
+        readOnly: { constant: false },
+        uiType: 'enabledStatus',
+      },
+    );
+    const wrapper = shallowMount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(vi.fn()),
+        uiDescriptor,
+        relation: managed,
+        parentRecord: { id: 'select', properties: [{ id: 'row-1', primary: false, enabled: true }] },
+        mutationEnabled: false,
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('.managed-relation-inline__value').text()).toBe('否');
+    expect(wrapper.findComponent({ name: 'RecordStatusTag' }).props('enabled')).toBe(true);
+  });
+
   it('validates a new row as soon as any editable cell contains data', async () => {
     const managed = relation('properties');
     managed.embeddedField = 'properties';

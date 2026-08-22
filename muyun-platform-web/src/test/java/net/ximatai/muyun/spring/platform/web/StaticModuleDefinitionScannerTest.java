@@ -41,7 +41,6 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeDao;
-import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeDelegationService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeService;
@@ -239,7 +238,7 @@ class StaticModuleDefinitionScannerTest {
                     mock(DepartmentService.class));
             context.registerBean(EmployeeService.class, () -> employeeService);
             context.registerBean(EmployeeWebController.class, () -> {
-                EmployeeWebController controller = new EmployeeWebController(mock(EmployeePositionService.class),
+                EmployeeWebController controller = new EmployeeWebController(
                         mock(EmployeeAccountService.class), mock(EmployeeDelegationService.class));
                 ReflectionTestUtils.setField(controller, "service", employeeService);
                 return controller;
@@ -313,16 +312,16 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.entryRoute()).isBlank();
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
-                                "tree", "sort", "enable", "disable");
+                                "tree", "sort", "enable", "disable", "reference");
             });
             assertThat(byAlias.get("iam.employee")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("职员管理");
-                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.ROUTE);
-                assertThat(definition.entryRoute()).isEqualTo("/iam/employee");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.entryRoute()).isBlank();
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
-                        .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
-                                "sort", "enable", "disable", "employeePositions", "employeeAccounts",
+                        .contains("menu", "create", "view", "update", "delete", "query",
+                                "sort", "enable", "disable", "reference", "employeeAccounts",
                                 "employeeDelegations", "employeeDelegatedToMe",
                                 "recycleBinQuery", "recycleBinRestore");
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
@@ -330,9 +329,6 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("employeeAccounts"))
                         .singleElement()
                         .satisfies(action -> assertCustomRecordAction(action, "employeeAccounts", "职员账号"));
-                assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("employeePositions"))
-                        .singleElement()
-                        .satisfies(action -> assertCustomRecordAction(action, "employeePositions", "职员任岗"));
                 assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("employeeDelegations"))
                         .singleElement()
                         .satisfies(action -> assertCustomRecordAction(action, "employeeDelegations", "职员业务代办"));
@@ -363,6 +359,12 @@ class StaticModuleDefinitionScannerTest {
                                     .containsExactly("employeeNo", "organizationTitle", "title", "username",
                                             "mobile", "email", "enabled", "avatarAssetId", "accountBound");
                         });
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().levels())
+                        .extracting(ResolvedPageNavigatorLevelDescriptor::key)
+                        .containsExactly("tenant", "organization");
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().contextBindings())
+                        .contains(new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "organization",
+                                PageContextTarget.LIST_QUERY, "organizationId", null));
                 assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor())
                         .satisfies(view -> {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
@@ -372,6 +374,19 @@ class StaticModuleDefinitionScannerTest {
                             assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("departmentId"))
                                     .singleElement()
                                     .satisfies(field -> assertThat(field.uiType()).isEqualTo("recordPicker"));
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).detailRelations())
+                        .extracting(relation -> relation.code())
+                        .contains("positions");
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).editorContributions())
+                        .filteredOn(contribution -> contribution.resource().equals("positions"))
+                        .singleElement()
+                        .satisfies(contribution -> assertThat(contribution.editor().fields())
+                                .filteredOn(field -> field.fieldRef().fieldName().equals("organizationId"))
+                                .singleElement()
+                                .satisfies(field -> {
+                                    assertThat(field.fieldControl().rendererType()).isEqualTo("RECORD_PICKER");
+                                    assertThat(field.reference().targetModuleAlias()).isEqualTo("iam.organization");
+                                }));
                         });
             });
             assertThat(byAlias.get("iam.position_category")).satisfies(definition -> {
@@ -390,7 +405,7 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.entryRoute()).isEmpty();
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
-                                "sort", "enable", "disable");
+                                "sort", "enable", "disable", "reference");
                 assertThat(definition.uiDefinition()).isNotNull();
                 assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().levels())
                         .extracting(ResolvedPageNavigatorLevelDescriptor::key)
@@ -989,7 +1004,7 @@ class StaticModuleDefinitionScannerTest {
             assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
             assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactly("menu", "create", "view", "update", "delete", "query",
-                            "sort", "enable", "disable");
+                            "sort", "enable", "disable", "reference");
             assertThat(definition.uiDefinition()).isNotNull();
             assertThat(((FlatManagementPageDefinition) definition.uiDefinition().page()).detail().editor())
                     .satisfies(view -> {

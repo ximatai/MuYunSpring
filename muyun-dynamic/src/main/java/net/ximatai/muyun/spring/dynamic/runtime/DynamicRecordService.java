@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
+import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -348,6 +349,42 @@ public class DynamicRecordService {
             boolean visible = !entityService(moduleAlias, entityAlias).list(scope.criteria(), new PageRequest(0, 1)).isEmpty();
             return visible ? entityService(moduleAlias, entityAlias).select(id) : null;
         });
+    }
+
+    /**
+     * Reads one declared aggregate relation only after the parent has passed the normal VIEW
+     * scope.  It is the dynamic counterpart of the shared {@code ChildRelation} read path used
+     * by static modules; web delivery decides which child fields are exposed.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public List<DynamicRecord> aggregateChildrenForView(String moduleAlias, String parentId,
+                                                        String relationCode) {
+        String mainEntityAlias = mainEntityAlias(moduleAlias);
+        DynamicRecord parent = select(moduleAlias, mainEntityAlias, parentId);
+        if (parent == null) {
+            throw new IllegalArgumentException("aggregate relation expansion parent is not visible: " + parentId);
+        }
+        ChildRelation relation = requireAggregateChildRelation(moduleAlias, relationCode);
+        return (List<DynamicRecord>) relation.selectChildren(parent.getId());
+    }
+
+    /** Presentation companions (for example, reference titles) travel with an aggregate expansion column. */
+    public List<String> aggregateExpansionOutputFields(String moduleAlias, String relationCode,
+                                                        List<String> requestedFields) {
+        ChildRelation relation = requireAggregateChildRelation(moduleAlias, relationCode);
+        if (!(relation.childAbility() instanceof DynamicEntityService childService)) {
+            throw new IllegalStateException("dynamic aggregate child relation must use a dynamic child service: "
+                    + relationCode);
+        }
+        return childService.expansionOutputFields(requestedFields);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private ChildRelation requireAggregateChildRelation(String moduleAlias, String relationCode) {
+        return entityService(moduleAlias, mainEntityAlias(moduleAlias)).childRelations().stream()
+                .filter(candidate -> relationCode.equals(candidate.relationCode()))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                        "unknown aggregate child relation: " + relationCode));
     }
 
     public DynamicRecord selectIgnoreSoftDelete(String moduleAlias, String entityAlias, String id) {

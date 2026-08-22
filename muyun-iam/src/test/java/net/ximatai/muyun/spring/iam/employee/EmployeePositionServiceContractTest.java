@@ -119,6 +119,37 @@ class EmployeePositionServiceContractTest {
     }
 
     @Test
+    void shouldRejectEmploymentReferencesFromAnotherTenant() {
+        EmployeeService employeeService = mock(EmployeeService.class);
+        OrganizationService organizationService = mock(OrganizationService.class);
+        DepartmentService departmentService = mock(DepartmentService.class);
+        PositionService positionService = mock(PositionService.class);
+        Employee employee = employee("employee-1", "org-1", "dept-1");
+        employee.setTenantId("tenant-a");
+        Organization organization = organization("org-1");
+        organization.setTenantId("tenant-b");
+        Department department = department("dept-1", "org-1");
+        department.setTenantId("tenant-a");
+        Position position = position("position-1");
+        position.setTenantId("tenant-a");
+        when(employeeService.requireEnabledOrThrow(eq("employee-1"), any())).thenReturn(employee);
+        when(organizationService.requireEnabledOrThrow(eq("org-1"), any())).thenReturn(organization);
+        when(departmentService.requireEnabledOrThrow(eq("dept-1"), any())).thenReturn(department);
+        when(positionService.requireEnabledOrThrow(eq("position-1"), any())).thenReturn(position);
+        EmployeePositionService service = new EmployeePositionService(mock(EmployeePositionDao.class),
+                activeTenantVerifier(), employeeService, organizationService, departmentService, positionService);
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThatThrownBy(() -> service.beforeInsert(
+                    relation("employee-1", "org-1", "dept-1", "position-1", false)))
+                    .isInstanceOfSatisfying(BusinessException.class, exception ->
+                            assertThat(exception.actionMessage().code())
+                                    .isEqualTo("iam.employee-position.cross-tenant-reference"))
+                    .hasMessage("任职职员与机构必须属于同一租户");
+        }
+    }
+
+    @Test
     void shouldExposePrimaryPositionDuplicateAsBusinessError() {
         EmployeePositionDao dao = mock(EmployeePositionDao.class);
         EmployeePosition existing = relation("employee-1", "org-1", "dept-1", "position-1", true);
@@ -196,6 +227,21 @@ class EmployeePositionServiceContractTest {
         assertThat(target.getEnabled()).isTrue();
         verify(service).update(existingPrimary);
         verify(service).update(target);
+    }
+
+    @Test
+    void shouldPersistOutgoingPrimaryBeforeIncomingPrimaryInAggregateReplacement() {
+        EmployeePositionService service = service(mock(EmployeePositionDao.class));
+        EmployeePosition existingPrimary = relation("employee-1", "org-1", "dept-1", "position-1", true);
+        existingPrimary.setId("relation-old");
+        existingPrimary.setEnabled(Boolean.TRUE);
+        EmployeePosition incomingOld = relation("employee-1", "org-1", "dept-1", "position-1", false);
+        incomingOld.setId("relation-old");
+        EmployeePosition incomingNew = relation("employee-1", "org-1", "dept-1", "position-2", true);
+        incomingNew.setId("relation-new");
+
+        assertThat(service.orderForReplacement(List.of(incomingNew, incomingOld), List.of(existingPrimary)))
+                .containsExactly(incomingOld, incomingNew);
     }
 
     private EmployeePositionService service(EmployeePositionDao dao) {

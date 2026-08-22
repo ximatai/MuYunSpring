@@ -26,6 +26,7 @@ const props = withDefaults(
   defineProps<{
     context: ModuleContext<RecordPickerRecord>;
     loadOptions?: (keyword: string) => Promise<RecordPickerRecord[]>;
+    loadTree?: () => Promise<WebTreeNode<RecordPickerRecord>[]>;
     resolveOptions?: (values: string[]) => Promise<RecordPickerRecord[]>;
     value?: string[];
     reloadKey?: number;
@@ -41,6 +42,7 @@ const props = withDefaults(
   {
     value: () => [],
     loadOptions: undefined,
+    loadTree: undefined,
     resolveOptions: undefined,
     reloadKey: undefined,
     mode: 'auto',
@@ -102,9 +104,8 @@ async function loadRecords() {
     const treeAbility = props.mode === 'list' ? undefined : props.context.abilities.tryTree();
     actualMode.value = resolveRecordPickerMode(props.mode, Boolean(treeAbility));
     if (actualMode.value === 'tree' && treeAbility) {
-      const response = await treeAbility.tree();
-      tree.value = response.records;
-      records.value = flattenTreeRecords(response.records);
+      tree.value = props.loadTree ? await props.loadTree() : (await treeAbility.tree()).records;
+      records.value = flattenTreeRecords(tree.value);
       return;
     }
     tree.value = [];

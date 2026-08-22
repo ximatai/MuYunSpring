@@ -248,5 +248,16 @@ public final class StaticChildResolver {
                         + child.getClass().getName() + "." + plan.childForeignKeyField(), e);
             }
         }
+
+        public <C extends EntityContract> String parentId(C child) {
+            if (child == null) return null;
+            try {
+                Object value = childForeignKeyField.get(child);
+                return value == null ? null : String.valueOf(value);
+            } catch (IllegalAccessException e) {
+                throw new PlatformException("cannot read child foreign key field: "
+                        + child.getClass().getName() + "." + plan.childForeignKeyField(), e);
+            }
+        }
     }
 }

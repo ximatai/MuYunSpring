@@ -14,7 +14,11 @@ import net.ximatai.muyun.spring.common.model.capability.SortCapable;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateBinding;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
+import net.ximatai.muyun.spring.ability.reference.ReferenceIntegrity;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
+import net.ximatai.muyun.spring.ability.child.ChildOf;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
 import net.ximatai.muyun.spring.iam.position.PositionService;
@@ -27,6 +31,9 @@ import net.ximatai.muyun.spring.iam.position.PositionService;
         unique = true)
 public class EmployeePosition extends StandardEntity implements EnabledCapable, SortCapable {
     @Column(name = "employee_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Employee id")
+    @ChildOf
+    @ReferenceTo(target = EmployeeService.class,
+            integrity = @ReferenceIntegrity(onTargetUnavailable = ReferenceTargetUnavailablePolicy.CASCADE_DELETE))
     private String employeeId;
 
     @Column(name = "organization_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
@@ -39,7 +46,8 @@ public class EmployeePosition extends StandardEntity implements EnabledCapable, 
 
     @Column(name = "department_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Department id")
-    @ReferenceTo(target = DepartmentService.class)
+    @ReferenceTo(target = DepartmentService.class,
+            candidateBindings = @ReferenceCandidateBinding(sourceField = "organizationId", targetField = "organizationId"))
     private String departmentId;
 
     @ReferenceLoad(source = "departmentId", field = "title")

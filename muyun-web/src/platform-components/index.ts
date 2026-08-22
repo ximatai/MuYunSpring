@@ -30,6 +30,7 @@ export type { DrawerPromotion } from './drawerPromotion';
 export { default as RecordExternalChangeNotice } from './RecordExternalChangeNotice.vue';
 export { default as RecordDetailFields } from './RecordDetailFields.vue';
 export { default as RecordDetailExtensionSection } from './RecordDetailExtensionSection.vue';
+export { default as RecordRelationTabs } from './RecordRelationTabs.vue';
 export { default as DetailRelationListPanel } from './DetailRelationListPanel.vue';
 export { default as RecordDetailPanel } from './RecordDetailPanel.vue';
 export { default as RecordPanelButton } from './RecordPanelButton.vue';
@@ -144,9 +145,11 @@ export type {
   PlatformDateTimePrecision,
 } from './platformDateTime';
 export {
+  applyReferenceDependencyClears,
   childResourceDefaultFormViewCode,
   resolveRecordDetailFields,
   resolveRecordFormFieldNames,
+  resolveRecordBooleanStatusValue,
   resolveRecordFormFieldState,
   resolveRecordFormFields,
   evaluateUiFormula,

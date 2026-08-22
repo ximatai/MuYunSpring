@@ -73,18 +73,14 @@ export interface ModuleDetailEnhancement {
   sections?: ModulePageDetailSection[];
 }
 
-/** A controlled addition to the descriptor-owned editor, not a replacement editor. */
+/** A controlled addition to the descriptor-owned standard form, not a replacement editor. */
 export interface ModulePageFormEnhancement {
   contributions: ModulePageFormContribution[];
   fieldPolicies?: ModulePageFormFieldPolicy[];
 }
 
-/**
- * The first controlled-editor seam is intentionally limited to the flat
- * management editor. Other page layouts keep their existing descriptor-only
- * form surface until they are migrated as a complete, tested unit.
- */
-export type ModulePageFormSurface = 'flat-main';
+/** The platform-owned record-card form surface, regardless of its outer page shell. */
+export type ModulePageFormSurface = 'record-card';
 
 /**
  * A contribution can target an entire semantic form section or the immediate

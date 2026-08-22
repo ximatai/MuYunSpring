@@ -109,7 +109,9 @@ public final class ReferenceReadPipeline<T> {
                 Object value = source.cardinality() == ReferenceCardinality.MANY && path.hops().isEmpty()
                         ? sourceIds.stream().map(loaded::get).filter(java.util.Objects::nonNull).toList()
                         : sourceIds.isEmpty() ? null : loaded.get(sourceIds.getFirst());
-                writes.accept(entry.getKey(), Map.of(path.outputField(), value));
+                Map<String, Object> output = new LinkedHashMap<>();
+                output.put(path.outputField(), value);
+                writes.accept(entry.getKey(), output);
             }
         }
     }

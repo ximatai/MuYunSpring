@@ -3,13 +3,19 @@ package net.ximatai.muyun.spring.platform.web;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
-import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.PageRequests;
+import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateCriteria;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.model.contract.EntityContract;
+import net.ximatai.muyun.spring.common.model.capability.TreeCapable;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.model.title.TitleFieldResolver;
 import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
@@ -21,12 +27,15 @@ import net.ximatai.muyun.spring.web.WebReferenceResolveRequest;
 import net.ximatai.muyun.spring.web.WebReferenceResolveResponse;
 import net.ximatai.muyun.spring.web.WebReferenceResolveResult;
 import net.ximatai.muyun.spring.web.WebReferenceResolveStatus;
+import net.ximatai.muyun.spring.web.WebReferenceTenantScope;
+import net.ximatai.muyun.spring.web.WebTreeNode;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 /** Default candidate/translation delivery for a reference declared on a static model. */
 @Service
@@ -54,39 +63,58 @@ public class StaticReferenceResolveFacade {
 
     public WebReferenceResolveResponse resolve(String moduleAlias, String fieldName,
                                                WebReferenceResolveRequest request) {
-        CrudAbility<?> source = modules.find(moduleAlias)
-                .flatMap(definition -> abilities.findByModel(definition.modelClass()))
+        StaticModuleDefinition source = modules.find(moduleAlias)
                 .orElseThrow(() -> new PlatformException("static module is not available: " + moduleAlias));
-        ReferenceTarget target = StaticReferenceResolver.rules(source.modelClass()).stream()
+        ReferencePlan plan = sourceModels(source).stream()
+                .flatMap(modelClass -> StaticReferenceResolver.rules(modelClass).stream())
                 .filter(rule -> rule.plan().sourceField().equals(fieldName))
                 .findFirst()
-                .map(rule -> rule.target())
+                .map(rule -> rule.plan())
                 .orElseThrow(() -> new PlatformException("static reference field is not available: " + moduleAlias + "." + fieldName));
         WebReferenceResolveRequest normalized = request == null ? WebReferenceResolveRequest.empty() : request;
-        return normalized.mode() == WebReferenceResolveMode.TRANSLATE
-                ? translate(target, normalized)
-                : query(target, normalized);
+        return WebReferenceTenantScope.within(normalized, plan.tenantScope(),
+                sourceRecordId -> persistedSourceTenant(source, sourceRecordId),
+                () -> switch (normalized.mode()) {
+                    case TRANSLATE -> translate(plan, normalized);
+                    case TREE -> tree(plan, normalized);
+                    case QUERY -> query(plan, normalized);
+                });
     }
 
-    private WebReferenceResolveResponse query(ReferenceTarget target, WebReferenceResolveRequest request) {
+    /**
+     * A static module owns its aggregate child models as well as its root model. Reference
+     * candidate resolution must therefore see the child field catalog, not only the root.
+     */
+    private static List<Class<?>> sourceModels(StaticModuleDefinition source) {
+        java.util.LinkedHashSet<Class<?>> models = new java.util.LinkedHashSet<>();
+        if (source.modelClass() != null) models.add(source.modelClass());
+        models.addAll(source.entityModelClasses().values());
+        return List.copyOf(models);
+    }
+
+    private WebReferenceResolveResponse query(ReferencePlan plan, WebReferenceResolveRequest request) {
         WebPageRequest page = request.page() == null ? WebPageRequest.DEFAULT : request.page();
-        Criteria criteria = Criteria.of();
+        Criteria criteria = candidateCriteria(plan, request);
         if (request.fuzzy() != null && !request.fuzzy().isBlank()) {
-            criteria.like(titleField(target), request.fuzzy().trim());
+            criteria.like(titleField(plan.target()), request.fuzzy().trim());
         }
         PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
-        PageResult<ReferenceOption> result = referenceOptions(target, criteria, pageRequest);
+        PageResult<ReferenceOption> result = referenceOptions(plan.target(), criteria, pageRequest);
         List<WebReferenceResolveItem> options = result.getRecords().stream()
                 .map(option -> new WebReferenceResolveItem(option.id(), option.title(), null, null, null)).toList();
         return new WebReferenceResolveResponse(options.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,
                 WebReferenceResolveMode.QUERY, options, List.of(), pageRequest.getOffset(), page.pageSize(), result.getTotal());
     }
 
-    private WebReferenceResolveResponse translate(ReferenceTarget target, WebReferenceResolveRequest request) {
+    private WebReferenceResolveResponse translate(ReferencePlan plan, WebReferenceResolveRequest request) {
         List<String> ids = request.values().stream().filter(java.util.Objects::nonNull).map(String::valueOf).distinct().toList();
-        Map<String, String> titles = referenceOptions(target,
-                ids.isEmpty() ? Criteria.of().raw(net.ximatai.muyun.database.core.orm.SqlRawCondition.of("1 = 0", java.util.Map.of()))
-                        : Criteria.of().in("id", ids), PageRequests.all()).getRecords().stream()
+        Criteria criteria = candidateCriteria(plan, request);
+        if (ids.isEmpty()) {
+            criteria.raw(net.ximatai.muyun.database.core.orm.SqlRawCondition.of("1 = 0", java.util.Map.of()));
+        } else {
+            criteria.in("id", ids);
+        }
+        Map<String, String> titles = referenceOptions(plan.target(), criteria, PageRequests.all()).getRecords().stream()
                 .collect(java.util.stream.Collectors.toMap(ReferenceOption::id, ReferenceOption::title, (left, right) -> left));
         List<WebReferenceResolveResult> results = request.values().stream().map(value -> {
             String id = value == null ? null : String.valueOf(value);
@@ -104,6 +132,60 @@ public class StaticReferenceResolveFacade {
                 0, 0, results.size());
     }
 
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private WebReferenceResolveResponse tree(ReferencePlan plan, WebReferenceResolveRequest request) {
+        ReferenceTarget target = plan.target();
+        ReferenceAbility<?> referenceAbility = abilities.findReference(target)
+                .orElseThrow(() -> new PlatformException("tree reference target is not available: " + target.qualifiedName()));
+        if (!(referenceAbility instanceof TreeAbility<?>)) {
+            throw new PlatformException("tree reference target does not support tree delivery: " + target.qualifiedName());
+        }
+        Map<String, List<TreeCapable>> children = treeChildrenByParent((ReferenceAbility) referenceAbility,
+                candidateCriteria(plan, request));
+        List<WebTreeNode<WebReferenceResolveItem>> nodes = children.getOrDefault(TreeAbility.ROOT_ID, List.of()).stream()
+                .map(record -> treeNode((ReferenceAbility) referenceAbility, children, record))
+                .toList();
+        return new WebReferenceResolveResponse(nodes.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,
+                WebReferenceResolveMode.TREE, List.of(), List.of(), 0, 0, nodes.size(), nodes);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private Map<String, List<TreeCapable>> treeChildrenByParent(ReferenceAbility referenceAbility, Criteria criteria) {
+        List<? extends TreeCapable> records;
+        if (referenceAbility instanceof DataScopeAbility<?> scoped) {
+            records = (List<? extends TreeCapable>) (List<?>) DataScopeAbility.cast(scoped)
+                    .listForAction(PlatformAction.REFERENCE, criteria, PageRequests.all());
+        } else {
+            records = (List<? extends TreeCapable>) (List<?>) referenceAbility.list(criteria, PageRequests.all());
+        }
+        Map<String, List<TreeCapable>> children = new LinkedHashMap<>();
+        records.stream()
+                .sorted(java.util.Comparator.comparing(TreeCapable::getSortOrder,
+                        java.util.Comparator.nullsLast(Integer::compareTo))
+                        .thenComparing(TreeCapable::getId))
+                .forEach(record -> {
+            String parentId = record.getParentId();
+            String key = parentId == null || parentId.isBlank() ? TreeAbility.ROOT_ID : parentId;
+            children.computeIfAbsent(key, ignored -> new java.util.ArrayList<>()).add(record);
+                });
+        return children;
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private WebTreeNode<WebReferenceResolveItem> treeNode(ReferenceAbility referenceAbility,
+                                                           Map<String, List<TreeCapable>> children,
+                                                           TreeCapable record) {
+        WebReferenceResolveItem item = new WebReferenceResolveItem(record.getId(),
+                referenceAbility.referenceTitle(record), null, null, null);
+        return new WebTreeNode<>(item, children.getOrDefault(record.getId(), List.of()).stream()
+                .map(child -> treeNode(referenceAbility, children, child))
+                .toList());
+    }
+
+    private Criteria candidateCriteria(ReferencePlan plan, WebReferenceResolveRequest request) {
+        return ReferenceCandidateCriteria.from(plan.candidateDependencies(), request.formValues());
+    }
+
     private PageResult<ReferenceOption> referenceOptions(ReferenceTarget target, Criteria criteria, PageRequest pageRequest) {
         ReferenceAbility<?> staticTarget = abilities.findReference(target).orElse(null);
         if (staticTarget != null) return staticTarget.referenceOptions(criteria, pageRequest);
@@ -117,5 +199,25 @@ public class StaticReferenceResolveFacade {
         return abilities.findReference(target)
                 .flatMap(ability -> TitleFieldResolver.resolveFieldName(ability.modelClass()))
                 .orElse("title");
+    }
+
+    private String persistedSourceTenant(StaticModuleDefinition source, String sourceRecordId) {
+        if (sourceRecordId == null || sourceRecordId.isBlank() || source.modelClass() == null) {
+            return null;
+        }
+        EntityContract sourceRecord = abilities.findByModel(source.modelClass())
+                .map(ability -> selectReferenceVisibleSource(ability, sourceRecordId))
+                .orElse(null);
+        String tenantId = sourceRecord == null ? null : sourceRecord.getTenantId();
+        return tenantId == null || tenantId.isBlank() ? null : tenantId;
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static EntityContract selectReferenceVisibleSource(net.ximatai.muyun.spring.ability.CrudAbility<?> ability,
+                                                               String sourceRecordId) {
+        if (ability instanceof DataScopeAbility<?> scoped) {
+            return (EntityContract) ((DataScopeAbility) scoped).selectForAction(PlatformAction.REFERENCE, sourceRecordId);
+        }
+        return (EntityContract) ability.select(sourceRecordId);
     }
 }

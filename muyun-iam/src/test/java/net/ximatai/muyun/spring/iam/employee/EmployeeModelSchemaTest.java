@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.iam.employee;
 import net.ximatai.muyun.database.core.builder.TableWrapper;
 import net.ximatai.muyun.spring.common.schema.StaticEntityTableMapper;
 import net.ximatai.muyun.spring.common.model.file.FileReference;
+import net.ximatai.muyun.spring.ability.child.Children;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashSet;
@@ -46,6 +47,14 @@ class EmployeeModelSchemaTest {
                 .getAnnotation(FileReference.class);
 
         assertThat(avatarReference.maxFileSizeBytes()).isEqualTo(1024 * 1024);
+    }
+
+    @Test
+    void shouldDeclareEmploymentAsAnAggregateChildRelation() throws NoSuchFieldException {
+        Children children = Employee.class.getDeclaredField("positions").getAnnotation(Children.class);
+
+        assertThat(children).isNotNull();
+        assertThat(children.relationCode()).isEqualTo("positions");
     }
 
     private Set<String> columnNames(TableWrapper table) {

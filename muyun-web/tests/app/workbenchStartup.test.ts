@@ -931,7 +931,7 @@ it('restoreWorkbenchStartupStateFromUrl restores a module OpenAPI document as a 
   assert.equal(activeTabUrlOf(restored), '/openapi/education.teacher');
 });
 
-it('restoreWorkbenchStartupStateFromUrl restores a declared workspace view ahead of its menu route', () => {
+it('restoreWorkbenchStartupStateFromUrl falls back to the menu route when no workspace view is declared', () => {
   const state = {
     session: { currentUser },
     menus: [
@@ -956,11 +956,8 @@ it('restoreWorkbenchStartupStateFromUrl restores a declared workspace view ahead
     { businessRoutePrefixes: ['/iam/employees'] },
   );
 
-  assert.equal(
-    restored.activeTabKey,
-    'business-route:/iam/employee:recordId=employee-1&workspacePresentation=tab&workspaceView=iam.employee.detail',
-  );
-  assert.equal(restored.tabs?.[0]?.title, '职员详情');
+  assert.equal(restored.activeTabKey, 'business-route:/iam/employees');
+  assert.equal(restored.tabs?.[0]?.title, '/iam/employees');
   assert.equal(restored.tabs?.[0]?.target, undefined);
   assert.equal(businessRouteTargetOf(restored.tabs?.[0]).query?.workspaceView, 'iam.employee.detail');
 });

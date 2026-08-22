@@ -1,9 +1,22 @@
 import { mount } from '@vue/test-utils';
 import { defineComponent, nextTick } from 'vue';
 import { describe, expect, it } from 'vitest';
-import StandardFlatFormSurface from '@/dynamic-page-runtime/StandardFlatFormSurface.vue';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import RecordFormSurface from '@/dynamic-page-runtime/RecordFormSurface.vue';
 
-describe('standard flat form surface', () => {
+describe('record form surface', () => {
+  it('owns the standard record-card grid so every shell keeps the same field gaps', () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, '../../src/dynamic-page-runtime/RecordFormSurface.vue'),
+      'utf8',
+    );
+
+    expect(source).toMatch(/grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+    expect(source).toMatch(/column-gap: 12px/);
+    expect(source).toMatch(/row-gap: 16px/);
+  });
+
   it('applies field policy and aggregates descriptor and contribution validity', async () => {
     const Contribution = defineComponent({
       name: 'Contribution',
@@ -19,7 +32,7 @@ describe('standard flat form surface', () => {
       emits: ['validity-change'],
       template: '<section />',
     });
-    const wrapper = mount(StandardFlatFormSurface, {
+    const wrapper = mount(RecordFormSurface, {
       props: {
         record: { title: '租户', hidden: '不显示' },
         fields: new Map([
@@ -36,7 +49,7 @@ describe('standard flat form surface', () => {
           {
             key: 'brand',
             component: Contribution,
-            location: { surface: 'flat-main', section: 'before-fields' },
+            location: { surface: 'record-card', section: 'before-fields' },
           },
         ],
         fieldPolicies: [{ fieldName: 'hidden', visible: () => false }],

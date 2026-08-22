@@ -19,5 +19,14 @@ public @interface ReferenceTo {
 
     ReferenceCardinality cardinality() default ReferenceCardinality.ONE;
 
+    /**
+     * Declarative candidate constraints. They are enforced for list, tree and
+     * value translation by the source-field reference resolver.
+     */
+    ReferenceCandidateBinding[] candidateBindings() default {};
+
+    /** Tenant boundary for candidate lookup and value translation. */
+    ReferenceTenantScope tenantScope() default ReferenceTenantScope.SAME_TENANT;
+
     ReferenceIntegrity integrity() default @ReferenceIntegrity;
 }

@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.iam.employee;
 
 import net.ximatai.muyun.database.core.builder.TableWrapper;
 import net.ximatai.muyun.spring.common.schema.StaticEntityTableMapper;
+import net.ximatai.muyun.spring.ability.child.ChildOf;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashSet;
@@ -26,6 +27,11 @@ class EmployeePositionModelSchemaTest {
                     assertThat(index.getColumns()).containsExactly("tenant_id", "employee_id",
                             "organization_id", "department_id", "position_id");
                 });
+    }
+
+    @Test
+    void shouldDeclareEmployeeOwnershipForAggregateLifecycle() throws NoSuchFieldException {
+        assertThat(EmployeePosition.class.getDeclaredField("employeeId").getAnnotation(ChildOf.class)).isNotNull();
     }
 
     private Set<String> columnNames(TableWrapper table) {

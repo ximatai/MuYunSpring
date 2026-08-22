@@ -6,7 +6,6 @@ import type {
   RoutePageTarget,
 } from '@muyun/web-contracts';
 const DictionaryManagementView = defineAsyncComponent(() => import('../views/DictionaryManagementView.vue'));
-const EmployeeManagementView = defineAsyncComponent(() => import('../views/EmployeeManagementView.vue'));
 const MenuManagementView = defineAsyncComponent(() => import('../views/MenuManagementView.vue'));
 const RoleManagementView = defineAsyncComponent(() => import('../views/RoleManagementView.vue'));
 const RoleAuthorizationView = defineAsyncComponent(() => import('../views/RoleAuthorizationView.vue'));
@@ -34,12 +33,6 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
     route: '/platform/menu-scheme',
     moduleAlias: 'platform.menu_scheme',
     component: MenuManagementView,
-    layout: 'workspace',
-  },
-  {
-    route: '/iam/employee',
-    moduleAlias: 'iam.employee',
-    component: EmployeeManagementView,
     layout: 'workspace',
   },
   {

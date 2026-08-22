@@ -229,7 +229,12 @@ public final class StaticReferenceResolver {
                 targetOf(referenceTo),
                 referenceTo.cardinality(),
                 List.of(),
-                ReferenceIntegrityPolicy.from(referenceTo.integrity())
+                ReferenceIntegrityPolicy.from(referenceTo.integrity()),
+                referenceTo.tenantScope(),
+                java.util.Arrays.stream(referenceTo.candidateBindings())
+                        .map(binding -> new ReferenceCandidateDependency(binding.sourceField(), binding.targetField(),
+                                binding.required()))
+                        .toList()
         );
     }
 

@@ -5,37 +5,31 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
+import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
+import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
+import net.ximatai.muyun.spring.platform.web.UiRule;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.LegacyStaticReadProjectionCompatibility;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
+import net.ximatai.muyun.spring.platform.web.AggregateChildRelationExpansionGateway;
+import net.ximatai.muyun.spring.platform.web.AggregateChildRelationExpansionWeb;
 import net.ximatai.muyun.spring.web.BusinessMutation;
 import net.ximatai.muyun.spring.web.MutationTenantScopeExecutor;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
-import net.ximatai.muyun.spring.web.SortWebRequest;
 import net.ximatai.muyun.spring.web.WebListResponse;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
-import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
-import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
-import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
-import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.employee.Employee;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccount;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeDelegation;
 import net.ximatai.muyun.spring.iam.employee.EmployeeDelegationService;
-import net.ximatai.muyun.spring.iam.employee.EmployeeEmploymentReadService;
-import net.ximatai.muyun.spring.iam.employee.EmployeePosition;
-import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeService;
 import net.ximatai.muyun.spring.iam.organization.Organization;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
@@ -50,36 +44,28 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
-import java.util.function.Function;
 import java.util.function.Supplier;
 
 @RestController
-@PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class, alias = "iam.employee", title = "职员管理", route = "/iam/employee")
+@PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class, alias = "iam.employee", title = "职员管理")
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, title = "职员管理", order = 50)
 @RequestMapping("/iam.employee")
 public class EmployeeWebController extends WebSupport<EmployeeService> implements
         CrudWeb<Employee, EmployeeService>,
+        AggregateChildRelationExpansionWeb<Employee, EmployeeService>,
         MutationTenantScopeResolver<Employee>,
         StaticModuleUiContributor,
         LegacyStaticReadProjectionCompatibility {
-    private static final ActionExecutionPolicy EMPLOYEE_POSITIONS_POLICY = new ActionExecutionPolicy(
-            "employeePositions", PlatformActionLevel.RECORD, ActionAccessMode.AUTH_REQUIRED,
-            true, true, ActionDefaultGrantPolicy.NONE, null);
-    private final EmployeePositionService employeePositionService;
     private final EmployeeAccountService employeeAccountService;
     private final EmployeeDelegationService employeeDelegationService;
     private OrganizationService organizationService;
     private StaticRecordReadProjectionService staticRecordReadProjectionService;
-    private EmployeeEmploymentReadService employeeEmploymentReadService;
-    private ActionExecutionPolicyService actionExecutionPolicyService;
+    private AggregateChildRelationExpansionGateway aggregateChildRelationExpansionGateway;
 
     @Autowired
-    public EmployeeWebController(EmployeePositionService employeePositionService,
-                                 EmployeeAccountService employeeAccountService,
+    public EmployeeWebController(EmployeeAccountService employeeAccountService,
                                  EmployeeDelegationService employeeDelegationService) {
-        this.employeePositionService = employeePositionService;
         this.employeeAccountService = employeeAccountService;
         this.employeeDelegationService = employeeDelegationService;
     }
@@ -95,13 +81,14 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
     }
 
     @Autowired(required = false)
-    void setEmployeeEmploymentReadService(EmployeeEmploymentReadService employeeEmploymentReadService) {
-        this.employeeEmploymentReadService = employeeEmploymentReadService;
+    void setAggregateChildRelationExpansionGateway(
+            AggregateChildRelationExpansionGateway aggregateChildRelationExpansionGateway) {
+        this.aggregateChildRelationExpansionGateway = aggregateChildRelationExpansionGateway;
     }
 
-    @Autowired
-    void setActionExecutionPolicyService(ActionExecutionPolicyService actionExecutionPolicyService) {
-        this.actionExecutionPolicyService = actionExecutionPolicyService;
+    @Override
+    public AggregateChildRelationExpansionGateway aggregateChildRelationExpansionGateway() {
+        return aggregateChildRelationExpansionGateway;
     }
 
     @Override
@@ -113,6 +100,15 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(EmployeeService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page
+                .navigator(navigator -> navigator
+                        .level("tenant", level -> level
+                                .microList("iam.tenant", "租户", "搜索租户")
+                                .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
+                                .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
+                        .level("organization", level -> level
+                                .tree(OrganizationService.MODULE_ALIAS, "机构树", "搜索机构"))
+                        .bindNavigatorToNavigator("tenant", "organization", "tenantId")
+                        .bindNavigatorToList("organization", "organizationId"))
                 .list(list -> list.fields(fields -> fields
                         .title("职员列表")
                         .field("employeeNo", field -> field.label("职员编号").width("150px"))
@@ -120,13 +116,15 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
                         .field("title", field -> field.label("职员姓名").width("150px"))
                         .field("username", field -> field.label("账号").width("150px"))
                         .field("mobile", field -> field.label("手机号").width("150px"))
-                        .field("email", field -> field.label("邮箱"))
+                        .field("email", field -> field.label("邮箱").width("180px"))
                         .field("enabled", field -> field.label("状态").uiType("enabledStatus")
                                 .width("90px").align("center"))
                         // Declares the self-service avatar reference for the shared file-transfer runtime
                         // without exposing it to organization administrators in the employee management UI.
                         .field("avatarAssetId", field -> field.hidden())
-                        .field("accountBound", field -> field.hidden())))
+                        .field("accountBound", field -> field.hidden()))
+                        .expandRelation("positions", expansion -> expansion.columns(
+                                "organizationId", "departmentId", "positionId", "primaryPosition", "enabled")))
                 .detail(detail -> detail.editor(form -> form
                         .title("职员档案")
                         .field("organizationId", field -> field.label("所属机构").required().readOnly())
@@ -138,6 +136,19 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
                         .field("email", field -> field.label("邮箱"))
                         .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
                 .traits(traits -> traits.standardCrud().enabledStatus().recycleBin().responsiveDetailSurface())))
+                .editorContribution("positions", form -> form.title("任职")
+                        .field("positions", "organizationId", field -> field.label("所属机构")
+                                .width("180px").uiType("recordPicker").required())
+                        .field("positions", "departmentId", field -> field.label("所属部门")
+                                .width("180px").uiType("recordPicker").required())
+                        .field("positions", "positionId", field -> field.label("岗位")
+                                .width("180px").uiType("recordPicker").required())
+                        .field("positions", "primaryPosition", field -> field.label("主岗位")
+                                .width("100px"))
+                        .field("positions", "enabled", field -> field.label("启用状态")
+                                .width("110px").uiType("enabledStatus")))
+                .aggregateChildRelation("positions", "任职", "positions", "employeeId",
+                        UiRule.constant(Boolean.TRUE), true)
                 .build();
     }
 
@@ -196,101 +207,6 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
     public int deleteAccount(@PathVariable String employeeId) {
         return employeeRecordScope(employeeId,
                 () -> employeeAccountService.removeAccount(employeeId));
-    }
-
-    @GetMapping("/{employeeId}/positions")
-    @CustomActionEndpoint(value = "employeePositions", title = "职员任岗",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "employeeId")
-    public WebListResponse<EmployeePosition> positions(@PathVariable String employeeId) {
-        return employeeRecordScope(employeeId,
-                () -> new WebListResponse<>(employeePositionService.positions(employeeId)));
-    }
-
-    @GetMapping("/{employeeId}/employment-view")
-    @CustomActionEndpoint(value = "employeePositions", title = "职员任岗", level = PlatformActionLevel.RECORD,
-            dataAuth = true, recordIdPathVariable = "employeeId")
-    public WebListResponse<EmployeeEmploymentReadService.EmployeeEmploymentView> employmentView(@PathVariable String employeeId) {
-        return employeeRecordScope(employeeId, () -> employmentViewRecords(employeeId));
-    }
-
-    @GetMapping("/recycle-bin/{employeeId}/employment-view")
-    @ActionEndpoint(PlatformAction.RECYCLE_BIN_QUERY)
-    public WebListResponse<EmployeeEmploymentReadService.EmployeeEmploymentView> recycleBinEmploymentView(
-            @PathVariable String employeeId) {
-        requireEmployeePositionsAccess(employeeId);
-        return employeeRecycleBinScope(employeeId,
-                retained -> employmentViewRecords(employeeId, retained));
-    }
-
-    @PostMapping("/{employeeId}/positions")
-    @CustomActionEndpoint(value = "employeePositions", title = "职员任岗",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "employeeId")
-    public EmployeePosition addPosition(@PathVariable String employeeId,
-                                        @RequestBody EmployeePosition relation) {
-        return employeeRecordScope(employeeId,
-                () -> employeePositionService.select(employeePositionService.addPosition(employeeId, relation)));
-    }
-
-    @PostMapping("/{employeeId}/positions/{relationId}/update")
-    @CustomActionEndpoint(value = "employeePositions", title = "职员任岗",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "employeeId")
-    public EmployeePosition updatePosition(@PathVariable String employeeId,
-                                           @PathVariable String relationId,
-                                           @RequestBody EmployeePosition relation) {
-        return employeeRecordScope(employeeId, () -> {
-            employeePositionService.updatePosition(employeeId, relationId, relation);
-            return employeePositionService.select(relationId);
-        });
-    }
-
-    @PostMapping("/{employeeId}/positions/{relationId}/delete")
-    @CustomActionEndpoint(value = "employeePositions", title = "职员任岗",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "employeeId")
-    public int deletePosition(@PathVariable String employeeId,
-                                           @PathVariable String relationId) {
-        return employeeRecordScope(employeeId,
-                () -> employeePositionService.deletePosition(employeeId, relationId));
-    }
-
-    @PostMapping("/{employeeId}/positions/{relationId}/enable")
-    @CustomActionEndpoint(value = "employeePositions", title = "职员任岗",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "employeeId")
-    public int enablePosition(@PathVariable String employeeId,
-                                           @PathVariable String relationId) {
-        return employeeRecordScope(employeeId,
-                () -> employeePositionService.enablePosition(employeeId, relationId));
-    }
-
-    @PostMapping("/{employeeId}/positions/{relationId}/disable")
-    @CustomActionEndpoint(value = "employeePositions", title = "职员任岗",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "employeeId")
-    public int disablePosition(@PathVariable String employeeId,
-                                            @PathVariable String relationId) {
-        return employeeRecordScope(employeeId,
-                () -> employeePositionService.disablePosition(employeeId, relationId));
-    }
-
-    @PostMapping("/{employeeId}/positions/{relationId}/primary")
-    @CustomActionEndpoint(value = "employeePositions", title = "职员任岗",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "employeeId")
-    public int makePrimaryPosition(@PathVariable String employeeId,
-                                                @PathVariable String relationId) {
-        return employeeRecordScope(employeeId,
-                () -> employeePositionService.makePrimaryPosition(employeeId, relationId));
-    }
-
-    @PostMapping("/{employeeId}/positions/{relationId}/sort")
-    @CustomActionEndpoint(value = "employeePositions", title = "职员任岗",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "employeeId")
-    public int sortPosition(@PathVariable String employeeId,
-                                         @PathVariable String relationId,
-                                         @RequestBody(required = false) SortWebRequest request) {
-        return employeeRecordScope(employeeId, () -> {
-            SortWebRequest normalized = request == null ? new SortWebRequest(null, null) : request;
-            employeePositionService.moveEmployeePosition(employeeId, relationId,
-                    normalized.previousId(), normalized.nextId());
-            return 1;
-        });
     }
 
     @GetMapping("/{employeeId}/delegations")
@@ -359,56 +275,6 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
 
     private <R> R employeeRecordScope(String employeeId, Supplier<R> action) {
         return MutationTenantScopeExecutor.forExistingRecord(this, employeeId, () -> webScope(action));
-    }
-
-    private WebListResponse<EmployeeEmploymentReadService.EmployeeEmploymentView> employmentViewRecords(
-            String employeeId) {
-        if (employeeEmploymentReadService == null) {
-            throw new IllegalStateException("employment view is not available");
-        }
-        return new WebListResponse<>(employeeEmploymentReadService.page(
-                new EmployeeEmploymentReadService.Query(employeeId, null, null, Boolean.FALSE,
-                        new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE))).getRecords());
-    }
-
-    private WebListResponse<EmployeeEmploymentReadService.EmployeeEmploymentView> employmentViewRecords(
-            String employeeId, Employee retainedEmployee) {
-        if (employeeEmploymentReadService == null) {
-            throw new IllegalStateException("employment view is not available");
-        }
-        return new WebListResponse<>(employeeEmploymentReadService.pageForEmployee(
-                retainedEmployee,
-                new EmployeeEmploymentReadService.Query(employeeId, null, null, Boolean.FALSE,
-                        new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE))).getRecords());
-    }
-
-    private <R> R employeeRecycleBinScope(String employeeId, Function<Employee, R> action) {
-        if (!service().canAccessRecycleBinRecord(employeeId)) {
-            throw new PlatformException("Recycle-bin record is unavailable: " + EmployeeService.MODULE_ALIAS);
-        }
-        Employee retained = service().selectIgnoreSoftDelete(employeeId);
-        Optional<String> tenantId = tenantIdForEmployee(retained);
-        if (!TenantContext.isSystem() || tenantId.isEmpty()) {
-            return webScope(() -> action.apply(retained));
-        }
-        try (TenantContext.Scope ignored = TenantContext.use(tenantId.get())) {
-            return webScope(() -> action.apply(retained));
-        }
-    }
-
-    private void requireEmployeePositionsAccess(String employeeId) {
-        if (actionExecutionPolicyService == null) {
-            throw new IllegalStateException("ActionExecutionPolicyService must be configured");
-        }
-        actionExecutionPolicyService.requireRecordAction(ActionExecutionContext.ofPolicy(
-                EmployeeService.MODULE_ALIAS,
-                EMPLOYEE_POSITIONS_POLICY,
-                Set.of(employeeId),
-                CurrentUserContext.currentUser()));
-        if (!service().canAccessRecycleBinRecord(EMPLOYEE_POSITIONS_POLICY, employeeId)) {
-            throw new PlatformException("record data permission denied: "
-                    + EmployeeService.MODULE_ALIAS + ".employeePositions");
-        }
     }
 
     public record AccountProvisionResponse(UserAccount user, EmployeeAccount binding) {

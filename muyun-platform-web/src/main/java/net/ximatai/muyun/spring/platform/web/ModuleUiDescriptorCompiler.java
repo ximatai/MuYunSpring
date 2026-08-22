@@ -103,9 +103,11 @@ public final class ModuleUiDescriptorCompiler {
                                     FieldControlDescriptorCatalog.standard(), true));
                 }).toList();
         descriptor = descriptor.withEditorContributions(resolvedContributions);
+        List<ResolvedDetailRelationDescriptor> detailRelations = staticDetailRelations(definition, descriptor);
+        validateListRelationExpansions(descriptor.page(), detailRelations);
         return new ModuleUiCompilationResult(
                 descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
-                        .withDetailRelations(staticDetailRelations(definition, descriptor)),
+                        .withDetailRelations(detailRelations),
                 readModel(definition, uiDefinition)
         );
     }
@@ -361,7 +363,11 @@ public final class ModuleUiDescriptorCompiler {
                         ResolvedPageNavigatorDescriptor.from(card.navigator()),
                         new ResolvedPageListDescriptor(card.list().searchPlaceholder(),
                                 compileView(card.list().list(), optionFields, referenceFields,
-                                        referenceSummaryFields, fieldTypes, fieldControls)),
+                                        referenceSummaryFields, fieldTypes, fieldControls),
+                                card.list().relationExpansions().stream()
+                                        .map(expansion -> new ResolvedPageListRelationExpansionDescriptor(
+                                                expansion.relationCode(), expansion.fields()))
+                                        .toList()),
                         detail(card.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                         List.copyOf(card.traits().values()));
             }
@@ -375,6 +381,32 @@ public final class ModuleUiDescriptorCompiler {
                         List.copyOf(tree.traits().values()));
             }
         };
+    }
+
+    private static void validateListRelationExpansions(ResolvedModulePageDescriptor page,
+                                                       List<ResolvedDetailRelationDescriptor> detailRelations) {
+        if (page == null || page.list() == null || page.list().relationExpansions().isEmpty()) {
+            return;
+        }
+        for (ResolvedPageListRelationExpansionDescriptor expansion : page.list().relationExpansions()) {
+            ResolvedDetailRelationDescriptor relation = detailRelations.stream()
+                    .filter(candidate -> candidate.code().equals(expansion.relationCode()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "list relation expansion is not declared as a detail relation: " + expansion.relationCode()));
+            if (relation.embeddedField() == null) {
+                throw new IllegalArgumentException(
+                        "list relation expansion currently requires an aggregate child relation: " + expansion.relationCode());
+            }
+            Set<String> availableFields = relation.listProjection().fields().stream()
+                    .map(ResolvedDetailRelationListField::fieldName)
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            if (!availableFields.containsAll(expansion.fields())) {
+                throw new IllegalArgumentException(
+                        "list relation expansion fields must belong to its declared relation projection: "
+                                + expansion.relationCode());
+            }
+        }
     }
 
     private static ResolvedPageDetailDescriptor detail(PageDetailDefinition detail,
@@ -857,7 +889,8 @@ public final class ModuleUiDescriptorCompiler {
                                 pickerModeResolver.apply(rule.target().qualifiedName()),
                                 ReferenceCandidateDelivery.SOURCE_FIELD,
                                 "/platform.module/" + moduleAlias + "/references/"
-                                        + rule.plan().sourceField() + "/resolve"),
+                                        + rule.plan().sourceField() + "/resolve",
+                                rule.plan().candidateDependencies()),
                         (left, right) -> left
                 ));
     }

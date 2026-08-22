@@ -9,6 +9,8 @@ import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.TenantStandardBusinessService;
+import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
+import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryField;
@@ -51,6 +53,7 @@ public class EmployeeService extends TenantStandardBusinessService<Employee> imp
         RecycleBinAbility<Employee>,
         EnableAbility<Employee>,
         SortAbility<Employee>,
+        ChildrenAbility<Employee>,
         ReferenceAbility<Employee>,
         DataScopeAbility<Employee>,
         DataScopeFieldMappingAbility,
@@ -63,6 +66,7 @@ public class EmployeeService extends TenantStandardBusinessService<Employee> imp
     private final OrganizationService organizationService;
     private final DepartmentService departmentService;
     private final Supplier<DataScopeCriteriaService> dataScopeCriteriaService;
+    private Supplier<EmployeePositionService> employeePositionService;
 
     public EmployeeService(EmployeeDao employeeDao,
                            ActiveTenantVerifier activeTenantVerifier,
@@ -97,6 +101,29 @@ public class EmployeeService extends TenantStandardBusinessService<Employee> imp
         this.dataScopeCriteriaService = () -> criteriaService
                 .<DataScopeCriteriaService>map(service -> service)
                 .orElseGet(AllowAllDataScopeCriteriaService::new);
+        this.employeePositionService = () -> null;
+    }
+
+    /**
+     * The child service depends on this aggregate root, so resolve it lazily instead of imposing a
+     * construction-time circular dependency. The relation itself remains the standard
+     * ChildrenAbility lifecycle.
+     */
+    @Autowired
+    void setEmployeePositionService(ObjectProvider<EmployeePositionService> employeePositionService) {
+        this.employeePositionService = employeePositionService::getObject;
+    }
+
+    @Override
+    public boolean usesAutomaticChildRelations() {
+        return false;
+    }
+
+    @Override
+    public List<ChildRelation<? extends net.ximatai.muyun.spring.common.model.contract.EntityContract, Employee>>
+    childRelations() {
+        EmployeePositionService service = employeePositionService.get();
+        return service == null ? List.of() : List.of(childRelation("positions", service));
     }
 
     @Override
@@ -255,6 +282,9 @@ public class EmployeeService extends TenantStandardBusinessService<Employee> imp
                                 QueryOperator.BETWEEN)
                         .withTitle("更新时间")
                         .withSortable())
+                // The organization navigator is an explicit list scope, not a client-side filter.
+                .externalCriteria("organizationId", value -> Criteria.of()
+                        .eq("organizationId", requireText(text(value), "organizationId")))
                 .externalCriteria("departmentScope", this::departmentScopeCriteria)
                 .defaultSort(net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"))
                 .defaultSort(net.ximatai.muyun.database.core.orm.Sort.asc("employeeNo"))

@@ -12,6 +12,8 @@ import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateCriteria;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.ActionWeb;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
@@ -41,6 +43,7 @@ import net.ximatai.muyun.spring.web.WebReferenceResolveRequest;
 import net.ximatai.muyun.spring.web.WebReferenceResolveResponse;
 import net.ximatai.muyun.spring.web.WebReferenceResolveResult;
 import net.ximatai.muyun.spring.web.WebReferenceResolveStatus;
+import net.ximatai.muyun.spring.web.WebReferenceTenantScope;
 import net.ximatai.muyun.spring.web.WebTreeNode;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
 import net.ximatai.muyun.spring.web.TenantRequestScope;
@@ -218,6 +221,51 @@ public class DynamicRecordWebController implements
     @Override
     public DynamicEntityOperations service() {
         return recordService.mainEntity(DynamicWebRequest.moduleAlias());
+    }
+
+    /** Same list-row aggregate expansion contract as static modules. */
+    @GetMapping("/view/{parentId}/relations/{relationCode}/expansion")
+    @ActionEndpoint(PlatformAction.VIEW)
+    public WebListResponse<Map<String, Object>> readAggregateChildRelationExpansion(
+            @PathVariable String parentId, @PathVariable String relationCode) {
+        return webScope(() -> {
+            String moduleAlias = DynamicWebRequest.moduleAlias();
+            var plan = requireExecutionPlan(moduleAlias);
+            var list = plan.uiDescriptor().page() == null ? null : plan.uiDescriptor().page().list();
+            var expansion = list == null ? null : list.relationExpansions().stream()
+                    .filter(candidate -> candidate.relationCode().equals(relationCode))
+                    .findFirst().orElse(null);
+            if (expansion == null) {
+                throw new IllegalArgumentException("list relation expansion is not declared: " + relationCode);
+            }
+            var relation = plan.uiDescriptor().detailRelations().stream()
+                    .filter(candidate -> candidate.code().equals(relationCode))
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                            "unknown aggregate child relation: " + relationCode));
+            if (relation.embeddedField() == null) {
+                throw new IllegalStateException("list relation expansion requires an aggregate child relation: "
+                        + relationCode);
+            }
+            List<String> outputFields = recordService.aggregateExpansionOutputFields(
+                    moduleAlias, relationCode, expansion.fields());
+            return new WebListResponse<>(recordService.aggregateChildrenForView(moduleAlias, parentId, relationCode)
+                    .stream().map(record -> projectAggregateExpansion(record, outputFields)).toList());
+        });
+    }
+
+    /** Keeps dynamic row expansions compatible with the standard reference-aware field renderer. */
+    private static Map<String, Object> projectAggregateExpansion(DynamicRecord record, List<String> fields) {
+        LinkedHashMap<String, Object> output = new LinkedHashMap<>();
+        output.put("id", record.getId());
+        output.put("version", record.getVersion());
+        output.put("deletedAt", record.getDeletedAt());
+        Map<String, Object> values = record.outputValues(FieldOutputContext.LIST);
+        for (String field : fields) {
+            if (values.containsKey(field)) {
+                output.put(field, values.get(field));
+            }
+        }
+        return java.util.Collections.unmodifiableMap(output);
     }
 
     @Override
@@ -1694,18 +1742,55 @@ public class DynamicRecordWebController implements
         WebReferenceResolveRequest normalized = request == null ? WebReferenceResolveRequest.empty() : request;
         DynamicReferenceDescriptor reference = recordService.reference(moduleAlias, entityAlias, fieldName);
         validateReferenceUiContexts(moduleAlias, reference, normalized);
-        DynamicReferenceResolveResponse response = recordService.resolveFieldReference(moduleAlias, entityAlias, fieldName,
-                new DynamicReferenceResolveRequest(
-                dynamicResolveMode(normalized.mode()),
-                dynamicMatchMode(normalized.matchMode()),
-                normalized.fuzzy(),
-                normalized.values(),
-                referenceCriteria(reference, normalized),
-                DynamicWebQueryMapper.page(normalized.page()),
-                normalized.includeProjections(),
-                normalized.formValues()
-        ));
-        return webReferenceResponse(response);
+        return WebReferenceTenantScope.within(normalized,
+                reference == null ? ReferenceTenantScope.SAME_TENANT : reference.tenantScope(),
+                sourceRecordId -> dynamicSourceTenant(moduleAlias, entityAlias, sourceRecordId),
+                () -> normalized.mode() == WebReferenceResolveMode.TREE
+                        ? dynamicReferenceTree(reference, normalized)
+                        : webReferenceResponse(recordService.resolveFieldReference(moduleAlias, entityAlias, fieldName,
+                                new DynamicReferenceResolveRequest(
+                                        dynamicResolveMode(normalized.mode()),
+                                        dynamicMatchMode(normalized.matchMode()),
+                                        normalized.fuzzy(),
+                                        normalized.values(),
+                                        referenceCriteria(reference, normalized),
+                                        DynamicWebQueryMapper.page(normalized.page()),
+                                        normalized.includeProjections(),
+                                        normalized.formValues()
+                                ))));
+    }
+
+    private String dynamicSourceTenant(String moduleAlias, String entityAlias, String sourceRecordId) {
+        net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord source = recordService.select(
+                moduleAlias, entityAlias, sourceRecordId);
+        return source == null ? null : source.getTenantId();
+    }
+
+    private WebReferenceResolveResponse dynamicReferenceTree(DynamicReferenceDescriptor reference,
+                                                              WebReferenceResolveRequest request) {
+        if (reference == null) {
+            throw new PlatformException("dynamic tree reference is not available");
+        }
+        Criteria criteria = referenceCriteria(reference, request);
+        List<WebTreeNode<WebReferenceResolveItem>> tree = dynamicReferenceChildren(reference, criteria, TreeAbility.ROOT_ID)
+                .stream().map(record -> dynamicReferenceTreeNode(reference, criteria, record)).toList();
+        return new WebReferenceResolveResponse(tree.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,
+                WebReferenceResolveMode.TREE, List.of(), List.of(), 0, 0, tree.size(), tree);
+    }
+
+    private List<DynamicRecord> dynamicReferenceChildren(DynamicReferenceDescriptor reference,
+                                                         Criteria criteria,
+                                                         String parentId) {
+        return recordService.childrenForAction(reference.targetModuleAlias(), reference.targetEntityAlias(),
+                PlatformAction.REFERENCE.code(), criteria, parentId);
+    }
+
+    private WebTreeNode<WebReferenceResolveItem> dynamicReferenceTreeNode(DynamicReferenceDescriptor reference,
+                                                                           Criteria criteria,
+                                                                           DynamicRecord record) {
+        return new WebTreeNode<>(new WebReferenceResolveItem(record.getId(), record.getTitle(), null, null, null),
+                dynamicReferenceChildren(reference, criteria, record.getId()).stream()
+                        .map(child -> dynamicReferenceTreeNode(reference, criteria, child)).toList());
     }
 
     private Criteria referenceCriteria(DynamicReferenceDescriptor reference,
@@ -1723,7 +1808,14 @@ public class DynamicRecordWebController implements
                 request.conditions());
         Criteria treeCriteria = criteria(reference.targetModuleAlias(), reference.targetEntityAlias(),
                 request.criteria());
-        return andCriteria(templateCriteria, manualCriteria, treeCriteria);
+        return andCriteria(andCriteria(templateCriteria, manualCriteria, treeCriteria),
+                candidateDependencyCriteria(reference, request.formValues()));
+    }
+
+    private Criteria candidateDependencyCriteria(DynamicReferenceDescriptor reference,
+                                                 Map<String, Object> formValues) {
+        return ReferenceCandidateCriteria.from(
+                reference == null ? List.of() : reference.candidateDependencies(), formValues);
     }
 
     private DynamicReferenceMatchMode dynamicMatchMode(WebReferenceMatchMode value) {

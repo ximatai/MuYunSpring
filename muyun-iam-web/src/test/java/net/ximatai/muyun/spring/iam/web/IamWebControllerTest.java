@@ -1,6 +1,5 @@
 package net.ximatai.muyun.spring.iam.web;
 
-import net.ximatai.muyun.spring.iam.employee.EmployeeEmploymentReadService;
 import net.ximatai.muyun.spring.iam.role.RoleGrantableActionResolver;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,7 +39,6 @@ import net.ximatai.muyun.spring.iam.employee.Employee;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccount;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeDelegationService;
-import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
 import net.ximatai.muyun.spring.iam.employee.EmployeePositionDao;
 import net.ximatai.muyun.spring.iam.employee.EmployeeService;
 import net.ximatai.muyun.spring.iam.organization.Organization;
@@ -131,7 +129,7 @@ class IamWebControllerTest {
     private MockMvc mvc;
 
     @Test
-    void shouldRunPositionNavigatorSessionAndMutationConstraintsFromCompiledPlan() {
+    void shouldUsePositionCategoryToEstablishTenantScopeWithoutASessionMutationConstraint() {
         PositionDao dao = mock(PositionDao.class);
         PositionCategoryService categoryService = mock(PositionCategoryService.class);
         PositionService positionService = new PositionService(dao, mock(ActiveTenantVerifier.class), categoryService,
@@ -168,9 +166,6 @@ class IamWebControllerTest {
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
                 CurrentUser.tenantUser("user-1", "User", "tenant_a"));
              TenantContext.Scope tenant = TenantContext.use("tenant_a")) {
-            Criteria criteria = controller.queryCriteria(null);
-            assertThat(containsCondition(criteria, "tenantId", "tenant_a")).isTrue();
-
             Position incoming = position(null, "category-1", "DEV", "Developer");
             Position saved = controller.insert(incoming);
             assertThat(saved.getTenantId()).isEqualTo("tenant_a");
@@ -202,6 +197,26 @@ class IamWebControllerTest {
                                     "lightLogoAssetId", "darkLogoAssetId");
                     assertThat(group.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("workbenchBrandMode"))
                             .singleElement().satisfies(field -> assertThat(field.columnSpan()).isEqualTo(2));
+                });
+    }
+
+    @Test
+    void shouldGiveEmployeeEmailListColumnAReadableWidth() {
+        EmployeeWebController controller = new EmployeeWebController(
+                mock(EmployeeAccountService.class), mock(EmployeeDelegationService.class));
+
+        var list = ((net.ximatai.muyun.spring.platform.web.ListDetailCardPageDefinition) controller
+                .moduleUiDefinition().page()).list();
+        assertThat(list.list().fields())
+                .filteredOn(field -> field.fieldRef().fieldName().equals("email"))
+                .singleElement()
+                .satisfies(field -> assertThat(field.width()).isEqualTo("180px"));
+        assertThat(list.relationExpansions())
+                .singleElement()
+                .satisfies(expansion -> {
+                    assertThat(expansion.relationCode()).isEqualTo("positions");
+                    assertThat(expansion.fields()).containsExactly(
+                            "organizationId", "departmentId", "positionId", "primaryPosition", "enabled");
                 });
     }
 
@@ -1297,9 +1312,7 @@ class IamWebControllerTest {
         EmployeeService employeeService = mock(EmployeeService.class);
         OrganizationService organizationService = mock(OrganizationService.class);
         EmployeeWebController controller = new EmployeeWebController(
-                mock(EmployeePositionService.class),
-                mock(EmployeeAccountService.class),
-                mock(EmployeeDelegationService.class));
+                mock(EmployeeAccountService.class), mock(EmployeeDelegationService.class));
         ReflectionTestUtils.setField(controller, "service", employeeService);
         controller.setOrganizationService(organizationService);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
@@ -1340,9 +1353,7 @@ class IamWebControllerTest {
         EmployeeService employeeService = mock(EmployeeService.class);
         EmployeeAccountService employeeAccountService = mock(EmployeeAccountService.class);
         EmployeeWebController controller = new EmployeeWebController(
-                mock(EmployeePositionService.class),
-                employeeAccountService,
-                mock(EmployeeDelegationService.class));
+                employeeAccountService, mock(EmployeeDelegationService.class));
         ReflectionTestUtils.setField(controller, "service", employeeService);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new PlatformWebExceptionHandler())
@@ -1362,56 +1373,6 @@ class IamWebControllerTest {
         mvc.perform(get("/iam.employee/employee-1/account"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(""));
-    }
-
-    @Test
-    void shouldReadEmploymentProjectionForVisibleRecycleBinEmployee() throws Exception {
-        EmployeeService employeeService = mock(EmployeeService.class);
-        EmployeeEmploymentReadService employmentReadService = mock(EmployeeEmploymentReadService.class);
-        net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService actionPolicyService =
-                mock(net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService.class);
-        EmployeeWebController controller = new EmployeeWebController(
-                mock(EmployeePositionService.class),
-                mock(EmployeeAccountService.class),
-                mock(EmployeeDelegationService.class));
-        ReflectionTestUtils.setField(controller, "service", employeeService);
-        controller.setEmployeeEmploymentReadService(employmentReadService);
-        controller.setActionExecutionPolicyService(actionPolicyService);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new PlatformWebExceptionHandler())
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
-                .addFilters(new CurrentUserWebFilter(() ->
-                        java.util.Optional.of(CurrentUser.systemUser("admin", "Admin"))))
-                .build();
-        Employee retained = employee("employee-1", "org-1", "dept-1", "E001", "Alice");
-        retained.setTenantId("tenant_a");
-        retained.setDeleted(true);
-        EmployeeEmploymentReadService.EmployeeEmploymentView employment =
-                new EmployeeEmploymentReadService.EmployeeEmploymentView(
-                        "employment-1", 2, "employee-1", "E001", "Alice",
-                        "org-1", "Headquarters", "dept-1", "Finance",
-                        "position-1", "Developer", true, true, "alice");
-
-        when(employeeService.canAccessRecycleBinRecord("employee-1")).thenReturn(true);
-        when(employeeService.canAccessRecycleBinRecord(any(net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy.class),
-                org.mockito.ArgumentMatchers.eq("employee-1"))).thenReturn(true);
-        when(employeeService.selectIgnoreSoftDelete("employee-1")).thenReturn(retained);
-        when(employmentReadService.pageForEmployee(org.mockito.ArgumentMatchers.same(retained), any())).thenAnswer(invocation -> {
-            assertThat(TenantContext.currentTenantId()).contains("tenant_a");
-            return PageResult.of(List.of(employment), 1, PageRequest.of(1, 20));
-        });
-
-        mvc.perform(get("/iam.employee/recycle-bin/employee-1/employment-view"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.records[0].positionTitle").value("Developer"))
-                .andExpect(jsonPath("$.records[0].organizationTitle").value("Headquarters"))
-                .andExpect(jsonPath("$.records[0].departmentTitle").value("Finance"));
-        org.mockito.ArgumentCaptor<net.ximatai.muyun.spring.common.platform.ActionExecutionContext> authorization =
-                org.mockito.ArgumentCaptor.forClass(
-                        net.ximatai.muyun.spring.common.platform.ActionExecutionContext.class);
-        verify(actionPolicyService).requireRecordAction(authorization.capture());
-        assertThat(authorization.getValue().actionCode()).isEqualTo("employeePositions");
-        assertThat(authorization.getValue().actionPolicy().requiresDataScope()).isTrue();
     }
 
     @Test

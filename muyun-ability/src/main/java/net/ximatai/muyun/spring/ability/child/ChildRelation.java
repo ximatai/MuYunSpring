@@ -20,6 +20,7 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
     private final BiConsumer<C, String> setParentId;
     private final String childForeignKeyField;
     private final Function<P, List<C>> extractChildren;
+    private final Function<C, String> extractParentId;
     private boolean cascadeOnParentUnavailable;
     private BiConsumer<P, List<C>> populateChildren;
 
@@ -35,11 +36,27 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
                          BiConsumer<C, String> setParentId,
                          String childForeignKeyField,
                          Function<P, List<C>> extractChildren) {
+        this(relationCode, childAbility, setParentId, childForeignKeyField, extractChildren, null);
+    }
+
+    /**
+     * Adds the inverse parent-key reader required by batched aggregate relation reads.
+     *
+     * <p>Legacy manually assembled relations remain valid for single-parent reads.  Batch reads
+     * deliberately require this explicit reader rather than reflecting on a business model.</p>
+     */
+    public ChildRelation(String relationCode,
+                         ChildAbility<C> childAbility,
+                         BiConsumer<C, String> setParentId,
+                         String childForeignKeyField,
+                         Function<P, List<C>> extractChildren,
+                         Function<C, String> extractParentId) {
         this.relationCode = relationCode == null || relationCode.isBlank() ? null : relationCode.trim();
         this.childAbility = childAbility;
         this.setParentId = setParentId;
         this.childForeignKeyField = childForeignKeyField;
         this.extractChildren = extractChildren;
+        this.extractParentId = extractParentId;
     }
 
     public String relationCode() {
@@ -83,6 +100,27 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
         return childAbility.selectChildRows(Criteria.of().eq(childForeignKeyField, parentId));
     }
 
+    /** One query for many visible parents; callers retain the requested-parent order in the result. */
+    public java.util.Map<String, List<C>> selectChildren(java.util.Collection<String> parentIds) {
+        if (extractParentId == null) {
+            throw new PlatformException("batch child read requires an explicit parent id reader: " + relationCode);
+        }
+        java.util.LinkedHashSet<String> requested = new java.util.LinkedHashSet<>();
+        if (parentIds != null) {
+            parentIds.stream().filter(id -> id != null && !id.isBlank()).map(String::trim).forEach(requested::add);
+        }
+        if (requested.isEmpty()) return java.util.Map.of();
+        java.util.LinkedHashMap<String, List<C>> grouped = new java.util.LinkedHashMap<>();
+        requested.forEach(id -> grouped.put(id, new ArrayList<>()));
+        for (C child : childAbility.selectChildRows(Criteria.of().in(childForeignKeyField, List.copyOf(requested)))) {
+            String parentId = extractParentId.apply(child);
+            List<C> children = grouped.get(parentId);
+            if (children != null) children.add(child);
+        }
+        grouped.replaceAll((ignored, children) -> List.copyOf(children));
+        return java.util.Collections.unmodifiableMap(grouped);
+    }
+
     public List<C> selectDeletedChildren(String parentId) {
         return childAbility.selectDeletedChildRows(Criteria.of().eq(childForeignKeyField, parentId));
     }
@@ -107,7 +145,7 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
         List<C> existing = selectChildren(parentId);
         validateIncomingChildren(parentId, children, existing);
         List<String> remainingIds = new ArrayList<>(existing.stream().map(EntityContract::getId).toList());
-        for (C child : children) {
+        for (C child : childAbility.orderForReplacement(children, existing)) {
             setParentId.accept(child, parentId);
             if (child.getId() == null || child.getId().isBlank()) {
                 if (childAbility.restoreDeletedReplacement(child)) {

@@ -334,7 +334,9 @@ class DemoBootstrapTaskTest {
         try (TenantContext.Scope ignored = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
             Organization organization = organizationService.select(DemoBootstrapTask.ORGANIZATION_ID);
             Department department = departmentService.select(DemoBootstrapTask.DEPARTMENT_ID);
-            Employee employee = employeeService.select(DemoBootstrapTask.EMPLOYEE_ID);
+            // This fixture intentionally wires only the bootstrap services, not the employee
+            // aggregate's child ability catalog; assert the persisted bootstrap fact directly.
+            Employee employee = employeeDao.findById(DemoBootstrapTask.EMPLOYEE_ID);
             UserAccount user = userAccountService.select(DemoBootstrapTask.USER_ID);
             EmployeeAccount binding = employeeAccountService.select(DemoBootstrapTask.EMPLOYEE_ACCOUNT_ID);
             Role role = roleService.select(DefaultTenantRoleProvisioner.tenantAdminRoleId(DemoBootstrapTask.TENANT_ALIAS));

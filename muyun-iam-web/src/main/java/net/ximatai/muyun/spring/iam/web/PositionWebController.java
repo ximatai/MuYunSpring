@@ -40,7 +40,6 @@ public class PositionWebController extends StaticModuleWebControllerAdapter<Posi
 
     private static final ModuleUiNavigatorKey TENANT_NAVIGATOR = ModuleUiNavigatorKey.of("tenant");
     private static final ModuleUiNavigatorKey CATEGORY_NAVIGATOR = ModuleUiNavigatorKey.of("category");
-    private static final ModuleUiBindingKey SESSION_TENANT_ID = ModuleUiBindingKey.of("tenantId");
     private static final ModuleUiField TENANT_ID = ModuleUiField.of("tenantId");
     private static final ModuleUiField CATEGORY_ID = ModuleUiField.of("categoryId");
     private static final ModuleUiField CODE = ModuleUiField.of("code");
@@ -96,7 +95,6 @@ public class PositionWebController extends StaticModuleWebControllerAdapter<Posi
                                         .tree(PositionCategoryService.MODULE_ALIAS, "岗位分类", "搜索岗位分类")
                                         .manageable()
                                         .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
-                                .bindSessionToList(SESSION_TENANT_ID, TENANT_ID)
                                 .bindNavigatorToNavigator(TENANT_NAVIGATOR, CATEGORY_NAVIGATOR, TENANT_ID)
                                 .bindNavigatorToList(CATEGORY_NAVIGATOR, CATEGORY_ID))
                         .list(list -> list.fields(fields -> fields

@@ -100,7 +100,7 @@ describe('module page enhancements', () => {
               {
                 key: 'brand-mode',
                 component: {},
-                location: { surface: 'flat-main', section: 'before-fields' },
+                location: { surface: 'record-card', section: 'before-fields' },
               },
             ],
           },
@@ -113,7 +113,7 @@ describe('module page enhancements', () => {
               {
                 key: 'brand-mode',
                 component: {},
-                location: { surface: 'flat-main', section: 'before-fields' },
+                location: { surface: 'record-card', section: 'before-fields' },
               },
             ],
           },

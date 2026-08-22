@@ -12,7 +12,7 @@ it('is the implementation owner for neutral module page descriptors', () => {
   assert.match(source, /descriptor: StandardModulePageDescriptor/);
 });
 
-it('delegates the flat standard editor to its isolated contribution surface', () => {
+it('routes every standard card shell through the shared content and form surfaces', () => {
   const source = readFileSync(
     resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
     'utf8',
@@ -22,7 +22,8 @@ it('delegates the flat standard editor to its isolated contribution surface', ()
     source,
     /if \(!mainFormValid\.value \|\| !relationDraftValid\.value\) \{[\s\S]*formValidationRequestKey\.value \+= 1;[\s\S]*return;/,
   );
-  assert.match(source, /StandardFlatFormSurface/);
+  assert.match(source, /ModulePageRecordContent/g);
+  assert.notMatch(source, /StandardFlatFormSurface/);
   assert.notMatch(source, /ModulePageFormContributionRenderer/);
   assert.match(source, /function flatManagementAllowsDetailEnhancement[\s\S]*editorMode\.value === 'view'/);
   assert.match(source, /flatManagementDetailActions[\s\S]*\.\.\.flatManagementEnhancementActions\.value/);
