@@ -2,6 +2,7 @@ import { inject, provide, type InjectionKey } from 'vue';
 import type { PageDescriptor, RouteQueryValue } from '@muyun/web-contracts';
 
 export interface OpenRouteOptions {
+  /** Opens an independent internal tab instance without changing the public URL. */
   newInstance?: boolean;
   tabTitle?: string;
   query?: Record<string, RouteQueryValue>;
@@ -25,10 +26,12 @@ export interface WorkbenchPageOpenResult {
   created: boolean;
 }
 
-/** Builds a complete workbench address; InstanceKey is page identity, not business data. */
+/** Builds a public workbench address. Page-instance identity never enters the address. */
 export function routeUrlWithOpenOptions(path: string, options: OpenRouteOptions = {}): string {
   const url = new URL(path, 'http://muyun.local');
+  url.searchParams.delete('InstanceKey');
   for (const [key, value] of Object.entries(options.query ?? {})) {
+    if (key === 'InstanceKey') continue;
     url.searchParams.delete(key);
     if (Array.isArray(value)) {
       value.forEach((item) => {
@@ -37,9 +40,6 @@ export function routeUrlWithOpenOptions(path: string, options: OpenRouteOptions 
     } else if (value !== null && value !== undefined) {
       url.searchParams.set(key, String(value));
     }
-  }
-  if (options.newInstance || !url.searchParams.get('InstanceKey')) {
-    url.searchParams.set('InstanceKey', crypto.randomUUID());
   }
   return `${url.pathname}${url.search}${url.hash}`;
 }

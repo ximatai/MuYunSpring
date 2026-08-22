@@ -1,6 +1,7 @@
 import type { Component } from 'vue';
 import type { RouteRecordRaw } from 'vue-router';
 import type { MenuEntryType, MenuRecord, MenuTreeNode } from '@muyun/web-contracts';
+import { canonicalDynamicModulePath } from '@muyun/platform-workbench';
 import {
   createStaticRouteName,
   type RoutePageLoader,
@@ -173,7 +174,27 @@ function validateMenu(
     if (menu.route || menu.externalUrl)
       return { issue: issue('ENTRY_FIELDS_CONFLICT', menu, 'MODULE 入口不得携带 route 或 externalUrl') };
     const pageMode = menu.pageMode ?? 'LIST';
-    const path = `/platform/dynamic/${encodeURIComponent(menu.moduleAlias)}/${pageMode.toLowerCase()}`;
+    const readableDefinition =
+      pageMode === 'LIST'
+        ? Array.from(definitions.values()).find(
+            (definition) =>
+              definition.moduleAlias === menu.moduleAlias &&
+              definition.componentPath === '/src/views/DynamicModuleRouteView.vue',
+          )
+        : undefined;
+    const path = readableDefinition?.route ?? canonicalDynamicModulePath(menu.moduleAlias);
+    const reservedDefinition = definitions.get(path);
+    if (reservedDefinition && reservedDefinition.moduleAlias !== menu.moduleAlias) {
+      return {
+        issue: issue(
+          'ROUTE_CONFLICT',
+          menu,
+          `动态模块标准地址已被静态页面占用：${path}`,
+          reservedDefinition,
+          '为该动态模块声明语义化地址，或调整冲突的静态页面地址',
+        ),
+      };
+    }
     return {
       route: {
         path,
@@ -239,7 +260,7 @@ function validateMenu(
   if (menu.openMode === 'window') return { window: true };
   return {
     route: {
-      path: `/platform/external/${encodeURIComponent(menu.id)}`,
+      path: `/_platform/external/${encodeURIComponent(menu.id)}`,
       name: `menu:link:${menu.id}`,
       component: () => import('../views/ExternalRouteView.vue'),
       meta: routeMeta(menu),

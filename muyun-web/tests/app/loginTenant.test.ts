@@ -19,6 +19,24 @@ it('login tenant accepts tenant url parameter as compatibility alias', () => {
   });
 });
 
+it('login tenant accepts generic tenant parameters at the configurable workbench root', () => {
+  const defaults = resolveLoginTenantDefaults('env-tenant', '?tenantId=platform', '/app/', '/app/');
+
+  assert.deepEqual(defaults, {
+    tenantId: 'platform',
+    tenantLocked: true,
+  });
+});
+
+it('login tenant accepts generic tenant parameters at a custom workbench root', () => {
+  const defaults = resolveLoginTenantDefaults('env-tenant', '?tenant=tenant-a', '/console/', '/console/');
+
+  assert.deepEqual(defaults, {
+    tenantId: 'tenant-a',
+    tenantLocked: true,
+  });
+});
+
 it('login tenant falls back to environment tenant when url tenant is blank', () => {
   const defaults = resolveLoginTenantDefaults(' env-tenant ', '?tenantId= ', '/');
 

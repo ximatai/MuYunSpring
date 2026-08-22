@@ -4,7 +4,7 @@ import type { RouteLocationNormalizedLoaded } from 'vue-router';
 import { ModuleContextProvider } from '@muyun/web-core';
 import { providePageLayout } from '@muyun/platform-components';
 import { provideModulePageNavigation, type ModulePageWorkspaceView } from '@muyun/dynamic-page-runtime';
-import type { BusinessRoutePageDescriptor, PageLayoutMode } from '@muyun/web-contracts';
+import type { BusinessRoutePageDescriptor, PageDescriptor, PageLayoutMode } from '@muyun/web-contracts';
 import {
   createWorkspaceViewDescriptor,
   resolveWorkspaceView,
@@ -12,11 +12,12 @@ import {
   useWorkbenchNavigation,
   WorkspaceViewOutlet,
 } from '@muyun/platform-workbench';
-import { providePageRoute } from './pageRouteContext';
+import { providePageDescriptor, providePageRoute } from './pageRouteContext';
 
 const props = defineProps<{
   component: Component;
   route: RouteLocationNormalizedLoaded;
+  pageDescriptor?: PageDescriptor;
 }>();
 
 const moduleAlias = computed(() => String(props.route.meta.moduleAlias ?? ''));
@@ -54,11 +55,12 @@ provideModulePageNavigation(
 
 providePageLayout(layout);
 providePageRoute(() => props.route);
+providePageDescriptor(() => props.pageDescriptor);
 
 function workspaceViewDefinitionForModulePage(view: ModulePageWorkspaceView) {
   return {
     ...view,
-    route: view.route ?? `/_workspace/${encodeURIComponent(view.type)}`,
+    route: view.route ?? `/_platform/workspace/${encodeURIComponent(view.type)}`,
     presentations: ['tab'] as const,
   };
 }

@@ -9,7 +9,7 @@ import { createMenuRouteRuntime } from './menuRouteRuntime';
 export const workbenchRouteName = 'workbench';
 
 export const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
@@ -23,13 +23,13 @@ export const router = createRouter({
           meta: { public: true, cacheable: false },
         },
         {
-          path: '/platform/dynamic/:moduleAlias/:pageMode',
+          path: '/:applicationAlias/:moduleName',
           name: 'dynamic-module-route',
           component: () => import('@/views/DynamicModuleRouteView.vue'),
           meta: { cacheable: true },
         },
         {
-          path: '/platform/external/:menuId?',
+          path: '/_platform/external/:menuId?',
           name: 'external-route',
           component: () => import('@/views/ExternalRouteView.vue'),
           meta: { cacheable: true },
@@ -47,7 +47,7 @@ export const router = createRouter({
           meta: { cacheable: true },
         },
         {
-          path: '/_workspace/:workspaceView',
+          path: '/_platform/workspace/:workspaceView',
           name: 'workspace-view-route',
           component: () => import('@/views/WorkspaceRouteView.vue'),
           meta: { cacheable: true },

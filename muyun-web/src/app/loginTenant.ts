@@ -7,8 +7,9 @@ export function resolveLoginTenantDefaults(
   envTenantId?: string | null,
   search = currentSearch(),
   pathname = currentPathname(),
+  workbenchBase = import.meta.env.BASE_URL,
 ): LoginTenantDefaults {
-  const urlTenantId = tenantIdFromSearch(search, pathname === '/');
+  const urlTenantId = tenantIdFromSearch(search, pathname === workbenchRootPath(workbenchBase));
   if (urlTenantId) {
     return {
       tenantId: urlTenantId,
@@ -23,6 +24,12 @@ export function resolveLoginTenantDefaults(
 
 export function normalizeInitialValue(value: string | null | undefined) {
   return value?.trim() ?? '';
+}
+
+function workbenchRootPath(base: string | undefined): string {
+  const normalized = base?.trim() || '/';
+  const path = `/${normalized.replace(/^\/+|\/+$/g, '')}`.replace(/^\/\/+/g, '/') || '/';
+  return path === '/' ? path : `${path}/`;
 }
 
 function tenantIdFromSearch(search: string, allowGenericTenantParameter: boolean) {

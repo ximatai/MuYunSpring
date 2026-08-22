@@ -1,9 +1,6 @@
 import type { Component } from 'vue';
 import type { PageLayoutMode } from '@muyun/web-contracts';
-import {
-  platformAdminDynamicModuleRoutes,
-  platformAdminRoutes,
-} from '../platform-admin-runtime/platformAdminRoutes';
+import { platformAdminRoutes } from '../platform-admin-runtime/platformAdminRoutes';
 
 /**
  * 集中列出前端自带页面的固定地址、所属模块和页面文件。
@@ -32,16 +29,15 @@ export const routePageLoaders = import.meta.glob('/src/views/**/*View.vue', {
  * 每一项把浏览器地址、模块名、页面文件和展示样式放在一起，供菜单检查和页面打开共同使用。
  */
 const componentPathByRoute: Record<string, StaticRouteDefinition['componentPath']> = {
-  '/config/field-ui-controls': '/src/views/FieldUiControlManagementView.vue',
-  '/config/dictionaries': '/src/views/DictionaryManagementView.vue',
-  '/config/menus': '/src/views/MenuManagementView.vue',
-  '/iam/employees': '/src/views/EmployeeManagementView.vue',
-  '/iam/users': '/src/views/UserManagementView.vue',
-  '/iam/users/form': '/src/views/UserManagementView.vue',
-  '/iam/users/form/:userId': '/src/views/UserManagementView.vue',
-  '/iam/system-users': '/src/views/SystemUserManagementView.vue',
-  '/iam/roles': '/src/views/RoleManagementView.vue',
-  '/iam/role-authorization': '/src/views/RoleAuthorizationView.vue',
+  '/platform/dictionary-category': '/src/views/DictionaryManagementView.vue',
+  '/platform/menu-scheme': '/src/views/MenuManagementView.vue',
+  '/iam/employee': '/src/views/EmployeeManagementView.vue',
+  '/iam/user': '/src/views/UserManagementView.vue',
+  '/iam/user/form': '/src/views/UserManagementView.vue',
+  '/iam/user/form/:userId': '/src/views/UserManagementView.vue',
+  '/iam/system-user': '/src/views/SystemUserManagementView.vue',
+  '/iam/role': '/src/views/RoleManagementView.vue',
+  '/iam/role/authorization': '/src/views/RoleAuthorizationView.vue',
 };
 
 const platformStaticRouteDefinitions: StaticRouteDefinition[] = platformAdminRoutes.map((route) => ({
@@ -52,19 +48,7 @@ const platformStaticRouteDefinitions: StaticRouteDefinition[] = platformAdminRou
   menuEntry: route.menuEntry,
 }));
 
-const dynamicCompatibilityRouteDefinitions: StaticRouteDefinition[] = Object.entries(
-  platformAdminDynamicModuleRoutes,
-).map(([route, moduleAlias]) => ({
-  route: route as StaticRouteDefinition['route'],
-  moduleAlias,
-  componentPath: '/src/views/DynamicModuleRouteView.vue',
-  layout: 'workspace',
-}));
-
-export const staticRouteDefinitions: StaticRouteDefinition[] = [
-  ...platformStaticRouteDefinitions,
-  ...dynamicCompatibilityRouteDefinitions,
-];
+export const staticRouteDefinitions: StaticRouteDefinition[] = platformStaticRouteDefinitions;
 
 /**
  * 根据浏览器地址生成稳定的内部名称。

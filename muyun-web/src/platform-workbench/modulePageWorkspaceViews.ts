@@ -17,7 +17,7 @@ export function syncModulePageWorkspaceViewContributions() {
 function workspaceViewDefinitionForModulePage(view: ModulePageWorkspaceView) {
   return {
     ...view,
-    route: view.route ?? `/_workspace/${encodeURIComponent(view.type)}`,
+    route: view.route ?? `/_platform/workspace/${encodeURIComponent(view.type)}`,
     presentations: ['tab'] as const,
   };
 }

@@ -57,7 +57,11 @@ const RouteCacheHarness = defineComponent({
       <template #default>
         <RouterView v-slot="{ Component, route }">
           <KeepAlive>
-            <StaticRoutePageHost :key="pageCacheKey(route)" :component="Component" :route="route" />
+            <StaticRoutePageHost
+              :key="pageCacheKey(route, String(route.query.InstanceKey ?? 'default'))"
+              :component="Component"
+              :route="route"
+            />
           </KeepAlive>
         </RouterView>
       </template>

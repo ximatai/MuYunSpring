@@ -547,7 +547,7 @@ it('system user management fills the constrained work area and leaves scrolling 
     systemUserSource,
     /@media \(max-width: 980px\) \{[\s\S]*\.system-user-management-page \{[\s\S]*height: auto;[\s\S]*overflow: visible;/,
   );
-  assert.match(routesSource, /route: '\/iam\/system-users'[\s\S]*layout: 'workspace'/);
+  assert.match(routesSource, /route: '\/iam\/system-user'[\s\S]*layout: 'workspace'/);
 });
 
 it('user management fills the constrained work area and leaves scrolling to its scope and list panels', () => {
@@ -557,7 +557,7 @@ it('user management fills the constrained work area and leaves scrolling to its 
   assert.match(userSource, /\.user-management-page \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
   assert.match(userSource, /<UserManagementListView v-else-if="!pageState\.action" \/>/);
   assert.match(userSource, /<UserDetailRouteView v-else/);
-  assert.match(routesSource, /route: '\/iam\/users'[\s\S]*layout: 'workspace'/);
+  assert.match(routesSource, /route: '\/iam\/user'[\s\S]*layout: 'workspace'/);
 });
 
 it('record picker delegates single-value interaction to the standard select adapters', () => {
@@ -1192,7 +1192,7 @@ it('role management keeps basic scope management separate from binding and autho
   const panelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
 
   assert.match(routesSource, /moduleAlias: 'iam\.role'/);
-  assert.match(routesSource, /route: '\/iam\/roles'/);
+  assert.match(routesSource, /route: '\/iam\/role'/);
   assert.match(roleViewSource, /defineOptions\(\{ name: 'RoleManagementView' \}\)/);
   assert.match(roleViewSource, /moduleAlias: 'iam\.tenant'/);
   assert.match(roleViewSource, /moduleAlias: 'iam\.organization'/);
@@ -1358,7 +1358,7 @@ it('user management keeps account basics separate from employment binding and ro
   const iconSource = readSource('src/vue-ui-antdv/components/UiIcon.vue');
 
   assert.match(routesSource, /moduleAlias: 'iam\.user'/);
-  assert.match(routesSource, /route: '\/iam\/users'/);
+  assert.match(routesSource, /route: '\/iam\/user'/);
   assert.match(userViewSource, /defineOptions\(\{ name: 'UserManagementView' \}\)/);
   assert.match(userViewSource, /moduleAlias: 'iam\.tenant'/);
   assert.match(userViewSource, /moduleAlias: 'iam\.user'/);
@@ -1485,7 +1485,7 @@ it('system user management is a separate root account entry', () => {
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
 
   assert.match(routesSource, /moduleAlias: 'iam\.system_user'/);
-  assert.match(routesSource, /route: '\/iam\/system-users'/);
+  assert.match(routesSource, /route: '\/iam\/system-user'/);
   assert.match(systemUserViewSource, /defineOptions\(\{ name: 'SystemUserManagementView' \}\)/);
   assert.match(systemUserViewSource, /moduleAlias: 'iam\.user'/);
   assert.match(systemUserViewSource, /system-user-management-page/);
@@ -1581,7 +1581,7 @@ it('password management uses the standard module runner with a source-owned card
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
   const contractsSource = readSource('src/web-contracts/index.ts');
 
-  assert.match(routesSource, /'\/platform\/security\/passwords': 'iam\.password_policy_rule'/);
+  assert.notMatch(routesSource, /platformAdminDynamicModuleRoutes/);
   assert.match(enhancementSource, /moduleAlias: 'iam\.password_policy_rule'/);
   assert.match(enhancementSource, /card:\s*\{/);
   assert.match(enhancementSource, /component: PasswordPolicyPreview/);
@@ -1920,7 +1920,7 @@ it('production workbench delegates page lifetime to the Vue Router outlet', () =
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
   assert.match(appSource, /<RouterView v-slot="\{ Component, route \}">/);
   assert.match(appSource, /<KeepAlive>[\s\S]*<StaticRoutePageHost/);
-  assert.match(appSource, /:key="pageCacheKey\(route\)"/);
+  assert.match(appSource, /:key="pageCacheKey\(route, activeTabKey\)"/);
   assert.notMatch(appSource, /PlatformAdminRouteOutlet|WorkbenchOutlet/);
 });
 

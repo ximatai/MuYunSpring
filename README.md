@@ -119,11 +119,11 @@ dependencies {
 
 本地完整开发栈需要 Java 21、Docker Compose v2、Node.js `>=22.23.0` 和 npm。后端默认使用 PostgreSQL，仓库不内置嵌入式数据库。
 
-| 服务       | 默认地址                 |
-| ---------- | ------------------------ |
-| PostgreSQL | `127.0.0.1:54321`        |
-| 后端 API   | `http://127.0.0.1:8080`  |
-| 前端工作台 | `http://127.0.0.1:5173/` |
+| 服务       | 默认地址                     |
+| ---------- | ---------------------------- |
+| PostgreSQL | `127.0.0.1:54321`            |
+| 后端 API   | `http://127.0.0.1:8080`      |
+| 前端工作台 | `http://127.0.0.1:5173/app/` |
 
 一键启动完整学校演示环境：
 
@@ -151,6 +151,10 @@ cp muyun-boot/src/main/resources/application-local.yml.example \
 npm ci --prefix muyun-web
 npm run dev:backend --prefix muyun-web
 ```
+
+前端工作台默认挂载在 `/app/`，与后端 API 路径隔离。部署时可设置
+`VITE_MUYUN_WEB_BASE=/console/` 改为其他挂载前缀；Vite 资源路径和 Vue Router 会同步使用该值。
+网关应将 `<挂载前缀>/**` 回退到前端 `index.html`，而不能把这条回退规则应用到后端 API 路径。
 
 裸库首次启动会创建平台超级管理员：用户名 `admin`、密码 `admin123`、租户留空。该默认值只允许本地开发使用。
 

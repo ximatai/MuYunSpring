@@ -8,7 +8,7 @@ it('uses an independent restorable workspace URL instead of the module-managemen
     moduleTitle: '客户',
   });
 
-  assert.equal(descriptor.target.route, '/_workspace/platform.module.metadata-orchestration');
+  assert.equal(descriptor.target.route, '/_platform/workspace/platform.module.metadata-orchestration');
   assert.equal(descriptor.target.moduleAlias, 'platform.module');
   assert.deepEqual(descriptor.target.query, {
     workspaceView: 'platform.module.metadata-orchestration',

@@ -43,3 +43,43 @@ it('loads menus and adds pages to the router passed in during creation', async (
     true,
   );
 });
+
+it('resolves a direct dynamic URL to its menu route after menu routes are prepared', async () => {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/', name: 'workbench', component: { template: '<RouterView />' } },
+      {
+        path: '/:applicationAlias/:moduleName',
+        name: 'dynamic-module-route',
+        component: { template: '<div>dynamic</div>' },
+      },
+    ],
+  });
+  const menus: MenuTreeNode[] = [
+    {
+      record: {
+        id: 'tenant',
+        schemeId: 'default',
+        title: '租户管理',
+        enabled: true,
+        entryType: 'module',
+        openMode: 'tab',
+        moduleAlias: 'iam.tenant',
+        pageMode: 'LIST',
+      },
+      children: [],
+    },
+  ];
+  const runtime = createMenuRouteRuntime({
+    router,
+    workbenchRouteName: 'workbench',
+    loadMenus: async () => menus,
+  });
+
+  await runtime.ensureMenuRoutes();
+  await router.push('/iam/tenant');
+
+  assert.equal(router.currentRoute.value.meta.title, '租户管理');
+  assert.equal(router.currentRoute.value.meta.menuId, 'tenant');
+});

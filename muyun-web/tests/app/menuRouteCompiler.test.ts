@@ -71,14 +71,31 @@ it('compiles each supported explicit menu entry without loading the Vue componen
 
   assert.deepEqual(result.issues, []);
   assert.equal(result.validRoutes.length, 3);
-  assert.equal(result.validRoutes[0]?.path, '/platform/dynamic/crm.customer/list');
+  assert.equal(result.validRoutes[0]?.path, '/crm/customer');
   assert.equal(result.validRoutes[1]?.name, 'static:iam-organizations');
-  assert.equal(result.validRoutes[2]?.path, '/platform/external/external');
+  assert.equal(result.validRoutes[2]?.path, '/_platform/external/external');
   assert.deepEqual(
     result.windowMenus.map((item) => item.id),
     ['window'],
   );
   assert.equal(vi.mocked(staticLoader).mock.calls.length, 0, '编译阶段不得执行 Vue 懒加载函数');
+});
+
+it('uses a registered readable module route for a standard list menu', () => {
+  const dynamicDefinition: StaticRouteDefinition = {
+    route: '/config/modules',
+    moduleAlias: 'platform.module',
+    componentPath: '/src/views/DynamicModuleRouteView.vue',
+    layout: 'workspace',
+  };
+  const result = validateAndCompileMenuRoutes(
+    [menu({ entryType: 'module', openMode: 'tab', moduleAlias: 'platform.module' })],
+    [dynamicDefinition],
+    { [dynamicDefinition.componentPath]: vi.fn(async () => ({}) as Component) },
+  );
+
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.validRoutes[0]?.path, '/config/modules');
 });
 
 it('reports missing entry type, static module mismatches, and missing components with a fixable source', () => {
@@ -121,7 +138,7 @@ it('rejects every conflicting menu that claims the same URL but permits an exact
 
   const collisionDefinition: StaticRouteDefinition = {
     ...staticDefinition,
-    route: '/platform/dynamic/crm.customer/list',
+    route: '/crm/customer',
     moduleAlias: 'crm.customer',
   };
   const conflict = menu({

@@ -17,7 +17,7 @@ export interface PageDescriptorResolveOptions {
   businessRoutePrefixes?: string[];
   /** Optional legacy mapping for framework-owned static business pages. */
   businessModuleRoutes?: Record<string, string>;
-  /** Stable readable routes whose content is rendered by the standard dynamic module host. */
+  /** Semantic overrides in the canonical dynamic module route catalog. */
   dynamicModuleRoutes?: Record<string, string>;
   /** Page layout contracts keyed by a static business route. */
   businessRouteLayouts?: Record<string, PageLayoutMode>;
@@ -35,13 +35,21 @@ export interface PageDescriptorUrlParseOptions {
 
 // Workspace views are URL-restorable business pages even when an application
 // has not reserved a domain route prefix for their generated fallback route.
-const defaultBusinessRoutePrefixes: string[] = ['/_workspace'];
+const defaultBusinessRoutePrefixes: string[] = ['/_platform/workspace'];
 const WORKBENCH_MENU_ID_QUERY_KEY = '_muyunMenuId';
-const WORKBENCH_TITLE_QUERY_KEY = '_muyunTitle';
-/** Accepted only to keep old shared URLs harmless; it never becomes page state. */
+const WORKBENCH_PUBLIC_MENU_ID_QUERY_KEY = 'menu';
 const LEGACY_WORKBENCH_TITLE_QUERY_KEY = '_muyunTitle';
 const WORKBENCH_ENTRY_PARAMS_QUERY_KEY = '_muyunEntryParams';
 const legacyWorkbenchQueryKeys = ['entryParamsJson', 'menuId', 'title'];
+const internalAddressQueryKeys = [
+  'InstanceKey',
+  WORKBENCH_MENU_ID_QUERY_KEY,
+  LEGACY_WORKBENCH_TITLE_QUERY_KEY,
+  WORKBENCH_ENTRY_PARAMS_QUERY_KEY,
+  ...legacyWorkbenchQueryKeys,
+  'uiConfigId',
+  'queryTemplateId',
+];
 
 export function getMenuNavigationTarget(menu: MenuRecord): MenuNavigationTarget | undefined {
   if (menu.enabled === false) {
@@ -136,7 +144,11 @@ export function resolvePageDescriptor(
   }
 
   if (target.menuType === 'route') {
-    const dynamicModuleAlias = options.dynamicModuleRoutes?.[target.route];
+    const dynamicModuleAlias =
+      options.dynamicModuleRoutes?.[target.route] ??
+      (target.moduleAlias && target.route === canonicalDynamicModulePath(target.moduleAlias, options)
+        ? target.moduleAlias
+        : undefined);
     if (dynamicModuleAlias) {
       return {
         pageType: 'dynamic-module',
@@ -228,7 +240,7 @@ export function createMenuTab(
     instanceKey,
     key: tabKeyOf(pageDescriptor),
     title: menu.title,
-    fullPath: pageDescriptorToUrl(pageDescriptor),
+    fullPath: pageDescriptorToUrl(pageDescriptor, options),
     target,
     pageDescriptor,
     restoreState: pageDescriptor.restoreState,
@@ -239,7 +251,7 @@ export function createMenuTab(
 /** Adds a page-instance key once and preserves it on address replacement or restoration. */
 export function withPageInstanceKey(
   descriptor: PageDescriptor,
-  instanceKey = crypto.randomUUID(),
+  instanceKey: string = crypto.randomUUID(),
 ): PageDescriptor {
   if (pageInstanceKeyOf(descriptor)) return descriptor;
   if (descriptor.pageType === 'platform-route' || descriptor.pageType === 'business-route') {
@@ -304,48 +316,89 @@ export function pageInstanceKeyOf(descriptor: PageDescriptor): string | undefine
   return Array.isArray(value) ? stringValue(value[0]) : stringValue(value);
 }
 
-export function pageDescriptorToUrl(descriptor: PageDescriptor): string {
+/**
+ * Serializes a descriptor to its public address.
+ *
+ * Dynamic module addresses are always derived from the canonical route catalog.
+ * Workbench instance state and menu identity remain internal state, never URL state.
+ */
+export function pageDescriptorToUrl(
+  descriptor: PageDescriptor,
+  options: PageDescriptorResolveOptions = {},
+): string {
   if (descriptor.pageType === 'platform-route' || descriptor.pageType === 'business-route') {
     if (descriptor.target.route) {
       return appendQuery(descriptor.target.route, {
-        ...(descriptor.target.query ?? descriptor.params),
-        [WORKBENCH_ENTRY_PARAMS_QUERY_KEY]: descriptor.entryParamsJson,
-        [WORKBENCH_MENU_ID_QUERY_KEY]: descriptor.menuId,
+        ...publicAddressParams(descriptor.target.query ?? descriptor.params),
       });
     }
 
-    const entryQuery = descriptor.target.query ?? descriptor.params ?? {};
+    const entryQuery = publicAddressParams(descriptor.target.query ?? descriptor.params);
     const query: Record<string, RouteQueryValue> = {
       ...entryQuery,
       pageType: descriptor.pageType,
       routeName: descriptor.target.routeName,
       pageKey: descriptor.target.pageKey,
-      [WORKBENCH_MENU_ID_QUERY_KEY]: descriptor.menuId,
     };
-    return appendQuery('/platform/workspace', query);
+    return appendQuery('/_platform/workspace', query);
   }
 
   if (descriptor.pageType === 'dynamic-module') {
     const pageMode = descriptor.target.pageMode?.toLowerCase() ?? 'list';
-    return appendQuery(`/platform/dynamic/${descriptor.target.moduleAlias}/${pageMode}`, {
-      ...descriptor.params,
-      [WORKBENCH_ENTRY_PARAMS_QUERY_KEY]: descriptor.entryParamsJson,
-      uiConfigId: descriptor.target.defaultUiConfigId,
-      queryTemplateId: descriptor.target.defaultQueryTemplateId,
-      [WORKBENCH_MENU_ID_QUERY_KEY]: descriptor.menuId,
+    return appendQuery(canonicalDynamicModulePath(descriptor.target.moduleAlias, options), {
+      ...publicAddressParams(descriptor.params),
+      ...(pageMode === 'list' ? {} : { mode: pageMode }),
     });
   }
 
   if (descriptor.pageType === 'remote-url' || descriptor.pageType === 'external-link') {
-    return appendQuery('/platform/external', {
-      ...descriptor.params,
+    return appendQuery('/_platform/external', {
+      ...publicAddressParams(descriptor.params),
       url: descriptor.target.url,
       mode: descriptor.openMode,
-      [WORKBENCH_MENU_ID_QUERY_KEY]: descriptor.menuId,
     });
   }
 
   return exhaustivePageDescriptor(descriptor);
+}
+
+function publicAddressParams(
+  params: Record<string, RouteQueryValue> | undefined,
+): Record<string, RouteQueryValue> {
+  return withoutKeys(params ?? {}, internalAddressQueryKeys) ?? {};
+}
+
+/**
+ * Produces a reversible public address for every valid dynamic module alias.
+ * Semantic overrides are reserved for platform concepts whose domain wording is
+ * intentionally different from their module alias.
+ */
+export function canonicalDynamicModulePath(
+  moduleAlias: string,
+  options: Pick<PageDescriptorUrlParseOptions, 'dynamicModuleRoutes'> = {},
+): string {
+  const override = Object.entries(options.dynamicModuleRoutes ?? {}).find(
+    ([, alias]) => alias === moduleAlias,
+  )?.[0];
+  if (override) return override;
+
+  const [applicationAlias, moduleName, ...rest] = moduleAlias.split('.');
+  if (!applicationAlias || !moduleName || rest.length > 0) {
+    throw new Error(`Invalid dynamic module alias: ${moduleAlias}`);
+  }
+  return `/${applicationAlias}/${moduleName.replaceAll('_', '-')}`;
+}
+
+export function dynamicModuleAliasFromPath(
+  path: string,
+  options: Pick<PageDescriptorUrlParseOptions, 'dynamicModuleRoutes'> = {},
+): string | undefined {
+  const override = options.dynamicModuleRoutes?.[path];
+  if (override) return override;
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length !== 2 || !segments[0] || !segments[1]) return undefined;
+  if (reservedPlatformRoutePaths.has(path)) return undefined;
+  return `${segments[0]}.${segments[1].replaceAll('-', '_')}`;
 }
 
 export function pageDescriptorFromUrl(
@@ -356,67 +409,39 @@ export function pageDescriptorFromUrl(
   const path = parsedUrl.pathname;
   const query = queryRecordOf(parsedUrl.searchParams);
 
-  const dynamicModuleAlias = options.dynamicModuleRoutes?.[path];
+  if (path === '/platform/dynamic' || path.startsWith('/platform/dynamic/')) {
+    throw new Error(`The technical dynamic module URL is no longer supported: ${url}`);
+  }
+
+  const dynamicModuleAlias = !isBusinessRoutePath(path, options)
+    ? dynamicModuleAliasFromPath(path, options)
+    : undefined;
   if (dynamicModuleAlias) {
-    const menuId = workbenchQueryValue(query, WORKBENCH_MENU_ID_QUERY_KEY, 'menuId');
+    const menuId = stringValue(query[WORKBENCH_PUBLIC_MENU_ID_QUERY_KEY]);
     return {
       pageType: 'dynamic-module',
       openMode: 'dynamic-runner',
       hostType: 'module-page-host',
-      title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY, 'title') ?? options.title,
+      title: options.title,
       menuId,
-      target: { moduleAlias: dynamicModuleAlias, pageMode: 'LIST' },
+      target: { moduleAlias: dynamicModuleAlias, pageMode: pageModeOf(stringValue(query.mode)) ?? 'LIST' },
       params: withoutKeys(query, [
-        ...legacyWorkbenchQueryKeys,
+        WORKBENCH_PUBLIC_MENU_ID_QUERY_KEY,
         WORKBENCH_MENU_ID_QUERY_KEY,
-        WORKBENCH_TITLE_QUERY_KEY,
+        LEGACY_WORKBENCH_TITLE_QUERY_KEY,
+        WORKBENCH_ENTRY_PARAMS_QUERY_KEY,
+        'uiConfigId',
+        'queryTemplateId',
+        'mode',
+        'InstanceKey',
       ]),
-      entryParamsJson: workbenchQueryValue(query, WORKBENCH_ENTRY_PARAMS_QUERY_KEY, 'entryParamsJson'),
       tabPolicy: menuId
         ? { identity: 'by-menu', closable: true, cacheable: true }
         : { identity: 'by-target', closable: true, cacheable: true },
     };
   }
 
-  if (path === '/platform/dynamic') {
-    throw new Error(`Invalid dynamic module URL: ${url}`);
-  }
-
-  if (path.startsWith('/platform/dynamic/')) {
-    const [, , , moduleAlias, pageMode] = path.split('/');
-    if (!moduleAlias) {
-      throw new Error(`Invalid dynamic module URL: ${url}`);
-    }
-    const params = withoutKeys(query, [
-      ...legacyWorkbenchQueryKeys,
-      WORKBENCH_ENTRY_PARAMS_QUERY_KEY,
-      WORKBENCH_MENU_ID_QUERY_KEY,
-      LEGACY_WORKBENCH_TITLE_QUERY_KEY,
-      'queryTemplateId',
-      'uiConfigId',
-    ]);
-    const menuId = workbenchQueryValue(query, WORKBENCH_MENU_ID_QUERY_KEY, 'menuId');
-    return {
-      pageType: 'dynamic-module',
-      openMode: 'dynamic-runner',
-      hostType: 'module-page-host',
-      title: workbenchQueryValue(query, WORKBENCH_TITLE_QUERY_KEY, 'title') ?? options.title,
-      menuId,
-      target: {
-        moduleAlias: decodeURIComponent(moduleAlias ?? ''),
-        pageMode: pageModeOf(pageMode),
-        defaultUiConfigId: stringValue(query.uiConfigId),
-        defaultQueryTemplateId: stringValue(query.queryTemplateId),
-      },
-      params,
-      entryParamsJson: workbenchQueryValue(query, WORKBENCH_ENTRY_PARAMS_QUERY_KEY, 'entryParamsJson'),
-      tabPolicy: menuId
-        ? { identity: 'by-menu' as const, closable: true, cacheable: true }
-        : { identity: 'by-target' as const, closable: true, cacheable: true },
-    };
-  }
-
-  if (path === '/platform/external') {
+  if (path === '/_platform/external') {
     const remoteUrl = stringValue(query.url) ?? '';
     if (!remoteUrl) {
       throw new Error(`Invalid external page URL: ${url}`);
@@ -458,11 +483,11 @@ export function pageDescriptorFromUrl(
     };
   }
 
-  if (path === '/platform/workspace' && !query.routeName && !query.pageKey) {
+  if (path === '/_platform/workspace' && !query.routeName && !query.pageKey) {
     throw new Error(`Invalid workspace URL: ${url}`);
   }
 
-  if (path === '/platform/workspace' && (query.routeName || query.pageKey)) {
+  if (path === '/_platform/workspace' && (query.routeName || query.pageKey)) {
     const routeTarget: RoutePageTarget = {
       routeName: stringValue(query.routeName),
       pageKey: stringValue(query.pageKey),
@@ -697,12 +722,21 @@ function stringValue(value: RouteQueryValue): string | undefined {
 function workbenchQueryValue(
   query: Record<string, RouteQueryValue>,
   key: string,
-  legacyKey?: string,
+  ...fallbackKeys: string[]
 ): string | undefined {
-  return stringValue(query[key]) ?? (legacyKey ? stringValue(query[legacyKey]) : undefined);
+  return [key, ...fallbackKeys].map((candidate) => stringValue(query[candidate])).find(Boolean);
 }
 
-const defaultPlatformRoutePrefixes = ['/platform'];
+const defaultPlatformRoutePrefixes = ['/_platform'];
+
+// These platform-owned addresses are not module names. Dynamic modules under
+// `platform` may still use the default catalog path when no reserved address is
+// involved (for example `/platform/runtime`).
+const reservedPlatformRoutePaths = new Set([
+  '/_platform/dynamic',
+  '/_platform/external',
+  '/_platform/workspace',
+]);
 
 function pageModeOf(value: string | undefined): MenuPageMode | undefined {
   const normalized = value?.toUpperCase();

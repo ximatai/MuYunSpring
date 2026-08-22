@@ -1,6 +1,8 @@
 import { assert, it } from 'vitest';
 import {
+  canonicalDynamicModulePath,
   createMenuTab,
+  dynamicModuleAliasFromPath,
   getMenuNavigationTarget,
   isTabMenuTarget,
   isWindowMenuTarget,
@@ -20,7 +22,7 @@ function assertPageType<T extends PageDescriptor['pageType']>(
   assert.equal(descriptor.pageType, pageType);
 }
 
-it('resolvePageDescriptor resolves ROUTE targets as platform routes by default', () => {
+it('resolves a platform module route through the backend alias catalog', () => {
   const descriptor = resolvePageDescriptor(
     {
       menuId: 'metadata',
@@ -37,12 +39,12 @@ it('resolvePageDescriptor resolves ROUTE targets as platform routes by default',
   assert.equal(descriptor.title, 'Metadata');
   assert.equal(descriptor.target.route, '/platform/metadata');
   assert.equal(tabKeyOf(descriptor), 'menu:metadata');
-  assert.equal(pageDescriptorToUrl(descriptor), '/platform/metadata?_muyunMenuId=metadata');
+  assert.equal(pageDescriptorToUrl(descriptor), '/platform/metadata');
   const roundTrip = pageDescriptorFromUrl(pageDescriptorToUrl(descriptor));
-  assert.equal(roundTrip.pageType, 'platform-route');
-  assert.equal(roundTrip.menuId, 'metadata');
+  assert.equal(roundTrip.pageType, 'dynamic-module');
+  assert.equal(roundTrip.target.moduleAlias, 'platform.metadata');
   assert.equal(roundTrip.title, undefined);
-  assert.equal(roundTrip.tabPolicy.identity, 'by-menu');
+  assert.equal(roundTrip.tabPolicy.identity, 'by-target');
 });
 
 it('delegates a readable module route to the dynamic module host when the route is declared as standard runtime content', () => {
@@ -62,20 +64,44 @@ it('delegates a readable module route to the dynamic module host when the route 
   assert.equal(descriptor.target.moduleAlias, 'iam.organization');
   assert.equal(descriptor.target.pageMode, 'LIST');
 
-  const restored = pageDescriptorFromUrl('/iam/organizations?_muyunMenuId=organization', options);
+  const restored = pageDescriptorFromUrl('/iam/organizations?menu=organization', options);
   assertPageType(restored, 'dynamic-module');
   assert.equal(restored.target.moduleAlias, 'iam.organization');
   assert.equal(restored.menuId, 'organization');
 });
 
 it('resolves the canonical module-management URL through the neutral module host', () => {
-  const descriptor = pageDescriptorFromUrl('/platform/dynamic/platform.module/list');
+  const descriptor = pageDescriptorFromUrl('/platform/module');
 
   assertPageType(descriptor, 'dynamic-module');
   assert.equal(descriptor.hostType, 'module-page-host');
   assert.equal(descriptor.target.moduleAlias, 'platform.module');
   assert.equal(descriptor.menuId, undefined);
   assert.equal(tabKeyOf(descriptor), 'dynamic-module:platform.module:LIST');
+});
+
+it('derives a reversible default catalog path without registering every module by hand', () => {
+  assert.equal(canonicalDynamicModulePath('crm.customer_order'), '/crm/customer-order');
+  assert.equal(dynamicModuleAliasFromPath('/crm/customer-order'), 'crm.customer_order');
+  assert.equal(canonicalDynamicModulePath('platform.field_spec'), '/platform/field-spec');
+});
+
+it('keeps dynamic URL state public and rejects the retired technical route', () => {
+  const descriptor = resolvePageDescriptor({
+    menuId: 'customer-module',
+    menuType: 'module',
+    openMode: 'tab',
+    moduleAlias: 'crm.customer',
+    pageMode: 'FORM',
+    query: { InstanceKey: 'internal-instance', recordId: 'customer-1' },
+  });
+
+  assert.equal(pageDescriptorToUrl(descriptor), '/crm/customer?mode=form&recordId=customer-1');
+  assert.equal(tryPageDescriptorFromUrl('/platform/dynamic/crm.customer/list'), undefined);
+  assert.equal(
+    tryPageDescriptorFromUrl('/crm/customer?InstanceKey=old&recordId=customer-1')?.params?.InstanceKey,
+    undefined,
+  );
 });
 
 it('getMenuNavigationTarget ignores disabled menus', () => {
@@ -152,12 +178,26 @@ it('resolves a module menu without a static page through the dynamic module host
 
   assertPageType(descriptor, 'dynamic-module');
   assert.equal(descriptor.target.moduleAlias, 'platform.module');
-  assert.equal(
-    pageDescriptorToUrl(descriptor),
-    '/platform/dynamic/platform.module/list?_muyunMenuId=module-management',
-  );
-  const restored = pageDescriptorFromUrl(pageDescriptorToUrl(descriptor));
+  assert.equal(pageDescriptorToUrl(descriptor), '/platform/module');
+  const restored = pageDescriptorFromUrl('/platform/module');
   assert.equal(restored.pageType, 'dynamic-module');
+});
+
+it('keeps dynamic menu titles out of shared URLs because recipients resolve their own menu facts', () => {
+  const descriptor = resolvePageDescriptor(
+    {
+      menuId: 'tenant',
+      menuType: 'module',
+      openMode: 'tab',
+      moduleAlias: 'iam.tenant',
+      pageMode: 'LIST',
+    },
+    { title: '租户管理' },
+  );
+
+  assertPageType(descriptor, 'dynamic-module');
+  assert.equal(pageDescriptorToUrl(descriptor), '/iam/tenant');
+  assert.equal(pageDescriptorFromUrl(pageDescriptorToUrl(descriptor)).title, undefined);
 });
 
 it('every static business route explicitly classifies its page layout', () => {
@@ -278,15 +318,11 @@ it('resolvePageDescriptor resolves MODULE targets as dynamic module descriptors'
   assert.equal(descriptor.target.moduleAlias, 'crm.customer');
   assert.equal(descriptor.target.pageMode, 'LIST');
   assert.equal(descriptor.entryParamsJson, '{"source":"menu"}');
-  assert.equal(
-    pageDescriptorToUrl(descriptor),
-    '/platform/dynamic/crm.customer/list?_muyunEntryParams=%7B%22source%22%3A%22menu%22%7D&_muyunMenuId=customer-module&queryTemplateId=customer-query-v1&recordId=customer-1&uiConfigId=customer-list-v1',
-  );
+  assert.equal(pageDescriptorToUrl(descriptor), '/crm/customer?recordId=customer-1');
   const roundTrip = pageDescriptorFromUrl(pageDescriptorToUrl(descriptor));
-  assert.equal(roundTrip.entryParamsJson, '{"source":"menu"}');
   assert.equal(roundTrip.params?.recordId, 'customer-1');
-  assert.equal(roundTrip.menuId, 'customer-module');
-  assert.equal(roundTrip.tabPolicy.identity, 'by-menu');
+  assert.equal(roundTrip.menuId, undefined);
+  assert.equal(roundTrip.tabPolicy.identity, 'by-target');
 });
 
 it('resolvePageDescriptor resolves unconfigured MODULE targets through the standard runner', () => {
@@ -355,7 +391,7 @@ it('resolvePageDescriptor resolves LINK targets by open mode', () => {
   assert.equal(tabKeyOf(iframeDescriptor), 'menu:crm-online');
   assert.equal(
     pageDescriptorToUrl(iframeDescriptor),
-    '/platform/external?_muyunMenuId=crm-online&mode=iframe&url=%2Fcrm%2Fcustomer%2Flist',
+    '/_platform/external?mode=iframe&url=%2Fcrm%2Fcustomer%2Flist',
   );
   assert.equal(newWindowDescriptor.pageType, 'external-link');
   assert.equal(newWindowDescriptor.openMode, 'new-window');
@@ -363,7 +399,7 @@ it('resolvePageDescriptor resolves LINK targets by open mode', () => {
   assert.equal(tabKeyOf(newWindowDescriptor), 'menu:external-bi');
   assert.equal(
     pageDescriptorToUrl(newWindowDescriptor),
-    '/platform/external?_muyunMenuId=external-bi&mode=new-window&url=https%3A%2F%2Fbi.example.com%2Freport',
+    '/_platform/external?mode=new-window&url=https%3A%2F%2Fbi.example.com%2Freport',
   );
 });
 
@@ -397,15 +433,15 @@ it('pageDescriptorToUrl keeps new-window external links on workbench-owned URLs'
 
   assert.equal(
     pageDescriptorToUrl(descriptor),
-    '/platform/external?_muyunMenuId=external-bi&mode=new-window&url=https%3A%2F%2Fbi.example.com%2Freport',
+    '/_platform/external?mode=new-window&url=https%3A%2F%2Fbi.example.com%2Freport',
   );
 
   const restored = pageDescriptorFromUrl(pageDescriptorToUrl(descriptor));
   assertPageType(restored, 'external-link');
   assert.equal(restored.openMode, 'new-window');
   assert.equal(restored.target.url, 'https://bi.example.com/report');
-  assert.equal(restored.menuId, 'external-bi');
-  assert.equal(restored.tabPolicy.identity, 'by-menu');
+  assert.equal(restored.menuId, undefined);
+  assert.equal(restored.tabPolicy.identity, 'by-target');
 });
 
 it('resolvePageDescriptor uses explicit LINK open mode instead of url shape', () => {
@@ -473,11 +509,9 @@ it('createMenuTab rejects window menu targets', () => {
 });
 
 it('pageDescriptorFromUrl restores readable dynamic, external, and business URLs', () => {
-  const dynamicDescriptor = pageDescriptorFromUrl(
-    '/platform/dynamic/crm.customer/list?uiConfigId=customer-list-v1',
-  );
+  const dynamicDescriptor = pageDescriptorFromUrl('/crm/customer?recordId=customer-1');
   const externalDescriptor = pageDescriptorFromUrl(
-    '/platform/external?url=%2Fcrm%2Fcustomer%2Flist&mode=iframe',
+    '/_platform/external?url=%2Fcrm%2Fcustomer%2Flist&mode=iframe',
   );
   const businessDescriptor = pageDescriptorFromUrl('/crm/customer/list?status=active', {
     businessRoutePrefixes: ['/crm'],
@@ -493,22 +527,19 @@ it('pageDescriptorFromUrl restores readable dynamic, external, and business URLs
   assert.deepEqual(businessDescriptor.params, { status: 'active' });
 });
 
-it('pageDescriptorFromUrl restores dynamic module params and entry params', () => {
-  const descriptor = pageDescriptorFromUrl(
-    '/platform/dynamic/crm.customer/list?entryParamsJson=%7B%22source%22%3A%22menu%22%7D&recordId=customer-1&uiConfigId=customer-list-v1',
-  );
+it('pageDescriptorFromUrl restores public dynamic module parameters', () => {
+  const descriptor = pageDescriptorFromUrl('/crm/customer?recordId=customer-1');
 
   assertPageType(descriptor, 'dynamic-module');
-  assert.equal(descriptor.entryParamsJson, '{"source":"menu"}');
   assert.deepEqual(descriptor.params, { recordId: 'customer-1' });
-  assert.equal(descriptor.target.defaultUiConfigId, 'customer-list-v1');
+  assert.equal(descriptor.target.defaultUiConfigId, undefined);
 });
 
 it('tryPageDescriptorFromUrl rejects invalid workbench-owned URLs', () => {
-  assert.equal(tryPageDescriptorFromUrl('/platform/external'), undefined);
+  assert.equal(tryPageDescriptorFromUrl('/_platform/external'), undefined);
   assert.equal(tryPageDescriptorFromUrl('/platform/dynamic'), undefined);
   assert.equal(tryPageDescriptorFromUrl('/platform/dynamic//list'), undefined);
-  assert.equal(tryPageDescriptorFromUrl('/platform/workspace'), undefined);
+  assert.equal(tryPageDescriptorFromUrl('/_platform/workspace'), undefined);
   assert.equal(tryPageDescriptorFromUrl('http://['), undefined);
 });
 
@@ -556,12 +587,12 @@ it('pageDescriptorToUrl and pageDescriptorFromUrl preserve routeName and pageKey
   assertPageType(routeNameRoundTrip, 'business-route');
   assert.equal(routeNameRoundTrip.target.routeName, 'crm.customer.list');
   assert.equal(routeNameRoundTrip.target.query?.status, 'active');
-  assert.equal(routeNameRoundTrip.menuId, 'customer-name');
-  assert.equal(routeNameRoundTrip.tabPolicy.identity, 'by-menu');
+  assert.equal(routeNameRoundTrip.menuId, undefined);
+  assert.equal(routeNameRoundTrip.tabPolicy.identity, 'by-target');
   assertPageType(pageKeyRoundTrip, 'business-route');
   assert.equal(pageKeyRoundTrip.target.pageKey, 'customerList');
-  assert.equal(pageKeyRoundTrip.menuId, 'customer-page');
-  assert.equal(pageKeyRoundTrip.tabPolicy.identity, 'by-menu');
+  assert.equal(pageKeyRoundTrip.menuId, undefined);
+  assert.equal(pageKeyRoundTrip.tabPolicy.identity, 'by-target');
 });
 
 it('business route prefix matching uses path segment boundaries', () => {
@@ -606,8 +637,5 @@ it('tabKeyOf separates independent instances while the default instance keeps it
 
   assert.equal(tabKeyOf(defaultDescriptor), 'menu:customer-list');
   assert.equal(tabKeyOf(independentDescriptor), 'menu:customer-list');
-  assert.equal(
-    pageDescriptorToUrl(independentDescriptor),
-    '/crm/customer/list?InstanceKey=instance-a&_muyunMenuId=customer-list',
-  );
+  assert.equal(pageDescriptorToUrl(independentDescriptor), '/crm/customer/list');
 });

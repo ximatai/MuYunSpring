@@ -54,7 +54,6 @@ import { provideCurrentUserContext } from './platform-admin-runtime/currentUserC
 import { loadAppWorkbenchStartupState, usesMockStartup } from './app/appWorkbenchStartup';
 import { createBackendHttpClient } from './platform-admin-runtime/backendHttp';
 import {
-  platformAdminDynamicModuleRoutes,
   platformAdminModuleRoutes,
   platformAdminRouteLayouts,
   platformAdminRoutePrefixes,
@@ -69,7 +68,6 @@ import {
   closeMenuTab,
   closeMenuTabs,
   arrangeLockedMenuTabs,
-  activeTabUrlOf,
   menuTargetUrl,
   openDirectTab,
   openMenuTab,
@@ -79,6 +77,7 @@ import {
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
 } from './app/workbenchStartup';
+import { withPageInstanceKey } from './platform-workbench/menuNavigation';
 import { restoreLockedTabPreference, saveLockedTabPreference } from './app/lockedTabPreference';
 import {
   provideWorkbenchNavigation,
@@ -153,7 +152,6 @@ const realtimeStatus = ref<WorkbenchRealtimeStatus>('unavailable');
 const platformAdminRouteResolveOptions = {
   businessRoutePrefixes: platformAdminRoutePrefixes,
   businessModuleRoutes: platformAdminModuleRoutes,
-  dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
   businessRouteLayouts: platformAdminRouteLayouts,
 };
 let realtimeConnection: ReturnType<typeof connectAppRealtime> | undefined;
@@ -676,7 +674,7 @@ function handleOpenPage(descriptor: import('@muyun/web-contracts').PageDescripto
   if (!current) {
     return { created: false };
   }
-  const result = openDirectTab(current.tabs ?? [], descriptor);
+  const result = openDirectTab(current.tabs ?? [], descriptor, platformAdminRouteResolveOptions);
   startup.value = { ...current, tabs: result.tabs, activeTabKey: result.activeTabKey };
   activeTabKey.value = result.activeTabKey;
   syncBrowserUrl(startup.value, 'push');
@@ -689,23 +687,21 @@ function handleOpenRoute(path: string, options: OpenRouteOptions = {}) {
     'push',
     startup.value,
     options.tabTitle,
+    false,
+    options.newInstance,
   );
 }
 
 function handleReplaceRoute(path: string, options: OpenRouteOptions = {}) {
   const current = startup.value;
   if (!current) return { created: false };
-  const url = new URL(routeUrlWithOpenOptions(path, options), window.location.origin);
-  const instanceKey = activeTabUrlOf(current)
-    ? new URL(activeTabUrlOf(current)!, window.location.origin).searchParams.get('InstanceKey')
-    : undefined;
-  if (instanceKey) url.searchParams.set('InstanceKey', instanceKey);
   return navigateWorkbenchRoute(
-    `${url.pathname}${url.search}${url.hash}`,
+    routeUrlWithOpenOptions(path, options),
     'replace',
     current,
     options.tabTitle,
     true,
+    false,
   );
 }
 
@@ -740,19 +736,38 @@ function navigateWorkbenchRoute(
   state: WorkbenchStartupState | undefined,
   tabTitle?: string,
   replaceCurrent = false,
+  newInstance = false,
 ) {
   if (!state) return { created: false };
   const previousKeys = new Set((state.tabs ?? []).map((tab) => tab.key));
-  let next = restoreWorkbenchStartupStateFromUrl(state, url, platformAdminRouteResolveOptions);
+  let next = restoreWorkbenchStartupStateFromUrl(state, url, platformAdminRouteResolveOptions, newInstance);
   const replacement = next.tabs?.find((tab) => tab.key === next.activeTabKey);
   if (replaceCurrent && state.activeTabKey && replacement) {
     const currentTab = state.tabs?.find((tab) => tab.key === state.activeTabKey);
     if (currentTab) {
       const title = tabTitle ?? replacement.title;
+      const pageDescriptor =
+        replacement.pageDescriptor && currentTab.instanceKey
+          ? withPageInstanceKey(replacement.pageDescriptor, currentTab.instanceKey)
+          : replacement.pageDescriptor;
+      const fullPath = pageDescriptor
+        ? pageDescriptorToUrl(pageDescriptor, platformAdminRouteResolveOptions)
+        : replacement.fullPath;
       const tabs = (next.tabs ?? [])
         .filter((tab) => tab.key !== replacement.key)
         .map((tab) =>
-          tab.key === currentTab.key ? { ...currentTab, ...replacement, key: currentTab.key, title } : tab,
+          tab.key === currentTab.key
+            ? {
+                ...currentTab,
+                ...replacement,
+                key: currentTab.key,
+                instanceKey: currentTab.instanceKey,
+                pageDescriptor,
+                fullPath,
+                restoreState: fullPath ? { url: fullPath } : replacement.restoreState,
+                title,
+              }
+            : tab,
         );
       next = { ...next, tabs, activeTabKey: currentTab.key };
     }
@@ -780,9 +795,9 @@ function handleReplacePage(pageKey: string, descriptor: import('@muyun/web-contr
       ? {
           ...tab,
           title: descriptor.title ?? tab.title,
-          fullPath: pageDescriptorToUrl(descriptor),
+          fullPath: pageDescriptorToUrl(descriptor, platformAdminRouteResolveOptions),
           pageDescriptor: descriptor,
-          restoreState: { url: pageDescriptorToUrl(descriptor) },
+          restoreState: { url: pageDescriptorToUrl(descriptor, platformAdminRouteResolveOptions) },
         }
       : tab,
   );
@@ -925,6 +940,12 @@ function currentBrowserPath() {
   return router.currentRoute.value.fullPath;
 }
 
+function pageDescriptorForRoute() {
+  const current = startup.value;
+  if (!current) return undefined;
+  return (current.tabs ?? []).find((tab) => tab.key === current.activeTabKey)?.pageDescriptor;
+}
+
 function syncBrowserUrl(state: WorkbenchStartupState, mode: 'push' | 'replace') {
   const navigation = workbenchRouteWriteFor(state, currentBrowserPath(), mode);
   if (!navigation) {
@@ -995,16 +1016,18 @@ function requiresLogin(cause: unknown) {
           <KeepAlive>
             <StaticRoutePageHost
               v-if="route.meta.cacheable !== false"
-              :key="pageCacheKey(route)"
+              :key="pageCacheKey(route, activeTabKey)"
               :component="Component"
               :route="route"
+              :page-descriptor="pageDescriptorForRoute()"
             />
           </KeepAlive>
           <StaticRoutePageHost
             v-if="route.meta.cacheable === false"
-            :key="pageCacheKey(route)"
+            :key="pageCacheKey(route, activeTabKey)"
             :component="Component"
             :route="route"
+            :page-descriptor="pageDescriptorForRoute()"
           />
         </RouterView>
       </template>

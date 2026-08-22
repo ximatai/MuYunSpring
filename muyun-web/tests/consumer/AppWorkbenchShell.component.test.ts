@@ -218,7 +218,8 @@ it('replaces the current tab address and closes it into the fallback address', a
   );
   expect(activeTabUrl.pathname).toBe('/iam/users/form/user-1');
   expect(activeTabUrl.searchParams.get('action')).toBe('view');
-  expect(activeTabUrl.searchParams.get('InstanceKey')).toMatch(/^[0-9a-f-]{36}$/i);
+  expect(activeTabUrl.searchParams.get('InstanceKey')).toBeNull();
+  expect(state.tabs?.find((tab) => tab.key === state.activeTabKey)?.instanceKey).toMatch(/^[0-9a-f-]{36}$/i);
   expect(state.tabs?.find((tab) => tab.key === state.activeTabKey)?.title).toBe('浏览用户：alice');
   expect(wrapper.emitted('navigate')?.at(-1)?.[0]).toMatchObject({ mode: 'replace' });
 

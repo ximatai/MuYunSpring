@@ -1,6 +1,5 @@
 import { assert, it } from 'vitest';
 import {
-  platformAdminDynamicModuleRoutes,
   platformAdminModuleRoutes,
   platformAdminRoutePrefixes,
   isPlatformAdminRoutePage,
@@ -9,293 +8,67 @@ import {
 import { pageDescriptorFromUrl, pageDescriptorToUrl } from '@/platform-workbench/menuNavigation.ts';
 import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 
-it('static business route registry exposes only pages still owned by static route hosts', () => {
+it('uses backend application and module aliases for every public static route', () => {
   assert.deepEqual(platformAdminRoutePrefixes, [
-    '/_workspace',
-    '/config/dictionaries',
-    '/config/menus',
-    '/iam/employees',
-    '/iam/users',
-    '/iam/users/form',
-    '/iam/users/form/:userId',
-    '/iam/system-users',
-    '/iam/roles',
-    '/iam/role-authorization',
+    '/_platform/workspace',
+    '/platform/dictionary-category',
+    '/platform/menu-scheme',
+    '/iam/employee',
+    '/iam/user',
+    '/iam/user/form',
+    '/iam/user/form/:userId',
+    '/iam/system-user',
+    '/iam/role',
+    '/iam/role/authorization',
   ]);
   assert.deepEqual(platformAdminModuleRoutes, {
-    'platform.dictionary_category': '/config/dictionaries',
-    'platform.menu_scheme': '/config/menus',
-    'iam.employee': '/iam/employees',
-    'iam.user': '/iam/users',
-    'iam.system_user': '/iam/system-users',
-    'iam.role': '/iam/roles',
+    'platform.dictionary_category': '/platform/dictionary-category',
+    'platform.menu_scheme': '/platform/menu-scheme',
+    'iam.employee': '/iam/employee',
+    'iam.user': '/iam/user',
+    'iam.system_user': '/iam/system-user',
+    'iam.role': '/iam/role',
   });
 });
 
-it('role authorization is a direct workbench page and does not replace the role menu route', () => {
-  const descriptor = pageDescriptorFromUrl('/iam/role-authorization?roleId=role-1', {
+it('resolves direct static workbench pages without replacing their backend module identity', () => {
+  const descriptor = pageDescriptorFromUrl('/iam/role/authorization?roleId=role-1', {
     businessRoutePrefixes: platformAdminRoutePrefixes,
   });
   assert.equal(descriptor.pageType, 'business-route');
-  assert.deepEqual(descriptor.target, { route: '/iam/role-authorization', query: { roleId: 'role-1' } });
-  assert.equal(platformAdminModuleRoutes['iam.role'], '/iam/roles');
+  assert.deepEqual(descriptor.target, { route: '/iam/role/authorization', query: { roleId: 'role-1' } });
+  assert.equal(platformAdminModuleRoutes['iam.role'], '/iam/role');
 });
 
-it('organization management is delegated to the dynamic page host', () => {
+it('derives standard dynamic module routes without a frontend override catalog', () => {
+  const cases = [
+    ['/platform/module', 'platform.module'],
+    ['/platform/field-spec', 'platform.field_spec'],
+    ['/platform/field-ui-control', 'platform.field_ui_control'],
+    ['/iam/tenant', 'iam.tenant'],
+    ['/iam/password-policy-rule', 'iam.password_policy_rule'],
+  ] as const;
+
+  for (const [url, moduleAlias] of cases) {
+    const descriptor = pageDescriptorFromUrl(url);
+    assert.equal(descriptor.pageType, 'dynamic-module');
+    assert.equal(descriptor.target.moduleAlias, moduleAlias);
+    assert.equal(pageDescriptorToUrl(descriptor), url);
+  }
+});
+
+it('resolves a static page only when both route and backend module match', () => {
   const descriptor: BusinessRoutePageDescriptor = {
     pageType: 'business-route',
     openMode: 'workbench-route',
     hostType: 'business-route-host',
-    target: { route: '/iam/organizations' },
-    tabPolicy: { identity: 'by-target' },
-  };
-
-  assert.equal(resolvePlatformAdminRoute(descriptor), undefined);
-  assert.equal(isPlatformAdminRoutePage(descriptor), false);
-});
-
-it('module management has no static route and resolves through the canonical dynamic host URL', () => {
-  assert.equal(platformAdminModuleRoutes['platform.module'], undefined);
-  assert.equal(platformAdminDynamicModuleRoutes['/config/modules'], 'platform.module');
-
-  const descriptor = pageDescriptorFromUrl('/platform/dynamic/platform.module/list');
-
-  assert.equal(descriptor.pageType, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'module-page-host');
-  assert.equal(descriptor.target.moduleAlias, 'platform.module');
-  assert.equal(descriptor.menuId, undefined);
-});
-
-it('legacy module management URL restores through the dynamic host', () => {
-  const descriptor = pageDescriptorFromUrl('/config/modules', {
-    dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
-  });
-
-  assert.equal(descriptor.pageType, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'module-page-host');
-  assert.equal(descriptor.target.moduleAlias, 'platform.module');
-  assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/platform.module/list');
-});
-
-it('legacy field UI control URL restores through the standard module runner', () => {
-  assert.equal(platformAdminModuleRoutes['platform.field_ui_control'], undefined);
-  assert.equal(platformAdminDynamicModuleRoutes['/config/field-ui-controls'], 'platform.field_ui_control');
-  const descriptor = pageDescriptorFromUrl('/config/field-ui-controls', {
-    dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
-  });
-
-  assert.equal(descriptor.pageType, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'module-page-host');
-  assert.equal(descriptor.target.moduleAlias, 'platform.field_ui_control');
-  assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/platform.field_ui_control/list');
-});
-
-it('password management has no static route and keeps its old URL as a dynamic entry', () => {
-  assert.equal(platformAdminModuleRoutes['iam.password_policy_rule'], undefined);
-  assert.equal(platformAdminDynamicModuleRoutes['/platform/security/passwords'], 'iam.password_policy_rule');
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/platform/security/passwords', moduleAlias: 'iam.password_policy_rule' },
+    target: { route: '/iam/user', moduleAlias: 'iam.user' },
     tabPolicy: { identity: 'by-menu' },
   };
-
-  assert.equal(resolvePlatformAdminRoute(descriptor), undefined);
-  assert.equal(isPlatformAdminRoutePage(descriptor), false);
-});
-
-it('legacy password management URL restores through the standard module runner', () => {
-  const descriptor = pageDescriptorFromUrl('/platform/security/passwords', {
-    dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
-  });
-
-  assert.equal(descriptor.pageType, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'module-page-host');
-  assert.equal(descriptor.target.moduleAlias, 'iam.password_policy_rule');
-  assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/iam.password_policy_rule/list');
-});
-
-it('legacy tenant management URL restores through the standard module runner', () => {
-  assert.equal(platformAdminModuleRoutes['iam.tenant'], undefined);
-  assert.equal(platformAdminDynamicModuleRoutes['/iam/tenants'], 'iam.tenant');
-  const descriptor = pageDescriptorFromUrl('/iam/tenants', {
-    dynamicModuleRoutes: platformAdminDynamicModuleRoutes,
-  });
-
-  assert.equal(descriptor.pageType, 'dynamic-module');
-  assert.equal(descriptor.hostType, 'module-page-host');
-  assert.equal(descriptor.target.moduleAlias, 'iam.tenant');
-  assert.equal(pageDescriptorToUrl(descriptor), '/platform/dynamic/iam.tenant/list');
-});
-
-it('position management is intentionally delegated to the dynamic page host', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/iam/positions', moduleAlias: 'iam.position_category' },
-    tabPolicy: { identity: 'by-menu' },
-  };
-
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route, undefined);
-  assert.equal(isPlatformAdminRoutePage(descriptor), false);
-});
-
-it('department management is delegated to the dynamic page host', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/iam/departments', moduleAlias: 'iam.department' },
-    tabPolicy: { identity: 'by-menu' },
-  };
-
-  assert.equal(resolvePlatformAdminRoute(descriptor), undefined);
-  assert.equal(isPlatformAdminRoutePage(descriptor), false);
-});
-
-it('static business route registry resolves employee management module route', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/iam/employees', moduleAlias: 'iam.employee' },
-    tabPolicy: { identity: 'by-menu' },
-  };
-
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route?.route, '/iam/employees');
-  assert.equal(route?.moduleAlias, 'iam.employee');
+  assert.equal(resolvePlatformAdminRoute(descriptor)?.route, '/iam/user');
   assert.equal(isPlatformAdminRoutePage(descriptor), true);
-});
-
-it('static business route registry resolves role management module route', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/iam/roles', moduleAlias: 'iam.role' },
-    tabPolicy: { identity: 'by-menu' },
-  };
-
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route?.route, '/iam/roles');
-  assert.equal(route?.moduleAlias, 'iam.role');
-  assert.equal(isPlatformAdminRoutePage(descriptor), true);
-});
-
-it('static business route registry resolves user management module route', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/iam/users', moduleAlias: 'iam.user' },
-    tabPolicy: { identity: 'by-menu' },
-  };
-
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route?.route, '/iam/users');
-  assert.equal(route?.moduleAlias, 'iam.user');
-  assert.equal(isPlatformAdminRoutePage(descriptor), true);
-});
-
-it('static business route registry resolves system user management module route', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/iam/system-users', moduleAlias: 'iam.system_user' },
-    tabPolicy: { identity: 'by-menu' },
-  };
-
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route?.route, '/iam/system-users');
-  assert.equal(route?.moduleAlias, 'iam.system_user');
-  assert.equal(isPlatformAdminRoutePage(descriptor), true);
-});
-
-it('static business route registry resolves dictionary category as dictionary management entry', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/config/dictionaries', moduleAlias: 'platform.dictionary_category' },
-    tabPolicy: { identity: 'by-menu' },
-  };
-
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route?.route, '/config/dictionaries');
-  assert.equal(route?.moduleAlias, 'platform.dictionary_category');
-  assert.equal(isPlatformAdminRoutePage(descriptor), true);
-});
-
-it('static business route registry resolves menu scheme as menu management entry', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/config/menus', moduleAlias: 'platform.menu_scheme' },
-    tabPolicy: { identity: 'by-menu' },
-  };
-
-  const route = resolvePlatformAdminRoute(descriptor);
-
-  assert.equal(route?.route, '/config/menus');
-  assert.equal(route?.moduleAlias, 'platform.menu_scheme');
-  assert.equal(isPlatformAdminRoutePage(descriptor), true);
-});
-
-it('static business route registry does not capture a business module that reuses a platform route', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/iam/roles', moduleAlias: 'crm.customer' },
-    tabPolicy: { identity: 'by-menu' },
-  };
-
-  assert.equal(resolvePlatformAdminRoute(descriptor), undefined);
-  assert.equal(isPlatformAdminRoutePage(descriptor), false);
-});
-
-it('static business route registry prefers explicit route over module alias fallback', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/config/unknown', moduleAlias: 'platform.application' },
-    tabPolicy: { identity: 'by-target' },
-  };
-
-  assert.equal(resolvePlatformAdminRoute(descriptor), undefined);
-  assert.equal(isPlatformAdminRoutePage(descriptor), false);
-});
-
-it('static business route registry rejects unregistered business routes', () => {
-  const descriptor: BusinessRoutePageDescriptor = {
-    pageType: 'business-route',
-    openMode: 'workbench-route',
-    hostType: 'business-route-host',
-    target: { route: '/iam/accounts' },
-    tabPolicy: { identity: 'by-target' },
-  };
-
-  assert.equal(resolvePlatformAdminRoute(descriptor), undefined);
-  assert.equal(isPlatformAdminRoutePage(descriptor), false);
-});
-
-it('static business route registry does not classify unregistered sibling routes as business pages', () => {
-  const descriptor = pageDescriptorFromUrl('/iam/users-extra', {
-    businessRoutePrefixes: platformAdminRoutePrefixes,
-  });
-
-  assert.equal(descriptor.pageType, 'platform-route');
+  assert.equal(
+    resolvePlatformAdminRoute({ ...descriptor, target: { route: '/iam/user', moduleAlias: 'crm.customer' } }),
+    undefined,
+  );
 });

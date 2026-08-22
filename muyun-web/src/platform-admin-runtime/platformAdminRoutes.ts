@@ -25,57 +25,57 @@ export interface PlatformAdminRoute {
 
 export const platformAdminRoutes: PlatformAdminRoute[] = [
   {
-    route: '/config/dictionaries',
+    route: '/platform/dictionary-category',
     moduleAlias: 'platform.dictionary_category',
     component: DictionaryManagementView,
     layout: 'workspace',
   },
   {
-    route: '/config/menus',
+    route: '/platform/menu-scheme',
     moduleAlias: 'platform.menu_scheme',
     component: MenuManagementView,
     layout: 'workspace',
   },
   {
-    route: '/iam/employees',
+    route: '/iam/employee',
     moduleAlias: 'iam.employee',
     component: EmployeeManagementView,
     layout: 'workspace',
   },
   {
-    route: '/iam/users',
+    route: '/iam/user',
     moduleAlias: 'iam.user',
     component: UserManagementView,
     layout: 'workspace',
   },
   {
-    route: '/iam/users/form',
-    moduleAlias: 'iam.user',
-    component: UserManagementView,
-    layout: 'workspace',
-    menuEntry: false,
-  },
-  {
-    route: '/iam/users/form/:userId',
+    route: '/iam/user/form',
     moduleAlias: 'iam.user',
     component: UserManagementView,
     layout: 'workspace',
     menuEntry: false,
   },
   {
-    route: '/iam/system-users',
+    route: '/iam/user/form/:userId',
+    moduleAlias: 'iam.user',
+    component: UserManagementView,
+    layout: 'workspace',
+    menuEntry: false,
+  },
+  {
+    route: '/iam/system-user',
     moduleAlias: 'iam.system_user',
     component: SystemUserManagementView,
     layout: 'workspace',
   },
   {
-    route: '/iam/roles',
+    route: '/iam/role',
     moduleAlias: 'iam.role',
     component: RoleManagementView,
     layout: 'workspace',
   },
   {
-    route: '/iam/role-authorization',
+    route: '/iam/role/authorization',
     moduleAlias: 'iam.role',
     component: RoleAuthorizationView,
     layout: 'workspace',
@@ -84,25 +84,8 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
 ];
 
 export const platformAdminRoutePrefixes = Array.from(
-  new Set(['/_workspace', ...platformAdminRoutes.map((route) => route.route)]),
+  new Set(['/_platform/workspace', ...platformAdminRoutes.map((route) => route.route)]),
 );
-/**
- * Readable legacy URLs that are intentionally delegated to the standard module runner.
- * Module menus without a dedicated static page, including `platform.module`, use the
- * canonical `/platform/dynamic/<moduleAlias>/list` URL directly.
- */
-export const platformAdminDynamicModuleRoutes: Record<string, string> = {
-  '/config/field-ui-controls': 'platform.field_ui_control',
-  // Tenant management is descriptor-owned. Keep the former static URL for
-  // bookmarks and menus; page serialization canonicalizes it to the module host.
-  '/iam/tenants': 'iam.tenant',
-  '/iam/organizations': 'iam.organization',
-  '/iam/departments': 'iam.department',
-  // Keep the former static module-management URL as a bookmark-compatible
-  // dynamic entry. Page serialization still uses the canonical dynamic URL.
-  '/config/modules': 'platform.module',
-  '/platform/security/passwords': 'iam.password_policy_rule',
-};
 export const platformAdminModuleRoutes = Object.fromEntries(
   platformAdminRoutes
     .filter((route) => route.menuEntry !== false)

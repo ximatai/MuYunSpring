@@ -1,5 +1,6 @@
 import { computed, inject, provide, type ComputedRef, type InjectionKey } from 'vue';
 import { useRoute, type RouteLocationNormalizedLoaded } from 'vue-router';
+import type { PageDescriptor } from '@muyun/web-contracts';
 
 export interface PageRoute {
   path: string;
@@ -10,6 +11,7 @@ export interface PageRoute {
 }
 
 const pageRouteKey: InjectionKey<ComputedRef<PageRoute>> = Symbol('page-route');
+const pageDescriptorKey: InjectionKey<ComputedRef<PageDescriptor | undefined>> = Symbol('page-descriptor');
 
 /**
  * Provides the route owned by one cached page instance.
@@ -22,10 +24,20 @@ export function providePageRoute(route: () => PageRoute) {
   provide(pageRouteKey, computed(route));
 }
 
+/** Provides the workbench-restored descriptor for the cached page instance. */
+export function providePageDescriptor(descriptor: () => PageDescriptor | undefined) {
+  provide(pageDescriptorKey, computed(descriptor));
+}
+
 /** Returns the page-instance route when rendered by the workbench, otherwise the active router route. */
 export function usePageRoute(): ComputedRef<PageRoute> {
   const providedRoute = inject(pageRouteKey);
   if (providedRoute) return providedRoute;
   const activeRoute = useRoute();
   return computed(() => activeRoute);
+}
+
+/** Returns the descriptor restored from the current user's workbench state, when available. */
+export function usePageDescriptor(): ComputedRef<PageDescriptor | undefined> {
+  return inject(pageDescriptorKey) ?? computed(() => undefined);
 }

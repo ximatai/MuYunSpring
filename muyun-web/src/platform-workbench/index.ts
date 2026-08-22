@@ -25,6 +25,8 @@ export type {
 export type { WorkspaceViewHost } from './workspaceViewHost';
 export {
   createMenuTab,
+  canonicalDynamicModulePath,
+  dynamicModuleAliasFromPath,
   findFirstNavigationMenu,
   getMenuNavigationTarget,
   isTabMenuTarget,

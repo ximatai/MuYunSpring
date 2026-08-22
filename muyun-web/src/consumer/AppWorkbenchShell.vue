@@ -14,7 +14,11 @@ import {
   routeUrlWithOpenOptions,
   type OpenRouteOptions,
 } from '../platform-workbench/workbenchNavigation';
-import { pageDescriptorToUrl, type PageDescriptorResolveOptions } from '../platform-workbench/menuNavigation';
+import {
+  pageDescriptorToUrl,
+  withPageInstanceKey,
+  type PageDescriptorResolveOptions,
+} from '../platform-workbench/menuNavigation';
 import type { WorkbenchRealtimeStatus } from '../platform-workbench/realtimeStatus';
 import {
   arrangeLockedMenuTabs,
@@ -189,28 +193,45 @@ function openPage(descriptor: PageDescriptor) {
 }
 
 function openRoute(path: string, options: OpenRouteOptions = {}) {
-  return navigateRoute(routeUrlWithOpenOptions(path, options), 'push', props.startup, options.tabTitle);
+  return navigateRoute(
+    routeUrlWithOpenOptions(path, options),
+    'push',
+    props.startup,
+    options.tabTitle,
+    options.newInstance,
+  );
 }
 
 function replaceRoute(path: string, options: OpenRouteOptions = {}) {
   const currentTabKey = props.startup.activeTabKey;
   const currentTab = props.startup.tabs?.find((tab) => tab.key === currentTabKey);
-  const url = new URL(routeUrlWithOpenOptions(path, options), 'http://muyun.local');
-  const instanceKey = currentTab?.fullPath
-    ? new URL(currentTab.fullPath, 'http://muyun.local').searchParams.get('InstanceKey')
-    : undefined;
-  if (instanceKey) url.searchParams.set('InstanceKey', instanceKey);
-  const fullPath = `${url.pathname}${url.search}${url.hash}`;
+  const fullPath = routeUrlWithOpenOptions(path, options);
   if (!currentTabKey || !currentTab)
     return navigateRoute(fullPath, 'replace', props.startup, options.tabTitle);
   const restored = restoreWorkbenchStartupStateFromUrl(props.startup, fullPath, props.resolveOptions);
   const replacement = restored.tabs?.find((tab) => tab.key === restored.activeTabKey);
   if (!replacement) return { created: false };
+  const pageDescriptor =
+    replacement.pageDescriptor && currentTab.instanceKey
+      ? withPageInstanceKey(replacement.pageDescriptor, currentTab.instanceKey)
+      : replacement.pageDescriptor;
+  const publicUrl = pageDescriptor
+    ? pageDescriptorToUrl(pageDescriptor, props.resolveOptions)
+    : replacement.fullPath;
   const tabs = (restored.tabs ?? [])
     .filter((tab) => tab.key !== replacement.key)
     .map((tab) =>
       tab.key === currentTabKey
-        ? { ...currentTab, ...replacement, key: currentTabKey, title: options.tabTitle ?? replacement.title }
+        ? {
+            ...currentTab,
+            ...replacement,
+            key: currentTabKey,
+            instanceKey: currentTab.instanceKey,
+            pageDescriptor,
+            fullPath: publicUrl,
+            restoreState: publicUrl ? { url: publicUrl } : replacement.restoreState,
+            title: options.tabTitle ?? replacement.title,
+          }
         : tab,
     );
   update({ ...restored, tabs, activeTabKey: currentTabKey }, 'replace');
@@ -245,12 +266,18 @@ function navigateRoute(
   mode: 'push' | 'replace',
   state: WorkbenchStartupState,
   tabTitle?: string,
+  newInstance = false,
 ) {
   const previousKeys = new Set((state.tabs ?? []).map((tab) => tab.key));
-  let restored = restoreWorkbenchStartupStateFromUrl(state, url, {
-    ...props.resolveOptions,
-    title: tabTitle ?? props.resolveOptions.title,
-  });
+  let restored = restoreWorkbenchStartupStateFromUrl(
+    state,
+    url,
+    {
+      ...props.resolveOptions,
+      title: tabTitle ?? props.resolveOptions.title,
+    },
+    newInstance,
+  );
   if (tabTitle && restored.activeTabKey) {
     restored = {
       ...restored,
