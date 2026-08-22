@@ -8,7 +8,7 @@ export interface SystemUserDetailWorkspaceViewInput {
 /** A system account detail has a stable identity and can be resumed independently. */
 export const systemUserDetailWorkspaceView = defineWorkspaceView<SystemUserDetailWorkspaceViewInput>({
   type: 'iam.system-user.detail',
-  route: '/iam/system-users',
+  route: '/iam/system-user',
   moduleAlias: 'iam.system_user',
   component: defineAsyncComponent(() => import('./SystemUserDetailWorkspaceView.vue')),
   layout: 'workspace',

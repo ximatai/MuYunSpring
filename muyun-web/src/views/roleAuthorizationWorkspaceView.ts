@@ -8,7 +8,7 @@ export interface RoleAuthorizationWorkspaceViewInput {
 
 export const roleAuthorizationWorkspaceView = defineWorkspaceView<RoleAuthorizationWorkspaceViewInput>({
   type: 'iam.role.authorization',
-  route: '/iam/role-authorization',
+  route: '/iam/role/authorization',
   moduleAlias: 'iam.role',
   component: defineAsyncComponent(() => import('./RoleAuthorizationView.vue')),
   layout: 'workspace',

@@ -7,7 +7,7 @@ export interface EmployeeDetailWorkspaceViewInput {
 
 export const employeeDetailWorkspaceView = defineWorkspaceView<EmployeeDetailWorkspaceViewInput>({
   type: 'iam.employee.detail',
-  route: '/iam/employees',
+  route: '/iam/employee',
   moduleAlias: 'iam.employee',
   component: defineAsyncComponent(() => import('./EmployeeDetailWorkspaceView.vue')),
   layout: 'workspace',

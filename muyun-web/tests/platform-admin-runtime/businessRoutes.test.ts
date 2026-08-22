@@ -5,6 +5,8 @@ import {
   isPlatformAdminRoutePage,
   resolvePlatformAdminRoute,
 } from '@/platform-admin-runtime/platformAdminRoutes.ts';
+import { validateAndCompileMenuRoutes } from '@/app/menuRouteCompiler.ts';
+import { routePageLoaders, staticRouteDefinitions } from '@/app/staticRouteDefinitions.ts';
 import { pageDescriptorFromUrl, pageDescriptorToUrl } from '@/platform-workbench/menuNavigation.ts';
 import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 
@@ -29,6 +31,30 @@ it('uses backend application and module aliases for every public static route', 
     'iam.system_user': '/iam/system-user',
     'iam.role': '/iam/role',
   });
+});
+
+it('accepts every backend-published static menu route in the frontend registry', () => {
+  const menus = Object.entries(platformAdminModuleRoutes).map(([moduleAlias, route]) => ({
+    id: `menu:${moduleAlias}`,
+    schemeId: 'platform',
+    title: moduleAlias,
+    enabled: true,
+    entryType: 'route' as const,
+    openMode: 'tab' as const,
+    moduleAlias,
+    route,
+  }));
+
+  const result = validateAndCompileMenuRoutes(menus, staticRouteDefinitions, routePageLoaders);
+
+  assert.deepEqual(result.issues, []);
+  assert.deepEqual(
+    menus.map((menu) => menu.route).sort(),
+    result.validRoutes
+      .filter((route) => menus.some((menu) => menu.route === route.path))
+      .map((route) => route.path)
+      .sort(),
+  );
 });
 
 it('resolves direct static workbench pages without replacing their backend module identity', () => {

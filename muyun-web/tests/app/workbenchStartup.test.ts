@@ -958,7 +958,7 @@ it('restoreWorkbenchStartupStateFromUrl restores a declared workspace view ahead
 
   assert.equal(
     restored.activeTabKey,
-    'business-route:/iam/employees:recordId=employee-1&workspacePresentation=tab&workspaceView=iam.employee.detail',
+    'business-route:/iam/employee:recordId=employee-1&workspacePresentation=tab&workspaceView=iam.employee.detail',
   );
   assert.equal(restored.tabs?.[0]?.title, '职员详情');
   assert.equal(restored.tabs?.[0]?.target, undefined);

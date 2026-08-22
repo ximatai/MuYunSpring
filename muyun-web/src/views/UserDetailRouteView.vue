@@ -314,7 +314,7 @@ function handleDetailAction(action: RecordActionItem) {
 function openUserAction(action: Extract<UserRouteAction, 'edit'>) {
   const user = selectedUser.value;
   if (!user?.id) return;
-  navigation?.openRoute(`/iam/users/form/${encodeURIComponent(user.id)}`, {
+  navigation?.openRoute(`/iam/user/form/${encodeURIComponent(user.id)}`, {
     tabTitle: `编辑用户：${userTitle(user)}`,
     query: { action },
   });
@@ -352,7 +352,7 @@ async function saveUser() {
 /** 在当前页签内改为查看地址，不改变这个页签的身份。 */
 function replaceWithView(record: UserAccount) {
   if (!record.id) return;
-  navigation?.replaceRoute(`/iam/users/form/${encodeURIComponent(record.id)}`, {
+  navigation?.replaceRoute(`/iam/user/form/${encodeURIComponent(record.id)}`, {
     query: { action: 'view' },
     tabTitle: `浏览用户：${userTitle(record)}`,
   });
@@ -361,7 +361,7 @@ function replaceWithView(record: UserAccount) {
 /** 取消编辑或改密码，新建取消则直接关闭新建页签。 */
 function cancelEditOrPassword() {
   if (props.action === 'add') {
-    navigation?.closeCurrentTab('/iam/users');
+    navigation?.closeCurrentTab('/iam/user');
     return;
   }
   const user = selectedUser.value;
@@ -447,7 +447,7 @@ async function removeUser() {
       }),
     execute: (user) => userContext.crud.delete(String(user.id), { version: user.version! }),
     onExecuted: () => {
-      navigation?.closeCurrentTab('/iam/users');
+      navigation?.closeCurrentTab('/iam/user');
     },
   });
 }

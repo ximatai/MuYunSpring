@@ -121,7 +121,7 @@ function selectTenant(record: Tenant) {
 /** 列表顶端的新建按钮通过地址打开一张新的用户页签。 */
 function handleUserListAction(action: RecordActionItem) {
   if (action.key !== 'create') return;
-  navigation?.openRoute('/iam/users/form', {
+  navigation?.openRoute('/iam/user/form', {
     tabTitle: '新建用户',
     query: { action: 'add' },
   });
@@ -145,7 +145,7 @@ function handleUserRowDblclick(record: QueryListRecord) {
 function openUserPage(action: Extract<UserRouteAction, 'view' | 'edit'>, record: QueryListRecord) {
   const userId = String(record.id ?? '');
   if (!userId) return;
-  navigation?.openRoute(`/iam/users/form/${encodeURIComponent(userId)}`, {
+  navigation?.openRoute(`/iam/user/form/${encodeURIComponent(userId)}`, {
     tabTitle: action === 'view' ? `浏览用户：${userTitle(record)}` : `编辑用户：${userTitle(record)}`,
     query: { action },
   });
