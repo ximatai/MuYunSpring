@@ -28,6 +28,11 @@ public class FormulaEvaluationSession implements FormulaEvaluationContext {
         return context.rows(tableKey);
     }
 
+    @Override
+    public FormulaEvaluationScope changeScope() {
+        return context.changeScope();
+    }
+
     public List<FormulaFieldWriteResult> commit() {
         return List.of();
     }

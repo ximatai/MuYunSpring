@@ -26,6 +26,7 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.iam.employee.Employee;
+import net.ximatai.muyun.spring.iam.employee.EmployeeFormulas;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccount;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeDelegation;
@@ -148,7 +149,7 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
                         .field("positions", "enabled", field -> field.label("启用状态")
                                 .width("110px").uiType("enabledStatus")))
                 .aggregateChildRelation("positions", "任职", "positions", "employeeId",
-                        UiRule.constant(Boolean.TRUE), true)
+                        UiRule.constant(Boolean.TRUE), true, List.of(EmployeeFormulas.primaryPositionExclusive()))
                 .build();
     }
 

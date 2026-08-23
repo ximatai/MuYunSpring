@@ -291,6 +291,14 @@ async function loadOptionField(field: RecordFormFieldDescriptor) {
 }
 
 function booleanFieldValue(fieldName: string) {
+  // A business boolean is opt-in.  Treating an absent value as enabled makes a fresh
+  // aggregate-row checkbox look checked although its payload has never set it to true.
+  return props.record[fieldName] === true;
+}
+
+function enabledStatusFieldValue(fieldName: string) {
+  // Enablement is the platform's opt-out status: a newly created record is enabled
+  // unless it explicitly carries `false`.
   return props.record[fieldName] !== false;
 }
 
@@ -444,7 +452,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
       <div class="record-form-field-control">
         <RecordStatusSwitch
           v-if="field.controlType === 'enabledStatus'"
-          :enabled="booleanFieldValue(field.fieldName)"
+          :enabled="enabledStatusFieldValue(field.fieldName)"
           :disabled="fieldDisabled(field)"
           :show-label="false"
           @change="updateField(field.fieldName, $event)"

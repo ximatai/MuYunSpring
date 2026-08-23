@@ -383,6 +383,8 @@ export interface ResolvedDetailRelationDescriptor {
   embeddedField?: string;
   /** Shared column projection for gateway-backed and embedded relations. */
   listProjection?: ResolvedDetailRelationListProjection;
+  /** Immediate server-compiled calculations for rows in this embedded child relation. */
+  formComputeRules?: ResolvedDetailRelationFormComputeRuleDescriptor[];
   /** Server-compiled visibility rule; clients execute only its FormulaProgram. */
   visible?: UiRule<boolean>;
   editing?: ResolvedDetailRelationEditing;
@@ -393,6 +395,13 @@ export interface ResolvedDetailRelationEditing {
   mode: 'DIALOG' | 'INLINE';
   saveMode: 'INDEPENDENT' | 'AGGREGATE_DRAFT';
   recycleBinEnabled?: boolean;
+}
+
+export interface ResolvedDetailRelationFormComputeRuleDescriptor {
+  code: string;
+  program: FormulaProgram;
+  targetField: string;
+  triggerFields: string[];
 }
 
 export interface ResolvedDetailRelationParentConstraint {
@@ -865,7 +874,7 @@ export interface FormulaProgram {
 
 /** Source-neutral FormulaEngine AST node. Profiles decide which nodes can execute. */
 export interface FormulaNode {
-  kind: 'VALUE' | 'FIELD' | 'UNARY' | 'BINARY' | 'FUNCTION' | 'ASSIGN';
+  kind: 'VALUE' | 'FIELD' | 'OTHERS' | 'UNARY' | 'BINARY' | 'FUNCTION' | 'ASSIGN';
   operator?: string;
   field?: string;
   value?: string | number | boolean | null;

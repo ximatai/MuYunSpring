@@ -7,7 +7,7 @@ final class FormulaAst {
     }
 
     enum NodeType {
-        VALUE, FIELD, UNARY, BINARY, ASSIGN, FUNC, EMPTY
+        VALUE, FIELD, OTHERS, UNARY, BINARY, ASSIGN, FUNC, EMPTY
     }
 
     static class AstNode {
@@ -34,6 +34,20 @@ final class FormulaAst {
 
         FieldNode(String dataIndex) {
             this.type = NodeType.FIELD;
+            this.dataIndex = dataIndex;
+        }
+    }
+
+    /**
+     * A writable sibling-row field set, for example {@code others({lines.primary})}.
+     * It is deliberately not a general collection expression: it may only appear as
+     * the left side of one calculation assignment.
+     */
+    static final class OthersNode extends AstNode {
+        final String dataIndex;
+
+        OthersNode(String dataIndex) {
+            this.type = NodeType.OTHERS;
             this.dataIndex = dataIndex;
         }
     }
@@ -65,11 +79,17 @@ final class FormulaAst {
     static final class AssignNode extends AstNode {
         final AstNode left;
         final AstNode right;
+        final AstNode condition;
 
         AssignNode(AstNode left, AstNode right) {
+            this(left, right, null);
+        }
+
+        AssignNode(AstNode left, AstNode right, AstNode condition) {
             this.type = NodeType.ASSIGN;
             this.left = left;
             this.right = right;
+            this.condition = condition;
         }
     }
 

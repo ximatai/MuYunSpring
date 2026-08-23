@@ -51,6 +51,38 @@ export class FormulaRuntime {
     });
   }
 
+  /** Evaluates a row-to-row assignment in the changed row's scope without mutating any drafts. */
+  evaluateRelationFormCompute(
+    program: FormulaProgram | undefined,
+    draft: FormulaRecord,
+    targetField: string,
+  ): FormulaComputeResult {
+    if (!program || program.schemaVersion !== 1 || program.profile !== 'FORM_COMPUTE' || !program.root)
+      return EMPTY_COMPUTE_RESULT;
+    const root = program.root;
+    if (
+      root.kind !== 'ASSIGN' ||
+      root.operator !== '=' ||
+      root.arguments.length < 2 ||
+      root.arguments.length > 3
+    )
+      return EMPTY_COMPUTE_RESULT;
+    const [target, expression, condition] = root.arguments;
+    if (target.kind !== 'OTHERS' || target.field == null || target.field.split('.').at(-1) !== targetField)
+      return EMPTY_COMPUTE_RESULT;
+    const budget: FormulaBudget = { count: 0 };
+    if (condition) {
+      const applies = this.evaluateComputeNode(condition, draft, 2, budget);
+      if (applies === INVALID_FORMULA_VALUE || !this.toBoolean(applies)) return EMPTY_COMPUTE_RESULT;
+    }
+    const value = this.evaluateComputeNode(expression, draft, 2, budget);
+    if (value === INVALID_FORMULA_VALUE || value === undefined) return EMPTY_COMPUTE_RESULT;
+    return Object.freeze({
+      patch: Object.freeze({ [targetField]: value }),
+      changedFields: Object.freeze([targetField]),
+    });
+  }
+
   private evaluateNode(
     node: FormulaNode,
     record: FormulaRecord,
@@ -373,7 +405,7 @@ function javaDoubleString(value: number): string {
 }
 
 function isKnownKind(kind: string): kind is FormulaNode['kind'] {
-  return ['VALUE', 'FIELD', 'UNARY', 'BINARY', 'FUNCTION', 'ASSIGN'].includes(kind);
+  return ['VALUE', 'FIELD', 'OTHERS', 'UNARY', 'BINARY', 'FUNCTION', 'ASSIGN'].includes(kind);
 }
 
 function isFormulaValue(value: unknown): value is FormulaValue {

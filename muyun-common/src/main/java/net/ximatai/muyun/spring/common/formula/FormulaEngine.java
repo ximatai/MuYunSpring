@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.common.formula.FormulaAst.AstNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.BinaryNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.FieldNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.FuncNode;
+import net.ximatai.muyun.spring.common.formula.FormulaAst.OthersNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.UnaryNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.ValueNode;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData.RowValue;
@@ -150,9 +151,68 @@ public class FormulaEngine {
         }
     }
 
+    /**
+     * Compiles one embedded-relation calculation into the row-local program consumed by the
+     * browser. Formula text remains relation-qualified; only the issued program is scoped.
+     */
+    public FormulaProgram compileRelationFormComputeProgram(String expression, String relationCode) {
+        if (relationCode == null || !relationCode.matches("[A-Za-z][A-Za-z0-9_]*")) {
+            throw new FormulaEvaluationException("FORMULA_RELATION_SCOPE_INVALID",
+                    "relation form compute requires a valid relation code");
+        }
+        FormulaProgram program = compileFormComputeProgram(expression);
+        FormulaNode root = program.root();
+        if (root.kind() != FormulaNode.Kind.ASSIGN || root.arguments().size() < 2 || root.arguments().size() > 3
+                || root.arguments().getFirst().kind() != FormulaNode.Kind.OTHERS
+                || !(relationCode + ".").equals(prefix(root.arguments().getFirst().field()))) {
+            throw new FormulaEvaluationException("FORMULA_RELATION_SCOPE_INVALID",
+                    "relation form compute must assign others({" + relationCode + ".field})");
+        }
+        String prefix = relationCode + ".";
+        if (program.referencedFields().stream().anyMatch(field -> !field.startsWith(prefix))) {
+            throw new FormulaEvaluationException("FORMULA_RELATION_SCOPE_INVALID",
+                    "relation form compute may only reference " + relationCode + " fields");
+        }
+        return new FormulaProgram(program.schemaVersion(), program.profile(), scopeRelationNode(program.root(), prefix),
+                program.referencedFields().stream().map(field -> field.substring(prefix.length()))
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)));
+    }
+
+    private static String prefix(String field) {
+        if (field == null) return null;
+        int dot = field.indexOf('.');
+        return dot < 0 ? null : field.substring(0, dot + 1);
+    }
+
+    private static FormulaNode scopeRelationNode(FormulaNode node, String prefix) {
+        String field = node.field();
+        if ((node.kind() == FormulaNode.Kind.FIELD || node.kind() == FormulaNode.Kind.OTHERS)
+                && field != null && field.startsWith(prefix)) {
+            field = field.substring(prefix.length());
+        }
+        return new FormulaNode(node.kind(), node.operator(), field, node.value(),
+                node.arguments().stream().map(argument -> scopeRelationNode(argument, prefix)).toList());
+    }
+
     public boolean containsAssignment(String expression) {
         FormulaExpressionSupport.ParsedExpression parsed = parse("expression", expression);
         return parsed != null && FormulaExpressionSupport.containsAssignment(parsed.ast());
+    }
+
+    /**
+     * Evaluates the {@code WHEN} guard of one row-to-row assignment in the supplied change scope.
+     * A formula without a guard applies to every changed row; this method deliberately does not
+     * execute the assignment itself.
+     */
+    public boolean matchesRowSetCondition(String expression, FormulaEvaluationContext data) {
+        FormulaExpressionSupport.ParsedExpression parsed = parse("row-set-condition", expression);
+        if (parsed == null || !(parsed.ast() instanceof AssignNode assignment)
+                || !(assignment.left instanceof OthersNode)) {
+            throw new FormulaEvaluationException("FORMULA_OTHERS_ASSIGNMENT_REQUIRED",
+                    "row-to-row condition requires an others(...) assignment");
+        }
+        FormulaEvaluationScope scope = requireChildChangeScope(data);
+        return assignment.condition == null || toBoolean(eval(assignment.condition, data, scope).value());
     }
 
     public void validateTargetFieldExpressionScope(String targetField, String expression) {
@@ -231,7 +291,10 @@ public class FormulaEngine {
             return;
         }
         try {
-            eval(parsed.ast(), session, FormulaEvaluationScope.main());
+            FormulaEvaluationScope scope = FormulaExpressionSupport.containsOthersAssignment(parsed.ast())
+                    ? requireChildChangeScope(session)
+                    : FormulaEvaluationScope.main();
+            eval(parsed.ast(), session, scope);
             commitSession(session, result);
         } catch (RuntimeException ex) {
             session.rollback();
@@ -313,6 +376,12 @@ public class FormulaEngine {
     }
 
     private EvalResult evalAssign(AssignNode node, FormulaEvaluationContext data, FormulaEvaluationScope context) {
+        if (node.condition != null && !toBoolean(eval(node.condition, data, context).value())) {
+            return EvalResult.of(null, false);
+        }
+        if (node.left instanceof OthersNode othersNode) {
+            return evalOthersAssign(othersNode, node.right, data, context);
+        }
         if (!(node.left instanceof FieldNode fieldNode)) {
             return eval(node.right, data, context);
         }
@@ -323,6 +392,38 @@ public class FormulaEngine {
                 context
         );
         return right.withWriteResult(writeResult);
+    }
+
+    private EvalResult evalOthersAssign(OthersNode target,
+                                        AstNode rightNode,
+                                        FormulaEvaluationContext data,
+                                        FormulaEvaluationScope context) {
+        FormulaFieldPath fieldPath = FormulaFieldPath.parse(target.dataIndex);
+        if (fieldPath.tableKey() == null || context.row() == null
+                || !Objects.equals(fieldPath.tableKey(), context.tableKey())) {
+            throw new FormulaEvaluationException("FORMULA_OTHERS_SCOPE_ERROR", target.dataIndex,
+                    "others target requires the current row of the same child table: " + target.dataIndex);
+        }
+        EvalResult right = eval(rightNode, data, context);
+        boolean changed = right.changed();
+        for (Object row : data.rows(fieldPath.tableKey())) {
+            if (row == context.row()) {
+                continue;
+            }
+            FormulaFieldWriteResult write = data.set(fieldPath, normalizeCalculatedValue(right.value()),
+                    FormulaEvaluationScope.row(fieldPath.tableKey(), row));
+            changed = changed || write.changed();
+        }
+        return EvalResult.of(right.value(), changed);
+    }
+
+    private FormulaEvaluationScope requireChildChangeScope(FormulaEvaluationContext data) {
+        FormulaEvaluationScope scope = data.changeScope();
+        if (scope == null || scope.tableKey() == null || scope.tableKey().isBlank() || scope.row() == null) {
+            throw new FormulaEvaluationException("FORMULA_CHANGE_SCOPE_REQUIRED",
+                    "row-to-row calculation requires one submitted child-row change scope");
+        }
+        return scope;
     }
 
     private EvalResult evalFunction(FuncNode node, FormulaEvaluationContext data, FormulaEvaluationScope context) {

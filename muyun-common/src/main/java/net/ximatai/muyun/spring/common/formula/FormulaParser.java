@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.common.formula.FormulaAst.AstNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.BinaryNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.FieldNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.FuncNode;
+import net.ximatai.muyun.spring.common.formula.FormulaAst.OthersNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.UnaryNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.ValueNode;
 
@@ -31,6 +32,13 @@ final class FormulaParser {
 
     AstNode parseExpression() {
         AstNode expression = parseAssignment();
+        if (isWhen(peek())) {
+            if (!(expression instanceof AssignNode assignment)) {
+                throw new FormulaEvaluationException("FORMULA_PARSE_ERROR", "WHEN requires a formula assignment");
+            }
+            next();
+            expression = new AssignNode(assignment.left, assignment.right, parseBinary(0));
+        }
         FormulaTokenizer.Token token = peek();
         if (token != null) {
             throw new FormulaEvaluationException("FORMULA_PARSE_ERROR", "unexpected formula token: " + token.value());
@@ -89,6 +97,9 @@ final class FormulaParser {
                 return new FieldNode(raw.substring(1, raw.length() - 1));
             }
             if (isFunctionName(raw) && isNextLeftParen()) {
+                if ("OTHERS".equalsIgnoreCase(raw)) {
+                    return parseOthers();
+                }
                 return parseFunction(raw);
             }
             next();
@@ -105,6 +116,18 @@ final class FormulaParser {
         }
         next();
         return new AstNode();
+    }
+
+    private OthersNode parseOthers() {
+        next();
+        next();
+        FormulaTokenizer.Token field = next();
+        if (field == null || field.type() != FormulaTokenizer.TokenType.VALUE || !isField(field.value())
+                || peek() == null || peek().type() != FormulaTokenizer.TokenType.RPAREN) {
+            throw new FormulaEvaluationException("FORMULA_PARSE_ERROR", "others requires exactly one child field");
+        }
+        next();
+        return new OthersNode(field.value().substring(1, field.value().length() - 1));
     }
 
     private FuncNode parseFunction(String name) {
@@ -141,6 +164,10 @@ final class FormulaParser {
 
     private boolean isOperator(FormulaTokenizer.Token token, String op) {
         return token != null && token.type() == FormulaTokenizer.TokenType.OP && op.equals(token.value());
+    }
+
+    private boolean isWhen(FormulaTokenizer.Token token) {
+        return token != null && token.type() == FormulaTokenizer.TokenType.VALUE && "WHEN".equalsIgnoreCase(token.value());
     }
 
     private boolean isField(String raw) {

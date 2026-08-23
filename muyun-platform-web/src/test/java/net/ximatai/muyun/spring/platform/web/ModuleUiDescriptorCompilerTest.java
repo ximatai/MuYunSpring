@@ -1238,7 +1238,10 @@ class ModuleUiDescriptorCompilerTest {
                         .field("employee_position", "primaryPosition", field -> { })
                         .field("employee_position", "enabled", field -> { }))
                 .aggregateChildRelation("positions", "任职", "employee_position", "employeeId",
-                        UiRule.constant(Boolean.TRUE))
+                        UiRule.constant(Boolean.TRUE), false, List.of(new net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition(
+                                "positions", new net.ximatai.muyun.spring.common.formula.FormulaRule(
+                                "primaryPositionExclusive", "others({positions.primaryPosition}) = false WHEN {positions.primaryPosition}"),
+                                List.of("primaryPosition"))))
                 .build();
 
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(staticDefinition(uiDefinition,
@@ -1259,6 +1262,11 @@ class ModuleUiDescriptorCompilerTest {
             assertThat(relation.embeddedField()).isEqualTo("positions");
             assertThat(relation.listProjection().fields()).extracting(field -> field.fieldName())
                     .containsExactly("organizationId", "departmentId", "positionId", "primaryPosition", "enabled");
+            assertThat(relation.formComputeRules()).singleElement().satisfies(rule -> {
+                assertThat(rule.targetField()).isEqualTo("primaryPosition");
+                assertThat(rule.program().root().arguments().getFirst().kind().name()).isEqualTo("OTHERS");
+                assertThat(rule.program().root().arguments().get(2).field()).isEqualTo("primaryPosition");
+            });
         });
         assertThat(descriptor.page().list().relationExpansions()).containsExactly(
                 new ResolvedPageListRelationExpansionDescriptor("positions",

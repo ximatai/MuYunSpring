@@ -20,6 +20,7 @@ public class FormulaRuntimeData implements FormulaEvaluationContext {
     private final Set<FormulaFieldPath> knownFields;
     private final Set<String> knownTables;
     private final Map<FormulaFieldPath, FormulaFieldDefinition> fieldDefinitions;
+    private FormulaEvaluationScope changeScope = FormulaEvaluationScope.main();
 
     public FormulaRuntimeData(Map<String, Object> main, Map<String, List<Map<String, Object>>> tables) {
         this(main, tables, false, false, Set.of(), Map.of());
@@ -86,6 +87,29 @@ public class FormulaRuntimeData implements FormulaEvaluationContext {
                         LinkedHashMap::new
                 ));
         return new FormulaRuntimeData(main, tables, true, true, definitions.keySet(), definitions);
+    }
+
+    /**
+     * Binds a formula run to one submitted child row. The supplied map must be one of the rows
+     * passed for {@code tableKey}; using identity here prevents an equal-looking sibling from
+     * accidentally becoming the mutation source.
+     */
+    public FormulaRuntimeData withChangeScope(String tableKey, Map<String, Object> row) {
+        if (tableKey == null || tableKey.isBlank() || row == null) {
+            throw new FormulaEvaluationException("FORMULA_CHANGE_SCOPE_INVALID", "formula child change scope is required");
+        }
+        RowValue source = rows(tableKey).stream()
+                .filter(candidate -> candidate.values == row)
+                .findFirst()
+                .orElseThrow(() -> new FormulaEvaluationException("FORMULA_CHANGE_SCOPE_INVALID",
+                        "formula change row does not belong to table: " + tableKey));
+        this.changeScope = FormulaEvaluationScope.row(tableKey, source);
+        return this;
+    }
+
+    @Override
+    public FormulaEvaluationScope changeScope() {
+        return changeScope;
     }
 
     @Override
@@ -295,6 +319,22 @@ public class FormulaRuntimeData implements FormulaEvaluationContext {
                 );
             }
             return tableRows.computeIfAbsent(tableKey, this::copyRows);
+        }
+
+        @Override
+        public FormulaEvaluationScope changeScope() {
+            FormulaEvaluationScope source = FormulaRuntimeData.this.changeScope;
+            if (source.row() == null) {
+                return source;
+            }
+            List<RowValue> sourceRows = tables.getOrDefault(source.tableKey(), List.of());
+            int index = sourceRows.indexOf(source.row());
+            if (index < 0) {
+                throw new FormulaEvaluationException("FORMULA_CHANGE_SCOPE_INVALID",
+                        "formula change row does not belong to table: " + source.tableKey());
+            }
+            List<StagedRowValue> stagedRows = (List<StagedRowValue>) rows(source.tableKey());
+            return FormulaEvaluationScope.row(source.tableKey(), stagedRows.get(index));
         }
 
         @Override

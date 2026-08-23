@@ -28,6 +28,8 @@ import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationQueryContract;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListProjection;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationParentConstraint;
+import net.ximatai.muyun.spring.platform.ui.ResolvedRelationFormComputeRuleDescriptor;
+import net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -262,8 +264,65 @@ public final class ModuleUiDescriptorCompiler {
                                     relation.editing().saveMode().name()),
                             relation.editing().recycleBinEnabled()),
                     relation.refreshOnDetailReload(), relation.embedded() ? relation.code() : null,
-                    listProjection, resolvedRule(relation.visible()));
+                    listProjection, compileRelationFormComputeRules(relation, listProjection), resolvedRule(relation.visible()));
         }).toList();
+    }
+
+    /**
+     * Compiles embedded-relation formulas through the same FormulaEngine profile as main-form
+     * calculations. The relation declaration supplies the event wiring; the expression remains
+     * the single source of target and guard semantics for browser and server execution.
+     */
+    private static List<ResolvedRelationFormComputeRuleDescriptor> compileRelationFormComputeRules(
+            PageDetailRelationDefinition relation, ResolvedDetailRelationListProjection listProjection) {
+        if (relation.formComputeRules().isEmpty()) return List.of();
+        Set<String> relationFields = listProjection == null ? Set.of() : listProjection.fields().stream()
+                .map(ResolvedDetailRelationListField::fieldName).collect(java.util.stream.Collectors.toSet());
+        Set<String> codes = new LinkedHashSet<>();
+        java.util.ArrayList<ResolvedRelationFormComputeRuleDescriptor> resolved = new java.util.ArrayList<>();
+        for (AggregateChildFormulaDefinition definition : relation.formComputeRules()) {
+            var rule = definition.rule();
+            if (!codes.add(rule.id())) {
+                throw new IllegalArgumentException("duplicate relation form compute rule: " + relation.code() + "." + rule.id());
+            }
+            FormulaProgram program;
+            try {
+                program = FORMULA_ENGINE.compileRelationFormComputeProgram(rule.expression(), relation.code());
+            } catch (FormulaEvaluationException exception) {
+                throw new IllegalArgumentException("relation form compute rule must be a FormulaEngine FORM_COMPUTE expression: "
+                        + relation.code() + "." + rule.id(), exception);
+            }
+            String targetField = relationTargetField(program, rule.id());
+            if (!relationFields.contains(targetField)) {
+                throw new IllegalArgumentException("relation form compute target field must be declared by its editor: "
+                        + relation.code() + "." + targetField);
+            }
+            for (String trigger : definition.triggerFields()) {
+                if (!relationFields.contains(trigger)) {
+                    throw new IllegalArgumentException("relation form compute trigger field must be declared by its editor: "
+                            + relation.code() + "." + trigger);
+                }
+            }
+            for (String field : program.referencedFields()) {
+                if (!relationFields.contains(field)) {
+                    throw new IllegalArgumentException("relation form compute expression may only reference fields declared by its editor: "
+                            + relation.code() + "." + rule.id() + "." + field);
+                }
+            }
+            resolved.add(new ResolvedRelationFormComputeRuleDescriptor(rule.id(), program,
+                    targetField, definition.triggerFields()));
+        }
+        return List.copyOf(resolved);
+    }
+
+    private static String relationTargetField(FormulaProgram program, String code) {
+        FormulaNode root = program.root();
+        if (root.kind() != FormulaNode.Kind.ASSIGN || root.arguments().size() < 2
+                || root.arguments().size() > 3 || root.arguments().getFirst().kind() != FormulaNode.Kind.OTHERS
+                || root.arguments().getFirst().field() == null) {
+            throw new IllegalArgumentException("relation form compute must assign others(...): " + code);
+        }
+        return root.arguments().getFirst().field();
     }
 
     private static ResolvedDetailRelationListProjection relationListProjection(

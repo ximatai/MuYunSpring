@@ -2,6 +2,8 @@ package net.ximatai.muyun.spring.platform.ui;
 
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 
+import java.util.List;
+
 /**
  * Source-neutral detail relation contract.  Both static declarations and dynamic association
  * views resolve here; only a non-null query contract is executable by a relation-list runtime.
@@ -22,6 +24,7 @@ public record ResolvedDetailRelationDescriptor(
         boolean refreshOnDetailReload,
         String embeddedField,
         ResolvedDetailRelationListProjection listProjection,
+        List<ResolvedRelationFormComputeRuleDescriptor> formComputeRules,
         ResolvedUiRule<Boolean> visible
 ) {
     /** Source-compatible constructor for read-only relations. */
@@ -34,7 +37,7 @@ public record ResolvedDetailRelationDescriptor(
         this(code, title, readOnly, sourceModuleAlias, sourceEntityAlias, targetModuleAlias,
                 targetEntityAlias, parentBinding, queryContract, null, null,
                 ResolvedDetailRelationEditing.DEFAULT, refreshOnDetailReload, null, null,
-                ResolvedUiRule.constant(Boolean.TRUE));
+                List.of(), ResolvedUiRule.constant(Boolean.TRUE));
     }
 
     /** Source-compatible constructor for mutable relations before parent applicability was explicit. */
@@ -48,7 +51,7 @@ public record ResolvedDetailRelationDescriptor(
         this(code, title, readOnly, sourceModuleAlias, sourceEntityAlias, targetModuleAlias,
                 targetEntityAlias, parentBinding, queryContract, mutationContract, null,
                 ResolvedDetailRelationEditing.DEFAULT, refreshOnDetailReload, null, null,
-                ResolvedUiRule.constant(Boolean.TRUE));
+                List.of(), ResolvedUiRule.constant(Boolean.TRUE));
     }
 
     /** Source-compatible constructor before editing semantics became explicit. */
@@ -63,7 +66,7 @@ public record ResolvedDetailRelationDescriptor(
         this(code, title, readOnly, sourceModuleAlias, sourceEntityAlias, targetModuleAlias,
                 targetEntityAlias, parentBinding, queryContract, mutationContract, parentConstraint,
                 ResolvedDetailRelationEditing.DEFAULT, refreshOnDetailReload, null, null,
-                ResolvedUiRule.constant(Boolean.TRUE));
+                List.of(), ResolvedUiRule.constant(Boolean.TRUE));
     }
 
     /** Source-compatible canonical constructor before embedded child relations were explicit. */
@@ -80,7 +83,7 @@ public record ResolvedDetailRelationDescriptor(
                 targetEntityAlias, parentBinding, queryContract, mutationContract, parentConstraint,
                 editing, refreshOnDetailReload, null,
                 queryContract == null ? null : queryContract.listProjection(),
-                ResolvedUiRule.constant(Boolean.TRUE));
+                List.of(), ResolvedUiRule.constant(Boolean.TRUE));
     }
     public ResolvedDetailRelationDescriptor {
         code = PlatformNameRules.requireIdentifier(code, "detail relation code");
@@ -92,6 +95,7 @@ public record ResolvedDetailRelationDescriptor(
         parentBinding = requireText(parentBinding, "detail relation parent binding");
         editing = editing == null ? ResolvedDetailRelationEditing.DEFAULT : editing;
         embeddedField = normalize(embeddedField);
+        formComputeRules = formComputeRules == null ? List.of() : List.copyOf(formComputeRules);
         visible = visible == null ? ResolvedUiRule.constant(Boolean.TRUE) : visible;
         if (readOnly && mutationContract != null) {
             throw new IllegalArgumentException("read-only detail relation must not declare mutations");
@@ -112,7 +116,7 @@ public record ResolvedDetailRelationDescriptor(
     public ResolvedDetailRelationDescriptor withTitle(String value) {
         return new ResolvedDetailRelationDescriptor(code, value, readOnly, sourceModuleAlias, sourceEntityAlias,
                 targetModuleAlias, targetEntityAlias, parentBinding, queryContract, mutationContract,
-                parentConstraint, editing, refreshOnDetailReload, embeddedField, listProjection, visible);
+                parentConstraint, editing, refreshOnDetailReload, embeddedField, listProjection, formComputeRules, visible);
     }
 
     private static String normalize(String value) {

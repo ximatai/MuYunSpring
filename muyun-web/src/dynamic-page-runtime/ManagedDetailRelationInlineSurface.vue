@@ -23,6 +23,7 @@ import type {
   WebPageResponse,
 } from '@muyun/web-contracts';
 import { createModuleContext, createReferenceResolveClient, type ModuleContext } from '@muyun/web-core';
+import { RelationFormComputeCoordinator } from './relationFormComputeCoordinator';
 
 defineOptions({ name: 'ManagedDetailRelationInlineSurface' });
 
@@ -116,6 +117,9 @@ const formFields = computed(() =>
 );
 const columns = computed(
   () => props.relation.listProjection?.fields ?? props.relation.queryContract?.listProjection?.fields ?? [],
+);
+const relationFormCompute = computed(
+  () => new RelationFormComputeCoordinator(props.relation.formComputeRules),
 );
 function pickerConfigsOf(row: DraftRow): Record<string, RecordFormFieldPickerConfig> {
   const result: Record<string, RecordFormFieldPickerConfig> = {};
@@ -453,10 +457,16 @@ function undoRemove() {
 }
 
 function updateField(row: DraftRow, fieldName: string, value: RecordFormFieldValue) {
-  rows.value = rows.value.map((candidate) =>
+  const updatedRows = rows.value.map((candidate) =>
     candidate.__draftKey === row.__draftKey
       ? { ...candidate, ...applyReferenceDependencyClears(candidate, fieldName, value, formFields.value) }
       : candidate,
+  );
+  rows.value = relationFormCompute.value.applyAfterChange(
+    updatedRows,
+    row.__draftKey,
+    (candidate) => candidate.__draftKey,
+    fieldName,
   );
   publishDraft();
 }

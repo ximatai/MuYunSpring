@@ -127,6 +127,11 @@ public class EmployeeService extends TenantStandardBusinessService<Employee> imp
     }
 
     @Override
+    public List<net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition> aggregateChildFormulaDefinitions() {
+        return List.of(EmployeeFormulas.primaryPositionExclusive());
+    }
+
+    @Override
     public DataScopeCriteriaService getDataScopeCriteriaService() {
         return dataScopeCriteriaService.get();
     }

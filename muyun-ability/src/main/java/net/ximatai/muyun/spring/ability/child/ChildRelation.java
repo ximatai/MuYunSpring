@@ -23,6 +23,7 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
     private final Function<C, String> extractParentId;
     private boolean cascadeOnParentUnavailable;
     private BiConsumer<P, List<C>> populateChildren;
+    private ChildSynchronization<C, P> beforeSynchronize;
 
     public ChildRelation(ChildAbility<C> childAbility,
                          BiConsumer<C, String> setParentId,
@@ -73,6 +74,11 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
 
     public ChildRelation<C, P> autoPopulate(BiConsumer<P, List<C>> value) {
         this.populateChildren = value;
+        return this;
+    }
+
+    ChildRelation<C, P> beforeSynchronize(ChildSynchronization<C, P> value) {
+        this.beforeSynchronize = value;
         return this;
     }
 
@@ -130,6 +136,7 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
         if (children == null || children.isEmpty()) {
             return;
         }
+        synchronizeBeforeWrite(parent, children, List.of());
         validateIncomingChildren(parentId, children, List.of());
         for (C child : children) {
             setParentId.accept(child, parentId);
@@ -143,6 +150,7 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
             return;
         }
         List<C> existing = selectChildren(parentId);
+        synchronizeBeforeWrite(parent, children, existing);
         validateIncomingChildren(parentId, children, existing);
         List<String> remainingIds = new ArrayList<>(existing.stream().map(EntityContract::getId).toList());
         for (C child : childAbility.orderForReplacement(children, existing)) {
@@ -189,6 +197,17 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
                 throw new PlatformException("Child record does not belong to parent " + parentId + ": " + childId);
             }
         }
+    }
+
+    private void synchronizeBeforeWrite(P parent, List<C> incoming, List<C> existing) {
+        if (beforeSynchronize != null) {
+            beforeSynchronize.accept(relationCode, parent, incoming, existing);
+        }
+    }
+
+    @FunctionalInterface
+    interface ChildSynchronization<C extends EntityContract, P extends EntityContract> {
+        void accept(String relationCode, P parent, List<C> incoming, List<C> existing);
     }
 
     private void deleteChildren(List<String> ids) {
