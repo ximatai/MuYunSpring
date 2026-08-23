@@ -11,6 +11,8 @@ withDefaults(
     loadingTip?: string;
     errorTitle?: string;
     emptyDescription?: string;
+    /** Uses the list expansion surface for spacing and hierarchy. */
+    embedded?: boolean;
   }>(),
   {
     loading: false,
@@ -18,12 +20,13 @@ withDefaults(
     loadingTip: '加载信息',
     errorTitle: '信息加载失败',
     emptyDescription: '暂无信息',
+    embedded: false,
   },
 );
 </script>
 
 <template>
-  <section class="record-expanded-subtable">
+  <section class="record-expanded-subtable" :class="{ 'is-embedded': embedded }">
     <header class="record-expanded-subtable-header">
       <h3>{{ title }}</h3>
       <div v-if="$slots.actions" class="record-expanded-subtable-actions"><slot name="actions" /></div>
@@ -42,6 +45,11 @@ withDefaults(
   padding: 12px 16px 14px 46px;
   border-top: 1px solid var(--muyun-border-subtle);
   background: var(--muyun-hover-subtle);
+}
+.record-expanded-subtable.is-embedded {
+  padding: 0;
+  border-top: 0;
+  background: transparent;
 }
 .record-expanded-subtable-header {
   display: flex;

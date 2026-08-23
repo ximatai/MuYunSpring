@@ -11,6 +11,7 @@ import { createWorkspaceViewDescriptor } from '@/platform-workbench/workspaceVie
 import { platformModulePageEnhancement } from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
 import { passwordPolicyPageEnhancement } from '@/platform-admin-runtime/passwordPolicyPageEnhancement.ts';
 import { tenantModulePageEnhancement } from '@/platform-admin-runtime/tenantModulePageEnhancement.ts';
+import { userModulePageEnhancement } from '@/platform-admin-runtime/userModulePageEnhancement.ts';
 
 describe('module page enhancements', () => {
   afterEach(() => {
@@ -19,6 +20,7 @@ describe('module page enhancements', () => {
       platformModulePageEnhancement,
       passwordPolicyPageEnhancement,
       tenantModulePageEnhancement,
+      userModulePageEnhancement,
     ]);
   });
 
@@ -204,6 +206,19 @@ describe('module page enhancements', () => {
     });
   });
 
+  it('keeps IAM session operations in the list expansion and password behavior in detail actions', () => {
+    const registry = createModulePageEnhancementRegistry([userModulePageEnhancement]);
+
+    expect(registry.resolve('iam.user')).toMatchObject({
+      target: { moduleAlias: 'iam.user' },
+      list: { columns: [{ key: 'onlineStatus' }], rowExpansion: { key: 'iam-user-sessions' } },
+      form: { fieldPolicies: [{ fieldName: 'password' }] },
+      detail: {
+        actions: [{ key: 'iam-user-password' }],
+      },
+    });
+  });
+
   it('accepts one source-owned card assistant and rejects competing owners for that region', () => {
     const Assistant = { template: '<aside>assistant</aside>' };
     const registry = createModulePageEnhancementRegistry([
@@ -245,6 +260,37 @@ describe('module page enhancements', () => {
     source.children[0].title = '已修改';
     expect((snapshot.children as Array<{ title: string }>)[0].title).toBe('联系人');
     expect(Reflect.set(snapshot, 'title', '越界修改')).toBe(false);
+  });
+
+  it('reserves one application-owned row expansion while retaining normal list composition', () => {
+    const SessionExpansion = { template: '<section>sessions</section>' };
+    const registry = createModulePageEnhancementRegistry([
+      {
+        id: 'customer-session-expansion',
+        target: { moduleAlias: 'crm.customer' },
+        list: { rowExpansion: { key: 'customer-sessions', component: SessionExpansion } },
+      },
+    ]);
+
+    expect(registry.resolve('crm.customer')?.list?.rowExpansion).toEqual({
+      key: 'customer-sessions',
+      component: SessionExpansion,
+    });
+
+    expect(() =>
+      createModulePageEnhancementRegistry([
+        {
+          id: 'first-row-expansion',
+          target: { moduleAlias: 'crm.customer' },
+          list: { rowExpansion: { key: 'first', component: SessionExpansion } },
+        },
+        {
+          id: 'second-row-expansion',
+          target: { moduleAlias: 'crm.customer' },
+          list: { rowExpansion: { key: 'second', component: SessionExpansion } },
+        },
+      ]),
+    ).toThrow('重复声明列表行展开区域');
   });
 
   it('registers a stable business workspace view and creates a deduplicated tab descriptor', () => {

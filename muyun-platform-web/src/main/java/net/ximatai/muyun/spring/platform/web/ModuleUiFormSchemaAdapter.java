@@ -172,12 +172,17 @@ public final class ModuleUiFormSchemaAdapter {
         if (modelClass == null || modelClass == Object.class) {
             return Map.of();
         }
-        return new StaticEntityDefinitionCompiler().compile("form", "form", modelClass).fields().stream()
-                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+        java.util.LinkedHashMap<String, FormValueType> result = new StaticEntityDefinitionCompiler()
+                .compile("form", "form", modelClass).fields().stream()
+                .collect(java.util.stream.Collectors.toMap(
                         field -> field.fieldName(),
                         field -> FormValueType.valueOf(field.type().name()),
-                        (left, right) -> left
+                        (left, right) -> left,
+                        java.util.LinkedHashMap::new
                 ));
+        StaticWriteOnlyInputFields.resolve(modelClass).forEach((fieldName, type) ->
+                result.putIfAbsent(fieldName, FormValueType.valueOf(type.name())));
+        return Map.copyOf(result);
     }
 
     private static FormControlType controlType(FormValueType valueType) {
@@ -198,7 +203,8 @@ public final class ModuleUiFormSchemaAdapter {
                 modelClass
         );
         ModuleUiDescriptorCompiler.validate(new ModuleUiDefinition(definition.moduleAlias(), List.of(), null,
-                formView, List.of(), List.of()), List.of(entity));
+                        formView, List.of(), List.of()), List.of(entity),
+                StaticWriteOnlyInputFields.resolve(modelClass).keySet());
     }
 
     private static String entityAlias(String moduleAlias) {

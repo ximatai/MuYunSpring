@@ -13,6 +13,7 @@ describe('NavigatorManagementEditor', () => {
         loadFailed: false,
         draft: { id: 'category-1', version: 3, enabled: false },
         fields: new Map(),
+        mode: 'edit',
         formSessionKey: 0,
         context: {} as never,
         pickerConfigs: {},
@@ -42,6 +43,7 @@ describe('NavigatorManagementEditor', () => {
         loadFailed: false,
         draft: { id: 'directory-1', version: 1 },
         fields: new Map(),
+        mode: 'edit',
         formSessionKey: 0,
         context: {} as never,
         pickerConfigs: {},
@@ -62,6 +64,7 @@ describe('NavigatorManagementEditor', () => {
         loadFailed: false,
         draft: { id: 'category-1', version: 3, enabled: true, title: '原名称' },
         fields: new Map(),
+        mode: 'edit',
         formSessionKey: 0,
         context: {} as never,
         pickerConfigs: {},
@@ -75,6 +78,36 @@ describe('NavigatorManagementEditor', () => {
     for (const button of wrapper.findAllComponents({ name: 'RecordPanelButton' })) {
       expect(button.props('disabled')).toBe(true);
     }
-    expect(wrapper.findComponent({ name: 'RecordFormFields' }).props('disabled')).toBe(true);
+    expect(wrapper.findComponent({ name: 'RecordFormSurface' }).props('disabled')).toBe(true);
+  });
+
+  it('routes navigator editing through the standard form surface and forwards its validity fact', async () => {
+    const wrapper = shallowMount(NavigatorManagementEditor, {
+      props: {
+        open: true,
+        title: '编辑租户',
+        saving: false,
+        loading: false,
+        loadFailed: false,
+        draft: { id: 'tenant-1', version: 1 },
+        fields: new Map(),
+        mode: 'edit',
+        formSessionKey: 4,
+        validationRequestKey: 2,
+        context: {} as never,
+        pickerConfigs: {},
+        contributions: [],
+        fieldPolicies: [],
+      },
+    });
+
+    const form = wrapper.findComponent({ name: 'RecordFormSurface' });
+    expect(form.exists()).toBe(true);
+    expect(form.props('mode')).toBe('edit');
+    expect(form.props('validationRequestKey')).toBe(2);
+
+    form.vm.$emit('validity-change', { valid: false });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('validityChange')).toEqual([[{ valid: false }]]);
   });
 });

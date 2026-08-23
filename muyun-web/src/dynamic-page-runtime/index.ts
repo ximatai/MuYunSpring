@@ -20,6 +20,8 @@ export {
 export type { ModulePageListRefreshRegistry } from './modulePageListRefresh';
 export type {
   ModuleListEnhancement,
+  ModulePageListRowExpansion,
+  ModulePageListRowExpansionContext,
   ModuleDetailEnhancement,
   ModulePageFormEnhancement,
   ModulePageFormContribution,

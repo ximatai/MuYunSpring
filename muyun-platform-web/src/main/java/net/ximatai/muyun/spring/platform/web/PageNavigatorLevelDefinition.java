@@ -2,10 +2,6 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 
-import java.util.Arrays;
-import java.util.EnumSet;
-
-
 /** One selectable source within a page navigator. */
 public record PageNavigatorLevelDefinition(String key,
                                            PageNavigatorKind kind,
@@ -57,23 +53,6 @@ public record PageNavigatorLevelDefinition(String key,
          */
         public Builder manageable(String editorSurface) {
             management = new PageNavigatorManagementDefinition(editorSurface);
-            return this;
-        }
-
-        /**
-         * Enables only the listed standard source-management affordances.
-         * Source action authorization and record availability are still enforced.
-         */
-        public Builder manageable(PageNavigatorManagementAction... actions) {
-            return manageable(null, actions);
-        }
-
-        /** Enables only the listed standard affordances with a named source editor. */
-        public Builder manageable(String editorSurface, PageNavigatorManagementAction... actions) {
-            EnumSet<PageNavigatorManagementAction> configured = actions == null || actions.length == 0
-                    ? EnumSet.noneOf(PageNavigatorManagementAction.class)
-                    : EnumSet.copyOf(Arrays.asList(actions));
-            management = new PageNavigatorManagementDefinition(editorSurface, configured);
             return this;
         }
 

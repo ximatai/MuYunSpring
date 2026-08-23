@@ -203,6 +203,9 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                                 QueryOperator.BETWEEN)
                         .withTitle("更新时间")
                         .withSortable())
+                // The tenant navigator owns this scope; it is not an arbitrary client-side filter.
+                .externalCriteria("tenantId", value -> Criteria.of()
+                        .eq("tenantId", Preconditions.requireText(String.valueOf(value), "tenantId")))
                 .defaultSort(net.ximatai.muyun.database.core.orm.Sort.asc("username"))
                 .build();
     }

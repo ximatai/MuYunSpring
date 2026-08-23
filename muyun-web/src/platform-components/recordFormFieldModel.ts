@@ -282,15 +282,17 @@ export function resolveRecordDetailFields(
     (uiDescriptor?.fileReferences ?? []).map((reference) => [fieldRefKey(reference.fieldRef), reference]),
   );
   return new Map(
-    detailView?.fields.map((field) => [
-      field.fieldRef.fieldName,
-      {
-        ...field,
-        ...(references.has(fieldRefKey(field.fieldRef))
-          ? { fileReference: references.get(fieldRefKey(field.fieldRef)) }
-          : {}),
-      },
-    ]) ?? [],
+    detailView?.fields
+      .filter((field) => field.fieldControl?.alias !== 'password')
+      .map((field) => [
+        field.fieldRef.fieldName,
+        {
+          ...field,
+          ...(references.has(fieldRefKey(field.fieldRef))
+            ? { fileReference: references.get(fieldRefKey(field.fieldRef)) }
+            : {}),
+        },
+      ]) ?? [],
   );
 }
 

@@ -38,13 +38,6 @@ const emit = defineEmits<{
   loaded: [records: QueryListRecord[]];
   action: [action: RecordInlineAction, record: QueryListRecord];
 }>();
-
-function managementAllows(level: NavigatorLevelRuntime, action: 'CREATE' | 'UPDATE' | 'DELETE') {
-  // Omitted actions come from descriptors published before presentation policy
-  // existed and retain the complete legacy management surface.
-  const actions = level.descriptor.management?.actions;
-  return actions == null || actions.includes(action);
-}
 </script>
 
 <template>
@@ -56,7 +49,7 @@ function managementAllows(level: NavigatorLevelRuntime, action: 'CREATE' | 'UPDA
     @update:search-keyword="emit('update:keyword', $event)"
     @refresh="emit('refresh')"
   >
-    <template v-if="level.descriptor.management && managementAllows(level, 'CREATE')" #actions>
+    <template v-if="level.descriptor.management" #actions>
       <ModuleActionButton
         :context="level.context"
         action-code="create"

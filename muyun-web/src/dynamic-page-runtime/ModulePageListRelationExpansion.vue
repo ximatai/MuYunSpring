@@ -93,6 +93,6 @@ watch(
 
 <style scoped>
 .module-page-list-relation-expansion {
-  padding: 8px 12px 10px;
+  min-width: 0;
 }
 </style>

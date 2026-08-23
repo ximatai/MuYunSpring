@@ -219,7 +219,7 @@ public final class DynamicModuleUiDefinitionAdapter {
         List<PageNavigatorLevelDefinition> levels = navigator.levels().stream().map(level -> new PageNavigatorLevelDefinition(
                 level.key(), PageNavigatorKind.valueOf(level.kind()), level.sourceModuleAlias(), level.title(),
                 level.searchPlaceholder(), level.management() == null ? null
-                        : new PageNavigatorManagementDefinition(level.management().editorSurface(), managementActions(level)),
+                        : new PageNavigatorManagementDefinition(level.management().editorSurface()),
                 PageNavigatorSingleResultPolicy.valueOf(level.singleResultPolicy()),
                 PageNavigatorInitialSelectionPolicy.valueOf(level.initialSelectionPolicy()),
                 PageNavigatorSourceScope.valueOf(level.sourceScope()))).toList();
@@ -233,11 +233,6 @@ public final class DynamicModuleUiDefinitionAdapter {
         return new PageContextBindingDefinition(PageContextSource.valueOf(binding.source()), binding.sourceKey(),
                 PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey(),
                 binding.targetPickerFieldKey());
-    }
-
-    private static Set<PageNavigatorManagementAction> managementActions(PlatformPageNavigatorLevel level) {
-        if (level.management().actions() == null) return null;
-        return level.management().actions().stream().map(PageNavigatorManagementAction::valueOf).collect(java.util.stream.Collectors.toSet());
     }
 
     private static JsonNode pageRoot(PlatformUiConfig config) {

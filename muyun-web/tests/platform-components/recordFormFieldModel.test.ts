@@ -69,6 +69,28 @@ it('registers every renderer kind promised by the persisted web-form support mat
   );
 });
 
+it('excludes password controls from the read-only detail projection', () => {
+  const fields = resolveRecordDetailFields({
+    moduleAlias: 'iam.user',
+    page: {
+      detail: {
+        editor: {
+          fields: [
+            descriptorField('username', '账号'),
+            {
+              ...descriptorField('password', '初始密码'),
+              uiType: 'password',
+              fieldControl: { alias: 'password', rendererType: 'TEXT', valueShape: 'SCALAR' },
+            },
+          ],
+        },
+      },
+    },
+  } as ResolvedModuleUiDescriptor);
+
+  expect([...fields.keys()]).toEqual(['username']);
+});
+
 it('keeps LONG and DECIMAL editor transport lossless while INTEGER remains a JSON number', () => {
   expect(decodeNumberEditorValue('42', 'INTEGER')).toBe(42);
   expect(decodeNumberEditorValue('9007199254740993', 'LONG')).toBe('9007199254740993');

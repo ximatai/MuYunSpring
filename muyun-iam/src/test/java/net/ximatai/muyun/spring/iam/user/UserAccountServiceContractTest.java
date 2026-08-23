@@ -70,6 +70,7 @@ class UserAccountServiceContractTest {
                 .doesNotContain("organizationId", "title", "mobile", "email", "sortOrder");
         assertThat(field(schema, "tenantId").operators())
                 .containsExactly(QueryOperator.EQ, QueryOperator.IN, QueryOperator.NULL);
+        assertThat(service.queryDescriptor().externalCriteriaKeys()).containsExactly("tenantId");
         assertThat(schema.quickSearch().fields()).containsExactly("username");
         assertThat(schema.defaultSorts()).extracting(QuerySchema.DefaultSort::field)
                 .containsExactly("username");

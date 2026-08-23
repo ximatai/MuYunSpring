@@ -15,9 +15,6 @@ it('uses backend application and module aliases for every public static route', 
     '/_platform/workspace',
     '/platform/dictionary-category',
     '/platform/menu-scheme',
-    '/iam/user',
-    '/iam/user/form',
-    '/iam/user/form/:userId',
     '/iam/system-user',
     '/iam/role',
     '/iam/role/authorization',
@@ -25,7 +22,6 @@ it('uses backend application and module aliases for every public static route', 
   assert.deepEqual(platformAdminModuleRoutes, {
     'platform.dictionary_category': '/platform/dictionary-category',
     'platform.menu_scheme': '/platform/menu-scheme',
-    'iam.user': '/iam/user',
     'iam.system_user': '/iam/system-user',
     'iam.role': '/iam/role',
   });
@@ -86,13 +82,13 @@ it('resolves a static page only when both route and backend module match', () =>
     pageType: 'business-route',
     openMode: 'workbench-route',
     hostType: 'business-route-host',
-    target: { route: '/iam/user', moduleAlias: 'iam.user' },
+    target: { route: '/iam/role', moduleAlias: 'iam.role' },
     tabPolicy: { identity: 'by-menu' },
   };
-  assert.equal(resolvePlatformAdminRoute(descriptor)?.route, '/iam/user');
+  assert.equal(resolvePlatformAdminRoute(descriptor)?.route, '/iam/role');
   assert.equal(isPlatformAdminRoutePage(descriptor), true);
   assert.equal(
-    resolvePlatformAdminRoute({ ...descriptor, target: { route: '/iam/user', moduleAlias: 'crm.customer' } }),
+    resolvePlatformAdminRoute({ ...descriptor, target: { route: '/iam/role', moduleAlias: 'crm.customer' } }),
     undefined,
   );
 });

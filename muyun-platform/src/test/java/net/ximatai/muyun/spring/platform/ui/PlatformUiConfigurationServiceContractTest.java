@@ -503,14 +503,15 @@ class PlatformUiConfigurationServiceContractTest {
         config.setLayoutJson("""
                 {"template":"LIST_DETAIL_CARD","navigator":{"levels":[{
                   "key":"project","kind":"MICRO_LIST","sourceModuleAlias":"crm.project",
-                  "management":{"actions":["UPSERT"]}
+                  "management":true
                 }]}}
                 """);
         uiConfigService.update(config);
         assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("navigator layout is invalid")
-                .hasRootCauseMessage("navigator management action is unsupported: UPSERT");
+                .satisfies(error -> assertThat(error.getCause())
+                        .hasMessageContaining("navigator management must be an object:"));
     }
 
     @Test

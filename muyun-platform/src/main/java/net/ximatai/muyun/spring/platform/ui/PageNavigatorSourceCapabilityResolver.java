@@ -17,7 +17,7 @@ public interface PageNavigatorSourceCapabilityResolver {
      * Whether the source's currently published contract can serve the requested in-place management UI.
      * Implementations must return false when the source action or editor contract cannot be proved.
      */
-    default boolean supportsManagement(String moduleAlias, Set<String> actions, String editorSurface) {
+    default boolean supportsManagement(String moduleAlias, String editorSurface) {
         return false;
     }
 

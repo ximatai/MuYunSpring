@@ -276,8 +276,7 @@ class DynamicModuleUiDefinitionAdapterTest {
                 .isEqualTo(PageNavigatorInitialSelectionPolicy.FIRST_RECORD);
         assertThat(navigator.levels().getFirst().sourceScope())
                 .isEqualTo(PageNavigatorSourceScope.CURRENT_TENANT);
-        assertThat(navigator.levels().getFirst().management().actions())
-                .containsExactly(PageNavigatorManagementAction.CREATE);
+        assertThat(navigator.levels().getFirst().management().editorSurface()).isNull();
         assertThat(navigator.contextBindings()).containsExactly(
                 new PageContextBindingDefinition(PageContextSource.NAVIGATOR, "tenant", PageContextTarget.LIST_QUERY,
                         "tenantId", null),

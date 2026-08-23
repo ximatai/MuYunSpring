@@ -467,7 +467,16 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.moduleAlias()).isEqualTo("iam.user");
                 assertThat(definition.title()).isEqualTo("用户管理");
-                assertThat(definition.entryRoute()).isEqualTo("/iam/user");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.entryRoute()).isEmpty();
+                assertThat(ModuleUiDescriptorCompiler.compile(definition).page().detail().editor().fields())
+                        .filteredOn(field -> field.fieldRef().fieldName().equals("password"))
+                        .singleElement()
+                        .satisfies(field -> {
+                            assertThat(field.required().constant()).isTrue();
+                            assertThat(field.uiType()).isEqualTo("password");
+                            assertThat(field.fieldControl().alias()).isEqualTo("password");
+                        });
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                                 "enable", "disable", "userSelector", "changePassword", "resetPassword",

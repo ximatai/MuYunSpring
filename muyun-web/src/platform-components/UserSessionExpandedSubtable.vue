@@ -18,6 +18,7 @@ const props = withDefaults(
     loading?: boolean;
     error?: string;
     actionsDisabled?: boolean;
+    embedded?: boolean;
     canRevoke?: (session: UserSessionView) => boolean;
     canRevokeAll?: boolean;
   }>(),
@@ -25,6 +26,7 @@ const props = withDefaults(
     loading: false,
     error: undefined,
     actionsDisabled: false,
+    embedded: false,
     canRevoke: () => false,
     canRevokeAll: false,
   },
@@ -42,6 +44,7 @@ const emit = defineEmits<{
     title="在线会话"
     :loading="loading"
     :error="error"
+    :embedded="embedded"
     loading-tip="加载在线会话"
     error-title="在线会话加载失败"
   >

@@ -136,8 +136,7 @@ class StaticPageCapabilityValidatorTest {
                 .page(PageTemplates.listDetailCard(page -> page
                         .navigator(navigator -> navigator.level("directory", level -> level
                                 .microList("catalog.directory", "目录", null)
-                                .manageable(editorSurface, PageNavigatorManagementAction.CREATE,
-                                        PageNavigatorManagementAction.UPDATE, PageNavigatorManagementAction.DELETE)))
+                                .manageable(editorSurface)))
                         .list(list -> list.fields(fields -> fields.field("title")))
                         .detail(detail -> detail.editor(editor -> editor.field("title")))
                         .traits(traits -> traits.standardCrud())))
