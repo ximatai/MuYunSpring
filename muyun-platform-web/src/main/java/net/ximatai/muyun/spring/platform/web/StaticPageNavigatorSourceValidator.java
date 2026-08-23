@@ -69,15 +69,8 @@ final class StaticPageNavigatorSourceValidator {
         Set<String> sourceActionCodes = source.actions().stream()
                 .map(action -> action.actionCode())
                 .collect(Collectors.toUnmodifiableSet());
-        for (PageNavigatorManagementAction action : management.actions()) {
-            PlatformAction required = switch (action) {
-                case CREATE -> PlatformAction.CREATE;
-                case UPDATE -> PlatformAction.UPDATE;
-                case DELETE -> PlatformAction.DELETE;
-            };
-            requireActions(source, sourceActionCodes, "navigator management " + pageDefinition.moduleAlias()
-                    + "." + level.key(), required);
-        }
+        requireActions(source, sourceActionCodes, "navigator management " + pageDefinition.moduleAlias()
+                + "." + level.key(), PlatformAction.CREATE, PlatformAction.UPDATE, PlatformAction.DELETE);
         ModuleUiDefinition sourceUi = source.uiDefinition();
         if (sourceUi == null) {
             throw new IllegalStateException("navigator management source has no UI editor: page="

@@ -369,13 +369,11 @@ it('page navigator renders levels through the standard module runner', () => {
 });
 
 it('static edit draft normalizers preserve standard record fields', () => {
-  const userSource = readSource('src/views/UserDetailRouteView.vue');
   const systemUserSource = readSource('src/views/SystemUserManagementView.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
   const menuStateSource = readSource('src/views/menuManagementState.ts');
   const dictionaryStateSource = readSource('src/views/dictionaryManagementState.ts');
 
-  assert.match(userSource, /function normalizedUserDraft[\s\S]*normalizeRecordDraft<UserAccount>\(draft,/);
   assert.match(
     systemUserSource,
     /function normalizedSystemUserDraft[\s\S]*normalizeRecordDraft<UserAccount>\(draft,/,
@@ -482,14 +480,14 @@ it('system user management fills the constrained work area and leaves scrolling 
   assert.match(routesSource, /route: '\/iam\/system-user'[\s\S]*layout: 'workspace'/);
 });
 
-it('user management fills the constrained work area and leaves scrolling to its scope and list panels', () => {
-  const userSource = readSource('src/views/UserManagementView.vue');
+it('user management is hosted by the constrained standard module workspace', () => {
+  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const enhancementSource = readSource('src/platform-admin-runtime/userModulePageEnhancement.ts');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
 
-  assert.match(userSource, /\.user-management-page \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
-  assert.match(userSource, /<UserManagementListView v-else-if="!pageState\.action" \/>/);
-  assert.match(userSource, /<UserDetailRouteView v-else/);
-  assert.match(routesSource, /route: '\/iam\/user'[\s\S]*layout: 'workspace'/);
+  assert.match(hostSource, /providePageLayout\([\s\S]*\? 'workspace'/);
+  assert.match(enhancementSource, /target: \{ moduleAlias: 'iam\.user' \}/);
+  assert.notMatch(routesSource, /moduleAlias: 'iam\.user'/);
 });
 
 it('record picker delegates single-value interaction to the standard select adapters', () => {
@@ -527,12 +525,7 @@ it('menu management keeps scheme actions inline and delegates search to panel', 
 });
 
 it('static management explorers use unified item descriptors', () => {
-  const explorerViews = [
-    'DictionaryManagementView.vue',
-    'MenuManagementView.vue',
-    'UserManagementListView.vue',
-    'RoleManagementView.vue',
-  ];
+  const explorerViews = ['DictionaryManagementView.vue', 'MenuManagementView.vue', 'RoleManagementView.vue'];
 
   for (const fileName of explorerViews) {
     const source = readSource(`src/views/${fileName}`);
@@ -849,8 +842,7 @@ it('user management keeps account basics separate from employment binding and ro
   const inputSource = readSource('src/vue-ui-antdv/components/UiInput.vue');
   const iconSource = readSource('src/vue-ui-antdv/components/UiIcon.vue');
 
-  assert.match(routesSource, /moduleAlias: 'iam\.user'/);
-  assert.match(routesSource, /route: '\/iam\/user'/);
+  assert.notMatch(routesSource, /moduleAlias: 'iam\.user'/);
   assert.match(userViewSource, /defineOptions\(\{ name: 'UserManagementView' \}\)/);
   assert.match(userViewSource, /moduleAlias: 'iam\.tenant'/);
   assert.match(userViewSource, /moduleAlias: 'iam\.user'/);

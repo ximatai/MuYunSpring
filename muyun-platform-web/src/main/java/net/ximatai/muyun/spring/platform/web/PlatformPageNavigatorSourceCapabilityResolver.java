@@ -46,19 +46,19 @@ public class PlatformPageNavigatorSourceCapabilityResolver implements PageNaviga
     }
 
     @Override
-    public boolean supportsManagement(String moduleAlias, Set<String> actions, String editorSurface) {
+    public boolean supportsManagement(String moduleAlias, String editorSurface) {
         String validAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         return staticModuleCatalog.find(validAlias)
-                .filter(source -> supportsActions(source, actions))
+                .filter(this::supportsStandardManagementActions)
                 .filter(source -> supportsEditor(source, editorSurface))
                 .isPresent();
     }
 
-    private boolean supportsActions(StaticModuleDefinition source, Set<String> actions) {
+    private boolean supportsStandardManagementActions(StaticModuleDefinition source) {
         Set<String> available = source.actions().stream()
                 .map(action -> action.actionCode().toUpperCase(java.util.Locale.ROOT))
                 .collect(Collectors.toUnmodifiableSet());
-        return actions == null || available.containsAll(actions);
+        return available.containsAll(Set.of("CREATE", "UPDATE", "DELETE"));
     }
 
     private boolean supportsEditor(StaticModuleDefinition source, String editorSurface) {

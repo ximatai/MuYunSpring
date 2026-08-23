@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  RecordFormFields,
   RecordPanelButton,
   RecordPanelState,
   RecordStatusSwitch,
@@ -9,6 +8,9 @@ import {
   type RecordFormRecord,
 } from '@muyun/platform-components';
 import type { ModuleContext } from '@muyun/web-core';
+import type { QueryListRecord } from '@muyun/platform-components';
+import type { ModulePageFormContribution, ModulePageFormFieldPolicy } from './modulePageEnhancements';
+import RecordFormSurface from './RecordFormSurface.vue';
 
 defineOptions({ name: 'NavigatorManagementEditor' });
 
@@ -20,9 +22,13 @@ defineProps<{
   loadFailed: boolean;
   draft?: RecordFormRecord;
   fields: ReturnType<typeof import('@muyun/platform-components').resolveRecordFormFields>;
+  mode: 'create' | 'edit' | 'view';
   formSessionKey: number;
-  context: ModuleContext<unknown>;
+  validationRequestKey?: number;
+  context: ModuleContext<QueryListRecord>;
   pickerConfigs: Record<string, RecordFormFieldPickerConfig>;
+  contributions?: readonly ModulePageFormContribution[];
+  fieldPolicies?: readonly ModulePageFormFieldPolicy[];
   showEnabled?: boolean;
   enabled?: boolean;
   enabledDisabled?: boolean;
@@ -35,6 +41,7 @@ const emit = defineEmits<{
   save: [];
   toggleEnabled: [enabled: boolean];
   updateField: [fieldName: string, value: RecordFormFieldValue];
+  validityChange: [validity: { valid: boolean }];
 }>();
 </script>
 
@@ -66,19 +73,27 @@ const emit = defineEmits<{
           </RecordPanelButton>
         </div>
       </header>
-      <RecordPanelState v-if="loading" loading loading-tip="加载记录详情" description="" />
-      <RecordPanelState v-else-if="loadFailed" description="详情加载失败" />
-      <RecordFormFields
-        v-else-if="draft"
-        :record="draft"
-        :fields="fields"
-        :form-session-key="formSessionKey"
-        :option-context="context"
-        :picker-configs="pickerConfigs"
-        :exclude-field-names="['enabled']"
-        :disabled="saving || enabledLoading"
-        @update:field="(fieldName, value) => emit('updateField', fieldName, value)"
-      />
+      <div class="navigator-management-content">
+        <RecordPanelState v-if="loading" loading loading-tip="加载记录详情" description="" />
+        <RecordPanelState v-else-if="loadFailed" description="详情加载失败" />
+        <RecordFormSurface
+          v-else-if="draft"
+          :record="draft"
+          :fields="fields"
+          :mode="mode"
+          :form-session-key="formSessionKey"
+          :validation-request-key="validationRequestKey"
+          :option-context="context"
+          :file-transfer-context="context"
+          :picker-configs="pickerConfigs"
+          :exclude-field-names="['enabled']"
+          :disabled="saving || enabledLoading"
+          :contributions="contributions"
+          :field-policies="fieldPolicies"
+          @update:field="(fieldName, value) => emit('updateField', fieldName, value)"
+          @validity-change="emit('validityChange', $event)"
+        />
+      </div>
     </section>
   </Transition>
 </template>
@@ -91,7 +106,7 @@ const emit = defineEmits<{
   left: 0;
   z-index: 3;
   display: grid;
-  align-content: start;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
   max-height: min(420px, 62%);
   min-height: 0;
@@ -102,7 +117,7 @@ const emit = defineEmits<{
   box-shadow:
     0 -1px 0 rgb(15 23 42 / 4%),
     0 -12px 28px rgb(15 23 42 / 12%);
-  overflow: auto;
+  overflow: hidden;
 }
 
 .navigator-management-header,
@@ -114,6 +129,11 @@ const emit = defineEmits<{
 .navigator-management-header {
   justify-content: space-between;
   gap: 10px;
+}
+
+.navigator-management-content {
+  min-height: 0;
+  overflow: auto;
 }
 
 .navigator-management-header h3 {
@@ -130,6 +150,12 @@ const emit = defineEmits<{
 .navigator-management-actions {
   flex: 0 0 auto;
   gap: 8px;
+}
+
+/* Navigator panels are intentionally narrow and vertically oriented. Keep their
+ * shared standard form in one column without changing the record-card layout. */
+.navigator-management-panel :deep(.module-form) {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .navigator-management-drawer-enter-active,

@@ -20,7 +20,7 @@ const props = defineProps<{
   sourceContext: ModuleContext<QueryListRecord>;
   uiDescriptor: ResolvedModuleUiDescriptor;
   record: QueryListRecord;
-  entries: RelationExpansionEntry[];
+  entries: readonly RelationExpansionEntry[];
 }>();
 
 const activeRelationCode = ref<string>();
@@ -86,11 +86,10 @@ watch(
 
 <style scoped>
 .module-page-list-relation-expansions {
-  padding: 2px 12px 10px;
+  min-width: 0;
 }
 
 .module-page-list-relation-expansions :deep(.module-page-list-relation-expansion) {
-  padding-left: 0;
-  padding-right: 0;
+  min-width: 0;
 }
 </style>

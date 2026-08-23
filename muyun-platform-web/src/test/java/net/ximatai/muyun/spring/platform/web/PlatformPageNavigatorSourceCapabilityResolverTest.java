@@ -39,14 +39,16 @@ class PlatformPageNavigatorSourceCapabilityResolverTest {
                 .build();
         StaticModuleDefinition source = StaticModuleDefinition.builder("catalog", "catalog.directory", "目录")
                 .navigatorSourceCapabilities(Set.of(NavigatorSourceCapability.REFERENCE_QUERY))
-                .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.CREATE)))
+                .actions(List.of(
+                        StaticModuleActionDefinition.platformAction(PlatformAction.CREATE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.UPDATE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.DELETE)))
                 .uiDefinition(ui)
                 .build();
         PlatformPageNavigatorSourceCapabilityResolver resolver = new PlatformPageNavigatorSourceCapabilityResolver(
                 new StaticModuleDefinitionCatalog(List.of(source)));
 
-        assertThat(resolver.supportsManagement("catalog.directory", Set.of("CREATE"), null)).isTrue();
-        assertThat(resolver.supportsManagement("catalog.directory", Set.of("UPDATE"), null)).isFalse();
-        assertThat(resolver.supportsManagement("catalog.missing", Set.of("CREATE"), null)).isFalse();
+        assertThat(resolver.supportsManagement("catalog.directory", null)).isTrue();
+        assertThat(resolver.supportsManagement("catalog.missing", null)).isFalse();
     }
 }

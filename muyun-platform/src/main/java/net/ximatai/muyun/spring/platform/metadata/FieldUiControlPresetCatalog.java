@@ -26,6 +26,7 @@ public final class FieldUiControlPresetCatalog {
     public static List<FieldUiControl> fieldUiControls() {
         return List.of(
                 fieldUiType("text", "输入框", "string", FieldUiControlValueShape.SCALAR, ViewControlType.TEXT),
+                fieldUiType("password", "密码输入框", "string", FieldUiControlValueShape.SCALAR, ViewControlType.TEXT),
                 fieldUiType("textarea", "文本域", "text", FieldUiControlValueShape.SCALAR, ViewControlType.TEXTAREA),
                 fieldUiType("number", "数字", "decimal", FieldUiControlValueShape.SCALAR, ViewControlType.DECIMAL),
                 fieldUiType("integer", "整数", "integer", FieldUiControlValueShape.SCALAR, ViewControlType.NUMBER),

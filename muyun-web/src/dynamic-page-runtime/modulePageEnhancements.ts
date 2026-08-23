@@ -61,10 +61,33 @@ export interface ModuleListEnhancement {
   columns?: ModulePageColumnContribution[];
   /** Replaces the visual renderer of a descriptor-owned column without adding a duplicate column. */
   cellComponents?: ModulePageCellComponentContribution[];
+  /**
+   * Application-owned content for the platform list's expanded-row boundary.
+   *
+   * This is deliberately separate from descriptor relation expansions: use it
+   * for authorized business projections that are not a standard child relation.
+   * The runtime owns expansion state and table rendering; the application owns
+   * only the trusted Vue component and its auxiliary reads/actions.
+   */
+  rowExpansion?: ModulePageListRowExpansion;
   /** Width of the list's fixed operation column; defaults to the platform compact width. */
   actionColumnWidth?: string | number;
   rowActions?: ModulePageRecordActionContribution[];
   batchActions?: ModulePageBatchActionContribution[];
+}
+
+export interface ModulePageListRowExpansion {
+  key: string;
+  component: Component;
+}
+
+export interface ModulePageListRowExpansionContext {
+  module: ModuleContext<QueryListRecord>;
+  /** Detached snapshot of the record being expanded. */
+  record: Readonly<QueryListRecord>;
+  expanded: boolean;
+  /** Reloads the standard list without giving the extension ownership of its query state. */
+  refreshList(): void;
 }
 
 /** Actions appended to the standard record-detail operation area in view mode. */
@@ -481,6 +504,14 @@ function composeModulePageEnhancements(
       `模块页面增强目标 ${targetKey(target.moduleAlias, target.viewCode)} 重复声明列表操作列宽`,
     );
   }
+  const rowExpansions = enhancements
+    .map((enhancement) => enhancement.list?.rowExpansion)
+    .filter((expansion): expansion is ModulePageListRowExpansion => expansion !== undefined);
+  if (rowExpansions.length > 1) {
+    throw new Error(
+      `模块页面增强目标 ${targetKey(target.moduleAlias, target.viewCode)} 重复声明列表行展开区域`,
+    );
+  }
   const recordViews = enhancements
     .map((enhancement) => enhancement.recordView)
     .filter((recordView): recordView is ModulePageRecordView => recordView !== undefined);
@@ -497,7 +528,7 @@ function composeModulePageEnhancements(
       `模块页面增强目标 ${targetKey(target.moduleAlias, target.viewCode)} 重复声明记录卡片辅助区域`,
     );
   }
-  const list = composeListEnhancement(enhancements, actionColumnWidths[0]);
+  const list = composeListEnhancement(enhancements, actionColumnWidths[0], rowExpansions[0]);
   const detail = composeDetailEnhancement(enhancements);
   const form = composeFormEnhancement(enhancements);
   const composed: ModulePageEnhancement = {
@@ -551,6 +582,7 @@ function freezeSnapshot(value: unknown): unknown {
 function composeListEnhancement(
   enhancements: readonly ModulePageEnhancement[],
   actionColumnWidth: string | number | undefined,
+  rowExpansion: ModulePageListRowExpansion | undefined,
 ): ModuleListEnhancement | undefined {
   const list = {
     actions: enhancements.flatMap((enhancement) => enhancement.list?.actions ?? []),
@@ -558,6 +590,7 @@ function composeListEnhancement(
     cellComponents: enhancements.flatMap((enhancement) => enhancement.list?.cellComponents ?? []),
     rowActions: enhancements.flatMap((enhancement) => enhancement.list?.rowActions ?? []),
     batchActions: enhancements.flatMap((enhancement) => enhancement.list?.batchActions ?? []),
+    ...(rowExpansion === undefined ? {} : { rowExpansion }),
     ...(actionColumnWidth === undefined ? {} : { actionColumnWidth }),
   };
   return Object.values(list).some((value) => (Array.isArray(value) ? value.length > 0 : value !== undefined))

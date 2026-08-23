@@ -29,6 +29,10 @@ it('routes every standard card shell through the shared content and form surface
   assert.match(source, /flatManagementDetailActions[\s\S]*\.\.\.flatManagementEnhancementActions\.value/);
   assert.match(source, /function handleFlatManagementAction[\s\S]*runEnhancementAction/);
   assert.match(source, /@validity-change="updateMainFormValidity"/);
+  assert.match(source, /navigatorManagementPageEnhancement[\s\S]*level\.context\.moduleAlias/);
+  assert.match(source, /:contributions="navigatorManagementFormContributions"/);
+  assert.match(source, /:field-policies="navigatorManagementFormFieldPolicies"/);
+  assert.match(source, /@validity-change="navigatorManagementFormValid = \$event\.valid"/);
   assert.match(source, /:file-transfer-context="context"/);
   assert.match(source, /localEditValid: localEditFormValid/);
   assert.match(source, /@validity-change="updateLocalEditFormValidity"/);

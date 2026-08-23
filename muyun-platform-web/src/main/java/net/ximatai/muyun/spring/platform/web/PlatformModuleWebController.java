@@ -80,7 +80,7 @@ public class PlatformModuleWebController extends StaticModuleWebControllerAdapte
                         .navigator(navigator -> navigator
                                 .level(APPLICATION_NAVIGATOR, level -> level.microList(ApplicationService.MODULE_ALIAS,
                                         "应用", "搜索应用")
-                                        .manageable(PageNavigatorManagementAction.CREATE)
+                                        .manageable()
                                         .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
                                 .bindNavigatorToList(APPLICATION_NAVIGATOR, APPLICATION_ALIAS)
                                 .bindNavigatorToPickerQuery(APPLICATION_NAVIGATOR, PARENT_ID, APPLICATION_ALIAS))

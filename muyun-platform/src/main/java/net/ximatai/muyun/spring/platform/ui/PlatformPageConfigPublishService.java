@@ -284,11 +284,8 @@ public class PlatformPageConfigPublishService {
             }
             PlatformPageNavigatorManagement management = level.management();
             if (management != null) {
-                Set<String> actions = management.actions() == null
-                        ? Set.of("CREATE", "UPDATE", "DELETE")
-                        : management.actions();
-                if (!actions.isEmpty() && !navigatorSourceCapabilityResolver.supportsManagement(
-                        level.sourceModuleAlias(), actions, management.editorSurface())) {
+                if (!navigatorSourceCapabilityResolver.supportsManagement(
+                        level.sourceModuleAlias(), management.editorSurface())) {
                     throw new PlatformException("Navigator source management contract is unavailable: page="
                             + uiSet.getModuleAlias() + ", uiConfig=" + uiConfig.getId() + ", level=" + level.key()
                             + ", source=" + level.sourceModuleAlias());

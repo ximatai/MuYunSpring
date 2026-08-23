@@ -616,6 +616,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         <UiInput
           v-else
           :value="scalarFieldValue(field.fieldName)"
+          :type="field.fieldControl?.alias === 'password' ? 'password' : 'text'"
           :disabled="fieldDisabled(field)"
           :placeholder="field.placeholder"
           @update:value="updateField(field.fieldName, $event)"

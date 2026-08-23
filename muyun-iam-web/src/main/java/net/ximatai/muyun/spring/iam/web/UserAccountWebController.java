@@ -21,6 +21,8 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
+import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
@@ -63,7 +65,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
-        alias = "iam.user", title = "用户管理", route = "/iam/user")
+        alias = "iam.user", title = "用户管理")
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, order = 60)
 @RequestMapping("/iam.user")
@@ -142,6 +144,12 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(UserAccountService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page
+                .navigator(navigator -> navigator
+                        .level("tenant", level -> level
+                                .microList("iam.tenant", "租户", "搜索租户")
+                                .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
+                                .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
+                        .bindNavigatorToList("tenant", "tenantId"))
                 .list(list -> list.fields(fields -> fields
                         .title("用户列表")
                         .field("username", field -> field.label("账号").width("180px"))
@@ -154,8 +162,11 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                 .detail(detail -> detail.editor(form -> form
                         .title("用户账号")
                         .field("username", field -> field.label("账号").required())
+                        .field("password", field -> field.label("初始密码").required().uiType("password"))
                         .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))
                         .field("passwordStatus", field -> field.label("密码状态").readOnly())
+                        .field("employeeNo", field -> field.label("职员工号").readOnly())
+                        .field("employeeTitle", field -> field.label("职员姓名").readOnly())
                         .field("lastLoginAt", field -> field.label("最后登录时间").readOnly())))
                 .traits(traits -> traits.standardCrud().enabledStatus().responsiveDetailSurface())))
                 .build();

@@ -81,7 +81,9 @@ public final class ModuleUiDescriptorCompiler {
         ModuleUiDefinition uiDefinition = definition.uiDefinition() == null
                 ? ModuleUiDefinition.builder(definition.moduleAlias()).build()
                 : definition.uiDefinition();
-        validateFields(uiDefinition, definition.entities(), definition.moduleAlias(), readOutputFields(definition));
+        Map<String, FieldValueType> writeOnlyInputs = StaticWriteOnlyInputFields.resolve(definition.modelClass());
+        validateFields(uiDefinition, definition.entities(), definition.moduleAlias(), readOutputFields(definition),
+                writeOnlyInputs.keySet());
         Function<String, ReferencePickerMode> pickerModeResolver = referencePickerModeResolver == null
                 ? ignored -> ReferencePickerMode.AUTO
                 : referencePickerModeResolver;
@@ -92,9 +94,11 @@ public final class ModuleUiDescriptorCompiler {
                 referenceFields, pickerModeResolver);
         Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields =
                 staticReferenceSummaryFields(definition.modelClass());
+        Map<ViewFieldRef, FieldValueType> fieldTypes = new LinkedHashMap<>(fieldTypes(definition.entities()));
+        writeOnlyInputs.forEach((fieldName, fieldType) -> fieldTypes.put(ViewFieldRef.main(fieldName), fieldType));
         ResolvedModuleUiDescriptor descriptor = compileResolved(uiDefinition, ModuleKind.STATIC, definition.title(),
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
-                        staticRecordLabelField(definition), fieldTypes(definition.entities()), FieldControlDescriptorCatalog.standard());
+                        staticRecordLabelField(definition), Map.copyOf(fieldTypes), FieldControlDescriptorCatalog.standard());
         List<ResolvedPageDetailEditorContribution> resolvedContributions = uiDefinition.editorContributions().stream()
                 .map(contribution -> {
                     Class<?> modelClass = definition.entityModelClasses().get(contribution.resource());
@@ -610,10 +614,16 @@ public final class ModuleUiDescriptorCompiler {
     }
 
     public static void validate(ModuleUiDefinition definition, List<EntityDefinition> entities) {
+        validate(definition, entities, Set.of());
+    }
+
+    static void validate(ModuleUiDefinition definition, List<EntityDefinition> entities,
+                         Set<String> writeOnlyInputFields) {
         if (definition == null || entities == null || entities.isEmpty()) {
             return;
         }
-        validateFields(definition, entities);
+        validateFields(definition, entities, definition.moduleAlias(), Set.of(),
+                writeOnlyInputFields == null ? Set.of() : writeOnlyInputFields);
     }
 
     private static ResolvedViewDescriptor compileView(ViewDefinition view,
@@ -1092,13 +1102,14 @@ public final class ModuleUiDescriptorCompiler {
     }
 
     private static void validateFields(ModuleUiDefinition definition, List<EntityDefinition> entityDefinitions) {
-        validateFields(definition, entityDefinitions, definition.moduleAlias(), Set.of());
+        validateFields(definition, entityDefinitions, definition.moduleAlias(), Set.of(), Set.of());
     }
 
     private static void validateFields(ModuleUiDefinition definition,
                                        List<EntityDefinition> entityDefinitions,
                                        String moduleAlias,
-                                       Set<String> readProjectionOutputFields) {
+                                       Set<String> readProjectionOutputFields,
+                                       Set<String> writeOnlyInputFields) {
         Map<String, EntityDefinition> entities = entitiesByAlias(entityDefinitions);
         if (entities.isEmpty()) {
             return;
@@ -1106,7 +1117,8 @@ public final class ModuleUiDescriptorCompiler {
         EntityDefinition mainEntity = entityDefinitions.getFirst();
         for (ViewDefinition view : declaredViews(definition)) {
             for (ViewFieldDefinition field : view.fields()) {
-                validateField(moduleAlias, view, field, entities, mainEntity, readProjectionOutputFields);
+                validateField(moduleAlias, view, field, entities, mainEntity, readProjectionOutputFields,
+                        writeOnlyInputFields);
             }
         }
         for (ViewFieldRef field : pagePresentationFields(definition)) {
@@ -1139,8 +1151,16 @@ public final class ModuleUiDescriptorCompiler {
                                       ViewFieldDefinition field,
                                       Map<String, EntityDefinition> entities,
                                       EntityDefinition mainEntity,
-                                      Set<String> readProjectionOutputFields) {
+                                      Set<String> readProjectionOutputFields,
+                                      Set<String> writeOnlyInputFields) {
         ViewFieldRef fieldRef = field.fieldRef();
+        if (fieldRef.relationCode() == null && writeOnlyInputFields.contains(fieldRef.fieldName())) {
+            if (view.viewKind() != ModuleViewKind.FORM) {
+                throw new IllegalArgumentException("write-only input fields are only supported by form views: "
+                        + fieldPath(moduleAlias, view, fieldRef));
+            }
+            return;
+        }
         if (fieldRef.relationCode() == null && readProjectionOutputFields.contains(fieldRef.fieldName())) {
             return;
         }

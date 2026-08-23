@@ -1089,7 +1089,10 @@ export interface ResolvedPageNavigatorLevelDescriptor {
   singleResultPolicy?: 'NONE' | 'AUTO_SELECT' | 'AUTO_SELECT_AND_HIDE';
   /** Explicit initial selection policy; omitted means the navigator starts unselected. */
   initialSelectionPolicy?: 'NONE' | 'FIRST_RECORD';
-  /** Session-derived source scope, enforced by the source reference transport. */
+  /**
+   * Session-derived source scope, enforced by the source reference transport. A system user has
+   * no current tenant, so a CURRENT_TENANT tenant source resolves its REFERENCE-authorized choices.
+   */
   sourceScope?: 'NONE' | 'CURRENT_TENANT';
   /** When present, the navigator source exposes its own standard CRUD affordances in place. */
   management?: ResolvedPageNavigatorManagementDescriptor;
@@ -1108,11 +1111,6 @@ export interface ResolvedPageContextBindingDescriptor {
 export interface ResolvedPageNavigatorManagementDescriptor {
   /** Optional named source-module form; the default editor is used when omitted. */
   editorSurface?: string;
-  /**
-   * Presentation allow-list for standard in-place source management. Omitted
-   * descriptors retain the legacy create, update and delete affordances.
-   */
-  actions?: Array<'CREATE' | 'UPDATE' | 'DELETE'>;
 }
 
 export interface ResolvedPageListDescriptor {

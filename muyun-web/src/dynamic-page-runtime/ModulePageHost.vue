@@ -76,6 +76,9 @@ import {
   type ModulePageDetailSection,
   type ModulePageDrawer,
   type ModulePageCardAssistantContext,
+  type ModulePageFormContribution,
+  type ModulePageFormFieldPolicy,
+  type ModulePageListRowExpansionContext,
   type ModulePageRecordActionContribution,
   type ModulePageWorkspaceView,
 } from './modulePageEnhancements';
@@ -90,10 +93,11 @@ import {
 import { normalizeListPageSize, restoreListPageSize, saveListPageSize } from './listPageSizePreference';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
-import ModulePageListRelationExpansions from './ModulePageListRelationExpansions.vue';
+import ModulePageListExpansionSurface from './ModulePageListExpansionSurface.vue';
 import ModulePageRecordContent from './ModulePageRecordContent.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
+import { shouldHideSingleResultNavigator } from './navigatorVisibility';
 import { useRecordDetailController } from './recordDetailController';
 import { externalPageContextCriteriaKeys, resolvePageContextTargetValues } from './pageContextRuntime';
 import { FormComputeCoordinator } from './formComputeCoordinator';
@@ -237,6 +241,8 @@ const {
 const navigatorManagementDetail = useRecordDetailController<QueryListRecord>();
 const navigatorManagementLevel = ref<NavigatorLevelRuntime>();
 const navigatorManagementTogglingEnabled = ref(false);
+const navigatorManagementFormValid = ref(true);
+const navigatorManagementFormValidationRequestKey = ref(0);
 let navigatorManagementSession = 0;
 const scopeSearchKeyword = ref('');
 const scopeReloadKey = ref(0);
@@ -269,6 +275,16 @@ const navigatorManagementFormFields = computed(() => {
     level.descriptor.management?.editorSurface,
   );
 });
+const navigatorManagementPageEnhancement = computed(() => {
+  const level = navigatorManagementLevel.value;
+  return level ? resolveModulePageEnhancement(level.context.moduleAlias) : undefined;
+});
+const navigatorManagementFormContributions = computed<readonly ModulePageFormContribution[]>(
+  () => navigatorManagementPageEnhancement.value?.form?.contributions ?? [],
+);
+const navigatorManagementFormFieldPolicies = computed<readonly ModulePageFormFieldPolicy[]>(
+  () => navigatorManagementPageEnhancement.value?.form?.fieldPolicies ?? [],
+);
 const navigatorManagementPickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() => {
   const level = navigatorManagementLevel.value;
   if (!level) return {};
@@ -376,7 +392,7 @@ const listRelationExpansions = computed(() => {
     );
 });
 const expandedListRowKeys = ref<string[]>([]);
-const listRelationExpansionEnabled = computed(() => listRelationExpansions.value.length > 0);
+const descriptorRelationExpansionEnabled = computed(() => listRelationExpansions.value.length > 0);
 
 function updateListRowExpansion(record: QueryListRecord, expanded: boolean) {
   const id = record.id == null ? undefined : String(record.id);
@@ -384,6 +400,18 @@ function updateListRowExpansion(record: QueryListRecord, expanded: boolean) {
   expandedListRowKeys.value = expanded
     ? [...new Set([...expandedListRowKeys.value, id])]
     : expandedListRowKeys.value.filter((value) => value !== id);
+}
+
+function listRowExpansionContext(
+  record: QueryListRecord,
+  expanded: boolean,
+): ModulePageListRowExpansionContext {
+  return {
+    module: context,
+    record: createReadonlyCardRecordSnapshot(record) as QueryListRecord,
+    expanded,
+    refreshList,
+  };
 }
 const configuredPageMode = computed<MenuPageMode>(() => props.descriptor.target.pageMode ?? 'LIST');
 const pageMode = computed<MenuPageMode>(
@@ -410,11 +438,13 @@ const treeManagementPage = computed(() => runtimePage.value?.template === 'TREE_
 const listDetailMinimumWidth = computed(() => listDetailWorkspaceMinWidth(navigatorLevels.value.length));
 const visibleNavigatorLevels = computed(() =>
   navigatorLevels.value.filter((level) => {
-    const autoHidden =
-      level.descriptor.singleResultPolicy === 'AUTO_SELECT_AND_HIDE' &&
-      // `loaded` is the authoritative result cardinality. Selection may be committed in the
-      // same reactive turn, so do not make visibility depend on a second snapshot of it.
-      navigatorSingleResultKeys.value.includes(level.descriptor.key);
+    // `loaded` is the authoritative result cardinality. Selection may be committed in the
+    // same reactive turn, so do not make visibility depend on a second snapshot of it.
+    const autoHidden = shouldHideSingleResultNavigator(
+      level.descriptor,
+      navigatorSingleResultKeys.value.includes(level.descriptor.key),
+      currentUser?.value?.tenantId,
+    );
     return !autoHidden;
   }),
 );
@@ -510,6 +540,10 @@ function enhancementRowActionsFor(record: QueryListRecord) {
 }
 const enhancementBatchActions = computed<ModulePageBatchActionContribution[]>(
   () => pageEnhancement.value?.list?.batchActions ?? [],
+);
+const enhancementRowExpansion = computed(() => pageEnhancement.value?.list?.rowExpansion);
+const listRowExpansionEnabled = computed(
+  () => descriptorRelationExpansionEnabled.value || enhancementRowExpansion.value !== undefined,
 );
 const enhancementDetailActions = computed<ModulePageRecordActionContribution[]>(() => {
   const record = selectedRecord.value;
@@ -1155,25 +1189,18 @@ function navigatorManagementAvailable(level: NavigatorLevelRuntime) {
   return level.descriptor.management !== undefined;
 }
 
-function navigatorManagementAllows(level: NavigatorLevelRuntime, action: 'CREATE' | 'UPDATE' | 'DELETE') {
-  // Older descriptors did not publish a presentation policy. Keep their
-  // complete standard management surface wire-compatible.
-  const actions = level.descriptor.management?.actions;
-  return actions == null || actions.includes(action);
-}
-
 function navigatorInlineActions(level: NavigatorLevelRuntime, record: NavigatorRecord): RecordInlineAction[] {
   if (!navigatorManagementAvailable(level)) return [];
   const actions: RecordInlineAction[] = [];
-  if (level.tree && navigatorManagementAllows(level, 'CREATE') && level.context.can('create') === true) {
+  if (level.tree && level.context.can('create') === true) {
     actions.push({ key: 'create-child', title: '新建子项', iconName: 'plus' });
   }
-  if (navigatorManagementAllows(level, 'UPDATE') && level.context.can('update') === true) {
+  if (level.context.can('update') === true) {
     actions.push(
       navigatorRecordAction(level, record, 'edit', 'update', `编辑${level.descriptor.title}`, 'edit'),
     );
   }
-  if (navigatorManagementAllows(level, 'DELETE') && level.context.can('delete') === true) {
+  if (level.context.can('delete') === true) {
     actions.push(
       navigatorRecordAction(level, record, 'delete', 'delete', `删除${level.descriptor.title}`, 'delete'),
     );
@@ -1229,13 +1256,13 @@ function navigatorRecordAction(
 function createNavigatorRecord(level: NavigatorLevelRuntime, parentId?: string) {
   if (
     !navigatorManagementAvailable(level) ||
-    !navigatorManagementAllows(level, 'CREATE') ||
     !navigatorManagementScopeReady(level) ||
     level.context.can('create') !== true
   )
     return;
   navigatorManagementSession += 1;
   navigatorManagementTogglingEnabled.value = false;
+  navigatorManagementFormValid.value = true;
   navigatorManagementLevel.value = level;
   // Incoming navigator bindings constrain this source and must also establish
   // its ownership fields when creating a new source record (for example,
@@ -1360,15 +1387,10 @@ function updateNavigatorManagementDraft(
 
 async function editNavigatorRecord(level: NavigatorLevelRuntime, record: NavigatorRecord) {
   const id = record.id == null ? undefined : String(record.id);
-  if (
-    !navigatorManagementAvailable(level) ||
-    !navigatorManagementAllows(level, 'UPDATE') ||
-    !id ||
-    level.context.can('update') !== true
-  )
-    return;
+  if (!navigatorManagementAvailable(level) || !id || level.context.can('update') !== true) return;
   const session = ++navigatorManagementSession;
   navigatorManagementTogglingEnabled.value = false;
+  navigatorManagementFormValid.value = true;
   navigatorManagementLevel.value = level;
   navigatorManagementDetail.beginLoad(record as QueryListRecord, 'edit');
   try {
@@ -1406,6 +1428,10 @@ async function saveNavigatorRecord() {
   const level = navigatorManagementLevel.value;
   const record = navigatorManagementDetail.draft.value;
   if (!level || !record || navigatorManagementDetail.saving.value) return;
+  if (!navigatorManagementFormValid.value) {
+    navigatorManagementFormValidationRequestKey.value += 1;
+    return;
+  }
   const creating = navigatorManagementDetail.mode.value === 'create';
   if (level.context.can(creating ? 'create' : 'update') !== true) return;
   navigatorManagementDetail.saving.value = true;
@@ -1446,13 +1472,7 @@ async function saveNavigatorRecord() {
 async function deleteNavigatorRecord(level: NavigatorLevelRuntime, record: NavigatorRecord) {
   const id = record.id == null ? undefined : String(record.id);
   const version = typeof record.version === 'number' ? record.version : undefined;
-  if (
-    !id ||
-    version === undefined ||
-    !navigatorManagementAllows(level, 'DELETE') ||
-    level.context.can('delete') !== true
-  )
-    return;
+  if (!id || version === undefined || level.context.can('delete') !== true) return;
   try {
     if (
       !(await confirmAction({
@@ -1491,6 +1511,7 @@ function clearSelectionForScopeChange() {
 function closeNavigatorManagementEditor() {
   navigatorManagementSession += 1;
   navigatorManagementTogglingEnabled.value = false;
+  navigatorManagementFormValid.value = true;
   navigatorManagementDetail.close();
   navigatorManagementLevel.value = undefined;
 }
@@ -1952,13 +1973,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           @update:search-keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
         >
-          <template
-            v-if="
-              navigatorManagementAvailable(visibleNavigatorLevels[index]) &&
-              navigatorManagementAllows(visibleNavigatorLevels[index], 'CREATE')
-            "
-            #actions
-          >
+          <template v-if="navigatorManagementAvailable(visibleNavigatorLevels[index])" #actions>
             <ModuleActionButton
               :context="visibleNavigatorLevels[index].context"
               action-code="create"
@@ -2028,9 +2043,13 @@ function recordTitle(record: QueryListRecord | undefined) {
               :load-failed="navigatorManagementDetail.loadFailed.value"
               :draft="navigatorManagementDetail.draft.value as RecordFormRecord"
               :fields="navigatorManagementFormFields"
+              :mode="navigatorManagementDetail.mode.value"
               :form-session-key="navigatorManagementDetail.formSessionKey.value"
+              :validation-request-key="navigatorManagementFormValidationRequestKey"
               :context="visibleNavigatorLevels[index].context"
               :picker-configs="navigatorManagementPickerConfigs"
+              :contributions="navigatorManagementFormContributions"
+              :field-policies="navigatorManagementFormFieldPolicies"
               :show-enabled="navigatorManagementEnabledVisible"
               :enabled="navigatorManagementDetail.draft.value?.enabled !== false"
               :enabled-disabled="navigatorManagementEnabledDisabled"
@@ -2040,6 +2059,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               @save="saveNavigatorRecord"
               @toggle-enabled="toggleNavigatorManagementEnabled"
               @update-field="updateNavigatorManagementDraft"
+              @validity-change="navigatorManagementFormValid = $event.valid"
             />
           </template>
         </RecordExplorerPanel>
@@ -2187,10 +2207,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           @update:search-keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
         >
-          <template
-            v-if="navigatorManagementAvailable(level) && navigatorManagementAllows(level, 'CREATE')"
-            #actions
-          >
+          <template v-if="navigatorManagementAvailable(level)" #actions>
             <ModuleActionButton
               :context="level.context"
               action-code="create"
@@ -2249,9 +2266,13 @@ function recordTitle(record: QueryListRecord | undefined) {
               :load-failed="navigatorManagementDetail.loadFailed.value"
               :draft="navigatorManagementDetail.draft.value as RecordFormRecord"
               :fields="navigatorManagementFormFields"
+              :mode="navigatorManagementDetail.mode.value"
               :form-session-key="navigatorManagementDetail.formSessionKey.value"
+              :validation-request-key="navigatorManagementFormValidationRequestKey"
               :context="level.context"
               :picker-configs="navigatorManagementPickerConfigs"
+              :contributions="navigatorManagementFormContributions"
+              :field-policies="navigatorManagementFormFieldPolicies"
               :show-enabled="navigatorManagementEnabledVisible"
               :enabled="navigatorManagementDetail.draft.value?.enabled !== false"
               :enabled-disabled="navigatorManagementEnabledDisabled"
@@ -2261,13 +2282,14 @@ function recordTitle(record: QueryListRecord | undefined) {
               @save="saveNavigatorRecord"
               @toggle-enabled="toggleNavigatorManagementEnabled"
               @update-field="updateNavigatorManagementDraft"
+              @validity-change="navigatorManagementFormValid = $event.valid"
             />
           </template>
         </RecordExplorerPanel>
       </ManagementExplorerColumn>
       <RecordQueryListPanel
         class="module-list"
-        :class="{ 'module-list--relation-expansion': listRelationExpansionEnabled }"
+        :class="{ 'module-list--row-expansion': listRowExpansionEnabled }"
         :context="context"
         :title="title"
         :selected-key="selectedRecord?.id"
@@ -2304,12 +2326,14 @@ function recordTitle(record: QueryListRecord | undefined) {
           (action, records, _event, clearSelection) => handleBatchAction(action, records, clearSelection)
         "
       >
-        <template v-if="listRelationExpansionEnabled" #expandedRow="{ record }">
-          <ModulePageListRelationExpansions
+        <template v-if="listRowExpansionEnabled" #expandedRow="{ record }">
+          <ModulePageListExpansionSurface
             :source-context="context"
             :ui-descriptor="runtimeUiDescriptor!"
             :record="record"
-            :entries="listRelationExpansions"
+            :relation-entries="listRelationExpansions"
+            :extension="enhancementRowExpansion"
+            :extension-context="enhancementRowExpansion ? listRowExpansionContext(record, true) : undefined"
           />
         </template>
       </RecordQueryListPanel>
@@ -2457,9 +2481,13 @@ function recordTitle(record: QueryListRecord | undefined) {
               :load-failed="navigatorManagementDetail.loadFailed.value"
               :draft="navigatorManagementDetail.draft.value as RecordFormRecord"
               :fields="navigatorManagementFormFields"
+              :mode="navigatorManagementDetail.mode.value"
               :form-session-key="navigatorManagementDetail.formSessionKey.value"
+              :validation-request-key="navigatorManagementFormValidationRequestKey"
               :context="level.context"
               :picker-configs="navigatorManagementPickerConfigs"
+              :contributions="navigatorManagementFormContributions"
+              :field-policies="navigatorManagementFormFieldPolicies"
               :show-enabled="navigatorManagementEnabledVisible"
               :enabled="navigatorManagementDetail.draft.value?.enabled !== false"
               :enabled-disabled="navigatorManagementEnabledDisabled"
@@ -2469,6 +2497,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               @save="saveNavigatorRecord"
               @toggle-enabled="toggleNavigatorManagementEnabled"
               @update-field="updateNavigatorManagementDraft"
+              @validity-change="navigatorManagementFormValid = $event.valid"
             />
           </template>
         </PageNavigatorExplorer>
@@ -2670,7 +2699,7 @@ function recordTitle(record: QueryListRecord | undefined) {
     <RecordQueryListPanel
       v-else
       class="module-list"
-      :class="{ 'module-list--relation-expansion': listRelationExpansionEnabled }"
+      :class="{ 'module-list--row-expansion': listRowExpansionEnabled }"
       :context="context"
       :title="title"
       :selected-key="selectedRecord?.id"
@@ -2705,12 +2734,14 @@ function recordTitle(record: QueryListRecord | undefined) {
         (action, records, _event, clearSelection) => handleBatchAction(action, records, clearSelection)
       "
     >
-      <template v-if="listRelationExpansionEnabled" #expandedRow="{ record }">
-        <ModulePageListRelationExpansions
+      <template v-if="listRowExpansionEnabled" #expandedRow="{ record }">
+        <ModulePageListExpansionSurface
           :source-context="context"
           :ui-descriptor="runtimeUiDescriptor!"
           :record="record"
-          :entries="listRelationExpansions"
+          :relation-entries="listRelationExpansions"
+          :extension="enhancementRowExpansion"
+          :extension-context="enhancementRowExpansion ? listRowExpansionContext(record, true) : undefined"
         />
       </template>
     </RecordQueryListPanel>
@@ -2899,14 +2930,21 @@ function recordTitle(record: QueryListRecord | undefined) {
   min-width: 0;
 }
 
-/* A row-expanded relation is an extension of the white list surface, not a nested muted card. */
-.module-list--relation-expansion :deep(.ant-table-tbody > tr.ant-table-expanded-row > td) {
+/* The platform owns the expanded-row table boundary; its shared surface owns visual hierarchy. */
+.module-list--row-expansion :deep(.ant-table-tbody > tr.ant-table-expanded-row > td) {
   padding: 0 !important;
   background: var(--muyun-surface) !important;
   border-bottom-color: var(--muyun-border-subtle);
 }
 
-.module-list--relation-expansion :deep(.ant-table-tbody > tr.ant-table-expanded-row:hover > td) {
+/* Ant Design adds fixed-row compensation around expanded content. The platform
+ * surface owns spacing instead, so relation and extension content align alike. */
+.module-list--row-expansion :deep(.ant-table-expanded-row-fixed) {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.module-list--row-expansion :deep(.ant-table-tbody > tr.ant-table-expanded-row:hover > td) {
   background: var(--muyun-surface) !important;
 }
 

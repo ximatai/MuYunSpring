@@ -37,6 +37,7 @@ export { default as RecordPanelButton } from './RecordPanelButton.vue';
 export { default as RecordSelectionCheckbox } from './RecordSelectionCheckbox.vue';
 export { default as RecordPanelState } from './RecordPanelState.vue';
 export { default as RecordExpandedSubtable } from './RecordExpandedSubtable.vue';
+export { default as RecordListExpansionSurface } from './RecordListExpansionSurface.vue';
 export { default as UserSessionExpandedSubtable } from './UserSessionExpandedSubtable.vue';
 export {
   userSessionBrowserTitle,

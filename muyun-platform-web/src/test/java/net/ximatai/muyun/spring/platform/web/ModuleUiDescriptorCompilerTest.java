@@ -945,25 +945,6 @@ class ModuleUiDescriptorCompilerTest {
 
         assertThat(management).isNotNull();
         assertThat(management.editorSurface()).isEqualTo("quick_manage");
-        assertThat(management.actions()).containsExactlyInAnyOrder(PageNavigatorManagementAction.values());
-    }
-
-    @Test
-    void shouldPublishDeclaredNavigatorManagementActionAllowList() {
-        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
-                .page(PageTemplates.listDetailCard(page -> page
-                        .navigator(navigator -> navigator.level("directory", level -> level
-                                .microList("sales.directory", "目录", "搜索目录")
-                                .manageable(PageNavigatorManagementAction.CREATE)))
-                        .list(list -> list.fields(fields -> fields.field("title")))
-                        .detail(detail -> detail.editor(editor -> editor.field("title")))
-                        .traits(traits -> traits.standardCrud())))
-                .build();
-
-        ResolvedPageNavigatorManagementDescriptor management = ModuleUiDescriptorCompiler.compile(definition)
-                .page().navigator().levels().getFirst().management();
-
-        assertThat(management.actions()).containsExactly(PageNavigatorManagementAction.CREATE);
     }
 
     @Test

@@ -58,7 +58,7 @@ final class FieldControlDescriptorCatalog {
 
     static Map<String, ResolvedFieldControlDescriptor> standard() {
         Map<String, String> renderers = Map.ofEntries(
-                Map.entry("text", "TEXT"), Map.entry("input", "TEXT"), Map.entry("textarea", "TEXTAREA"), Map.entry("number", "DECIMAL"),
+                Map.entry("text", "TEXT"), Map.entry("input", "TEXT"), Map.entry("password", "TEXT"), Map.entry("textarea", "TEXTAREA"), Map.entry("number", "DECIMAL"),
                 Map.entry("integer", "NUMBER"), Map.entry("amount", "DECIMAL"), Map.entry("percentage", "DECIMAL"),
                 Map.entry("switch", "SWITCH"), Map.entry("select", "SELECT"), Map.entry("multi_select", "MULTI_SELECT"),
                 Map.entry("date", "DATE"), Map.entry("datetime", "DATETIME"), Map.entry("json", "JSON"),
