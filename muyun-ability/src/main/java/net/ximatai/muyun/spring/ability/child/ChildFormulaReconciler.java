@@ -3,13 +3,21 @@ package net.ximatai.muyun.spring.ability.child;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
+import net.ximatai.muyun.spring.common.formula.FormulaFieldDefinition;
+import net.ximatai.muyun.spring.common.formula.FormulaFieldPath;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData;
+import net.ximatai.muyun.spring.common.formula.FormulaValueType;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
 import java.beans.IntrospectionException;
 import java.beans.Introspector;
 import java.beans.PropertyDescriptor;
 import java.lang.reflect.InvocationTargetException;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,6 +46,7 @@ final class ChildFormulaReconciler {
         }
 
         List<Map<String, Object>> rows = incoming.stream().map(this::values).collect(Collectors.toCollection(ArrayList::new));
+        List<FormulaFieldDefinition> fields = formulaFields(relationCode, incoming.getFirst().getClass());
         Map<String, C> existingById = existing == null ? Map.of() : existing.stream()
                 .filter(value -> value.getId() != null && !value.getId().isBlank())
                 .collect(Collectors.toMap(EntityContract::getId, value -> value, (left, right) -> left, LinkedHashMap::new));
@@ -51,7 +60,7 @@ final class ChildFormulaReconciler {
             String property = target.substring(relationCode.length() + 1);
             List<Integer> changes = changedRows(incoming, rows, existingById, definition.triggerFields()).stream()
                     .filter(index -> engine.matchesRowSetCondition(rule.expression(),
-                            FormulaRuntimeData.of(new LinkedHashMap<>(), Map.of(relationCode, rows))
+                            formulaData(relationCode, rows, fields)
                                     .withChangeScope(relationCode, rows.get(index))))
                     .toList();
             if (changes.isEmpty()) {
@@ -62,7 +71,7 @@ final class ChildFormulaReconciler {
                         "row-to-row calculation requires exactly one changed child row: " + target);
             }
             Map<String, Object> source = rows.get(changes.getFirst());
-            var result = engine.execute(List.of(rule), FormulaRuntimeData.of(new LinkedHashMap<>(), Map.of(relationCode, rows))
+            var result = engine.execute(List.of(rule), formulaData(relationCode, rows, fields)
                     .withChangeScope(relationCode, source));
             if (result.report().hasErrors()) {
                 throw new FormulaEvaluationException("FORMULA_RECONCILE_FAILED", target,
@@ -72,6 +81,35 @@ final class ChildFormulaReconciler {
                 write(incoming.get(index), property, rows.get(index).get(property));
             }
         }
+    }
+
+    private FormulaRuntimeData formulaData(String relationCode, List<Map<String, Object>> rows,
+                                           List<FormulaFieldDefinition> fields) {
+        return FormulaRuntimeData.typed(new LinkedHashMap<>(), Map.of(relationCode, rows), fields);
+    }
+
+    private List<FormulaFieldDefinition> formulaFields(String relationCode, Class<?> childType) {
+        return descriptors(childType).entrySet().stream()
+                .map(entry -> new FormulaFieldDefinition(
+                        FormulaFieldPath.parse(relationCode + "." + entry.getKey()),
+                        formulaValueType(entry.getValue().getPropertyType()), false,
+                        entry.getValue().getWriteMethod() != null))
+                .toList();
+    }
+
+    private FormulaValueType formulaValueType(Class<?> type) {
+        if (type == null) return FormulaValueType.ANY;
+        if (type == String.class || CharSequence.class.isAssignableFrom(type) || type.isEnum()) return FormulaValueType.STRING;
+        if (type == Integer.class || type == int.class || type == Short.class || type == short.class
+                || type == Byte.class || type == byte.class) return FormulaValueType.INTEGER;
+        if (type == Long.class || type == long.class) return FormulaValueType.LONG;
+        if (type == BigDecimal.class || type == Double.class || type == double.class
+                || type == Float.class || type == float.class) return FormulaValueType.DECIMAL;
+        if (type == Boolean.class || type == boolean.class) return FormulaValueType.BOOLEAN;
+        if (type == LocalDate.class || type == java.sql.Date.class) return FormulaValueType.DATE;
+        if (type == Instant.class || type == LocalDateTime.class || type == OffsetDateTime.class
+                || type == java.sql.Timestamp.class) return FormulaValueType.TIMESTAMP;
+        return FormulaValueType.ANY;
     }
 
     private <C extends EntityContract> List<Integer> changedRows(List<C> incoming,
@@ -123,7 +161,7 @@ final class ChildFormulaReconciler {
         }
         try {
             descriptor.getWriteMethod().invoke(target, value);
-        } catch (IllegalAccessException | InvocationTargetException exception) {
+        } catch (IllegalAccessException | InvocationTargetException | IllegalArgumentException exception) {
             throw new PlatformException("cannot write child formula property: " + property, exception);
         }
     }

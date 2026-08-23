@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.TenantStandardBusinessService;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.child.ChildRelation;
+import net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryField;
@@ -127,7 +128,7 @@ public class EmployeeService extends TenantStandardBusinessService<Employee> imp
     }
 
     @Override
-    public List<net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition> aggregateChildFormulaDefinitions() {
+    public List<AggregateChildFormulaDefinition> aggregateChildFormulaDefinitions() {
         return List.of(EmployeeFormulas.primaryPositionExclusive());
     }
 

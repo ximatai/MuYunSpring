@@ -12,6 +12,7 @@ describe('RelationFormComputeCoordinator', () => {
       {
         code: 'primaryPositionExclusive',
         targetField: 'primaryPosition',
+        targetValueType: 'BOOLEAN',
         triggerFields: ['primaryPosition'],
         program: {
           schemaVersion: 1,
@@ -47,6 +48,7 @@ describe('RelationFormComputeCoordinator', () => {
       {
         code: 'primaryPositionExclusive',
         targetField: 'primaryPosition',
+        targetValueType: 'BOOLEAN',
         triggerFields: ['primaryPosition'],
         program: {
           schemaVersion: 1,
@@ -66,5 +68,39 @@ describe('RelationFormComputeCoordinator', () => {
     ]).applyAfterChange(rows, 'b', (row) => row.key, 'primaryPosition');
 
     expect(result).toEqual(rows);
+  });
+
+  it('normalizes a relation formula result using its compiled target value type', () => {
+    const rows = [
+      { key: 'a', activate: false, rank: 0 },
+      { key: 'b', activate: true, rank: 0 },
+    ];
+    const result = new RelationFormComputeCoordinator([
+      {
+        code: 'setOtherRanks',
+        targetField: 'rank',
+        targetValueType: 'INTEGER',
+        triggerFields: ['activate'],
+        program: {
+          schemaVersion: 1,
+          profile: 'FORM_COMPUTE',
+          referencedFields: ['activate'],
+          root: {
+            kind: 'ASSIGN',
+            operator: '=',
+            arguments: [
+              { kind: 'OTHERS', field: 'positions.rank', arguments: [] },
+              { kind: 'VALUE', value: 1, arguments: [] },
+              { kind: 'FIELD', field: 'activate', arguments: [] },
+            ],
+          },
+        },
+      },
+    ]).applyAfterChange(rows, 'b', (row) => row.key, 'activate');
+
+    expect(result).toEqual([
+      { key: 'a', activate: false, rank: 1 },
+      { key: 'b', activate: true, rank: 0 },
+    ]);
   });
 });

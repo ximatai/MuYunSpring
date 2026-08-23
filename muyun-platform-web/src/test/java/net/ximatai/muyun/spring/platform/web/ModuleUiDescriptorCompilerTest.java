@@ -1264,6 +1264,7 @@ class ModuleUiDescriptorCompilerTest {
                     .containsExactly("organizationId", "departmentId", "positionId", "primaryPosition", "enabled");
             assertThat(relation.formComputeRules()).singleElement().satisfies(rule -> {
                 assertThat(rule.targetField()).isEqualTo("primaryPosition");
+                assertThat(rule.targetValueType()).isEqualTo("BOOLEAN");
                 assertThat(rule.program().root().arguments().getFirst().kind().name()).isEqualTo("OTHERS");
                 assertThat(rule.program().root().arguments().get(2).field()).isEqualTo("primaryPosition");
             });
@@ -1271,6 +1272,34 @@ class ModuleUiDescriptorCompilerTest {
         assertThat(descriptor.page().list().relationExpansions()).containsExactly(
                 new ResolvedPageListRelationExpansionDescriptor("positions",
                         List.of("organizationId", "departmentId", "positionId", "primaryPosition", "enabled")));
+    }
+
+    @Test
+    void shouldRejectAnAggregateFormulaDeclaredForAnotherRelation() {
+        ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.employee")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("employeeNo")))
+                        .detail(detail -> detail.editor(editor -> editor.field("employeeNo")))
+                        .traits(traits -> { })))
+                .editorContribution("employee_position", form -> form
+                        .field("employee_position", "primaryPosition", field -> { }))
+                .aggregateChildRelation("positions", "任职", "employee_position", "employeeId",
+                        UiRule.constant(Boolean.TRUE), false, List.of(new net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition(
+                                "delegations", new net.ximatai.muyun.spring.common.formula.FormulaRule(
+                                "primaryPositionExclusive", "others({delegations.primaryPosition}) = false WHEN {delegations.primaryPosition}"),
+                                List.of("primaryPosition"))))
+                .build();
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(staticDefinition(uiDefinition,
+                List.of(
+                        new EntityDefinition("employee", "iam_employee", "Employee",
+                                List.of(FieldDefinition.string("employeeNo", "职员编号"))),
+                        new EntityDefinition("employee_position", "iam_employee_position", "EmployeePosition",
+                                List.of(
+                                        FieldDefinition.string("employeeId", "职员"),
+                                        FieldDefinition.bool("primaryPosition", "主岗位")))))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("aggregate child formula relation must match detail relation");
     }
 
     @Test

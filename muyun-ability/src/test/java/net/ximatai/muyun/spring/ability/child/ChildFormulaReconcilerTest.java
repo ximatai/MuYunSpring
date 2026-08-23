@@ -59,6 +59,24 @@ class ChildFormulaReconcilerTest {
         assertThat(selected.getPrimaryPosition()).isTrue();
     }
 
+    @Test
+    void shouldConvertFormulaNumbersToTheDeclaredChildPropertyTypeBeforeWriting() {
+        PositionRow previous = row("previous", false);
+        previous.setRank(0);
+        PositionRow selected = row("selected", false);
+        selected.setActivatePrimary(true);
+        selected.setRank(0);
+
+        reconciler.reconcile("positions", List.of(previous, selected),
+                List.of(row("previous", false), row("selected", false)),
+                List.of(new AggregateChildFormulaDefinition("positions", new FormulaRule("setOtherRanks",
+                        "others({positions.rank}) = 1 WHEN {positions.activatePrimary}"),
+                        List.of("activatePrimary"))));
+
+        assertThat(previous.getRank()).isEqualTo(1).isInstanceOf(Integer.class);
+        assertThat(selected.getRank()).isZero();
+    }
+
     private PositionRow row(String id, boolean primaryPosition) {
         PositionRow row = new PositionRow();
         row.setId(id);
@@ -75,6 +93,7 @@ class ChildFormulaReconcilerTest {
     private static final class PositionRow extends StandardEntity {
         private Boolean primaryPosition;
         private Boolean activatePrimary;
+        private Integer rank;
 
         public Boolean getPrimaryPosition() {
             return primaryPosition;
@@ -90,6 +109,14 @@ class ChildFormulaReconcilerTest {
 
         public void setActivatePrimary(Boolean activatePrimary) {
             this.activatePrimary = activatePrimary;
+        }
+
+        public Integer getRank() {
+            return rank;
+        }
+
+        public void setRank(Integer rank) {
+            this.rank = rank;
         }
     }
 }

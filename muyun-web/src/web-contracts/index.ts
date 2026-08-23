@@ -401,6 +401,7 @@ export interface ResolvedDetailRelationFormComputeRuleDescriptor {
   code: string;
   program: FormulaProgram;
   targetField: string;
+  targetValueType: ViewFieldValueType;
   triggerFields: string[];
 }
 

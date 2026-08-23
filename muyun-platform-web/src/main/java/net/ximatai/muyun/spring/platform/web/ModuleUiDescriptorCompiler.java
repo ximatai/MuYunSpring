@@ -264,7 +264,7 @@ public final class ModuleUiDescriptorCompiler {
                                     relation.editing().saveMode().name()),
                             relation.editing().recycleBinEnabled()),
                     relation.refreshOnDetailReload(), relation.embedded() ? relation.code() : null,
-                    listProjection, compileRelationFormComputeRules(relation, listProjection), resolvedRule(relation.visible()));
+                    listProjection, compileRelationFormComputeRules(descriptor, relation, listProjection), resolvedRule(relation.visible()));
         }).toList();
     }
 
@@ -274,13 +274,20 @@ public final class ModuleUiDescriptorCompiler {
      * the single source of target and guard semantics for browser and server execution.
      */
     private static List<ResolvedRelationFormComputeRuleDescriptor> compileRelationFormComputeRules(
-            PageDetailRelationDefinition relation, ResolvedDetailRelationListProjection listProjection) {
+            ResolvedModuleUiDescriptor descriptor,
+            PageDetailRelationDefinition relation,
+            ResolvedDetailRelationListProjection listProjection) {
         if (relation.formComputeRules().isEmpty()) return List.of();
         Set<String> relationFields = listProjection == null ? Set.of() : listProjection.fields().stream()
                 .map(ResolvedDetailRelationListField::fieldName).collect(java.util.stream.Collectors.toSet());
+        Map<String, ResolvedViewFieldDescriptor> editorFields = relationEditorFields(descriptor, relation);
         Set<String> codes = new LinkedHashSet<>();
         java.util.ArrayList<ResolvedRelationFormComputeRuleDescriptor> resolved = new java.util.ArrayList<>();
         for (AggregateChildFormulaDefinition definition : relation.formComputeRules()) {
+            if (!relation.code().equals(definition.relationCode())) {
+                throw new IllegalArgumentException("aggregate child formula relation must match detail relation: "
+                        + definition.relationCode() + " != " + relation.code());
+            }
             var rule = definition.rule();
             if (!codes.add(rule.id())) {
                 throw new IllegalArgumentException("duplicate relation form compute rule: " + relation.code() + "." + rule.id());
@@ -297,22 +304,66 @@ public final class ModuleUiDescriptorCompiler {
                 throw new IllegalArgumentException("relation form compute target field must be declared by its editor: "
                         + relation.code() + "." + targetField);
             }
+            ResolvedViewFieldDescriptor target = editorFields.get(targetField);
+            if (target == null) {
+                throw new IllegalArgumentException("relation form compute target field must be declared by its editor: "
+                        + relation.code() + "." + targetField);
+            }
+            if (Boolean.TRUE.equals(target.readOnly().constant())) {
+                throw new IllegalArgumentException("relation form compute target field must be writable: "
+                        + relation.code() + "." + targetField);
+            }
+            requirePortableRelationComputeType(target, "target", relation, rule.id());
             for (String trigger : definition.triggerFields()) {
                 if (!relationFields.contains(trigger)) {
                     throw new IllegalArgumentException("relation form compute trigger field must be declared by its editor: "
                             + relation.code() + "." + trigger);
                 }
+                ResolvedViewFieldDescriptor triggerField = editorFields.get(trigger);
+                if (triggerField == null) {
+                    throw new IllegalArgumentException("relation form compute trigger field must be declared by its editor: "
+                            + relation.code() + "." + trigger);
+                }
+                requirePortableRelationComputeType(triggerField, "trigger", relation, rule.id());
             }
             for (String field : program.referencedFields()) {
                 if (!relationFields.contains(field)) {
                     throw new IllegalArgumentException("relation form compute expression may only reference fields declared by its editor: "
                             + relation.code() + "." + rule.id() + "." + field);
                 }
+                ResolvedViewFieldDescriptor input = editorFields.get(field);
+                if (input == null) {
+                    throw new IllegalArgumentException("relation form compute expression may only reference fields declared by its editor: "
+                            + relation.code() + "." + rule.id() + "." + field);
+                }
+                requirePortableRelationComputeType(input, "input", relation, rule.id());
             }
             resolved.add(new ResolvedRelationFormComputeRuleDescriptor(rule.id(), program,
-                    targetField, definition.triggerFields()));
+                    targetField, target.valueType().name(), definition.triggerFields()));
         }
         return List.copyOf(resolved);
+    }
+
+    private static Map<String, ResolvedViewFieldDescriptor> relationEditorFields(
+            ResolvedModuleUiDescriptor descriptor, PageDetailRelationDefinition relation) {
+        ResolvedPageDetailEditorContribution editor = descriptor.editorContributions().stream()
+                .filter(candidate -> candidate.resource().equals(relation.targetEntityAlias()))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                        "detail relation requires an editor contribution: " + relation.code()));
+        return editor.editor().fields().stream()
+                .collect(java.util.stream.Collectors.toMap(field -> field.fieldRef().fieldName(), field -> field,
+                        (left, ignored) -> left, LinkedHashMap::new));
+    }
+
+    private static void requirePortableRelationComputeType(ResolvedViewFieldDescriptor field,
+                                                           String role,
+                                                           PageDetailRelationDefinition relation,
+                                                           String ruleCode) {
+        if (field.valueType() == null || field.valueType() == FieldValueType.JSON) {
+            throw new IllegalArgumentException("relation form compute " + role
+                    + " field requires a portable non-JSON value type: " + relation.code() + "." + ruleCode
+                    + "." + field.fieldRef().fieldName());
+        }
     }
 
     private static String relationTargetField(FormulaProgram program, String code) {

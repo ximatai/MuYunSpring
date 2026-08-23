@@ -56,9 +56,11 @@ export class FormulaRuntime {
     program: FormulaProgram | undefined,
     draft: FormulaRecord,
     targetField: string,
+    targetValueType?: ViewFieldValueType,
   ): FormulaComputeResult {
     if (!program || program.schemaVersion !== 1 || program.profile !== 'FORM_COMPUTE' || !program.root)
       return EMPTY_COMPUTE_RESULT;
+    if (!targetValueType || targetValueType === 'JSON') return EMPTY_COMPUTE_RESULT;
     const root = program.root;
     if (
       root.kind !== 'ASSIGN' ||
@@ -75,8 +77,10 @@ export class FormulaRuntime {
       const applies = this.evaluateComputeNode(condition, draft, 2, budget);
       if (applies === INVALID_FORMULA_VALUE || !this.toBoolean(applies)) return EMPTY_COMPUTE_RESULT;
     }
-    const value = this.evaluateComputeNode(expression, draft, 2, budget);
-    if (value === INVALID_FORMULA_VALUE || value === undefined) return EMPTY_COMPUTE_RESULT;
+    const evaluated = this.evaluateComputeNode(expression, draft, 2, budget);
+    if (evaluated === INVALID_FORMULA_VALUE || evaluated === undefined) return EMPTY_COMPUTE_RESULT;
+    const value = normalizeComputeWriteValue(evaluated, targetValueType);
+    if (value === INVALID_FORMULA_VALUE) return EMPTY_COMPUTE_RESULT;
     return Object.freeze({
       patch: Object.freeze({ [targetField]: value }),
       changedFields: Object.freeze([targetField]),

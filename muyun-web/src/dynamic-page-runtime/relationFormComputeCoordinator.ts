@@ -20,7 +20,12 @@ export class RelationFormComputeCoordinator {
     const changed = next.find((row) => keyOf(row) === changedRowKey);
     if (!changed) return next;
     for (const rule of applicable) {
-      const result = this.runtime.evaluateRelationFormCompute(rule.program, changed, rule.targetField);
+      const result = this.runtime.evaluateRelationFormCompute(
+        rule.program,
+        changed,
+        rule.targetField,
+        rule.targetValueType,
+      );
       if (result.changedFields.length === 0) continue;
       next = next.map((row) => (keyOf(row) === changedRowKey ? row : ({ ...row, ...result.patch } as TRow)));
     }
