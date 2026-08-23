@@ -2,7 +2,7 @@ import { flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent } from 'vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
-import { configureModuleContext, createHttpClient, type ModuleContext } from '@muyun/web-core';
+import { configureModuleContext, createHttpClient } from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefresh.ts';
 
@@ -616,12 +616,9 @@ describe('ModulePageHost', () => {
     wrapper.findComponent({ name: 'ModuleActionButton' }).vm.$emit('click');
     await flushPromises();
 
-    expect(wrapper.findComponent({ name: 'StandardFlatFormSurface' }).props('fields')).toEqual(
-      expect.any(Map),
-    );
-    expect(wrapper.findComponent({ name: 'StandardFlatFormSurface' }).props('fields').get('title')).toEqual(
-      expect.objectContaining({ label: '应用名称' }),
-    );
+    const content = wrapper.findComponent({ name: 'ModulePageRecordContent' });
+    expect(content.props('formFields')).toEqual(expect.any(Map));
+    expect(content.props('formFields').get('title')).toEqual(expect.objectContaining({ label: '应用名称' }));
 
     const actionBar = wrapper.findComponent({ name: 'RecordActionBar' });
     expect(actionBar.props('recordId')).toBeUndefined();
@@ -629,9 +626,8 @@ describe('ModulePageHost', () => {
       expect.arrayContaining([expect.objectContaining({ key: 'save', actionCode: 'create' })]),
     );
 
-    // The isolated flat surface propagates descriptor parser validity to the host save boundary.
-    const form = wrapper.findComponent({ name: 'StandardFlatFormSurface' });
-    form.vm.$emit('validity-change', { valid: false, errors: { payload: '请输入有效 JSON' } });
+    // The shared card content propagates form validity to the host save boundary.
+    content.vm.$emit('validity-change', { valid: false, errors: { payload: '请输入有效 JSON' } });
     await flushPromises();
     expect(
       (actionBar.props('actions') as Array<{ key: string; disabled?: boolean }>).find(
@@ -641,7 +637,7 @@ describe('ModulePageHost', () => {
     actionBar.vm.$emit('action', { key: 'save', actionCode: 'create' });
     await flushPromises();
     expect(requests.some((request) => request.url.endsWith('/platform.application/create'))).toBe(false);
-    expect(form.props('validationRequestKey')).toBe(1);
+    expect(content.props('validationRequestKey')).toBe(1);
   });
 
   it('uses the same record grant for the standard view row action and double-click', async () => {
@@ -1714,6 +1710,7 @@ describe('ModulePageHost', () => {
         stubs: {
           ManagementWorkspace: { template: '<section><slot /><slot name="detail" /></section>' },
           RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+          ModulePageRecordContent: false,
         },
       },
     });
@@ -1721,11 +1718,11 @@ describe('ModulePageHost', () => {
 
     wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
     await flushPromises();
-    const form = wrapper.findComponent({ name: 'RecordFormFields' });
-    form.vm.$emit('update:field', 'quantity', 4);
+    const content = wrapper.findComponent({ name: 'ModulePageRecordContent' });
+    content.vm.$emit('update:field', 'quantity', 4);
     await flushPromises();
 
-    expect(form.props('record')).toMatchObject({ quantity: 4, amount: 40 });
+    expect(content.props('record')).toMatchObject({ quantity: 4, amount: 40 });
   });
 
   it('renders a source-owned card assistant with a reactive read-only record snapshot', async () => {
@@ -1784,12 +1781,12 @@ describe('ModulePageHost', () => {
 
     wrapper.findComponent({ name: 'ModuleActionButton' }).vm.$emit('click');
     await flushPromises();
-    const form = wrapper.findComponent({ name: 'StandardFlatFormSurface' });
+    const content = wrapper.findComponent({ name: 'ModulePageRecordContent' });
     const assistant = wrapper.findComponent(Assistant);
     expect(assistant.exists()).toBe(true);
     expect(assistant.props('context')).toMatchObject({ mode: 'create', record: {} });
 
-    form.vm.$emit('update:field', 'title', '新客户');
+    content.vm.$emit('update:field', 'title', '新客户');
     await flushPromises();
     const updatedContext = wrapper.findComponent(Assistant).props('context') as {
       record: Record<string, unknown>;
@@ -1797,7 +1794,7 @@ describe('ModulePageHost', () => {
     expect(updatedContext.record).toMatchObject({ title: '新客户' });
     expect(Object.isFrozen(updatedContext.record)).toBe(true);
     expect(Reflect.set(updatedContext.record, 'title', '越界修改')).toBe(false);
-    expect(form.props('record')).toMatchObject({ title: '新客户' });
+    expect(content.props('record')).toMatchObject({ title: '新客户' });
   });
 
   it('loads and saves embedded child relations through the parent standard CRUD contract', async () => {
@@ -1903,6 +1900,7 @@ describe('ModulePageHost', () => {
               '<section><slot name="explorer-actions" /><slot name="explorer" /><slot name="explorer-footer" /><slot name="detail-actions" /><slot /></section>',
           },
           ModulePageDetailRelations: false,
+          ModulePageRecordContent: false,
           ManagedDetailRelationSurface: false,
           RecordDetailExtensionSection: { template: '<section><slot /></section>' },
           RecordQueryListPanel: {
@@ -1966,7 +1964,7 @@ describe('ModulePageHost', () => {
         expect.arrayContaining([expect.objectContaining({ key: 'edit', disabled: false })]),
       ),
     );
-    expect(wrapper.findComponent({ name: 'StandardFlatFormSurface' }).exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'RecordFormSurface' }).exists()).toBe(false);
     expect(requestedPaths).toContain('/platform.field_ui_control/actions/select');
     expect(requestedPaths.some((path) => path.includes('/relations/'))).toBe(false);
 
@@ -2073,16 +2071,12 @@ describe('ModulePageHost', () => {
     await flushPromises();
     const drawer = wrapper.findComponent({ name: 'RecordModeDrawer' });
     expect(drawer.props('open')).toBe(true);
-    expect(wrapper.findComponent({ name: 'ModulePageDetailRelations' }).exists()).toBe(true);
-    const panels = wrapper.findAllComponents({ name: 'RecordQueryListPanel' });
-    const relationPanel = panels.at(-1)!;
-    await (relationPanel.props('context') as ModuleContext<Record<string, unknown>>).crud.query();
-    expect(relationRequests).toBe(1);
+    expect(wrapper.findComponent({ name: 'ModulePageRecordContent' }).exists()).toBe(true);
 
     drawer.vm.$emit('close');
     await flushPromises();
-    expect(wrapper.findComponent({ name: 'ModulePageDetailRelations' }).exists()).toBe(false);
-    expect(relationRequests).toBe(1);
+    expect(wrapper.findComponent({ name: 'ModulePageRecordContent' }).exists()).toBe(false);
+    expect(relationRequests).toBe(0);
     rect.mockRestore();
   });
 });

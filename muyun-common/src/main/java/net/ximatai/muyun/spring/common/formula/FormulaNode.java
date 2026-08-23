@@ -20,6 +20,6 @@ public record FormulaNode(
     }
 
     public enum Kind {
-        VALUE, FIELD, UNARY, BINARY, FUNCTION, ASSIGN
+        VALUE, FIELD, OTHERS, UNARY, BINARY, FUNCTION, ASSIGN
     }
 }

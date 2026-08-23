@@ -10,7 +10,7 @@ describe('module page form contribution runtime', () => {
       {
         key: 'tenant-brand-mode',
         component: {},
-        location: { surface: 'flat-main', section: 'before-fields' },
+        location: { surface: 'record-card', section: 'before-fields' },
       },
     ]);
     const draft = ref<Record<string, unknown>>({ title: '示例租户' });
@@ -45,7 +45,7 @@ describe('module page form contribution runtime', () => {
 
   it('rejects writes outside the resolved writable field boundary', () => {
     const contributions = ref<readonly ModulePageFormContribution[]>([
-      { key: 'branding', component: {}, location: { surface: 'flat-main', section: 'before-fields' } },
+      { key: 'branding', component: {}, location: { surface: 'record-card', section: 'before-fields' } },
     ]);
     const runtime = useModulePageFormContributionRuntime({
       contributions,
@@ -66,7 +66,7 @@ describe('module page form contribution runtime', () => {
       {
         key: 'tenant-brand-mode',
         component: {},
-        location: { surface: 'flat-main', fieldName: 'brandMode', placement: 'after' },
+        location: { surface: 'record-card', fieldName: 'brandMode', placement: 'after' },
       },
     ]);
     const formSessionKey = ref(1);

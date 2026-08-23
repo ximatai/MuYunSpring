@@ -575,61 +575,6 @@ class IamWebMvcSliceTest {
     }
 
     @Test
-    void shouldBindEmployeePositionEndpointsInRealMvcContext() throws Exception {
-        EmployeePosition relation = new EmployeePosition();
-        relation.setId("relation-1");
-        relation.setEmployeeId("employee-1");
-        relation.setOrganizationId("org-1");
-        relation.setDepartmentId("dept-1");
-        relation.setPositionId("position-1");
-        relation.setPrimaryPosition(Boolean.TRUE);
-        when(currentUserProvider.currentUser())
-                .thenReturn(Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a")));
-        when(employeePositionService.positions("employee-1")).thenReturn(List.of(relation));
-        when(employeePositionService.addPosition(eq("employee-1"), any())).thenReturn("relation-1");
-        when(employeePositionService.select("relation-1")).thenReturn(relation);
-        when(employeePositionService.deletePosition("employee-1", "relation-1")).thenReturn(1);
-        when(employeePositionService.makePrimaryPosition("employee-1", "relation-1")).thenReturn(1);
-
-        mvc.perform(get("/iam.employee/employee-1/positions"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.records[0].id").value("relation-1"))
-                .andExpect(jsonPath("$.records[0].primaryPosition").value(true));
-
-        mvc.perform(post("/iam.employee/employee-1/positions")
-                        .contentType("application/json")
-                        .content("""
-                                {"organizationId":"org-1","departmentId":"dept-1","positionId":"position-1"}
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value("relation-1"));
-
-        mvc.perform(post("/iam.employee/employee-1/positions/relation-1/delete"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").value(1));
-
-        mvc.perform(post("/iam.employee/employee-1/positions/relation-1/primary"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").value(1));
-    }
-
-    @Test
-    void shouldBindEmployeePositionSortEndpointInRealMvcContext() throws Exception {
-        when(currentUserProvider.currentUser())
-                .thenReturn(Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a")));
-
-        mvc.perform(post("/iam.employee/employee-1/positions/relation-1/sort")
-                        .contentType("application/json")
-                        .content("""
-                                {"previousId":"relation-0"}
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").value(1));
-
-        verify(employeePositionService).moveEmployeePosition("employee-1", "relation-1", "relation-0", null);
-    }
-
-    @Test
     void shouldBindEmployeeAccountEndpointsInRealMvcContext() throws Exception {
         EmployeeAccount binding = employeeAccount("binding-1", "employee-1", "user-2");
         when(currentUserProvider.currentUser())
@@ -1063,17 +1008,16 @@ class IamWebMvcSliceTest {
     }
 
     private StaticModuleDefinition employeeStaticModuleDefinition() {
-        EmployeeWebController controller = new EmployeeWebController(
-                employeePositionService,
-                employeeAccountService,
-                employeeDelegationService
-        );
+        EmployeeWebController controller = new EmployeeWebController(employeeAccountService, employeeDelegationService);
         return StaticModuleDefinition.builder("iam", EmployeeService.MODULE_ALIAS, "职员管理")
                        .parentModuleAlias(null)
                        .entry(ModuleEntryType.ROUTE, "/iam/employees", null)
                        .capabilities(Set.of(EntityCapability.CRUD))
                        .actions(List.of())
-                       .entities(List.of(new StaticEntityDefinitionCompiler().compile("employee", "职员管理", Employee.class)))
+                       .entities(List.of(
+                               new StaticEntityDefinitionCompiler().compile("employee", "职员管理", Employee.class),
+                               new StaticEntityDefinitionCompiler().compile("positions", "任职", EmployeePosition.class)
+                       ))
                        .uiDefinition(controller.moduleUiDefinition())
                        .references(StaticReferenceCompiler.compile(Employee.class))
                        .readProjections(List.of(

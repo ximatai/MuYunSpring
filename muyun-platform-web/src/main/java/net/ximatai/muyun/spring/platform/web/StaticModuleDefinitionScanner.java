@@ -11,6 +11,8 @@ import net.ximatai.muyun.spring.platform.module.StaticReferenceCompiler;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
 import net.ximatai.muyun.spring.platform.module.StaticServiceAbilityCompiler;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
+import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
+import net.ximatai.muyun.spring.ability.child.StaticChildResolver;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityDeclarationCatalog;
 import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.platform.module.StaticModuleServiceDeclaration;
@@ -162,13 +164,32 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .references(references(bean))
                 .readProjections(readProjections(bean, module.alias()))
                 .modelClass(modelClass)
-                .entityModelClasses(entities.isEmpty() || modelClass == null
-                        ? Map.of() : Map.of(entities.getFirst().alias(), modelClass))
+                .entityModelClasses(entityModelClasses(bean, modelClass, entities))
                 .projectionJoins(projectionJoins)
                 .queryDescriptor(queryDescriptor(bean, module.alias()))
                 .openApiAvailable(AnnotationUtils.findAnnotation(beanClass, StaticModuleOpenApi.class) != null)
                 .legacyReadProjectionCompatibility(bean instanceof LegacyStaticReadProjectionCompatibility)
                 .build();
+    }
+
+    /**
+     * Every entity definition exposed to a static UI descriptor must retain its Java model facts.
+     * In particular, aggregate child editors need their own reference and option declarations.
+     */
+    private Map<String, Class<?>> entityModelClasses(Object bean, Class<?> modelClass,
+                                                      List<EntityDefinition> entities) {
+        if (entities.isEmpty() || modelClass == null) {
+            return Map.of();
+        }
+        LinkedHashMap<String, Class<?>> models = new LinkedHashMap<>();
+        models.put(entities.getFirst().alias(), modelClass);
+        if (service(bean) instanceof ChildrenAbility<?> childrenAbility
+                && !childrenAbility.usesAutomaticChildRelations()) {
+            for (StaticChildResolver.ChildRule child : StaticChildResolver.rules(modelClass)) {
+                models.put(child.plan().relationCode(), child.childModel());
+            }
+        }
+        return Map.copyOf(models);
     }
 
     private java.util.Set<EntityCapability> capabilities(Object bean, PlatformStaticModule module) {
@@ -340,6 +361,17 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             }
             entities.put(target.alias(), target);
         }
+        if (service(bean) instanceof ChildrenAbility<?> childrenAbility
+                && !childrenAbility.usesAutomaticChildRelations()) {
+            for (StaticChildResolver.ChildRule child : StaticChildResolver.rules(modelClass)) {
+                EntityDefinition target = new StaticEntityDefinitionCompiler().compile(
+                        child.plan().relationCode(), child.childModel().getSimpleName(), child.childModel());
+                if (entities.putIfAbsent(target.alias(), target) != null) {
+                    throw new IllegalStateException("explicit aggregate child entity conflicts with module entity: "
+                            + module.alias() + "." + target.alias());
+                }
+            }
+        }
         return List.copyOf(entities.values());
     }
 
@@ -431,11 +463,26 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         LinkedHashMap<String, StaticModuleActionDefinition> actions = new LinkedHashMap<>();
         addMenuAction(actions, beanClass);
         addStandardActions(actions, bean, beanClass);
+        addSourceReferenceAction(actions, bean);
         addWorkflowActions(actions, capabilities);
         java.util.Set<PlatformAction> disabledActions = StaticServiceAbilityCompiler.disabledActions(service(bean));
         ReflectionUtils.doWithMethods(beanClass,
                 method -> addAnnotatedAction(actions, method, disabledActions));
         return List.copyOf(actions.values());
+    }
+
+    /**
+     * Static {@code @ReferenceTo} fields are resolved through the platform-owned source-module
+     * endpoint.  Publishing that endpoint is therefore a model fact, not an implementation detail
+     * of a particular {@link ReferenceWeb} controller.
+     */
+    private void addSourceReferenceAction(Map<String, StaticModuleActionDefinition> actions, Object bean) {
+        Class<?> modelClass = modelClass(bean);
+        if (modelClass == null || StaticReferenceResolver.plans(modelClass).isEmpty()) {
+            return;
+        }
+        java.util.Set<PlatformAction> disabledActions = StaticServiceAbilityCompiler.disabledActions(service(bean));
+        addPlatformUnlessDisabled(actions, PlatformAction.REFERENCE, disabledActions);
     }
 
     private void addActionContributions(LinkedHashMap<String, StaticModuleDefinition> definitions) {

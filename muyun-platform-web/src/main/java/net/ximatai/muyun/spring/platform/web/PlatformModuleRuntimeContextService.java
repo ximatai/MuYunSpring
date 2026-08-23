@@ -650,7 +650,8 @@ public class PlatformModuleRuntimeContextService {
                                                 referencePickerMode(field.reference().targetModuleAlias()),
                                                 ReferenceCandidateDelivery.SOURCE_FIELD,
                                                 "/" + dynamicDescriptor.moduleAlias() + "/references/"
-                                                        + field.fieldName() + "/resolve"),
+                                                        + field.fieldName() + "/resolve",
+                                                field.reference().candidateDependencies()),
                                         (left, right) -> left)),
                         this::referencePickerMode))
                 .orElseGet(java.util.Map::of);

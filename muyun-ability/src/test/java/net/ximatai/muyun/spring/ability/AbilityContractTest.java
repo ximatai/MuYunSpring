@@ -1883,6 +1883,32 @@ class AbilityContractTest {
     }
 
     @Test
+    void genericChildReadsShouldPopulateDeclaredReferenceLoads() {
+        SingleChildInvoiceLineService service = new SingleChildInvoiceLineService();
+        SingleChildInvoiceLine line = new SingleChildInvoiceLine("Line one");
+        line.invoiceId = "invoice-1";
+        String lineId = service.insert(line);
+        List<List<String>> batches = new ArrayList<>();
+        PlatformAbilityRuntime.configureReferenceLoadResolver(new ReferenceLoadResolver() {
+            @Override
+            public void populate(CrudAbility<?> ability, EntityContract entity) {
+                throw new AssertionError("child reads must use the batch reference-load entry point");
+            }
+
+            @Override
+            public void populateAll(CrudAbility<?> ability, java.util.Collection<? extends EntityContract> entities) {
+                batches.add(entities.stream().map(EntityContract::getId).toList());
+            }
+        });
+
+        assertThat(service.selectChildRows(Criteria.of().eq("invoiceId", "invoice-1")))
+                .extracting(SingleChildInvoiceLine::getId)
+                .containsExactly(lineId);
+
+        assertThat(batches).containsExactly(List.of(lineId));
+    }
+
+    @Test
     void abilityQueriesShouldNotMutateCallerCriteria() {
         DemoOrganizationService service = new DemoOrganizationService();
         Criteria criteria = Criteria.of().eq("parentId", TreeAbility.ROOT_ID);

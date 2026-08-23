@@ -4,6 +4,17 @@ import RecordFormFields from '@/platform-components/RecordFormFields.vue';
 import type { RecordFormFieldDescriptor } from '@/platform-components/recordFormFieldModel.ts';
 
 describe('RecordFormFields', () => {
+  it('defaults ordinary switches to off while keeping enabled status on', () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      ['primaryPosition', { fieldRef: { fieldName: 'primaryPosition' }, label: '主任职', uiType: 'switch' }],
+      ['enabled', { fieldRef: { fieldName: 'enabled' }, label: '启用状态', uiType: 'enabledStatus' }],
+    ]);
+    const wrapper = mount(RecordFormFields, { props: { record: {}, fields } });
+
+    expect(wrapper.findComponent({ name: 'UiSwitch' }).props('checked')).toBe(false);
+    expect(wrapper.findComponent({ name: 'RecordStatusSwitch' }).props('enabled')).toBe(true);
+  });
+
   it('publishes and presents draft-aware required-field errors before submission', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [

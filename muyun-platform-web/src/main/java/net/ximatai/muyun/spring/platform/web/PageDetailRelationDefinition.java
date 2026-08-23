@@ -1,6 +1,9 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition;
+
+import java.util.List;
 
 /** Static declaration of a detail relation. It deliberately does not imply a query endpoint. */
 public record PageDetailRelationDefinition(String code, String title, String targetEntityAlias,
@@ -12,6 +15,7 @@ public record PageDetailRelationDefinition(String code, String title, String tar
                                            PageDetailRelationEditingDefinition editing,
                                            boolean refreshOnDetailReload,
                                            boolean embedded,
+                                           List<AggregateChildFormulaDefinition> formComputeRules,
                                            UiRule<Boolean> visible) {
     /** Source-compatible declaration for a read-only relation. */
     public PageDetailRelationDefinition(String code, String title, String targetEntityAlias,
@@ -19,7 +23,7 @@ public record PageDetailRelationDefinition(String code, String title, String tar
                                         boolean refreshOnDetailReload) {
         this(code, title, targetEntityAlias, parentBinding, readOnly, false, null, null,
                 PageDetailRelationPaginationDefinition.DEFAULT, PageDetailRelationEditingDefinition.DEFAULT,
-                refreshOnDetailReload, false, UiRule.constant(Boolean.TRUE));
+                refreshOnDetailReload, false, List.of(), UiRule.constant(Boolean.TRUE));
     }
 
     public PageDetailRelationDefinition(String code, String title, String targetEntityAlias,
@@ -28,7 +32,7 @@ public record PageDetailRelationDefinition(String code, String title, String tar
                                         boolean refreshOnDetailReload) {
         this(code, title, targetEntityAlias, parentBinding, readOnly, mutation != null, mutation, null,
                 PageDetailRelationPaginationDefinition.DEFAULT, PageDetailRelationEditingDefinition.DEFAULT,
-                refreshOnDetailReload, false, UiRule.constant(Boolean.TRUE));
+                refreshOnDetailReload, false, List.of(), UiRule.constant(Boolean.TRUE));
     }
 
     public PageDetailRelationDefinition {
@@ -44,12 +48,16 @@ public record PageDetailRelationDefinition(String code, String title, String tar
         }
         pagination = pagination == null ? PageDetailRelationPaginationDefinition.DEFAULT : pagination;
         editing = editing == null ? PageDetailRelationEditingDefinition.DEFAULT : editing;
+        formComputeRules = formComputeRules == null ? List.of() : List.copyOf(formComputeRules);
         visible = visible == null ? UiRule.constant(Boolean.TRUE) : visible;
         if (embedded && (managedQuery || mutation != null || readOnly)) {
             throw new IllegalArgumentException("embedded child relation is edited through its parent CRUD contract");
         }
         if (editing.saveMode() == PageDetailRelationEditingDefinition.SaveMode.AGGREGATE_DRAFT && !embedded) {
             throw new IllegalArgumentException("aggregate relation drafts require an embedded child relation");
+        }
+        if (!embedded && !formComputeRules.isEmpty()) {
+            throw new IllegalArgumentException("relation form compute rules require an embedded child relation");
         }
     }
 

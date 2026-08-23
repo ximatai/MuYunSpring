@@ -15,15 +15,23 @@ import ManagedDetailRelationInlineSurface from './ManagedDetailRelationInlineSur
 
 defineOptions({ name: 'ModulePageDetailRelations' });
 
-const props = defineProps<{
-  sourceContext: ModuleContext<QueryListRecord>;
-  uiDescriptor: ResolvedModuleUiDescriptor;
-  relations: ResolvedDetailRelationDescriptor[];
-  parentRecord: QueryListRecord;
-  mutationEnabled?: boolean;
-  reloadKey?: number;
-  validationRequestKey?: number;
-}>();
+const props = withDefaults(
+  defineProps<{
+    sourceContext: ModuleContext<QueryListRecord>;
+    uiDescriptor: ResolvedModuleUiDescriptor;
+    relations: ResolvedDetailRelationDescriptor[];
+    parentRecord: QueryListRecord;
+    surface?: 'detail' | 'list-expansion';
+    mutationEnabled?: boolean;
+    reloadKey?: number;
+    validationRequestKey?: number;
+  }>(),
+  {
+    surface: 'detail',
+    reloadKey: undefined,
+    validationRequestKey: undefined,
+  },
+);
 
 const emit = defineEmits<{
   'validity-change': [valid: boolean];
@@ -86,6 +94,13 @@ function relationRecycleBinAllowed(relation: ResolvedDetailRelationDescriptor) {
   );
 }
 
+function relationTitle(relation: ResolvedDetailRelationDescriptor) {
+  const title = relation.title ?? relation.code;
+  if (props.surface !== 'list-expansion' || !relation.embeddedField) return title;
+  const records = props.parentRecord[relation.embeddedField];
+  return `${title} · ${Array.isArray(records) ? records.length : 0}`;
+}
+
 function requestRecycleBin(relationCode: string) {
   recycleBinRequestKeys.value = {
     ...recycleBinRequestKeys.value,
@@ -143,7 +158,8 @@ watch(
   <RecordDetailExtensionSection
     v-for="relation in visibleRelations"
     :key="`relation:${relation.code}`"
-    :title="relation.title ?? relation.code"
+    :class="{ 'module-page-detail-relations--list-expansion': surface === 'list-expansion' }"
+    :title="relationTitle(relation)"
     kind="relation"
   >
     <template
@@ -201,6 +217,7 @@ watch(
       :recycle-bin-request-key="recycleBinRequestKeys[relation.code] ?? 0"
       :validation-request-key="validationRequestKey"
       :mutation-enabled="aggregateInlineEditing(relation)"
+      :density="surface === 'list-expansion' ? 'compact' : 'default'"
       @records-change="emit('children-change', relation.embeddedField ?? relation.code, $event)"
       @validity-change="updateRelationValidity(relation.code, $event)"
       @selection-change="selectedCounts[relation.code] = $event"
@@ -258,5 +275,13 @@ watch(
 .managed-relation-add-button :deep(.anticon),
 :deep(.managed-relation-add-button.ant-btn .anticon) {
   font-size: 12px;
+}
+
+.module-page-detail-relations--list-expansion {
+  --muyun-detail-section-block-gap: 0px;
+  --muyun-detail-section-inner-gap: 6px;
+  --muyun-content-section-heading-color: var(--muyun-text-muted);
+  --muyun-content-section-heading-font-size: 12px;
+  --muyun-content-section-heading-font-weight: 600;
 }
 </style>

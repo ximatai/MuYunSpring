@@ -64,6 +64,17 @@ class WebUiFormulaProfileTest {
     }
 
     @Test
+    void scopesQualifiedRelationCalculationForTheBrowserWithoutReparsingItsExpression() {
+        FormulaProgram program = engine.compileRelationFormComputeProgram(
+                "others({positions.primaryPosition}) = false WHEN {positions.primaryPosition}", "positions");
+
+        assertThat(program.root().arguments().getFirst().kind()).isEqualTo(FormulaNode.Kind.OTHERS);
+        assertThat(program.root().arguments().getFirst().field()).isEqualTo("primaryPosition");
+        assertThat(program.root().arguments().get(2).field()).isEqualTo("primaryPosition");
+        assertThat(program.referencedFields()).containsExactly("primaryPosition");
+    }
+
+    @Test
     void rejectsUnsafeFormComputeProgramsBeforeTheyReachAClient() {
         assertThatThrownBy(() -> engine.compileFormComputeProgram("{items.amount} = 1"))
                 .hasMessageContaining("FORM_COMPUTE profile");

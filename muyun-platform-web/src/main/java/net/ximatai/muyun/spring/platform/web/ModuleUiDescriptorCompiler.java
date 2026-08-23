@@ -28,6 +28,8 @@ import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationQueryContract;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListProjection;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationParentConstraint;
+import net.ximatai.muyun.spring.platform.ui.ResolvedRelationFormComputeRuleDescriptor;
+import net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -103,9 +105,11 @@ public final class ModuleUiDescriptorCompiler {
                                     FieldControlDescriptorCatalog.standard(), true));
                 }).toList();
         descriptor = descriptor.withEditorContributions(resolvedContributions);
+        List<ResolvedDetailRelationDescriptor> detailRelations = staticDetailRelations(definition, descriptor);
+        validateListRelationExpansions(descriptor.page(), detailRelations);
         return new ModuleUiCompilationResult(
                 descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
-                        .withDetailRelations(staticDetailRelations(definition, descriptor)),
+                        .withDetailRelations(detailRelations),
                 readModel(definition, uiDefinition)
         );
     }
@@ -260,8 +264,116 @@ public final class ModuleUiDescriptorCompiler {
                                     relation.editing().saveMode().name()),
                             relation.editing().recycleBinEnabled()),
                     relation.refreshOnDetailReload(), relation.embedded() ? relation.code() : null,
-                    listProjection, resolvedRule(relation.visible()));
+                    listProjection, compileRelationFormComputeRules(descriptor, relation, listProjection), resolvedRule(relation.visible()));
         }).toList();
+    }
+
+    /**
+     * Compiles embedded-relation formulas through the same FormulaEngine profile as main-form
+     * calculations. The relation declaration supplies the event wiring; the expression remains
+     * the single source of target and guard semantics for browser and server execution.
+     */
+    private static List<ResolvedRelationFormComputeRuleDescriptor> compileRelationFormComputeRules(
+            ResolvedModuleUiDescriptor descriptor,
+            PageDetailRelationDefinition relation,
+            ResolvedDetailRelationListProjection listProjection) {
+        if (relation.formComputeRules().isEmpty()) return List.of();
+        Set<String> relationFields = listProjection == null ? Set.of() : listProjection.fields().stream()
+                .map(ResolvedDetailRelationListField::fieldName).collect(java.util.stream.Collectors.toSet());
+        Map<String, ResolvedViewFieldDescriptor> editorFields = relationEditorFields(descriptor, relation);
+        Set<String> codes = new LinkedHashSet<>();
+        java.util.ArrayList<ResolvedRelationFormComputeRuleDescriptor> resolved = new java.util.ArrayList<>();
+        for (AggregateChildFormulaDefinition definition : relation.formComputeRules()) {
+            if (!relation.code().equals(definition.relationCode())) {
+                throw new IllegalArgumentException("aggregate child formula relation must match detail relation: "
+                        + definition.relationCode() + " != " + relation.code());
+            }
+            var rule = definition.rule();
+            if (!codes.add(rule.id())) {
+                throw new IllegalArgumentException("duplicate relation form compute rule: " + relation.code() + "." + rule.id());
+            }
+            FormulaProgram program;
+            try {
+                program = FORMULA_ENGINE.compileRelationFormComputeProgram(rule.expression(), relation.code());
+            } catch (FormulaEvaluationException exception) {
+                throw new IllegalArgumentException("relation form compute rule must be a FormulaEngine FORM_COMPUTE expression: "
+                        + relation.code() + "." + rule.id(), exception);
+            }
+            String targetField = relationTargetField(program, rule.id());
+            if (!relationFields.contains(targetField)) {
+                throw new IllegalArgumentException("relation form compute target field must be declared by its editor: "
+                        + relation.code() + "." + targetField);
+            }
+            ResolvedViewFieldDescriptor target = editorFields.get(targetField);
+            if (target == null) {
+                throw new IllegalArgumentException("relation form compute target field must be declared by its editor: "
+                        + relation.code() + "." + targetField);
+            }
+            if (Boolean.TRUE.equals(target.readOnly().constant())) {
+                throw new IllegalArgumentException("relation form compute target field must be writable: "
+                        + relation.code() + "." + targetField);
+            }
+            requirePortableRelationComputeType(target, "target", relation, rule.id());
+            for (String trigger : definition.triggerFields()) {
+                if (!relationFields.contains(trigger)) {
+                    throw new IllegalArgumentException("relation form compute trigger field must be declared by its editor: "
+                            + relation.code() + "." + trigger);
+                }
+                ResolvedViewFieldDescriptor triggerField = editorFields.get(trigger);
+                if (triggerField == null) {
+                    throw new IllegalArgumentException("relation form compute trigger field must be declared by its editor: "
+                            + relation.code() + "." + trigger);
+                }
+                requirePortableRelationComputeType(triggerField, "trigger", relation, rule.id());
+            }
+            for (String field : program.referencedFields()) {
+                if (!relationFields.contains(field)) {
+                    throw new IllegalArgumentException("relation form compute expression may only reference fields declared by its editor: "
+                            + relation.code() + "." + rule.id() + "." + field);
+                }
+                ResolvedViewFieldDescriptor input = editorFields.get(field);
+                if (input == null) {
+                    throw new IllegalArgumentException("relation form compute expression may only reference fields declared by its editor: "
+                            + relation.code() + "." + rule.id() + "." + field);
+                }
+                requirePortableRelationComputeType(input, "input", relation, rule.id());
+            }
+            resolved.add(new ResolvedRelationFormComputeRuleDescriptor(rule.id(), program,
+                    targetField, target.valueType().name(), definition.triggerFields()));
+        }
+        return List.copyOf(resolved);
+    }
+
+    private static Map<String, ResolvedViewFieldDescriptor> relationEditorFields(
+            ResolvedModuleUiDescriptor descriptor, PageDetailRelationDefinition relation) {
+        ResolvedPageDetailEditorContribution editor = descriptor.editorContributions().stream()
+                .filter(candidate -> candidate.resource().equals(relation.targetEntityAlias()))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                        "detail relation requires an editor contribution: " + relation.code()));
+        return editor.editor().fields().stream()
+                .collect(java.util.stream.Collectors.toMap(field -> field.fieldRef().fieldName(), field -> field,
+                        (left, ignored) -> left, LinkedHashMap::new));
+    }
+
+    private static void requirePortableRelationComputeType(ResolvedViewFieldDescriptor field,
+                                                           String role,
+                                                           PageDetailRelationDefinition relation,
+                                                           String ruleCode) {
+        if (field.valueType() == null || field.valueType() == FieldValueType.JSON) {
+            throw new IllegalArgumentException("relation form compute " + role
+                    + " field requires a portable non-JSON value type: " + relation.code() + "." + ruleCode
+                    + "." + field.fieldRef().fieldName());
+        }
+    }
+
+    private static String relationTargetField(FormulaProgram program, String code) {
+        FormulaNode root = program.root();
+        if (root.kind() != FormulaNode.Kind.ASSIGN || root.arguments().size() < 2
+                || root.arguments().size() > 3 || root.arguments().getFirst().kind() != FormulaNode.Kind.OTHERS
+                || root.arguments().getFirst().field() == null) {
+            throw new IllegalArgumentException("relation form compute must assign others(...): " + code);
+        }
+        return root.arguments().getFirst().field();
     }
 
     private static ResolvedDetailRelationListProjection relationListProjection(
@@ -361,7 +473,11 @@ public final class ModuleUiDescriptorCompiler {
                         ResolvedPageNavigatorDescriptor.from(card.navigator()),
                         new ResolvedPageListDescriptor(card.list().searchPlaceholder(),
                                 compileView(card.list().list(), optionFields, referenceFields,
-                                        referenceSummaryFields, fieldTypes, fieldControls)),
+                                        referenceSummaryFields, fieldTypes, fieldControls),
+                                card.list().relationExpansions().stream()
+                                        .map(expansion -> new ResolvedPageListRelationExpansionDescriptor(
+                                                expansion.relationCode(), expansion.fields()))
+                                        .toList()),
                         detail(card.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                         List.copyOf(card.traits().values()));
             }
@@ -375,6 +491,32 @@ public final class ModuleUiDescriptorCompiler {
                         List.copyOf(tree.traits().values()));
             }
         };
+    }
+
+    private static void validateListRelationExpansions(ResolvedModulePageDescriptor page,
+                                                       List<ResolvedDetailRelationDescriptor> detailRelations) {
+        if (page == null || page.list() == null || page.list().relationExpansions().isEmpty()) {
+            return;
+        }
+        for (ResolvedPageListRelationExpansionDescriptor expansion : page.list().relationExpansions()) {
+            ResolvedDetailRelationDescriptor relation = detailRelations.stream()
+                    .filter(candidate -> candidate.code().equals(expansion.relationCode()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "list relation expansion is not declared as a detail relation: " + expansion.relationCode()));
+            if (relation.embeddedField() == null) {
+                throw new IllegalArgumentException(
+                        "list relation expansion currently requires an aggregate child relation: " + expansion.relationCode());
+            }
+            Set<String> availableFields = relation.listProjection().fields().stream()
+                    .map(ResolvedDetailRelationListField::fieldName)
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            if (!availableFields.containsAll(expansion.fields())) {
+                throw new IllegalArgumentException(
+                        "list relation expansion fields must belong to its declared relation projection: "
+                                + expansion.relationCode());
+            }
+        }
     }
 
     private static ResolvedPageDetailDescriptor detail(PageDetailDefinition detail,
@@ -857,7 +999,8 @@ public final class ModuleUiDescriptorCompiler {
                                 pickerModeResolver.apply(rule.target().qualifiedName()),
                                 ReferenceCandidateDelivery.SOURCE_FIELD,
                                 "/platform.module/" + moduleAlias + "/references/"
-                                        + rule.plan().sourceField() + "/resolve"),
+                                        + rule.plan().sourceField() + "/resolve",
+                                rule.plan().candidateDependencies()),
                         (left, right) -> left
                 ));
     }

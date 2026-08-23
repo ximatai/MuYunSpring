@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.common.formula.FormulaAst.AssignNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.AstNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.BinaryNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.FieldNode;
+import net.ximatai.muyun.spring.common.formula.FormulaAst.OthersNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.FuncNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.UnaryNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.ValueNode;
@@ -24,7 +25,7 @@ final class FormulaFormComputeProfile {
     static final int MAX_STRING_LITERAL_LENGTH = 256;
     private static final int MAX_NODE_COUNT = 128;
     private static final int MAX_NODE_DEPTH = 16;
-    private static final Pattern FIELD = Pattern.compile("[A-Za-z][A-Za-z0-9_]*");
+    private static final Pattern FIELD = Pattern.compile("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)?");
 
     private FormulaFormComputeProfile() {
     }
@@ -38,10 +39,12 @@ final class FormulaFormComputeProfile {
         LinkedHashSet<String> fields = new LinkedHashSet<>();
         CompileBudget budget = new CompileBudget();
         budget.visit(1);
-        FormulaNode target = compileField(assignment.left, fields, budget, 2);
+        FormulaNode target = compileTarget(assignment.left, fields, budget, 2);
         FormulaNode value = compileScalar(assignment.right, fields, budget, 2);
+        FormulaNode condition = assignment.condition == null ? null
+                : compileScalar(assignment.condition, fields, budget, 2);
         return new FormulaProgram(FormulaProgram.CURRENT_SCHEMA_VERSION, FormulaExecutionProfile.FORM_COMPUTE,
-                assign(target, value), fields);
+                assign(target, value, condition), fields);
     }
 
     private static FormulaNode compileScalar(AstNode node, Set<String> fields, CompileBudget budget, int depth) {
@@ -87,6 +90,23 @@ final class FormulaFormComputeProfile {
         return new FormulaNode(FormulaNode.Kind.FIELD, null, field.dataIndex, null, List.of());
     }
 
+    private static FormulaNode compileTarget(AstNode node, Set<String> fields, CompileBudget budget, int depth) {
+        if (node instanceof OthersNode others) {
+            budget.visit(depth);
+            if (!others.dataIndex.matches("[A-Za-z][A-Za-z0-9_]*\\.[A-Za-z][A-Za-z0-9_]*")) {
+                throw unsupportedNode(node);
+            }
+            fields.add(others.dataIndex);
+            return new FormulaNode(FormulaNode.Kind.OTHERS, null, others.dataIndex, null, List.of());
+        }
+        budget.visit(depth);
+        if (!(node instanceof FieldNode field) || !field.dataIndex.matches("[A-Za-z][A-Za-z0-9_]*")) {
+            throw unsupportedNode(node);
+        }
+        fields.add(field.dataIndex);
+        return new FormulaNode(FormulaNode.Kind.FIELD, null, field.dataIndex, null, List.of());
+    }
+
     private static FormulaNode compileLiteral(AstNode node, CompileBudget budget, int depth) {
         budget.visit(depth);
         if (!(node instanceof ValueNode value)
@@ -98,8 +118,9 @@ final class FormulaFormComputeProfile {
         return new FormulaNode(FormulaNode.Kind.VALUE, null, null, value.value, List.of());
     }
 
-    private static FormulaNode assign(FormulaNode target, FormulaNode value) {
-        return new FormulaNode(FormulaNode.Kind.ASSIGN, "=", null, null, List.of(target, value));
+    private static FormulaNode assign(FormulaNode target, FormulaNode value, FormulaNode condition) {
+        List<FormulaNode> arguments = condition == null ? List.of(target, value) : List.of(target, value, condition);
+        return new FormulaNode(FormulaNode.Kind.ASSIGN, "=", null, null, arguments);
     }
 
     private static FormulaNode unary(String operator, FormulaNode argument) {

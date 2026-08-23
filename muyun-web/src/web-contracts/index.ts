@@ -383,6 +383,8 @@ export interface ResolvedDetailRelationDescriptor {
   embeddedField?: string;
   /** Shared column projection for gateway-backed and embedded relations. */
   listProjection?: ResolvedDetailRelationListProjection;
+  /** Immediate server-compiled calculations for rows in this embedded child relation. */
+  formComputeRules?: ResolvedDetailRelationFormComputeRuleDescriptor[];
   /** Server-compiled visibility rule; clients execute only its FormulaProgram. */
   visible?: UiRule<boolean>;
   editing?: ResolvedDetailRelationEditing;
@@ -393,6 +395,14 @@ export interface ResolvedDetailRelationEditing {
   mode: 'DIALOG' | 'INLINE';
   saveMode: 'INDEPENDENT' | 'AGGREGATE_DRAFT';
   recycleBinEnabled?: boolean;
+}
+
+export interface ResolvedDetailRelationFormComputeRuleDescriptor {
+  code: string;
+  program: FormulaProgram;
+  targetField: string;
+  targetValueType: ViewFieldValueType;
+  triggerFields: string[];
 }
 
 export interface ResolvedDetailRelationParentConstraint {
@@ -724,9 +734,14 @@ export interface WebQueryRequest {
 }
 
 /** Shared field-reference delivery contract for static and metadata-backed modules. */
-export type WebReferenceResolveMode = 'QUERY' | 'TRANSLATE';
+export type WebReferenceResolveMode = 'QUERY' | 'TREE' | 'TRANSLATE';
 export type WebReferenceMatchMode = 'KEY' | 'LABEL' | 'AUTO';
 export type WebReferenceResolveStatus = 'OK' | 'RESOLVED' | 'NOT_FOUND' | 'AMBIGUOUS' | 'PARTIAL';
+
+/** Persisted aggregate record owning a reference interaction; never use form values to provide its tenant. */
+export interface WebReferenceSource {
+  recordId?: string;
+}
 
 export interface WebReferenceResolveRequest {
   mode?: WebReferenceResolveMode;
@@ -738,6 +753,7 @@ export interface WebReferenceResolveRequest {
   page?: WebPageRequest;
   includeProjections?: boolean;
   formValues?: Record<string, unknown>;
+  source?: WebReferenceSource;
   sourceUiConfigId?: string;
   uiConfigId?: string;
   queryTemplateId?: string;
@@ -768,6 +784,7 @@ export interface WebReferenceResolveResponse {
   offset: number;
   limit: number;
   total: number;
+  tree?: WebTreeNode<WebReferenceResolveItem>[];
 }
 
 export type QueryValueType =
@@ -858,7 +875,7 @@ export interface FormulaProgram {
 
 /** Source-neutral FormulaEngine AST node. Profiles decide which nodes can execute. */
 export interface FormulaNode {
-  kind: 'VALUE' | 'FIELD' | 'UNARY' | 'BINARY' | 'FUNCTION' | 'ASSIGN';
+  kind: 'VALUE' | 'FIELD' | 'OTHERS' | 'UNARY' | 'BINARY' | 'FUNCTION' | 'ASSIGN';
   operator?: string;
   field?: string;
   value?: string | number | boolean | null;
@@ -978,8 +995,16 @@ export interface ResolvedReferenceFieldDescriptor {
   /** Standardized candidate transport chosen by the compiled source-field contract. */
   candidateDelivery?: 'TARGET_NAVIGATOR' | 'SOURCE_FIELD';
   resolvePath?: string;
+  /** Server-enforced dependencies that constrain candidates from values of the current form row. */
+  candidateDependencies?: ReferenceCandidateDependency[];
   /** Read-side title projection for this scalar reference, when supplied by the server. */
   titleField?: string;
+}
+
+export interface ReferenceCandidateDependency {
+  sourceField: string;
+  targetField: string;
+  required: boolean;
 }
 
 export type ReferencePickerMode = 'LIST' | 'TREE' | 'AUTO';
@@ -1093,6 +1118,13 @@ export interface ResolvedPageNavigatorManagementDescriptor {
 export interface ResolvedPageListDescriptor {
   searchPlaceholder: string;
   fields: ResolvedViewDescriptor;
+  /** Read-only placements of declared aggregate relations beneath an expanded list row. */
+  relationExpansions?: ResolvedPageListRelationExpansionDescriptor[];
+}
+
+export interface ResolvedPageListRelationExpansionDescriptor {
+  relationCode: string;
+  fields: string[];
 }
 
 export interface ResolvedPageDetailDescriptor {

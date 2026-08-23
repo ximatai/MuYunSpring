@@ -6,5 +6,6 @@ package net.ximatai.muyun.spring.web;
  */
 public enum WebReferenceResolveMode {
     QUERY,
+    TREE,
     TRANSLATE
 }

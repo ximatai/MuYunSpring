@@ -9,6 +9,13 @@ public interface FormulaEvaluationContext {
 
     List<?> rows(String tableKey);
 
+    /**
+     * The row that caused a row-to-row calculation. Ordinary formulas keep the main-record scope.
+     */
+    default FormulaEvaluationScope changeScope() {
+        return FormulaEvaluationScope.main();
+    }
+
     default FormulaEvaluationSession beginSession() {
         throw new FormulaEvaluationException(
                 "FORMULA_STAGED_SESSION_REQUIRED",

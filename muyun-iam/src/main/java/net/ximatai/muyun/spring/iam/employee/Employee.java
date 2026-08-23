@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
+import net.ximatai.muyun.spring.ability.child.Children;
 import net.ximatai.muyun.spring.common.initialdata.InitialDataFields;
 import net.ximatai.muyun.spring.common.model.file.FileReference;
 import net.ximatai.muyun.spring.common.model.file.FileReferenceStoragePolicy;
@@ -19,6 +20,8 @@ import net.ximatai.muyun.spring.common.option.DictionaryField;
 import net.ximatai.muyun.spring.common.option.OptionLoad;
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
+
+import java.util.List;
 
 @Getter
 @Setter
@@ -49,6 +52,8 @@ public class Employee extends StandardEnabledSortableEntity {
     @Column(name = "department_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Department id")
     @ReferenceTo(target = DepartmentService.class,
+            candidateBindings = @net.ximatai.muyun.spring.ability.reference.ReferenceCandidateBinding(
+                    sourceField = "organizationId", targetField = "organizationId"),
             integrity = @ReferenceIntegrity(onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
     private String departmentId;
 
@@ -80,4 +85,8 @@ public class Employee extends StandardEnabledSortableEntity {
 
     @Column(name = "email", type = ColumnType.VARCHAR, length = 128, comment = "Email")
     private String email;
+
+    /** Employment is part of the employee aggregate and is maintained in the standard detail relation. */
+    @Children(relationCode = "positions")
+    private List<EmployeePosition> positions;
 }

@@ -3,10 +3,14 @@ import { computed, onMounted, ref, toRaw, watch } from 'vue';
 import {
   RecordFormFields,
   RecordSelectionCheckbox,
+  RecordStatusTag,
   UiModal,
   recordPickerModeOf,
+  resolveRecordDetailDisplayValue,
+  applyReferenceDependencyClears,
   resolveRecordFormFieldState,
   resolveRecordFormFields,
+  resolveRecordBooleanStatusValue,
   type QueryListRecord,
   type RecordFormFieldPickerConfig,
   type RecordFormFieldValue,
@@ -18,23 +22,36 @@ import type {
   ResolvedModuleUiDescriptor,
   WebPageResponse,
 } from '@muyun/web-contracts';
-import { createModuleContext, type ModuleContext } from '@muyun/web-core';
+import { createModuleContext, createReferenceResolveClient, type ModuleContext } from '@muyun/web-core';
+import { RelationFormComputeCoordinator } from './relationFormComputeCoordinator';
 
 defineOptions({ name: 'ManagedDetailRelationInlineSurface' });
 
-const props = defineProps<{
-  sourceContext: ModuleContext<QueryListRecord>;
-  uiDescriptor: ResolvedModuleUiDescriptor;
-  relation: ResolvedDetailRelationDescriptor;
-  parentRecord: QueryListRecord;
-  reloadKey?: number;
-  addRequestKey?: number;
-  removeRequestKey?: number;
-  undoRemoveRequestKey?: number;
-  recycleBinRequestKey?: number;
-  mutationEnabled?: boolean;
-  validationRequestKey?: number;
-}>();
+const props = withDefaults(
+  defineProps<{
+    sourceContext: ModuleContext<QueryListRecord>;
+    uiDescriptor: ResolvedModuleUiDescriptor;
+    relation: ResolvedDetailRelationDescriptor;
+    parentRecord: QueryListRecord;
+    reloadKey?: number;
+    addRequestKey?: number;
+    removeRequestKey?: number;
+    undoRemoveRequestKey?: number;
+    recycleBinRequestKey?: number;
+    mutationEnabled?: boolean;
+    density?: 'default' | 'compact';
+    validationRequestKey?: number;
+  }>(),
+  {
+    density: 'default',
+    reloadKey: undefined,
+    addRequestKey: undefined,
+    removeRequestKey: undefined,
+    undoRemoveRequestKey: undefined,
+    recycleBinRequestKey: undefined,
+    validationRequestKey: undefined,
+  },
+);
 
 const emit = defineEmits<{
   'validity-change': [valid: boolean];
@@ -101,21 +118,84 @@ const formFields = computed(() =>
 const columns = computed(
   () => props.relation.listProjection?.fields ?? props.relation.queryContract?.listProjection?.fields ?? [],
 );
-const pickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() => {
+const relationFormCompute = computed(
+  () => new RelationFormComputeCoordinator(props.relation.formComputeRules),
+);
+function pickerConfigsOf(row: DraftRow): Record<string, RecordFormFieldPickerConfig> {
   const result: Record<string, RecordFormFieldPickerConfig> = {};
   for (const field of formFields.value.values()) {
-    if (!field.reference) continue;
-    result[field.fieldRef.fieldName] = {
-      context: createModuleContext<RecordPickerRecord>({
-        http: props.sourceContext.http,
-        moduleAlias: field.reference.targetModuleAlias,
-      }),
-      mode: recordPickerModeOf(field.reference.pickerMode),
+    const reference = field.reference;
+    if (!reference) continue;
+    const fieldName = field.fieldRef.fieldName;
+    const usesSourceReferenceResolver = reference.candidateDelivery === 'SOURCE_FIELD';
+    const pickerRecord = (item: {
+      id: string;
+      title?: string;
+      projections?: Record<string, unknown>;
+      affectPatch?: Record<string, unknown>;
+    }): RecordPickerRecord => ({
+      id: item.id,
+      title: item.title,
+      ...(item.projections ?? {}),
+      affectPatch: item.affectPatch,
+    });
+    const sourceReferencePickerConfig: Pick<
+      RecordFormFieldPickerConfig,
+      'loadOptions' | 'loadTree' | 'resolveOptions'
+    > = {};
+    if (usesSourceReferenceResolver) {
+      const referenceResolver = createReferenceResolveClient(
+        props.sourceContext.http,
+        props.relation.targetModuleAlias,
+        reference.resolvePath,
+      );
+      const formValues = () => ({
+        ...props.parentRecord,
+        ...row,
+      });
+      const source = () =>
+        props.parentRecord.id == null ? undefined : { recordId: String(props.parentRecord.id) };
+      sourceReferencePickerConfig.loadOptions = async (keyword: string) => {
+        const response = await referenceResolver.resolve(fieldName, {
+          mode: 'QUERY',
+          fuzzy: keyword || undefined,
+          page: { pageNum: 1, pageSize: 50 },
+          formValues: formValues(),
+          source: source(),
+        });
+        return response.options.map(pickerRecord);
+      };
+      sourceReferencePickerConfig.loadTree = async () => {
+        const response = await referenceResolver.resolve(fieldName, {
+          mode: 'TREE',
+          formValues: formValues(),
+          source: source(),
+        });
+        return response.tree ?? [];
+      };
+      sourceReferencePickerConfig.resolveOptions = async (values: string[]) => {
+        const response = await referenceResolver.resolve(fieldName, {
+          mode: 'TRANSLATE',
+          values,
+          formValues: formValues(),
+          source: source(),
+        });
+        return response.results.flatMap((result) => (result.item ? [pickerRecord(result.item)] : []));
+      };
+    }
+    const pickerContext = createModuleContext<RecordPickerRecord>({
+      http: props.sourceContext.http,
+      moduleAlias: reference.targetModuleAlias,
+    });
+    result[fieldName] = {
+      context: pickerContext,
+      mode: recordPickerModeOf(reference.pickerMode),
       allowClear: !field.required?.constant,
+      ...sourceReferencePickerConfig,
     };
   }
   return result;
-});
+}
 const valid = computed(() => {
   for (const row of rows.value) {
     if (blankNewRow(row)) continue;
@@ -141,6 +221,29 @@ const someSelected = computed(
 
 function fieldRequired(fieldName: string, row: QueryListRecord = {}) {
   return resolveRecordFormFieldState(fieldName, { fields: formFields.value, record: row }).required;
+}
+
+function displayValue(row: DraftRow | QueryListRecord, fieldName: string) {
+  const field = resolveRecordFormFieldState(fieldName, {
+    fields: formFields.value,
+    record: row as RecordFormRecord,
+  });
+  const value = resolveRecordDetailDisplayValue(field, row as RecordFormRecord);
+  return value === 'true' ? '是' : value === 'false' ? '否' : value;
+}
+
+function statusField(fieldName: string, row: DraftRow | QueryListRecord) {
+  const field = resolveRecordFormFieldState(fieldName, {
+    fields: formFields.value,
+    record: row as RecordFormRecord,
+  });
+  return field.controlType === 'enabledStatus' || field.controlType === 'booleanStatus' ? field : undefined;
+}
+
+function statusFieldValue(fieldName: string, row: DraftRow | QueryListRecord) {
+  const field = statusField(fieldName, row);
+  const value = row[fieldName];
+  return field?.controlType === 'booleanStatus' ? resolveRecordBooleanStatusValue(value) : value !== false;
 }
 
 function columnRequired(fieldName: string) {
@@ -300,8 +403,18 @@ function recoverSelected() {
 function addRow() {
   if (!createAllowed.value) return;
   draftSequence += 1;
-  rows.value = [...rows.value, { __draftKey: `new:${draftSequence}` }];
+  rows.value = [...rows.value, { ...inheritedReferenceDefaults(), __draftKey: `new:${draftSequence}` }];
   publishDraft();
+}
+
+/**
+ * Organization is the platform-wide parent scope. Aggregate children which carry that same
+ * reference start in their parent's organization, but remain independently editable.
+ */
+function inheritedReferenceDefaults(): QueryListRecord {
+  const organizationField = formFields.value.get('organizationId');
+  if (!organizationField?.reference || props.parentRecord.organizationId == null) return {};
+  return { organizationId: structuredClone(toRaw(props.parentRecord.organizationId)) };
 }
 
 function setRowSelected(row: DraftRow, selected: boolean) {
@@ -344,8 +457,16 @@ function undoRemove() {
 }
 
 function updateField(row: DraftRow, fieldName: string, value: RecordFormFieldValue) {
-  rows.value = rows.value.map((candidate) =>
-    candidate.__draftKey === row.__draftKey ? { ...candidate, [fieldName]: value } : candidate,
+  const updatedRows = rows.value.map((candidate) =>
+    candidate.__draftKey === row.__draftKey
+      ? { ...candidate, ...applyReferenceDependencyClears(candidate, fieldName, value, formFields.value) }
+      : candidate,
+  );
+  rows.value = relationFormCompute.value.applyAfterChange(
+    updatedRows,
+    row.__draftKey,
+    (candidate) => candidate.__draftKey,
+    fieldName,
   );
   publishDraft();
 }
@@ -396,7 +517,7 @@ onMounted(() => void load());
 </script>
 
 <template>
-  <section class="managed-relation-inline">
+  <section class="managed-relation-inline" :class="`managed-relation-inline--${density}`">
     <div class="managed-relation-inline__scroll">
       <table class="managed-relation-inline__table">
         <colgroup>
@@ -451,7 +572,7 @@ onMounted(() => void load());
                 :record="row as RecordFormRecord"
                 :fields="formFields"
                 :field-names="[column.fieldName]"
-                :picker-configs="pickerConfigs"
+                :picker-configs="pickerConfigsOf(row)"
                 :option-context="sourceContext"
                 :form-session-key="row.__draftKey"
                 :disabled="row.id != null && !updateAllowed"
@@ -460,7 +581,17 @@ onMounted(() => void load());
                 @update:field="(fieldName, value) => updateField(row, fieldName, value)"
                 @validity-change="updateValidity(row, column.fieldName, $event.valid)"
               />
-              <span v-else class="managed-relation-inline__value">{{ row[column.fieldName] ?? '-' }}</span>
+              <RecordStatusTag
+                v-else-if="statusField(column.fieldName, row)"
+                :enabled="statusFieldValue(column.fieldName, row)"
+                :enabled-label="statusField(column.fieldName, row)?.booleanStatus?.trueLabel"
+                :disabled-label="statusField(column.fieldName, row)?.booleanStatus?.falseLabel"
+                :enabled-tone="statusField(column.fieldName, row)?.booleanStatus?.trueTone"
+                :disabled-tone="statusField(column.fieldName, row)?.booleanStatus?.falseTone"
+              />
+              <span v-else class="managed-relation-inline__value">{{
+                displayValue(row, column.fieldName)
+              }}</span>
             </td>
           </tr>
           <tr v-if="rows.length === 0">
@@ -500,7 +631,17 @@ onMounted(() => void load());
             />
           </td>
           <td v-for="column in columns" :key="column.fieldName">
-            <span class="managed-relation-inline__value">{{ record[column.fieldName] ?? '-' }}</span>
+            <RecordStatusTag
+              v-if="statusField(column.fieldName, record)"
+              :enabled="statusFieldValue(column.fieldName, record)"
+              :enabled-label="statusField(column.fieldName, record)?.booleanStatus?.trueLabel"
+              :disabled-label="statusField(column.fieldName, record)?.booleanStatus?.falseLabel"
+              :enabled-tone="statusField(column.fieldName, record)?.booleanStatus?.trueTone"
+              :disabled-tone="statusField(column.fieldName, record)?.booleanStatus?.falseTone"
+            />
+            <span v-else class="managed-relation-inline__value">{{
+              displayValue(record, column.fieldName)
+            }}</span>
           </td>
         </tr>
         <tr v-if="recycleBinRecords.length === 0">
@@ -518,8 +659,18 @@ onMounted(() => void load());
 
 .managed-relation-inline__scroll {
   min-width: 0;
-  overflow-x: hidden;
-  overflow-x: clip;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-gutter: stable;
+}
+
+.managed-relation-inline--compact .managed-relation-inline__scroll {
+  scrollbar-width: thin;
+}
+
+.managed-relation-inline--compact .managed-relation-inline__table {
+  min-width: 760px;
 }
 
 .managed-relation-inline__table {
@@ -556,6 +707,14 @@ onMounted(() => void load());
 
 .managed-relation-inline__table tbody tr {
   height: var(--muyun-detail-relation-body-row-height, 30px);
+}
+
+.managed-relation-inline--compact .managed-relation-inline__table th {
+  height: 28px;
+}
+
+.managed-relation-inline--compact .managed-relation-inline__table tbody tr {
+  height: 28px;
 }
 
 .managed-relation-inline__table td {

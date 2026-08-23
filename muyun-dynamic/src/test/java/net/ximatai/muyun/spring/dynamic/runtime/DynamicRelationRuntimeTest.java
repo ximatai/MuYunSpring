@@ -879,6 +879,31 @@ class DynamicRelationRuntimeTest {
     }
 
     @Test
+    void shouldReadDynamicAggregateExpansionThroughTheSameChildRelationBoundary() {
+        IDatabaseOperations<Object> operations = operations();
+        stubInvoiceRows(operations);
+        DynamicRecordService service = new DynamicRecordService(
+                new DynamicRecordRuntime(operations).register(invoiceModule()));
+
+        List<DynamicRecord> rows = service.aggregateChildrenForView(MODULE, "invoice-1", "lines");
+
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.getId()).isEqualTo("line-1");
+            assertThat(row.getValue("invoiceId")).isEqualTo("invoice-1");
+            assertThat(row.getValue("title")).isEqualTo("L-001");
+        });
+    }
+
+    @Test
+    void shouldIncludeDynamicReferencePresentationCompanionsInAggregateExpansionFields() {
+        DynamicRecordService service = new DynamicRecordService(
+                new DynamicRecordRuntime(operations()).register(invoiceModule()));
+
+        assertThat(service.aggregateExpansionOutputFields(MODULE, "lines", List.of("invoiceId", "title")))
+                .containsExactly("invoiceId", "title", "invoiceTitle", "invoiceDisplayTitle");
+    }
+
+    @Test
     void shouldRejectMismatchedDynamicChildEntityPayload() {
         IDatabaseOperations<Object> operations = operations();
         DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(invoiceModule());

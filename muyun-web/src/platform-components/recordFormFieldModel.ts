@@ -17,6 +17,7 @@ import type {
 } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import type { PickerConstraint, RecordPickerRecord } from './recordPickerConstraints';
+import type { WebTreeNode } from '@muyun/web-contracts';
 import type { RecordPickerMode } from './recordPickerModel';
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 
@@ -31,6 +32,33 @@ export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewField
   valueType?: ViewFieldValueType;
 };
 export type RecordFormRecord = Record<string, unknown>;
+
+/**
+ * Applies the platform-owned consequence of changing a reference dependency.
+ * The owner of a draft record calls this after accepting a field edit, so the
+ * behavior is identical for regular forms and one-cell-at-a-time child grids.
+ */
+export function applyReferenceDependencyClears(
+  record: RecordFormRecord,
+  fieldName: string,
+  value: RecordFormFieldValue,
+  fields: Map<string, RecordFormFieldDescriptor> | undefined,
+): RecordFormRecord {
+  const next = { ...record, [fieldName]: value };
+  if (record[fieldName] === value || !fields) return next;
+  for (const [dependentFieldName, descriptor] of fields) {
+    if (
+      dependentFieldName !== fieldName &&
+      descriptor.reference?.candidateDependencies?.some(
+        (dependency) => dependency.sourceField === fieldName,
+      ) &&
+      record[dependentFieldName] != null
+    ) {
+      next[dependentFieldName] = undefined;
+    }
+  }
+  return next;
+}
 /**
  * Transport values emitted by the standard editor. JSON is deliberately represented as parsed
  * objects/arrays rather than a display string, so dynamic records retain their JSON column
@@ -132,6 +160,7 @@ export interface RecordFormFieldFallback {
 export interface RecordFormFieldPickerConfig {
   context: ModuleContext<RecordPickerRecord>;
   loadOptions?: (keyword: string) => Promise<RecordPickerRecord[]>;
+  loadTree?: () => Promise<WebTreeNode<RecordPickerRecord>[]>;
   resolveOptions?: (values: string[]) => Promise<RecordPickerRecord[]>;
   reloadKey?: number;
   mode?: RecordPickerMode;

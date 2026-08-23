@@ -59,6 +59,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveStatus;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import net.ximatai.muyun.spring.web.RequestTraceWebFilter;
@@ -128,6 +129,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
@@ -3106,6 +3109,33 @@ class DynamicRecordWebControllerTest {
         assertThat(request.getValue().criteria()).isSameAs(criteria);
         assertThat(request.getValue().includeProjections()).isFalse();
         assertThat(request.getValue().formValues()).containsEntry("customerRegion", "north");
+    }
+
+    @Test
+    void shouldResolveDynamicReferenceInsideThePersistedSourceTenant() throws Exception {
+        DynamicRecord source = new DynamicRecord(entity());
+        source.setId("contract-1");
+        source.setTenantId("tenant-b");
+        when(service.select(MODULE, ENTITY, "contract-1")).thenReturn(source);
+        AtomicReference<String> observedTenant = new AtomicReference<>();
+        when(service.resolveFieldReference(eq(MODULE), eq(ENTITY), eq("customerId"), any(DynamicReferenceResolveRequest.class)))
+                .thenAnswer(ignored -> {
+                    observedTenant.set(TenantContext.currentTenantId().orElse(null));
+                    return new DynamicReferenceResolveResponse(DynamicReferenceResolveStatus.OK,
+                            DynamicReferenceResolveMode.QUERY, List.of(), List.of(), 0, 20, 0);
+                });
+
+        mvc.perform(post("/{moduleAlias}/references/{fieldName}/resolve", MODULE, "customerId")
+                        .contentType("application/json")
+                        .content(json(Map.of(
+                                "mode", "QUERY",
+                                "source", Map.of("recordId", "contract-1"),
+                                "formValues", Map.of("tenantId", "forged-tenant")
+                        ))))
+                .andExpect(status().isOk());
+
+        assertThat(observedTenant.get()).isEqualTo("tenant-b");
+        verify(service).select(MODULE, ENTITY, "contract-1");
     }
 
     @Test

@@ -757,6 +757,29 @@ public class DynamicEntityService implements
                 .toList();
     }
 
+    /**
+     * Adds read-side companions required to render the requested reference fields without a
+     * client-side resolve round-trip.  The rule mirrors static list projection semantics.
+     */
+    List<String> expansionOutputFields(java.util.Collection<String> requestedFields) {
+        LinkedHashSet<String> fields = new LinkedHashSet<>();
+        if (requestedFields != null) {
+            requestedFields.stream().filter(name -> name != null && !name.isBlank()).map(String::trim)
+                    .forEach(fields::add);
+        }
+        referencePlans().forEach(plan -> {
+            if (fields.contains(plan.sourceField())) {
+                plan.projections().forEach(projection -> fields.add(projection.outputField()));
+            }
+        });
+        referenceLoadDefinitions().forEach(load -> {
+            if (fields.contains(load.sourceField())) {
+                fields.add(load.outputField());
+            }
+        });
+        return List.copyOf(fields);
+    }
+
     private List<EntityReferenceLoadDefinition> referenceLoadDefinitions() {
         if (module == null) {
             return List.of();
@@ -911,7 +934,11 @@ public class DynamicEntityService implements
                 plan.relationCode(), childService,
                 (child, parentId) -> child.putPlatformValue(plan.childForeignKeyField(), parentId),
                 plan.childForeignKeyField(),
-                parent -> parent.getChildren(plan.relationCode())
+                parent -> parent.getChildren(plan.relationCode()),
+                child -> {
+                    Object value = child.getValue(plan.childForeignKeyField());
+                    return value == null ? null : String.valueOf(value);
+                }
         );
         if (plan.autoPopulate()) {
             childRelation.autoPopulate((parent, children) -> parent.setChildren(plan.relationCode(), children));

@@ -7,25 +7,32 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.TenantStandardBusinessService;
+import net.ximatai.muyun.spring.ability.child.ChildAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.util.Preconditions;
 import net.ximatai.muyun.spring.iam.department.Department;
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
+import net.ximatai.muyun.spring.iam.organization.Organization;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
+import net.ximatai.muyun.spring.iam.position.Position;
 import net.ximatai.muyun.spring.iam.position.PositionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class EmployeePositionService extends TenantStandardBusinessService<EmployeePosition> implements
         SoftDeleteAbility<EmployeePosition>,
         EnableAbility<EmployeePosition>,
-        SortAbility<EmployeePosition> {
+        SortAbility<EmployeePosition>,
+        ChildAbility<EmployeePosition> {
     public static final String MODULE_ALIAS = "iam.employee_position";
 
     private final EmployeeService employeeService;
@@ -82,6 +89,27 @@ public class EmployeePositionService extends TenantStandardBusinessService<Emplo
         String validEmployeeId = Preconditions.requireText(employeeId, "employeeId");
         return list(employeeCriteria(validEmployeeId), new PageRequest(0, Integer.MAX_VALUE),
                 Sort.asc(PlatformAbilityFields.SORT_FIELD));
+    }
+
+    /**
+     * A primary-position switch is an ordinary checkbox edit in the aggregate grid. Persist
+     * outgoing primary rows first so the existing single-primary invariant remains valid at
+     * every individual child write; no special frontend interaction is required.
+     */
+    @Override
+    public List<EmployeePosition> orderForReplacement(List<EmployeePosition> incoming,
+                                                       List<EmployeePosition> existing) {
+        if (incoming == null || incoming.size() < 2 || existing == null || existing.isEmpty()) {
+            return incoming == null ? List.of() : incoming;
+        }
+        Map<String, EmployeePosition> existingById = existing.stream()
+                .filter(value -> value.getId() != null)
+                .collect(Collectors.toMap(EmployeePosition::getId, Function.identity()));
+        return incoming.stream()
+                .sorted((left, right) -> Boolean.compare(
+                        retiresActivePrimary(existingById.get(right.getId()), right),
+                        retiresActivePrimary(existingById.get(left.getId()), left)))
+                .toList();
     }
 
     public String addPosition(String employeeId, EmployeePosition relation) {
@@ -169,20 +197,41 @@ public class EmployeePositionService extends TenantStandardBusinessService<Emplo
                 .eq("enabled", Boolean.TRUE), new PageRequest(0, Integer.MAX_VALUE));
     }
 
+    private boolean retiresActivePrimary(EmployeePosition existing, EmployeePosition incoming) {
+        return existing != null
+                && Boolean.TRUE.equals(existing.getEnabled())
+                && Boolean.TRUE.equals(existing.getPrimaryPosition())
+                && (!Boolean.TRUE.equals(incoming.getEnabled())
+                || !Boolean.TRUE.equals(incoming.getPrimaryPosition()));
+    }
+
     private Employee validatePositionReferences(EmployeePosition relation) {
         Employee employee = employeeService.requireEnabledOrThrow(relation.getEmployeeId(), () -> BusinessExceptions.warning(
                 "iam.employee-position.employee-not-active", "职员不存在或已停用"));
-        organizationService.requireEnabledOrThrow(relation.getOrganizationId(), () -> BusinessExceptions.warning(
+        Organization organization = organizationService.requireEnabledOrThrow(relation.getOrganizationId(), () -> BusinessExceptions.warning(
                 "iam.employee-position.organization-not-active", "任职机构不存在或已停用"));
         Department department = departmentService.requireEnabledOrThrow(relation.getDepartmentId(), () -> BusinessExceptions.warning(
                 "iam.employee-position.department-not-active", "任职部门不存在或已停用"));
-        positionService.requireEnabledOrThrow(relation.getPositionId(), () -> BusinessExceptions.warning(
+        Position position = positionService.requireEnabledOrThrow(relation.getPositionId(), () -> BusinessExceptions.warning(
                 "iam.employee-position.position-not-active", "任职岗位不存在或已停用"));
+        requireSameTenant(employee, organization, "机构");
+        requireSameTenant(employee, department, "部门");
+        requireSameTenant(employee, position, "岗位");
         if (!SortAbility.sameValue(relation.getOrganizationId(), department.getOrganizationId())) {
             throw BusinessExceptions.warning("iam.employee-position.department-organization-mismatch",
                     "任职所属部门必须隶属于同一机构");
         }
         return employee;
+    }
+
+    private void requireSameTenant(Employee employee,
+                                   net.ximatai.muyun.spring.common.model.contract.EntityContract referenced,
+                                   String referenceLabel) {
+        if (SortAbility.sameValue(employee.getTenantId(), referenced.getTenantId())) {
+            return;
+        }
+        throw BusinessExceptions.warning("iam.employee-position.cross-tenant-reference",
+                "任职职员与" + referenceLabel + "必须属于同一租户");
     }
 
     private void validatePrimaryPositionOwner(EmployeePosition relation, Employee employee) {

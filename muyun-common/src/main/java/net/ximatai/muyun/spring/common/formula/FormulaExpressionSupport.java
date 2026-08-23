@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.common.formula.FormulaAst.AstNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.BinaryNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.FieldNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.FuncNode;
+import net.ximatai.muyun.spring.common.formula.FormulaAst.OthersNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.UnaryNode;
 
 import java.util.LinkedHashSet;
@@ -84,6 +85,13 @@ final class FormulaExpressionSupport {
         return false;
     }
 
+    static boolean containsOthersAssignment(AstNode node) {
+        if (!(node instanceof AssignNode assignment)) {
+            return false;
+        }
+        return assignment.left instanceof OthersNode;
+    }
+
     static Set<String> referencedFields(AstNode node) {
         LinkedHashSet<String> fields = new LinkedHashSet<>();
         collectReferencedFields(node, fields);
@@ -103,9 +111,12 @@ final class FormulaExpressionSupport {
         if (node instanceof AssignNode assignNode) {
             if (assignNode.left instanceof FieldNode fieldNode) {
                 fields.add(FormulaFieldPath.parse(fieldNode.dataIndex).dataIndex());
+            } else if (assignNode.left instanceof OthersNode othersNode) {
+                fields.add(FormulaFieldPath.parse(othersNode.dataIndex).dataIndex());
             }
             collectAssignedFields(assignNode.left, fields);
             collectAssignedFields(assignNode.right, fields);
+            collectAssignedFields(assignNode.condition, fields);
             return;
         }
         if (node instanceof UnaryNode unaryNode) {
@@ -133,6 +144,11 @@ final class FormulaExpressionSupport {
         if (node instanceof AssignNode assignNode) {
             collectReferencedFields(assignNode.left, fields);
             collectReferencedFields(assignNode.right, fields);
+            collectReferencedFields(assignNode.condition, fields);
+            return;
+        }
+        if (node instanceof OthersNode othersNode) {
+            fields.add(FormulaFieldPath.parse(othersNode.dataIndex).dataIndex());
             return;
         }
         if (node instanceof UnaryNode unaryNode) {
@@ -160,7 +176,8 @@ final class FormulaExpressionSupport {
         if (node instanceof AssignNode assignNode) {
             return !root
                     || hasNestedAssignment(assignNode.left, false)
-                    || hasNestedAssignment(assignNode.right, false);
+                    || hasNestedAssignment(assignNode.right, false)
+                    || hasNestedAssignment(assignNode.condition, false);
         }
         if (node instanceof UnaryNode unaryNode) {
             return hasNestedAssignment(unaryNode.arg, false);

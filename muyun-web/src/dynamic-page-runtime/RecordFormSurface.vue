@@ -17,7 +17,7 @@ import {
 } from './modulePageEnhancements';
 import { useModulePageFormContributionRuntime } from './composables/useModulePageFormContributionRuntime';
 
-defineOptions({ name: 'StandardFlatFormSurface' });
+defineOptions({ name: 'RecordFormSurface' });
 
 const props = defineProps<{
   record: RecordFormRecord;
@@ -95,7 +95,7 @@ watch(
   <div class="module-form">
     <ModulePageFormContributionRenderer
       :contributions="contributionRef"
-      surface="flat-main"
+      surface="record-card"
       position="before-fields"
       :context-for="contextFor"
     />
@@ -118,7 +118,7 @@ watch(
       <template #before-field="{ field }">
         <ModulePageFormContributionRenderer
           :contributions="contributionRef"
-          surface="flat-main"
+          surface="record-card"
           position="before"
           :field="field"
           :context-for="contextFor"
@@ -127,7 +127,7 @@ watch(
       <template #after-field="{ field }">
         <ModulePageFormContributionRenderer
           :contributions="contributionRef"
-          surface="flat-main"
+          surface="record-card"
           position="after"
           :field="field"
           :context-for="contextFor"
@@ -136,9 +136,25 @@ watch(
     </RecordFormFields>
     <ModulePageFormContributionRenderer
       :contributions="contributionRef"
-      surface="flat-main"
+      surface="record-card"
       position="after-fields"
       :context-for="contextFor"
     />
   </div>
 </template>
+
+<style scoped>
+.module-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 12px;
+  row-gap: 16px;
+  --muyun-record-form-label-gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .module-form {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

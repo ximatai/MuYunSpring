@@ -1221,6 +1221,124 @@ class ModuleUiDescriptorCompilerTest {
         });
     }
 
+    @Test
+    void shouldCompileAnAggregateRelationOnceForDetailAndListExpansion() {
+        ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.employee")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list
+                                .fields(fields -> fields.field("employeeNo"))
+                                .expandRelation("positions", expansion -> expansion.columns(
+                                        "organizationId", "departmentId", "positionId", "primaryPosition", "enabled")))
+                        .detail(detail -> detail.editor(editor -> editor.field("employeeNo")))
+                        .traits(traits -> { })))
+                .editorContribution("employee_position", form -> form
+                        .field("employee_position", "organizationId", field -> { })
+                        .field("employee_position", "departmentId", field -> { })
+                        .field("employee_position", "positionId", field -> { })
+                        .field("employee_position", "primaryPosition", field -> { })
+                        .field("employee_position", "enabled", field -> { }))
+                .aggregateChildRelation("positions", "任职", "employee_position", "employeeId",
+                        UiRule.constant(Boolean.TRUE), false, List.of(new net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition(
+                                "positions", new net.ximatai.muyun.spring.common.formula.FormulaRule(
+                                "primaryPositionExclusive", "others({positions.primaryPosition}) = false WHEN {positions.primaryPosition}"),
+                                List.of("primaryPosition"))))
+                .build();
+
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(staticDefinition(uiDefinition,
+                List.of(
+                        new EntityDefinition("employee", "iam_employee", "Employee",
+                                List.of(FieldDefinition.string("employeeNo", "职员编号"))),
+                        new EntityDefinition("employee_position", "iam_employee_position", "EmployeePosition",
+                                List.of(
+                                        FieldDefinition.string("employeeId", "职员"),
+                                        FieldDefinition.string("organizationId", "所属机构"),
+                                        FieldDefinition.string("departmentId", "所属部门"),
+                                        FieldDefinition.string("positionId", "岗位"),
+                                        FieldDefinition.bool("primaryPosition", "主岗位"),
+                                        FieldDefinition.bool("enabled", "启用状态"))))));
+
+        assertThat(descriptor.detailRelations()).singleElement().satisfies(relation -> {
+            assertThat(relation.code()).isEqualTo("positions");
+            assertThat(relation.embeddedField()).isEqualTo("positions");
+            assertThat(relation.listProjection().fields()).extracting(field -> field.fieldName())
+                    .containsExactly("organizationId", "departmentId", "positionId", "primaryPosition", "enabled");
+            assertThat(relation.formComputeRules()).singleElement().satisfies(rule -> {
+                assertThat(rule.targetField()).isEqualTo("primaryPosition");
+                assertThat(rule.targetValueType()).isEqualTo("BOOLEAN");
+                assertThat(rule.program().root().arguments().getFirst().kind().name()).isEqualTo("OTHERS");
+                assertThat(rule.program().root().arguments().get(2).field()).isEqualTo("primaryPosition");
+            });
+        });
+        assertThat(descriptor.page().list().relationExpansions()).containsExactly(
+                new ResolvedPageListRelationExpansionDescriptor("positions",
+                        List.of("organizationId", "departmentId", "positionId", "primaryPosition", "enabled")));
+    }
+
+    @Test
+    void shouldRejectAnAggregateFormulaDeclaredForAnotherRelation() {
+        ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.employee")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("employeeNo")))
+                        .detail(detail -> detail.editor(editor -> editor.field("employeeNo")))
+                        .traits(traits -> { })))
+                .editorContribution("employee_position", form -> form
+                        .field("employee_position", "primaryPosition", field -> { }))
+                .aggregateChildRelation("positions", "任职", "employee_position", "employeeId",
+                        UiRule.constant(Boolean.TRUE), false, List.of(new net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition(
+                                "delegations", new net.ximatai.muyun.spring.common.formula.FormulaRule(
+                                "primaryPositionExclusive", "others({delegations.primaryPosition}) = false WHEN {delegations.primaryPosition}"),
+                                List.of("primaryPosition"))))
+                .build();
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(staticDefinition(uiDefinition,
+                List.of(
+                        new EntityDefinition("employee", "iam_employee", "Employee",
+                                List.of(FieldDefinition.string("employeeNo", "职员编号"))),
+                        new EntityDefinition("employee_position", "iam_employee_position", "EmployeePosition",
+                                List.of(
+                                        FieldDefinition.string("employeeId", "职员"),
+                                        FieldDefinition.bool("primaryPosition", "主岗位")))))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("aggregate child formula relation must match detail relation");
+    }
+
+    @Test
+    void shouldCompileMultipleListRelationExpansionsInDeclarationOrder() {
+        ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.employee")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list
+                                .fields(fields -> fields.field("employeeNo"))
+                                .expandRelation("positions", expansion -> expansion.columns("positionId"))
+                                .expandRelation("delegations", expansion -> expansion.columns("delegateId")))
+                        .detail(detail -> detail.editor(editor -> editor.field("employeeNo")))
+                        .traits(traits -> { })))
+                .aggregateChildRelation("positions", "任职", "employee_position", "employeeId",
+                        UiRule.constant(Boolean.TRUE))
+                .aggregateChildRelation("delegations", "代理", "employee_delegation", "employeeId",
+                        UiRule.constant(Boolean.TRUE))
+                .editorContribution("employee_position", form -> form
+                        .field("employee_position", "positionId", field -> { }))
+                .editorContribution("employee_delegation", form -> form
+                        .field("employee_delegation", "delegateId", field -> { }))
+                .build();
+
+        List<EntityDefinition> entities = List.of(
+                new EntityDefinition("employee", "iam_employee", "Employee",
+                        List.of(FieldDefinition.string("employeeNo", "职员编号"))),
+                new EntityDefinition("employee_position", "iam_employee_position", "EmployeePosition",
+                        List.of(
+                                FieldDefinition.string("employeeId", "职员"),
+                                FieldDefinition.string("positionId", "岗位"))),
+                new EntityDefinition("employee_delegation", "iam_employee_delegation", "EmployeeDelegation",
+                        List.of(
+                                FieldDefinition.string("employeeId", "职员"),
+                                FieldDefinition.string("delegateId", "代理人"))));
+        assertThat(ModuleUiDescriptorCompiler.compile(staticDefinition(uiDefinition, entities))
+                .page().list().relationExpansions())
+                .extracting(ResolvedPageListRelationExpansionDescriptor::relationCode)
+                .containsExactly("positions", "delegations");
+    }
+
     private StaticModuleDefinition staticDefinition(ModuleUiDefinition uiDefinition) {
         return staticDefinition(uiDefinition, employeeEntities());
     }

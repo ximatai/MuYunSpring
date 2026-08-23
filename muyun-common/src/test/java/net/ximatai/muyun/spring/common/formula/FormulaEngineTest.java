@@ -504,4 +504,58 @@ class FormulaEngineTest {
 
         assertThat(engine.evaluateValue("{\"expression\":\"{amount} * 2\"}", data)).isEqualTo(24d);
     }
+
+    @Test
+    void shouldClearSiblingRowsWhenCurrentChildRowEnablesExclusiveFlag() {
+        Map<String, Object> main = new LinkedHashMap<>();
+        Map<String, Object> previous = new LinkedHashMap<>(Map.of("primaryPosition", true));
+        Map<String, Object> current = new LinkedHashMap<>(Map.of("primaryPosition", true));
+        FormulaRuntimeData data = FormulaRuntimeData.typed(main, Map.of("positions", List.of(previous, current)), List.of(
+                FormulaFieldDefinition.of("positions.primaryPosition", FormulaValueType.BOOLEAN)
+        )).withChangeScope("positions", current);
+
+        FormulaRuntimeReport report = engine.apply(List.of(
+                new FormulaRule("primaryPositionExclusive",
+                        "others({positions.primaryPosition}) = false WHEN {positions.primaryPosition}")
+        ), data);
+
+        assertThat(report.errors()).isEmpty();
+        assertThat(previous).containsEntry("primaryPosition", false);
+        assertThat(current).containsEntry("primaryPosition", true);
+    }
+
+    @Test
+    void shouldLeaveSiblingRowsUntouchedWhenConditionalAssignmentIsNotTriggered() {
+        Map<String, Object> main = new LinkedHashMap<>();
+        Map<String, Object> previous = new LinkedHashMap<>(Map.of("primaryPosition", true));
+        Map<String, Object> current = new LinkedHashMap<>(Map.of("primaryPosition", false));
+        FormulaRuntimeData data = FormulaRuntimeData.typed(main, Map.of("positions", List.of(previous, current)), List.of(
+                FormulaFieldDefinition.of("positions.primaryPosition", FormulaValueType.BOOLEAN)
+        )).withChangeScope("positions", current);
+
+        FormulaRuntimeReport report = engine.apply(List.of(
+                new FormulaRule("primaryPositionExclusive",
+                        "others({positions.primaryPosition}) = false WHEN {positions.primaryPosition}")
+        ), data);
+
+        assertThat(report.errors()).isEmpty();
+        assertThat(previous).containsEntry("primaryPosition", true);
+        assertThat(current).containsEntry("primaryPosition", false);
+    }
+
+    @Test
+    void shouldRequireAnExplicitChangedChildRowForSiblingAssignment() {
+        Map<String, Object> sibling = new LinkedHashMap<>(Map.of("primaryPosition", true));
+        FormulaRuntimeReport report = engine.apply(List.of(
+                new FormulaRule("primaryPositionExclusive",
+                        "others({positions.primaryPosition}) = false WHEN {positions.primaryPosition}")
+        ), FormulaRuntimeData.typed(new LinkedHashMap<>(), Map.of("positions", List.of(sibling)), List.of(
+                FormulaFieldDefinition.of("positions.primaryPosition", FormulaValueType.BOOLEAN)
+        )));
+
+        assertThat(report.errors()).singleElement()
+                .extracting(FormulaRuntimeReport.Issue::code)
+                .isEqualTo("FORMULA_CHANGE_SCOPE_REQUIRED");
+        assertThat(sibling).containsEntry("primaryPosition", true);
+    }
 }

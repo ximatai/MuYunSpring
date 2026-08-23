@@ -15,6 +15,14 @@ import java.util.function.Function;
 
 public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
     /**
+     * Lets a domain child relation establish a deterministic write sequence when several rows
+     * together express one business invariant. The default preserves the submitted row order.
+     */
+    default List<C> orderForReplacement(List<C> incoming, List<C> existing) {
+        return incoming == null ? List.of() : incoming;
+    }
+
+    /**
      * Optional domain identity hook for aggregate children whose former row is
      * soft-deleted. Returning that row lets the relation lifecycle restore and
      * update it instead of attempting a duplicate insert.
@@ -52,9 +60,10 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
     default <P extends EntityContract> ChildRelation<C, P> toChildRelation(ChildPlan plan,
                                                                            BiConsumer<C, String> setParentId,
                                                                            Function<P, List<C>> extractChildren,
-                                                                           BiConsumer<P, List<C>> populateChildren) {
+                                                                           BiConsumer<P, List<C>> populateChildren,
+                                                                           Function<C, String> extractParentId) {
         ChildRelation<C, P> relation = new ChildRelation<>(plan.relationCode(), this, setParentId,
-                plan.childForeignKeyField(), extractChildren);
+                plan.childForeignKeyField(), extractChildren, extractParentId);
         if (plan.autoPopulate()) {
             if (populateChildren == null) {
                 throw new PlatformException("auto populate child relation requires populateChildren: " + plan.relationCode());
@@ -69,10 +78,11 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
 
     default List<C> selectChildRows(Criteria criteria) {
         requireGenericChildReadWithoutIndependentDataScope();
-        if (this instanceof SortAbility<?> sortAbility) {
-            return sortedChildRows(sortAbility, criteria);
-        }
-        return getDao().query(activeCriteria(criteria), PageRequests.all());
+        List<C> records = this instanceof SortAbility<?> sortAbility
+                ? sortedChildRows(sortAbility, criteria)
+                : getDao().query(activeCriteria(criteria), PageRequests.all());
+        populateDeclaredReferenceLoads(records);
+        return records;
     }
 
     /** Complete retained children for a parent-scoped, platform-declared recycle-bin view. */
@@ -83,7 +93,9 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
         }
         @SuppressWarnings("unchecked")
         SoftDeleteAbility<C> typed = (SoftDeleteAbility<C>) softDeleteAbility;
-        return getDao().query(typed.deletedCriteria(criteria), PageRequests.all());
+        List<C> records = getDao().query(typed.deletedCriteria(criteria), PageRequests.all());
+        populateDeclaredReferenceLoads(records);
+        return records;
     }
 
     default C selectIgnoreSoftDeleteIfPossible(String id) {

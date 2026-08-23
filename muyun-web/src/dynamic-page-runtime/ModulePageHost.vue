@@ -27,6 +27,7 @@ import {
   TreeRecordExplorer,
   confirmAction,
   parentRecordConstraints,
+  applyReferenceDependencyClears,
   presentPlatformError,
   recordPickerModeOf,
   providePageLayout,
@@ -49,6 +50,7 @@ import type {
   ResolvedDetailRelationDescriptor,
   ResolvedFormComputeRuleDescriptor,
   ResolvedModuleUiDescriptor,
+  ResolvedPageListRelationExpansionDescriptor,
   ResolvedViewDescriptor,
   RecordInlineAction,
   RouteQueryValue,
@@ -87,8 +89,9 @@ import {
 } from './detailSurfacePreference';
 import { normalizeListPageSize, restoreListPageSize, saveListPageSize } from './listPageSizePreference';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
-import StandardFlatFormSurface from './StandardFlatFormSurface.vue';
 import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
+import ModulePageListRelationExpansions from './ModulePageListRelationExpansions.vue';
+import ModulePageRecordContent from './ModulePageRecordContent.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { useRecordDetailController } from './recordDetailController';
@@ -354,6 +357,34 @@ const executableDetailRelations = computed<ResolvedDetailRelationDescriptor[]>((
       ) === index,
   ),
 );
+const listRelationExpansions = computed(() => {
+  const expansions = runtimeUiDescriptor.value?.page?.list?.relationExpansions ?? [];
+  return expansions
+    .map((expansion) => {
+      const relation = executableDetailRelations.value.find(
+        (candidate) => candidate.code === expansion.relationCode && candidate.embeddedField,
+      );
+      return relation ? { expansion, relation } : undefined;
+    })
+    .filter(
+      (
+        value,
+      ): value is {
+        expansion: ResolvedPageListRelationExpansionDescriptor;
+        relation: ResolvedDetailRelationDescriptor;
+      } => value != null,
+    );
+});
+const expandedListRowKeys = ref<string[]>([]);
+const listRelationExpansionEnabled = computed(() => listRelationExpansions.value.length > 0);
+
+function updateListRowExpansion(record: QueryListRecord, expanded: boolean) {
+  const id = record.id == null ? undefined : String(record.id);
+  if (!id) return;
+  expandedListRowKeys.value = expanded
+    ? [...new Set([...expandedListRowKeys.value, id])]
+    : expandedListRowKeys.value.filter((value) => value !== id);
+}
 const configuredPageMode = computed<MenuPageMode>(() => props.descriptor.target.pageMode ?? 'LIST');
 const pageMode = computed<MenuPageMode>(
   () => pageBootstrap.value?.entry.pageMode ?? configuredPageMode.value,
@@ -430,8 +461,8 @@ const treeRootTitle = computed(
 const pageEnhancement = computed(() =>
   resolveModulePageEnhancement(context.moduleAlias, activeListView.value?.viewCode),
 );
-const flatFormContributions = computed(() => pageEnhancement.value?.form?.contributions ?? []);
-const flatFormFieldPolicies = computed(() => pageEnhancement.value?.form?.fieldPolicies ?? []);
+const formContributions = computed(() => pageEnhancement.value?.form?.contributions ?? []);
+const formFieldPolicies = computed(() => pageEnhancement.value?.form?.fieldPolicies ?? []);
 let disposePageEnhancement: (() => void) | undefined;
 watch(
   pageEnhancement,
@@ -764,8 +795,10 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
     });
     const hasPickerQueryScope = pickerQueryFieldNames.value.has(pickerFieldName);
     const usesSourceReferenceResolver = reference.candidateDelivery === 'SOURCE_FIELD';
-    const sourceReferencePickerConfig: Pick<RecordFormFieldPickerConfig, 'loadOptions' | 'resolveOptions'> =
-      {};
+    const sourceReferencePickerConfig: Pick<
+      RecordFormFieldPickerConfig,
+      'loadOptions' | 'loadTree' | 'resolveOptions'
+    > = {};
     if (usesSourceReferenceResolver) {
       const referenceResolver = createReferenceResolveClient(
         context.http,
@@ -789,14 +822,24 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
           fuzzy: keyword || undefined,
           page: { pageNum: 1, pageSize: 50 },
           formValues: { ...(editingRecord.value ?? {}) },
+          source: editingRecord.value?.id == null ? undefined : { recordId: String(editingRecord.value.id) },
         });
         return response.options.map(pickerRecord);
+      };
+      sourceReferencePickerConfig.loadTree = async () => {
+        const response = await referenceResolver.resolve(pickerFieldName, {
+          mode: 'TREE',
+          formValues: { ...(editingRecord.value ?? {}) },
+          source: editingRecord.value?.id == null ? undefined : { recordId: String(editingRecord.value.id) },
+        });
+        return response.tree ?? [];
       };
       sourceReferencePickerConfig.resolveOptions = async (values: string[]) => {
         const response = await referenceResolver.resolve(pickerFieldName, {
           mode: 'TRANSLATE',
           values,
           formValues: { ...(editingRecord.value ?? {}) },
+          source: editingRecord.value?.id == null ? undefined : { recordId: String(editingRecord.value.id) },
         });
         return response.results.flatMap((result) => (result.item ? [pickerRecord(result.item)] : []));
       };
@@ -808,7 +851,7 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
             treePath: `/${reference.targetModuleAlias}/tree`,
           })
         : pickerContext,
-      mode: usesSourceReferenceResolver ? 'list' : recordPickerModeOf(reference.pickerMode),
+      mode: recordPickerModeOf(reference.pickerMode),
       allowClear: !field.required?.constant,
       ...sourceReferencePickerConfig,
     };
@@ -1481,7 +1524,7 @@ function updateDraftField(
     return;
   }
   editingRecord.value = applyFormComputeAfterChange(
-    { ...editingRecord.value, [fieldName]: value },
+    applyReferenceDependencyClears(editingRecord.value, fieldName, value, formFields.value),
     fieldName,
     formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor),
   );
@@ -2090,59 +2133,32 @@ function recordTitle(record: QueryListRecord | undefined) {
       />
       <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
       <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择记录" />
-      <template v-else-if="editingRecord">
-        <RecordDetailFields
-          v-if="editorMode === 'view'"
-          :record="editingRecord as RecordFormRecord"
-          :fields="detailDisplayFields"
-          :option-context="context"
-          :file-transfer-context="context"
-          :exclude-field-names="['enabled']"
-        />
-        <StandardFlatFormSurface
-          v-else
-          :record="editingRecord as RecordFormRecord"
-          :fields="formFields"
-          :mode="editorMode"
-          :form-session-key="formSessionKey"
-          :validation-request-key="formValidationRequestKey"
-          :option-context="context"
-          :file-transfer-context="context"
-          :picker-configs="referencePickerConfigs"
-          :disabled="saving"
-          :exclude-field-names="['enabled']"
-          :contributions="flatFormContributions"
-          :field-policies="flatFormFieldPolicies"
-          @update:field="updateDraftField"
-          @validity-change="updateMainFormValidity"
-        />
-        <template v-if="editorMode === 'view'">
-          <RecordDetailExtensionSection
-            v-for="section in enhancementDetailSections"
-            :key="section.key"
-            :title="section.title"
-          >
-            <component :is="section.component" :context="detailSectionContext(editingRecord)" />
-          </RecordDetailExtensionSection>
-        </template>
-        <ModulePageDetailRelations
-          v-if="runtimeUiDescriptor && detailRelationsAvailable"
-          :source-context="context"
-          :ui-descriptor="runtimeUiDescriptor"
-          :relations="executableDetailRelations"
-          :parent-record="(editorMode === 'view' ? selectedRecord : editingRecord) as QueryListRecord"
-          :mutation-enabled="editorMode !== 'view'"
-          :reload-key="detailRelationReloadKey"
-          :validation-request-key="formValidationRequestKey"
-          @children-change="updateEmbeddedChildren"
-          @validity-change="updateRelationDraftValidity"
-        />
-        <RecordMetaSection
-          v-if="editorMode !== 'create' && showDetailSystemInfo"
-          :record="editingRecord"
-          show-sort-order
-        />
-      </template>
+      <ModulePageRecordContent
+        v-else-if="editingRecord"
+        :context="context"
+        :mode="editorMode"
+        :record="editingRecord"
+        :selected-record="selectedRecord"
+        :detail-display-fields="detailDisplayFields"
+        :form-fields="formFields"
+        :form-session-key="formSessionKey"
+        :validation-request-key="formValidationRequestKey"
+        :picker-configs="referencePickerConfigs"
+        :saving="saving"
+        :ui-descriptor="runtimeUiDescriptor"
+        :relations="executableDetailRelations"
+        :relations-available="detailRelationsAvailable"
+        :relation-reload-key="detailRelationReloadKey"
+        :show-system-info="showDetailSystemInfo"
+        :extension-sections="enhancementDetailSections"
+        :detail-section-context="detailSectionContext"
+        :form-contributions="formContributions"
+        :form-field-policies="formFieldPolicies"
+        @update:field="updateDraftField"
+        @validity-change="updateMainFormValidity"
+        @children-change="updateEmbeddedChildren"
+        @relations-validity-change="updateRelationDraftValidity"
+      />
       <template v-if="hasCardAssistantAt('inside', 'bottom')" #detail-content-bottom>
         <aside class="module-card-assistant">
           <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
@@ -2251,9 +2267,11 @@ function recordTitle(record: QueryListRecord | undefined) {
       </ManagementExplorerColumn>
       <RecordQueryListPanel
         class="module-list"
+        :class="{ 'module-list--relation-expansion': listRelationExpansionEnabled }"
         :context="context"
         :title="title"
         :selected-key="selectedRecord?.id"
+        :expanded-row-keys="expandedListRowKeys"
         :reload-key="reloadKey"
         :standard-crud-actions="true"
         :standard-crud-row-actions="true"
@@ -2281,10 +2299,20 @@ function recordTitle(record: QueryListRecord | undefined) {
         @row-dblclick="openListRecord"
         @action="handleListAction"
         @row-action="handleRowAction"
+        @row-expand="updateListRowExpansion"
         @batch-action="
           (action, records, _event, clearSelection) => handleBatchAction(action, records, clearSelection)
         "
-      />
+      >
+        <template v-if="listRelationExpansionEnabled" #expandedRow="{ record }">
+          <ModulePageListRelationExpansions
+            :source-context="context"
+            :ui-descriptor="runtimeUiDescriptor!"
+            :record="record"
+            :entries="listRelationExpansions"
+          />
+        </template>
+      </RecordQueryListPanel>
 
       <RecordDetailPanel v-if="!detailSurfaceUsesDrawer" class="module-list-detail-card" :title="detailTitle">
         <template v-if="hasCardAssistantAt('outside', 'top')" #outside-top>
@@ -2351,56 +2379,32 @@ function recordTitle(record: QueryListRecord | undefined) {
         />
         <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
         <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择记录" />
-        <template v-else-if="editingRecord">
-          <template v-if="editorMode === 'view'">
-            <RecordDetailFields
-              :record="editingRecord as RecordFormRecord"
-              :fields="detailDisplayFields"
-              :option-context="context"
-              :file-transfer-context="context"
-              :exclude-field-names="['enabled']"
-            />
-            <RecordDetailExtensionSection
-              v-for="section in enhancementDetailSections"
-              :key="section.key"
-              :title="section.title"
-            >
-              <component :is="section.component" :context="detailSectionContext(editingRecord)" />
-            </RecordDetailExtensionSection>
-          </template>
-          <div v-else class="module-form">
-            <RecordFormFields
-              :record="editingRecord as RecordFormRecord"
-              :fields="formFields"
-              :form-session-key="formSessionKey"
-              :validation-request-key="formValidationRequestKey"
-              :option-context="context"
-              :file-transfer-context="context"
-              :picker-configs="referencePickerConfigs"
-              :disabled="saving"
-              :exclude-field-names="['enabled']"
-              @update:field="updateDraftField"
-              @validity-change="updateMainFormValidity"
-            />
-          </div>
-          <ModulePageDetailRelations
-            v-if="runtimeUiDescriptor && detailRelationsAvailable"
-            :source-context="context"
-            :ui-descriptor="runtimeUiDescriptor"
-            :relations="executableDetailRelations"
-            :parent-record="(editorMode === 'view' ? selectedRecord : editingRecord) as QueryListRecord"
-            :mutation-enabled="editorMode !== 'view'"
-            :reload-key="detailRelationReloadKey"
-            :validation-request-key="formValidationRequestKey"
-            @children-change="updateEmbeddedChildren"
-            @validity-change="updateRelationDraftValidity"
-          />
-          <RecordMetaSection
-            v-if="editorMode !== 'create' && showDetailSystemInfo"
-            :record="editingRecord"
-            show-sort-order
-          />
-        </template>
+        <ModulePageRecordContent
+          v-else-if="editingRecord"
+          :context="context"
+          :mode="editorMode"
+          :record="editingRecord"
+          :selected-record="selectedRecord"
+          :detail-display-fields="detailDisplayFields"
+          :form-fields="formFields"
+          :form-session-key="formSessionKey"
+          :validation-request-key="formValidationRequestKey"
+          :picker-configs="referencePickerConfigs"
+          :saving="saving"
+          :ui-descriptor="runtimeUiDescriptor"
+          :relations="executableDetailRelations"
+          :relations-available="detailRelationsAvailable"
+          :relation-reload-key="detailRelationReloadKey"
+          :show-system-info="showDetailSystemInfo"
+          :extension-sections="enhancementDetailSections"
+          :detail-section-context="detailSectionContext"
+          :form-contributions="formContributions"
+          :form-field-policies="formFieldPolicies"
+          @update:field="updateDraftField"
+          @validity-change="updateMainFormValidity"
+          @children-change="updateEmbeddedChildren"
+          @relations-validity-change="updateRelationDraftValidity"
+        />
         <template v-if="hasCardAssistantAt('inside', 'bottom')" #content-bottom>
           <aside class="module-card-assistant">
             <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
@@ -2666,9 +2670,11 @@ function recordTitle(record: QueryListRecord | undefined) {
     <RecordQueryListPanel
       v-else
       class="module-list"
+      :class="{ 'module-list--relation-expansion': listRelationExpansionEnabled }"
       :context="context"
       :title="title"
       :selected-key="selectedRecord?.id"
+      :expanded-row-keys="expandedListRowKeys"
       :reload-key="reloadKey"
       :standard-crud-actions="true"
       :standard-crud-row-actions="true"
@@ -2694,15 +2700,26 @@ function recordTitle(record: QueryListRecord | undefined) {
       @row-dblclick="openListRecord"
       @action="handleListAction"
       @row-action="handleRowAction"
+      @row-expand="updateListRowExpansion"
       @batch-action="
         (action, records, _event, clearSelection) => handleBatchAction(action, records, clearSelection)
       "
-    />
+    >
+      <template v-if="listRelationExpansionEnabled" #expandedRow="{ record }">
+        <ModulePageListRelationExpansions
+          :source-context="context"
+          :ui-descriptor="runtimeUiDescriptor!"
+          :record="record"
+          :entries="listRelationExpansions"
+        />
+      </template>
+    </RecordQueryListPanel>
 
     <RecordModeDrawer
       v-if="!treeModule && !flatManagementPage && (!listDetailCardPage || detailSurfaceUsesDrawer)"
       :open="detailOpen"
       :title="detailTitle"
+      :container="workspaceElement"
       :width="enhancementDetailDrawer?.width"
       :mode="editorMode"
       :loading="detailLoading"
@@ -2768,59 +2785,61 @@ function recordTitle(record: QueryListRecord | undefined) {
             v-if="enhancementDetailDrawer"
             :context="recordViewContext(editingRecord)"
           />
-          <template v-else>
-            <RecordDetailFields
-              :record="editingRecord as RecordFormRecord"
-              :fields="detailDisplayFields"
-              :option-context="context"
-              :file-transfer-context="context"
-              :exclude-field-names="['enabled']"
-            />
-            <RecordDetailExtensionSection
-              v-for="section in enhancementDetailSections"
-              :key="section.key"
-              :title="section.title"
-            >
-              <component :is="section.component" :context="detailSectionContext(editingRecord)" />
-            </RecordDetailExtensionSection>
-            <ModulePageDetailRelations
-              v-if="runtimeUiDescriptor && detailRelationsAvailable"
-              :source-context="context"
-              :ui-descriptor="runtimeUiDescriptor"
-              :relations="executableDetailRelations"
-              :parent-record="selectedRecord as QueryListRecord"
-              :reload-key="detailRelationReloadKey"
-            />
-          </template>
+          <ModulePageRecordContent
+            v-else
+            :context="context"
+            :mode="editorMode"
+            :record="editingRecord"
+            :selected-record="selectedRecord"
+            :detail-display-fields="detailDisplayFields"
+            :form-fields="formFields"
+            :form-session-key="formSessionKey"
+            :validation-request-key="formValidationRequestKey"
+            :picker-configs="referencePickerConfigs"
+            :saving="saving"
+            :ui-descriptor="runtimeUiDescriptor"
+            :relations="executableDetailRelations"
+            :relations-available="detailRelationsAvailable"
+            :relation-reload-key="detailRelationReloadKey"
+            :show-system-info="showDetailSystemInfo"
+            :extension-sections="enhancementDetailSections"
+            :detail-section-context="detailSectionContext"
+            :form-contributions="formContributions"
+            :form-field-policies="formFieldPolicies"
+            @update:field="updateDraftField"
+            @validity-change="updateMainFormValidity"
+            @children-change="updateEmbeddedChildren"
+            @relations-validity-change="updateRelationDraftValidity"
+          />
         </template>
       </template>
       <template #form>
-        <div v-if="editingRecord" class="module-form">
-          <RecordFormFields
-            :record="editingRecord as RecordFormRecord"
-            :fields="formFields"
-            :form-session-key="formSessionKey"
-            :validation-request-key="formValidationRequestKey"
-            :option-context="context"
-            :file-transfer-context="context"
-            :picker-configs="referencePickerConfigs"
-            :exclude-field-names="['enabled']"
-            @update:field="updateDraftField"
-            @validity-change="updateMainFormValidity"
-          />
-          <ModulePageDetailRelations
-            v-if="runtimeUiDescriptor && detailRelationsAvailable"
-            :source-context="context"
-            :ui-descriptor="runtimeUiDescriptor"
-            :relations="executableDetailRelations"
-            :parent-record="editingRecord as QueryListRecord"
-            mutation-enabled
-            :reload-key="detailRelationReloadKey"
-            :validation-request-key="formValidationRequestKey"
-            @children-change="updateEmbeddedChildren"
-            @validity-change="updateRelationDraftValidity"
-          />
-        </div>
+        <ModulePageRecordContent
+          v-if="editingRecord"
+          :context="context"
+          :mode="editorMode"
+          :record="editingRecord"
+          :selected-record="selectedRecord"
+          :detail-display-fields="detailDisplayFields"
+          :form-fields="formFields"
+          :form-session-key="formSessionKey"
+          :validation-request-key="formValidationRequestKey"
+          :picker-configs="referencePickerConfigs"
+          :saving="saving"
+          :ui-descriptor="runtimeUiDescriptor"
+          :relations="executableDetailRelations"
+          :relations-available="detailRelationsAvailable"
+          :relation-reload-key="detailRelationReloadKey"
+          :show-system-info="showDetailSystemInfo"
+          :extension-sections="enhancementDetailSections"
+          :detail-section-context="detailSectionContext"
+          :form-contributions="formContributions"
+          :form-field-policies="formFieldPolicies"
+          @update:field="updateDraftField"
+          @validity-change="updateMainFormValidity"
+          @children-change="updateEmbeddedChildren"
+          @relations-validity-change="updateRelationDraftValidity"
+        />
       </template>
     </RecordModeDrawer>
 
@@ -2828,6 +2847,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       v-if="enhancementDrawer"
       :open="true"
       :title="enhancementDrawer.definition.title"
+      :container="workspaceElement"
       :width="enhancementDrawer.definition.width"
       @close="closeEnhancementDrawer"
     >
@@ -2877,6 +2897,17 @@ function recordTitle(record: QueryListRecord | undefined) {
 
 .module-list {
   min-width: 0;
+}
+
+/* A row-expanded relation is an extension of the white list surface, not a nested muted card. */
+.module-list--relation-expansion :deep(.ant-table-tbody > tr.ant-table-expanded-row > td) {
+  padding: 0 !important;
+  background: var(--muyun-surface) !important;
+  border-bottom-color: var(--muyun-border-subtle);
+}
+
+.module-list--relation-expansion :deep(.ant-table-tbody > tr.ant-table-expanded-row:hover > td) {
+  background: var(--muyun-surface) !important;
 }
 
 .module-tree-workspace {

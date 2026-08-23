@@ -79,6 +79,19 @@ class ReferenceReadPipelineTest {
         assertThat(records).extracting(item -> item.get("terminalTitle")).containsExactly("终点一", "终点二");
     }
 
+    @Test
+    void shouldWriteNullWhenAReferenceLoadTargetIsUnavailable() {
+        List<Map<String, Object>> records = new ArrayList<>(List.of(record("customerId", "missing-customer")));
+        ReferencePlan plan = ReferencePlan.of("customerId", CUSTOMER, ReferenceCardinality.ONE);
+        ReferenceLoadPath path = new ReferenceLoadPath("customerId", CUSTOMER, List.of(), "title", "customerTitle");
+        ReferenceAbility<?> customer = new FakeReferenceAbility((ids, fields) -> Map.of());
+
+        new ReferenceReadPipeline<Map<String, Object>>(List.of(plan), List.of(path), value -> value,
+                Map::putAll, ignored -> customer).populate(records);
+
+        assertThat(records.getFirst()).containsEntry("customerTitle", null);
+    }
+
     private static Map<String, Object> record(Object... values) {
         Map<String, Object> record = new LinkedHashMap<>();
         for (int index = 0; index < values.length; index += 2) record.put((String) values[index], values[index + 1]);

@@ -55,6 +55,14 @@ class EmployeeServiceContractTest {
     }
 
     @Test
+    void shouldExposeOrganizationNavigatorAsAnExplicitQueryScope() {
+        EmployeeService service = new EmployeeService(mock(EmployeeDao.class), activeTenantVerifier(),
+                organizationService(), departmentService());
+
+        assertThat(service.queryDescriptor().externalCriteriaKeys()).contains("organizationId");
+    }
+
+    @Test
     void shouldExposeRecoverableEmployeeRecycleBinWithoutIrreversiblePurge() {
         EmployeeService service = new EmployeeService(mock(EmployeeDao.class), activeTenantVerifier(),
                 organizationService(), departmentService());

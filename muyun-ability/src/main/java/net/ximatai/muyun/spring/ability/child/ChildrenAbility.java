@@ -20,6 +20,11 @@ public interface ChildrenAbility<P extends EntityContract> extends CrudAbility<P
         return List.copyOf(relations);
     }
 
+    /** Declares aggregate child formulas once for persistence reconciliation and browser-local drafts. */
+    default List<AggregateChildFormulaDefinition> aggregateChildFormulaDefinitions() {
+        return List.of();
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     private ChildRelation<? extends EntityContract, P> autoChildRelation(StaticChildResolver.ChildRule rule) {
         ChildAbility childAbility = PlatformAbilityRuntime.childAbilityResolver()
@@ -28,12 +33,13 @@ public interface ChildrenAbility<P extends EntityContract> extends CrudAbility<P
                         + rule.plan().relationCode() + " -> " + rule.childModel().getName()));
         validateChildModel(rule, childAbility);
         ChildAbility<EntityContract> typedAbility = (ChildAbility<EntityContract>) childAbility;
-        return typedAbility.toChildRelation(
+        return attachFormulaReconcile(typedAbility.toChildRelation(
                 rule.plan(),
                 (child, parentId) -> rule.setParentId(child, parentId),
                 rule::children,
-                rule::populate
-        );
+                rule::populate,
+                rule::parentId
+        ));
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -42,12 +48,13 @@ public interface ChildrenAbility<P extends EntityContract> extends CrudAbility<P
                 requireModelClass("childRelation(...)")
         );
         validateChildModel(rule, childAbility);
-        return childAbility.toChildRelation(
+        return attachFormulaReconcile(childAbility.toChildRelation(
                 rule.plan(),
                 rule::setParentId,
                 rule::children,
-                rule::populate
-        );
+                rule::populate,
+                rule::parentId
+        ));
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -58,12 +65,13 @@ public interface ChildrenAbility<P extends EntityContract> extends CrudAbility<P
                 relationCode
         );
         validateChildModel(rule, childAbility);
-        return childAbility.toChildRelation(
+        return attachFormulaReconcile(childAbility.toChildRelation(
                 rule.plan(),
                 rule::setParentId,
                 rule::children,
-                rule::populate
-        );
+                rule::populate,
+                rule::parentId
+        ));
     }
 
     default void afterChildrenInsert(String id, P parent) {
@@ -157,6 +165,11 @@ public interface ChildrenAbility<P extends EntityContract> extends CrudAbility<P
                 + rule.plan().relationCode()
                 + ", expected " + rule.childModel().getName()
                 + ", actual " + actualChildModel.getName());
+    }
+
+    private <C extends EntityContract> ChildRelation<C, P> attachFormulaReconcile(ChildRelation<C, P> relation) {
+        return relation.beforeSynchronize((relationCode, parent, incoming, existing) ->
+                new ChildFormulaReconciler().reconcile(relationCode, incoming, existing, aggregateChildFormulaDefinitions()));
     }
 
 }

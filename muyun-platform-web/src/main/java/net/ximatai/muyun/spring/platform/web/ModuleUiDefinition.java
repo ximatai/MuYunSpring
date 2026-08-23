@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition;
 
 import java.util.List;
 import java.util.function.Consumer;
@@ -121,7 +122,7 @@ public record ModuleUiDefinition(String moduleAlias,
                                              PageDetailRelationEditingDefinition editing) {
             detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
                     false, true, mutations, parentConstraint, pagination, editing, true, false,
-                    UiRule.constant(Boolean.TRUE)));
+                    List.of(), UiRule.constant(Boolean.TRUE)));
             return this;
         }
 
@@ -131,7 +132,7 @@ public record ModuleUiDefinition(String moduleAlias,
                                                      PageDetailRelationParentConstraintDefinition parentConstraint) {
             detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
                     true, true, null, parentConstraint, PageDetailRelationPaginationDefinition.DEFAULT,
-                    PageDetailRelationEditingDefinition.DEFAULT, true, false, UiRule.constant(Boolean.TRUE)));
+                    PageDetailRelationEditingDefinition.DEFAULT, true, false, List.of(), UiRule.constant(Boolean.TRUE)));
             return this;
         }
 
@@ -144,9 +145,19 @@ public record ModuleUiDefinition(String moduleAlias,
         public Builder aggregateChildRelation(String code, String title, String targetEntityAlias,
                                               String parentBinding, UiRule<Boolean> visible,
                                               boolean recycleBinEnabled) {
+            return aggregateChildRelation(code, title, targetEntityAlias, parentBinding, visible, recycleBinEnabled,
+                    List.of());
+        }
+
+        /** Declares an embedded child collection and its immediate, browser-local row calculations. */
+        public Builder aggregateChildRelation(String code, String title, String targetEntityAlias,
+                                              String parentBinding, UiRule<Boolean> visible,
+                                              boolean recycleBinEnabled,
+                                              List<AggregateChildFormulaDefinition> formComputeRules) {
             detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
                     false, false, null, null, PageDetailRelationPaginationDefinition.unpaged(),
-                    PageDetailRelationEditingDefinition.aggregateInline(recycleBinEnabled), true, true, visible));
+                    PageDetailRelationEditingDefinition.aggregateInline(recycleBinEnabled), true, true,
+                    formComputeRules, visible));
             return this;
         }
 

@@ -31,7 +31,6 @@ export const routePageLoaders = import.meta.glob('/src/views/**/*View.vue', {
 const componentPathByRoute: Record<string, StaticRouteDefinition['componentPath']> = {
   '/platform/dictionary-category': '/src/views/DictionaryManagementView.vue',
   '/platform/menu-scheme': '/src/views/MenuManagementView.vue',
-  '/iam/employee': '/src/views/EmployeeManagementView.vue',
   '/iam/user': '/src/views/UserManagementView.vue',
   '/iam/user/form': '/src/views/UserManagementView.vue',
   '/iam/user/form/:userId': '/src/views/UserManagementView.vue',
