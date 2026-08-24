@@ -481,6 +481,26 @@ it('record form field state preserves a declared multi-reference picker descript
   assert.equal(resolveRecordFormFieldState('tagIds', { fields }).controlType, 'recordMultiPicker');
 });
 
+it('record form field state accepts the standard tree parent picker contract', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'parentId',
+      {
+        ...field('上级字典项', { uiType: 'recordPicker' }),
+        fieldRef: { fieldName: 'parentId' },
+        treeRootTitle: '根字典项',
+        fieldControl: {
+          alias: 'recordPicker',
+          rendererType: 'RECORD_PICKER',
+          valueShape: 'SCALAR',
+        },
+      },
+    ],
+  ]);
+
+  expect(resolveRecordFormFieldState('parentId', { fields }).controlType).toBe('recordPicker');
+});
+
 it('record form field state exposes a full-row layout span from its descriptor', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
     ['remark', { ...field('备注', { uiType: 'textarea' }), columnSpan: 2 }],

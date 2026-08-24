@@ -1170,8 +1170,19 @@ export interface ResolvedModulePageDescriptor {
   explorer?: ResolvedPageExplorerDescriptor;
   navigator?: ResolvedPageNavigatorDescriptor;
   list?: ResolvedPageListDescriptor;
+  /** Declared action-contribution tree rendered as the main TREE_MANAGEMENT resource. */
+  treeResource?: ResolvedPageTreeResourceDescriptor;
   detail: ResolvedPageDetailDescriptor;
   traits: ('STANDARD_CRUD' | 'ENABLED_STATUS' | 'RECYCLE_BIN' | 'RESPONSIVE_DETAIL_SURFACE')[];
+}
+
+export interface ResolvedPageTreeResourceDescriptor {
+  resource: string;
+  scopeNavigatorKey: string;
+  scopeField: string;
+  title: string;
+  emptyDescription: string;
+  createTitle: string;
 }
 
 export interface ResolvedUiActionConfirmationDescriptor {

@@ -450,8 +450,8 @@ describe('ModulePageHost', () => {
 
   it('forwards recycle-bin mode through the standard module runner and clears the active detail', async () => {
     let resolveDetail: ((record: { id: string; title: string }) => void) | undefined;
-    globalThis.fetch = async (input) => {
-      const request = new Request(input);
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
       if (request.url.endsWith('/platform.module/platform.application/context')) {
         return Response.json({
           moduleAlias: 'platform.application',
@@ -1478,8 +1478,9 @@ describe('ModulePageHost', () => {
   });
 
   it('does not open a manageable downstream navigator until its declared incoming scope is selected', async () => {
-    globalThis.fetch = async (input) => {
-      const request = new Request(input);
+    const parentPickerQueryValues: Array<Record<string, unknown> | undefined> = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
       if (request.url.endsWith('/platform.module/demo.tree/context')) {
         return Response.json({
           moduleAlias: 'demo.tree',
@@ -1530,6 +1531,34 @@ describe('ModulePageHost', () => {
             { actionCode: 'update', authorized: true },
             { actionCode: 'delete', authorized: true },
           ],
+          uiDescriptor: {
+            moduleAlias: 'iam.position_category',
+            editorSurfaces: [
+              {
+                key: 'default_form',
+                editor: {
+                  viewCode: 'default_form',
+                  viewKind: 'FORM',
+                  fields: [
+                    {
+                      fieldRef: { fieldName: 'parentId' },
+                      label: '上级分类',
+                      visible: { constant: true },
+                      required: { constant: false },
+                      readOnly: { constant: false },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        });
+      }
+      if (request.url.endsWith('/iam.position_category/navigator/reference/tree/query')) {
+        const body = (await request.json()) as { externalQueryValues?: Record<string, unknown> };
+        parentPickerQueryValues.push(body.externalQueryValues);
+        return Response.json({
+          records: [{ record: { id: 'category-1', title: '技术岗位' }, children: [] }],
         });
       }
       throw new Error(`Unexpected request: ${request.url}`);
@@ -1551,7 +1580,7 @@ describe('ModulePageHost', () => {
           ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
           PageNavigatorExplorer: {
             name: 'PageNavigatorExplorer',
-            props: ['level', 'createDisabled', 'createDisabledReason'],
+            props: ['level', 'ready', 'createDisabled', 'createDisabledReason'],
             emits: ['create', 'select'],
             template: '<section><slot name="editor" /></section>',
           },
@@ -1564,6 +1593,7 @@ describe('ModulePageHost', () => {
     const tenant = explorers.find((explorer) => explorer.props('level').descriptor.key === 'tenant');
     const category = explorers.find((explorer) => explorer.props('level').descriptor.key === 'category');
     expect(category?.props('createDisabled')).toBe(true);
+    expect(category?.props('ready')).toBe(false);
     expect(category?.props('createDisabledReason')).toBe('请先完成上游范围选择');
 
     category?.vm.$emit('create');
@@ -1577,13 +1607,147 @@ describe('ModulePageHost', () => {
     tenant?.vm.$emit('select', { id: 'tenant-1', title: '甲租户' });
     await flushPromises();
     expect(category?.props('createDisabled')).toBe(false);
+    expect(category?.props('ready')).toBe(true);
     category?.vm.$emit('create');
     await flushPromises();
     expect(categoryEditor()?.props('open')).toBe(true);
+    const parentPicker = (
+      categoryEditor()?.props('pickerConfigs') as {
+        parentId?: { loadTree?: () => Promise<unknown> };
+      }
+    ).parentId;
+    await parentPicker?.loadTree?.();
+    expect(parentPickerQueryValues).toContainEqual({ tenantId: 'tenant-1' });
 
     tenant?.vm.$emit('select', { id: 'tenant-2', title: '乙租户' });
     await flushPromises();
     expect(categoryEditor()?.props('open')).toBe(false);
+  });
+
+  it('routes a navigator-scoped main tree through its declared resource endpoint', async () => {
+    const requestedPaths: string[] = [];
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      const path = new URL(request.url).pathname;
+      requestedPaths.push(path);
+      if (path === '/platform.module/platform.dictionary_category/context') {
+        return Response.json({
+          moduleAlias: 'platform.dictionary_category',
+          capabilities: ['TREE'],
+          actions: [
+            'item_create',
+            'item_view',
+            'item_update',
+            'item_delete',
+            'item_query',
+            'item_tree',
+            'item_sort',
+          ].map((actionCode) => ({ actionCode, authorized: true })),
+          uiDescriptor: {
+            schemaVersion: 'module-ui.v6',
+            moduleAlias: 'platform.dictionary_category',
+            page: page({
+              template: 'TREE_MANAGEMENT',
+              navigator: {
+                levels: [
+                  {
+                    key: 'category',
+                    sourceModuleAlias: 'platform.dictionary_category',
+                    kind: 'TREE',
+                    title: '字典类目',
+                  },
+                ],
+                contextBindings: [],
+              },
+              treeResource: {
+                resource: 'item',
+                scopeNavigatorKey: 'category',
+                scopeField: 'categoryId',
+                title: '字典项',
+                emptyDescription: '暂无字典项',
+                createTitle: '新建字典项',
+              },
+            }),
+            editorContributions: [childEditor('item', 'title')],
+          },
+        });
+      }
+      if (path === '/platform.module/platform.dictionary_category/reference-context') {
+        return Response.json({
+          moduleAlias: 'platform.dictionary_category',
+          capabilities: ['TREE'],
+          navigatorSourceCapabilities: ['REFERENCE_TREE'],
+          actions: [],
+        });
+      }
+      if (path === '/platform.dictionary_category/tree-resources/item/category-1/tree') {
+        return Response.json({ records: [] });
+      }
+      if (path === '/platform.dictionary_category/actions/item-1') {
+        return Response.json({
+          recordId: 'item-1',
+          actions: [
+            { actionCode: 'view', available: false, reason: 'category action must not govern an item' },
+            { actionCode: 'item_view', available: true },
+            { actionCode: 'item_update', available: true },
+          ],
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-target' },
+          target: { moduleAlias: 'platform.dictionary_category', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(
+      wrapper
+        .findAllComponents({ name: 'TreeRecordExplorer' })
+        .find((explorer) => explorer.props('context').moduleAlias === 'platform.dictionary_category'),
+    ).toBeUndefined();
+    wrapper
+      .findComponent({ name: 'PageNavigatorExplorer' })
+      .vm.$emit('select', { id: 'category-1', title: '时区' });
+    await flushPromises();
+
+    const tree = wrapper
+      .findAllComponents({ name: 'TreeRecordExplorer' })
+      .find((explorer) => explorer.props('context').moduleAlias === 'platform.dictionary_category');
+    expect(tree).toBeDefined();
+    await (
+      tree!.props('context') as { abilities: { tree: () => { tree: () => Promise<unknown> } } }
+    ).abilities
+      .tree()
+      .tree();
+    const resourceActions = await (
+      tree!.props('context') as {
+        recordActions: (
+          recordId: string,
+        ) => Promise<{ actions: Array<{ actionCode: string; available: boolean }> }>;
+      }
+    ).recordActions('item-1');
+    expect(requestedPaths).toContain('/platform.dictionary_category/tree-resources/item/category-1/tree');
+    expect(requestedPaths).not.toContain('/platform.dictionary_category/tree');
+    expect(resourceActions.actions).toEqual([
+      { actionCode: 'view', available: true },
+      { actionCode: 'update', available: true },
+    ]);
   });
 
   it('rejects business detail drawer enhancements for tree modules instead of silently ignoring them', async () => {

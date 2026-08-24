@@ -126,7 +126,7 @@ export const recordFieldRendererRegistry: readonly RecordFieldRenderer[] = [
   {
     rendererType: 'RECORD_PICKER',
     controlType: 'recordPicker',
-    supports: (field) => field.reference?.cardinality === 'ONE',
+    supports: (field) => field.reference?.cardinality === 'ONE' || isTreeParentPicker(field),
   },
   {
     rendererType: 'RECORD_PICKER',
@@ -144,6 +144,15 @@ export const recordFieldRendererRegistry: readonly RecordFieldRenderer[] = [
     supports: (field) => field.fileReference != null && isSingleImageFileReference(field.fileReference),
   },
 ];
+
+/**
+ * Every tree resource owns a `parentId` relationship.  `treeRootTitle` is the descriptor-level
+ * declaration that this form field uses the standard tree-parent picker; the host provides the
+ * resource-scoped tree client and root sentinel behavior.
+ */
+function isTreeParentPicker(field: RecordFormFieldDescriptor) {
+  return field.fieldRef?.fieldName === 'parentId' && Boolean(field.treeRootTitle);
+}
 
 export interface RecordFormFieldFallback {
   label: string;
@@ -275,9 +284,15 @@ export function resolveRecordFormFields(
  */
 export function resolveRecordDetailFields(
   uiDescriptor: ResolvedModuleUiDescriptor | undefined,
+  resource?: string,
 ): Map<string, RecordFormFieldDescriptor> {
   const detailView =
-    uiDescriptor?.page?.detail.display ?? uiDescriptor?.page?.detail.editor ?? uiDescriptor?.defaultEditor;
+    (resource
+      ? uiDescriptor?.editorContributions?.find((contribution) => contribution.resource === resource)?.editor
+      : undefined) ??
+    uiDescriptor?.page?.detail.display ??
+    uiDescriptor?.page?.detail.editor ??
+    uiDescriptor?.defaultEditor;
   const references = new Map(
     (uiDescriptor?.fileReferences ?? []).map((reference) => [fieldRefKey(reference.fieldRef), reference]),
   );

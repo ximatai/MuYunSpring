@@ -703,12 +703,11 @@ class StaticModuleDefinitionScannerTest {
                             "tree", "sort", "enable", "disable");
             assertThat(byAlias.get("platform.dictionary_category").actions())
                     .extracting(StaticModuleActionDefinition::actionCode)
-                    .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
+                    .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query", "reference",
                             "tree", "sort", "enable", "disable",
                             "item_create", "item_view", "item_update", "item_delete", "item_query",
                             "item_tree", "item_sort", "item_enable", "item_disable");
-            assertThat(byAlias.get("platform.dictionary_category").entryRoute())
-                    .isEqualTo("/platform/dictionary-category");
+            assertThat(byAlias.get("platform.dictionary_category").entryRoute()).isBlank();
             assertThat(byAlias.get("platform.dictionary_category").actions())
                     .filteredOn(action -> action.actionCode().equals("item_query"))
                     .singleElement()
@@ -722,16 +721,40 @@ class StaticModuleDefinitionScannerTest {
             assertThat(byAlias.get("platform.dictionary_category").uiDefinition()).isNotNull();
             ResolvedModuleUiDescriptor dictionaryDescriptor =
                     ModuleUiDescriptorCompiler.compile(byAlias.get("platform.dictionary_category"));
-            assertThat(dictionaryDescriptor.page()).isNull();
-            assertThat(dictionaryDescriptor.defaultEditor())
-                    .satisfies(view -> {
-                        assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
-                        assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
-                                .containsExactly("applicationAlias", "alias", "categoryKind", "title", "enabled");
-                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("categoryKind"))
-                                .singleElement()
-                                .satisfies(field -> assertThat(field.uiType()).isEqualTo("select"));
-                    });
+            assertThat(dictionaryDescriptor.page()).isNotNull();
+            assertThat(dictionaryDescriptor.page().template()).isEqualTo(ModulePageTemplate.TREE_MANAGEMENT);
+            assertThat(dictionaryDescriptor.page().navigator().levels())
+                    .extracting(ResolvedPageNavigatorLevelDescriptor::key,
+                            ResolvedPageNavigatorLevelDescriptor::sourceModuleAlias,
+                            ResolvedPageNavigatorLevelDescriptor::kind)
+                    .containsExactly(
+                            org.assertj.core.groups.Tuple.tuple("application", "platform.application", PageNavigatorKind.MICRO_LIST),
+                            org.assertj.core.groups.Tuple.tuple("category", "platform.dictionary_category", PageNavigatorKind.TREE));
+            assertThat(dictionaryDescriptor.page().navigator().levels())
+                    .filteredOn(level -> level.key().equals("application"))
+                    .singleElement()
+                    .satisfies(level -> assertThat(level.management()).isNull());
+            assertThat(dictionaryDescriptor.page().navigator().levels())
+                    .filteredOn(level -> level.key().equals("category"))
+                    .singleElement()
+                    .satisfies(level -> assertThat(level.management()).isNotNull());
+            assertThat(dictionaryDescriptor.page().treeResource()).isNotNull().satisfies(resource -> {
+                assertThat(resource.resource()).isEqualTo("item");
+                assertThat(resource.scopeNavigatorKey()).isEqualTo("category");
+                assertThat(resource.scopeField()).isEqualTo("categoryId");
+                assertThat(resource.title()).isEqualTo("字典项");
+            });
+            assertThat(dictionaryDescriptor.page().detail().editor()).satisfies(view -> {
+                assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
+                assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
+                        .containsExactly("applicationAlias", "parentId", "alias", "categoryKind", "title", "enabled");
+                assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("categoryKind"))
+                        .singleElement()
+                        .satisfies(field -> {
+                            assertThat(field.uiType()).isEqualTo("select");
+                            assertThat(field.option()).isNotNull();
+                        });
+            });
             assertThat(ModuleUiDescriptorCompiler.compile(byAlias.get("platform.dictionary_category"))
                     .editorContributions())
                     .singleElement()
@@ -745,7 +768,10 @@ class StaticModuleDefinitionScannerTest {
                                 .containsOnly("item");
                         assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("parentId"))
                                 .singleElement()
-                                .satisfies(field -> assertThat(field.uiType()).isEqualTo("recordPicker"));
+                                .satisfies(field -> {
+                                    assertThat(field.uiType()).isEqualTo("recordPicker");
+                                    assertThat(field.treeRootTitle()).isEqualTo("根字典项");
+                                });
                         assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("enabled"))
                                 .singleElement()
                                 .satisfies(field -> assertThat(field.uiType()).isEqualTo("enabledStatus"));

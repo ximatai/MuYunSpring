@@ -3,8 +3,8 @@ package net.ximatai.muyun.spring.platform.web;
 import java.util.function.Consumer;
 
 /** Template-root definition for an optional scope navigator, tree explorer and one record detail surface. */
-public record TreeManagementPageDefinition(PageNavigatorDefinition navigator, PageDetailDefinition detail,
-                                           PageTraitsDefinition traits)
+public record TreeManagementPageDefinition(PageNavigatorDefinition navigator, PageTreeResourceDefinition treeResource,
+                                           PageDetailDefinition detail, PageTraitsDefinition traits)
         implements ModulePageDefinition {
     public TreeManagementPageDefinition {
         traits = traits == null ? new PageTraitsDefinition(null) : traits;
@@ -22,6 +22,7 @@ public record TreeManagementPageDefinition(PageNavigatorDefinition navigator, Pa
 
     public static final class Builder {
         private PageNavigatorDefinition navigator;
+        private PageTreeResourceDefinition treeResource;
         private PageDetailDefinition detail;
         private PageTraitsDefinition traits;
 
@@ -39,6 +40,16 @@ public record TreeManagementPageDefinition(PageNavigatorDefinition navigator, Pa
             return this;
         }
 
+        /** Makes a declared action contribution the page's navigator-scoped main tree. */
+        public Builder treeResource(String resource, String scopeNavigatorKey, String scopeField,
+                                    Consumer<PageTreeResourceDefinition.Builder> customizer) {
+            PageTreeResourceDefinition.Builder builder = new PageTreeResourceDefinition.Builder(
+                    resource, scopeNavigatorKey, scopeField);
+            if (customizer != null) customizer.accept(builder);
+            treeResource = builder.build();
+            return this;
+        }
+
         public Builder traits(Consumer<PageTraitsDefinition.Builder> customizer) {
             PageTraitsDefinition.Builder builder = PageTraitsDefinition.builder();
             if (customizer != null) customizer.accept(builder);
@@ -47,7 +58,7 @@ public record TreeManagementPageDefinition(PageNavigatorDefinition navigator, Pa
         }
 
         public TreeManagementPageDefinition build() {
-            return new TreeManagementPageDefinition(navigator, detail, traits);
+            return new TreeManagementPageDefinition(navigator, treeResource, detail, traits);
         }
     }
 }

@@ -108,6 +108,7 @@ public final class ModuleUiDescriptorCompiler {
                                     staticReferenceSummaryFields(modelClass), fieldTypes(definition.entities()),
                                     FieldControlDescriptorCatalog.standard(), true));
                 }).toList();
+        validateTreeResourceContribution(descriptor.page(), resolvedContributions);
         descriptor = descriptor.withEditorContributions(resolvedContributions);
         List<ResolvedDetailRelationDescriptor> detailRelations = staticDetailRelations(definition, descriptor);
         validateListRelationExpansions(descriptor.page(), detailRelations);
@@ -465,7 +466,7 @@ public final class ModuleUiDescriptorCompiler {
                 }
                 yield new ResolvedModulePageDescriptor(
                     flat.template(), ResolvedPageExplorerDescriptor.from(flat.explorer()),
-                    ResolvedPageNavigatorDescriptor.from(flat.navigator()), null,
+                    ResolvedPageNavigatorDescriptor.from(flat.navigator()), null, null,
                     detail(flat.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                     List.copyOf(flat.traits().values()));
             }
@@ -487,7 +488,7 @@ public final class ModuleUiDescriptorCompiler {
                                         .toList(),
                                 card.list().querySummaries().stream()
                                         .map(ResolvedPageListQuerySummaryDescriptor::from)
-                                        .toList()),
+                                .toList()), null,
                         detail(card.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                         List.copyOf(card.traits().values()));
             }
@@ -495,12 +496,30 @@ public final class ModuleUiDescriptorCompiler {
                 if (tree.navigator() != null) {
                     validateNavigator(tree.navigator(), referenceFields, "page navigator", editorFieldNames(tree.detail()), true);
                 }
+                validateTreeResource(tree.treeResource(), tree.navigator());
                 yield new ResolvedModulePageDescriptor(tree.template(), null,
                         ResolvedPageNavigatorDescriptor.from(tree.navigator()), null,
+                        ResolvedPageTreeResourceDescriptor.from(tree.treeResource()),
                         detail(tree.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                         List.copyOf(tree.traits().values()));
             }
         };
+    }
+
+    private static void validateTreeResource(PageTreeResourceDefinition resource, PageNavigatorDefinition navigator) {
+        if (resource == null) return;
+        if (navigator == null || navigator.levels().stream().noneMatch(level -> level.key().equals(resource.scopeNavigatorKey()))) {
+            throw new IllegalArgumentException("tree resource scope navigator is not declared: " + resource.scopeNavigatorKey());
+        }
+    }
+
+    private static void validateTreeResourceContribution(ResolvedModulePageDescriptor page,
+                                                         List<ResolvedPageDetailEditorContribution> contributions) {
+        if (page == null || page.treeResource() == null) return;
+        String resource = page.treeResource().resource();
+        if (contributions.stream().noneMatch(contribution -> contribution.resource().equals(resource))) {
+            throw new IllegalArgumentException("tree resource requires an editor contribution: " + resource);
+        }
     }
 
     private static void validateListRelationExpansions(ResolvedModulePageDescriptor page,

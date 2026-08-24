@@ -3,6 +3,7 @@ export * from './recycleBin';
 export * from './staticModuleClient';
 export type {
   ModuleActionState,
+  ModuleRecordActionAvailability,
   ModuleRuntimeAction,
   ModuleRuntimeContext,
   ModuleRuntimeContextState,
