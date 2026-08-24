@@ -37,3 +37,15 @@ it('routes every standard card shell through the shared content and form surface
   assert.match(source, /localEditValid: localEditFormValid/);
   assert.match(source, /@validity-change="updateLocalEditFormValidity"/);
 });
+
+it('declares cancellation destinations from the detail entry context', () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
+    'utf8',
+  );
+
+  assert.match(source, /cancelDestination: treeModule\.value \? 'restore-view' : 'close'/);
+  assert.match(source, /function editRecord\([\s\S]*cancelDestination: 'close' \| 'restore-view' = 'close'/);
+  assert.match(source, /@edit="selectedRecord && editRecord\(selectedRecord, 'restore-view'\)"/);
+  assert.match(source, /function cancelDetailEditing\(\)[\s\S]*detail\.cancelEdit\(\);\s*if \(!detailOpen\.value\) return;/);
+});

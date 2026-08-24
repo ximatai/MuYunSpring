@@ -136,6 +136,7 @@ function editRecord() {
 async function cancelEditing() {
   if (saving.value) return;
   detail.cancelEdit();
+  if (!detail.open.value) return;
   const current = record.value;
   const id = current?.id == null ? undefined : String(current.id);
   if (!current || !id) return;

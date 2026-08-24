@@ -100,7 +100,7 @@ import ModulePageRecordContent from './ModulePageRecordContent.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { shouldHideSingleResultNavigator } from './navigatorVisibility';
-import { useRecordDetailController } from './recordDetailController';
+import { type RecordDetailTransitionOptions, useRecordDetailController } from './recordDetailController';
 import { externalPageContextCriteriaKeys, resolvePageContextTargetValues } from './pageContextRuntime';
 import { FormComputeCoordinator } from './formComputeCoordinator';
 import { useModulePageBootstrap } from './composables/useModulePageBootstrap';
@@ -166,8 +166,17 @@ const {
 } = useRecordEditingSession(context, detail, () => {
   detailRelationReloadKey.value += 1;
 });
-function openRecord(record: QueryListRecord, mode: 'edit' | 'view') {
-  return loadRecord(record, mode, mode === 'view' && enhancementDetailDrawer.value?.loadRecord === false);
+function openRecord(
+  record: QueryListRecord,
+  mode: 'edit' | 'view',
+  options: RecordDetailTransitionOptions = {},
+) {
+  return loadRecord(
+    record,
+    mode,
+    options,
+    mode === 'view' && enhancementDetailDrawer.value?.loadRecord === false,
+  );
 }
 const {
   record: selectedRecord,
@@ -1109,7 +1118,7 @@ function handleFlatManagementAction(action: RecordActionItem) {
     return;
   }
   if (action.key === 'edit' && selectedRecord.value) {
-    void editRecord(selectedRecord.value);
+    void editRecord(selectedRecord.value, 'restore-view');
     return;
   }
   if (action.key === 'delete' && selectedRecord.value) {
@@ -1652,12 +1661,12 @@ function createRecord(parentId?: string) {
   if (context.can('create') !== true) return;
   invalidatePendingRequests();
   const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
+  // Only a tree's persistent detail card has a meaningful record to restore.
+  // A list drawer creates an independent draft: cancelling it must close the
+  // drawer rather than reopen the row that happened to be selected.
   detail.beginCreate(
     defaults,
-    // A persistent explorer selection remains meaningful while its create
-    // form is open. Keep it as a return target without exposing it as the
-    // active create record or issuing a second detail request on cancellation.
-    { restoreRecord: selectedRecord.value },
+    { cancelDestination: treeModule.value ? 'restore-view' : 'close' },
   );
   if (editingRecord.value) {
     editingRecord.value = applyFormComputeAfterChanges(
@@ -1677,10 +1686,13 @@ function createChildRecord() {
   if (parentId) createRecord(parentId);
 }
 
-async function editRecord(record: QueryListRecord) {
+async function editRecord(
+  record: QueryListRecord,
+  cancelDestination: 'close' | 'restore-view' = 'close',
+) {
   if (context.can('update') !== true) return;
-  if (selectedRecord.value?.id === record.id && detail.beginEdit()) return;
-  await openRecord(record, 'edit');
+  if (selectedRecord.value?.id === record.id && detail.beginEdit({ cancelDestination })) return;
+  await openRecord(record, 'edit', { cancelDestination });
 }
 
 async function saveRecord() {
@@ -1947,14 +1959,12 @@ function closeDetail() {
   detail.close();
 }
 
-/**
- * Cancelling an edit returns to the already-open record view. Only a create
- * draft has no existing detail to return to, so it closes the detail surface.
- */
+/** Returns to a detail only when the state machine retained that surface. */
 async function cancelDetailEditing() {
   if (saving.value) return;
   invalidatePendingRequests();
   detail.cancelEdit();
+  if (!detailOpen.value) return;
   const record = selectedRecord.value;
   if (record?.id != null) {
     await loadRecord(record, 'view');
@@ -2442,7 +2452,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :configured-actions="detailPageActions"
             @cancel="cancelDetailEditing"
             @save="saveRecord"
-            @edit="selectedRecord && editRecord(selectedRecord)"
+            @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
             @delete="selectedRecord && deleteRecord(selectedRecord)"
             @detail-action="handleDetailAction"
           />
@@ -2661,7 +2671,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               action-code="update"
               :record-id="selectedRecord?.id == null ? undefined : String(selectedRecord.id)"
               :disabled="!selectedRecord"
-              @click="selectedRecord && editRecord(selectedRecord)"
+              @click="selectedRecord && editRecord(selectedRecord, 'restore-view')"
             >
               编辑
             </ModuleActionButton>
@@ -2868,7 +2878,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :show-standard-view-actions="!enhancementDetailDrawer"
           @cancel="cancelDetailEditing"
           @save="saveRecord"
-          @edit="selectedRecord && editRecord(selectedRecord)"
+          @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
           @delete="selectedRecord && deleteRecord(selectedRecord)"
           @detail-action="handleDetailAction"
         />

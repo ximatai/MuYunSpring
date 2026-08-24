@@ -1619,7 +1619,7 @@ defineExpose({ clearSelection, refresh });
 
 .record-query-list-summary-value {
   color: var(--muyun-text);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .record-query-list-actions {
