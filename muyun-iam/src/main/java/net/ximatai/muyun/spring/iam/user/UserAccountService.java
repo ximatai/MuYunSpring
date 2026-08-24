@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
+import net.ximatai.muyun.spring.ability.query.ExternalQueryValueSource;
 import net.ximatai.muyun.spring.ability.query.QueryField;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.ability.query.QueryValueType;
@@ -74,6 +75,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     private final Supplier<DataScopeCriteriaService> dataScopeCriteriaService;
     private final UserSecurityEventPublisher userSecurityEventPublisher;
     private final UserSessionRevocationService userSessionRevocationService;
+    private final UserSessionPresenceService userSessionPresenceService;
     private final SecureRandom secureRandom = new SecureRandom();
     private PlatformInitialAdminSettings initialAdminSettings = PlatformInitialAdminSettings.defaults();
     private static final ActionExecutionPolicy CHANGE_PASSWORD_POLICY = new ActionExecutionPolicy(
@@ -91,7 +93,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                        PasswordHashingService passwordHashingService) {
         this(userAccountDao, activeTenantVerifier, passwordHashingService,
                 null, null, AllowAllDataScopeCriteriaService::new,
-                UserSecurityEventPublisher.NOOP, null);
+                UserSecurityEventPublisher.NOOP, null, null);
     }
 
     @Autowired
@@ -105,7 +107,8 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                 authorizationServices.accountRoleGrantDao(),
                 authorizationServices.dataScopeCriteriaService(),
                 securityServices.securityEventPublisher(),
-                securityServices.sessionRevocationService());
+                securityServices.sessionRevocationService(),
+                securityServices.sessionPresenceService());
     }
 
     private UserAccountService(UserAccountDao userAccountDao,
@@ -115,7 +118,8 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                                AccountRoleGrantDao accountRoleGrantDao,
                                Supplier<DataScopeCriteriaService> dataScopeCriteriaService,
                                UserSecurityEventPublisher userSecurityEventPublisher,
-                               UserSessionRevocationService userSessionRevocationService) {
+                               UserSessionRevocationService userSessionRevocationService,
+                               UserSessionPresenceService userSessionPresenceService) {
         super(MODULE_ALIAS, UserAccount.class, userAccountDao, activeTenantVerifier);
         this.passwordHashingService = passwordHashingService;
         this.passwordPolicyRuleService = passwordPolicyRuleService;
@@ -123,6 +127,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         this.dataScopeCriteriaService = dataScopeCriteriaService;
         this.userSecurityEventPublisher = userSecurityEventPublisher;
         this.userSessionRevocationService = userSessionRevocationService;
+        this.userSessionPresenceService = userSessionPresenceService;
     }
 
     @Autowired
@@ -204,10 +209,22 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                         .withTitle("更新时间")
                         .withSortable())
                 // The tenant navigator owns this scope; it is not an arbitrary client-side filter.
-                .externalCriteria("tenantId", value -> Criteria.of()
+                .externalCriteria("tenantId", QueryValueType.STRING, ExternalQueryValueSource.PAGE_CONTEXT, value -> Criteria.of()
                         .eq("tenantId", Preconditions.requireText(String.valueOf(value), "tenantId")))
+                .externalCriteria("onlineOnly", QueryValueType.BOOLEAN, ExternalQueryValueSource.USER_INPUT,
+                        this::onlineUserCriteria)
                 .defaultSort(net.ximatai.muyun.database.core.orm.Sort.asc("username"))
                 .build();
+    }
+
+    private Criteria onlineUserCriteria(Object value) {
+        if (!Boolean.TRUE.equals(value)) {
+            return Criteria.of();
+        }
+        if (userSessionPresenceService == null) {
+            return Criteria.of().in("id", List.of("__no_active_user__"));
+        }
+        return userSessionPresenceService.activeAccountCriteria();
     }
 
     @Override

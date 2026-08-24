@@ -367,7 +367,9 @@ public class StaticRecordReadProjectionService {
         QueryDescriptor.Builder builder = QueryDescriptor.builder(base.scopeName());
         base.fields().forEach(builder::field);
         for (String key : base.externalCriteriaKeys()) {
-            builder.externalCriteria(key, base.externalCriteriaResolver(key));
+            var criteria = base.externalCriteria(key);
+            builder.externalCriteria(criteria.key(), criteria.valueType(), criteria.valueSource(),
+                    base.externalCriteriaResolver(key));
         }
         for (Sort sort : base.defaultSorts()) {
             builder.defaultSort(sort);

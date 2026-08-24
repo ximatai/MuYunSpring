@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
+import net.ximatai.muyun.spring.ability.query.ExternalQueryValueSource;
 import net.ximatai.muyun.spring.ability.query.QueryField;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.ability.query.QueryValueType;
@@ -289,9 +290,10 @@ public class EmployeeService extends TenantStandardBusinessService<Employee> imp
                         .withTitle("更新时间")
                         .withSortable())
                 // The organization navigator is an explicit list scope, not a client-side filter.
-                .externalCriteria("organizationId", value -> Criteria.of()
+                .externalCriteria("organizationId", QueryValueType.STRING, ExternalQueryValueSource.PAGE_CONTEXT, value -> Criteria.of()
                         .eq("organizationId", requireText(text(value), "organizationId")))
-                .externalCriteria("departmentScope", this::departmentScopeCriteria)
+                .externalCriteria("departmentScope", QueryValueType.JSON, ExternalQueryValueSource.PAGE_CONTEXT,
+                        this::departmentScopeCriteria)
                 .defaultSort(net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"))
                 .defaultSort(net.ximatai.muyun.database.core.orm.Sort.asc("employeeNo"))
                 .build();

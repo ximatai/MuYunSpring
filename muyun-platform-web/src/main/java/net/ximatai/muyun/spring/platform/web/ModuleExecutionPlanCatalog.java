@@ -254,7 +254,8 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
                 : definition.queryDescriptor();
         QueryDescriptor.Builder builder = QueryDescriptor.builder(definition.moduleAlias());
         base.fields().forEach(builder::field);
-        base.externalCriteriaKeys().forEach(key -> builder.externalCriteria(key, base.externalCriteriaResolver(key)));
+        base.externalCriteria().forEach(criteria -> builder.externalCriteria(criteria.key(), criteria.valueType(),
+                criteria.valueSource(), base.externalCriteriaResolver(criteria.key())));
         for (var sort : base.defaultSorts()) builder.defaultSort(sort);
         for (StaticModuleReadProjectionDefinition projection : definition.readProjections()) {
             QueryField field = projection.projectionType() == ModuleReadProjection.ProjectionType.EXISTS

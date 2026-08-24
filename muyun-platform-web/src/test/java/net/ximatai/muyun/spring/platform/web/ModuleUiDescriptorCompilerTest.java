@@ -33,6 +33,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
     @Test
+    void shouldCompilePersistentListQueryControlAsUiState() {
+        ResolvedPageListPersistentQueryControlDescriptor persistentControl = ModuleUiDescriptorCompiler.compile(
+                ModuleUiDefinition.builder("sales.order")
+                        .page(PageTemplates.listDetailCard(page -> page
+                                .list(list -> list.fields(fields -> fields.field("code", field -> { }))
+                                        .persistentQueries(queries -> queries.control("activeOnly", queryControl -> queryControl
+                                                .label("仅启用")
+                                                .uiType(ViewControlType.SWITCH)
+                                                .defaultValue(true))))
+                                .detail(detail -> detail.editor(editor -> editor.field("code", field -> { })))))
+                        .build()).page().list().persistentQueryControls().getFirst();
+
+        assertThat(persistentControl).isEqualTo(new ResolvedPageListPersistentQueryControlDescriptor(
+                "activeOnly", "仅启用", ViewControlType.SWITCH, true));
+    }
+
+    @Test
     void shouldCompileStaticUiTypeToSourceNeutralFieldControlContract() {
         ResolvedViewFieldDescriptor field = ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
                 .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))

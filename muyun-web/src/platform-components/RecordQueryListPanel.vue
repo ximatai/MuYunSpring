@@ -10,6 +10,7 @@ import {
   UiSearchInput,
   UiSelect,
   UiSpin,
+  UiSwitch,
 } from '@muyun/vue-ui-antdv';
 import type {
   UiDataTableColumn,
@@ -24,6 +25,7 @@ import type {
   QueryOperator,
   QuerySchema,
   QuerySchemaField,
+  ResolvedPageListPersistentQueryControlDescriptor,
   ResolvedViewDescriptor,
   ResolvedViewFieldDescriptor,
   WebQueryCondition,
@@ -149,6 +151,8 @@ const props = withDefaults(
     pageable?: boolean;
     ready?: boolean;
     externalQueryValues?: Record<string, unknown>;
+    /** Descriptor-owned controls rendered after quick search and before advanced filtering. */
+    persistentQueryControls?: ResolvedPageListPersistentQueryControlDescriptor[];
     /** Descriptor-owned external criteria that must be exposed by the query schema. */
     requiredExternalCriteriaKeys?: string[];
     quickSearchPlaceholder?: string;
@@ -192,6 +196,7 @@ const props = withDefaults(
     pageable: true,
     ready: true,
     externalQueryValues: undefined,
+    persistentQueryControls: () => [],
     requiredExternalCriteriaKeys: () => [],
     quickSearchPlaceholder: '搜索',
     emptyDescription: '暂无记录',
@@ -242,6 +247,7 @@ const conditionSeq = ref(0);
 const conditionDrafts = ref<ConditionDraft[]>([]);
 const activeConditions = ref<WebQueryCondition[]>([]);
 const selectedRowKeys = ref<UiDataTableKey[]>([]);
+const persistentQueryValues = ref<Record<string, boolean>>({});
 let schemaRequestSeq = 0;
 let recordsRequestSeq = 0;
 
@@ -267,6 +273,10 @@ const queryActionsDisabled = computed(() => !queryReady.value);
 const conditionsDisabled = computed(
   () => !props.queryable || !queryReady.value || queryFields.value.length === 0,
 );
+const effectiveExternalQueryValues = computed(() => ({
+  ...persistentQueryValues.value,
+  ...(props.externalQueryValues ?? {}),
+}));
 const panelActions = computed<RecordActionItem[]>(() => {
   if (props.mode === 'recycleBin') {
     return [];
@@ -380,7 +390,17 @@ watch(
 );
 
 watch(
-  () => props.externalQueryValues,
+  () => props.persistentQueryControls,
+  (controls) => {
+    persistentQueryValues.value = Object.fromEntries(
+      controls.map((control) => [control.externalCriteriaKey, control.defaultValue]),
+    );
+  },
+  { immediate: true },
+);
+
+watch(
+  effectiveExternalQueryValues,
   () => {
     pageNum.value = 1;
     void loadRecords();
@@ -564,10 +584,24 @@ function buildQueryRequest(): WebQueryRequest {
     request.quickSearch = quickSearch;
     request.quickSearchFields = schema.value?.quickSearch.fields ?? [];
   }
-  if (props.externalQueryValues && Object.keys(props.externalQueryValues).length > 0) {
-    request.externalQueryValues = props.externalQueryValues;
+  if (Object.keys(effectiveExternalQueryValues.value).length > 0) {
+    request.externalQueryValues = effectiveExternalQueryValues.value;
   }
   return request;
+}
+
+function persistentQueryValue(control: ResolvedPageListPersistentQueryControlDescriptor) {
+  return persistentQueryValues.value[control.externalCriteriaKey] ?? control.defaultValue;
+}
+
+function updatePersistentQueryValue(
+  control: ResolvedPageListPersistentQueryControlDescriptor,
+  value: boolean,
+) {
+  persistentQueryValues.value = {
+    ...persistentQueryValues.value,
+    [control.externalCriteriaKey]: value,
+  };
 }
 
 function defaultSorts(): WebSort[] {
@@ -1177,6 +1211,18 @@ defineExpose({ clearSelection, refresh });
           @update:value="handleQuickSearchInput"
           @search="submitQuickSearch"
         />
+        <span
+          v-for="control in persistentQueryControls"
+          :key="control.externalCriteriaKey"
+          class="record-query-list-persistent-query-control"
+        >
+          <span>{{ control.title }}</span>
+          <UiSwitch
+            :checked="persistentQueryValue(control)"
+            :disabled="queryActionsDisabled"
+            @change="updatePersistentQueryValue(control, $event)"
+          />
+        </span>
         <UiButton
           v-if="queryable"
           class="record-query-list-advanced"
@@ -1531,6 +1577,16 @@ defineExpose({ clearSelection, refresh });
 
 .record-query-list-search {
   width: clamp(150px, 20vw, 220px);
+}
+
+.record-query-list-persistent-query-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--muyun-text-secondary);
+  font-size: 14px;
+  white-space: nowrap;
 }
 
 :deep(.record-query-list-advanced.is-selected.ant-btn) {

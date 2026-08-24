@@ -15,14 +15,12 @@ it('uses backend application and module aliases for every public static route', 
     '/_platform/workspace',
     '/platform/dictionary-category',
     '/platform/menu-scheme',
-    '/iam/system-user',
     '/iam/role',
     '/iam/role/authorization',
   ]);
   assert.deepEqual(platformAdminModuleRoutes, {
     'platform.dictionary_category': '/platform/dictionary-category',
     'platform.menu_scheme': '/platform/menu-scheme',
-    'iam.system_user': '/iam/system-user',
     'iam.role': '/iam/role',
   });
 });

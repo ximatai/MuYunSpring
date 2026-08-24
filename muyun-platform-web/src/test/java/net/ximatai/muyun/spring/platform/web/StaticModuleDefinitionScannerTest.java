@@ -24,7 +24,6 @@ import net.ximatai.muyun.spring.iam.web.PasswordPolicyRuleWebController;
 import net.ximatai.muyun.spring.iam.web.PositionCategoryWebController;
 import net.ximatai.muyun.spring.iam.web.PositionWebController;
 import net.ximatai.muyun.spring.iam.web.RoleWebController;
-import net.ximatai.muyun.spring.iam.web.SystemUserAccountWebController;
 import net.ximatai.muyun.spring.iam.web.TenantWebController;
 import net.ximatai.muyun.spring.iam.web.UserAccountWebController;
 import net.ximatai.muyun.spring.platform.web.workflow.WorkflowRuntimeAdminWebController;
@@ -265,7 +264,6 @@ class StaticModuleDefinitionScannerTest {
             });
             context.registerBean(LoginWebController.class, () -> new LoginWebController(
                     mock(UserSessionService.class), mock(TenantService.class), mock(CurrentUserProfileService.class)));
-            context.registerBean(SystemUserAccountWebController.class);
             context.registerBean(PasswordPolicyRuleWebController.class,
                     () -> withService(new PasswordPolicyRuleWebController(), mock(PasswordPolicyRuleService.class)));
             context.refresh();
@@ -277,7 +275,7 @@ class StaticModuleDefinitionScannerTest {
 
             assertThat(byAlias.keySet()).containsExactlyInAnyOrder(
                     "iam.tenant", "iam.organization", "iam.department", "iam.employee",
-                    "iam.position_category", "iam.position", "iam.role", "iam.user", "iam.system_user",
+                    "iam.position_category", "iam.position", "iam.role", "iam.user",
                     "iam.password_policy_rule");
             assertThat(byAlias.get("iam.tenant")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
@@ -589,15 +587,6 @@ class StaticModuleDefinitionScannerTest {
                                     .contains("username", "employeeNo", "employeeTitle")
                                     .doesNotContain("onlineStatus");
                         });
-            });
-            assertThat(byAlias.get("iam.system_user")).satisfies(definition -> {
-                assertThat(definition.applicationAlias()).isEqualTo("iam");
-                assertThat(definition.moduleAlias()).isEqualTo("iam.system_user");
-                assertThat(definition.title()).isEqualTo("系统账号管理");
-                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.ROUTE);
-                assertThat(definition.entryRoute()).isEqualTo("/iam/system-user");
-                assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
-                        .containsExactly("menu");
             });
             assertThat(byAlias.get("iam.password_policy_rule")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");

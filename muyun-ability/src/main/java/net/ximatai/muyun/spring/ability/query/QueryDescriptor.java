@@ -14,12 +14,14 @@ import java.util.function.Function;
 public final class QueryDescriptor {
     private final String scopeName;
     private final Map<String, QueryField> fields;
+    private final Map<String, ExternalQueryCriterionDefinition> externalCriteria;
     private final Map<String, Function<Object, Criteria>> externalCriteriaResolvers;
     private final Sort[] defaultSorts;
 
     private QueryDescriptor(Builder builder) {
         this.scopeName = builder.scopeName;
         this.fields = Collections.unmodifiableMap(new LinkedHashMap<>(builder.fields));
+        this.externalCriteria = Collections.unmodifiableMap(new LinkedHashMap<>(builder.externalCriteria));
         this.externalCriteriaResolvers = Collections.unmodifiableMap(new LinkedHashMap<>(builder.externalCriteriaResolvers));
         this.defaultSorts = builder.defaultSorts.toArray(Sort[]::new);
     }
@@ -45,7 +47,15 @@ public final class QueryDescriptor {
     }
 
     public Set<String> externalCriteriaKeys() {
-        return externalCriteriaResolvers.keySet();
+        return externalCriteria.keySet();
+    }
+
+    public List<ExternalQueryCriterionDefinition> externalCriteria() {
+        return List.copyOf(externalCriteria.values());
+    }
+
+    public ExternalQueryCriterionDefinition externalCriteria(String key) {
+        return externalCriteria.get(key);
     }
 
     public Function<Object, Criteria> externalCriteriaResolver(String key) {
@@ -59,6 +69,7 @@ public final class QueryDescriptor {
     public static final class Builder {
         private final String scopeName;
         private final Map<String, QueryField> fields = new LinkedHashMap<>();
+        private final Map<String, ExternalQueryCriterionDefinition> externalCriteria = new LinkedHashMap<>();
         private final Map<String, Function<Object, Criteria>> externalCriteriaResolvers = new LinkedHashMap<>();
         private final List<Sort> defaultSorts = new ArrayList<>();
 
@@ -75,10 +86,19 @@ public final class QueryDescriptor {
         }
 
         public Builder externalCriteria(String key, Function<Object, Criteria> resolver) {
-            if (key == null || key.isBlank()) {
-                throw new IllegalArgumentException("external query key must not be blank");
+            return externalCriteria(key, QueryValueType.JSON, ExternalQueryValueSource.PAGE_CONTEXT, resolver);
+        }
+
+        public Builder externalCriteria(String key,
+                                        QueryValueType valueType,
+                                        ExternalQueryValueSource valueSource,
+                                        Function<Object, Criteria> resolver) {
+            ExternalQueryCriterionDefinition definition = new ExternalQueryCriterionDefinition(key, valueType, valueSource);
+            if (resolver == null) {
+                throw new IllegalArgumentException("external query criteria resolver must not be null");
             }
-            externalCriteriaResolvers.put(key, resolver);
+            externalCriteria.put(definition.key(), definition);
+            externalCriteriaResolvers.put(definition.key(), resolver);
             return this;
         }
 

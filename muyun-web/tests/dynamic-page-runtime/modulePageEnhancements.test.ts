@@ -12,7 +12,6 @@ import { platformModulePageEnhancement } from '@/platform-admin-runtime/platform
 import { passwordPolicyPageEnhancement } from '@/platform-admin-runtime/passwordPolicyPageEnhancement.ts';
 import { tenantModulePageEnhancement } from '@/platform-admin-runtime/tenantModulePageEnhancement.ts';
 import { userModulePageEnhancement } from '@/platform-admin-runtime/userModulePageEnhancement.ts';
-import { systemUserModulePageEnhancement } from '@/platform-admin-runtime/systemUserModulePageEnhancement.ts';
 
 describe('module page enhancements', () => {
   afterEach(() => {
@@ -22,7 +21,6 @@ describe('module page enhancements', () => {
       passwordPolicyPageEnhancement,
       tenantModulePageEnhancement,
       userModulePageEnhancement,
-      systemUserModulePageEnhancement,
     ]);
   });
 

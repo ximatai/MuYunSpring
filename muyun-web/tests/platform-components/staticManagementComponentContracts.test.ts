@@ -297,18 +297,6 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(detailLayoutSource, /overflow: auto/);
   assert.match(pageRealtimeSource, /subscribeAppModuleDataChanges\(options\.moduleAlias\)/);
 
-  const systemUserSource = readSource('src/views/SystemUserManagementView.vue');
-  assert.match(systemUserSource, /usePageRecordExternalChange\(\{\s*moduleAlias: 'iam\.user'/);
-  assert.match(systemUserSource, /:externally-changed="userExternalChange\.externallyChanged\.value"/);
-  assert.match(systemUserSource, /@reload-external-change="reloadExternalUserChange"/);
-  assert.match(systemUserSource, /@dismiss-external-change="userExternalChange\.clearExternalChanged"/);
-  assert.match(
-    systemUserSource,
-    /usePageRecordExternalChange\(\{[\s\S]*recordId: \(\) => selectedUser\.value\?\.id[\s\S]*editing: \(\) => detailMode\.value === 'edit'[\s\S]*saving: \(\) => savingUser\.value/,
-  );
-  assert.match(systemUserSource, /code: platformErrorCodes\.conflictVersion/);
-  assert.match(systemUserSource, /userExternalChange\.markExternalRecordChanged\(record\.id\)/);
-
   const recordPickerSource = readSource('src/platform-components/RecordPicker.vue');
   assert.match(recordPickerSource, /if \(props\.mode === 'list'\)[\s\S]*await loadListRecords\(\)/);
   assert.match(recordPickerSource, /props\.context\.crud\.query/);
@@ -369,15 +357,10 @@ it('page navigator renders levels through the standard module runner', () => {
 });
 
 it('static edit draft normalizers preserve standard record fields', () => {
-  const systemUserSource = readSource('src/views/SystemUserManagementView.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
   const menuStateSource = readSource('src/views/menuManagementState.ts');
   const dictionaryStateSource = readSource('src/views/dictionaryManagementState.ts');
 
-  assert.match(
-    systemUserSource,
-    /function normalizedSystemUserDraft[\s\S]*normalizeRecordDraft<UserAccount>\(draft,/,
-  );
   assert.match(roleSource, /function normalizedRoleDraft[\s\S]*normalizeRecordDraft<Role>\(draft,/);
   assert.match(menuStateSource, /function normalizeSchemeDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(
@@ -465,21 +448,6 @@ it('management workspace consumes the page layout contract for constrained deskt
   assert.notMatch(detailPanelSource, /scrollableContent\?: boolean/);
 });
 
-it('system user management fills the constrained work area and leaves scrolling to its list panel', () => {
-  const systemUserSource = readSource('src/views/SystemUserManagementView.vue');
-  const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
-
-  assert.match(
-    systemUserSource,
-    /\.system-user-management-page \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/,
-  );
-  assert.match(
-    systemUserSource,
-    /@media \(max-width: 980px\) \{[\s\S]*\.system-user-management-page \{[\s\S]*height: auto;[\s\S]*overflow: visible;/,
-  );
-  assert.match(routesSource, /route: '\/iam\/system-user'[\s\S]*layout: 'workspace'/);
-});
-
 it('user management is hosted by the constrained standard module workspace', () => {
   const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
   const enhancementSource = readSource('src/platform-admin-runtime/userModulePageEnhancement.ts');
@@ -487,6 +455,7 @@ it('user management is hosted by the constrained standard module workspace', () 
 
   assert.match(hostSource, /providePageLayout\([\s\S]*\? 'workspace'/);
   assert.match(enhancementSource, /target: \{ moduleAlias: 'iam\.user' \}/);
+  assert.match(hostSource, /persistent-query-controls="persistentListQueryControls"/);
   assert.notMatch(routesSource, /moduleAlias: 'iam\.user'/);
 });
 
@@ -962,96 +931,6 @@ it('user management keeps account basics separate from employment binding and ro
   assert.notMatch(userViewSource, /forceLogout/);
 });
 
-it('system user management is a separate root account entry', () => {
-  const systemUserViewSource = readSource('src/views/SystemUserManagementView.vue');
-  const userSessionRowsSource = readSource('src/views/useUserSessionRows.ts');
-  const userViewSource = readSource('src/views/UserManagementView.vue');
-  const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
-
-  assert.match(routesSource, /moduleAlias: 'iam\.system_user'/);
-  assert.match(routesSource, /route: '\/iam\/system-user'/);
-  assert.match(systemUserViewSource, /defineOptions\(\{ name: 'SystemUserManagementView' \}\)/);
-  assert.match(systemUserViewSource, /moduleAlias: 'iam\.user'/);
-  assert.match(systemUserViewSource, /system-user-management-page/);
-  assert.notMatch(systemUserViewSource, /100vh|100dvh/);
-  assert.match(systemUserViewSource, /<RecordQueryListPanel/);
-  assert.match(systemUserViewSource, /:expanded-row-keys="expandedUserKeys"/);
-  assert.match(systemUserViewSource, /@row-expand="handleUserRowExpand"/);
-  assert.match(systemUserViewSource, /<template #expandedRow="\{ record \}">/);
-  assert.match(systemUserViewSource, /<RecordModeDrawer/);
-  assert.match(systemUserViewSource, /:mode="detailMode"/);
-  assert.match(systemUserViewSource, /:form-modes="\['edit', 'resetPassword'\]"/);
-  assert.match(systemUserViewSource, /:externally-changed="userExternalChange\.externallyChanged\.value"/);
-  assert.match(systemUserViewSource, /@reload-external-change="reloadExternalUserChange"/);
-  assert.match(systemUserViewSource, /@dismiss-external-change="userExternalChange\.clearExternalChanged"/);
-  assert.match(systemUserViewSource, /<template #view>/);
-  assert.match(systemUserViewSource, /<template #form>/);
-  assert.match(systemUserViewSource, /<RecordDetailFields/);
-  assert.match(systemUserViewSource, /<RecordFormFields/);
-  assert.match(systemUserViewSource, /function normalizedSystemUserDraft/);
-  assert.match(systemUserViewSource, /normalizeRecordDraft<UserAccount>\(draft,/);
-  assert.match(systemUserViewSource, /<RecordStatusSwitch/);
-  assert.match(systemUserViewSource, /<RecordActionBar/);
-  assert.match(systemUserViewSource, /fieldName: 'tenantId'/);
-  assert.match(systemUserViewSource, /operator: 'NULL'/);
-  assert.match(systemUserViewSource, /title="系统账号"/);
-  assert.match(systemUserViewSource, /function rowActionsOf/);
-  assert.match(systemUserViewSource, /actionCode: 'view'/);
-  assert.match(systemUserViewSource, /actionCode: 'update'/);
-  assert.match(systemUserViewSource, /actionCode: 'changePassword'/);
-  assert.match(systemUserViewSource, /actionCode: 'resetPassword'/);
-  assert.match(systemUserViewSource, /:record-id="selectedUser\?\.id"/);
-  assert.match(systemUserViewSource, /title: '修改密码'/);
-  assert.match(systemUserViewSource, /title: '重置密码'/);
-  assert.match(systemUserViewSource, /<UserSessionExpandedSubtable/);
-  assert.match(systemUserViewSource, /@revoke="revokeUserSession\(record, \$event\)"/);
-  assert.match(systemUserViewSource, /key: 'onlineStatus'/);
-  assert.match(
-    systemUserViewSource,
-    /useUserSessionRows\(\{ context: userContext, source: 'system-user-management' \}\)/,
-  );
-  assert.match(systemUserViewSource, /usePageBusinessEventHandler\(handleUserSessionBusinessEvent\)/);
-  assert.match(systemUserViewSource, /:cell-renderers="\{ onlineStatus: userOnlineStatusTitle \}"/);
-  assert.match(userSessionRowsSource, /function handleUserListLoaded\(records: Array<\{ id\?: string \}>\)/);
-  assert.match(userSessionRowsSource, /path: '\/iam\.user\/sessions\/status'/);
-  assert.match(userSessionRowsSource, /loadUserSessions/);
-  assert.match(userSessionRowsSource, /loadUserSessionActions/);
-  assert.match(userSessionRowsSource, /options\.context\.recordActions\(userId\)/);
-  assert.match(userSessionRowsSource, /userSessionStates = ref<Record<string, UserSessionState>>/);
-  assert.match(
-    userSessionRowsSource,
-    /function userSessionState\(userId: string \| undefined\): UserSessionState/,
-  );
-  assert.match(systemUserViewSource, /revokeUserSession/);
-  assert.match(systemUserViewSource, /revokeAllUserSessions/);
-  assert.match(systemUserViewSource, /temporaryPassword/);
-  assert.match(
-    systemUserViewSource,
-    /path: `\/iam\.user\/changePassword\/\$\{encodeURIComponent\(user\.id!\)\}`/,
-  );
-  assert.match(
-    systemUserViewSource,
-    /path: `\/iam\.user\/resetPassword\/\$\{encodeURIComponent\(user\.id!\)\}`/,
-  );
-  assert.match(userSessionRowsSource, /path: `\/iam\.user\/\$\{encodeURIComponent\(userId\)\}\/sessions`/);
-  assert.match(systemUserViewSource, /sessions\/\$\{encodeURIComponent\(session\.id\)\}\/revoke`/);
-  assert.match(
-    systemUserViewSource,
-    /path: `\/iam\.user\/\$\{encodeURIComponent\(user\.id!\)\}\/sessions\/revoke`/,
-  );
-  assert.match(systemUserViewSource, /tenantId: undefined/);
-  assert.match(systemUserViewSource, /enabled: \{ label: '允许登录'/);
-  assert.match(systemUserViewSource, /systemUserFormFieldDisabled/);
-  assert.notMatch(systemUserViewSource, /<CrudRecordListExplorer/);
-  assert.notMatch(systemUserViewSource, /<TreeRecordExplorer/);
-  assert.notMatch(systemUserViewSource, /standard-crud-actions/);
-  assert.notMatch(systemUserViewSource, /standard-crud-row-actions/);
-  assert.notMatch(systemUserViewSource, /actionCode: 'create'/);
-  assert.notMatch(systemUserViewSource, /actionCode: 'delete'/);
-  assert.notMatch(systemUserViewSource, /forceLogout/);
-  assert.notMatch(userViewSource, /iam\.system_user/);
-});
-
 it('ordinary management pages do not infer their height from the workbench chrome', () => {
   for (const viewPath of ['src/views/DictionaryManagementView.vue', 'src/views/MenuManagementView.vue']) {
     assert.notMatch(readSource(viewPath), /calc\(100vh|calc\(100dvh/);
@@ -1429,7 +1308,6 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
   ].join('\n');
   const userDetailContentSource = readSource('src/views/UserDetailContent.vue');
   const roleSource = readSource('src/views/RoleManagementView.vue');
-  const systemUserSource = readSource('src/views/SystemUserManagementView.vue');
   const roleAccountGrantSource = readSource('src/views/RoleAccountGrantDrawer.vue');
   const roleEmploymentGrantSource = readSource('src/views/RoleEmploymentGrantDrawer.vue');
 
@@ -1478,8 +1356,6 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
   assert.notMatch(userSource, /userDetailHeaderActions/);
   assert.match(roleSource, /roleDetailOperationActions/);
   assert.notMatch(roleSource, /roleDetailHeaderActions/);
-  assert.match(systemUserSource, /detailOperationActions/);
-  assert.notMatch(systemUserSource, /detailHeaderActions/);
   assert.match(roleAccountGrantSource, /<template #operation>/);
   assert.match(roleEmploymentGrantSource, /<template #operation>/);
 });
@@ -1491,7 +1367,6 @@ it('public management and drawer contracts use business roles instead of layout 
   const standardDrawerSources = [
     readSource('src/views/UserDetailRouteView.vue'),
     readSource('src/views/RoleManagementView.vue'),
-    readSource('src/views/SystemUserManagementView.vue'),
     readSource('src/views/RoleAccountGrantDrawer.vue'),
     readSource('src/views/RoleEmploymentGrantDrawer.vue'),
   ];

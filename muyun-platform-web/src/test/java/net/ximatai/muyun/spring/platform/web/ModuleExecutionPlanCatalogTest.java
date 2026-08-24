@@ -14,6 +14,8 @@ import net.ximatai.muyun.spring.ability.event.RuntimeEvent;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventType;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
+import net.ximatai.muyun.spring.ability.query.ExternalQueryValueSource;
+import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.query.QueryField;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.ability.query.QueryValueType;
@@ -21,12 +23,50 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.database.core.orm.Sort;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
+import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 
 class ModuleExecutionPlanCatalogTest {
+    @Test
+    void shouldValidatePersistentQueryControlsAgainstSourceNeutralQuerySchema() {
+        String alias = "iam.user";
+        ResolvedModuleUiDescriptor uiDescriptor = persistentQueryUi(alias);
+        ResolvedModuleReadModel readModel = new ResolvedModuleReadModel(alias, "user", List.of());
+        QueryDescriptor descriptor = QueryDescriptor.builder(alias)
+                .externalCriteria("onlineOnly", QueryValueType.BOOLEAN, ExternalQueryValueSource.USER_INPUT,
+                        value -> null)
+                .build();
+
+        assertThat(new ModuleExecutionPlan(alias, "static-1", uiDescriptor, readModel, List.of(), descriptor,
+                QuerySchema.from(descriptor), List.of(), List.of(), false).querySchema().externalCriteria())
+                .containsExactly(new QuerySchema.ExternalCriteria("onlineOnly", "BOOLEAN", "USER_INPUT"));
+
+        QuerySchema dynamicSchema = new QuerySchema(alias, "user", null, List.of(),
+                List.of(new QuerySchema.ExternalCriteria("onlineOnly", "BOOLEAN", "USER_INPUT")), List.of());
+        assertThatCode(() -> new ModuleExecutionPlan(alias, "dynamic-1", uiDescriptor, readModel, List.of(),
+                QueryDescriptor.builder(alias).build(), dynamicSchema, List.of(), List.of(), false))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void shouldRejectPersistentQueryControlThatCouldOverridePageContext() {
+        String alias = "iam.user";
+        QueryDescriptor descriptor = QueryDescriptor.builder(alias)
+                .externalCriteria("onlineOnly", QueryValueType.BOOLEAN, ExternalQueryValueSource.USER_INPUT,
+                        value -> null)
+                .build();
+
+        assertThatThrownBy(() -> new ModuleExecutionPlan(alias, "static-1", persistentQueryUi(alias),
+                new ResolvedModuleReadModel(alias, "user", List.of()),
+                List.of(PageContextBindingDefinition.navigator("tenant", PageContextTarget.LIST_QUERY, "onlineOnly")),
+                descriptor, QuerySchema.from(descriptor), List.of(), List.of(), false))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must not override page context criteria");
+    }
     @Test
     void shouldCompileStaticDefinitionOnceIntoCachedExecutionFacts() {
         ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(
@@ -193,6 +233,16 @@ class ModuleExecutionPlanCatalogTest {
     private static RuntimeEvent event(String moduleAlias, RuntimeEventType type) {
         return RuntimeEvent.of(type, moduleAlias, null, null, null, null, true, "test",
                 RuntimeMutationSource.SYSTEM, java.util.Map.of());
+    }
+
+    private static ResolvedModuleUiDescriptor persistentQueryUi(String moduleAlias) {
+        return ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder(moduleAlias)
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("username", field -> { }))
+                                .persistentQueries(queries -> queries.control("onlineOnly", control -> control
+                                        .label("仅在线").uiType(ViewControlType.SWITCH).defaultValue(false))))
+                        .detail(detail -> detail.editor(editor -> editor.field("username", field -> { })))))
+                .build());
     }
 
     private static StaticModuleDefinition module(String alias, String field) {

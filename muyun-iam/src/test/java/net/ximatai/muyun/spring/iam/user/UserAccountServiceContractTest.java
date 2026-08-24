@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
+import net.ximatai.muyun.spring.ability.query.QueryRequest;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
@@ -70,10 +71,25 @@ class UserAccountServiceContractTest {
                 .doesNotContain("organizationId", "title", "mobile", "email", "sortOrder");
         assertThat(field(schema, "tenantId").operators())
                 .containsExactly(QueryOperator.EQ, QueryOperator.IN, QueryOperator.NULL);
-        assertThat(service.queryDescriptor().externalCriteriaKeys()).containsExactly("tenantId");
+        assertThat(service.queryDescriptor().externalCriteriaKeys()).containsExactly("tenantId", "onlineOnly");
         assertThat(schema.quickSearch().fields()).containsExactly("username");
         assertThat(schema.defaultSorts()).extracting(QuerySchema.DefaultSort::field)
                 .containsExactly("username");
+    }
+
+    @Test
+    void shouldApplyOnlineOnlyAsAnExplicitServerSideQueryConstraint() {
+        UserSessionPresenceService presenceService = mock(UserSessionPresenceService.class);
+        when(presenceService.activeAccountCriteria()).thenReturn(Criteria.of().eq("id", "user-1"));
+        UserAccountService service = userAccountServiceFixture(mock(UserAccountDao.class), tenantId -> {
+                }, passwordHashingService).sessionPresence(presenceService).build();
+        QueryRequest request = new QueryRequest(
+                List.of(), null, java.util.Map.of(), List.of(), null, null,
+                java.util.Map.of("onlineOnly", Boolean.TRUE), null, List.of(), false, null);
+
+        assertThat(service.queryCriteria(request)).isNotNull();
+
+        verify(presenceService).activeAccountCriteria();
     }
 
     @Test
@@ -595,6 +611,7 @@ class UserAccountServiceContractTest {
         private AccountRoleGrantDao accountRoleGrantDao = mock(AccountRoleGrantDao.class);
         private UserSecurityEventPublisher securityEventPublisher = UserSecurityEventPublisher.NOOP;
         private UserSessionRevocationService sessionRevocationService = mock(UserSessionRevocationService.class);
+        private UserSessionPresenceService sessionPresenceService = mock(UserSessionPresenceService.class);
 
         private UserAccountServiceFixture(
                 UserAccountDao dao,
@@ -630,6 +647,11 @@ class UserAccountServiceContractTest {
             return this;
         }
 
+        UserAccountServiceFixture sessionPresence(UserSessionPresenceService value) {
+            sessionPresenceService = value;
+            return this;
+        }
+
         UserAccountService build() {
             return new UserAccountService(
                     dao,
@@ -637,7 +659,7 @@ class UserAccountServiceContractTest {
                     passwordHashingService,
                     new UserAccountAuthorizationServices(() -> dataScopeCriteriaService, accountRoleGrantDao),
                     new UserAccountSecurityServices(Optional.ofNullable(passwordPolicyRuleService),
-                            securityEventPublisher, sessionRevocationService));
+                            securityEventPublisher, sessionRevocationService, sessionPresenceService));
         }
     }
 

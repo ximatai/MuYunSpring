@@ -1118,6 +1118,15 @@ export interface ResolvedPageListDescriptor {
   fields: ResolvedViewDescriptor;
   /** Read-only placements of declared aggregate relations beneath an expanded list row. */
   relationExpansions?: ResolvedPageListRelationExpansionDescriptor[];
+  persistentQueryControls?: ResolvedPageListPersistentQueryControlDescriptor[];
+}
+
+/** A persistent boolean query control rendered after search and before advanced filtering. */
+export interface ResolvedPageListPersistentQueryControlDescriptor {
+  externalCriteriaKey: string;
+  title: string;
+  uiType: 'SWITCH';
+  defaultValue: boolean;
 }
 
 export interface ResolvedPageListRelationExpansionDescriptor {

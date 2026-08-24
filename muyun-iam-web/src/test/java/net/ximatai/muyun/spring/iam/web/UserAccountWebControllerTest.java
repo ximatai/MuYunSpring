@@ -172,34 +172,6 @@ class UserAccountWebControllerTest {
     }
 
     @Test
-    void shouldRejectTenantUserBindingFromSystemUserMenuEntry() throws Exception {
-        UserAccountService userAccountService = mock(UserAccountService.class);
-        EmployeeAccountService employeeAccountService = mock(EmployeeAccountService.class);
-        EmployeeService employeeService = mock(EmployeeService.class);
-        MenuService menuService = mock(MenuService.class);
-        UserAccountWebController controller = new UserAccountWebController(null, provider(employeeAccountService),
-                provider(employeeService), null);
-        ReflectionTestUtils.setField(controller, "service", userAccountService);
-        UserAccount tenantUser = user("tenant-user", "alice", "tenant-a");
-        when(userAccountService.select("tenant-user")).thenReturn(tenantUser);
-        Menu menu = new Menu();
-        menu.setId(UserAccountWebController.SYSTEM_USER_MENU_ID);
-        menu.setModuleAlias(UserAccountService.MODULE_ALIAS);
-        when(menuService.currentUserVisibleMenu(UserAccountWebController.SYSTEM_USER_MENU_ID)).thenReturn(menu);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new PlatformWebExceptionHandler())
-                .addInterceptors(new MenuEntryRequestInterceptor(menuService))
-                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(CurrentUser.systemUser("admin", "Admin"))))
-                .build();
-
-        mvc.perform(get("/iam.user/tenant-user/employee-binding")
-                        .header(MenuEntryRequestContext.HEADER_NAME, UserAccountWebController.SYSTEM_USER_MENU_ID))
-                .andExpect(status().isForbidden());
-
-        verify(employeeAccountService, never()).accountOfUser("tenant-user");
-    }
-
-    @Test
     void shouldReportNotFoundWhenTenantUserReadsSystemAccount() throws Exception {
         UserAccountService userAccountService = mock(UserAccountService.class);
         UserAccountWebController controller = new UserAccountWebController();

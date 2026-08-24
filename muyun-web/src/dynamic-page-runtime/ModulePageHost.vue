@@ -584,6 +584,9 @@ const enhancementBatchActions = computed<ModulePageBatchActionContribution[]>(
   () => pageEnhancement.value?.list?.batchActions ?? [],
 );
 const enhancementRowExpansion = computed(() => pageEnhancement.value?.list?.rowExpansion);
+const persistentListQueryControls = computed(
+  () => runtimePage.value?.list?.persistentQueryControls ?? [],
+);
 const listRowExpansionEnabled = computed(
   () => descriptorRelationExpansionEnabled.value || enhancementRowExpansion.value !== undefined,
 );
@@ -2365,6 +2368,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         :page-size="listPageSize"
         :ready="pageReady && navigatorListScopeReady"
         :external-query-values="navigatorListQueryValues"
+        :persistent-query-controls="persistentListQueryControls"
         :required-external-criteria-keys="navigatorListCriteriaKeys"
         :mode="listMode"
         :quick-search-placeholder="listSearchPlaceholder"
@@ -2775,6 +2779,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       :page-size="listPageSize"
       :ready="pageReady && navigatorListScopeReady"
       :mode="listMode"
+      :persistent-query-controls="persistentListQueryControls"
       :quick-search-placeholder="listSearchPlaceholder"
       :empty-description="listEmptyDescription"
       @loaded="handleLoaded"

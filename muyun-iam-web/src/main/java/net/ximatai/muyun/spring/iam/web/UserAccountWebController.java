@@ -22,13 +22,12 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
-import net.ximatai.muyun.spring.platform.web.ModulePageEntryPolicy;
-import net.ximatai.muyun.spring.platform.web.MenuEntryRequestContext;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
+import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
@@ -41,7 +40,6 @@ import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
-import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.iam.employee.Employee;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccount;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
@@ -77,7 +75,6 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
         CrudWeb<UserAccount, UserAccountService>,
         MutationTenantScopeResolver<UserAccount>,
         StaticModuleUiContributor {
-    public static final String SYSTEM_USER_MENU_ID = "platform.menu.iam.system-user";
     private static final ActionExecutionPolicy USER_SELECTOR_POLICY = new ActionExecutionPolicy(
             "userSelector",
             PlatformActionLevel.LIST,
@@ -146,11 +143,6 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     }
 
     @Override
-    public ModulePageEntryPolicy<UserAccount> modulePageEntryPolicy() {
-        return SystemUserPageEntryPolicy.INSTANCE;
-    }
-
-    @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(UserAccountService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page
@@ -168,7 +160,11 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                         .field("passwordStatus", field -> field.label("密码状态").width("120px"))
                         .field("employeeNo", field -> field.label("职员工号").width("150px"))
                         .field("employeeTitle", field -> field.label("职员姓名").width("150px"))
-                        .field("lastLoginAt", field -> field.label("最后登录时间").width("180px"))))
+                        .field("lastLoginAt", field -> field.label("最后登录时间").width("180px")))
+                .persistentQueries(queries -> queries.control("onlineOnly", control -> control
+                        .label("仅在线")
+                        .uiType(ViewControlType.SWITCH)
+                        .defaultValue(false))))
                 .detail(detail -> detail.editor(form -> form
                         .title("用户账号")
                         .field("username", field -> field.label("账号").required())
@@ -336,36 +332,6 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     @Override
     public Optional<String> tenantIdForExistingRecord(String id) {
         return tenantIdForUser(service().select(id));
-    }
-
-    private enum SystemUserPageEntryPolicy implements ModulePageEntryPolicy<UserAccount> {
-        INSTANCE;
-
-        @Override
-        public boolean supports(MenuEntryRequestContext entry) {
-            return SYSTEM_USER_MENU_ID.equals(entry.menuId());
-        }
-
-        @Override
-        public void appendQueryCriteria(MenuEntryRequestContext entry, Criteria criteria) {
-            criteria.isNull(StandardEntitySchema.TENANT_ID_FIELD);
-        }
-
-        @Override
-        public void requireAction(MenuEntryRequestContext entry, PlatformAction action) {
-            if (action == PlatformAction.CREATE) {
-                throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException(
-                        "System user entry does not allow creating accounts");
-            }
-        }
-
-        @Override
-        public void requireRecord(MenuEntryRequestContext entry, PlatformAction action, UserAccount record) {
-            if (record == null || record.getTenantId() != null) {
-                throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException(
-                        "System user entry can only access system-scope accounts");
-            }
-        }
     }
 
     @PostMapping("/selector/query")

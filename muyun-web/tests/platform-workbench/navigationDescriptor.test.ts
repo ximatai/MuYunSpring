@@ -222,24 +222,6 @@ it('role management is a constrained workspace page', () => {
   assert.equal(descriptor.layout, 'workspace');
 });
 
-it('system user management is a constrained workspace page', () => {
-  const descriptor = resolvePageDescriptor(
-    {
-      menuId: 'system-users',
-      menuType: 'route',
-      openMode: 'tab',
-      route: '/iam/system-users',
-      moduleAlias: 'iam.system_user',
-    },
-    {
-      businessRoutePrefixes: ['/iam/system-users'],
-      businessRouteLayouts: { '/iam/system-users': 'workspace' },
-    },
-  );
-
-  assert.equal(descriptor.layout, 'workspace');
-});
-
 it('user management is a constrained workspace page', () => {
   const descriptor = resolvePageDescriptor(
     {
