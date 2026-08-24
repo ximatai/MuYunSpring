@@ -1,8 +1,8 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
-import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
+import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 
 import java.util.List;
@@ -120,6 +120,7 @@ public record ModuleExecutionPlan(String moduleAlias,
             throw new IllegalArgumentException("module execution query scope must match module alias: " + moduleAlias);
         }
         querySchema = querySchema == null ? QuerySchema.from(queryDescriptor) : querySchema;
+        validatePersistentQueryControls(moduleAlias, uiDescriptor, querySchema, pageContextBindings);
         queryTemplateIds = queryTemplateIds == null ? List.of() : queryTemplateIds.stream()
                 .filter(id -> id != null && !id.isBlank()).map(String::trim).distinct().toList();
         queryTemplates = queryTemplates == null ? List.of() : List.copyOf(queryTemplates);
@@ -141,5 +142,33 @@ public record ModuleExecutionPlan(String moduleAlias,
                         Map.Entry::getKey,
                         entry -> entry.getValue() == null ? Map.of() : Map.copyOf(entry.getValue())
                 ));
+    }
+
+    private static void validatePersistentQueryControls(String moduleAlias,
+                                                        ResolvedModuleUiDescriptor uiDescriptor,
+                                                        QuerySchema querySchema,
+                                                        List<PageContextBindingDefinition> pageContextBindings) {
+        if (uiDescriptor.page() == null || uiDescriptor.page().list() == null) {
+            return;
+        }
+        for (ResolvedPageListPersistentQueryControlDescriptor control
+                : uiDescriptor.page().list().persistentQueryControls()) {
+            QuerySchema.ExternalCriteria criterion = querySchema.externalCriteria().stream()
+                    .filter(item -> control.externalCriteriaKey().equals(item.key()))
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                            "persistent query control requires declared external criteria: "
+                                    + moduleAlias + "." + control.externalCriteriaKey()));
+            if (!"BOOLEAN".equals(criterion.valueType()) || !"USER_INPUT".equals(criterion.providedBy())) {
+                throw new IllegalArgumentException("persistent query control requires BOOLEAN USER_INPUT criteria: "
+                        + moduleAlias + "." + control.externalCriteriaKey());
+            }
+            boolean conflictsWithPageContext = pageContextBindings.stream()
+                    .filter(binding -> binding.target() == PageContextTarget.LIST_QUERY)
+                    .anyMatch(binding -> control.externalCriteriaKey().equals(binding.targetKey()));
+            if (conflictsWithPageContext) {
+                throw new IllegalArgumentException("persistent query control must not override page context criteria: "
+                        + moduleAlias + "." + control.externalCriteriaKey());
+            }
+        }
     }
 }

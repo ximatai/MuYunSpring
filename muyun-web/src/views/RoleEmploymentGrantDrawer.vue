@@ -173,7 +173,7 @@ function selectedEmploymentDescription(employment: EmploymentSelectorItem) {
   <RecordDetailDrawer
     :open="open"
     :title="title"
-    :container="container"
+    :render-mode="container ? 'inline' : 'portal'"
     close-title="关闭"
     @close="!saving && emit('close')"
   >

@@ -1396,7 +1396,7 @@ function parseRoleIds(value: unknown) {
       v-if="shouldRenderRoleDetailDrawer"
       :open="roleDetailOpen"
       :title="roleDetailTitle"
-      :container="pageRoot"
+      render-mode="inline"
       :subtitle="roleDetailSubtitle"
       :close-on-outside="roleDetailMode === 'view'"
       :promotion="roleDetailPromotion"

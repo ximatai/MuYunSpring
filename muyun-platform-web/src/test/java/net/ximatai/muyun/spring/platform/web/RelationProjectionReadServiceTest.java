@@ -5,6 +5,9 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefini
 import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.AggregateOperation;
+import net.ximatai.muyun.database.core.orm.AggregateQuery;
+import net.ximatai.muyun.database.core.orm.AggregateSelection;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -37,6 +40,26 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class RelationProjectionReadServiceTest {
+    @Test
+    void shouldAggregateTheSameRelationProjectionQueryScope() {
+        NamedParameterJdbcOperations jdbcOperations = mock(NamedParameterJdbcOperations.class);
+        RelationProjectionReadService service = new RelationProjectionReadService(
+                new RelationProjectionQueryExecutor(jdbcOperations), new RelationProjectionDatabaseTypeProvider());
+        StaticModuleDefinition definition = userRelationDefinition();
+        when(jdbcOperations.queryForList(any(String.class), any(Map.class)))
+                .thenReturn(List.of(Map.of("g0", "ACTIVE", "a0", 3L)));
+
+        List<Map<String, Object>> rows = service.aggregateList(List.of(definition), definition,
+                defaultListProjection(definition), Criteria.of().eq("tenantId", "tenant_a"),
+                AggregateQuery.groupBy(List.of("passwordStatus"), List.of(AggregateSelection.count("count"))))
+                .orElseThrow();
+
+        assertThat(rows).containsExactly(Map.of("passwordStatus", "ACTIVE", "count", 3L));
+        ArgumentCaptor<String> sql = ArgumentCaptor.captor();
+        org.mockito.Mockito.verify(jdbcOperations).queryForList(sql.capture(), any(Map.class));
+        assertThat(sql.getValue()).contains("COUNT(*) AS a0", "group by \"passwordStatus\"", "\"tenantId\" = :p0");
+    }
+
     @Test
     void shouldQueryRelationProjectionWithCriteriaSortFieldsAndResponseBoundary() {
         NamedParameterJdbcOperations jdbcOperations = mock(NamedParameterJdbcOperations.class);

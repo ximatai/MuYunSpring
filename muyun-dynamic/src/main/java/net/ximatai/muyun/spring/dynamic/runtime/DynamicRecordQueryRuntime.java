@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.AggregateQuery;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -21,6 +22,7 @@ import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -108,6 +110,12 @@ final class DynamicRecordQueryRuntime {
     long count(String moduleAlias, String entityAlias, Criteria criteria) {
         return withScope(moduleAlias, PlatformAction.QUERY.executionPolicy(), criteria,
                 scoped -> entityService(moduleAlias, entityAlias).count(scoped));
+    }
+
+    List<Map<String, Object>> aggregate(String moduleAlias, String entityAlias, Criteria criteria,
+                                        AggregateQuery query) {
+        return withScope(moduleAlias, PlatformAction.QUERY.executionPolicy(), criteria,
+                scoped -> entityService(moduleAlias, entityAlias).aggregate(scoped, query));
     }
 
     List<DynamicRecord> sortedList(String moduleAlias, String entityAlias, Criteria criteria) {

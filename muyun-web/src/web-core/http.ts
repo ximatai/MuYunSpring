@@ -23,6 +23,33 @@ export interface HttpClient {
 }
 
 /**
+ * Narrows an existing client to one trusted request context without teaching
+ * module clients about a particular page, menu, or business domain.
+ */
+export function withHttpHeaders(
+  client: HttpClient,
+  headers: Record<string, string | undefined>,
+  appliesTo?: (request: HttpRequestOptions) => boolean,
+): HttpClient {
+  const fixedHeaders: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (typeof value === 'string' && value.trim().length > 0) fixedHeaders[key] = value;
+  }
+  if (Object.keys(fixedHeaders).length === 0) return client;
+  return {
+    request<T>(options: HttpRequestOptions) {
+      if (appliesTo && !appliesTo(options)) {
+        return client.request<T>(options);
+      }
+      return client.request<T>({
+        ...options,
+        headers: { ...options.headers, ...fixedHeaders },
+      });
+    },
+  };
+}
+
+/**
  * Optional capability implemented by HTTP clients that can open a response body
  * as a stream. Keeping it separate preserves compatibility with application
  * supplied clients that only implement ordinary JSON requests.

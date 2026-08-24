@@ -119,6 +119,48 @@ describe('RecordQueryListPanel', () => {
     expect(requests.at(-1)?.externalQueryValues).toEqual({ tenantId: 'tenant-b' });
   });
 
+  it('applies persistent query controls immediately through the standard query request', async () => {
+    const requests: WebQueryRequest[] = [];
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1' }, requests),
+        title: '备注',
+        persistentQueryControls: [
+          { externalCriteriaKey: 'onlineOnly', title: '仅在线', uiType: 'SWITCH', defaultValue: false },
+        ],
+      },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]?.externalQueryValues).toEqual({ onlineOnly: false });
+    const search = wrapper.find('.record-query-list-search').element;
+    const control = wrapper.find('.record-query-list-persistent-query-control').element;
+    const advanced = wrapper.find('.record-query-list-advanced').element;
+    expect(search.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(control.compareDocumentPosition(advanced) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+
+    wrapper.findComponent({ name: 'UiCheckbox' }).vm.$emit('change', true);
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests.at(-1)?.externalQueryValues).toEqual({ onlineOnly: true });
+  });
+
+  it('keeps an embedding-owned external value authoritative if an invalid descriptor key collides', async () => {
+    const requests: WebQueryRequest[] = [];
+    shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1' }, requests),
+        title: '备注',
+        externalQueryValues: { tenantId: 'tenant-a' },
+        persistentQueryControls: [
+          { externalCriteriaKey: 'tenantId', title: '无效配置', uiType: 'SWITCH', defaultValue: false },
+        ],
+      },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]?.externalQueryValues).toEqual({ tenantId: 'tenant-a' });
+  });
+
   it('loads the signed list projection when a required navigator scope becomes ready', async () => {
     const requests: WebQueryRequest[] = [];
     const context = createContext({ id: 'position-1', code: '001', title: 'Java' }, requests);

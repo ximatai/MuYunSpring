@@ -53,7 +53,7 @@ final class StaticModuleWebWireValues {
                 .map(record -> adapt(record, fieldTypes, objectMapper))
                 .toList();
         return new WebPageResponse<>(records, response.total(), response.pageNum(), response.pageSize(),
-                response.pages(), response.totalKnown(), response.navigation());
+                response.pages(), response.totalKnown(), response.navigation(), response.summaries());
     }
 
     private static boolean isLosslessNumeric(FieldValueType fieldType) {

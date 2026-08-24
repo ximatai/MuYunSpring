@@ -9,7 +9,6 @@ const DictionaryManagementView = defineAsyncComponent(() => import('../views/Dic
 const MenuManagementView = defineAsyncComponent(() => import('../views/MenuManagementView.vue'));
 const RoleManagementView = defineAsyncComponent(() => import('../views/RoleManagementView.vue'));
 const RoleAuthorizationView = defineAsyncComponent(() => import('../views/RoleAuthorizationView.vue'));
-const SystemUserManagementView = defineAsyncComponent(() => import('../views/SystemUserManagementView.vue'));
 
 export interface PlatformAdminRoute {
   route: string;
@@ -32,12 +31,6 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
     route: '/platform/menu-scheme',
     moduleAlias: 'platform.menu_scheme',
     component: MenuManagementView,
-    layout: 'workspace',
-  },
-  {
-    route: '/iam/system-user',
-    moduleAlias: 'iam.system_user',
-    component: SystemUserManagementView,
     layout: 'workspace',
   },
   {

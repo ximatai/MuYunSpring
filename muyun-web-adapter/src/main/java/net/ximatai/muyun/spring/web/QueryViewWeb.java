@@ -80,7 +80,12 @@ public interface QueryViewWeb<T extends EntityContract, S extends CrudAbility<T>
     @GetMapping("/view/{id}")
     @ActionEndpoint(PlatformAction.VIEW)
     default T view(@PathVariable String id) {
-        return webScope(() -> WebOutputSupport.record(
-                service(), service().select(id), FieldOutputContext.VIEW));
+        return webScope(() -> {
+            T record = service() instanceof DataScopeAbility<?>
+                    ? DataScopeAbility.<T>cast(service()).selectForAction(PlatformAction.VIEW, id)
+                    : service().select(id);
+            return WebOutputSupport.record(service(),
+                    RecordReadSupport.requireVisible(webScopeName(), id, record), FieldOutputContext.VIEW);
+        });
     }
 }

@@ -44,7 +44,6 @@ class DynamicOpenApiGeneratorTest {
                 .contains(
                         "/sales.contract/describe",
                         "/sales.contract/query",
-                        "/sales.contract/query/summary",
                         "/sales.contract/view/{id}",
                         "/sales.contract/tasks/definitions",
                         "/sales.contract/view/{id}/attachments/query",
@@ -102,14 +101,6 @@ class DynamicOpenApiGeneratorTest {
                     assertThat(operation.actionCode()).isEqualTo(PlatformAction.EXPORT.code());
                     assertThat(operation.requestSchema()).isEqualTo("DynamicSelectedExportRequest");
                     assertThat(operation.responseSchema()).isEqualTo("BinaryFile");
-                });
-        assertThat(document.operations().stream()
-                .filter(operation -> operation.path().equals("/sales.contract/query/summary")))
-                .singleElement()
-                .satisfies(operation -> {
-                    assertThat(operation.actionCode()).isEqualTo(PlatformAction.QUERY.code());
-                    assertThat(operation.requestSchema()).isEqualTo("WebQueryRequest");
-                    assertThat(operation.responseSchema()).isEqualTo("DynamicSummaryItemList");
                 });
         assertThat(document.operations().stream()
                 .filter(operation -> operation.path().equals("/sales.contract/submit/{recordId}"))

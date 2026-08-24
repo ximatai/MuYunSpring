@@ -34,7 +34,13 @@ const rootStyle = computed<CSSProperties>(() =>
 
 const emit = defineEmits<{
   close: [];
+  /** The panel transition has finished and its slot content may be released. */
+  afterClose: [];
 }>();
+
+function handleAfterVisibleChange(visible: boolean) {
+  if (!visible) emit('afterClose');
+}
 </script>
 
 <template>
@@ -54,6 +60,7 @@ const emit = defineEmits<{
     :class="$attrs.class"
     :style="$attrs.style"
     @close="emit('close')"
+    @after-open-change="handleAfterVisibleChange"
   >
     <slot />
   </ADrawer>

@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.AggregateQuery;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -675,6 +676,12 @@ public class DynamicRecordService {
 
     public long count(String moduleAlias, String entityAlias, Criteria criteria) {
         return queryRuntime.count(moduleAlias, entityAlias, criteria);
+    }
+
+    /** Aggregate through the same QUERY authorization, tenant and data-range scope as list reads. */
+    public List<Map<String, Object>> aggregate(String moduleAlias, String entityAlias, Criteria criteria,
+                                               AggregateQuery query) {
+        return queryRuntime.aggregate(moduleAlias, entityAlias, criteria, query);
     }
 
     public List<DynamicRecord> sortedList(String moduleAlias, String entityAlias, Criteria criteria) {

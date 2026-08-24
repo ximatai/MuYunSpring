@@ -40,6 +40,24 @@ describe('module page enhancements', () => {
     expect(registry.resolve('crm.order')).toBeUndefined();
   });
 
+  it('merges a menu-entry enhancement without leaking it to other module entries', () => {
+    const fallback = { id: 'user-default', target: { moduleAlias: 'iam.user' } };
+    const systemEntry = {
+      id: 'system-user',
+      target: { moduleAlias: 'iam.user', menuId: 'platform.menu.iam.system-user' },
+      standardActions: { disabled: ['create'] },
+      navigator: { hidden: true, bypassListScope: true },
+    };
+    const registry = createModulePageEnhancementRegistry([fallback, systemEntry]);
+
+    expect(registry.resolve('iam.user', undefined, 'platform.menu.iam.system-user')).toMatchObject({
+      id: 'user-default, system-user',
+      standardActions: { disabled: ['create'] },
+      navigator: { hidden: true, bypassListScope: true },
+    });
+    expect(registry.resolve('iam.user', undefined, 'platform.menu.module.iam.user')).toBe(fallback);
+  });
+
   it('composes independent target contributions and rejects duplicate contribution identities', () => {
     const registry = createModulePageEnhancementRegistry([
       {
@@ -217,6 +235,20 @@ describe('module page enhancements', () => {
         actions: [{ key: 'iam-user-password' }],
       },
     });
+
+    const emptyListScope = userModulePageEnhancement.navigator?.emptyListScope;
+    expect(
+      emptyListScope?.({ currentUser: { system: true } as never, selectedNavigatorRecords: {} }),
+    ).toEqual([{ fieldName: 'tenantId', operator: 'NULL', values: [] }]);
+    expect(
+      emptyListScope?.({
+        currentUser: { system: true } as never,
+        selectedNavigatorRecords: { tenant: { id: 'demo' } },
+      }),
+    ).toBeUndefined();
+    expect(
+      emptyListScope?.({ currentUser: { system: false } as never, selectedNavigatorRecords: {} }),
+    ).toBeUndefined();
   });
 
   it('accepts one source-owned card assistant and rejects competing owners for that region', () => {

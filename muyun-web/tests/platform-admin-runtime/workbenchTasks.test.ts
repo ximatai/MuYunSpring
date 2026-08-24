@@ -9,7 +9,6 @@ import {
 import { canPromoteWorkspaceView } from '@/platform-admin-runtime/useWorkspaceViewPromotion.ts';
 import { roleDetailWorkspaceView } from '@/views/roleDetailWorkspaceView.ts';
 import { roleAuthorizationWorkspaceView } from '@/views/roleAuthorizationWorkspaceView.ts';
-import { systemUserDetailWorkspaceView } from '@/views/systemUserDetailWorkspaceView.ts';
 
 const view = defineWorkspaceView({
   type: 'iam.user.detail',
@@ -131,20 +130,6 @@ it('dismissing a role drawer restores its owner scope without retaining work-vie
   assert.equal(dismissed.target.query?.recordId, undefined);
   assert.equal(dismissed.target.query?.workspaceView, undefined);
   assert.equal(dismissed.target.query?.workspacePresentation, undefined);
-});
-
-it('system user detail workspace has an independent stable identity', () => {
-  const descriptor = createWorkspaceViewDescriptor(systemUserDetailWorkspaceView, {
-    recordId: 'system-user-1',
-  });
-  const registry = createWorkspaceViewRegistry([systemUserDetailWorkspaceView]);
-
-  assert.deepEqual(descriptor.target.query, {
-    workspaceView: 'iam.system-user.detail',
-    workspacePresentation: 'tab',
-    recordId: 'system-user-1',
-  });
-  assert.deepEqual(registry.resolve(descriptor)?.input, { recordId: 'system-user-1' });
 });
 
 it('role authorization workspace is a wide work drawer with role-only identity', () => {

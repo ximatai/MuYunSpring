@@ -481,6 +481,12 @@ public final class ModuleUiDescriptorCompiler {
                                 card.list().relationExpansions().stream()
                                         .map(expansion -> new ResolvedPageListRelationExpansionDescriptor(
                                                 expansion.relationCode(), expansion.fields()))
+                                        .toList(),
+                                card.list().persistentQueryControls().stream()
+                                        .map(ResolvedPageListPersistentQueryControlDescriptor::from)
+                                        .toList(),
+                                card.list().querySummaries().stream()
+                                        .map(ResolvedPageListQuerySummaryDescriptor::from)
                                         .toList()),
                         detail(card.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                         List.copyOf(card.traits().values()));

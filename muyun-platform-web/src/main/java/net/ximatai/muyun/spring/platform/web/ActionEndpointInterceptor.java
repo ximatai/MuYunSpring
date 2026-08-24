@@ -99,6 +99,7 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
                     + handlerMethod.getBeanType().getName() + "#" + handlerMethod.getMethod().getName());
         }
         ActionExecutionContext resolved = context.get();
+        MenuEntryRequestContext.requireModuleAlias(resolved.moduleAlias());
         ActingContextHolder.Scope actingScope = null;
         try {
             if (actingRequestResolver != null) {

@@ -14,6 +14,8 @@ import net.ximatai.muyun.spring.ability.event.RuntimeEvent;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventType;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
+import net.ximatai.muyun.spring.ability.query.ExternalQueryValueSource;
+import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.query.QueryField;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.ability.query.QueryValueType;
@@ -21,12 +23,50 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.database.core.orm.Sort;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
+import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 
 class ModuleExecutionPlanCatalogTest {
+    @Test
+    void shouldValidatePersistentQueryControlsAgainstSourceNeutralQuerySchema() {
+        String alias = "iam.user";
+        ResolvedModuleUiDescriptor uiDescriptor = persistentQueryUi(alias);
+        ResolvedModuleReadModel readModel = new ResolvedModuleReadModel(alias, "user", List.of());
+        QueryDescriptor descriptor = QueryDescriptor.builder(alias)
+                .externalCriteria("onlineOnly", QueryValueType.BOOLEAN, ExternalQueryValueSource.USER_INPUT,
+                        value -> null)
+                .build();
+
+        assertThat(new ModuleExecutionPlan(alias, "static-1", uiDescriptor, readModel, List.of(), descriptor,
+                QuerySchema.from(descriptor), List.of(), List.of(), false).querySchema().externalCriteria())
+                .containsExactly(new QuerySchema.ExternalCriteria("onlineOnly", "BOOLEAN", "USER_INPUT"));
+
+        QuerySchema dynamicSchema = new QuerySchema(alias, "user", null, List.of(),
+                List.of(new QuerySchema.ExternalCriteria("onlineOnly", "BOOLEAN", "USER_INPUT")), List.of());
+        assertThatCode(() -> new ModuleExecutionPlan(alias, "dynamic-1", uiDescriptor, readModel, List.of(),
+                QueryDescriptor.builder(alias).build(), dynamicSchema, List.of(), List.of(), false))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void shouldRejectPersistentQueryControlThatCouldOverridePageContext() {
+        String alias = "iam.user";
+        QueryDescriptor descriptor = QueryDescriptor.builder(alias)
+                .externalCriteria("onlineOnly", QueryValueType.BOOLEAN, ExternalQueryValueSource.USER_INPUT,
+                        value -> null)
+                .build();
+
+        assertThatThrownBy(() -> new ModuleExecutionPlan(alias, "static-1", persistentQueryUi(alias),
+                new ResolvedModuleReadModel(alias, "user", List.of()),
+                List.of(PageContextBindingDefinition.navigator("tenant", PageContextTarget.LIST_QUERY, "onlineOnly")),
+                descriptor, QuerySchema.from(descriptor), List.of(), List.of(), false))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must not override page context criteria");
+    }
     @Test
     void shouldCompileStaticDefinitionOnceIntoCachedExecutionFacts() {
         ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(
@@ -54,6 +94,38 @@ class ModuleExecutionPlanCatalogTest {
         assertThatThrownBy(catalog::plans)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unknownField");
+    }
+
+    @Test
+    void shouldValidateStaticSummaryContributorDuringPlanCompilation() {
+        StaticModuleDefinition definition = summaryModule("iam.user", "onlineUsers", "iam.active-user-count");
+
+        ModuleExecutionPlanCatalog knownContributorCatalog = new ModuleExecutionPlanCatalog(
+                new StaticModuleDefinitionCatalog(List.of(definition)),
+                new ListQuerySummaryContributorCatalog(List.of(summaryContributor("iam.user", "iam.active-user-count"))));
+        assertThatCode(knownContributorCatalog::plans).doesNotThrowAnyException();
+
+        ModuleExecutionPlanCatalog missingContributorCatalog = new ModuleExecutionPlanCatalog(
+                new StaticModuleDefinitionCatalog(List.of(definition)),
+                new ListQuerySummaryContributorCatalog(List.of()));
+        assertThatThrownBy(missingContributorCatalog::plans)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no list query summary contributor: iam.user.iam.active-user-count");
+    }
+
+    @Test
+    void shouldRejectInvalidDynamicSummaryCandidateBeforeItIsInstalled() {
+        String moduleAlias = "iam.customer";
+        ResolvedModuleUiDescriptor descriptor = summaryUi(moduleAlias, "activeUsers", "iam.active-user-count");
+        ModuleExecutionPlan candidate = new ModuleExecutionPlan(moduleAlias, "dynamic-runtime-1-ui-1", descriptor,
+                new ResolvedModuleReadModel(moduleAlias, "customer", List.of()), List.of());
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()),
+                new ListQuerySummaryContributorCatalog(List.of()));
+
+        assertThatThrownBy(() -> catalog.validateCandidate(candidate))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no list query summary contributor: iam.customer.iam.active-user-count");
+        assertThat(catalog.find(moduleAlias)).isEmpty();
     }
 
     @Test
@@ -193,6 +265,55 @@ class ModuleExecutionPlanCatalogTest {
     private static RuntimeEvent event(String moduleAlias, RuntimeEventType type) {
         return RuntimeEvent.of(type, moduleAlias, null, null, null, null, true, "test",
                 RuntimeMutationSource.SYSTEM, java.util.Map.of());
+    }
+
+    private static ResolvedModuleUiDescriptor persistentQueryUi(String moduleAlias) {
+        return ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder(moduleAlias)
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("username", field -> { }))
+                                .persistentQueries(queries -> queries.control("onlineOnly", control -> control
+                                        .label("仅在线").uiType(ViewControlType.SWITCH).defaultValue(false))))
+                        .detail(detail -> detail.editor(editor -> editor.field("username", field -> { })))))
+                .build());
+    }
+
+    private static ResolvedModuleUiDescriptor summaryUi(String moduleAlias, String summaryKey, String contributorKey) {
+        return ModuleUiDescriptorCompiler.compile(summaryUiDefinition(moduleAlias, summaryKey, contributorKey));
+    }
+
+    private static ModuleUiDefinition summaryUiDefinition(String moduleAlias, String summaryKey, String contributorKey) {
+        return ModuleUiDefinition.builder(moduleAlias)
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("username", field -> { }))
+                                .querySummaries(summaries -> summaries.item(summaryKey, summary -> summary
+                                        .label("在线").contributor(contributorKey))))
+                        .detail(detail -> detail.editor(editor -> editor.field("username", field -> { })))))
+                .build();
+    }
+
+    private static StaticModuleDefinition summaryModule(String alias, String summaryKey, String contributorKey) {
+        return StaticModuleDefinition.builder("iam", alias, "用户")
+                .entry(ModuleEntryType.ROUTE, "/users", null)
+                .capabilities(Set.of(EntityCapability.CRUD, EntityCapability.DATA_SCOPE))
+                .actions(List.of(StaticModuleActionDefinition.recordAction("view", "查看")))
+                .queryDescriptor(QueryDescriptor.builder(alias)
+                        .field(QueryField.of("username", QueryValueType.STRING, QueryOperator.EQ))
+                        .defaultSort(Sort.asc("username"))
+                        .build())
+                .entities(List.of(new EntityDefinition("user", "iam_user", "User",
+                        List.of(FieldDefinition.string("username", "用户名").column("username")))))
+                .uiDefinition(summaryUiDefinition(alias, summaryKey, contributorKey))
+                .build();
+    }
+
+    private static ListQuerySummaryContributor summaryContributor(String moduleAlias, String contributorKey) {
+        return new ListQuerySummaryContributor() {
+            @Override public String moduleAlias() { return moduleAlias; }
+            @Override public String contributorKey() { return contributorKey; }
+            @Override public net.ximatai.muyun.spring.web.WebListQuerySummaryItem summarize(ListQuerySummaryContext context) {
+                return new net.ximatai.muyun.spring.web.WebListQuerySummaryItem(context.summaryKey(), 0);
+            }
+        };
     }
 
     private static StaticModuleDefinition module(String alias, String field) {

@@ -1,4 +1,4 @@
-import { ref, toRaw } from 'vue';
+import { markRaw, ref, toRaw } from 'vue';
 import type { QueryListRecord } from '@muyun/platform-components';
 import type { ModuleContext } from '@muyun/web-core';
 import type {
@@ -29,6 +29,7 @@ interface Options {
 export function useModulePageDetailExtensionRuntime(options: Options) {
   const refreshKey = ref(0);
   const drawer = ref<ModulePageEnhancementDrawerRuntime>();
+  const drawerOpen = ref(false);
 
   function refreshDetailExtensions() {
     refreshKey.value += 1;
@@ -58,7 +59,10 @@ export function useModulePageDetailExtensionRuntime(options: Options) {
 
   function openDrawer(definition: ModulePageDrawer, record?: QueryListRecord) {
     const runtime = {
-      definition,
+      // The runtime itself is reactive so title actions and close guards can update
+      // the platform drawer. A Vue component definition must not be proxied as part
+      // of that runtime: proxying it makes dynamic drawer mounting unstable.
+      definition: { ...definition, component: markRaw(definition.component) },
       titleActions: [] as ModulePageDrawerAction[],
       closeBlocked: false,
       context: undefined as unknown as ModulePageDrawerContext,
@@ -75,9 +79,7 @@ export function useModulePageDetailExtensionRuntime(options: Options) {
           activeDrawer.closeBlocked = blocked;
         }
       },
-      close: () => {
-        drawer.value = undefined;
-      },
+      close: closeDrawer,
       reload: options.reload,
       setTitleActions(actions) {
         const activeDrawer = drawer.value;
@@ -88,11 +90,26 @@ export function useModulePageDetailExtensionRuntime(options: Options) {
     };
     runtime.context = drawerContext;
     drawer.value = runtime;
+    drawerOpen.value = true;
   }
 
   function closeDrawer() {
-    if (!drawer.value?.closeBlocked) drawer.value = undefined;
+    if (!drawer.value?.closeBlocked) drawerOpen.value = false;
   }
 
-  return { drawer, refreshDetailExtensions, sectionContext, recordViewContext, openDrawer, closeDrawer };
+  /** Release the drawer body only after the panel's closing transition finishes. */
+  function disposeDrawer() {
+    if (!drawerOpen.value) drawer.value = undefined;
+  }
+
+  return {
+    drawer,
+    drawerOpen,
+    refreshDetailExtensions,
+    sectionContext,
+    recordViewContext,
+    openDrawer,
+    closeDrawer,
+    disposeDrawer,
+  };
 }

@@ -33,6 +33,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
     @Test
+    void shouldCompilePersistentListQueryControlAsUiState() {
+        ResolvedPageListPersistentQueryControlDescriptor persistentControl = ModuleUiDescriptorCompiler.compile(
+                ModuleUiDefinition.builder("sales.order")
+                        .page(PageTemplates.listDetailCard(page -> page
+                                .list(list -> list.fields(fields -> fields.field("code", field -> { }))
+                                        .persistentQueries(queries -> queries.control("activeOnly", queryControl -> queryControl
+                                                .label("仅启用")
+                                                .uiType(ViewControlType.SWITCH)
+                                                .defaultValue(true))))
+                                .detail(detail -> detail.editor(editor -> editor.field("code", field -> { })))))
+                        .build()).page().list().persistentQueryControls().getFirst();
+
+        assertThat(persistentControl).isEqualTo(new ResolvedPageListPersistentQueryControlDescriptor(
+                "activeOnly", "仅启用", ViewControlType.SWITCH, true));
+    }
+
+    @Test
     void shouldCompileStaticUiTypeToSourceNeutralFieldControlContract() {
         ResolvedViewFieldDescriptor field = ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
                 .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
@@ -833,6 +850,25 @@ class ModuleUiDescriptorCompilerTest {
         assertThat(field.fieldControl().rendererType()).isEqualTo("RECORD_PICKER");
         assertThat(field.reference()).isEqualTo(new ResolvedReferenceFieldDescriptor("iam.organization",
                 ReferenceCardinality.ONE, null, ReferencePickerMode.AUTO));
+    }
+
+    @Test
+    void shouldPublishMultiReferencePickerAsCollectionControl() {
+        ModuleUiDefinition uiDefinition = editorPage("sales.order", form -> form
+                .field("tagIds", field -> field.label("标签").uiType("recordMultiPicker")));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.order", "订单")
+                .entities(List.of(new EntityDefinition("order", "sales_order", "Order",
+                        List.of(FieldDefinition.string("tagIds", "标签")))))
+                .uiDefinition(uiDefinition)
+                .modelClass(ReferenceOrder.class)
+                .build();
+
+        ResolvedViewFieldDescriptor field = ModuleUiDescriptorCompiler.compile(definition).page().detail().editor()
+                .fields().getFirst();
+
+        assertThat(field.fieldControl()).isEqualTo(new ResolvedFieldControlDescriptor("recordMultiPicker",
+                "RECORD_PICKER", "COLLECTION", Map.of(), List.of()));
+        assertThat(field.reference().cardinality()).isEqualTo(ReferenceCardinality.MANY);
     }
 
     @Test

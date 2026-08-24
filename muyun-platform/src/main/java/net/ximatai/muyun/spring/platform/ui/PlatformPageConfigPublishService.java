@@ -33,8 +33,6 @@ import java.util.stream.Collectors;
 @Service
 public class PlatformPageConfigPublishService {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final java.util.Set<String> SUMMARY_AGGREGATES = java.util.Set.of(
-            "sum", "avg", "max", "min", "count", "distinctCount");
 
     private final PlatformUiSetService uiSetService;
     private final PlatformUiConfigService uiConfigService;
@@ -386,7 +384,9 @@ public class PlatformPageConfigPublishService {
             throw new PlatformException("UI config layout JSON root must be object: " + uiConfigId);
         }
         validatePageRootContract(root, uiConfigId);
-        validateSummaryPanel(root.get("summaryPanel"), uiConfigId);
+        validateListDetailCardMember(root, "querySummaries", uiConfigId);
+        rejectDynamicPersistentQueries(root.get("persistentQueries"), uiConfigId);
+        validateQuerySummaries(root.get("querySummaries"), uiConfigId);
         validateReferenceCandidate(root.get("referenceCandidate"), "referenceCandidate", uiConfigId);
         validateReferenceCandidateArray(root.get("referenceCandidates"), "referenceCandidates", uiConfigId);
         validateChildSections(root.get("children"), "children", uiConfigId);
@@ -416,36 +416,61 @@ public class PlatformPageConfigPublishService {
         }
     }
 
-    private void validateSummaryPanel(JsonNode summaryPanel, String uiConfigId) {
-        if (summaryPanel == null || summaryPanel.isNull()) {
+    private void validateListDetailCardMember(JsonNode root, String member, String uiConfigId) {
+        JsonNode value = root.get(member);
+        if (value == null || value.isNull()) return;
+        String template = root.path("template").asText("LIST_DETAIL_CARD");
+        if (!"LIST_DETAIL_CARD".equals(template)) {
+            throw layoutException(uiConfigId, member + " is only supported by LIST_DETAIL_CARD");
+        }
+    }
+
+    private void validateQuerySummaries(JsonNode summaries, String uiConfigId) {
+        if (summaries == null || summaries.isNull()) {
             return;
         }
-        if (!summaryPanel.isObject()) {
-            throw layoutException(uiConfigId, "summaryPanel must be object");
+        if (!summaries.isArray()) {
+            throw layoutException(uiConfigId, "querySummaries must be array");
         }
-        JsonNode items = summaryPanel.get("items");
-        if (items == null || items.isNull()) {
-            return;
-        }
-        if (!items.isArray()) {
-            throw layoutException(uiConfigId, "summaryPanel.items must be array");
-        }
-        for (int i = 0; i < items.size(); i++) {
-            JsonNode item = items.get(i);
+        Set<String> keys = new java.util.HashSet<>();
+        for (int i = 0; i < summaries.size(); i++) {
+            JsonNode item = summaries.get(i);
             if (!item.isObject()) {
-                throw layoutException(uiConfigId, "summaryPanel.items[" + i + "] must be object");
+                throw layoutException(uiConfigId, "querySummaries[" + i + "] must be object");
             }
-            JsonNode aggregate = item.get("aggregate");
-            if (aggregate == null || !aggregate.isTextual() || aggregate.asText().isBlank()) {
-                throw layoutException(uiConfigId, "summaryPanel.items[" + i + "].aggregate is required");
+            String path = "querySummaries[" + i + "]";
+            JsonNode key = item.get("key");
+            JsonNode label = item.get("label");
+            JsonNode source = item.get("source");
+            if (key == null || !key.isTextual() || key.asText().isBlank()) {
+                throw layoutException(uiConfigId, path + ".key is required");
             }
-            if (!SUMMARY_AGGREGATES.contains(aggregate.asText())) {
-                throw layoutException(uiConfigId, "summaryPanel.items[" + i + "].aggregate is unsupported");
+            if (!keys.add(key.asText())) {
+                throw layoutException(uiConfigId, path + ".key is duplicated");
             }
-            JsonNode fieldName = item.get("fieldName");
-            if (fieldName != null && !fieldName.isNull() && !fieldName.isTextual()) {
-                throw layoutException(uiConfigId, "summaryPanel.items[" + i + "].fieldName must be string");
+            if (label == null || !label.isTextual() || label.asText().isBlank()) {
+                throw layoutException(uiConfigId, path + ".label is required");
             }
+            if (source == null || !source.isTextual()
+                    || !("MATCHED_COUNT".equals(source.asText()) || "CONTRIBUTOR".equals(source.asText()))) {
+                throw layoutException(uiConfigId, path + ".source is unsupported");
+            }
+            JsonNode contributorKey = item.get("contributorKey");
+            boolean contributor = "CONTRIBUTOR".equals(source.asText());
+            if (contributor && (contributorKey == null || !contributorKey.isTextual()
+                    || contributorKey.asText().isBlank())) {
+                throw layoutException(uiConfigId, path + ".contributorKey is required for CONTRIBUTOR");
+            }
+            if (!contributor && contributorKey != null && !contributorKey.isNull()) {
+                throw layoutException(uiConfigId, path + ".contributorKey is only valid for CONTRIBUTOR");
+            }
+        }
+    }
+
+    private void rejectDynamicPersistentQueries(JsonNode controls, String uiConfigId) {
+        if (controls != null && !controls.isNull()) {
+            throw layoutException(uiConfigId,
+                    "dynamic persistentQueries is not supported until dynamic query criteria are executable");
         }
     }
 

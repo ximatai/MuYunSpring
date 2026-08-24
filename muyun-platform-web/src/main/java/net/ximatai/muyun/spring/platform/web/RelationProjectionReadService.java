@@ -186,6 +186,24 @@ public class RelationProjectionReadService {
                 PageRequest.of(page.getPageNum(), page.getPageSize())));
     }
 
+    public Optional<List<Map<String, Object>>> aggregateList(java.util.List<StaticModuleDefinition> definitions,
+                                                              StaticModuleDefinition definition,
+                                                              RecordReadProjection projection,
+                                                              Criteria criteria,
+                                                              net.ximatai.muyun.database.core.orm.AggregateQuery query) {
+        RelationProjectionQueryExecutor executor = projectionQueryExecutor();
+        ProjectionQueryDescriptor descriptor = describeListQuery(definitions, definition, projection);
+        if (executor == null || !descriptor.supported()) return Optional.empty();
+        java.util.LinkedHashSet<String> requiredFields = new java.util.LinkedHashSet<>(requiredMainFields(criteria));
+        requiredFields.addAll(query.groupByFields());
+        query.selections().stream().map(net.ximatai.muyun.database.core.orm.AggregateSelection::field)
+                .filter(java.util.Objects::nonNull).forEach(requiredFields::add);
+        RelationProjectionSqlPlan plan = RelationProjectionQueryPlanner.plan(definitions, definition, projection,
+                databaseTypeProvider.databaseType(), java.util.Set.copyOf(requiredFields));
+        if (!plan.hasRelationProjection()) return Optional.empty();
+        return Optional.of(executor.aggregate(plan, criteria, query));
+    }
+
     private RelationProjectionQueryExecutor projectionQueryExecutor() {
         return projectionQueryExecutor.get();
     }

@@ -13,7 +13,10 @@ import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.web.MuYunSpringJacksonConfiguration;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
+import net.ximatai.muyun.spring.platform.web.MenuEntryRequestContext;
+import net.ximatai.muyun.spring.platform.web.MenuEntryRequestInterceptor;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.ListQuerySummaryContributorCatalog;
 import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
@@ -283,6 +286,7 @@ class IamWebControllerTest {
         ReflectionTestUtils.setField(positionController, "service", positionService);
         ReflectionTestUtils.setField(positionController, "standardModuleWebRuntime", positionRuntime(positionController));
         ReflectionTestUtils.setField(userAccountController, "service", userAccountService);
+        ReflectionTestUtils.setField(userAccountController, "standardModuleWebRuntime", userRuntime(userAccountController));
         ReflectionTestUtils.setField(roleController, "service", roleService);
         mvc = MockMvcBuilders
                 .standaloneSetup(
@@ -1715,6 +1719,19 @@ class IamWebControllerTest {
         }
     }
 
+    private StandardModuleWebRuntime userRuntime(UserAccountWebController controller) {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean("userController", UserAccountWebController.class, () -> controller);
+            context.refresh();
+            StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(
+                    new net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionScanner(context).scan());
+            return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog,
+                    new ListQuerySummaryContributorCatalog(List.of(new UserOnlineQuerySummaryContributor(
+                            mock(net.ximatai.muyun.spring.iam.user.UserSessionPresenceService.class))))),
+                    new StaticRecordReadProjectionService(catalog));
+        }
+    }
+
     private static final class PlanOnlyPositionWebController extends PositionWebController {
         private boolean rejectDefinitionLookup;
 
@@ -1755,7 +1772,8 @@ class IamWebControllerTest {
                     new net.ximatai.muyun.spring.iam.user.UserAccountSecurityServices(
                             java.util.Optional.empty(),
                             net.ximatai.muyun.spring.iam.user.UserSecurityEventPublisher.NOOP,
-                            mock(net.ximatai.muyun.spring.iam.user.UserSessionRevocationService.class)));
+                            mock(net.ximatai.muyun.spring.iam.user.UserSessionRevocationService.class),
+                            mock(net.ximatai.muyun.spring.iam.user.UserSessionPresenceService.class)));
         }
 
         @Override

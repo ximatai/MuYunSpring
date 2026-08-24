@@ -2,6 +2,9 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.database.core.orm.CompiledCriteria;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.AggregateQuery;
+import net.ximatai.muyun.database.core.orm.AggregateSelection;
+import net.ximatai.muyun.database.core.orm.AggregateOperation;
 import net.ximatai.muyun.database.core.orm.CriteriaSqlCompiler;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
@@ -60,6 +63,55 @@ public class RelationProjectionQueryExecutor {
                 Long.class
         );
         return PageResult.of(records, total == null ? 0 : total, page);
+    }
+
+    /** Aggregates the same projection sub-query used for list data and count. */
+    public List<Map<String, Object>> aggregate(RelationProjectionSqlPlan plan, Criteria criteria,
+                                               AggregateQuery aggregateQuery) {
+        if (plan == null || !plan.hasRelationProjection()) {
+            throw new IllegalArgumentException("projection SQL plan must contain relation projections");
+        }
+        if (aggregateQuery == null) throw new IllegalArgumentException("aggregate query must not be null");
+        CompiledCriteria compiled = compileCriteria(plan, criteria);
+        LinkedHashMap<String, Object> params = new LinkedHashMap<>(plan.baseParams());
+        params.putAll(compiled.getParams());
+        List<String> groups = aggregateQuery.groupByFields();
+        List<String> select = new java.util.ArrayList<>();
+        for (int i = 0; i < groups.size(); i++) {
+            select.add(aggregateField(plan, groups.get(i)) + " AS g" + i);
+        }
+        for (int i = 0; i < aggregateQuery.selections().size(); i++) {
+            AggregateSelection item = aggregateQuery.selections().get(i);
+            String expression = item.operation() == AggregateOperation.COUNT ? "COUNT(*)"
+                    : item.operation().name() + "(" + aggregateField(plan, item.field()) + ")";
+            select.add(expression + " AS a" + i);
+        }
+        StringBuilder sql = new StringBuilder("select ").append(String.join(", ", select))
+                .append(" from (").append(plan.baseSql()).append(") q").append(where(compiled));
+        if (!groups.isEmpty()) sql.append(" group by ").append(groups.stream()
+                .map(field -> aggregateField(plan, field)).collect(java.util.stream.Collectors.joining(", ")));
+        return jdbcOperations.queryForList(sql.toString(), params).stream()
+                .map(row -> aggregateRow(row, aggregateQuery)).toList();
+    }
+
+    private String aggregateField(RelationProjectionSqlPlan plan, String field) {
+        if (field == null || !plan.queryableFields().contains(field)) {
+            throw new IllegalArgumentException("projection aggregate field is not projected: " + field);
+        }
+        return RelationProjectionQueryPlanner.quote(field, plan.databaseType());
+    }
+
+    private static Map<String, Object> aggregateRow(Map<String, Object> row, AggregateQuery query) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (int i = 0; i < query.groupByFields().size(); i++) result.put(query.groupByFields().get(i), value(row, "g" + i));
+        for (int i = 0; i < query.selections().size(); i++) result.put(query.selections().get(i).key(), value(row, "a" + i));
+        return result;
+    }
+
+    private static Object value(Map<String, Object> row, String alias) {
+        if (row.containsKey(alias)) return row.get(alias);
+        return row.entrySet().stream().filter(entry -> alias.equalsIgnoreCase(entry.getKey()))
+                .map(Map.Entry::getValue).findFirst().orElse(null);
     }
 
     private CompiledCriteria compileCriteria(RelationProjectionSqlPlan plan, Criteria criteria) {

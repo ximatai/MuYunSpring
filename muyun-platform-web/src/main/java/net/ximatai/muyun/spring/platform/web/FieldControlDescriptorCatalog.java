@@ -62,10 +62,11 @@ final class FieldControlDescriptorCatalog {
                 Map.entry("integer", "NUMBER"), Map.entry("amount", "DECIMAL"), Map.entry("percentage", "DECIMAL"),
                 Map.entry("switch", "SWITCH"), Map.entry("select", "SELECT"), Map.entry("multi_select", "MULTI_SELECT"),
                 Map.entry("date", "DATE"), Map.entry("datetime", "DATETIME"), Map.entry("json", "JSON"),
-                Map.entry("recordPicker", "RECORD_PICKER"), Map.entry("reference", "RECORD_PICKER"), Map.entry("enabledStatus", "ENABLED_STATUS"),
+                Map.entry("recordPicker", "RECORD_PICKER"), Map.entry("recordMultiPicker", "RECORD_PICKER"), Map.entry("reference", "RECORD_PICKER"), Map.entry("enabledStatus", "ENABLED_STATUS"),
                 Map.entry("booleanStatus", "BOOLEAN_STATUS"), Map.entry("tagList", "TAG_LIST"));
         return renderers.entrySet().stream().collect(Collectors.toUnmodifiableMap(Map.Entry::getKey,
                 entry -> new ResolvedFieldControlDescriptor(entry.getKey(), entry.getValue(),
-                        "multi_select".equals(entry.getKey()) ? "COLLECTION" : "SCALAR", Map.of(), List.of())));
+                        ("multi_select".equals(entry.getKey()) || "recordMultiPicker".equals(entry.getKey())) ? "COLLECTION" : "SCALAR",
+                        Map.of(), List.of())));
     }
 }

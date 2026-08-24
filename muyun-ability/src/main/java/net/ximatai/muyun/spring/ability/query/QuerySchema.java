@@ -42,8 +42,8 @@ public record QuerySchema(String scopeName,
                 null,
                 QuickSearch.from(descriptor, optionFields, optionTitleFields),
                 fields,
-                descriptor.externalCriteriaKeys().stream()
-                        .map(ExternalCriteria::pageContextObject)
+                descriptor.externalCriteria().stream()
+                        .map(ExternalCriteria::from)
                         .toList(),
                 Arrays.stream(descriptor.defaultSorts())
                         .map(DefaultSort::from)
@@ -145,6 +145,10 @@ public record QuerySchema(String scopeName,
     public record ExternalCriteria(String key,
                                    String valueType,
                                    String providedBy) {
+        static ExternalCriteria from(ExternalQueryCriterionDefinition definition) {
+            return new ExternalCriteria(definition.key(), definition.valueType().name(), definition.valueSource().name());
+        }
+
         static ExternalCriteria pageContextObject(String key) {
             return new ExternalCriteria(key, "OBJECT", "PAGE_CONTEXT");
         }

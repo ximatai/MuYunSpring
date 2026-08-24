@@ -1939,6 +1939,9 @@ describe('ModulePageHost', () => {
     wrapper.findComponent({ name: 'RecordActionBar' }).vm.$emit('action', { key: 'cancel' });
     await flushPromises();
 
+    wrapper.findComponent({ name: 'CrudRecordListExplorer' }).vm.$emit('select', { id: 'select' });
+    await flushPromises();
+
     wrapper.findComponent({ name: 'RecordActionBar' }).vm.$emit('action', { key: 'edit' });
     await flushPromises();
 

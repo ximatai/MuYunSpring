@@ -87,21 +87,6 @@ record DynamicWebDuplicateCheckRequest(String recordId,
     }
 }
 
-record DynamicSummaryConfigItem(String detailId,
-                                String calcType,
-                                String label,
-                                Integer precision,
-                                String formatter) {
-}
-
-record DynamicSummaryItem(String detailId,
-                          String calcType,
-                          String label,
-                          Integer precision,
-                          String formatter,
-                          Object value) {
-}
-
 record DynamicWebGenerationConfirmRequest(String targetModuleAlias,
                                           String targetEntityAlias,
                                           DynamicRecordPayload record,

@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.iam.user.UserAccountSecurityServices;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.iam.user.UserSecurityEventPublisher;
 import net.ximatai.muyun.spring.iam.user.UserSessionRevocationService;
+import net.ximatai.muyun.spring.iam.user.UserSessionPresenceService;
 
 import java.util.Optional;
 
@@ -32,6 +33,7 @@ public final class UserAccountServiceTestFactory {
                 new UserAccountSecurityServices(
                         Optional.empty(),
                         UserSecurityEventPublisher.NOOP,
-                        mock(UserSessionRevocationService.class)));
+                        mock(UserSessionRevocationService.class),
+                        mock(UserSessionPresenceService.class)));
     }
 }

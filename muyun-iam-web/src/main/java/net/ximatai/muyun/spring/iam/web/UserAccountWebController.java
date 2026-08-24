@@ -13,10 +13,11 @@ import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.web.MutationTenantScopeExecutor;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
+import net.ximatai.muyun.spring.web.RecordReadSupport;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
-import net.ximatai.muyun.spring.web.WebSupport;
+import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
@@ -25,8 +26,9 @@ import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
+import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
-import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
+import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
@@ -69,7 +71,7 @@ import java.util.stream.Collectors;
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, order = 60)
 @RequestMapping("/iam.user")
-public class UserAccountWebController extends WebSupport<UserAccountService> implements
+public class UserAccountWebController extends StaticModuleWebControllerAdapter<UserAccountService> implements
         CrudWeb<UserAccount, UserAccountService>,
         MutationTenantScopeResolver<UserAccount>,
         StaticModuleUiContributor {
@@ -99,8 +101,6 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     private final EmployeeService employeeService;
     private final UserSessionService userSessionService;
     private StaticRecordReadProjectionService staticRecordReadProjectionService;
-    private StandardModuleWebRuntime standardModuleWebRuntime;
-
     public UserAccountWebController() {
         this(null, null, null, null);
     }
@@ -109,6 +109,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
         this(roleService, null, null, null);
     }
 
+    /** Constructor also retained for focused web tests and local embeddings. */
     @Autowired
     public UserAccountWebController(ObjectProvider<RoleService> roleService,
                                     ObjectProvider<EmployeeAccountService> employeeAccountService,
@@ -125,21 +126,6 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
         this.staticRecordReadProjectionService = staticRecordReadProjectionService;
     }
 
-    @Autowired(required = false)
-    void setStandardModuleWebRuntime(StandardModuleWebRuntime standardModuleWebRuntime) {
-        this.standardModuleWebRuntime = standardModuleWebRuntime;
-    }
-
-    @Override
-    public StaticRecordReadProjectionService staticRecordReadProjectionService() {
-        return staticRecordReadProjectionService;
-    }
-
-    @Override
-    public StandardModuleWebRuntime standardModuleWebRuntime() {
-        return standardModuleWebRuntime;
-    }
-
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(UserAccountService.MODULE_ALIAS)
@@ -150,7 +136,8 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                                 .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
                                 .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
                         .bindNavigatorToList("tenant", "tenantId"))
-                .list(list -> list.fields(fields -> fields
+                .list(list -> list
+                .fields(fields -> fields
                         .title("用户列表")
                         .field("username", field -> field.label("账号").width("180px"))
                         .field("enabled", field -> field.label("状态").uiType("enabledStatus")
@@ -158,7 +145,14 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                         .field("passwordStatus", field -> field.label("密码状态").width("120px"))
                         .field("employeeNo", field -> field.label("职员工号").width("150px"))
                         .field("employeeTitle", field -> field.label("职员姓名").width("150px"))
-                        .field("lastLoginAt", field -> field.label("最后登录时间").width("180px"))))
+                        .field("lastLoginAt", field -> field.label("最后登录时间").width("180px")))
+                .persistentQueries(queries -> queries.control("onlineOnly", control -> control
+                        .label("仅在线")
+                        .uiType(ViewControlType.SWITCH)
+                        .defaultValue(false)))
+                .querySummaries(summaries -> summaries.item("onlineUsers", summary -> summary
+                        .label("在线")
+                        .contributor("iam.active-user-count"))))
                 .detail(detail -> detail.editor(form -> form
                         .title("用户账号")
                         .field("username", field -> field.label("账号").required())
@@ -172,12 +166,27 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                 .build();
     }
 
+    /**
+     * Keeps the standard list endpoint on the compiled CRUD runtime so descriptor-owned
+     * query summaries are attached to the response together with the page records.
+     */
+    @Override
+    @PostMapping("/query")
+    @ActionEndpoint(PlatformAction.QUERY)
+    public WebPageResponse<UserAccount> query(@RequestBody(required = false) WebQueryRequest request) {
+        return CrudWeb.super.query(request);
+    }
+
     @Override
     @GetMapping("/view/{id}")
     @ActionEndpoint(PlatformAction.VIEW)
     public UserAccount view(@PathVariable String id) {
-        return webScope(() -> WebOutputSupport.record(service(),
-                service().selectForView(id), FieldOutputContext.VIEW));
+        return webScope(() -> {
+            UserAccount record = RecordReadSupport.requireVisible(UserAccountService.MODULE_ALIAS, id,
+                    service().selectForView(id));
+            requireMenuEntryRecord(PlatformAction.VIEW, record);
+            return WebOutputSupport.record(service(), record, FieldOutputContext.VIEW);
+        });
     }
 
     @PostMapping("/changePassword/{id}")
@@ -189,6 +198,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     public int changePassword(@PathVariable String id,
                                            @RequestBody ChangePasswordRequest request) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
             return service().changePassword(id, request.password());
         }));
     }
@@ -201,6 +211,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
             recordIdSource = BusinessMutationRecordIdSource.PATH_VARIABLE, recordId = "id")
     public ResetPasswordResponse resetPassword(@PathVariable String id) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
             UserAccountService.PasswordResetResult result = service().resetPassword(id);
             return new ResetPasswordResponse(result.count(), result.temporaryPassword(), result.expiresAt());
         }));
@@ -214,6 +225,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
             recordIdSource = BusinessMutationRecordIdSource.PATH_VARIABLE, recordId = "id")
     public int forceLogout(@PathVariable String id) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
             return service().forceLogout(id);
         }));
     }
@@ -223,6 +235,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
             level = PlatformActionLevel.RECORD, dataAuth = true)
     public List<UserSessionView> activeSessions(@PathVariable String id, HttpServletRequest request) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.VIEW, service().select(id));
             if (userSessionService == null) {
                 return List.of();
             }
@@ -253,6 +266,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     private void requireReadableUsers(List<String> userIds) {
         DataScopeAbility<UserAccount> dataScope = DataScopeAbility.cast(service());
         List<UserAccount> visibleUsers = dataScope.listForAction(PlatformAction.QUERY, Criteria.of().in("id", userIds));
+        visibleUsers.forEach(user -> requireMenuEntryRecord(PlatformAction.QUERY, user));
         Set<String> visibleUserIds = visibleUsers.stream()
                 .map(UserAccount::getId)
                 .collect(Collectors.toSet());
@@ -272,6 +286,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                              @PathVariable String sessionId,
                              HttpServletRequest request) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
             if (userSessionService == null) {
                 return 0;
             }
@@ -289,6 +304,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                               @RequestBody RevokeSessionsRequest requestBody,
                               HttpServletRequest request) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
             if (userSessionService == null) {
                 return 0;
             }
@@ -324,6 +340,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
         return webScope(() -> {
             UserSelectorRequest normalized = request == null ? UserSelectorRequest.EMPTY : request;
             Criteria criteria = selectorCriteria(normalized);
+            applyMenuEntryQueryCriteria(criteria);
             WebPageRequest page = normalized.pageOrDefault();
             PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
             return selectorProjectedPageQuery(criteria, pageRequest, Sort.asc("username"));
@@ -335,6 +352,9 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
             level = PlatformActionLevel.RECORD, dataAuth = true)
     public UserEmployeeBindingView employeeBinding(@PathVariable String id) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            if (hasActiveMenuEntryPolicy()) {
+                requireMenuEntryRecord(PlatformAction.VIEW, service().select(id));
+            }
             if (employeeAccountService == null || employeeService == null) {
                 return UserEmployeeBindingView.empty();
             }

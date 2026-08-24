@@ -24,6 +24,7 @@ public class DynamicPublishedPageExecutionCoordinator implements PublishedPageEx
         // It either yields a fully compiled plan or the explicit non-executable state for an
         // incomplete page. Any compilation failure intentionally escapes and rolls back publish.
         Optional<ModuleExecutionPlan> candidate = runtimeContextService.dynamicExecutionPlan(moduleAlias);
+        candidate.ifPresent(executionPlanCatalog::validateCandidate);
         TransactionScopeSupport.afterCommitOrNow(
                 () -> executionPlanCatalog.replaceDynamicPlan(moduleAlias, candidate));
     }

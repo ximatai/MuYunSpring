@@ -45,7 +45,7 @@ class QuerySchemaTest {
         assertThat(schema.fields().getFirst().sortable()).isTrue();
         assertThat(schema.externalCriteria()).singleElement().satisfies(criteria -> {
             assertThat(criteria.key()).isEqualTo("departmentScope");
-            assertThat(criteria.valueType()).isEqualTo("OBJECT");
+            assertThat(criteria.valueType()).isEqualTo("JSON");
             assertThat(criteria.providedBy()).isEqualTo("PAGE_CONTEXT");
         });
         assertThat(schema.defaultSorts()).singleElement().satisfies(sort -> {

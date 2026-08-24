@@ -11,6 +11,14 @@ import UserSessionListExpansion from './user/UserSessionListExpansion.vue';
 export const userModulePageEnhancement: ModulePageEnhancement = {
   id: 'iam-user-standard-page-enhancement',
   target: { moduleAlias: 'iam.user' },
+  navigator: {
+    emptyListScope: ({ currentUser, selectedNavigatorRecords }) => {
+      if (currentUser?.system !== true || Object.values(selectedNavigatorRecords).some(Boolean)) {
+        return undefined;
+      }
+      return [{ fieldName: 'tenantId', operator: 'NULL', values: [] }];
+    },
+  },
   list: {
     rowExpansion: {
       key: 'iam-user-sessions',

@@ -80,13 +80,15 @@ public class PlatformMenuInitialDataDeclarationProvider implements InitialDataDe
         Menu desired = new Menu();
         desired.setId(menuId);
         desired.setSchemeId(schemeId);
-        String route = module.route().trim();
-        String externalUrl = module.externalUrl().trim();
+        String targetModuleAlias = menu.moduleAlias().isBlank() ? module.alias() : menu.moduleAlias().trim();
+        boolean redirectsToCanonicalModule = !targetModuleAlias.equals(module.alias());
+        String route = redirectsToCanonicalModule ? "" : module.route().trim();
+        String externalUrl = redirectsToCanonicalModule ? "" : module.externalUrl().trim();
         validateModuleEntry(module, route, externalUrl);
         desired.setOpenMode(menu.openMode());
         desired.setParentId(menu.parent());
         desired.setTitle(menu.title().isBlank() ? module.title() : menu.title().trim());
-        desired.setModuleAlias(module.alias());
+        desired.setModuleAlias(targetModuleAlias);
         desired.setSystemManaged(Boolean.TRUE);
         desired.setRoute(route.isBlank() ? null : route);
         desired.setExternalUrl(externalUrl.isBlank() ? null : externalUrl);

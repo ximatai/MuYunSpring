@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.AggregateQuery;
 import net.ximatai.muyun.database.core.orm.CriteriaOperator;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
@@ -23,6 +24,7 @@ import net.ximatai.muyun.spring.platform.web.PageContextServerValueResolver;
 import net.ximatai.muyun.spring.platform.web.PageContextSource;
 import net.ximatai.muyun.spring.platform.web.PageContextTarget;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.ListQuerySummaryRuntime;
 import net.ximatai.muyun.spring.platform.web.ModuleMutationFieldValidation;
 import net.ximatai.muyun.spring.platform.web.ModuleQueryFormField;
 import net.ximatai.muyun.spring.platform.web.ModuleQueryTemplatePlan;
@@ -176,11 +178,11 @@ public class DynamicRecordWebController implements
     private final PlatformRecordNavigationService navigationService;
     private final DynamicRelationProjectionReadService dynamicRelationProjectionReadService;
     private final ModuleExecutionPlanCatalog executionPlanCatalog;
+    private final ListQuerySummaryRuntime listQuerySummaryRuntime;
     private final TenantRequestScope tenantRequestScope;
     private RecycleBinFacade recycleBinFacade;
     private final DynamicOpenApiGenerator openApiGenerator = new DynamicOpenApiGenerator();
     private static final ObjectMapper JSON = new ObjectMapper();
-    private static final int SUMMARY_MAX_RECORDS = 10_000;
 
     @Autowired
     public DynamicRecordWebController(DynamicRecordService recordService,
@@ -202,6 +204,7 @@ public class DynamicRecordWebController implements
         this.navigationService = actionServices.navigationService();
         this.dynamicRelationProjectionReadService = queryServices.relationProjectionReadService();
         this.executionPlanCatalog = queryServices.executionPlanCatalog();
+        this.listQuerySummaryRuntime = queryServices.listQuerySummaryRuntime();
         this.tenantRequestScope = tenantRequestScope;
     }
 
@@ -636,12 +639,30 @@ public class DynamicRecordWebController implements
             if (request != null && request.unpagedEnabled()) {
                 List<DynamicRecord> records = WebOutputSupport.records(
                         service(), queryListRecords(request), FieldOutputContext.LIST);
-                return WebPageResponse.fromList(records);
+                return attachListQuerySummaries(request, WebPageResponse.fromList(records));
             }
             PageResult<DynamicRecord> page = queryRecords(request);
             PageResult<DynamicRecord> output = WebOutputSupport.page(service(), page, FieldOutputContext.LIST);
-            return WebPageResponse.from(output, navigationContext(request, output));
+            return attachListQuerySummaries(request, WebPageResponse.from(output, navigationContext(request, output)));
         });
+    }
+
+    @Override
+    public WebPageResponse<DynamicRecord> attachListQuerySummaries(WebQueryRequest request,
+                                                                     WebPageResponse<DynamicRecord> response) {
+        String moduleAlias = DynamicWebRequest.moduleAlias();
+        if (executionPlanCatalog == null || listQuerySummaryRuntime == null) return response;
+        return executionPlanCatalog.find(moduleAlias)
+                .filter(plan -> plan.uiDescriptor().page() != null && plan.uiDescriptor().page().list() != null)
+                .filter(plan -> !plan.uiDescriptor().page().list().querySummaries().isEmpty())
+                .map(plan -> response.withSummaries(listQuerySummaryRuntime.summarize(moduleAlias,
+                        plan.uiDescriptor().page().list().querySummaries(), request, response.total(),
+                        additional -> recordService.count(moduleAlias, mainEntityAlias(moduleAlias),
+                                Criteria.copyOf(queryCriteria(request)).and(
+                                        additional == null ? Criteria.of() : additional)),
+                        aggregateQuery -> recordService.aggregate(moduleAlias, mainEntityAlias(moduleAlias),
+                                Criteria.copyOf(queryCriteria(request)), aggregateQuery))))
+                .orElse(response);
     }
 
     /**
@@ -685,30 +706,6 @@ public class DynamicRecordWebController implements
                 navigatorReferenceChildren(request, record.getId()).stream()
                         .map(child -> navigatorReferenceTreeNode(request, child))
                         .toList());
-    }
-
-    @PostMapping("/query/summary")
-    @ActionEndpoint(PlatformAction.QUERY)
-    public List<DynamicSummaryItem> querySummary(@RequestBody(required = false) WebQueryRequest request) {
-        return webScope(() -> {
-            List<DynamicSummaryConfigItem> items = summaryConfigItems(DynamicWebRequest.moduleAlias(), request);
-            if (items.isEmpty()) {
-                return List.of();
-            }
-            Map<String, FieldDefinition> fields = service().newRecord().getEntity().fields().stream()
-                    .collect(java.util.stream.Collectors.toMap(FieldDefinition::fieldName, field -> field));
-            Criteria criteria = queryCriteria(request);
-            long total = service().count(criteria);
-            if (total > SUMMARY_MAX_RECORDS) {
-                throw new PlatformException("Summary panel query exceeds max records: " + SUMMARY_MAX_RECORDS);
-            }
-            List<DynamicRecord> records = total == 0
-                    ? List.of()
-                    : service().list(criteria, new PageRequest(0, (int) total));
-            return items.stream()
-                    .map(item -> summaryItem(DynamicWebRequest.moduleAlias(), records, fields, item))
-                    .toList();
-        });
     }
 
     @GetMapping("/associations/relation-overview")
@@ -931,183 +928,6 @@ public class DynamicRecordWebController implements
         return (DynamicRecord) dataScopeAbility.selectForAction(action, id);
     }
 
-    private List<DynamicSummaryConfigItem> summaryConfigItems(String moduleAlias, WebQueryRequest request) {
-        if (request == null || !hasText(request.uiConfigId())) {
-            return List.of();
-        }
-        requireLowCodePageServices();
-        PlatformPageConfigSnapshot snapshot = pageConfigSnapshotService.snapshot(moduleAlias);
-        PlatformUiConfig uiConfig = snapshot.uiConfigs().stream()
-                .filter(config -> Objects.equals(config.getId(), request.uiConfigId()))
-                .findFirst()
-                .orElseThrow(() -> new PlatformException("UI config is not published in module snapshot: "
-                        + request.uiConfigId()));
-        requireListUiConfig(snapshot, uiConfig);
-        if (!hasText(uiConfig.getLayoutJson())) {
-            return List.of();
-        }
-        JsonNode items = summaryItemsNode(uiConfig);
-        if (!items.isArray()) {
-            return List.of();
-        }
-        List<DynamicSummaryConfigItem> configItems = new ArrayList<>();
-        for (JsonNode item : items) {
-            String detailId = text(item, "detailId");
-            if (!hasText(detailId)) {
-                detailId = text(item, "moduleMetadataFieldId");
-            }
-            configItems.add(new DynamicSummaryConfigItem(
-                    detailId,
-                    text(item, "calcType"),
-                    text(item, "label"),
-                    item.hasNonNull("precision") ? item.get("precision").asInt() : null,
-                    text(item, "formatter")
-            ));
-        }
-        return configItems;
-    }
-
-    private void requireListUiConfig(PlatformPageConfigSnapshot snapshot, PlatformUiConfig uiConfig) {
-        PlatformUiSet uiSet = snapshot.uiSets().stream()
-                .filter(set -> Objects.equals(set.getId(), uiConfig.getUiSetId()))
-                .findFirst()
-                .orElseThrow(() -> new PlatformException("UI config set is not published in module snapshot: "
-                        + uiConfig.getUiSetId()));
-        if (uiSet.getSetType() != PlatformUiSetType.LIST) {
-            throw new PlatformException("Summary panel requires LIST UI config: " + uiConfig.getId());
-        }
-    }
-
-    private JsonNode summaryItemsNode(PlatformUiConfig uiConfig) {
-        try {
-            return JSON.readTree(uiConfig.getLayoutJson())
-                    .path("summaryPanel")
-                    .path("items");
-        } catch (JsonProcessingException exception) {
-            throw new PlatformException("UI config layout JSON cannot be decoded: " + uiConfig.getId());
-        }
-    }
-
-    private DynamicSummaryItem summaryItem(String moduleAlias,
-                                           List<DynamicRecord> records,
-                                           Map<String, FieldDefinition> fields,
-                                           DynamicSummaryConfigItem item) {
-        if (!hasText(item.detailId()) || !hasText(item.calcType())) {
-            return emptySummaryItem(item, item.label());
-        }
-        try {
-            ResolvedModuleMetadataField resolved = moduleMetadataFieldService.resolve(item.detailId());
-            String label = hasText(item.label()) ? item.label() : resolved.fieldTitle();
-            if (!Objects.equals(resolved.moduleAlias(), moduleAlias)
-                    || resolved.relationRole() != RelationRole.MAIN) {
-                return emptySummaryItem(item, label);
-            }
-            FieldDefinition field = fields.get(resolved.fieldName());
-            if (field == null || !summaryCalcSupported(item.calcType(), field.type())) {
-                return emptySummaryItem(item, label);
-            }
-            return new DynamicSummaryItem(
-                    item.detailId(),
-                    item.calcType(),
-                    label,
-                    item.precision(),
-                    item.formatter(),
-                    DynamicWebValues.webValue(summaryValue(records, resolved.fieldName(), field.type(), item.calcType()))
-            );
-        } catch (RuntimeException exception) {
-            return emptySummaryItem(item, item.label());
-        }
-    }
-
-    private DynamicSummaryItem emptySummaryItem(DynamicSummaryConfigItem item, String label) {
-        return new DynamicSummaryItem(
-                item.detailId(),
-                item.calcType(),
-                label,
-                item.precision(),
-                item.formatter(),
-                null
-        );
-    }
-
-    private Object summaryValue(List<DynamicRecord> records, String fieldName, FieldType fieldType, String calcType) {
-        String normalized = normalizedCalcType(calcType);
-        List<Object> values = records.stream()
-                .map(record -> record.getValues().get(fieldName))
-                .filter(this::presentSummaryValue)
-                .toList();
-        return switch (normalized) {
-            case "sum" -> values.stream()
-                    .map(this::decimalValue)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            case "avg" -> values.isEmpty()
-                    ? null
-                    : values.stream()
-                    .map(this::decimalValue)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add)
-                    .divide(BigDecimal.valueOf(values.size()), MathContext.DECIMAL64);
-            case "max" -> comparableValue(values, fieldType, Comparator.naturalOrder());
-            case "min" -> comparableValue(values, fieldType, Comparator.reverseOrder());
-            case "count" -> (long) values.size();
-            case "distinctcount" -> values.stream().distinct().count();
-            default -> null;
-        };
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private Object comparableValue(List<Object> values, FieldType fieldType, Comparator<Comparable> comparator) {
-        if (values.isEmpty()) {
-            return null;
-        }
-        return values.stream()
-                .filter(Comparable.class::isInstance)
-                .map(Comparable.class::cast)
-                .sorted(comparator.reversed())
-                .findFirst()
-                .orElse(null);
-    }
-
-    private boolean summaryCalcSupported(String calcType, FieldType fieldType) {
-        String normalized = normalizedCalcType(calcType);
-        if ("count".equals(normalized) || "distinctcount".equals(normalized)) {
-            return true;
-        }
-        if ("sum".equals(normalized) || "avg".equals(normalized)) {
-            return numericField(fieldType);
-        }
-        if ("max".equals(normalized) || "min".equals(normalized)) {
-            return numericField(fieldType)
-                    || fieldType == FieldType.DATE
-                    || fieldType == FieldType.TIMESTAMP
-                    || fieldType == FieldType.ZONED_TIMESTAMP;
-        }
-        return false;
-    }
-
-    private boolean numericField(FieldType fieldType) {
-        return fieldType == FieldType.INTEGER
-                || fieldType == FieldType.LONG
-                || fieldType == FieldType.DECIMAL;
-    }
-
-    private String normalizedCalcType(String calcType) {
-        return calcType == null ? "" : calcType.replace("_", "").toLowerCase();
-    }
-
-    private boolean presentSummaryValue(Object value) {
-        return value != null && (!(value instanceof String text) || !text.isBlank());
-    }
-
-    private BigDecimal decimalValue(Object value) {
-        if (value instanceof BigDecimal decimal) {
-            return decimal;
-        }
-        if (value instanceof Number number) {
-            return BigDecimal.valueOf(number.doubleValue());
-        }
-        return new BigDecimal(String.valueOf(value));
-    }
-
     private String text(JsonNode node, String fieldName) {
         JsonNode value = node == null ? null : node.get(fieldName);
         if (value == null || value.isNull()) {
@@ -1177,6 +997,17 @@ public class DynamicRecordWebController implements
             }
         }
         return requestedFields;
+    }
+
+    private void requireListUiConfig(PlatformPageConfigSnapshot snapshot, PlatformUiConfig uiConfig) {
+        PlatformUiSet uiSet = snapshot.uiSets().stream()
+                .filter(set -> Objects.equals(set.getId(), uiConfig.getUiSetId()))
+                .findFirst()
+                .orElseThrow(() -> new PlatformException("UI config set is not published in module snapshot: "
+                        + uiConfig.getUiSetId()));
+        if (uiSet.getSetType() != PlatformUiSetType.LIST) {
+            throw new PlatformException("List query requires LIST UI config: " + uiConfig.getId());
+        }
     }
 
     private List<String> quickSearchFieldsForSchema(String uiConfigId) {

@@ -7,11 +7,9 @@ describe('RecordDetailDrawer', () => {
     vi.restoreAllMocks();
   });
 
-  it('mounts Ant Design Drawer into the root DOM supplied by its owning page', () => {
-    const container = document.createElement('section');
-    document.body.append(container);
+  it('keeps an explicitly inline workspace drawer under its owning page', () => {
     const wrapper = mount(RecordDetailDrawer, {
-      props: { open: true, title: '职员详情', container },
+      props: { open: true, title: '职员详情', renderMode: 'inline' },
       global: {
         stubs: {
           ADrawer: {
@@ -23,19 +21,57 @@ describe('RecordDetailDrawer', () => {
       },
     });
 
-    expect(wrapper.findComponent({ name: 'ADrawer' }).props('getContainer')).toBe(container);
+    expect(wrapper.findComponent({ name: 'ADrawer' }).props('getContainer')).toBe(false);
     wrapper.unmount();
-    container.remove();
   });
 
-  it('does not create a drawer without its owning page root', () => {
+  it('forwards transition completion from its inline workspace drawer', async () => {
+    const wrapper = mount(RecordDetailDrawer, {
+      props: { open: true, title: '职员详情', renderMode: 'inline' },
+      global: {
+        stubs: {
+          ADrawer: {
+            name: 'ADrawer',
+            emits: ['afterOpenChange'],
+            template: '<section><slot /></section>',
+          },
+        },
+      },
+    });
+
+    wrapper.findComponent({ name: 'ADrawer' }).vm.$emit('afterOpenChange', false);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('afterClose')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it('forwards transition completion from the side-panel workspace drawer', async () => {
+    const wrapper = mount(RecordDetailDrawer, {
+      props: { open: true, title: '职员详情', scope: 'viewport' },
+      global: {
+        stubs: {
+          UiSidePanel: {
+            name: 'UiSidePanel',
+            emits: ['afterClose'],
+            template: '<section><slot /></section>',
+          },
+        },
+      },
+    });
+
+    wrapper.findComponent({ name: 'UiSidePanel' }).vm.$emit('afterClose');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('afterClose')).toHaveLength(1);
+  });
+
+  it('does not create a portal drawer without an active side-panel host', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const wrapper = mount(RecordDetailDrawer, {
-      props: { open: true, title: '职员详情', container: null },
+      props: { open: true, title: '职员详情' },
       global: { stubs: { ADrawer: true } },
     });
 
     expect(wrapper.findComponent({ name: 'ADrawer' }).exists()).toBe(false);
-    expect(error).toHaveBeenCalledWith('[RecordDetailDrawer] 打开抽屉前必须传入所属页面的根 DOM 容器。');
+    expect(error).toHaveBeenCalledWith('[RecordDetailDrawer] portal 模式打开抽屉前必须存在活动侧栏宿主。');
   });
 });

@@ -61,6 +61,7 @@ import {
   createReferenceResolveClient,
   userPreferences,
   useModuleContext,
+  withHttpHeaders,
   type ModuleContext,
 } from '@muyun/web-core';
 import { canMutateModuleDetail } from './moduleDetailStateModel';
@@ -78,6 +79,7 @@ import {
   type ModulePageCardAssistantContext,
   type ModulePageFormContribution,
   type ModulePageFormFieldPolicy,
+  type ModulePageNavigatorEnhancement,
   type ModulePageListRowExpansionContext,
   type ModulePageRecordActionContribution,
   type ModulePageWorkspaceView,
@@ -98,7 +100,7 @@ import ModulePageRecordContent from './ModulePageRecordContent.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { shouldHideSingleResultNavigator } from './navigatorVisibility';
-import { useRecordDetailController } from './recordDetailController';
+import { type RecordDetailTransitionOptions, useRecordDetailController } from './recordDetailController';
 import { externalPageContextCriteriaKeys, resolvePageContextTargetValues } from './pageContextRuntime';
 import { FormComputeCoordinator } from './formComputeCoordinator';
 import { useModulePageBootstrap } from './composables/useModulePageBootstrap';
@@ -118,9 +120,41 @@ const props = defineProps<{
   descriptor: StandardModulePageDescriptor;
 }>();
 
-const context = useModuleContext<QueryListRecord>({
+const baseContext = useModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
 });
+const disabledStandardActions = ref<readonly string[]>([]);
+const navigatorEntryPolicy = ref<ModulePageNavigatorEnhancement>({});
+const moduleRequestPrefix = `/${props.descriptor.target.moduleAlias}`;
+const rawContext = createModuleContext<QueryListRecord>({
+  moduleAlias: props.descriptor.target.moduleAlias,
+  http: withHttpHeaders(
+    baseContext.http,
+    {
+      'X-MuYun-Menu-Id': props.descriptor.menuId,
+    },
+    (request) => request.path === moduleRequestPrefix || request.path.startsWith(`${moduleRequestPrefix}/`),
+  ),
+});
+const context: ModuleContext<QueryListRecord> = {
+  ...rawContext,
+  crud: {
+    ...rawContext.crud,
+    query(request) {
+      const conditions = emptyNavigatorListScope.value ?? [];
+      return rawContext.crud.query({
+        ...request,
+        conditions: [...(request?.conditions ?? []), ...conditions],
+      });
+    },
+  },
+  can(actionCode, recordId) {
+    if (disabledStandardActions.value.includes(actionCode)) {
+      return false;
+    }
+    return rawContext.can(actionCode, recordId);
+  },
+};
 const currentUser = useCurrentUserContext();
 const modulePageNavigation = useModulePageNavigation();
 const { presentActionSuccess, runEnhancementAction } = useModulePageActions();
@@ -132,8 +166,17 @@ const {
 } = useRecordEditingSession(context, detail, () => {
   detailRelationReloadKey.value += 1;
 });
-function openRecord(record: QueryListRecord, mode: 'edit' | 'view') {
-  return loadRecord(record, mode, mode === 'view' && enhancementDetailDrawer.value?.loadRecord === false);
+function openRecord(
+  record: QueryListRecord,
+  mode: 'edit' | 'view',
+  options: RecordDetailTransitionOptions = {},
+) {
+  return loadRecord(
+    record,
+    mode,
+    options,
+    mode === 'view' && enhancementDetailDrawer.value?.loadRecord === false,
+  );
 }
 const {
   record: selectedRecord,
@@ -195,10 +238,12 @@ const {
 const detailRelationReloadKey = ref(0);
 const {
   drawer: enhancementDrawer,
+  drawerOpen: enhancementDrawerOpen,
   sectionContext: detailSectionContext,
   recordViewContext,
   openDrawer: openEnhancementDrawer,
   closeDrawer: closeEnhancementDrawer,
+  disposeDrawer: disposeEnhancementDrawer,
 } = useModulePageDetailExtensionRuntime({
   module: context,
   scope: () => modulePageActionStateContext().scope,
@@ -435,18 +480,22 @@ const showDetailSystemInfo = computed(() => runtimePage.value?.detail?.showSyste
 // A tree domain owns the explorer; TREE_MANAGEMENT owns the matching detail surface.
 // Keep the capability fallback for older static modules that have not yet declared a page root.
 const treeManagementPage = computed(() => runtimePage.value?.template === 'TREE_MANAGEMENT');
-const listDetailMinimumWidth = computed(() => listDetailWorkspaceMinWidth(navigatorLevels.value.length));
+const listDetailMinimumWidth = computed(() =>
+  listDetailWorkspaceMinWidth(visibleNavigatorLevels.value.length),
+);
 const visibleNavigatorLevels = computed(() =>
-  navigatorLevels.value.filter((level) => {
-    // `loaded` is the authoritative result cardinality. Selection may be committed in the
-    // same reactive turn, so do not make visibility depend on a second snapshot of it.
-    const autoHidden = shouldHideSingleResultNavigator(
-      level.descriptor,
-      navigatorSingleResultKeys.value.includes(level.descriptor.key),
-      currentUser?.value?.tenantId,
-    );
-    return !autoHidden;
-  }),
+  navigatorEntryPolicy.value.hidden
+    ? []
+    : navigatorLevels.value.filter((level) => {
+        // `loaded` is the authoritative result cardinality. Selection may be committed in the
+        // same reactive turn, so do not make visibility depend on a second snapshot of it.
+        const autoHidden = shouldHideSingleResultNavigator(
+          level.descriptor,
+          navigatorSingleResultKeys.value.includes(level.descriptor.key),
+          currentUser?.value?.tenantId,
+        );
+        return !autoHidden;
+      }),
 );
 const detailSurfaceUsesDrawer = computed(
   () => narrowDetailSurface.value || detailSurfacePreference.value === 'drawer',
@@ -489,7 +538,7 @@ const treeRootTitle = computed(
   () => formFields.value.get('parentId')?.treeRootTitle ?? `根${recordLabel.value}`,
 );
 const pageEnhancement = computed(() =>
-  resolveModulePageEnhancement(context.moduleAlias, activeListView.value?.viewCode),
+  resolveModulePageEnhancement(context.moduleAlias, activeListView.value?.viewCode, props.descriptor.menuId),
 );
 const formContributions = computed(() => pageEnhancement.value?.form?.contributions ?? []);
 const formFieldPolicies = computed(() => pageEnhancement.value?.form?.fieldPolicies ?? []);
@@ -498,6 +547,8 @@ watch(
   pageEnhancement,
   (enhancement) => {
     disposePageEnhancement?.();
+    disabledStandardActions.value = enhancement?.standardActions?.disabled ?? [];
+    navigatorEntryPolicy.value = enhancement?.navigator ?? {};
     const dispose = enhancement?.activate?.({ module: context });
     disposePageEnhancement = typeof dispose === 'function' ? dispose : undefined;
   },
@@ -542,6 +593,8 @@ const enhancementBatchActions = computed<ModulePageBatchActionContribution[]>(
   () => pageEnhancement.value?.list?.batchActions ?? [],
 );
 const enhancementRowExpansion = computed(() => pageEnhancement.value?.list?.rowExpansion);
+const persistentListQueryControls = computed(() => runtimePage.value?.list?.persistentQueryControls ?? []);
+const listQuerySummaries = computed(() => runtimePage.value?.list?.querySummaries ?? []);
 const listRowExpansionEnabled = computed(
   () => descriptorRelationExpansionEnabled.value || enhancementRowExpansion.value !== undefined,
 );
@@ -614,7 +667,7 @@ const unsupportedPageModeText = computed(() => `${pageMode.value}入口暂未接
 // in the tab's document flow.
 providePageLayout(
   computed(() =>
-    constrainedManagementPage.value || navigatorLevels.value.length > 0
+    constrainedManagementPage.value || visibleNavigatorLevels.value.length > 0
       ? 'workspace'
       : props.descriptor.layout,
   ),
@@ -625,7 +678,7 @@ providePageLayout(
  * introduce a separate scope selection for actions or drawers.
  */
 const primaryNavigatorContext = computed<ModuleContext<QueryListRecord> | undefined>(() => {
-  return navigatorLevels.value[0]?.context;
+  return navigatorEntryPolicy.value.hidden ? undefined : navigatorLevels.value[0]?.context;
 });
 const pageContextSourceValues = computed(() => ({
   NAVIGATOR: Object.fromEntries(
@@ -640,14 +693,25 @@ const pageContextSourceValues = computed(() => ({
     organizationId: currentUser?.value?.organizationId,
   },
 }));
+const emptyNavigatorListScope = computed(() =>
+  navigatorEntryPolicy.value.emptyListScope?.({
+    currentUser: currentUser?.value,
+    selectedNavigatorRecords: selectedNavigatorRecords.value,
+  }),
+);
 const navigatorListQueryValues = computed<Record<string, unknown> | undefined>(() => {
+  if (navigatorEntryPolicy.value.bypassListScope || emptyNavigatorListScope.value !== undefined) {
+    return undefined;
+  }
   // SESSION values are resolved by the server; never echo them in a list request.
   return resolvePageContextTargetValues(pageContextBindings.value, 'LIST_QUERY', {
     NAVIGATOR: pageContextSourceValues.value.NAVIGATOR,
   });
 });
 const navigatorListCriteriaKeys = computed(() =>
-  externalPageContextCriteriaKeys(pageContextBindings.value, 'LIST_QUERY'),
+  navigatorEntryPolicy.value.bypassListScope || emptyNavigatorListScope.value !== undefined
+    ? []
+    : externalPageContextCriteriaKeys(pageContextBindings.value, 'LIST_QUERY'),
 );
 /**
  * Tree endpoints may require a navigator-provided scope. Do not issue an
@@ -1052,7 +1116,7 @@ function handleFlatManagementAction(action: RecordActionItem) {
     return;
   }
   if (action.key === 'edit' && selectedRecord.value) {
-    void editRecord(selectedRecord.value);
+    void editRecord(selectedRecord.value, 'restore-view');
     return;
   }
   if (action.key === 'delete' && selectedRecord.value) {
@@ -1595,13 +1659,10 @@ function createRecord(parentId?: string) {
   if (context.can('create') !== true) return;
   invalidatePendingRequests();
   const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
-  detail.beginCreate(
-    defaults,
-    // A persistent explorer selection remains meaningful while its create
-    // form is open. Keep it as a return target without exposing it as the
-    // active create record or issuing a second detail request on cancellation.
-    { restoreRecord: selectedRecord.value },
-  );
+  // Only a tree's persistent detail card has a meaningful record to restore.
+  // A list drawer creates an independent draft: cancelling it must close the
+  // drawer rather than reopen the row that happened to be selected.
+  detail.beginCreate(defaults, { cancelDestination: treeModule.value ? 'restore-view' : 'close' });
   if (editingRecord.value) {
     editingRecord.value = applyFormComputeAfterChanges(
       editingRecord.value,
@@ -1620,10 +1681,10 @@ function createChildRecord() {
   if (parentId) createRecord(parentId);
 }
 
-async function editRecord(record: QueryListRecord) {
+async function editRecord(record: QueryListRecord, cancelDestination: 'close' | 'restore-view' = 'close') {
   if (context.can('update') !== true) return;
-  if (selectedRecord.value?.id === record.id && detail.beginEdit()) return;
-  await openRecord(record, 'edit');
+  if (selectedRecord.value?.id === record.id && detail.beginEdit({ cancelDestination })) return;
+  await openRecord(record, 'edit', { cancelDestination });
 }
 
 async function saveRecord() {
@@ -1844,6 +1905,9 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
 }
 
 function modulePageActionStateContext(): ModulePageActionStateContext {
+  if (navigatorEntryPolicy.value.hidden) {
+    return { module: context };
+  }
   const primaryNavigator = navigatorLevels.value[0];
   return primaryNavigator
     ? {
@@ -1887,14 +1951,12 @@ function closeDetail() {
   detail.close();
 }
 
-/**
- * Cancelling an edit returns to the already-open record view. Only a create
- * draft has no existing detail to return to, so it closes the detail surface.
- */
+/** Returns to a detail only when the state machine retained that surface. */
 async function cancelDetailEditing() {
   if (saving.value) return;
   invalidatePendingRequests();
   detail.cancelEdit();
+  if (!detailOpen.value) return;
   const record = selectedRecord.value;
   if (record?.id != null) {
     await loadRecord(record, 'view');
@@ -2309,6 +2371,8 @@ function recordTitle(record: QueryListRecord | undefined) {
         :page-size="listPageSize"
         :ready="pageReady && navigatorListScopeReady"
         :external-query-values="navigatorListQueryValues"
+        :persistent-query-controls="persistentListQueryControls"
+        :query-summaries="listQuerySummaries"
         :required-external-criteria-keys="navigatorListCriteriaKeys"
         :mode="listMode"
         :quick-search-placeholder="listSearchPlaceholder"
@@ -2380,7 +2444,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :configured-actions="detailPageActions"
             @cancel="cancelDetailEditing"
             @save="saveRecord"
-            @edit="selectedRecord && editRecord(selectedRecord)"
+            @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
             @delete="selectedRecord && deleteRecord(selectedRecord)"
             @detail-action="handleDetailAction"
           />
@@ -2599,7 +2663,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               action-code="update"
               :record-id="selectedRecord?.id == null ? undefined : String(selectedRecord.id)"
               :disabled="!selectedRecord"
-              @click="selectedRecord && editRecord(selectedRecord)"
+              @click="selectedRecord && editRecord(selectedRecord, 'restore-view')"
             >
               编辑
             </ModuleActionButton>
@@ -2719,6 +2783,8 @@ function recordTitle(record: QueryListRecord | undefined) {
       :page-size="listPageSize"
       :ready="pageReady && navigatorListScopeReady"
       :mode="listMode"
+      :persistent-query-controls="persistentListQueryControls"
+      :query-summaries="listQuerySummaries"
       :quick-search-placeholder="listSearchPlaceholder"
       :empty-description="listEmptyDescription"
       @loaded="handleLoaded"
@@ -2750,7 +2816,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       v-if="!treeModule && !flatManagementPage && (!listDetailCardPage || detailSurfaceUsesDrawer)"
       :open="detailOpen"
       :title="detailTitle"
-      :container="workspaceElement"
+      render-mode="inline"
       :width="enhancementDetailDrawer?.width"
       :mode="editorMode"
       :loading="detailLoading"
@@ -2804,7 +2870,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :show-standard-view-actions="!enhancementDetailDrawer"
           @cancel="cancelDetailEditing"
           @save="saveRecord"
-          @edit="selectedRecord && editRecord(selectedRecord)"
+          @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
           @delete="selectedRecord && deleteRecord(selectedRecord)"
           @detail-action="handleDetailAction"
         />
@@ -2876,11 +2942,12 @@ function recordTitle(record: QueryListRecord | undefined) {
 
     <RecordDetailDrawer
       v-if="enhancementDrawer"
-      :open="true"
+      :open="enhancementDrawerOpen"
       :title="enhancementDrawer.definition.title"
-      :container="workspaceElement"
+      render-mode="inline"
       :width="enhancementDrawer.definition.width"
       @close="closeEnhancementDrawer"
+      @after-close="disposeEnhancementDrawer"
     >
       <template v-if="enhancementDrawer.titleActions.length" #title-actions>
         <DrawerTitleActions :actions="enhancementDrawer.titleActions" />
@@ -2916,6 +2983,7 @@ function recordTitle(record: QueryListRecord | undefined) {
 
 <style scoped>
 .module-workspace {
+  position: relative;
   min-width: 0;
   min-height: calc(100vh - 116px);
 }
@@ -3081,7 +3149,7 @@ function recordTitle(record: QueryListRecord | undefined) {
 
 @media (max-width: 720px) {
   .module-workspace--management {
-    height: auto;
+    height: calc(100vh - 116px);
     min-height: calc(100vh - 116px);
   }
 

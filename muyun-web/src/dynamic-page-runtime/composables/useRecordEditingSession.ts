@@ -1,7 +1,8 @@
 import type { ModuleContext } from '@muyun/web-core';
+import type { RecordDetailTransitionOptions } from '../recordDetailController';
 
 interface DetailController<TRecord> {
-  beginLoad(record: TRecord, mode: 'edit' | 'view'): void;
+  beginLoad(record: TRecord, mode: 'edit' | 'view', options?: RecordDetailTransitionOptions): void;
   resolveLoad(record: TRecord): void;
   failLoad(): void;
   finishLoad(): void;
@@ -25,11 +26,16 @@ export function useRecordEditingSession<TRecord extends { id?: unknown }>(
     requestSequence += 1;
   }
 
-  async function openRecord(record: TRecord, mode: 'edit' | 'view', skipLoad = false) {
+  async function openRecord(
+    record: TRecord,
+    mode: 'edit' | 'view',
+    options: RecordDetailTransitionOptions = {},
+    skipLoad = false,
+  ) {
     const id = record.id == null ? undefined : String(record.id);
     if (!id) return;
     const sequence = ++requestSequence;
-    detail.beginLoad(record, mode);
+    detail.beginLoad(record, mode, options);
     if (skipLoad) {
       detail.resolveLoad(record);
       detail.finishLoad();
