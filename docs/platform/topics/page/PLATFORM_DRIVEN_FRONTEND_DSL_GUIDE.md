@@ -8,14 +8,14 @@
 
 优先顺序应为：**平台页面 DSL → 前端受控扩展 → 独立业务页面**。不要因为某个字段、一个列表单元格或一个业务动作就绕开标准页面。
 
-| 情况 | 推荐方式 | 原因 |
-| --- | --- | --- |
-| 标准 CRUD、字段展示、启停、回收站、引用选择 | 页面 DSL + traits | 平台已经拥有保存、权限、租户、审计、校验和交互闭环。 |
-| 按组织、租户、分类等范围筛选的标准列表 | 页面 DSL 的 navigator 和 context binding | 范围、查询和新建预填仍走标准链路。 |
-| 树形资源、列表详情、平铺管理页 | `PageTemplates` 选择页面骨架 | 避免业务自行拼三栏布局、抽屉和列表状态。 |
-| 子资源或标准关联明细 | `detailRelation`、`managedDetailRelation`、`editorContribution` | 关系身份、父子约束、权限和保存语义由平台治理。 |
-| 额外状态列、只读会话明细、密码管理等领域特性 | `ModulePageEnhancement` 受控扩展 | 标准页面保留所有权，业务只在命名边界注入内容。 |
-| 复杂工作台、跨多个聚合的编排、非标准交互主流程 | 独立业务页面 | 此时页面本身就是业务能力，不应伪装成通用 CRUD。 |
+| 情况                                           | 推荐方式                                                        | 原因                                                 |
+| ---------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------- |
+| 标准 CRUD、字段展示、启停、回收站、引用选择    | 页面 DSL + traits                                               | 平台已经拥有保存、权限、租户、审计、校验和交互闭环。 |
+| 按组织、租户、分类等范围筛选的标准列表         | 页面 DSL 的 navigator 和 context binding                        | 范围、查询和新建预填仍走标准链路。                   |
+| 树形资源、列表详情、平铺管理页                 | `PageTemplates` 选择页面骨架                                    | 避免业务自行拼三栏布局、抽屉和列表状态。             |
+| 子资源或标准关联明细                           | `detailRelation`、`managedDetailRelation`、`editorContribution` | 关系身份、父子约束、权限和保存语义由平台治理。       |
+| 额外状态列、只读会话明细、密码管理等领域特性   | `ModulePageEnhancement` 受控扩展                                | 标准页面保留所有权，业务只在命名边界注入内容。       |
+| 复杂工作台、跨多个聚合的编排、非标准交互主流程 | 独立业务页面                                                    | 此时页面本身就是业务能力，不应伪装成通用 CRUD。      |
 
 动态配置维护者不需要选择另一套前端内核：动态 UI 配置同样应声明字段、视图和页面事实，经来源归一后交给标准运行器。动态配置当前没有承载的能力，不应通过任意 JSON、组件名或脚本表达式绕过平台；应先判断是否形成稳定的跨业务平台能力。
 
@@ -62,11 +62,11 @@ public ModuleUiDefinition moduleUiDefinition() {
 
 可用的页面根骨架保持小集合：
 
-| 骨架 | 适合场景 |
-| --- | --- |
+| 骨架                                | 适合场景                                                |
+| ----------------------------------- | ------------------------------------------------------- |
 | `PageTemplates.listDetailCard(...)` | 一张主列表配合详情/编辑抽屉；绝大多数管理页的默认选择。 |
-| `PageTemplates.flatManagement(...)` | 有范围导航但不需要树形主资源工作区的管理页。 |
-| `PageTemplates.treeManagement(...)` | 主资源本身是树，且树的维护是该页面主流程。 |
+| `PageTemplates.flatManagement(...)` | 有范围导航但不需要树形主资源工作区的管理页。            |
+| `PageTemplates.treeManagement(...)` | 主资源本身是树，且树的维护是该页面主流程。              |
 
 如果需求不符合这三种语义，不要先给平台增加一个骨架名称；先确认它是否能由标准骨架加受控扩展解决。只有多个业务共享同一结构和运行语义时，才将新骨架上升为平台能力。
 
@@ -120,16 +120,63 @@ public ModuleUiDefinition moduleUiDefinition() {
 
 先按关系的真实保存语义选择 DSL，而不是按页面长相选择：
 
-| 关系事实 | 使用方式 |
-| --- | --- |
-| 只读关联明细 | `detailRelation(...)` |
-| 由目标模块标准 CRUD 维护的关联 | `managedDetailRelation(...)` |
-| 可查询但刻意不开放变更的关联 | `managedReadOnlyDetailRelation(...)` |
-| 随父记录 `children` 一起保存的聚合子表 | `aggregateChildRelation(...)` |
-| 子资源独立编辑表单 | `editorContribution(resource, ...)` |
-| 只需在列表行查看标准关系摘要 | `list(...).expandRelation(...)` |
+| 关系事实                               | 使用方式                             |
+| -------------------------------------- | ------------------------------------ |
+| 只读关联明细                           | `detailRelation(...)`                |
+| 由目标模块标准 CRUD 维护的关联         | `managedDetailRelation(...)`         |
+| 可查询但刻意不开放变更的关联           | `managedReadOnlyDetailRelation(...)` |
+| 随父记录 `children` 一起保存的聚合子表 | `aggregateChildRelation(...)`        |
+| 子资源独立编辑表单                     | `editorContribution(resource, ...)`  |
+| 只需在列表行查看标准关系摘要           | `list(...).expandRelation(...)`      |
 
 关系读取不自动等于可编辑。尤其不要因为能查询到子表就给它开放新增、修改或删除；变更能力必须由 relation 的保存模型、父子约束、动作权限和回收策略共同证明。
+
+## 列表常驻查询与查询摘要
+
+列表查询分为两层：服务端查询描述符声明可用条件及其过滤语义、授权和数据范围；页面 DSL 只声明这些条件如何被持续呈现。页面不得用 DSL 自行定义新的服务端过滤语义。
+
+静态模块在 `PageListDefinition` 中按两个独立区域声明：
+
+```java
+list.persistentQueries(queries -> queries.control("onlineOnly", control -> control
+        .label("仅在线")
+        .uiType(ViewControlType.SWITCH)
+        .defaultValue(false)));
+list.querySummaries(summaries -> summaries.item("onlineUsers", summary -> summary
+        .label("在线")
+        .contributor("iam.active-user-count")));
+```
+
+`persistentQueries` 是搜索框之后、高级过滤之前的常驻 UI 区域。当前标准控件是布尔 `SWITCH`；其 `externalCriteriaKey` 必须由模块的服务端查询描述符接收。控件改变后，前端立即以 `externalQueryValues` 重查标准 `POST /{moduleAlias}/query`，不新增专用查询接口，也不在浏览器内过滤数据。嵌入页面已拥有同名 `externalQueryValues` 时，嵌入值优先，页面 DSL 不得覆盖上游导航范围。
+
+`querySummaries` 位于列表分页栏左侧。摘要针对本次有效查询命中的完整记录集合计算，忽略分页；关键字、常驻条件、高级条件、查询模板、导航范围或数据权限变化时，摘要必须同步变化。每个摘要 key 在同一列表内唯一，响应只返回稳定的 `{ key, value }`，展示标题仍由页面 descriptor 持有。
+
+摘要有两类来源：
+
+| source          | DSL                             | 适用范围                         |
+| --------------- | ------------------------------- | -------------------------------- |
+| `MATCHED_COUNT` | `.matchedCount()`               | 直接复用当前查询命中的总数。     |
+| `CONTRIBUTOR`   | `.contributor("domain.metric")` | 金额、分组、在线状态等业务指标。 |
+
+业务指标实现 `ListQuerySummaryContributor`，显式声明唯一的 `moduleAlias()` 与 `contributorKey()`，并只通过 `ListQuerySummaryContext.count(...)` 或 `aggregate(...)` 计算。平台在启动时建立 contributor catalog：重复的 `(moduleAlias, contributorKey)` 会阻止装配；静态页面在执行计划编译时、动态页面在发布候选计划阶段都会验证声明的 contributor 已注册。因此错误配置不会等到首次列表查询才暴露。上下文自动叠加当前查询、已提供的页面入口表达、租户及数据范围；菜单入口本身不是授权或数据范围凭据。contributor 不得自行绕过该上下文查询记录，也不应将某个业务模块的指标固化为平台内置 source。
+
+动态页面的已发布 layout 可在 `LIST_DETAIL_CARD` 根节点声明查询摘要：
+
+```json
+{
+  "template": "LIST_DETAIL_CARD",
+  "querySummaries": [
+    {
+      "key": "onlineUsers",
+      "label": "在线",
+      "source": "CONTRIBUTOR",
+      "contributorKey": "iam.active-user-count"
+    }
+  ]
+}
+```
+
+动态 `persistentQueries` 尚未开放：动态查询配置目前只能表达查询模板项，尚未具备“声明一个来源无关、可由标准查询执行器直接消费的外部条件”的服务端事实。发布时出现该字段会被拒绝，不能以 UI JSON 绕过这一缺口。动态 `querySummaries` 仅由 `LIST_DETAIL_CARD` 支持；`MATCHED_COUNT` 不得携带 `contributorKey`，`CONTRIBUTOR` 必须携带已注册的 `contributorKey`；其他模板声明摘要会在发布时被拒绝，不会静默降级。
 
 ## 受控前端扩展：给特性业务留路，不改写标准页面
 
@@ -139,14 +186,31 @@ public ModuleUiDefinition moduleUiDefinition() {
 
 ```ts
 export const userModulePageEnhancement: ModulePageEnhancement = {
-  id: 'iam-user-standard-page-enhancement',
-  target: { moduleAlias: 'iam.user' },
+  id: "iam-user-standard-page-enhancement",
+  target: { moduleAlias: "iam.user" },
   list: {
-    columns: [{ key: 'onlineStatus', title: '在线状态', before: 'enabled', cell: UserOnlineStatusCell }],
-    rowExpansion: { key: 'iam-user-sessions', component: UserSessionListExpansion },
+    columns: [
+      {
+        key: "onlineStatus",
+        title: "在线状态",
+        before: "enabled",
+        cell: UserOnlineStatusCell,
+      },
+    ],
+    rowExpansion: {
+      key: "iam-user-sessions",
+      component: UserSessionListExpansion,
+    },
   },
   detail: {
-    actions: [{ key: 'iam-user-password', actionCode: 'changePassword', title: '密码管理', run: openPassword }],
+    actions: [
+      {
+        key: "iam-user-password",
+        actionCode: "changePassword",
+        title: "密码管理",
+        run: openPassword,
+      },
+    ],
   },
 };
 ```
@@ -162,13 +226,13 @@ export const userModulePageEnhancement: ModulePageEnhancement = {
 
 以下情况应降低对 DSL 的期待，而不是把 DSL 扩展成万能 UI 描述语言：
 
-| 需求 | 正确处理 |
-| --- | --- |
-| 一个模块专有的可视化、算法交互、地图、排班画布 | 业务自有页面或组件；必要时通过菜单接入工作台。 |
-| 多聚合协同、长事务编排、向导式提交 | 业务应用拥有页面与用例编排，调用标准模块/动作 API。 |
-| 仅某业务使用的字段联动或复杂布局 | 先在业务侧实现；确认多个模块共享语义后再提出平台能力。 |
-| 需要第三方 UI、脚本或低代码自定义组件 | 不把可执行内容下发到 descriptor；走受控插件/集成边界，待平台具备对应治理能力再接入。 |
-| 需要绕过标准保存、权限或数据范围才能实现 | 先修正领域模型、Service 或平台能力，不在 Controller 或前端打补丁。 |
+| 需求                                           | 正确处理                                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 一个模块专有的可视化、算法交互、地图、排班画布 | 业务自有页面或组件；必要时通过菜单接入工作台。                                       |
+| 多聚合协同、长事务编排、向导式提交             | 业务应用拥有页面与用例编排，调用标准模块/动作 API。                                  |
+| 仅某业务使用的字段联动或复杂布局               | 先在业务侧实现；确认多个模块共享语义后再提出平台能力。                               |
+| 需要第三方 UI、脚本或低代码自定义组件          | 不把可执行内容下发到 descriptor；走受控插件/集成边界，待平台具备对应治理能力再接入。 |
+| 需要绕过标准保存、权限或数据范围才能实现       | 先修正领域模型、Service 或平台能力，不在 Controller 或前端打补丁。                   |
 
 独立页面也必须继续使用平台的认证、当前用户、模块权限、标准动作和错误治理；“独立”只表示页面组合归业务所有，不表示可以复制一条数据写入和权限链路。
 

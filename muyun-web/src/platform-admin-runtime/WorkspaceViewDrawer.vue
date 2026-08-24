@@ -32,7 +32,7 @@ const width = computed(() => (props.profile === 'wide-work' ? 'min(600px, 100vw)
   <RecordDetailDrawer
     :open="open"
     :title="title"
-    :container="container"
+    :render-mode="container ? 'inline' : 'portal'"
     :subtitle="subtitle"
     :width="width"
     :promotion="promotion"

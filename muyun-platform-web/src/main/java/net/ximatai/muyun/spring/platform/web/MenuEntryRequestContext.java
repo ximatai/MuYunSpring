@@ -9,10 +9,10 @@ import org.springframework.web.context.request.RequestContextHolder;
 import java.util.Optional;
 
 /**
- * Request-scoped identity of a visible menu entry that opened a module page.
+ * Request-scoped optional page-entry context for a visible menu entry that opened a module page.
  *
  * <p>The value is created only by {@link MenuEntryRequestInterceptor}; callers must not use the
- * browser header directly as a page-entry authority.</p>
+ * browser header directly as an authorization or data-scope authority.</p>
  */
 public record MenuEntryRequestContext(String menuId, String moduleAlias, String entryParamsJson) {
     public static final String HEADER_NAME = "X-MuYun-Menu-Id";

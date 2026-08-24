@@ -719,6 +719,17 @@ class PlatformUiConfigurationServiceContractTest {
         config = uiConfigService.select(uiConfigId);
         config.setLayoutJson("""
                 {
+                  "persistentQueries": {"externalCriteriaKey":"activeOnly"}
+                }
+                """);
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("dynamic persistentQueries is not supported");
+
+        config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {
                   "children": [
                     {"title":"明细"}
                   ]

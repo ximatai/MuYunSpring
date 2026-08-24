@@ -384,6 +384,8 @@ public class PlatformPageConfigPublishService {
             throw new PlatformException("UI config layout JSON root must be object: " + uiConfigId);
         }
         validatePageRootContract(root, uiConfigId);
+        validateListDetailCardMember(root, "querySummaries", uiConfigId);
+        rejectDynamicPersistentQueries(root.get("persistentQueries"), uiConfigId);
         validateQuerySummaries(root.get("querySummaries"), uiConfigId);
         validateReferenceCandidate(root.get("referenceCandidate"), "referenceCandidate", uiConfigId);
         validateReferenceCandidateArray(root.get("referenceCandidates"), "referenceCandidates", uiConfigId);
@@ -411,6 +413,15 @@ public class PlatformPageConfigPublishService {
             if (!trait.isTextual() || !supported.contains(trait.asText())) {
                 throw layoutException(uiConfigId, "traits contains unsupported value");
             }
+        }
+    }
+
+    private void validateListDetailCardMember(JsonNode root, String member, String uiConfigId) {
+        JsonNode value = root.get(member);
+        if (value == null || value.isNull()) return;
+        String template = root.path("template").asText("LIST_DETAIL_CARD");
+        if (!"LIST_DETAIL_CARD".equals(template)) {
+            throw layoutException(uiConfigId, member + " is only supported by LIST_DETAIL_CARD");
         }
     }
 
@@ -453,6 +464,13 @@ public class PlatformPageConfigPublishService {
             if (!contributor && contributorKey != null && !contributorKey.isNull()) {
                 throw layoutException(uiConfigId, path + ".contributorKey is only valid for CONTRIBUTOR");
             }
+        }
+    }
+
+    private void rejectDynamicPersistentQueries(JsonNode controls, String uiConfigId) {
+        if (controls != null && !controls.isNull()) {
+            throw layoutException(uiConfigId,
+                    "dynamic persistentQueries is not supported until dynamic query criteria are executable");
         }
     }
 

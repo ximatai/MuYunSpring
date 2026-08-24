@@ -307,7 +307,7 @@ function roleTitle(record: Partial<Role>) {
   <RecordDetailDrawer
     :open="open"
     :title="title"
-    :container="container"
+    :render-mode="container ? 'inline' : 'portal'"
     close-title="关闭"
     @close="handleClose"
   >

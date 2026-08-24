@@ -18,8 +18,13 @@ final class UserOnlineQuerySummaryContributor implements ListQuerySummaryContrib
     }
 
     @Override
-    public boolean supports(String moduleAlias, String contributorKey) {
-        return MODULE.equals(moduleAlias) && KEY.equals(contributorKey);
+    public String moduleAlias() {
+        return MODULE;
+    }
+
+    @Override
+    public String contributorKey() {
+        return KEY;
     }
 
     @Override

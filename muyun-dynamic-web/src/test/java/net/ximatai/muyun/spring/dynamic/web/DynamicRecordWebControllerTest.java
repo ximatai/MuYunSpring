@@ -2146,14 +2146,9 @@ class DynamicRecordWebControllerTest {
 
     @Test
     void shouldExposeCompiledQuerySummaryFromTheCurrentDynamicQueryScope() throws Exception {
-        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
-        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan(summaries -> summaries.item(
-                "filteredCount", summary -> summary.label("匹配数").contributor("test.filtered-count")))));
         ListQuerySummaryContributor contributor = new ListQuerySummaryContributor() {
-            @Override
-            public boolean supports(String moduleAlias, String contributorKey) {
-                return MODULE.equals(moduleAlias) && "test.filtered-count".equals(contributorKey);
-            }
+            @Override public String moduleAlias() { return MODULE; }
+            @Override public String contributorKey() { return "test.filtered-count"; }
 
             @Override
             public net.ximatai.muyun.spring.web.WebListQuerySummaryItem summarize(ListQuerySummaryContext context) {
@@ -2161,6 +2156,10 @@ class DynamicRecordWebControllerTest {
                         context.summaryKey(), context.count(Criteria.of().eq("status", "active")));
             }
         };
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()),
+                new net.ximatai.muyun.spring.platform.web.ListQuerySummaryContributorCatalog(List.of(contributor)));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan(summaries -> summaries.item(
+                "filteredCount", summary -> summary.label("匹配数").contributor("test.filtered-count")))));
         MockMvc summaryMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
                         .codePreview(codeBusinessPreviewService)
                         .generation(referenceGenerationFacade)

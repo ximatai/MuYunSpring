@@ -34,16 +34,24 @@ import java.util.Set;
 public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, RuntimeEventListener {
     private final StaticModuleDefinitionCatalog staticModuleCatalog;
     private final DynamicModuleExecutionPlanResolver dynamicPlanResolver;
+    private final ListQuerySummaryContributorCatalog listQuerySummaryContributors;
     private volatile Map<String, ModuleExecutionPlan> cachedPlans;
     private final Map<String, ModuleExecutionPlan> dynamicPlans = new ConcurrentHashMap<>();
 
     public ModuleExecutionPlanCatalog(StaticModuleDefinitionCatalog staticModuleCatalog) {
-        this(staticModuleCatalog, (DynamicModuleExecutionPlanResolver) null);
+        this(staticModuleCatalog, null, new ListQuerySummaryContributorCatalog(List.of()));
+    }
+
+    /** Embedded-runtime entry point with an explicit immutable summary contributor directory. */
+    public ModuleExecutionPlanCatalog(StaticModuleDefinitionCatalog staticModuleCatalog,
+                                      ListQuerySummaryContributorCatalog listQuerySummaryContributors) {
+        this(staticModuleCatalog, null, listQuerySummaryContributors);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public ModuleExecutionPlanCatalog(StaticModuleDefinitionCatalog staticModuleCatalog,
-                                      ObjectProvider<PlatformModuleRuntimeContextService> runtimeContextService) {
+                                      ObjectProvider<PlatformModuleRuntimeContextService> runtimeContextService,
+                                      ObjectProvider<ListQuerySummaryContributorCatalog> listQuerySummaryContributors) {
         this(staticModuleCatalog, new DynamicModuleExecutionPlanResolver() {
             private PlatformModuleRuntimeContextService service() {
                 return runtimeContextService == null ? null : runtimeContextService.getIfAvailable();
@@ -60,16 +68,30 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
                 PlatformModuleRuntimeContextService service = service();
                 return service == null ? List.of() : service.dynamicModuleAliases();
             }
-        });
+        }, summaryContributorCatalog(listQuerySummaryContributors));
     }
 
     ModuleExecutionPlanCatalog(StaticModuleDefinitionCatalog staticModuleCatalog,
                                DynamicModuleExecutionPlanResolver dynamicPlanResolver) {
+        this(staticModuleCatalog, dynamicPlanResolver, new ListQuerySummaryContributorCatalog(List.of()));
+    }
+
+    ModuleExecutionPlanCatalog(StaticModuleDefinitionCatalog staticModuleCatalog,
+                               DynamicModuleExecutionPlanResolver dynamicPlanResolver,
+                               ListQuerySummaryContributorCatalog listQuerySummaryContributors) {
         if (staticModuleCatalog == null) {
             throw new IllegalArgumentException("static module definition catalog must not be null");
         }
         this.staticModuleCatalog = staticModuleCatalog;
         this.dynamicPlanResolver = dynamicPlanResolver;
+        this.listQuerySummaryContributors = listQuerySummaryContributors == null
+                ? new ListQuerySummaryContributorCatalog(List.of()) : listQuerySummaryContributors;
+    }
+
+    private static ListQuerySummaryContributorCatalog summaryContributorCatalog(
+            ObjectProvider<ListQuerySummaryContributorCatalog> provider) {
+        ListQuerySummaryContributorCatalog catalog = provider == null ? null : provider.getIfAvailable();
+        return catalog == null ? new ListQuerySummaryContributorCatalog(List.of()) : catalog;
     }
 
     public Optional<ModuleExecutionPlan> find(String moduleAlias) {
@@ -124,13 +146,15 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
                 throw new IllegalStateException("static module execution plan compilation produced incomplete facts: "
                         + definition.moduleAlias());
             }
-            plans.put(definition.moduleAlias(), new ModuleExecutionPlan(
+            ModuleExecutionPlan plan = new ModuleExecutionPlan(
                     definition.moduleAlias(), versionKey(definition), compilation.uiDescriptor(), compilation.readModel(),
                     pageContextBindings(definition.uiDefinition()), queryDescriptor(definition),
                     QuerySchema.from(queryDescriptor(definition), definition.modelClass()),
                     mutationConstraints(definition.uiDefinition()), definition.actions(),
                     definition.supports(EntityCapability.DATA_SCOPE), responseWireFieldTypes(definition),
-                    detailRelationWireFieldTypes(definition, compilation.uiDescriptor())));
+                    detailRelationWireFieldTypes(definition, compilation.uiDescriptor()));
+            listQuerySummaryContributors.validate(plan);
+            plans.put(definition.moduleAlias(), plan);
         }
         return Map.copyOf(plans);
     }
@@ -201,8 +225,15 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
         if (!validAlias.equals(plan.moduleAlias())) {
             throw new IllegalArgumentException("dynamic execution plan alias does not match replacement target: " + validAlias);
         }
+        validateCandidate(plan);
         dynamicPlans.compute(validAlias, (ignored, current) -> current != null && current.versionKey().equals(plan.versionKey())
                 ? current : plan);
+    }
+
+    /** Validates a dynamic publication candidate while its transaction can still be rolled back. */
+    public void validateCandidate(ModuleExecutionPlan candidate) {
+        if (candidate == null) throw new IllegalArgumentException("dynamic execution plan candidate must not be null");
+        listQuerySummaryContributors.validate(candidate);
     }
 
     public void invalidateDynamicPlan(String moduleAlias) {

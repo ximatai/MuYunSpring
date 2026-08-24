@@ -16,9 +16,8 @@ class ListQuerySummaryRuntimeTest {
     @Test
     void shouldDelegateDeclaredContributorToScopedAggregate() {
         ListQuerySummaryContributor contributor = new ListQuerySummaryContributor() {
-            @Override public boolean supports(String moduleAlias, String contributorKey) {
-                return moduleAlias.equals("sales.contract") && contributorKey.equals("contract.total");
-            }
+            @Override public String moduleAlias() { return "sales.contract"; }
+            @Override public String contributorKey() { return "contract.total"; }
             @Override public WebListQuerySummaryItem summarize(ListQuerySummaryContext context) {
                 Object value = context.aggregate(AggregateQuery.of(List.of(
                         AggregateSelection.of("total", AggregateOperation.SUM, "amount"))))

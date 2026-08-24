@@ -99,7 +99,7 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
   <RecordDetailDrawer
     :open="open"
     :title="title"
-    :container="container"
+    :render-mode="container ? 'inline' : 'portal'"
     :subtitle="subtitle"
     :width="width"
     :scope="scope"

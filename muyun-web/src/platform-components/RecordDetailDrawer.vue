@@ -12,8 +12,8 @@ const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
-    /** Explicit page container for a locally scoped drawer. Omitted uses the active tab host. */
-    container?: HTMLElement | null;
+    /** `inline` keeps slot anchors in the owning workspace; `portal` uses the standard side-panel host. */
+    renderMode?: 'inline' | 'portal';
     subtitle?: string;
     width?: number | string;
     scope?: UiSidePanelScope;
@@ -22,7 +22,7 @@ const props = withDefaults(
     promotion?: DrawerPromotion;
   }>(),
   {
-    container: undefined,
+    renderMode: 'portal',
     subtitle: undefined,
     width: 520,
     scope: 'tab',
@@ -48,19 +48,17 @@ const emit = defineEmits<{
 }>();
 
 const sidePanelHost = inject(sidePanelHostKey, undefined);
-const hasDrawerContainer = computed(
-  () => Boolean(props.container) || props.scope === 'viewport' || Boolean(sidePanelHost?.value),
-);
+const hasDrawerContainer = computed(() => props.scope === 'viewport' || Boolean(sidePanelHost?.value));
 
 function handleAfterVisibleChange(visible: boolean) {
   if (!visible) emit('afterClose');
 }
 
 watch(
-  () => [props.open, hasDrawerContainer.value] as const,
-  ([open, hasContainer]) => {
-    if (open && !hasContainer && import.meta.env.DEV) {
-      console.error('[RecordDetailDrawer] 打开抽屉前必须传入所属页面的根 DOM 容器。');
+  () => [props.open, props.renderMode, hasDrawerContainer.value] as const,
+  ([open, renderMode, hasContainer]) => {
+    if (open && renderMode === 'portal' && !hasContainer && import.meta.env.DEV) {
+      console.error('[RecordDetailDrawer] portal 模式打开抽屉前必须存在活动侧栏宿主。');
     }
   },
   { immediate: true },
@@ -69,7 +67,7 @@ watch(
 
 <template>
   <UiSidePanel
-    v-if="!container && hasDrawerContainer"
+    v-if="renderMode === 'portal' && hasDrawerContainer"
     :open="open"
     :width="width"
     :scope="scope"
@@ -107,7 +105,7 @@ watch(
   <!-- The host already renders this drawer inside its scoped workspace. Keeping
        the drawer inline avoids moving Vue's slot anchors into a Teleport target. -->
   <ADrawer
-    v-else-if="container"
+    v-else-if="renderMode === 'inline'"
     :open="open"
     placement="right"
     :width="width"

@@ -47,5 +47,8 @@ it('declares cancellation destinations from the detail entry context', () => {
   assert.match(source, /cancelDestination: treeModule\.value \? 'restore-view' : 'close'/);
   assert.match(source, /function editRecord\([\s\S]*cancelDestination: 'close' \| 'restore-view' = 'close'/);
   assert.match(source, /@edit="selectedRecord && editRecord\(selectedRecord, 'restore-view'\)"/);
-  assert.match(source, /function cancelDetailEditing\(\)[\s\S]*detail\.cancelEdit\(\);\s*if \(!detailOpen\.value\) return;/);
+  assert.match(
+    source,
+    /function cancelDetailEditing\(\)[\s\S]*detail\.cancelEdit\(\);\s*if \(!detailOpen\.value\) return;/,
+  );
 });

@@ -92,7 +92,8 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
 
   function cancelEdit() {
     if (mode.value === 'create') {
-      const restoreRecord = createCancelDestination.value === 'restore-view' ? createRestoreRecord.value : undefined;
+      const restoreRecord =
+        createCancelDestination.value === 'restore-view' ? createRestoreRecord.value : undefined;
       open.value = Boolean(restoreRecord);
       record.value = restoreRecord;
       draft.value = restoreRecord ? { ...restoreRecord } : undefined;

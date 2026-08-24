@@ -4,6 +4,20 @@
 
 ## Unreleased
 
+### Added
+
+- 标准列表页面支持声明式查询摘要：`MATCHED_COUNT` 直接复用完整查询命中数，业务摘要通过受当前查询、租户和数据范围保护的 `ListQuerySummaryContributor` 扩展；动态 `LIST_DETAIL_CARD` layout 也可声明同一摘要模型，标准查询响应以 `summaries` 返回结果。contributor 以 `(moduleAlias, contributorKey)` 注册为唯一 catalog，重复、缺失配置会在启动、静态计划编译或动态发布候选计划阶段失败。
+
+### Changed
+
+- 常驻查询控件归入页面 UI 状态 DSL：控件值通过标准 `externalQueryValues` 立即重查，服务端查询描述符仍是过滤语义、授权和数据范围的唯一所有者。
+- 动态模块不再提供独立列表摘要查询入口，列表数据与摘要统一由 `POST /{moduleAlias}/query` 在同一有效查询范围内返回。
+- 统一详情会话的取消去向：列表发起的新建或编辑取消后关闭；详情内编辑及树形持久详情卡取消后恢复浏览态。
+
+### Fixed
+
+- 修复详情抽屉关闭后再次编辑无法重开，以及新建取消意外恢复列表选中记录的问题。
+
 ## 0.26.9 - 2026-08-24
 
 ### Changed

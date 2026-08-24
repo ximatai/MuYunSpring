@@ -126,8 +126,10 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         String moduleAlias = moduleAliasForRuntime();
         StandardModuleWebRuntime runtime = executionRuntime();
         if (moduleAlias != null && runtime != null && runtime.hasPlan(moduleAlias)) {
+            Criteria summaryCriteria = CrudWebRuntimeSupport.navigatorCriteria(this, request);
+            applyMenuEntryQueryCriteria(summaryCriteria);
             items.addAll(runtime.listQuerySummaries(moduleAlias, request, response.total(), service(),
-                    CrudWebRuntimeSupport.navigatorCriteria(this, request),
+                    summaryCriteria,
                     StaticStandardMutationSupport.actionPolicy(this, PlatformAction.QUERY)));
         }
         if (items.stream().map(WebListQuerySummaryItem::key).distinct().count() != items.size()) {
@@ -308,6 +310,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         record.setId(id);
         return MutationTenantScopeExecutor.forUpdate(this, id, record, () -> webScope(() -> {
             requireExecutionPlanAtRequest();
+            requireMenuEntryAction(PlatformAction.UPDATE);
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.UPDATE, id);
             if (hasActiveMenuEntryPolicy()) {
                 requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
@@ -334,6 +337,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     default int delete(@PathVariable String id, @RequestBody RecordActionWebRequest request) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
             requireExecutionPlanAtRequest();
+            requireMenuEntryAction(PlatformAction.DELETE);
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.DELETE, id);
             T existing = service().select(id);
             requireMenuEntryRecord(PlatformAction.DELETE, existing);

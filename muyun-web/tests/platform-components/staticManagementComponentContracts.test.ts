@@ -311,14 +311,14 @@ it('standard module runner waits for a complete detail and action availability b
   const detailControllerSource = readSource('src/dynamic-page-runtime/recordDetailController.ts');
   const editingSessionSource = readSource('src/dynamic-page-runtime/composables/useRecordEditingSession.ts');
 
-  assert.match(hostSource, /import \{ useRecordDetailController \} from '.\/recordDetailController'/);
+  assert.match(hostSource, /useRecordDetailController \} from '.\/recordDetailController'/);
   assert.match(hostSource, /const detail = useRecordDetailController<QueryListRecord>\(\)/);
   assert.match(hostSource, /loading: detailLoading/);
   assert.match(hostSource, /loadFailed: detailLoadFailed/);
   assert.match(hostSource, /useRecordEditingSession/);
   assert.match(hostSource, /invalidatePendingRequests\(\)/);
   assert.match(editingSessionSource, /const sequence = \+\+requestSequence/);
-  assert.match(editingSessionSource, /detail\.beginLoad\(record, mode\)/);
+  assert.match(editingSessionSource, /detail\.beginLoad\(record, mode, options\)/);
   assert.match(editingSessionSource, /await context\.crud\.view\(id\)/);
   assert.match(editingSessionSource, /sequence !== requestSequence/);
   assert.match(editingSessionSource, /detail\.failLoad\(\)/);

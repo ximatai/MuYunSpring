@@ -16,6 +16,7 @@ import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.web.MenuEntryRequestContext;
 import net.ximatai.muyun.spring.platform.web.MenuEntryRequestInterceptor;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.ListQuerySummaryContributorCatalog;
 import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
@@ -1724,7 +1725,9 @@ class IamWebControllerTest {
             context.refresh();
             StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(
                     new net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionScanner(context).scan());
-            return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
+            return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog,
+                    new ListQuerySummaryContributorCatalog(List.of(new UserOnlineQuerySummaryContributor(
+                            mock(net.ximatai.muyun.spring.iam.user.UserSessionPresenceService.class))))),
                     new StaticRecordReadProjectionService(catalog));
         }
     }

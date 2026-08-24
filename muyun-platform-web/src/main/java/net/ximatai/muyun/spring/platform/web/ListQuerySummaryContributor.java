@@ -13,7 +13,11 @@ import net.ximatai.muyun.spring.web.WebQueryRequest;
  * against a different tenant or bypass the current list filters.</p>
  */
 public interface ListQuerySummaryContributor {
-    boolean supports(String moduleAlias, String contributorKey);
+    /** Stable module scope of this contribution. It is registered during application wiring. */
+    String moduleAlias();
+
+    /** Stable domain metric key within {@link #moduleAlias()}. */
+    String contributorKey();
 
     WebListQuerySummaryItem summarize(ListQuerySummaryContext context);
 

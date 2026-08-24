@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.AggregateQuery;
 import net.ximatai.muyun.spring.web.WebListQuerySummaryItem;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -11,10 +12,16 @@ import java.util.List;
 /** Executes compiled list footer summaries without owning a particular record source. */
 @Component
 public class ListQuerySummaryRuntime {
-    private final List<ListQuerySummaryContributor> contributors;
+    private final ListQuerySummaryContributorCatalog contributorCatalog;
 
     public ListQuerySummaryRuntime(List<ListQuerySummaryContributor> contributors) {
-        this.contributors = contributors == null ? List.of() : List.copyOf(contributors);
+        this(new ListQuerySummaryContributorCatalog(contributors));
+    }
+
+    @Autowired
+    public ListQuerySummaryRuntime(ListQuerySummaryContributorCatalog contributorCatalog) {
+        this.contributorCatalog = contributorCatalog == null
+                ? new ListQuerySummaryContributorCatalog(List.of()) : contributorCatalog;
     }
 
     public List<WebListQuerySummaryItem> summarize(String moduleAlias,
@@ -33,11 +40,7 @@ public class ListQuerySummaryRuntime {
     }
 
     private ListQuerySummaryContributor contributor(String moduleAlias, String contributorKey) {
-        return contributors.stream().filter(candidate -> candidate.supports(moduleAlias, contributorKey))
-                .reduce((left, right) -> { throw new IllegalStateException(
-                        "multiple list query summary contributors: " + moduleAlias + "." + contributorKey); })
-                .orElseThrow(() -> new IllegalStateException(
-                        "no list query summary contributor: " + moduleAlias + "." + contributorKey));
+        return contributorCatalog.require(moduleAlias, contributorKey);
     }
 
     private static ListQuerySummaryContributor.ListQuerySummaryContext context(

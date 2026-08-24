@@ -593,9 +593,7 @@ const enhancementBatchActions = computed<ModulePageBatchActionContribution[]>(
   () => pageEnhancement.value?.list?.batchActions ?? [],
 );
 const enhancementRowExpansion = computed(() => pageEnhancement.value?.list?.rowExpansion);
-const persistentListQueryControls = computed(
-  () => runtimePage.value?.list?.persistentQueryControls ?? [],
-);
+const persistentListQueryControls = computed(() => runtimePage.value?.list?.persistentQueryControls ?? []);
 const listQuerySummaries = computed(() => runtimePage.value?.list?.querySummaries ?? []);
 const listRowExpansionEnabled = computed(
   () => descriptorRelationExpansionEnabled.value || enhancementRowExpansion.value !== undefined,
@@ -1664,10 +1662,7 @@ function createRecord(parentId?: string) {
   // Only a tree's persistent detail card has a meaningful record to restore.
   // A list drawer creates an independent draft: cancelling it must close the
   // drawer rather than reopen the row that happened to be selected.
-  detail.beginCreate(
-    defaults,
-    { cancelDestination: treeModule.value ? 'restore-view' : 'close' },
-  );
+  detail.beginCreate(defaults, { cancelDestination: treeModule.value ? 'restore-view' : 'close' });
   if (editingRecord.value) {
     editingRecord.value = applyFormComputeAfterChanges(
       editingRecord.value,
@@ -1686,10 +1681,7 @@ function createChildRecord() {
   if (parentId) createRecord(parentId);
 }
 
-async function editRecord(
-  record: QueryListRecord,
-  cancelDestination: 'close' | 'restore-view' = 'close',
-) {
+async function editRecord(record: QueryListRecord, cancelDestination: 'close' | 'restore-view' = 'close') {
   if (context.can('update') !== true) return;
   if (selectedRecord.value?.id === record.id && detail.beginEdit({ cancelDestination })) return;
   await openRecord(record, 'edit', { cancelDestination });
@@ -2824,7 +2816,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       v-if="!treeModule && !flatManagementPage && (!listDetailCardPage || detailSurfaceUsesDrawer)"
       :open="detailOpen"
       :title="detailTitle"
-      :container="workspaceElement"
+      render-mode="inline"
       :width="enhancementDetailDrawer?.width"
       :mode="editorMode"
       :loading="detailLoading"
@@ -2952,7 +2944,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       v-if="enhancementDrawer"
       :open="enhancementDrawerOpen"
       :title="enhancementDrawer.definition.title"
-      :container="workspaceElement"
+      render-mode="inline"
       :width="enhancementDrawer.definition.width"
       @close="closeEnhancementDrawer"
       @after-close="disposeEnhancementDrawer"
