@@ -853,6 +853,25 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldPublishMultiReferencePickerAsCollectionControl() {
+        ModuleUiDefinition uiDefinition = editorPage("sales.order", form -> form
+                .field("tagIds", field -> field.label("标签").uiType("recordMultiPicker")));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.order", "订单")
+                .entities(List.of(new EntityDefinition("order", "sales_order", "Order",
+                        List.of(FieldDefinition.string("tagIds", "标签")))))
+                .uiDefinition(uiDefinition)
+                .modelClass(ReferenceOrder.class)
+                .build();
+
+        ResolvedViewFieldDescriptor field = ModuleUiDescriptorCompiler.compile(definition).page().detail().editor()
+                .fields().getFirst();
+
+        assertThat(field.fieldControl()).isEqualTo(new ResolvedFieldControlDescriptor("recordMultiPicker",
+                "RECORD_PICKER", "COLLECTION", Map.of(), List.of()));
+        assertThat(field.reference().cardinality()).isEqualTo(ReferenceCardinality.MANY);
+    }
+
+    @Test
     void shouldPublishDepartmentOrganizationReferenceTitleForDetailRendering() {
         ModuleUiDefinition uiDefinition = editorPage("iam.department", form -> form
                 .field("organizationId", field -> field.label("所属机构").readOnly()));

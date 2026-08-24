@@ -462,6 +462,25 @@ it('record form field state infers reference picker cardinality without a UI ove
   assert.equal(resolveRecordFormFieldState('tagIds', { fields }).controlType, 'recordMultiPicker');
 });
 
+it('record form field state preserves a declared multi-reference picker descriptor', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'tagIds',
+      {
+        ...field('标签', { uiType: 'recordMultiPicker' }),
+        fieldControl: {
+          alias: 'recordMultiPicker',
+          rendererType: 'RECORD_PICKER',
+          valueShape: 'COLLECTION',
+        },
+        reference: { targetModuleAlias: 'crm.tag', cardinality: 'MANY' },
+      },
+    ],
+  ]);
+
+  assert.equal(resolveRecordFormFieldState('tagIds', { fields }).controlType, 'recordMultiPicker');
+});
+
 it('record form field state exposes a full-row layout span from its descriptor', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
     ['remark', { ...field('备注', { uiType: 'textarea' }), columnSpan: 2 }],
