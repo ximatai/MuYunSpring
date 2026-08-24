@@ -225,6 +225,42 @@ public class StaticRecordReadProjectionService {
         return queryDefaultList(moduleAlias, request, Criteria.of(), pageRequest, recordService, actionPolicy, visibility);
     }
 
+    /** Aggregates the same compiled default-list projection and query visibility as a list request. */
+    public Optional<List<Map<String, Object>>> aggregateDefaultList(String moduleAlias,
+                                                                     QueryRequest request,
+                                                                     Criteria additionalCriteria,
+                                                                     CrudAbility<?> recordService,
+                                                                     ActionExecutionPolicy actionPolicy,
+                                                                     RecordReadVisibility visibility,
+                                                                     net.ximatai.muyun.database.core.orm.AggregateQuery aggregateQuery) {
+        if (moduleAlias == null || recordService == null || actionPolicy == null || visibility == null
+                || !supportsDefaultListQuery(moduleAlias, recordService)) return Optional.empty();
+        ModuleExecutionPlan plan = executionPlan(moduleAlias, false).orElse(null);
+        Criteria criteria = andCriteria(plan == null ? queryCriteria(moduleAlias, recordService, request)
+                : new QueryCompiler(plan.queryDescriptor()).criteria(request), additionalCriteria);
+        if (recordService instanceof DataScopeAbility<?> dataScopeAbility) {
+            DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(actionPolicy, criteria);
+            return dataScopeAbility.withDataScopeTenant(scope, () -> aggregateDefaultList(moduleAlias,
+                    visibility.apply(recordService, scope.criteria()), recordService, aggregateQuery));
+        }
+        return aggregateDefaultList(moduleAlias, visibility.apply(recordService, criteria), recordService, aggregateQuery);
+    }
+
+    private Optional<List<Map<String, Object>>> aggregateDefaultList(String moduleAlias, Criteria criteria,
+                                                                       Object recordService,
+                                                                       net.ximatai.muyun.database.core.orm.AggregateQuery aggregateQuery) {
+        StaticModuleDefinition definition = staticModuleDefinitionCatalog.find(moduleAlias).orElse(null);
+        ModuleExecutionPlan plan = executionPlan(moduleAlias, false).orElse(null);
+        if (definition == null || plan == null || !RecordReadProjectionPlanner.supportsDefaultListProjection(plan.uiDescriptor())) {
+            return Optional.empty();
+        }
+        RecordReadProjection projection = withReferenceSourceFields(moduleAlias, recordService,
+                RecordReadProjectionPlanner.defaultList(plan.uiDescriptor(), plan.readModel(), recordService,
+                        ActionExecutionContextHolder.current().orElse(null)));
+        return relationProjectionReadService.aggregateList(staticModuleDefinitionCatalog.definitions(), definition,
+                projection, criteria, aggregateQuery);
+    }
+
     private static Criteria andCriteria(Criteria first, Criteria second) {
         if (first == null || first.isEmpty()) return second == null ? Criteria.of() : second;
         if (second == null || second.isEmpty()) return first;

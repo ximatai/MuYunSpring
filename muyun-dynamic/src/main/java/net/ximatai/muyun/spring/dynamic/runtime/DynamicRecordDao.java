@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.dynamic.runtime;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.AggregateQuery;
 import net.ximatai.muyun.database.core.orm.CriteriaClause;
 import net.ximatai.muyun.database.core.orm.CriteriaGroup;
 import net.ximatai.muyun.database.core.orm.CriteriaOperator;
@@ -123,6 +124,11 @@ public class DynamicRecordDao implements BaseDao<DynamicRecord, String> {
 
     public boolean existsById(String id) {
         return findById(id) != null;
+    }
+
+    /** Executes a metadata-checked aggregate over this entity's physical table. */
+    public List<Map<String, Object>> aggregate(Criteria criteria, AggregateQuery query) {
+        return tableGateway.aggregate(criteria, query);
     }
 
     @Override

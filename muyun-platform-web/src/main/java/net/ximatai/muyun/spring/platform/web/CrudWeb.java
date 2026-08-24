@@ -120,6 +120,22 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return CrudWebRuntimeSupport.querySorts(this, request);
     }
 
+    default WebPageResponse<T> attachListQuerySummaries(WebQueryRequest request, WebPageResponse<T> response) {
+        if (response == null) return null;
+        List<WebListQuerySummaryItem> items = new java.util.ArrayList<>();
+        String moduleAlias = moduleAliasForRuntime();
+        StandardModuleWebRuntime runtime = executionRuntime();
+        if (moduleAlias != null && runtime != null && runtime.hasPlan(moduleAlias)) {
+            items.addAll(runtime.listQuerySummaries(moduleAlias, request, response.total(), service(),
+                    CrudWebRuntimeSupport.navigatorCriteria(this, request),
+                    StaticStandardMutationSupport.actionPolicy(this, PlatformAction.QUERY)));
+        }
+        if (items.stream().map(WebListQuerySummaryItem::key).distinct().count() != items.size()) {
+            throw new IllegalStateException("duplicate list query summary result key: " + webScopeName());
+        }
+        return response.withSummaries(items);
+    }
+
     @GetMapping("/query/schema")
     @ActionEndpoint(PlatformAction.QUERY)
     default QuerySchema querySchema(@RequestParam(required = false) String uiConfigId) {
@@ -143,7 +159,8 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
                 Optional<WebPageResponse<Map<String, Object>>> projected = queryStaticProjectedList(
                         request, RecordReadVisibility.ACTIVE);
                 if (projected.isPresent()) {
-                    return (WebPageResponse<T>) (WebPageResponse<?>) standardWirePage(projected.get());
+                    return attachListQuerySummaries(request,
+                            (WebPageResponse<T>) (WebPageResponse<?>) standardWirePage(projected.get()));
                 }
             }
             WebPageResponse<T> response;
@@ -153,7 +170,8 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             } else {
                 response = WebPageResponse.from(WebOutputSupport.page(service(), queryRecords(request), FieldOutputContext.LIST));
             }
-            return (WebPageResponse<T>) standardWirePage(projectStaticDefaultList(response));
+            return attachListQuerySummaries(request,
+                    (WebPageResponse<T>) standardWirePage(projectStaticDefaultList(response)));
         });
     }
 

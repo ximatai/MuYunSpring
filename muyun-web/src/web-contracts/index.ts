@@ -26,6 +26,13 @@ export interface WebPageResponse<T> {
   pages: number;
   totalKnown: boolean;
   navigation?: unknown;
+  summaries?: WebListQuerySummaryItem[];
+}
+
+/** Value of one footer summary for the complete result set of the current list query. */
+export interface WebListQuerySummaryItem {
+  key: string;
+  value: unknown;
 }
 
 export const webDataChangeTypes = {
@@ -1119,6 +1126,14 @@ export interface ResolvedPageListDescriptor {
   /** Read-only placements of declared aggregate relations beneath an expanded list row. */
   relationExpansions?: ResolvedPageListRelationExpansionDescriptor[];
   persistentQueryControls?: ResolvedPageListPersistentQueryControlDescriptor[];
+  querySummaries?: ResolvedPageListQuerySummaryDescriptor[];
+}
+
+export interface ResolvedPageListQuerySummaryDescriptor {
+  key: string;
+  title: string;
+  source: 'MATCHED_COUNT' | 'CONTRIBUTOR';
+  contributorKey?: string;
 }
 
 /** A persistent boolean query control rendered after search and before advanced filtering. */

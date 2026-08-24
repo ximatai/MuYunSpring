@@ -26,6 +26,7 @@ import net.ximatai.muyun.spring.ability.deletion.DeletionRecoveryAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.SortPartition;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.AggregateQuery;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -455,6 +456,11 @@ public class DynamicEntityService implements
         List<DynamicRecord> records = page.getRecords();
         applyReadPipeline(records);
         return PageResult.of(records, page.getTotal(), pageRequest);
+    }
+
+    /** Aggregate active rows through the entity's metadata-aware single-table DAO. */
+    public List<Map<String, Object>> aggregate(Criteria criteria, AggregateQuery query) {
+        return dao.aggregate(activeCriteria(criteria), query);
     }
 
     @Override

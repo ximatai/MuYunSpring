@@ -27,8 +27,6 @@ final class DynamicOpenApiSchemaFactory {
         schemas.put("WebPageRequest", pageRequestSchema("WebPageRequest"));
         schemas.put("RecordActionWebRequest", recordActionWebRequestSchema());
         schemas.put("WebSort", sortSchema("WebSort"));
-        schemas.put("DynamicSummaryItem", summaryItemSchema());
-        schemas.put("DynamicSummaryItemList", summaryItemListSchema());
         schemas.put("SortWebRequest", sortRequestSchema());
         schemas.put("TreeSortWebRequest", treeSortRequestSchema());
         schemas.put("DynamicExchangeTemplateRequest", exchangeTemplateRequestSchema());
@@ -764,23 +762,6 @@ final class DynamicOpenApiSchemaFactory {
         properties.put("metadata", objectProperty("object"));
         return new DynamicOpenApiDocument.Schema("RecordAttachmentAccess", "object", null,
                 List.of("mode"), properties, null);
-    }
-
-    private DynamicOpenApiDocument.Schema summaryItemSchema() {
-        Map<String, DynamicOpenApiDocument.Property> properties = new LinkedHashMap<>();
-        properties.put("detailId", stringProperty(true));
-        properties.put("calcType", stringProperty(true));
-        properties.put("label", stringProperty(true));
-        properties.put("precision", integerProperty(true));
-        properties.put("formatter", stringProperty(true));
-        properties.put("value", objectProperty("object"));
-        return new DynamicOpenApiDocument.Schema("DynamicSummaryItem", "object", null, List.of(), properties, null);
-    }
-
-    private DynamicOpenApiDocument.Schema summaryItemListSchema() {
-        return new DynamicOpenApiDocument.Schema("DynamicSummaryItemList", "array", null, List.of(), Map.of(),
-                new DynamicOpenApiDocument.Property("DynamicSummaryItem", null, false, false,
-                        false, null, null, null, null, null, List.of()));
     }
 
     private DynamicOpenApiDocument.Schema pageResponseSchema(String name) {

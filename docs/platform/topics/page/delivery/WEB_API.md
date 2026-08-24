@@ -17,9 +17,8 @@ bootstrap 返回模块入口、客户端类型、主实体别名、权限裁剪�
 | 方法   | URL                            | 功能                                                                 |
 | ------ | ------------------------------ | -------------------------------------------------------------------- |
 | `POST` | `/{moduleAlias}/query`         | 按动态查询请求分页查询主元数据记录；可结合 `uiConfigId` 做列表投影。 |
-| `POST` | `/{moduleAlias}/query/summary` | 按同一查询上下文计算汇总项；汇总配置来自已发布 LIST UI 配置。        |
 
-查询请求可使用 `uiConfigId`、`queryTemplateId`、`externalQueryValues`、`queryForm`、`criteria`、兼容 `conditions`、`quickSearch`、分页和排序。`queryForm` 只接受已发布 LIST UI 的可见主表字段；`quickSearch` 只在可见主表非虚拟文本字段内执行；排序字段必须是动态 SQL mapper 可识别的标准字段、能力字段或物理业务字段。`date_range` / `date_time_range` 字段可提交 `[start, end]`，或提交 `{ "start": "...", "end": "...", "timeZone": "Asia/Shanghai" }`。
+查询响应可携带 `summaries`：它由列表 UI 的 `querySummaries` 声明驱动，并和当前查询条件（忽略分页）严格对齐。查询请求可使用 `uiConfigId`、`queryTemplateId`、`externalQueryValues`、`queryForm`、`criteria`、兼容 `conditions`、`quickSearch`、分页和排序。`queryForm` 只接受已发布 LIST UI 的可见主表字段；`quickSearch` 只在可见主表非虚拟文本字段内执行；排序字段必须是动态 SQL mapper 可识别的标准字段、能力字段或物理业务字段。`date_range` / `date_time_range` 字段可提交 `[start, end]`，或提交 `{ "start": "...", "end": "...", "timeZone": "Asia/Shanghai" }`。
 
 ## 表单保存
 

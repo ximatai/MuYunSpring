@@ -587,6 +587,7 @@ const enhancementRowExpansion = computed(() => pageEnhancement.value?.list?.rowE
 const persistentListQueryControls = computed(
   () => runtimePage.value?.list?.persistentQueryControls ?? [],
 );
+const listQuerySummaries = computed(() => runtimePage.value?.list?.querySummaries ?? []);
 const listRowExpansionEnabled = computed(
   () => descriptorRelationExpansionEnabled.value || enhancementRowExpansion.value !== undefined,
 );
@@ -2369,6 +2370,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         :ready="pageReady && navigatorListScopeReady"
         :external-query-values="navigatorListQueryValues"
         :persistent-query-controls="persistentListQueryControls"
+        :query-summaries="listQuerySummaries"
         :required-external-criteria-keys="navigatorListCriteriaKeys"
         :mode="listMode"
         :quick-search-placeholder="listSearchPlaceholder"
@@ -2780,6 +2782,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       :ready="pageReady && navigatorListScopeReady"
       :mode="listMode"
       :persistent-query-controls="persistentListQueryControls"
+      :query-summaries="listQuerySummaries"
       :quick-search-placeholder="listSearchPlaceholder"
       :empty-description="listEmptyDescription"
       @loaded="handleLoaded"
@@ -3144,7 +3147,7 @@ function recordTitle(record: QueryListRecord | undefined) {
 
 @media (max-width: 720px) {
   .module-workspace--management {
-    height: auto;
+    height: calc(100vh - 116px);
     min-height: calc(100vh - 116px);
   }
 

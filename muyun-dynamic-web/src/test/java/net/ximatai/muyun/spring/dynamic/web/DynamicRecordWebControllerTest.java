@@ -70,11 +70,14 @@ import net.ximatai.muyun.spring.platform.web.ProjectionQueryDescriptor;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryFallbackReason;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan;
+import net.ximatai.muyun.spring.platform.web.ListQuerySummaryContributor;
+import net.ximatai.muyun.spring.platform.web.ListQuerySummaryRuntime;
 import net.ximatai.muyun.spring.platform.web.ModuleMutationFieldValidation;
 import net.ximatai.muyun.spring.platform.web.ModuleQueryFormField;
 import net.ximatai.muyun.spring.platform.web.ModuleQueryTemplatePlan;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageListDefinition;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.ResolvedModuleReadField;
 import net.ximatai.muyun.spring.platform.web.ResolvedModuleReadModel;
@@ -2134,196 +2137,61 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
-    void shouldSummarizePublishedListConfigWithSameQueryContext() throws Exception {
-        PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
-        PlatformQueryItemService queryItemService = mock(PlatformQueryItemService.class);
-        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
-        MockMvc summaryMvc = MockMvcBuilders
-                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, queryItemService, moduleFieldService).build())
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
-                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
-                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
-                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
-                .build();
-        PlatformUiConfig uiConfig = new PlatformUiConfig();
-        uiConfig.setId("ui-list");
-        uiConfig.setUiSetId("set-list");
-        uiConfig.setClientType(PlatformUiClientType.WEB);
-        uiConfig.setPublished(true);
-        uiConfig.setLayoutJson("""
-                {
-                  "summaryPanel": {
-                    "items": [
-                      {
-                        "detailId": "module-field-amount",
-                        "calcType": "sum",
-                        "label": "Amount Total",
-                        "precision": 2,
-                        "formatter": "currency"
-                      },
-                      {
-                        "detailId": "module-field-code",
-                        "calcType": "count",
-                        "label": "Contract Count"
-                      },
-                      {
-                        "detailId": "module-field-line-amount",
-                        "calcType": "sum",
-                        "label": "Line Amount"
-                      }
-                    ]
-                  }
-                }
-                """);
-        PlatformUiSet uiSet = new PlatformUiSet();
-        uiSet.setId("set-list");
-        uiSet.setModuleAlias(MODULE);
-        uiSet.setAlias("list");
-        uiSet.setSetType(PlatformUiSetType.LIST);
-        PlatformQueryTemplate template = new PlatformQueryTemplate();
-        template.setId("tpl-active");
-        template.setModuleAlias(MODULE);
-        template.setAlias("active");
-        when(snapshotService.snapshot(MODULE)).thenReturn(new PlatformPageConfigSnapshot(
-                MODULE,
-                List.of(uiSet),
-                List.of(uiConfig),
-                List.of(),
-                List.of(template),
-                List.of()
-        ));
-        when(moduleFieldService.resolve("module-field-amount")).thenReturn(resolvedModuleField(
-                "module-field-amount", "amount"));
-        when(moduleFieldService.resolve("module-field-code")).thenReturn(resolvedModuleField(
-                "module-field-code", "code"));
-        when(moduleFieldService.resolve("module-field-line-amount")).thenReturn(new ResolvedModuleMetadataField(
-                "module-field-line-amount",
-                MODULE,
-                "relation-lines",
-                "lines",
-                RelationRole.CHILD,
-                "metadata-line",
-                "contract_line",
-                "Contract Line",
-                "line-amount",
-                "lineAmount",
-                "line_amount",
-                "Line Amount",
-                "decimal",
-                MetadataFieldForm.PHYSICAL
-        ));
-        Criteria templateCriteria = Criteria.of().eq("status", "active");
-        Criteria manualCriteria = Criteria.of().eq("code", "C-001");
-        when(queryItemService.compile(eq("tpl-active"), any())).thenReturn(templateCriteria);
-        when(mainEntity.queryCriteria(any())).thenReturn(manualCriteria);
-        DynamicRecord first = new DynamicRecord(entity())
-                .setValue("code", "C-001")
-                .setValue("amount", new BigDecimal("10.00"));
-        DynamicRecord second = new DynamicRecord(entity())
-                .setValue("code", "C-002")
-                .setValue("amount", new BigDecimal("5.50"));
-        DynamicRecord blankCode = new DynamicRecord(entity())
-                .setValue("code", "")
-                .setValue("amount", new BigDecimal("0.50"));
-        when(mainEntity.count(any(Criteria.class))).thenReturn(3L);
-        when(mainEntity.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(first, second, blankCode));
-
-        summaryMvc.perform(post("/{moduleAlias}/query/summary", MODULE)
+    void shouldNotExposeLegacySummaryEndpoint() throws Exception {
+        mvc.perform(post("/{moduleAlias}/query/summary", MODULE)
                         .contentType("application/json")
-                        .content("""
-                                {
-                                  "uiConfigId": "ui-list",
-                                  "queryTemplateId": "tpl-active",
-                                  "externalQueryValues": {
-                                    "owner": "user-1"
-                                  },
-                                  "conditions": [
-                                    {
-                                      "fieldName": "code",
-                                      "operator": "EQ",
-                                      "values": ["C-001"]
-                                    }
-                                  ]
-                                }
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].detailId").value("module-field-amount"))
-                .andExpect(jsonPath("$[0].calcType").value("sum"))
-                .andExpect(jsonPath("$[0].label").value("Amount Total"))
-                .andExpect(jsonPath("$[0].precision").value(2))
-                .andExpect(jsonPath("$[0].formatter").value("currency"))
-                .andExpect(jsonPath("$[0].value").value(16.0))
-                .andExpect(jsonPath("$[1].detailId").value("module-field-code"))
-                .andExpect(jsonPath("$[1].value").value(2))
-                .andExpect(jsonPath("$[2].detailId").value("module-field-line-amount"))
-                .andExpect(jsonPath("$[2].value").doesNotExist());
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<Map<String, Object>> externalValues = ArgumentCaptor.forClass(Map.class);
-        ArgumentCaptor<Criteria> countCriteria = ArgumentCaptor.forClass(Criteria.class);
-        ArgumentCaptor<Criteria> listCriteria = ArgumentCaptor.forClass(Criteria.class);
-        verify(queryItemService).compile(eq("tpl-active"), externalValues.capture());
-        verify(mainEntity).queryCriteria(any());
-        verify(mainEntity).count(countCriteria.capture());
-        verify(mainEntity).list(listCriteria.capture(), any(PageRequest.class));
-        assertThat(externalValues.getValue()).containsEntry("owner", "user-1");
-        assertThat(listCriteria.getValue()).isSameAs(countCriteria.getValue());
-        assertThat(listCriteria.getValue()).isNotSameAs(templateCriteria);
-        assertThat(listCriteria.getValue()).isNotSameAs(manualCriteria);
-        assertThat(listCriteria.getValue().isEmpty()).isFalse();
+                        .content("{}"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    void shouldRejectSummaryWhenQueryMatchesTooManyRecords() throws Exception {
-        PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
-        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
-        MockMvc summaryMvc = MockMvcBuilders
-                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, null, moduleFieldService).build())
+    void shouldExposeCompiledQuerySummaryFromTheCurrentDynamicQueryScope() throws Exception {
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan(summaries -> summaries.item(
+                "filteredCount", summary -> summary.label("匹配数").contributor("test.filtered-count")))));
+        ListQuerySummaryContributor contributor = new ListQuerySummaryContributor() {
+            @Override
+            public boolean supports(String moduleAlias, String contributorKey) {
+                return MODULE.equals(moduleAlias) && "test.filtered-count".equals(contributorKey);
+            }
+
+            @Override
+            public net.ximatai.muyun.spring.web.WebListQuerySummaryItem summarize(ListQuerySummaryContext context) {
+                return new net.ximatai.muyun.spring.web.WebListQuerySummaryItem(
+                        context.summaryKey(), context.count(Criteria.of().eq("status", "active")));
+            }
+        };
+        MockMvc summaryMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .codePreview(codeBusinessPreviewService)
+                        .generation(referenceGenerationFacade)
+                        .executionPlans(catalog)
+                        .querySummaries(new ListQuerySummaryRuntime(List.of(contributor)))
+                        .build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
                         CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
                 .build();
-        PlatformUiSet uiSet = new PlatformUiSet();
-        uiSet.setId("set-list");
-        uiSet.setModuleAlias(MODULE);
-        uiSet.setAlias("list");
-        uiSet.setSetType(PlatformUiSetType.LIST);
-        PlatformUiConfig uiConfig = new PlatformUiConfig();
-        uiConfig.setId("ui-list");
-        uiConfig.setUiSetId("set-list");
-        uiConfig.setClientType(PlatformUiClientType.WEB);
-        uiConfig.setPublished(true);
-        uiConfig.setLayoutJson("""
-                {
-                  "summaryPanel": {
-                    "items": [
-                      {
-                        "detailId": "module-field-amount",
-                        "calcType": "sum"
-                      }
-                    ]
-                  }
-                }
-                """);
-        when(snapshotService.snapshot(MODULE)).thenReturn(new PlatformPageConfigSnapshot(
-                MODULE,
-                List.of(uiSet),
-                List.of(uiConfig),
-                List.of(),
-                List.of(),
-                List.of()
-        ));
-        when(mainEntity.count(any(Criteria.class))).thenReturn(10_001L);
+        Criteria queryCriteria = Criteria.of().eq("ownerId", "user-1");
+        DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");
+        record.setId("contract-1");
+        when(mainEntity.queryCriteria(any())).thenReturn(queryCriteria);
+        when(mainEntity.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(record), 1, PageRequest.of(1, 20)));
+        when(service.count(eq(MODULE), eq(ENTITY), any(Criteria.class))).thenReturn(3L);
 
-        summaryMvc.perform(post("/{moduleAlias}/query/summary", MODULE)
+        summaryMvc.perform(post("/{moduleAlias}/query", MODULE)
                         .contentType("application/json")
-                        .content(json(Map.of("uiConfigId", "ui-list"))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Summary panel query exceeds max records: 10000"));
+                        .content("{\"uiConfigId\":\"ui-list\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.summaries[0].key").value("filteredCount"))
+                .andExpect(jsonPath("$.summaries[0].value").value(3));
 
-        verify(mainEntity).count(any(Criteria.class));
-        verify(mainEntity, org.mockito.Mockito.never()).list(any(Criteria.class), any(PageRequest.class));
+        ArgumentCaptor<Criteria> summaryCriteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(service).count(eq(MODULE), eq(ENTITY), summaryCriteria.capture());
+        assertThat(summaryCriteria.getValue()).isNotSameAs(queryCriteria);
+        assertThat(summaryCriteria.getValue().isEmpty()).isFalse();
     }
 
     @Test
@@ -3694,9 +3562,17 @@ class DynamicRecordWebControllerTest {
     }
 
     private ModuleExecutionPlan installedDynamicPlan() {
+        return installedDynamicPlan(null);
+    }
+
+    private ModuleExecutionPlan installedDynamicPlan(
+            java.util.function.Consumer<PageListDefinition.QuerySummariesBuilder> querySummaries) {
         ModuleUiDefinition definition = ModuleUiDefinition.builder(MODULE)
                 .page(PageTemplates.listDetailCard(page -> page
-                        .list(list -> list.fields(fields -> fields.field("code")))
+                        .list(list -> {
+                            list.fields(fields -> fields.field("code"));
+                            if (querySummaries != null) list.querySummaries(querySummaries);
+                        })
                         .detail(detail -> detail.editor(editor -> editor.field("code", field -> field.required())))))
                 .build();
         var descriptor = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, "Contract");
@@ -3741,6 +3617,7 @@ class DynamicRecordWebControllerTest {
         private DynamicRelationProjectionReadService relationProjectionReadService =
                 DynamicRelationProjectionReadServiceTestFactory.withDefaults();
         private ModuleExecutionPlanCatalog executionPlanCatalog;
+        private ListQuerySummaryRuntime listQuerySummaryRuntime;
 
         private DynamicRecordWebControllerFixture(
                 DynamicRecordService recordService,
@@ -3810,13 +3687,18 @@ class DynamicRecordWebControllerTest {
             return this;
         }
 
+        DynamicRecordWebControllerFixture querySummaries(ListQuerySummaryRuntime value) {
+            listQuerySummaryRuntime = value;
+            return this;
+        }
+
         DynamicRecordWebController build() {
             return new DynamicRecordWebController(
                     recordService,
                     new TenantRequestScope(activeTenantVerifier),
                     new DynamicRecordQueryServices(pageConfigSnapshotService, queryItemService,
                             moduleMetadataFieldService, fieldUiControlService, fieldUiControlBindingService,
-                            relationProjectionReadService, executionPlanCatalog),
+                            relationProjectionReadService, executionPlanCatalog, listQuerySummaryRuntime),
                     new DynamicRecordAttachmentServices(recordAttachmentService, recordAttachmentAccessService),
                     new DynamicRecordActionServices(codeBusinessPreviewService, referenceRecordGenerationFacade,
                             duplicateCheckService, navigationService));

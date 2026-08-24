@@ -32,6 +32,8 @@ import type {
   WebQueryRequest,
   WebSort,
   RecycleBinItem,
+  ResolvedPageListQuerySummaryDescriptor,
+  WebListQuerySummaryItem,
 } from '@muyun/web-contracts';
 import {
   canQueryRecycleBin,
@@ -153,6 +155,8 @@ const props = withDefaults(
     externalQueryValues?: Record<string, unknown>;
     /** Descriptor-owned controls rendered after quick search and before advanced filtering. */
     persistentQueryControls?: ResolvedPageListPersistentQueryControlDescriptor[];
+    /** Descriptor-owned result-set facts rendered at the left of the list footer. */
+    querySummaries?: ResolvedPageListQuerySummaryDescriptor[];
     /** Descriptor-owned external criteria that must be exposed by the query schema. */
     requiredExternalCriteriaKeys?: string[];
     quickSearchPlaceholder?: string;
@@ -197,6 +201,7 @@ const props = withDefaults(
     ready: true,
     externalQueryValues: undefined,
     persistentQueryControls: () => [],
+    querySummaries: () => [],
     requiredExternalCriteriaKeys: () => [],
     quickSearchPlaceholder: '搜索',
     emptyDescription: '暂无记录',
@@ -248,6 +253,7 @@ const conditionDrafts = ref<ConditionDraft[]>([]);
 const activeConditions = ref<WebQueryCondition[]>([]);
 const selectedRowKeys = ref<UiDataTableKey[]>([]);
 const persistentQueryValues = ref<Record<string, boolean>>({});
+const querySummaryValues = ref<WebListQuerySummaryItem[]>([]);
 let schemaRequestSeq = 0;
 let recordsRequestSeq = 0;
 
@@ -377,6 +383,7 @@ watch(
     }
     records.value = [];
     total.value = 0;
+    querySummaryValues.value = [];
     emit('loaded', []);
   },
 );
@@ -442,6 +449,7 @@ async function loadSchemaAndRecords() {
       descriptorLoadError.value = true;
       records.value = [];
       total.value = 0;
+      querySummaryValues.value = [];
       emit('loaded', []);
       return;
     }
@@ -459,6 +467,7 @@ async function loadSchemaAndRecords() {
         descriptorLoadError.value = true;
         records.value = [];
         total.value = 0;
+        querySummaryValues.value = [];
         emit('loaded', []);
         return;
       }
@@ -471,6 +480,7 @@ async function loadSchemaAndRecords() {
     schema.value = undefined;
     records.value = [];
     total.value = 0;
+    querySummaryValues.value = [];
     emit('loaded', []);
     presentPlatformError(cause, { source: 'record-query-list-panel', phase: 'load' });
   } finally {
@@ -498,6 +508,7 @@ async function loadRecords(updateLoading = true) {
   if (!queryReady.value) {
     records.value = [];
     total.value = 0;
+    querySummaryValues.value = [];
     emit('loaded', []);
     if (updateLoading) {
       loading.value = false;
@@ -517,6 +528,7 @@ async function loadRecords(updateLoading = true) {
         return record;
       });
       total.value = recycleBinState.total.value;
+      querySummaryValues.value = [];
       pageNum.value = recycleBinState.pageNum.value;
       pageSize.value = recycleBinState.pageSize.value;
       emit('loaded', records.value);
@@ -539,6 +551,7 @@ async function loadRecords(updateLoading = true) {
       response.records.some((record) => recordKey(record) === String(key)),
     );
     total.value = response.total;
+    querySummaryValues.value = response.summaries ?? [];
     pageNum.value = response.pageNum;
     pageSize.value = response.pageSize;
     emit('loaded', response.records);
@@ -549,6 +562,7 @@ async function loadRecords(updateLoading = true) {
     }
     records.value = [];
     total.value = 0;
+    querySummaryValues.value = [];
     emit('loaded', []);
     presentPlatformError(cause, { source: 'record-query-list-panel', phase: 'load' });
   } finally {
@@ -592,6 +606,12 @@ function buildQueryRequest(): WebQueryRequest {
 
 function persistentQueryValue(control: ResolvedPageListPersistentQueryControlDescriptor) {
   return persistentQueryValues.value[control.externalCriteriaKey] ?? control.defaultValue;
+}
+
+function summaryValue(key: string): string {
+  const value = querySummaryValues.value.find((item) => item.key === key)?.value;
+  if (value === undefined || value === null) return '—';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
 }
 
 function updatePersistentQueryValue(
@@ -1456,6 +1476,12 @@ defineExpose({ clearSelection, refresh });
         :count="recycleBinState.summaryTotal.value"
         @click="emit('modeChange', mode === 'normal' ? 'recycleBin' : 'normal')"
       />
+      <div v-if="mode !== 'recycleBin' && querySummaries.length > 0" class="record-query-list-summaries">
+        <span v-for="summary in querySummaries" :key="summary.key" class="record-query-list-summary">
+          <span class="record-query-list-summary-title">{{ summary.title }}</span>
+          <span class="record-query-list-summary-value">{{ summaryValue(summary.key) }}</span>
+        </span>
+      </div>
       <div v-if="pageable" class="record-query-list-pagination-controls">
         <span>共 {{ total }} 条</span>
         <UiSelect
@@ -1573,8 +1599,32 @@ defineExpose({ clearSelection, refresh });
   min-width: 0;
 }
 
+.record-query-list-summaries {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.record-query-list-summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muyun-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.record-query-list-summary-value {
+  color: var(--muyun-text);
+  font-weight: 600;
+}
+
 .record-query-list-actions {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+  margin-left: auto;
   justify-content: flex-end;
   gap: 12px;
 }
@@ -1750,7 +1800,7 @@ defineExpose({ clearSelection, refresh });
   width: 112px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 680px) {
   .record-query-list-header {
     flex-direction: column;
     align-items: stretch;
@@ -1772,8 +1822,8 @@ defineExpose({ clearSelection, refresh });
   }
 
   .record-query-list-search {
-    flex: 1 1 220px;
-    width: auto;
+    flex: 0 1 220px;
+    width: min(220px, 100%);
   }
 
   .record-query-list-pagination,

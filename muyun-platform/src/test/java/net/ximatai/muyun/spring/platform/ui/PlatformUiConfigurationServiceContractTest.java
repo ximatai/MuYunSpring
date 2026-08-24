@@ -414,9 +414,7 @@ class PlatformUiConfigurationServiceContractTest {
         config = uiConfigService.select(uiConfigId);
         config.setLayoutJson("""
                 {
-                  "summaryPanel": {
-                    "items": []
-                  }
+                  "querySummaries": []
                 }
                 """);
         uiConfigService.update(config);
@@ -710,15 +708,13 @@ class PlatformUiConfigurationServiceContractTest {
         PlatformUiConfig config = uiConfigService.select(uiConfigId);
         config.setLayoutJson("""
                 {
-                  "summaryPanel": {
-                    "items": {"aggregate":"sum"}
-                  }
+                  "querySummaries": {"key":"matched"}
                 }
                 """);
         uiConfigService.update(config);
         assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("summaryPanel.items must be array");
+                .hasMessageContaining("querySummaries must be array");
 
         config = uiConfigService.select(uiConfigId);
         config.setLayoutJson("""

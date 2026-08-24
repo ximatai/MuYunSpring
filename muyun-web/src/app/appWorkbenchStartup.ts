@@ -14,9 +14,9 @@ export async function loadAppWorkbenchStartupState(): Promise<WorkbenchStartupSt
       throw new Error('Mock workbench startup is only available in dev mode.');
     }
 
-    const { loadDevWorkbenchStartupState } = await import(
-      /* @vite-ignore */ `/src/app/devWorkbenchStartup.ts?t=${Date.now()}`
-    );
+    // Let Vite resolve this relative import so the configured workbench base
+    // (for example `/app/`) is preserved in development as well.
+    const { loadDevWorkbenchStartupState } = await import('./devWorkbenchStartup');
     return loadDevWorkbenchStartupState();
   }
 

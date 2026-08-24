@@ -10,10 +10,13 @@ import net.ximatai.muyun.spring.ability.query.QueryCompiler;
 import net.ximatai.muyun.spring.ability.query.QueryRequest;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.web.WebPageResponse;
+import net.ximatai.muyun.spring.web.WebQueryRequest;
+import net.ximatai.muyun.spring.web.query.WebQueryRequests;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -27,14 +30,24 @@ import java.util.Optional;
 public class StandardModuleWebRuntime {
     private final ModuleExecutionPlanCatalog executionPlans;
     private final StaticRecordReadProjectionService readProjectionService;
+    private final ListQuerySummaryRuntime listQuerySummaryRuntime;
 
     public StandardModuleWebRuntime(ModuleExecutionPlanCatalog executionPlans,
                                     StaticRecordReadProjectionService readProjectionService) {
+        this(executionPlans, readProjectionService, new ListQuerySummaryRuntime(java.util.List.of()));
+    }
+
+    @Autowired
+    public StandardModuleWebRuntime(ModuleExecutionPlanCatalog executionPlans,
+                                    StaticRecordReadProjectionService readProjectionService,
+                                    ListQuerySummaryRuntime listQuerySummaryRuntime) {
         if (executionPlans == null || readProjectionService == null) {
             throw new IllegalArgumentException("standard module web runtime requires execution plan and read projection services");
         }
         this.executionPlans = executionPlans;
         this.readProjectionService = readProjectionService;
+        this.listQuerySummaryRuntime = listQuerySummaryRuntime == null
+                ? new ListQuerySummaryRuntime(java.util.List.of()) : listQuerySummaryRuntime;
     }
 
     public boolean hasPlan(String moduleAlias) {
@@ -69,6 +82,45 @@ public class StandardModuleWebRuntime {
         return plan(moduleAlias).map(ModuleExecutionPlan::pageContextBindings).orElse(List.of()).stream()
                 .filter(binding -> binding.target() == target)
                 .toList();
+    }
+
+    /** Calculates descriptor-owned summaries which need no domain-specific aggregate implementation. */
+    public java.util.List<net.ximatai.muyun.spring.web.WebListQuerySummaryItem> listQuerySummaries(String moduleAlias, WebQueryRequest request,
+                                                                                                     long matchedTotal, CrudAbility<?> service,
+                                                                                                     Criteria navigationCriteria,
+                                                                                                     ActionExecutionPolicy actionPolicy) {
+        if (requirePlan(moduleAlias).uiDescriptor().page() == null
+                || requirePlan(moduleAlias).uiDescriptor().page().list() == null) return List.of();
+        Criteria baseCriteria = Criteria.copyOf(navigationCriteria == null ? Criteria.of() : navigationCriteria);
+        return listQuerySummaryRuntime.summarize(moduleAlias,
+                requirePlan(moduleAlias).uiDescriptor().page().list().querySummaries(), request, matchedTotal,
+                additionalCriteria -> scopedSummaryCount(moduleAlias, request, service, baseCriteria,
+                        actionPolicy, additionalCriteria), aggregateQuery -> scopedSummaryAggregate(moduleAlias,
+                        request, service, baseCriteria, actionPolicy, aggregateQuery));
+    }
+
+    private long scopedSummaryCount(String moduleAlias, WebQueryRequest request, CrudAbility<?> service,
+                                    Criteria baseCriteria, ActionExecutionPolicy actionPolicy,
+                                    Criteria additionalCriteria) {
+        Criteria criteria = Criteria.copyOf(baseCriteria).and(additionalCriteria == null ? Criteria.of() : additionalCriteria);
+        Optional<WebPageResponse<Map<String, Object>>> projected = readProjectionService.queryDefaultList(
+                moduleAlias, WebQueryRequests.from(request), criteria, PageRequest.of(1, 1), service,
+                actionPolicy, RecordReadVisibility.ACTIVE);
+        if (projected.isPresent()) return projected.get().total();
+        if (service instanceof net.ximatai.muyun.spring.ability.DataScopeAbility<?> scoped) {
+            return scoped.countForAction(net.ximatai.muyun.spring.common.platform.PlatformAction.QUERY, criteria);
+        }
+        return service.count(criteria);
+    }
+
+    private List<Map<String, Object>> scopedSummaryAggregate(String moduleAlias, WebQueryRequest request,
+                                                               CrudAbility<?> service, Criteria baseCriteria,
+                                                               ActionExecutionPolicy actionPolicy,
+                                                               net.ximatai.muyun.database.core.orm.AggregateQuery aggregateQuery) {
+        return readProjectionService.aggregateDefaultList(moduleAlias, WebQueryRequests.from(request), baseCriteria,
+                        service, actionPolicy, RecordReadVisibility.ACTIVE, aggregateQuery)
+                .orElseThrow(() -> new UnsupportedOperationException(
+                        "aggregate list query summary requires an executable default list projection: " + moduleAlias));
     }
 
     /** Server-authoritative create/update fields from the compiled execution plan. */

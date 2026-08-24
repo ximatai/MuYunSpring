@@ -11,7 +11,17 @@ public record WebPageResponse<T>(List<T> records,
                                  int pageSize,
                                  long pages,
                                  boolean totalKnown,
-                                 @JsonInclude(JsonInclude.Include.NON_NULL) Object navigation) {
+                                 @JsonInclude(JsonInclude.Include.NON_NULL) Object navigation,
+                                 @JsonInclude(JsonInclude.Include.NON_EMPTY) List<WebListQuerySummaryItem> summaries) {
+    /** Source-compatible constructor for ordinary list responses without query summaries. */
+    public WebPageResponse(List<T> records, long total, int pageNum, int pageSize, long pages,
+                           boolean totalKnown, Object navigation) {
+        this(records, total, pageNum, pageSize, pages, totalKnown, navigation, List.of());
+    }
+
+    public WebPageResponse {
+        summaries = summaries == null ? List.of() : List.copyOf(summaries);
+    }
     public static <T> WebPageResponse<T> from(PageResult<T> page) {
         return from(page, null);
     }
@@ -24,7 +34,8 @@ public record WebPageResponse<T>(List<T> records,
                 page.getPageSize(),
                 page.getPages(),
                 page.isTotalKnown(),
-                navigation
+                navigation,
+                List.of()
         );
     }
 
@@ -41,7 +52,12 @@ public record WebPageResponse<T>(List<T> records,
                 safeRecords.size(),
                 safeRecords.isEmpty() ? 0 : 1,
                 true,
-                navigation
+                navigation,
+                List.of()
         );
+    }
+
+    public WebPageResponse<T> withSummaries(List<WebListQuerySummaryItem> summaries) {
+        return new WebPageResponse<>(records, total, pageNum, pageSize, pages, totalKnown, navigation, summaries);
     }
 }

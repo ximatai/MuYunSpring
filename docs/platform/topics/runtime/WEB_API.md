@@ -10,7 +10,7 @@
 
 `moduleAlias` 必须是平台模块别名，形如 `application.module`。当前动态记录 Web 层以模块主元数据为默认记录对象，不暴露 `/{moduleAlias}/entities/{entityAlias}`。
 
-代码确认口径：`query`、`summary`、`insert`、`update`、`sort`、`describe`、`openapi`、引用解析和关联视图入口由 `DynamicRecordWebController` 直接声明；`view`、`delete`、`enable`、`disable`、`tree` 和动作目录/执行入口来自其实现的通用 Web 接口默认映射。
+代码确认口径：`query`、`insert`、`update`、`sort`、`describe`、`openapi`、引用解析和关联视图入口由 `DynamicRecordWebController` 直接声明；`view`、`delete`、`enable`、`disable`、`tree` 和动作目录/执行入口来自其实现的通用 Web 接口默认映射。
 
 ## 描述与文档
 
@@ -24,7 +24,6 @@
 | 方法   | URL                            | 功能                                         |
 | ------ | ------------------------------ | -------------------------------------------- |
 | `POST` | `/{moduleAlias}/query`         | 按 Web 查询请求分页查询主元数据记录。        |
-| `POST` | `/{moduleAlias}/query/summary` | 按查询条件计算摘要项。                       |
 | `GET`  | `/{moduleAlias}/view/{id}`     | 查看单条主元数据记录。                       |
 | `POST` | `/{moduleAlias}/insert`        | 新增主元数据记录。                           |
 | `POST` | `/{moduleAlias}/update/{id}`   | 更新主元数据记录。                           |

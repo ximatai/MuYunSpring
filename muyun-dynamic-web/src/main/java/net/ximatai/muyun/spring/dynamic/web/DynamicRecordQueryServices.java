@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshotService;
 import net.ximatai.muyun.spring.platform.ui.PlatformQueryItemService;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.ListQuerySummaryRuntime;
 
 import java.util.Objects;
 
@@ -17,7 +18,8 @@ public record DynamicRecordQueryServices(
         FieldUiControlService fieldUiControlService,
         FieldUiControlBindingService fieldUiControlBindingService,
         DynamicRelationProjectionReadService relationProjectionReadService,
-        ModuleExecutionPlanCatalog executionPlanCatalog
+        ModuleExecutionPlanCatalog executionPlanCatalog,
+        ListQuerySummaryRuntime listQuerySummaryRuntime
 ) {
     public DynamicRecordQueryServices(PlatformPageConfigSnapshotService pageConfigSnapshotService,
                                       PlatformQueryItemService queryItemService,
@@ -26,7 +28,19 @@ public record DynamicRecordQueryServices(
                                       FieldUiControlBindingService fieldUiControlBindingService,
                                       DynamicRelationProjectionReadService relationProjectionReadService) {
         this(pageConfigSnapshotService, queryItemService, moduleMetadataFieldService, fieldUiControlService,
-                fieldUiControlBindingService, relationProjectionReadService, null);
+                fieldUiControlBindingService, relationProjectionReadService, null, null);
+    }
+
+    /** Source-compatible test and embedding constructor without summary runtime wiring. */
+    public DynamicRecordQueryServices(PlatformPageConfigSnapshotService pageConfigSnapshotService,
+                                      PlatformQueryItemService queryItemService,
+                                      ModuleMetadataFieldService moduleMetadataFieldService,
+                                      FieldUiControlService fieldUiControlService,
+                                      FieldUiControlBindingService fieldUiControlBindingService,
+                                      DynamicRelationProjectionReadService relationProjectionReadService,
+                                      ModuleExecutionPlanCatalog executionPlanCatalog) {
+        this(pageConfigSnapshotService, queryItemService, moduleMetadataFieldService, fieldUiControlService,
+                fieldUiControlBindingService, relationProjectionReadService, executionPlanCatalog, null);
     }
 
     public DynamicRecordQueryServices(PlatformPageConfigSnapshotService pageConfigSnapshotService,
@@ -34,7 +48,7 @@ public record DynamicRecordQueryServices(
                                       ModuleMetadataFieldService moduleMetadataFieldService,
                                       DynamicRelationProjectionReadService relationProjectionReadService) {
         this(pageConfigSnapshotService, queryItemService, moduleMetadataFieldService, null, null,
-                relationProjectionReadService, null);
+                relationProjectionReadService, null, null);
     }
     public DynamicRecordQueryServices {
         Objects.requireNonNull(relationProjectionReadService, "relationProjectionReadService");

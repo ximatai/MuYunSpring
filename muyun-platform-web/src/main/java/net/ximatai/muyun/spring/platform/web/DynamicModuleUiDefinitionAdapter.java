@@ -202,10 +202,26 @@ public final class DynamicModuleUiDefinitionAdapter {
         }
         PageNavigatorDefinition navigator = navigator(listConfig);
         JsonNode detail = root.path("detail");
-        return new ListDetailCardPageDefinition(navigator, new PageListDefinition(list.title(), list),
+        return new ListDetailCardPageDefinition(navigator, new PageListDefinition(list.title(), list,
+                        List.of(), List.of(), querySummaries(root)),
                 new PageDetailDefinition(null, editor.title(), null, editor, workspaceView(detail),
                         detail.path("showSystemInfo").asBoolean(true)),
                 traits(root));
+    }
+
+    private static List<PageListQuerySummaryDefinition> querySummaries(JsonNode root) {
+        JsonNode items = root.path("querySummaries");
+        if (!items.isArray()) return List.of();
+        java.util.ArrayList<PageListQuerySummaryDefinition> definitions = new java.util.ArrayList<>();
+        for (JsonNode item : items) {
+            String key = item.path("key").asText(null);
+            String label = item.path("label").asText(null);
+            String source = item.path("source").asText(null);
+            String contributorKey = item.path("contributorKey").asText(null);
+            definitions.add(new PageListQuerySummaryDefinition(key, label,
+                    PageListQuerySummaryDefinition.Source.valueOf(source), contributorKey));
+        }
+        return List.copyOf(definitions);
     }
 
     private static PageDetailWorkspaceViewDefinition workspaceView(JsonNode detail) {

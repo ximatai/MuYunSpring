@@ -7,7 +7,8 @@ import java.util.function.Consumer;
 /** The pageable record-list slot of {@link ModulePageTemplate#LIST_DETAIL_CARD}. */
 public record PageListDefinition(String searchPlaceholder, ViewDefinition list,
                                  List<PageListRelationExpansionDefinition> relationExpansions,
-                                 List<PageListPersistentQueryControlDefinition> persistentQueryControls) {
+                                 List<PageListPersistentQueryControlDefinition> persistentQueryControls,
+                                 List<PageListQuerySummaryDefinition> querySummaries) {
     public PageListDefinition {
         searchPlaceholder = searchPlaceholder == null || searchPlaceholder.isBlank()
                 ? "搜索名称、编码或 ID" : searchPlaceholder.trim();
@@ -24,17 +25,28 @@ public record PageListDefinition(String searchPlaceholder, ViewDefinition list,
                 .distinct().count() != persistentQueryControls.size()) {
             throw new IllegalArgumentException("duplicate persistent query control external criteria key");
         }
+        querySummaries = querySummaries == null ? List.of() : List.copyOf(querySummaries);
+        if (querySummaries.stream().map(PageListQuerySummaryDefinition::key).distinct().count() != querySummaries.size()) {
+            throw new IllegalArgumentException("duplicate list query summary key");
+        }
     }
 
     /** Source-compatible constructor for lists without a row expansion. */
     public PageListDefinition(String searchPlaceholder, ViewDefinition list) {
-        this(searchPlaceholder, list, List.of(), List.of());
+        this(searchPlaceholder, list, List.of(), List.of(), List.of());
     }
 
     /** Source-compatible constructor for lists without persistent query controls. */
     public PageListDefinition(String searchPlaceholder, ViewDefinition list,
                               List<PageListRelationExpansionDefinition> relationExpansions) {
-        this(searchPlaceholder, list, relationExpansions, List.of());
+        this(searchPlaceholder, list, relationExpansions, List.of(), List.of());
+    }
+
+    /** Source-compatible constructor for lists with persistent controls but no footer summaries. */
+    public PageListDefinition(String searchPlaceholder, ViewDefinition list,
+                              List<PageListRelationExpansionDefinition> relationExpansions,
+                              List<PageListPersistentQueryControlDefinition> persistentQueryControls) {
+        this(searchPlaceholder, list, relationExpansions, persistentQueryControls, List.of());
     }
 
     public static final class Builder {
@@ -42,6 +54,7 @@ public record PageListDefinition(String searchPlaceholder, ViewDefinition list,
         private ViewDefinition list;
         private final List<PageListRelationExpansionDefinition> relationExpansions = new ArrayList<>();
         private final List<PageListPersistentQueryControlDefinition> persistentQueryControls = new ArrayList<>();
+        private final List<PageListQuerySummaryDefinition> querySummaries = new ArrayList<>();
 
         public Builder searchPlaceholder(String value) { searchPlaceholder = value; return this; }
         public Builder fields(Consumer<ViewDefinition.Builder> customizer) {
@@ -71,8 +84,25 @@ public record PageListDefinition(String searchPlaceholder, ViewDefinition list,
             persistentQueryControls.addAll(builder.controls);
             return this;
         }
+        /** Declares footer facts calculated from the current complete query result, not its page. */
+        public Builder querySummaries(Consumer<QuerySummariesBuilder> customizer) {
+            QuerySummariesBuilder builder = new QuerySummariesBuilder();
+            if (customizer != null) customizer.accept(builder);
+            querySummaries.addAll(builder.items);
+            return this;
+        }
         PageListDefinition build() {
-            return new PageListDefinition(searchPlaceholder, list, relationExpansions, persistentQueryControls);
+            return new PageListDefinition(searchPlaceholder, list, relationExpansions, persistentQueryControls, querySummaries);
+        }
+    }
+
+    public static final class QuerySummariesBuilder {
+        private final List<PageListQuerySummaryDefinition> items = new ArrayList<>();
+        public QuerySummariesBuilder item(String key, Consumer<PageListQuerySummaryDefinition.Builder> customizer) {
+            PageListQuerySummaryDefinition.Builder builder = PageListQuerySummaryDefinition.builder(key);
+            if (customizer != null) customizer.accept(builder);
+            items.add(builder.build());
+            return this;
         }
     }
 

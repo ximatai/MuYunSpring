@@ -17,7 +17,7 @@ import net.ximatai.muyun.spring.web.RecordReadSupport;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
-import net.ximatai.muyun.spring.web.WebSupport;
+import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
@@ -26,9 +26,9 @@ import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
+import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
-import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
@@ -71,7 +71,7 @@ import java.util.stream.Collectors;
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, order = 60)
 @RequestMapping("/iam.user")
-public class UserAccountWebController extends WebSupport<UserAccountService> implements
+public class UserAccountWebController extends StaticModuleWebControllerAdapter<UserAccountService> implements
         CrudWeb<UserAccount, UserAccountService>,
         MutationTenantScopeResolver<UserAccount>,
         StaticModuleUiContributor {
@@ -101,8 +101,6 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     private final EmployeeService employeeService;
     private final UserSessionService userSessionService;
     private StaticRecordReadProjectionService staticRecordReadProjectionService;
-    private StandardModuleWebRuntime standardModuleWebRuntime;
-
     public UserAccountWebController() {
         this(null, null, null, null);
     }
@@ -111,6 +109,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
         this(roleService, null, null, null);
     }
 
+    /** Constructor also retained for focused web tests and local embeddings. */
     @Autowired
     public UserAccountWebController(ObjectProvider<RoleService> roleService,
                                     ObjectProvider<EmployeeAccountService> employeeAccountService,
@@ -127,21 +126,6 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
         this.staticRecordReadProjectionService = staticRecordReadProjectionService;
     }
 
-    @Autowired(required = false)
-    void setStandardModuleWebRuntime(StandardModuleWebRuntime standardModuleWebRuntime) {
-        this.standardModuleWebRuntime = standardModuleWebRuntime;
-    }
-
-    @Override
-    public StaticRecordReadProjectionService staticRecordReadProjectionService() {
-        return staticRecordReadProjectionService;
-    }
-
-    @Override
-    public StandardModuleWebRuntime standardModuleWebRuntime() {
-        return standardModuleWebRuntime;
-    }
-
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(UserAccountService.MODULE_ALIAS)
@@ -152,7 +136,8 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                                 .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
                                 .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
                         .bindNavigatorToList("tenant", "tenantId"))
-                .list(list -> list.fields(fields -> fields
+                .list(list -> list
+                .fields(fields -> fields
                         .title("用户列表")
                         .field("username", field -> field.label("账号").width("180px"))
                         .field("enabled", field -> field.label("状态").uiType("enabledStatus")
@@ -164,7 +149,10 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                 .persistentQueries(queries -> queries.control("onlineOnly", control -> control
                         .label("仅在线")
                         .uiType(ViewControlType.SWITCH)
-                        .defaultValue(false))))
+                        .defaultValue(false)))
+                .querySummaries(summaries -> summaries.item("onlineUsers", summary -> summary
+                        .label("在线")
+                        .contributor("iam.active-user-count"))))
                 .detail(detail -> detail.editor(form -> form
                         .title("用户账号")
                         .field("username", field -> field.label("账号").required())
@@ -176,6 +164,17 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                         .field("lastLoginAt", field -> field.label("最后登录时间").readOnly())))
                 .traits(traits -> traits.standardCrud().enabledStatus().responsiveDetailSurface())))
                 .build();
+    }
+
+    /**
+     * Keeps the standard list endpoint on the compiled CRUD runtime so descriptor-owned
+     * query summaries are attached to the response together with the page records.
+     */
+    @Override
+    @PostMapping("/query")
+    @ActionEndpoint(PlatformAction.QUERY)
+    public WebPageResponse<UserAccount> query(@RequestBody(required = false) WebQueryRequest request) {
+        return CrudWeb.super.query(request);
     }
 
     @Override
