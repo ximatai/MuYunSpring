@@ -1663,6 +1663,8 @@ describe('ModulePageHost', () => {
                 resource: 'item',
                 scopeNavigatorKey: 'category',
                 scopeField: 'categoryId',
+                scopeRecordField: 'categoryKind',
+                scopeRecordEquals: 'DICTIONARY',
                 title: '字典项',
                 emptyDescription: '暂无字典项',
                 createTitle: '新建字典项',
@@ -1721,9 +1723,17 @@ describe('ModulePageHost', () => {
         .findAllComponents({ name: 'TreeRecordExplorer' })
         .find((explorer) => explorer.props('context').moduleAlias === 'platform.dictionary_category'),
     ).toBeUndefined();
-    wrapper
-      .findComponent({ name: 'PageNavigatorExplorer' })
-      .vm.$emit('select', { id: 'category-1', title: '时区' });
+    const categoryNavigator = wrapper.findComponent({ name: 'PageNavigatorExplorer' });
+    categoryNavigator.vm.$emit('select', { id: 'folder-1', title: '目录', categoryKind: 'FOLDER' });
+    await flushPromises();
+    expect(
+      wrapper
+        .findAllComponents({ name: 'TreeRecordExplorer' })
+        .find((explorer) => explorer.props('context').moduleAlias === 'platform.dictionary_category'),
+    ).toBeUndefined();
+    expect(requestedPaths).not.toContain('/platform.dictionary_category/tree-resources/item/folder-1/tree');
+
+    categoryNavigator.vm.$emit('select', { id: 'category-1', title: '时区', categoryKind: 'DICTIONARY' });
     await flushPromises();
 
     const tree = wrapper

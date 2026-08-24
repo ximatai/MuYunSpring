@@ -10,11 +10,19 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
  * selected in the page navigator.  The browser never receives a business-specific route.</p>
  */
 public record PageTreeResourceDefinition(String resource, String scopeNavigatorKey, String scopeField,
+                                         String scopeRecordField, String scopeRecordEquals,
                                          String title, String emptyDescription, String createTitle) {
     public PageTreeResourceDefinition {
         resource = PlatformNameRules.requireFieldName(resource, "tree resource");
         scopeNavigatorKey = PlatformNameRules.requireFieldName(scopeNavigatorKey, "tree resource scope navigator");
         scopeField = PlatformNameRules.requireFieldName(scopeField, "tree resource scope field");
+        if (scopeRecordField != null || scopeRecordEquals != null) {
+            scopeRecordField = PlatformNameRules.requireFieldName(scopeRecordField, "tree resource scope record field");
+            if (scopeRecordEquals == null || scopeRecordEquals.isBlank()) {
+                throw new IllegalArgumentException("tree resource scope record required value must not be blank");
+            }
+            scopeRecordEquals = scopeRecordEquals.trim();
+        }
         title = title == null || title.isBlank() ? resource : title.trim();
         emptyDescription = emptyDescription == null || emptyDescription.isBlank()
                 ? "当前范围暂无" + title : emptyDescription.trim();
@@ -25,6 +33,8 @@ public record PageTreeResourceDefinition(String resource, String scopeNavigatorK
         private final String resource;
         private final String scopeNavigatorKey;
         private final String scopeField;
+        private String scopeRecordField;
+        private String scopeRecordEquals;
         private String title;
         private String emptyDescription;
         private String createTitle;
@@ -39,8 +49,16 @@ public record PageTreeResourceDefinition(String resource, String scopeNavigatorK
         public Builder emptyDescription(String value) { emptyDescription = value; return this; }
         public Builder createTitle(String value) { createTitle = value; return this; }
 
+        /** Requires the selected navigator record to expose an exact value before this tree can be used. */
+        public Builder availableWhenEquals(String field, String value) {
+            scopeRecordField = field;
+            scopeRecordEquals = value;
+            return this;
+        }
+
         PageTreeResourceDefinition build() {
-            return new PageTreeResourceDefinition(resource, scopeNavigatorKey, scopeField, title, emptyDescription, createTitle);
+            return new PageTreeResourceDefinition(resource, scopeNavigatorKey, scopeField,
+                    scopeRecordField, scopeRecordEquals, title, emptyDescription, createTitle);
         }
     }
 }

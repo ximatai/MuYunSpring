@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategory;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryKind;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -41,6 +42,7 @@ public class DictionaryCategoryWebController
                                         .manageable())
                                 .bindNavigatorToNavigator("application", "category", "applicationAlias"))
                         .treeResource("item", "category", "categoryId", resource -> resource
+                                .availableWhenEquals("categoryKind", DictionaryCategoryKind.DICTIONARY.name())
                                 .title("字典项")
                                 .emptyDescription("请选择字典类目，或在类目中维护后新增字典项")
                                 .createTitle("新建字典项"))

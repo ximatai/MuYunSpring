@@ -1180,6 +1180,9 @@ export interface ResolvedPageTreeResourceDescriptor {
   resource: string;
   scopeNavigatorKey: string;
   scopeField: string;
+  /** Optional exact-value condition on the selected navigator record. */
+  scopeRecordField?: string;
+  scopeRecordEquals?: string;
   title: string;
   emptyDescription: string;
   createTitle: string;

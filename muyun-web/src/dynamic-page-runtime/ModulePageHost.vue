@@ -304,18 +304,25 @@ const treeResourceScopeRecord = computed(() => {
   const resource = treeResource.value;
   return resource ? selectedNavigatorRecords.value[resource.scopeNavigatorKey] : undefined;
 });
-const treeResourceScopeReady = computed(
-  () => !treeResource.value || treeResourceScopeRecord.value?.id != null,
-);
+const treeResourceScopeReady = computed(() => {
+  const resource = treeResource.value;
+  if (!resource) return true;
+  const scopeRecord = treeResourceScopeRecord.value;
+  if (scopeRecord?.id == null) return false;
+  return (
+    !resource.scopeRecordField ||
+    String(scopeRecord[resource.scopeRecordField] ?? '') === resource.scopeRecordEquals
+  );
+});
 const mainTreeScopeReady = computed(() =>
   treeResource.value ? treeResourceScopeReady.value : navigatorListScopeReady.value,
 );
 watch(
-  [treeResource, treeResourceScopeRecord],
-  ([resource, scopeRecord]) => {
+  [treeResource, treeResourceScopeRecord, treeResourceScopeReady],
+  ([resource, scopeRecord, scopeReady]) => {
     const scopeId = scopeRecord?.id == null ? undefined : String(scopeRecord.id);
     activeTreeResourceClient.value =
-      resource && scopeId
+      resource && scopeId && scopeReady
         ? createStaticResourceTreeClient<QueryListRecord>(
             context.http,
             `/${context.moduleAlias}/tree-resources/${encodeURIComponent(resource.resource)}/${encodeURIComponent(scopeId)}`,
@@ -646,6 +653,12 @@ const detailEmptyDescription = computed(
     runtimePage.value?.detail?.emptyDescription ??
     `请选择${recordLabel.value}，或新建${recordLabel.value}`,
 );
+const mainTreeScopeDescription = computed(() => {
+  const resource = treeResource.value;
+  if (!resource || !treeResourceScopeRecord.value?.id) return '请先选择导航范围';
+  if (resource.scopeRecordField) return '当前导航范围不支持维护此资源';
+  return '请先选择导航范围';
+});
 const treeRootTitle = computed(
   () => formFields.value.get('parentId')?.treeRootTitle ?? `根${recordLabel.value}`,
 );
@@ -2721,7 +2734,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             @deselect="clearTreeRecordSelection"
             @loaded="handleTreeLoaded"
           />
-          <RecordPanelState v-else description="请先选择导航范围" />
+          <RecordPanelState v-else :description="mainTreeScopeDescription" />
         </RecordExplorerPanel>
       </ManagementExplorerColumn>
 
