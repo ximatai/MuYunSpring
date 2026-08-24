@@ -16,6 +16,12 @@ public @interface PlatformMenu {
 
     String title() default "";
 
+    /**
+     * Optional canonical module opened by this menu. When omitted, the declaring static module
+     * remains the target. This lets a business expose a scoped entry without duplicating CRUD.
+     */
+    String moduleAlias() default "";
+
     int order() default 100;
 
     MenuOpenMode openMode() default MenuOpenMode.TAB;

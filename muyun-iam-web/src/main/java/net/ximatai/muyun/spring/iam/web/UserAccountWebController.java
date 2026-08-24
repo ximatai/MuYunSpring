@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.web.MutationTenantScopeExecutor;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
+import net.ximatai.muyun.spring.web.RecordReadSupport;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
@@ -21,6 +22,8 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.ModulePageEntryPolicy;
+import net.ximatai.muyun.spring.platform.web.MenuEntryRequestContext;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
@@ -38,6 +41,7 @@ import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
+import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.iam.employee.Employee;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccount;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
@@ -73,6 +77,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
         CrudWeb<UserAccount, UserAccountService>,
         MutationTenantScopeResolver<UserAccount>,
         StaticModuleUiContributor {
+    public static final String SYSTEM_USER_MENU_ID = "platform.menu.iam.system-user";
     private static final ActionExecutionPolicy USER_SELECTOR_POLICY = new ActionExecutionPolicy(
             "userSelector",
             PlatformActionLevel.LIST,
@@ -141,6 +146,11 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     }
 
     @Override
+    public ModulePageEntryPolicy<UserAccount> modulePageEntryPolicy() {
+        return SystemUserPageEntryPolicy.INSTANCE;
+    }
+
+    @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(UserAccountService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page
@@ -176,8 +186,12 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     @GetMapping("/view/{id}")
     @ActionEndpoint(PlatformAction.VIEW)
     public UserAccount view(@PathVariable String id) {
-        return webScope(() -> WebOutputSupport.record(service(),
-                service().selectForView(id), FieldOutputContext.VIEW));
+        return webScope(() -> {
+            UserAccount record = RecordReadSupport.requireVisible(UserAccountService.MODULE_ALIAS, id,
+                    service().selectForView(id));
+            requireMenuEntryRecord(PlatformAction.VIEW, record);
+            return WebOutputSupport.record(service(), record, FieldOutputContext.VIEW);
+        });
     }
 
     @PostMapping("/changePassword/{id}")
@@ -189,6 +203,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     public int changePassword(@PathVariable String id,
                                            @RequestBody ChangePasswordRequest request) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
             return service().changePassword(id, request.password());
         }));
     }
@@ -201,6 +216,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
             recordIdSource = BusinessMutationRecordIdSource.PATH_VARIABLE, recordId = "id")
     public ResetPasswordResponse resetPassword(@PathVariable String id) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
             UserAccountService.PasswordResetResult result = service().resetPassword(id);
             return new ResetPasswordResponse(result.count(), result.temporaryPassword(), result.expiresAt());
         }));
@@ -214,6 +230,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
             recordIdSource = BusinessMutationRecordIdSource.PATH_VARIABLE, recordId = "id")
     public int forceLogout(@PathVariable String id) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
             return service().forceLogout(id);
         }));
     }
@@ -223,6 +240,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
             level = PlatformActionLevel.RECORD, dataAuth = true)
     public List<UserSessionView> activeSessions(@PathVariable String id, HttpServletRequest request) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.VIEW, service().select(id));
             if (userSessionService == null) {
                 return List.of();
             }
@@ -253,6 +271,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
     private void requireReadableUsers(List<String> userIds) {
         DataScopeAbility<UserAccount> dataScope = DataScopeAbility.cast(service());
         List<UserAccount> visibleUsers = dataScope.listForAction(PlatformAction.QUERY, Criteria.of().in("id", userIds));
+        visibleUsers.forEach(user -> requireMenuEntryRecord(PlatformAction.QUERY, user));
         Set<String> visibleUserIds = visibleUsers.stream()
                 .map(UserAccount::getId)
                 .collect(Collectors.toSet());
@@ -272,6 +291,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                              @PathVariable String sessionId,
                              HttpServletRequest request) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
             if (userSessionService == null) {
                 return 0;
             }
@@ -289,6 +309,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
                               @RequestBody RevokeSessionsRequest requestBody,
                               HttpServletRequest request) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
             if (userSessionService == null) {
                 return 0;
             }
@@ -317,6 +338,36 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
         return tenantIdForUser(service().select(id));
     }
 
+    private enum SystemUserPageEntryPolicy implements ModulePageEntryPolicy<UserAccount> {
+        INSTANCE;
+
+        @Override
+        public boolean supports(MenuEntryRequestContext entry) {
+            return SYSTEM_USER_MENU_ID.equals(entry.menuId());
+        }
+
+        @Override
+        public void appendQueryCriteria(MenuEntryRequestContext entry, Criteria criteria) {
+            criteria.isNull(StandardEntitySchema.TENANT_ID_FIELD);
+        }
+
+        @Override
+        public void requireAction(MenuEntryRequestContext entry, PlatformAction action) {
+            if (action == PlatformAction.CREATE) {
+                throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException(
+                        "System user entry does not allow creating accounts");
+            }
+        }
+
+        @Override
+        public void requireRecord(MenuEntryRequestContext entry, PlatformAction action, UserAccount record) {
+            if (record == null || record.getTenantId() != null) {
+                throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException(
+                        "System user entry can only access system-scope accounts");
+            }
+        }
+    }
+
     @PostMapping("/selector/query")
     @CustomActionEndpoint(value = "userSelector", title = "用户选择器", level = PlatformActionLevel.LIST,
             dataAuth = true)
@@ -324,6 +375,7 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
         return webScope(() -> {
             UserSelectorRequest normalized = request == null ? UserSelectorRequest.EMPTY : request;
             Criteria criteria = selectorCriteria(normalized);
+            applyMenuEntryQueryCriteria(criteria);
             WebPageRequest page = normalized.pageOrDefault();
             PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
             return selectorProjectedPageQuery(criteria, pageRequest, Sort.asc("username"));
@@ -335,6 +387,9 @@ public class UserAccountWebController extends WebSupport<UserAccountService> imp
             level = PlatformActionLevel.RECORD, dataAuth = true)
     public UserEmployeeBindingView employeeBinding(@PathVariable String id) {
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
+            if (hasActiveMenuEntryPolicy()) {
+                requireMenuEntryRecord(PlatformAction.VIEW, service().select(id));
+            }
             if (employeeAccountService == null || employeeService == null) {
                 return UserEmployeeBindingView.empty();
             }

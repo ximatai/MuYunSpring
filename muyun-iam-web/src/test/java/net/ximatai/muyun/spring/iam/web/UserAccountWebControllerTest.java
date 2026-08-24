@@ -1,8 +1,12 @@
 package net.ximatai.muyun.spring.iam.web;
 
 import net.ximatai.muyun.spring.web.ActionResultResponseAdvice;
+import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
+import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import net.ximatai.muyun.spring.platform.web.ActionEndpointContextResolver;
 import net.ximatai.muyun.spring.platform.web.ActionEndpointInterceptor;
+import net.ximatai.muyun.spring.platform.web.MenuEntryRequestContext;
+import net.ximatai.muyun.spring.platform.web.MenuEntryRequestInterceptor;
 import net.ximatai.muyun.spring.web.BusinessMutationInterceptor;
 import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
@@ -13,6 +17,10 @@ import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.iam.user.UserSessionStatusView;
 import net.ximatai.muyun.spring.iam.user.UserSessionView;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
+import net.ximatai.muyun.spring.iam.employee.EmployeeService;
+import net.ximatai.muyun.spring.platform.menu.Menu;
+import net.ximatai.muyun.spring.platform.menu.MenuService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -29,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -160,6 +169,50 @@ class UserAccountWebControllerTest {
         }
 
         verify(userSessionService).activeSessionStatuses(userIds);
+    }
+
+    @Test
+    void shouldRejectTenantUserBindingFromSystemUserMenuEntry() throws Exception {
+        UserAccountService userAccountService = mock(UserAccountService.class);
+        EmployeeAccountService employeeAccountService = mock(EmployeeAccountService.class);
+        EmployeeService employeeService = mock(EmployeeService.class);
+        MenuService menuService = mock(MenuService.class);
+        UserAccountWebController controller = new UserAccountWebController(null, provider(employeeAccountService),
+                provider(employeeService), null);
+        ReflectionTestUtils.setField(controller, "service", userAccountService);
+        UserAccount tenantUser = user("tenant-user", "alice", "tenant-a");
+        when(userAccountService.select("tenant-user")).thenReturn(tenantUser);
+        Menu menu = new Menu();
+        menu.setId(UserAccountWebController.SYSTEM_USER_MENU_ID);
+        menu.setModuleAlias(UserAccountService.MODULE_ALIAS);
+        when(menuService.currentUserVisibleMenu(UserAccountWebController.SYSTEM_USER_MENU_ID)).thenReturn(menu);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new PlatformWebExceptionHandler())
+                .addInterceptors(new MenuEntryRequestInterceptor(menuService))
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(CurrentUser.systemUser("admin", "Admin"))))
+                .build();
+
+        mvc.perform(get("/iam.user/tenant-user/employee-binding")
+                        .header(MenuEntryRequestContext.HEADER_NAME, UserAccountWebController.SYSTEM_USER_MENU_ID))
+                .andExpect(status().isForbidden());
+
+        verify(employeeAccountService, never()).accountOfUser("tenant-user");
+    }
+
+    @Test
+    void shouldReportNotFoundWhenTenantUserReadsSystemAccount() throws Exception {
+        UserAccountService userAccountService = mock(UserAccountService.class);
+        UserAccountWebController controller = new UserAccountWebController();
+        ReflectionTestUtils.setField(controller, "service", userAccountService);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new PlatformWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() ->
+                        java.util.Optional.of(CurrentUser.tenantUser("tenant-admin", "Tenant Admin", "tenant-a"))))
+                .build();
+
+        mvc.perform(get("/iam.user/view/platform.user.super_admin"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
 
     @Test

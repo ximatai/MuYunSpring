@@ -43,12 +43,18 @@ defineSlots<{
 
 const emit = defineEmits<{
   close: [];
+  /** A portal drawer must remain mounted until its closing transition releases its DOM nodes. */
+  afterClose: [];
 }>();
 
 const sidePanelHost = inject(sidePanelHostKey, undefined);
 const hasDrawerContainer = computed(
   () => Boolean(props.container) || props.scope === 'viewport' || Boolean(sidePanelHost?.value),
 );
+
+function handleAfterVisibleChange(visible: boolean) {
+  if (!visible) emit('afterClose');
+}
 
 watch(
   () => [props.open, hasDrawerContainer.value] as const,
@@ -97,12 +103,14 @@ watch(
       </template>
     </RecordDetailLayout>
   </UiSidePanel>
+  <!-- The host already renders this drawer inside its scoped workspace. Keeping
+       the drawer inline avoids moving Vue's slot anchors into a Teleport target. -->
   <ADrawer
     v-else-if="container"
     :open="open"
     placement="right"
     :width="width"
-    :get-container="container"
+    :get-container="false"
     :mask="closeOnOutside"
     :mask-closable="closeOnOutside"
     :mask-style="{ background: 'transparent' }"
@@ -112,6 +120,7 @@ watch(
     :body-style="{ height: '100%', padding: 0 }"
     :root-style="{ position: 'absolute', inset: 0, zIndex: 6 }"
     @close="emit('close')"
+    @after-open-change="handleAfterVisibleChange"
   >
     <RecordDetailLayout surface="drawer" :title="title" :subtitle="subtitle" scrollable-content>
       <template v-if="$slots['title-prefix']" #title-prefix><slot name="title-prefix" /></template>

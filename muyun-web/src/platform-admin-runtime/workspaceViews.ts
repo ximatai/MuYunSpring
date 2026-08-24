@@ -6,6 +6,7 @@ import { passwordPolicyPageEnhancement } from './passwordPolicyPageEnhancement';
 import { tenantModulePageEnhancement } from './tenantModulePageEnhancement';
 import { employeeModulePageEnhancement } from './employeeModulePageEnhancement';
 import { userModulePageEnhancement } from './userModulePageEnhancement';
+import { systemUserModulePageEnhancement } from './systemUserModulePageEnhancement';
 
 configureWorkspaceViewContributions('platform-admin-runtime', workspaceViewContributions);
 // The first-party platform enhancement is a default contribution, not an App.vue
@@ -17,6 +18,7 @@ configureModulePageEnhancementContributions('platform-admin-runtime', [
   tenantModulePageEnhancement,
   employeeModulePageEnhancement,
   userModulePageEnhancement,
+  systemUserModulePageEnhancement,
 ]);
 
 export {

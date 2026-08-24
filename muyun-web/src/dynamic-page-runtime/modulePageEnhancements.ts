@@ -1,5 +1,11 @@
 import type { Component } from 'vue';
-import type { PageDescriptor, PageLayoutMode, RouteQueryValue } from '@muyun/web-contracts';
+import type {
+  CurrentUser,
+  PageDescriptor,
+  PageLayoutMode,
+  RouteQueryValue,
+  WebQueryCondition,
+} from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import type {
   RecordActionItem,
@@ -43,13 +49,40 @@ export interface ModulePageEnhancement {
    * retains that flow's action checks, shell and lifecycle.
    */
   recordView?: ModulePageRecordView;
+  /** Restricts standard runner actions for one business-owned entry without replacing the runner. */
+  standardActions?: ModulePageStandardActionsEnhancement;
+  /** Entry-owned adjustments to descriptor-provided navigator presentation and list readiness. */
+  navigator?: ModulePageNavigatorEnhancement;
   workspaceViews?: ModulePageWorkspaceView<ModulePageWorkspaceViewInput>[];
+}
+
+export interface ModulePageStandardActionsEnhancement {
+  disabled?: readonly string[];
+}
+
+export interface ModulePageNavigatorEnhancement {
+  /** Hides descriptor navigators when this entry is not navigated by their business scope. */
+  hidden?: boolean;
+  /** Allows the standard list to load without navigator-derived list criteria. */
+  bypassListScope?: boolean;
+  /**
+   * Optional business-owned fallback when no navigator item is selected. The platform still owns
+   * navigator rendering and request lifecycle; this hook contributes only typed list conditions.
+   */
+  emptyListScope?(context: ModulePageEmptyNavigatorScopeContext): readonly WebQueryCondition[] | undefined;
+}
+
+export interface ModulePageEmptyNavigatorScopeContext {
+  currentUser?: CurrentUser;
+  selectedNavigatorRecords: Readonly<Record<string, QueryListRecord | undefined>>;
 }
 
 export interface ModulePageEnhancementTarget {
   moduleAlias: string;
   /** Omit to apply to every list view of the module. */
   viewCode?: string;
+  /** Omit to apply to every visible menu entry of the module. */
+  menuId?: string;
 }
 
 export interface ModulePageEnhancementActivationContext {
@@ -388,7 +421,7 @@ export interface ModulePageDetailSectionContext {
 }
 
 export interface ModulePageEnhancementRegistry {
-  resolve(moduleAlias: string, viewCode?: string): ModulePageEnhancement | undefined;
+  resolve(moduleAlias: string, viewCode?: string, menuId?: string): ModulePageEnhancement | undefined;
   workspaceViews(): readonly ModulePageWorkspaceView<ModulePageWorkspaceViewInput>[];
 }
 
@@ -415,7 +448,11 @@ export function createModulePageEnhancementRegistry(
       workspaceViewTypes.add(view.type);
       workspaceViews.push(view);
     }
-    const key = targetKey(enhancement.target.moduleAlias, enhancement.target.viewCode);
+    const key = targetKey(
+      enhancement.target.moduleAlias,
+      enhancement.target.viewCode,
+      enhancement.target.menuId,
+    );
     const targetEnhancements = enhancementsByTarget.get(key) ?? [];
     targetEnhancements.push(enhancement);
     enhancementsByTarget.set(key, targetEnhancements);
@@ -425,7 +462,7 @@ export function createModulePageEnhancementRegistry(
   for (const targetEnhancements of enhancementsByTarget.values()) {
     const target = targetEnhancements[0].target;
     composeModulePageEnhancements(targetEnhancements, target);
-    if (target.viewCode) {
+    if (target.viewCode || target.menuId) {
       const fallback = enhancementsByTarget.get(targetKey(target.moduleAlias));
       if (fallback) {
         composeModulePageEnhancements([...fallback, ...targetEnhancements], target);
@@ -433,13 +470,19 @@ export function createModulePageEnhancementRegistry(
     }
   }
   return {
-    resolve(moduleAlias, viewCode) {
-      const fallback = enhancementsByTarget.get(targetKey(moduleAlias));
-      const specific = viewCode ? enhancementsByTarget.get(targetKey(moduleAlias, viewCode)) : undefined;
-      if (!fallback && !specific) return undefined;
-      return composeModulePageEnhancements([...(fallback ?? []), ...(specific ?? [])], {
+    resolve(moduleAlias, viewCode, menuId) {
+      const keys = [
+        targetKey(moduleAlias),
+        viewCode ? targetKey(moduleAlias, viewCode) : undefined,
+        menuId ? targetKey(moduleAlias, undefined, menuId) : undefined,
+        viewCode && menuId ? targetKey(moduleAlias, viewCode, menuId) : undefined,
+      ].filter((key): key is string => key !== undefined);
+      const matches = keys.flatMap((key) => enhancementsByTarget.get(key) ?? []);
+      if (matches.length === 0) return undefined;
+      return composeModulePageEnhancements(matches, {
         moduleAlias,
-        viewCode: specific ? viewCode : undefined,
+        viewCode,
+        menuId,
       });
     },
     workspaceViews() {
@@ -479,16 +522,16 @@ export function configureModulePageEnhancements(enhancements: readonly ModulePag
   configureModulePageEnhancementContributions(legacyApplicationOwner, enhancements);
 }
 
-export function resolveModulePageEnhancement(moduleAlias: string, viewCode?: string) {
-  return currentRegistry.resolve(moduleAlias, viewCode);
+export function resolveModulePageEnhancement(moduleAlias: string, viewCode?: string, menuId?: string) {
+  return currentRegistry.resolve(moduleAlias, viewCode, menuId);
 }
 
 export function modulePageWorkspaceViews(): readonly ModulePageWorkspaceView<ModulePageWorkspaceViewInput>[] {
   return currentRegistry.workspaceViews();
 }
 
-function targetKey(moduleAlias: string, viewCode?: string) {
-  return `${moduleAlias}#${viewCode ?? '*'}`;
+function targetKey(moduleAlias: string, viewCode?: string, menuId?: string) {
+  return `${moduleAlias}#${viewCode ?? '*'}#${menuId ?? '*'}`;
 }
 
 function composeModulePageEnhancements(
@@ -531,12 +574,29 @@ function composeModulePageEnhancements(
   const list = composeListEnhancement(enhancements, actionColumnWidths[0], rowExpansions[0]);
   const detail = composeDetailEnhancement(enhancements);
   const form = composeFormEnhancement(enhancements);
+  const disabledStandardActions = enhancements.flatMap(
+    (enhancement) => enhancement.standardActions?.disabled ?? [],
+  );
+  const navigator = enhancements.reduce<ModulePageNavigatorEnhancement | undefined>(
+    (resolved, enhancement) => {
+      const contribution = enhancement.navigator;
+      if (!contribution) return resolved;
+      return {
+        hidden: resolved?.hidden || contribution.hidden,
+        bypassListScope: resolved?.bypassListScope || contribution.bypassListScope,
+        emptyListScope: contribution.emptyListScope ?? resolved?.emptyListScope,
+      };
+    },
+    undefined,
+  );
   const composed: ModulePageEnhancement = {
     id: enhancements.map((enhancement) => enhancement.id).join(', '),
     target,
     ...(list ? { list } : {}),
     ...(detail ? { detail } : {}),
     ...(form ? { form } : {}),
+    ...(disabledStandardActions.length > 0 ? { standardActions: { disabled: disabledStandardActions } } : {}),
+    ...(navigator ? { navigator } : {}),
     ...(cards[0] ? { card: cards[0] } : {}),
     ...(recordViews[0] ? { recordView: recordViews[0] } : {}),
     workspaceViews: enhancements.flatMap((enhancement) => enhancement.workspaceViews ?? []),

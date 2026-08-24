@@ -62,6 +62,14 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return this instanceof LegacyStaticReadProjectionCompatibility;
     }
 
+    /**
+     * Optional business policy for a server-validated menu entry. A module can expose more than
+     * one menu entry without inventing a second CRUD module or duplicating its endpoints.
+     */
+    default ModulePageEntryPolicy<T> modulePageEntryPolicy() {
+        return null;
+    }
+
     private StandardModuleWebRuntime requiredStandardModuleWebRuntime() {
         return CrudWebRuntimeSupport.requiredRuntime(this);
     }
@@ -103,7 +111,9 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     default Criteria queryCriteria(WebQueryRequest request) {
-        return CrudWebRuntimeSupport.queryCriteria(this, request);
+        Criteria criteria = CrudWebRuntimeSupport.queryCriteria(this, request);
+        applyMenuEntryQueryCriteria(criteria);
+        return criteria;
     }
 
     default Sort[] querySorts(WebQueryRequest request) {
@@ -157,10 +167,12 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
         StandardModuleWebRuntime runtime = executionRuntime();
         if (requiresModuleExecutionPlan() || runtime != null && runtime.hasPlan(webScopeName())) {
+            Criteria navigationCriteria = CrudWebRuntimeSupport.navigatorCriteria(this, request);
+            applyMenuEntryQueryCriteria(navigationCriteria);
             return runtime.queryProjectedDefaultList(
                     moduleAlias,
                     WebQueryRequests.from(request),
-                    CrudWebRuntimeSupport.navigatorCriteria(this, request),
+                    navigationCriteria,
                     PageRequest.of(page.pageNum(), page.pageSize()),
                     service(),
                     StaticStandardMutationSupport.actionPolicy(this, visibility.action()),
@@ -172,10 +184,12 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         }
         StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
         if (projectionService == null) return Optional.empty();
+        Criteria navigationCriteria = CrudWebRuntimeSupport.navigatorCriteria(this, request);
+        applyMenuEntryQueryCriteria(navigationCriteria);
         return projectionService.queryDefaultList(
                 moduleAlias,
                 WebQueryRequests.from(request),
-                CrudWebRuntimeSupport.navigatorCriteria(this, request),
+                navigationCriteria,
                 PageRequest.of(page.pageNum(), page.pageSize()),
                 service(),
                 StaticStandardMutationSupport.actionPolicy(this, visibility.action()),
@@ -237,8 +251,10 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     default T view(@PathVariable String id) {
         return webScope(() -> {
             requireExecutionPlanAtRequest();
-            return standardWireRecord(WebOutputSupport.record(service(),
-                    StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),
+            T record = RecordReadSupport.requireVisible(webScopeName(), id,
+                    StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id));
+            requireMenuEntryRecord(PlatformAction.VIEW, record);
+            return standardWireRecord(WebOutputSupport.record(service(), record,
                     FieldOutputContext.VIEW));
         });
     }
@@ -251,6 +267,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     default T insert(@RequestBody T record) {
         return MutationTenantScopeExecutor.forCreate(this, record, () -> webScope(() -> {
             requireExecutionPlanAtRequest();
+            requireMenuEntryAction(PlatformAction.CREATE);
             List<PageContextBindingDefinition> mutationConstraints =
                     requiresModuleExecutionPlan()
                             ? requiredStandardModuleWebRuntime().mutationConstraints(webScopeName())
@@ -274,6 +291,9 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return MutationTenantScopeExecutor.forUpdate(this, id, record, () -> webScope(() -> {
             requireExecutionPlanAtRequest();
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.UPDATE, id);
+            if (hasActiveMenuEntryPolicy()) {
+                requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
+            }
             List<PageContextBindingDefinition> mutationConstraints =
                     requiresModuleExecutionPlan()
                             ? requiredStandardModuleWebRuntime().mutationConstraints(webScopeName())
@@ -298,8 +318,49 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             requireExecutionPlanAtRequest();
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.DELETE, id);
             T existing = service().select(id);
+            requireMenuEntryRecord(PlatformAction.DELETE, existing);
             return StandardMutationResultSupport.deleted(this, id, recordLabel(existing),
                     () -> service().delete(id, request.version()));
         }));
+    }
+
+    /** Allows custom endpoints to reuse the same entry restriction boundary as standard CRUD. */
+    default void requireMenuEntryAction(PlatformAction action) {
+        menuEntryPolicyContext().ifPresent(context -> context.policy().requireAction(context.entry(), action));
+    }
+
+    /** Allows custom record endpoints to reuse the same entry restriction boundary as standard CRUD. */
+    default void requireMenuEntryRecord(PlatformAction action, T record) {
+        menuEntryPolicyContext().ifPresent(context -> context.policy().requireRecord(context.entry(), action, record));
+    }
+
+    /**
+     * Applies the fixed scope of the server-validated page entry to a custom list endpoint.
+     * Custom endpoints own their business query, while the shared CRUD contract owns the entry
+     * boundary so that a secondary page entry cannot widen its records through a side endpoint.
+     */
+    default void applyMenuEntryQueryCriteria(Criteria criteria) {
+        menuEntryPolicyContext().ifPresent(context -> context.policy().appendQueryCriteria(context.entry(), criteria));
+    }
+
+    /** Whether the current request entered this module through a policy-owned menu entry. */
+    default boolean hasActiveMenuEntryPolicy() {
+        return menuEntryPolicyContext().isPresent();
+    }
+
+    private Optional<MenuEntryPolicyContext<T>> menuEntryPolicyContext() {
+        ModulePageEntryPolicy<T> policy = modulePageEntryPolicy();
+        if (policy == null) {
+            return Optional.empty();
+        }
+        return MenuEntryRequestContext.current()
+                .filter(policy::supports)
+                .map(entry -> new MenuEntryPolicyContext<>(entry, policy));
+    }
+
+    record MenuEntryPolicyContext<T extends EntityContract>(
+            MenuEntryRequestContext entry,
+            ModulePageEntryPolicy<T> policy
+    ) {
     }
 }

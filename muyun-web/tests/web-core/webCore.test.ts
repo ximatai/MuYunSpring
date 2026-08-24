@@ -7,6 +7,7 @@ import {
   createAuthClient,
   createLoginContextClient,
   createHttpClient,
+  withHttpHeaders,
   createMenuClient,
   createPageBootstrapClient,
   createModuleContext,
@@ -69,6 +70,51 @@ async function expectRejected(
 
   expect.fail('Expected promise to reject');
 }
+
+it('adds a fixed page context header without allowing a request to replace it', async () => {
+  const requests: Array<{ path: string; headers?: Record<string, string> }> = [];
+  const base: HttpClient = {
+    async request(options) {
+      requests.push(options);
+      return undefined as never;
+    },
+  };
+
+  await withHttpHeaders(base, { 'X-MuYun-Menu-Id': 'menu.system-user' }).request({
+    path: '/iam.user/query',
+    headers: { 'X-MuYun-Menu-Id': 'forged', 'X-Caller': 'test' },
+  });
+
+  assert.deepEqual(requests, [
+    {
+      path: '/iam.user/query',
+      headers: { 'X-MuYun-Menu-Id': 'menu.system-user', 'X-Caller': 'test' },
+    },
+  ]);
+});
+
+it('limits page context headers to the owning module requests', async () => {
+  const requests: Array<{ path: string; headers?: Record<string, string> }> = [];
+  const base: HttpClient = {
+    async request(options) {
+      requests.push(options);
+      return undefined as never;
+    },
+  };
+  const client = withHttpHeaders(
+    base,
+    { 'X-MuYun-Menu-Id': 'menu.user' },
+    (request) => request.path === '/iam.user' || request.path.startsWith('/iam.user/'),
+  );
+
+  await client.request({ path: '/iam.user/query' });
+  await client.request({ path: '/iam.tenant/reference/query' });
+
+  assert.deepEqual(requests, [
+    { path: '/iam.user/query', headers: { 'X-MuYun-Menu-Id': 'menu.user' } },
+    { path: '/iam.tenant/reference/query' },
+  ]);
+});
 
 it('business notification record action uses the standard module action and record path', async () => {
   const requests: Request[] = [];

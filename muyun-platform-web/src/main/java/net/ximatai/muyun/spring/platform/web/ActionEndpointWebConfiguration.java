@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.web.endpoint.DevelopmentEndpointCatalogReporter;
 import net.ximatai.muyun.spring.platform.web.endpoint.StaticAbilityWebEndpointRegistrar;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
+import net.ximatai.muyun.spring.platform.menu.MenuService;
 import net.ximatai.muyun.spring.common.runtime.PlatformRuntimeModeProvider;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -80,6 +81,12 @@ public class ActionEndpointWebConfiguration {
     }
 
     @Bean
+    @ConditionalOnBean(MenuService.class)
+    public MenuEntryRequestInterceptor menuEntryRequestInterceptor(MenuService menuService) {
+        return new MenuEntryRequestInterceptor(menuService);
+    }
+
+    @Bean
     @ConditionalOnMissingBean
     public BusinessMutationInterceptor businessMutationInterceptor(
             ObjectProvider<RegisteredWebEndpointCatalog> endpointCatalog) {
@@ -109,10 +116,17 @@ public class ActionEndpointWebConfiguration {
     @ConditionalOnBean(ActionEndpointInterceptor.class)
     public WebMvcConfigurer actionEndpointInterceptorRegistration(
             ActionEndpointInterceptor actionEndpointInterceptor,
+            ObjectProvider<MenuEntryRequestInterceptor> menuEntryRequestInterceptor,
             ObjectProvider<BusinessMutationInterceptor> businessMutationInterceptor) {
         return new WebMvcConfigurer() {
             @Override
             public void addInterceptors(InterceptorRegistry registry) {
+                MenuEntryRequestInterceptor menuEntryInterceptor = menuEntryRequestInterceptor.getIfAvailable();
+                if (menuEntryInterceptor != null) {
+                    registry.addInterceptor(menuEntryInterceptor)
+                            .addPathPatterns("/**")
+                            .order(Ordered.HIGHEST_PRECEDENCE + 190);
+                }
                 registry.addInterceptor(actionEndpointInterceptor)
                         .addPathPatterns("/**")
                         .order(Ordered.HIGHEST_PRECEDENCE + 200);

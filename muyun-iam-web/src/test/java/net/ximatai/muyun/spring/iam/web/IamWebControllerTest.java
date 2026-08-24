@@ -13,6 +13,8 @@ import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.web.MuYunSpringJacksonConfiguration;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
+import net.ximatai.muyun.spring.platform.web.MenuEntryRequestContext;
+import net.ximatai.muyun.spring.platform.web.MenuEntryRequestInterceptor;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
 import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
@@ -1435,6 +1437,40 @@ class IamWebControllerTest {
                 .contains("id")
                 .contains("username");
         assertThat(containsCondition(userAccountService.baseCriteria, "enabled", Boolean.TRUE)).isTrue();
+    }
+
+    @Test
+    void shouldKeepTenantAdministratorSelectorInsideCurrentTenantWhenSystemAccountsAreRequested() throws Exception {
+        RecordingUserAccountService userAccountService = new RecordingUserAccountService();
+        StaticRecordReadProjectionService projectionService = mock(StaticRecordReadProjectionService.class);
+        MenuService menuService = mock(MenuService.class);
+        UserAccountWebController controller = new UserAccountWebController();
+        ReflectionTestUtils.setField(controller, "service", userAccountService);
+        controller.setStaticRecordReadProjectionService(projectionService);
+        Menu systemUserMenu = menu(UserAccountWebController.SYSTEM_USER_MENU_ID, "scheme-1", "iam.user");
+        when(menuService.currentUserVisibleMenu(UserAccountWebController.SYSTEM_USER_MENU_ID)).thenReturn(systemUserMenu);
+        when(projectionService.queryExplicitList(
+                any(), any(), any(), any(Criteria.class), any(PageRequest.class), any(), any(Sort[].class)
+        )).thenReturn(java.util.Optional.of(WebPageResponse.from(PageResult.of(List.of(), 0, PageRequest.of(1, 20)))));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .addInterceptors(new MenuEntryRequestInterceptor(menuService))
+                .addFilters(new CurrentUserWebFilter(() ->
+                        java.util.Optional.of(CurrentUser.tenantUser("tenant-admin", "Tenant Admin", "tenant_a"))))
+                .build();
+
+        mvc.perform(post("/iam.user/selector/query")
+                        .header(MenuEntryRequestContext.HEADER_NAME, UserAccountWebController.SYSTEM_USER_MENU_ID)
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records").isEmpty());
+
+        ArgumentCaptor<Criteria> criteriaCaptor = ArgumentCaptor.captor();
+        verify(projectionService).queryExplicitList(
+                any(), any(), any(), criteriaCaptor.capture(), any(PageRequest.class), any(), any(Sort[].class)
+        );
+        assertThat(compiledCriteria(criteriaCaptor.getValue())).contains("IS NULL");
+        assertThat(containsCondition(criteriaCaptor.getValue(), "tenantId", "tenant_a")).isTrue();
     }
 
     @Test
