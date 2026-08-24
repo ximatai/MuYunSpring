@@ -7,6 +7,7 @@ public record ResolvedModulePageDescriptor(ModulePageTemplate template,
                                            ResolvedPageExplorerDescriptor explorer,
                                            ResolvedPageNavigatorDescriptor navigator,
                                            ResolvedPageListDescriptor list,
+                                           ResolvedPageTreeResourceDescriptor treeResource,
                                            ResolvedPageDetailDescriptor detail,
                                            List<PageTrait> traits) {
     public ResolvedModulePageDescriptor {
@@ -14,12 +15,12 @@ public record ResolvedModulePageDescriptor(ModulePageTemplate template,
         traits = traits == null ? List.of() : List.copyOf(traits);
         switch (template) {
             case FLAT_MANAGEMENT -> {
-                if (explorer == null || detail == null || list != null) {
+                if (explorer == null || detail == null || list != null || treeResource != null) {
                     throw new IllegalArgumentException("flat management requires optional navigator and explorer/detail/traits slots");
                 }
             }
             case LIST_DETAIL_CARD -> {
-                if (list == null || detail == null || explorer != null) {
+                if (list == null || detail == null || explorer != null || treeResource != null) {
                     throw new IllegalArgumentException("list/detail card requires list/detail/traits slots");
                 }
             }
@@ -33,6 +34,6 @@ public record ResolvedModulePageDescriptor(ModulePageTemplate template,
 
     /** Replaces only the resolved navigator slots after request-scoped descriptor resolution. */
     public ResolvedModulePageDescriptor withNavigator(ResolvedPageNavigatorDescriptor resolvedNavigator) {
-        return new ResolvedModulePageDescriptor(template, explorer, resolvedNavigator, list, detail, traits);
+        return new ResolvedModulePageDescriptor(template, explorer, resolvedNavigator, list, treeResource, detail, traits);
     }
 }

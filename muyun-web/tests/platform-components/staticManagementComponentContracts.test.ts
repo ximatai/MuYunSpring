@@ -359,21 +359,12 @@ it('page navigator renders levels through the standard module runner', () => {
 it('static edit draft normalizers preserve standard record fields', () => {
   const roleSource = readSource('src/views/RoleManagementView.vue');
   const menuStateSource = readSource('src/views/menuManagementState.ts');
-  const dictionaryStateSource = readSource('src/views/dictionaryManagementState.ts');
 
   assert.match(roleSource, /function normalizedRoleDraft[\s\S]*normalizeRecordDraft<Role>\(draft,/);
   assert.match(menuStateSource, /function normalizeSchemeDraft[\s\S]*return \{\s*\.\.\.record,/);
   assert.match(
     menuStateSource,
     /function normalizeMenuDraft[\s\S]*const normalized: MenuRecord = \{\s*\.\.\.record,/,
-  );
-  assert.match(
-    dictionaryStateSource,
-    /function normalizeDictionaryCategoryDraft[\s\S]*return \{\s*\.\.\.record,/,
-  );
-  assert.match(
-    dictionaryStateSource,
-    /function normalizeDictionaryItemDraft[\s\S]*return \{\s*\.\.\.record,/,
   );
 });
 
@@ -494,7 +485,7 @@ it('menu management keeps scheme actions inline and delegates search to panel', 
 });
 
 it('static management explorers use unified item descriptors', () => {
-  const explorerViews = ['DictionaryManagementView.vue', 'MenuManagementView.vue', 'RoleManagementView.vue'];
+  const explorerViews = ['MenuManagementView.vue', 'RoleManagementView.vue'];
 
   for (const fileName of explorerViews) {
     const source = readSource(`src/views/${fileName}`);
@@ -502,21 +493,9 @@ it('static management explorers use unified item descriptors', () => {
     assert.match(source, /:item-of=/, fileName);
   }
 
-  const dictionarySource = readSource('src/views/DictionaryManagementView.vue');
   const menuSource = readSource('src/views/MenuManagementView.vue');
 
-  assert.notMatch(dictionarySource, /:tag-of=|:actions-of=|:muted-of=/);
   assert.notMatch(menuSource, /:tag-of=|:actions-of=/);
-});
-
-it('tree explorer editor is explicit edit mode instead of selected record presence', () => {
-  const dictionaryViewSource = readSource('src/views/DictionaryManagementView.vue');
-
-  assert.match(
-    dictionaryViewSource,
-    /categoryEditorVisible = computed\(\(\) => categoryMode\.value !== 'view'\)/,
-  );
-  assert.notMatch(dictionaryViewSource, /categoryEditorVisible[\s\S]*Boolean\(selectedCategory/);
 });
 
 it('menu entry low-code fields are only exposed for dynamic module entries', () => {
@@ -529,10 +508,9 @@ it('menu entry low-code fields are only exposed for dynamic module entries', () 
   assert.notMatch(menuViewSource, /<label v-if="hasModuleEntry" class="full-row"[\s\S]*入口参数 JSON/);
 });
 
-it('application scope switcher is a platform component for scoped management pages', () => {
+it('application scope switcher remains a platform component for legacy scoped pages', () => {
   const indexSource = readSource('src/platform-components/index.ts');
   const switcherSource = readSource('src/platform-components/ApplicationScopeSwitcher.vue');
-  const dictionaryViewSource = readSource('src/views/DictionaryManagementView.vue');
 
   assert.match(indexSource, /ApplicationScopeSwitcher/);
   assert.match(indexSource, /createStaticTreeResourceModuleContext/);
@@ -540,73 +518,13 @@ it('application scope switcher is a platform component for scoped management pag
   assert.match(switcherSource, /UiDropdown/);
   assert.match(switcherSource, /:selected-key="String\(value \?\? ''\)"/);
   assert.match(switcherSource, /align="start"/);
-  assert.match(dictionaryViewSource, /<ApplicationScopeSwitcher/);
-  assert.match(dictionaryViewSource, /createStaticTreeResourceModuleContext/);
-  assert.notMatch(dictionaryViewSource, /function fallbackCategoryClient/);
-  assert.notMatch(dictionaryViewSource, /function fallbackItemClient/);
-  assert.notMatch(dictionaryViewSource, /class="application-scope-select"/);
-});
-
-it('dictionary item explorer uses tree explorer for tree-backed items', () => {
-  const dictionaryViewSource = readSource('src/views/DictionaryManagementView.vue');
-
-  assert.equal(matchCount(dictionaryViewSource, /<TreeRecordExplorer/g), 2);
-  assert.notMatch(dictionaryViewSource, /RecordListExplorer/);
-  assert.match(dictionaryViewSource, /v-else-if="!canTreeItem"/);
-  assert.match(dictionaryViewSource, /function itemTreeActionsOf/);
-  assert.match(dictionaryViewSource, /startCreateChildItem\(record\)/);
-});
-
-it('dictionary item parent selector uses tree-aware record picker', () => {
-  const dictionaryViewSource = readSource('src/views/DictionaryManagementView.vue');
-  const pickerSource = readSource('src/platform-components/RecordPicker.vue');
-
-  assert.match(dictionaryViewSource, /:context="itemExplorerContext"/);
-  assert.match(dictionaryViewSource, /:reload-key="itemReloadKey"/);
-  assert.match(dictionaryViewSource, /parentRecordConstraints\(itemDraft\.value\.id\)/);
-  assert.match(dictionaryViewSource, /itemFormPickerConfigs/);
-  assert.match(dictionaryViewSource, /:picker-configs="itemFormPickerConfigs"/);
-  assert.notMatch(dictionaryViewSource, /itemParentOptions/);
-  assert.notMatch(dictionaryViewSource, /<RecordPicker[\s\S]*v-model:value="itemDraft\.parentId"/);
-  assert.match(pickerSource, /reloadKey\?: number/);
-  assert.match(pickerSource, /props\.context, props\.mode, props\.reloadKey/);
-  assert.match(pickerSource, /\(\) => void loadRecords\(\)/);
-});
-
-it('dictionary management uses record form fields for category and item forms', () => {
-  const dictionaryViewSource = readSource('src/views/DictionaryManagementView.vue');
-
-  assert.equal(matchCount(dictionaryViewSource, /<RecordFormFields/g), 2);
-  assert.match(dictionaryViewSource, /onMounted\(loadDictionaryFormDefinitions\)/);
-  assert.match(dictionaryViewSource, /resolveRecordFormFields\(runtimeContext\.uiDescriptor\)/);
-  assert.match(
-    dictionaryViewSource,
-    /resolveRecordFormFields\(\s*runtimeContext\.uiDescriptor,\s*ITEM_RESOURCE,?\s*\)/,
-  );
-  assert.match(dictionaryViewSource, /const ITEM_RESOURCE = 'item'/);
-  assert.match(dictionaryViewSource, /categoryFormFieldDefinitions/);
-  assert.match(dictionaryViewSource, /itemFormFieldDefinitions/);
-  assert.match(dictionaryViewSource, /:field-names="itemFormFieldNames"/);
-  assert.match(dictionaryViewSource, /:fields="itemFormFieldDefinitions"/);
-  assert.match(dictionaryViewSource, /categoryKind: \{[\s\S]*controlType: 'select'/);
-  assert.match(dictionaryViewSource, /enabled: \{[\s\S]*controlType: 'enabledStatus'/);
-  assert.match(dictionaryViewSource, /itemFormFieldFallback/);
-  assert.match(dictionaryViewSource, /parentId: \{[\s\S]*controlType: 'recordPicker'/);
-  assert.match(dictionaryViewSource, /:disabled-of="itemFormFieldDisabled"/);
-  assert.notMatch(dictionaryViewSource, /<UiInput[\s\S]*v-model:value="categoryDraft\.alias"/);
-  assert.notMatch(dictionaryViewSource, /<UiSelect[\s\S]*v-model:value="categoryDraft\.categoryKind"/);
-  assert.notMatch(dictionaryViewSource, /<UiInput[\s\S]*v-model:value="itemDraft\.code"/);
 });
 
 it('three-column management pages use the platform detail panel', () => {
   const indexSource = readSource('src/platform-components/index.ts');
   const panelSource = readSource('src/platform-components/RecordDetailPanel.vue');
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
-  const dictionaryViewSource = readSource('src/views/DictionaryManagementView.vue');
   const menuViewSource = readSource('src/views/MenuManagementView.vue');
-  const dictionaryDetailSource = dictionaryViewSource.slice(
-    dictionaryViewSource.indexOf('<RecordDetailPanel class="dictionary-column"'),
-  );
 
   assert.match(indexSource, /RecordDetailPanel/);
   assert.match(panelSource, /defineOptions\(\{ name: 'RecordDetailPanel', inheritAttrs: false \}\)/);
@@ -622,21 +540,11 @@ it('three-column management pages use the platform detail panel', () => {
   assert.match(layoutSource, /<slot name="explorer-actions" \/>/);
   assert.match(layoutSource, /<slot name="detail-actions" \/>/);
   assert.notMatch(layoutSource, /RecordStatusTag|card-header|title-line/);
-  assert.equal(matchCount(dictionaryViewSource, /<RecordDetailPanel/g), 1);
   assert.equal(matchCount(menuViewSource, /<RecordDetailPanel/g), 1);
-  assert.match(dictionaryViewSource, /v-if="itemMode !== 'view'"[\s\S]*:enabled="itemDraft\.enabled"/);
-  assert.notMatch(dictionaryViewSource, /v-if="itemMode === 'create'"/);
   assert.match(menuViewSource, /<template #editor>[\s\S]*scheme-editor-panel/);
   assert.match(menuViewSource, /<RecordDetailPanel class="menu-detail-column"[\s\S]*:title="menuCardTitle"/);
   assert.notMatch(menuViewSource, /<RecordDetailPanel[\s\S]*:title="schemeCardTitle"/);
-  assert.match(
-    dictionaryViewSource,
-    /:enabled="categoryDraft\.enabled"[\s\S]*@change="categoryDraft\.enabled = \$event"/,
-  );
-  assert.notMatch(dictionaryViewSource, /detail-column|detail-title-group|detail-header-actions/);
-  assert.notMatch(dictionaryDetailSource, /EnabledSelect|启用状态/);
   assert.notMatch(layoutSource, /actionMessage|message success|message\.success/);
-  assert.notMatch(dictionaryViewSource, /message success|message\.success/);
 });
 
 it('role management keeps basic scope management separate from binding and authorization', () => {
@@ -932,7 +840,7 @@ it('user management keeps account basics separate from employment binding and ro
 });
 
 it('ordinary management pages do not infer their height from the workbench chrome', () => {
-  for (const viewPath of ['src/views/DictionaryManagementView.vue', 'src/views/MenuManagementView.vue']) {
+  for (const viewPath of ['src/views/MenuManagementView.vue']) {
     assert.notMatch(readSource(viewPath), /calc\(100vh|calc\(100dvh/);
   }
 });
@@ -1087,12 +995,12 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.equal(/scopedListWorkspace/.test(hostSource), false);
   assert.equal(/selectedScopeRecord/.test(hostSource), false);
   assert.match(navigatorRuntimeSource, /sourceCapabilities\?\.includes\('REFERENCE_TREE'\)/);
-  assert.match(navigatorExplorerSource, /<TreeRecordExplorer[\s\S]*v-if="level\.tree"/);
+  assert.match(navigatorExplorerSource, /<TreeRecordExplorer[\s\S]*v-if="ready !== false && level\.tree"/);
   assert.match(navigatorExplorerSource, /search-mode="none"/);
   assert.match(hostSource, /:external-query-values="navigatorListQueryValues"/);
   assert.match(hostSource, /:required-external-criteria-keys="navigatorListCriteriaKeys"/);
   assert.match(hostSource, /const navigatorListScopeReady = computed/);
-  assert.match(hostSource, /<TreeRecordExplorer\s+v-if="navigatorListScopeReady"/);
+  assert.match(hostSource, /<TreeRecordExplorer\s+v-if="mainTreeScopeReady"/);
   assert.match(hostSource, /for \(const descendantKey of navigatorDescendantKeys\(levelKey\)\)/);
   assert.match(listPanelSource, /queryTemplateId: props\.queryTemplateId/);
   assert.match(listPanelSource, /if \(!queryReady\.value\) \{\s*return;/);
@@ -1208,7 +1116,6 @@ it('platform error feedback respects global error presentation slots', () => {
   const actionResultReactionsSource = readSource('src/platform-components/platformActionResultReactions.ts');
   const uiFeedbackSource = readSource('src/vue-ui-antdv/feedback.ts');
   const staticCrudStateSource = readSource('src/platform-components/staticCrudManagementState.ts');
-  const dictionaryStateSource = readSource('src/views/dictionaryManagementState.ts');
 
   assert.match(feedbackSource, /resolveGlobalErrorPresentation/);
   assert.match(feedbackSource, /toErrorUiContext/);
@@ -1268,7 +1175,6 @@ it('platform error feedback respects global error presentation slots', () => {
   assert.match(uiStylesSource, /font-size: 13px/);
   assert.match(uiStylesSource, /@keyframes muyun-feedback-countdown/);
   assert.match(staticCrudStateSource, /handlePlatformActionSuccess/);
-  assert.match(dictionaryStateSource, /handlePlatformActionSuccess/);
 });
 
 it('production workbench delegates page lifetime to the Vue Router outlet', () => {

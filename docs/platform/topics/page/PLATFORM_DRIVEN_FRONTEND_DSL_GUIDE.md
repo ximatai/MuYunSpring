@@ -116,6 +116,24 @@ public ModuleUiDefinition moduleUiDefinition() {
 
 `manageable` 是二元开关：声明后才启用该来源的标准新建、编辑、删除；未声明时不出现编辑态。它不配置动作子集，也不绕过来源模块的 `create`、`update`、`delete` 权限、数据范围、乐观锁或编辑器校验。可选的 `editorKey` 只选择来源模块已声明的编辑 surface，不能在使用方复制一套来源字段。
 
+### 导航范围内的主树资源
+
+当页面的主流程是“先选范围，再维护一个独立树资源”时，仍使用 `treeManagement`，不要新增业务三栏组件，也不要把树塞进详情扩展。主树通过已注册的 `editorContribution` 声明为资源，并显式指定提供持久化父范围的导航层级：
+
+```java
+.navigator(navigator -> navigator
+        .level("application", level -> level.microList("platform.application", "应用", "搜索应用"))
+        .level("category", level -> level.tree("platform.dictionary_category", "类目", "搜索类目")
+                .manageable())
+        .bindNavigatorToNavigator("application", "category", "applicationAlias"))
+.treeResource("item", "category", "categoryId", resource -> resource
+        .availableWhenEquals("categoryKind", "DICTIONARY")
+        .title("字典项")
+        .createTitle("新建字典项"))
+```
+
+`resource` 必须有同名 `editorContribution`，并由静态 action contribution 提供标准树 CRUD；`scopeNavigatorKey` 只能指向同页已声明的导航层级。若资源只适用于范围记录的某个稳定状态，可用 `availableWhenEquals` 声明字段和值；条件不满足时运行器不加载树也不开放新建，资源控制器仍须执行领域不变量。运行器把资源访问固定投影到模块的 `tree-resources/{resource}/{scopeId}` 路径，未选中范围时 fail-closed。页面模块仍拥有动作授权与 runtime descriptor，资源控制器只保留领域范围绑定、归属校验和不变量。该能力当前是静态 action contribution 的平台接入点；动态来源没有同等可执行资源注册时，应明确拒绝，而不是在前端拼业务 URL。
+
 ## 关系和子资源
 
 先按关系的真实保存语义选择 DSL，而不是按页面长相选择：

@@ -54,6 +54,21 @@ final class StaticPageNavigatorSourceValidator {
         PageCapabilityContractValidator.validate(definition.moduleAlias(), page.template().name(),
                 traits(page).stream().map(Enum::name).collect(Collectors.toUnmodifiableSet()),
                 definition.capabilities().stream().map(Enum::name).collect(Collectors.toUnmodifiableSet()), actionCodes);
+        if (page instanceof TreeManagementPageDefinition tree && tree.treeResource() != null) {
+            validateTreeResource(definition, actionCodes, tree.treeResource());
+        }
+    }
+
+    private static void validateTreeResource(StaticModuleDefinition definition, Set<String> actionCodes,
+                                             PageTreeResourceDefinition resource) {
+        for (PlatformAction action : List.of(PlatformAction.CREATE, PlatformAction.VIEW, PlatformAction.UPDATE,
+                PlatformAction.DELETE, PlatformAction.QUERY, PlatformAction.TREE, PlatformAction.SORT)) {
+            String actionCode = resource.resource() + "_" + action.code();
+            if (!actionCodes.contains(actionCode)) {
+                throw new IllegalStateException("tree resource action is unavailable: module="
+                        + definition.moduleAlias() + ", resource=" + resource.resource() + ", required=" + actionCode);
+            }
+        }
     }
 
     private static void validateNavigatorManagement(StaticModuleDefinition pageDefinition,

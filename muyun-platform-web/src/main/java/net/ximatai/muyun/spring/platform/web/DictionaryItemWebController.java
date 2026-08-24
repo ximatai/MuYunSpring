@@ -19,6 +19,7 @@ import java.util.Objects;
         resourceTitle = "字典项"
 )
 @RequestMapping({
+        "/platform.dictionary_category/tree-resources/item/{categoryId}",
         "/platform.dictionary_category/categories/{categoryId}/items",
         "/platform.application/{applicationAlias}/dictionary-categories/{categoryAlias}/items"
 })
@@ -36,7 +37,8 @@ public class DictionaryItemWebController
                         .field(RESOURCE, "categoryId", field -> field.label("所属类目").readOnly())
                         .field(RESOURCE, "code", field -> field.label("字典项编码").required())
                         .field(RESOURCE, "title", field -> field.label("字典项名称").required())
-                        .field(RESOURCE, "parentId", field -> field.label("上级字典项").uiType("recordPicker"))
+                        .field(RESOURCE, "parentId", field -> field.label("上级字典项").uiType("recordPicker")
+                                .treeRootTitle("根字典项"))
                         .field(RESOURCE, "enabled", field -> field.label("启用状态").uiType("enabledStatus")))
                 .build();
     }

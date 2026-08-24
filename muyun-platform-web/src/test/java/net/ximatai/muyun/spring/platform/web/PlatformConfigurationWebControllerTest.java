@@ -100,6 +100,7 @@ import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -850,6 +851,28 @@ class PlatformConfigurationWebControllerTest {
         ArgumentCaptor<DictionaryCategory> captor = ArgumentCaptor.forClass(DictionaryCategory.class);
         verify(service).insert(captor.capture());
         assertThat(captor.getValue().getApplicationAlias()).isEqualTo("platform");
+    }
+
+    @Test
+    void shouldTreatUnselectedDictionaryApplicationNavigatorScopeAsAnEmptyReferenceTree() throws Exception {
+        DictionaryCategoryService service = mock(DictionaryCategoryService.class);
+        DictionaryCategoryWebController controller = new DictionaryCategoryWebController();
+        ReflectionTestUtils.setField(controller, "service", service);
+
+        abilityAwareMvc(controller)
+                .perform(post("/platform.dictionary_category/navigator/reference/tree/query")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records").isEmpty());
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void shouldUseSystemScopeForNestedDictionaryCategoryRequests() {
+        DictionaryCategoryWebController controller = new DictionaryCategoryWebController();
+
+        assertThat(controller.webScope(() -> "resolved")).isEqualTo("resolved");
     }
 
     @Test

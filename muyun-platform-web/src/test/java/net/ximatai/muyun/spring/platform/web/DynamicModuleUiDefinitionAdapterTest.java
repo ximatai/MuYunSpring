@@ -75,6 +75,24 @@ class DynamicModuleUiDefinitionAdapterTest {
     }
 
     @Test
+    void shouldRejectDynamicTreeManagementResourceUntilDynamicResourcesHaveAnExecutableContract() {
+        PlatformUiSet listSet = uiSet("set-list", "crm.customer", "customer_list", PlatformUiSetType.LIST);
+        PlatformUiSet formSet = uiSet("set-form", "crm.customer", "customer_form", PlatformUiSetType.FORM);
+        PlatformUiConfig listConfig = uiConfig("ui-list", "set-list", "客户列表", true, 10);
+        PlatformUiConfig formConfig = uiConfig("ui-form", "set-form", "客户表单", true, 10);
+        listConfig.setLayoutJson("""
+                {"template":"TREE_MANAGEMENT","treeResource":{"resource":"item"}}
+                """);
+        PlatformPageConfigSnapshot snapshot = new PlatformPageConfigSnapshot("crm.customer",
+                List.of(listSet, formSet), List.of(listConfig, formConfig), List.of(), List.of(), List.of());
+
+        assertThatThrownBy(() -> DynamicModuleUiDefinitionAdapter.fromPublishedSnapshot(
+                snapshot, new PlatformResolvedPageConfig(List.of(), List.of())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("does not support treeResource");
+    }
+
+    @Test
     void shouldCompileOnlyExistingSafeDynamicAssignmentsAsFormComputeRules() {
         PlatformUiSet listSet = uiSet("set-list", "sales.order", "order_list", PlatformUiSetType.LIST);
         PlatformUiSet formSet = uiSet("set-form", "sales.order", "order_form", PlatformUiSetType.FORM);

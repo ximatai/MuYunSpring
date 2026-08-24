@@ -5,7 +5,6 @@ import type {
   PageLayoutMode,
   RoutePageTarget,
 } from '@muyun/web-contracts';
-const DictionaryManagementView = defineAsyncComponent(() => import('../views/DictionaryManagementView.vue'));
 const MenuManagementView = defineAsyncComponent(() => import('../views/MenuManagementView.vue'));
 const RoleManagementView = defineAsyncComponent(() => import('../views/RoleManagementView.vue'));
 const RoleAuthorizationView = defineAsyncComponent(() => import('../views/RoleAuthorizationView.vue'));
@@ -21,12 +20,6 @@ export interface PlatformAdminRoute {
 }
 
 export const platformAdminRoutes: PlatformAdminRoute[] = [
-  {
-    route: '/platform/dictionary-category',
-    moduleAlias: 'platform.dictionary_category',
-    component: DictionaryManagementView,
-    layout: 'workspace',
-  },
   {
     route: '/platform/menu-scheme',
     moduleAlias: 'platform.menu_scheme',

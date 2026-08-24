@@ -30,6 +30,8 @@ export function useNavigatorRuntime(context: ModuleContext<QueryListRecord>) {
   const detailDisplayFields = ref(resolveRecordDetailFields(undefined));
   const runtimePage = ref<ResolvedModulePageDescriptor>();
   const runtimeUiDescriptor = ref<ResolvedModuleUiDescriptor>();
+  /** True once the host's own descriptor has settled, including modules without a page DSL. */
+  const runtimePageResolved = ref(false);
   const treeModule = ref(false);
   const navigatorLevels = ref<NavigatorLevelRuntime[]>([]);
   const pageContextBindings = ref<ResolvedPageContextBindingDescriptor[]>([]);
@@ -46,6 +48,7 @@ export function useNavigatorRuntime(context: ModuleContext<QueryListRecord>) {
     const runtimeContext = await context.runtime.ready;
     runtimeUiDescriptor.value = runtimeContext.uiDescriptor;
     runtimePage.value = runtimeContext.uiDescriptor?.page;
+    runtimePageResolved.value = true;
     treeModule.value = context.abilities.hasTree() === true;
     if (treeModule.value && hasBusinessRecordView()) {
       fail('模块页面增强的业务查看呈现仅支持普通列表模块，不支持树模块');
@@ -80,8 +83,9 @@ export function useNavigatorRuntime(context: ModuleContext<QueryListRecord>) {
         };
       }),
     );
-    formFields.value = resolveRecordFormFields(runtimeContext.uiDescriptor);
-    detailDisplayFields.value = resolveRecordDetailFields(runtimeContext.uiDescriptor);
+    const treeResource = runtimePage.value?.treeResource?.resource;
+    formFields.value = resolveRecordFormFields(runtimeContext.uiDescriptor, treeResource);
+    detailDisplayFields.value = resolveRecordDetailFields(runtimeContext.uiDescriptor, treeResource);
   }
 
   return {
@@ -89,6 +93,7 @@ export function useNavigatorRuntime(context: ModuleContext<QueryListRecord>) {
     detailDisplayFields,
     runtimePage,
     runtimeUiDescriptor,
+    runtimePageResolved,
     treeModule,
     navigatorLevels,
     pageContextBindings,

@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.platform.module.StaticModuleDefinitionRegistrar;
 
+import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
@@ -34,6 +35,8 @@ import net.ximatai.muyun.spring.platform.config.LowCodeModuleHealthService;
 import net.ximatai.muyun.spring.platform.config.LowCodeModulePackageExchangeService;
 import net.ximatai.muyun.spring.platform.config.LowCodeModulePackageImportService;
 import net.ximatai.muyun.spring.platform.config.LowCodeModuleTemplateService;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
 import net.ximatai.muyun.spring.platform.initialdata.InitialDataExecutor;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.menu.MenuScheme;
@@ -52,6 +55,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -142,7 +146,20 @@ class PlatformAdminMenuVisibilityContractTest {
     private GenericApplicationContext platformEntryContext() {
         GenericApplicationContext context = new GenericApplicationContext();
         context.registerBean(ApplicationWebController.class);
-        context.registerBean(DictionaryCategoryWebController.class);
+        context.registerBean(DictionaryCategoryService.class,
+                () -> new DictionaryCategoryService(mock(BaseDao.class)));
+        context.registerBean(DictionaryCategoryWebController.class, () -> {
+            DictionaryCategoryWebController controller = new DictionaryCategoryWebController();
+            ReflectionTestUtils.setField(controller, "service", context.getBean(DictionaryCategoryService.class));
+            return controller;
+        });
+        context.registerBean(DictionaryItemService.class,
+                () -> new DictionaryItemService(mock(BaseDao.class), context.getBean(DictionaryCategoryService.class)));
+        context.registerBean(DictionaryItemWebController.class, () -> {
+            DictionaryItemWebController controller = new DictionaryItemWebController();
+            ReflectionTestUtils.setField(controller, "service", context.getBean(DictionaryItemService.class));
+            return controller;
+        });
         context.registerBean(WorkflowRuntimeAdminWebController.class,
                 () -> new WorkflowRuntimeAdminWebController(null));
         context.registerBean(LowCodeModuleConfigArchiveFacade.class,

@@ -191,8 +191,12 @@ public final class DynamicModuleUiDefinitionAdapter {
                     traits(root));
         }
         if ("TREE_MANAGEMENT".equals(template)) {
+            if (root.hasNonNull("treeResource")) {
+                throw new IllegalArgumentException("dynamic TREE_MANAGEMENT does not support treeResource; "
+                        + "declare a static action contribution instead: " + listConfig.getId());
+            }
             JsonNode detail = root.path("detail");
-            return new TreeManagementPageDefinition(navigator(listConfig),
+            return new TreeManagementPageDefinition(navigator(listConfig), null,
                     new PageDetailDefinition(null, editor.title(), null, editor, workspaceView(detail),
                             detail.path("showSystemInfo").asBoolean(true)), traits(root));
         }

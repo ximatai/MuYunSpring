@@ -3,11 +3,13 @@ import {
   CrudRecordListExplorer,
   ModuleActionButton,
   RecordExplorerPanel,
+  RecordPanelState,
   TreeRecordExplorer,
   type QueryListRecord,
 } from '@muyun/platform-components';
 import type { RecordInlineAction, ResolvedPageNavigatorLevelDescriptor } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
+import { navigatorItemOf, type NavigatorItemRecord } from './pageNavigatorItemModel';
 
 defineOptions({ name: 'PageNavigatorExplorer' });
 
@@ -17,12 +19,14 @@ type NavigatorLevelRuntime = {
   tree: boolean;
 };
 
-defineProps<{
+const props = defineProps<{
   level: NavigatorLevelRuntime;
   selectedId?: string;
   reloadKey: number;
   keyword: string;
   externalQueryValues?: Record<string, unknown>;
+  /** Whether this navigator's upstream selection scope is available. */
+  ready?: boolean;
   /** The navigator's declared upstream query scope is not settled yet. */
   createDisabled?: boolean;
   createDisabledReason?: string;
@@ -38,10 +42,15 @@ const emit = defineEmits<{
   loaded: [records: QueryListRecord[]];
   action: [action: RecordInlineAction, record: QueryListRecord];
 }>();
+
+function itemOf(record: NavigatorItemRecord) {
+  return navigatorItemOf(record, props.level.descriptor.management !== undefined, props.actionsOf);
+}
 </script>
 
 <template>
   <RecordExplorerPanel
+    :class="{ 'page-navigator-explorer--readonly': !level.descriptor.management }"
     :title="level.descriptor.title"
     :refresh-title="`刷新${level.descriptor.title}${level.tree ? '树' : '列表'}`"
     :search-keyword="keyword"
@@ -60,7 +69,7 @@ const emit = defineEmits<{
       />
     </template>
     <TreeRecordExplorer
-      v-if="level.tree"
+      v-if="ready !== false && level.tree"
       :context="level.context"
       :selected-id="selectedId"
       :reload-key="reloadKey"
@@ -68,6 +77,7 @@ const emit = defineEmits<{
       :external-query-values="externalQueryValues"
       search-mode="none"
       :empty-description="`暂无${level.descriptor.title}`"
+      :item-of="itemOf"
       :actions-of="actionsOf"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
@@ -75,19 +85,28 @@ const emit = defineEmits<{
       @action="(action, record) => emit('action', action, record as QueryListRecord)"
     />
     <CrudRecordListExplorer
-      v-else
+      v-else-if="ready !== false"
       :context="level.context"
       :selected-id="selectedId"
       :reload-key="reloadKey"
       :keyword="keyword"
       :external-query-values="externalQueryValues"
       :empty-description="`暂无${level.descriptor.title}`"
+      :item-of="itemOf"
       :actions-of="actionsOf"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"
       @action="(action, record) => emit('action', action, record as QueryListRecord)"
     />
+    <RecordPanelState v-else description="请先选择导航范围" />
     <template #editor><slot name="editor" /></template>
   </RecordExplorerPanel>
 </template>
+
+<style scoped>
+/* A read-only navigator is a range selector, never a record-management list. */
+.page-navigator-explorer--readonly :deep(.ui-record-explorer-item-actions) {
+  display: none;
+}
+</style>

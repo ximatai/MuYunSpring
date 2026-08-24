@@ -50,6 +50,7 @@ import type {
   ResolvedDetailRelationDescriptor,
   ResolvedFormComputeRuleDescriptor,
   ResolvedModuleUiDescriptor,
+  ResolvedPageTreeResourceDescriptor,
   ResolvedPageListRelationExpansionDescriptor,
   ResolvedViewDescriptor,
   RecordInlineAction,
@@ -59,10 +60,13 @@ import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
 import {
   createModuleContext,
   createReferenceResolveClient,
+  createStaticResourceTreeClient,
   userPreferences,
   useModuleContext,
   withHttpHeaders,
   type ModuleContext,
+  type ModuleRecordActionAvailability,
+  type ModuleTreeClient,
 } from '@muyun/web-core';
 import { canMutateModuleDetail } from './moduleDetailStateModel';
 import {
@@ -125,6 +129,10 @@ const baseContext = useModuleContext<QueryListRecord>({
 });
 const disabledStandardActions = ref<readonly string[]>([]);
 const navigatorEntryPolicy = ref<ModulePageNavigatorEnhancement>({});
+// TREE_MANAGEMENT may declare a child resource as its main tree.  Keep the
+// page module as the authorization/runtime owner and switch only the standard
+// CRUD/tree transport after the last navigator range is selected.
+const activeTreeResourceClient = ref<ModuleTreeClient<QueryListRecord>>();
 const moduleRequestPrefix = `/${props.descriptor.target.moduleAlias}`;
 const rawContext = createModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
@@ -139,22 +147,75 @@ const rawContext = createModuleContext<QueryListRecord>({
 const context: ModuleContext<QueryListRecord> = {
   ...rawContext,
   crud: {
-    ...rawContext.crud,
+    querySchema: (options) => (activeTreeResourceClient.value ?? rawContext.crud).querySchema(options),
     query(request) {
+      if (activeTreeResourceClient.value) return activeTreeResourceClient.value.query(request);
       const conditions = emptyNavigatorListScope.value ?? [];
       return rawContext.crud.query({
         ...request,
         conditions: [...(request?.conditions ?? []), ...conditions],
       });
     },
+    view: (id) => (activeTreeResourceClient.value ?? rawContext.crud).view(id),
+    insert: (record) => (activeTreeResourceClient.value ?? rawContext.crud).insert(record),
+    update: (id, record) => (activeTreeResourceClient.value ?? rawContext.crud).update(id, record),
+    delete: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).delete(id, request),
+    enable: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).enable(id, request),
+    disable: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).disable(id, request),
+  },
+  abilities: {
+    ...rawContext.abilities,
+    crud: () => activeTreeResourceClient.value ?? rawContext.crud,
+    tree: () => activeTreeResourceClient.value ?? rawContext.abilities.tree(),
+    enable: () => activeTreeResourceClient.value ?? rawContext.abilities.enable(),
+    tryCrud: () => activeTreeResourceClient.value ?? rawContext.abilities.tryCrud(),
+    tryTree: () => activeTreeResourceClient.value ?? rawContext.abilities.tryTree(),
+    tryEnable: () => activeTreeResourceClient.value ?? rawContext.abilities.tryEnable(),
   },
   can(actionCode, recordId) {
-    if (disabledStandardActions.value.includes(actionCode)) {
+    const resolvedActionCode = treeResourceActionCode(actionCode);
+    if (disabledStandardActions.value.includes(resolvedActionCode)) {
       return false;
     }
-    return rawContext.can(actionCode, recordId);
+    return rawContext.can(resolvedActionCode, recordId);
+  },
+  action: (actionCode, recordId) => rawContext.action(treeResourceActionCode(actionCode), recordId),
+  runtimeAction: (actionCode) => rawContext.runtimeAction(treeResourceActionCode(actionCode)),
+  recordActions: async (recordId) => treeResourceRecordActions(await rawContext.recordActions(recordId)),
+  ...(rawContext.recordActionsBatch
+    ? {
+        recordActionsBatch: async (recordIds: string[]) =>
+          (await rawContext.recordActionsBatch!(recordIds)).map(treeResourceRecordActions),
+      }
+    : {}),
+  recordActionsSnapshot: (recordId) => {
+    const availability = rawContext.recordActionsSnapshot(recordId);
+    return availability ? treeResourceRecordActions(availability) : undefined;
   },
 };
+
+/** Resource records inherit only their contribution's record-action decisions. */
+function treeResourceRecordActions(
+  availability: ModuleRecordActionAvailability,
+): ModuleRecordActionAvailability {
+  const resource = treeResource.value?.resource;
+  if (!resource) return availability;
+  const prefix = `${resource}_`;
+  return {
+    ...availability,
+    actions: availability.actions
+      .filter((action) => action.actionCode.startsWith(prefix))
+      .map((action) => ({ ...action, actionCode: action.actionCode.slice(prefix.length) })),
+  };
+}
+
+function treeResourceActionCode(actionCode: string) {
+  const resource = treeResource.value?.resource;
+  return resource &&
+    ['create', 'view', 'update', 'delete', 'query', 'tree', 'sort', 'enable', 'disable'].includes(actionCode)
+    ? `${resource}_${actionCode}`
+    : actionCode;
+}
 const currentUser = useCurrentUserContext();
 const modulePageNavigation = useModulePageNavigation();
 const { presentActionSuccess, runEnhancementAction } = useModulePageActions();
@@ -227,6 +288,7 @@ const {
   detailDisplayFields,
   runtimeUiDescriptor,
   runtimePage,
+  runtimePageResolved,
   treeModule,
   navigatorLevels,
   pageContextBindings,
@@ -235,6 +297,40 @@ const {
   navigatorDismissedSelectionKeys,
   loadRuntimeForm,
 } = useNavigatorRuntime(context);
+const treeResource = computed<ResolvedPageTreeResourceDescriptor | undefined>(
+  () => runtimePage.value?.treeResource,
+);
+const treeResourceScopeRecord = computed(() => {
+  const resource = treeResource.value;
+  return resource ? selectedNavigatorRecords.value[resource.scopeNavigatorKey] : undefined;
+});
+const treeResourceScopeReady = computed(() => {
+  const resource = treeResource.value;
+  if (!resource) return true;
+  const scopeRecord = treeResourceScopeRecord.value;
+  if (scopeRecord?.id == null) return false;
+  return (
+    !resource.scopeRecordField ||
+    String(scopeRecord[resource.scopeRecordField] ?? '') === resource.scopeRecordEquals
+  );
+});
+const mainTreeScopeReady = computed(() =>
+  treeResource.value ? treeResourceScopeReady.value : navigatorListScopeReady.value,
+);
+watch(
+  [treeResource, treeResourceScopeRecord, treeResourceScopeReady],
+  ([resource, scopeRecord, scopeReady]) => {
+    const scopeId = scopeRecord?.id == null ? undefined : String(scopeRecord.id);
+    activeTreeResourceClient.value =
+      resource && scopeId && scopeReady
+        ? createStaticResourceTreeClient<QueryListRecord>(
+            context.http,
+            `/${context.moduleAlias}/tree-resources/${encodeURIComponent(resource.resource)}/${encodeURIComponent(scopeId)}`,
+          )
+        : undefined;
+  },
+  { immediate: true },
+);
 const detailRelationReloadKey = ref(0);
 const {
   drawer: enhancementDrawer,
@@ -349,6 +445,18 @@ const navigatorManagementPickerConfigs = computed<Record<string, RecordFormField
       mode: 'tree',
       placeholder: '根目录留空',
       allowClear: true,
+      // The navigator source itself may be constrained by an upstream selection.
+      // Its reference-tree endpoint receives that scope in the query body, so the
+      // picker can resolve a just-selected parent back to its display title.
+      loadTree: async () => {
+        const tree = level.context.abilities.tryTree();
+        if (!tree) return [];
+        return (
+          await tree.tree({
+            externalQueryValues: navigatorExplorerQueryValues(level.descriptor.key),
+          })
+        ).records;
+      },
       constraints: parentRecordConstraints(
         navigatorManagementDetail.draft.value?.id == null
           ? undefined
@@ -516,24 +624,41 @@ const flatManagementContent = computed(() => {
         secondaryField: explorer.secondaryField,
       };
 });
-const recordLabel = computed(() =>
-  flatManagementPage.value
-    ? (flatManagementContent.value?.recordLabel ?? '记录')
-    : (runtimePage.value?.explorer?.recordLabel ?? '记录'),
+const recordLabel = computed(
+  () =>
+    runtimePage.value?.treeResource?.title ??
+    (flatManagementPage.value
+      ? (flatManagementContent.value?.recordLabel ?? '记录')
+      : (runtimePage.value?.explorer?.recordLabel ?? '记录')),
 );
 const modulePageTitle = computed(
-  () => runtimePage.value?.explorer?.title ?? props.descriptor.title ?? recordLabel.value,
+  () =>
+    runtimePage.value?.treeResource?.title ??
+    runtimePage.value?.explorer?.title ??
+    props.descriptor.title ??
+    recordLabel.value,
 );
 const listSearchPlaceholder = computed(
   () => runtimePage.value?.list?.searchPlaceholder ?? `搜索${recordLabel.value}`,
 );
 const listEmptyDescription = computed(
-  () => runtimePage.value?.explorer?.emptyDescription ?? `暂无${recordLabel.value}`,
+  () =>
+    runtimePage.value?.treeResource?.emptyDescription ??
+    runtimePage.value?.explorer?.emptyDescription ??
+    `暂无${recordLabel.value}`,
 );
 const detailEmptyDescription = computed(
   () =>
-    runtimePage.value?.detail?.emptyDescription ?? `请选择${recordLabel.value}，或新建${recordLabel.value}`,
+    runtimePage.value?.treeResource?.emptyDescription ??
+    runtimePage.value?.detail?.emptyDescription ??
+    `请选择${recordLabel.value}，或新建${recordLabel.value}`,
 );
+const mainTreeScopeDescription = computed(() => {
+  const resource = treeResource.value;
+  if (!resource || !treeResourceScopeRecord.value?.id) return '请先选择导航范围';
+  if (resource.scopeRecordField) return '当前导航范围不支持维护此资源';
+  return '请先选择导航范围';
+});
 const treeRootTitle = computed(
   () => formFields.value.get('parentId')?.treeRootTitle ?? `根${recordLabel.value}`,
 );
@@ -660,7 +785,11 @@ const standardCrudRowActionKeys = computed<StandardCrudRowActionKey[]>(() =>
   enhancementDetailDrawer.value ? ['view'] : ['view', 'edit', 'delete'],
 );
 const pageBootstrapRequired = computed(() => Boolean(props.descriptor.menuId));
-const pageReady = computed(() => !pageBootstrapRequired.value || pageBootstrap.value !== undefined);
+const pageReady = computed(
+  () =>
+    (!pageBootstrapRequired.value || pageBootstrap.value !== undefined) &&
+    (!isListPage.value || runtimePageResolved.value),
+);
 const unsupportedPageModeText = computed(() => `${pageMode.value}入口暂未接入模块页面运行器`);
 // Management templates own the workbench's available height. Their explorer
 // and detail panes scroll internally instead of leaving a content-sized panel
@@ -721,13 +850,15 @@ const navigatorListScopeReady = computed(() =>
   navigatorListCriteriaKeys.value.every((key) => navigatorListQueryValues.value?.[key] != null),
 );
 const navigatorCreateDefaults = computed<Record<string, unknown>>(() => {
-  return (
+  const defaults =
     resolvePageContextTargetValues(
       pageContextBindings.value,
       'FORM_DEFAULT',
       pageContextSourceValues.value,
-    ) ?? {}
-  );
+    ) ?? {};
+  const resource = runtimePage.value?.treeResource;
+  const scopeId = treeResourceScopeRecord.value?.id;
+  return resource && scopeId != null ? { ...defaults, [resource.scopeField]: scopeId } : defaults;
 });
 const pickerQueryValuesByField = computed<Record<string, Record<string, RouteQueryValue>>>(() => {
   const values: Record<string, Record<string, RouteQueryValue>> = {};
@@ -860,12 +991,14 @@ const treeParentPickerConfigs = computed<Record<string, RecordFormFieldPickerCon
   const hasPickerQueryScope = pickerQueryFieldNames.value.has('parentId');
   return {
     parentId: {
-      context: hasPickerQueryScope
-        ? createQueryScopedTreeModuleContext(context, {
-            queryValues: () => pickerQueryValuesByField.value.parentId,
-            treePath: `/${context.moduleAlias}/tree`,
-          })
-        : context,
+      context: treeResource.value
+        ? context
+        : hasPickerQueryScope
+          ? createQueryScopedTreeModuleContext(context, {
+              queryValues: () => pickerQueryValuesByField.value.parentId,
+              treePath: `/${context.moduleAlias}/tree`,
+            })
+          : context,
       mode: 'tree',
       placeholder: `${treeRootTitle.value}留空`,
       allowClear: true,
@@ -2522,6 +2655,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :reload-key="scopeReloadKey"
           :keyword="scopeSearchKeyword"
           :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
+          :ready="navigatorManagementScopeReady(level)"
           :create-disabled="!navigatorManagementScopeReady(level)"
           :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
           :actions-of="(record) => navigatorInlineActions(level, record)"
@@ -2577,22 +2711,22 @@ function recordTitle(record: QueryListRecord | undefined) {
         >
           <template #actions>
             <ModuleActionButton
-              v-if="navigatorListScopeReady"
+              v-if="mainTreeScopeReady"
               class="record-panel-create-button"
               :context="context"
               action-code="create"
               icon-only
-              :title="`新建${treeRootTitle}`"
+              :title="runtimePage?.treeResource?.createTitle ?? `新建${treeRootTitle}`"
               @click="createRootRecord"
             />
           </template>
           <TreeRecordExplorer
-            v-if="navigatorListScopeReady"
+            v-if="mainTreeScopeReady"
             :context="context"
             :selected-id="selectedTreeRecord?.id == null ? undefined : String(selectedTreeRecord.id)"
             :reload-key="treeReloadKey"
             :keyword="treeSearchKeyword"
-            :external-query-values="navigatorListQueryValues"
+            :external-query-values="runtimePage?.treeResource ? undefined : navigatorListQueryValues"
             search-mode="none"
             search-trigger="external"
             :empty-description="listEmptyDescription"
@@ -2600,7 +2734,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             @deselect="clearTreeRecordSelection"
             @loaded="handleTreeLoaded"
           />
-          <RecordPanelState v-else description="请先选择导航范围" />
+          <RecordPanelState v-else :description="mainTreeScopeDescription" />
         </RecordExplorerPanel>
       </ManagementExplorerColumn>
 

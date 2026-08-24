@@ -22,9 +22,20 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.servlet.HandlerMapping;
 
 import java.util.Map;
+import java.util.function.Supplier;
 
 public abstract class NestedCrudWebSupport<T extends EntityContract, S extends CrudAbility<T>>
         extends WebSupport<S> implements SystemScope<S>, RecordLabelWeb<T> {
+
+    /**
+     * {@link WebSupport} also exposes {@link ScopedWeb}; make the intended system scope explicit
+     * so Java's interface-default resolution cannot fall back to the tenant-required default.
+     */
+    @Override
+    public <R> R webScope(Supplier<R> action) {
+        return SystemScope.super.webScope(action);
+    }
+
     protected Criteria queryCriteria(WebQueryRequest request) {
         if (service() instanceof QueryAbility<?> queryAbility) {
             Criteria criteria = queryAbility.queryCriteria(WebQueryRequests.from(request));
