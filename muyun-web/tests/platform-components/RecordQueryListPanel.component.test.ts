@@ -139,7 +139,7 @@ describe('RecordQueryListPanel', () => {
     expect(search.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(control.compareDocumentPosition(advanced) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 
-    wrapper.findComponent({ name: 'UiSwitch' }).vm.$emit('change', true);
+    wrapper.findComponent({ name: 'UiCheckbox' }).vm.$emit('change', true);
     await vi.waitFor(() => expect(requests).toHaveLength(2));
     expect(requests.at(-1)?.externalQueryValues).toEqual({ onlineOnly: true });
   });

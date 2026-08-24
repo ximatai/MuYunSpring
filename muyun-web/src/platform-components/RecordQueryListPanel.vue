@@ -3,6 +3,7 @@ import { computed, onMounted, ref, type Component, watch } from 'vue';
 import {
   confirmAction,
   UiButton,
+  UiCheckbox,
   UiDataTable,
   UiDropdown,
   UiEmpty,
@@ -10,7 +11,6 @@ import {
   UiSearchInput,
   UiSelect,
   UiSpin,
-  UiSwitch,
 } from '@muyun/vue-ui-antdv';
 import type {
   UiDataTableColumn,
@@ -1179,61 +1179,63 @@ defineExpose({ clearSelection, refresh });
         <span>{{ title }}</span>
       </UiButton>
       <div class="record-query-list-actions">
-        <UiButton
-          v-if="!showTitle"
-          type="text"
-          icon-name="reload"
-          :disabled="queryActionsDisabled"
-          :aria-label="refreshTitle ?? `刷新${title}`"
-          :title="refreshTitle ?? `刷新${title}`"
-          @click="refresh"
-        />
-        <RecordActionBar
-          v-if="panelActions.length > 0"
-          :context="context"
-          :actions="panelActions"
-          @action="handleAction"
-        />
-        <RecordActionBar
-          v-if="batchActionItems.length > 0"
-          :context="context"
-          :actions="batchActionItems"
-          size="compact"
-          @action="(action, event) => handleBatchAction(action, event)"
-        />
-        <slot name="toolbarActions" :refresh="refresh" />
-        <UiSearchInput
-          v-if="queryable"
-          :value="quickSearchKeyword"
-          class="record-query-list-search"
-          :disabled="quickSearchDisabled"
-          :placeholder="quickSearchPlaceholder"
-          @update:value="handleQuickSearchInput"
-          @search="submitQuickSearch"
-        />
-        <span
-          v-for="control in persistentQueryControls"
-          :key="control.externalCriteriaKey"
-          class="record-query-list-persistent-query-control"
-        >
-          <span>{{ control.title }}</span>
-          <UiSwitch
+        <div class="record-query-list-operation-actions">
+          <UiButton
+            v-if="!showTitle"
+            type="text"
+            icon-name="reload"
+            :disabled="queryActionsDisabled"
+            :aria-label="refreshTitle ?? `刷新${title}`"
+            :title="refreshTitle ?? `刷新${title}`"
+            @click="refresh"
+          />
+          <RecordActionBar
+            v-if="panelActions.length > 0"
+            :context="context"
+            :actions="panelActions"
+            @action="handleAction"
+          />
+          <RecordActionBar
+            v-if="batchActionItems.length > 0"
+            :context="context"
+            :actions="batchActionItems"
+            size="compact"
+            @action="(action, event) => handleBatchAction(action, event)"
+          />
+          <slot name="toolbarActions" :refresh="refresh" />
+        </div>
+        <div class="record-query-list-query-actions">
+          <UiSearchInput
+            v-if="queryable"
+            :value="quickSearchKeyword"
+            class="record-query-list-search"
+            :disabled="quickSearchDisabled"
+            :placeholder="quickSearchPlaceholder"
+            @update:value="handleQuickSearchInput"
+            @search="submitQuickSearch"
+          />
+          <UiCheckbox
+            v-for="control in persistentQueryControls"
+            :key="control.externalCriteriaKey"
+            class="record-query-list-persistent-query-control"
             :checked="persistentQueryValue(control)"
             :disabled="queryActionsDisabled"
             @change="updatePersistentQueryValue(control, $event)"
-          />
-        </span>
-        <UiButton
-          v-if="queryable"
-          class="record-query-list-advanced"
-          :class="{ 'is-selected': conditionsExpanded }"
-          type="text"
-          icon-name="filter"
-          :disabled="conditionsDisabled"
-          @click="toggleConditions"
-        >
-          高级<span v-if="conditionCount"> {{ conditionCount }}</span>
-        </UiButton>
+          >
+            {{ control.title }}
+          </UiCheckbox>
+          <UiButton
+            v-if="queryable"
+            class="record-query-list-advanced"
+            :class="{ 'is-selected': conditionsExpanded }"
+            type="text"
+            icon-name="filter"
+            :disabled="conditionsDisabled"
+            @click="toggleConditions"
+          >
+            高级<span v-if="conditionCount"> {{ conditionCount }}</span>
+          </UiButton>
+        </div>
       </div>
     </header>
 
@@ -1560,6 +1562,8 @@ defineExpose({ clearSelection, refresh });
 }
 
 .record-query-list-actions,
+.record-query-list-operation-actions,
+.record-query-list-query-actions,
 .record-query-condition-actions,
 .record-query-list-pagination,
 .record-query-list-pagination-controls {
@@ -1572,20 +1576,31 @@ defineExpose({ clearSelection, refresh });
 .record-query-list-actions {
   flex: 1 1 auto;
   justify-content: flex-end;
+  gap: 12px;
+}
+
+.record-query-list-operation-actions {
+  flex: 0 0 auto;
+}
+
+.record-query-list-query-actions {
+  flex: 1 1 auto;
+  justify-content: flex-end;
   flex-wrap: wrap;
 }
 
 .record-query-list-search {
+  flex: 0 1 clamp(150px, 20vw, 220px);
   width: clamp(150px, 20vw, 220px);
 }
 
-.record-query-list-persistent-query-control {
+:deep(.record-query-list-persistent-query-control.ant-checkbox-wrapper) {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   min-height: 32px;
-  color: var(--muyun-text-secondary);
-  font-size: 14px;
+  margin-inline-end: 0;
+  color: var(--muyun-text-muted);
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -1736,18 +1751,38 @@ defineExpose({ clearSelection, refresh });
 }
 
 @media (max-width: 900px) {
-  .record-query-list-header,
-  .record-query-list-actions,
-  .record-query-list-pagination,
-  .record-query-list-pagination-controls {
-    display: grid;
-    grid-template-columns: 1fr;
-    justify-items: stretch;
+  .record-query-list-header {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .record-query-list-search,
-  .record-query-list-page-size {
+  .record-query-list-title {
+    align-self: flex-start;
+  }
+
+  .record-query-list-actions {
     width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .record-query-list-query-actions {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .record-query-list-search {
+    flex: 1 1 220px;
+    width: auto;
+  }
+
+  .record-query-list-pagination,
+  .record-query-list-pagination-controls {
+    flex-wrap: wrap;
+  }
+
+  .record-query-list-pagination-controls {
+    margin-left: auto;
   }
 
   .record-query-condition-row {
