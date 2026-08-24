@@ -2973,6 +2973,7 @@ function recordTitle(record: QueryListRecord | undefined) {
 
 <style scoped>
 .module-workspace {
+  position: relative;
   min-width: 0;
   min-height: calc(100vh - 116px);
 }

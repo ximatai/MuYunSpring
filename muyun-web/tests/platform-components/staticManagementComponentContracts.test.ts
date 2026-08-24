@@ -1195,7 +1195,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(navigatorRuntimeSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
   assert.match(hostSource, /:explorer-count="visibleNavigatorLevels\.length"/);
   assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);
-  assert.match(hostSource, /listDetailWorkspaceMinWidth\(navigatorLevels\.value\.length\)/);
+  assert.match(hostSource, /listDetailWorkspaceMinWidth\(visibleNavigatorLevels\.value\.length\)/);
   assert.match(hostSource, /new ResizeObserver\(\(\) => updateDetailSurfaceForWorkspaceWidth\(\)\)/);
   assert.match(hostSource, /workspaceWidth < listDetailMinimumWidth\.value/);
   assert.equal(/max-width: 719px/.test(hostSource), false);

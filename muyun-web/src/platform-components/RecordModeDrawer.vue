@@ -82,6 +82,7 @@ defineSlots<{
 
 const emit = defineEmits<{
   close: [];
+  afterClose: [];
   retry: [];
   reloadExternalChange: [];
   dismissExternalChange: [];
@@ -106,6 +107,7 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
     :close-title="closeTitle"
     :promotion="promotion"
     @close="emit('close')"
+    @after-close="emit('afterClose')"
   >
     <template v-if="$slots['title-prefix']" #title-prefix>
       <slot name="title-prefix" />

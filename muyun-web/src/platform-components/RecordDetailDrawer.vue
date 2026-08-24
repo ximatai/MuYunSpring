@@ -43,7 +43,7 @@ defineSlots<{
 
 const emit = defineEmits<{
   close: [];
-  /** A portal drawer must remain mounted until its closing transition releases its DOM nodes. */
+  /** The drawer transition has finished and its slot content may be released. */
   afterClose: [];
 }>();
 
@@ -75,6 +75,7 @@ watch(
     :scope="scope"
     :close-on-outside="closeOnOutside"
     @close="emit('close')"
+    @after-close="emit('afterClose')"
   >
     <RecordDetailLayout surface="drawer" :title="title" :subtitle="subtitle" scrollable-content>
       <template v-if="$slots['title-prefix']" #title-prefix>

@@ -102,5 +102,14 @@ export function useModulePageDetailExtensionRuntime(options: Options) {
     if (!drawerOpen.value) drawer.value = undefined;
   }
 
-  return { drawer, drawerOpen, refreshDetailExtensions, sectionContext, recordViewContext, openDrawer, closeDrawer, disposeDrawer };
+  return {
+    drawer,
+    drawerOpen,
+    refreshDetailExtensions,
+    sectionContext,
+    recordViewContext,
+    openDrawer,
+    closeDrawer,
+    disposeDrawer,
+  };
 }

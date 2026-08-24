@@ -44,9 +44,11 @@ const fields = ref(resolveRecordFormFields(undefined));
 const workspaceElement = ref<HTMLElement>();
 const {
   drawer: enhancementDrawer,
+  drawerOpen: enhancementDrawerOpen,
   sectionContext,
   openDrawer: openEnhancementDrawer,
   closeDrawer: closeEnhancementDrawer,
+  disposeDrawer: disposeEnhancementDrawer,
 } = useModulePageDetailExtensionRuntime({
   module: context,
   scope: () => undefined,
@@ -347,12 +349,13 @@ async function toggleEnabled() {
     </RecordDetailPanel>
     <RecordModeDrawer
       v-if="enhancementDrawer"
-      :open="true"
+      :open="enhancementDrawerOpen"
       :title="enhancementDrawer.definition.title"
       :width="enhancementDrawer.definition.width"
       :container="workspaceElement ?? null"
       mode="view"
       @close="closeEnhancementDrawer"
+      @after-close="disposeEnhancementDrawer"
     >
       <template v-if="enhancementDrawer.titleActions.length" #title-actions>
         <DrawerTitleActions :actions="enhancementDrawer.titleActions" />
@@ -364,6 +367,7 @@ async function toggleEnabled() {
 
 <style scoped>
 .dynamic-module-workspace-detail {
+  position: relative;
   min-height: 100%;
 }
 

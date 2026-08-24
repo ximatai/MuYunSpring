@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { useModulePageDetailExtensionRuntime } from '@/dynamic-page-runtime/composables/useModulePageDetailExtensionRuntime.ts';
 
 describe('module page detail extension runtime', () => {
-  it('keeps the platform drawer mounted while a contributed operation blocks dismissal', () => {
+  it('keeps drawer content mounted until its closing transition completes', () => {
     const runtime = useModulePageDetailExtensionRuntime({
       module: {} as never,
       scope: () => undefined,
@@ -20,6 +20,10 @@ describe('module page detail extension runtime', () => {
 
     runtime.drawer.value!.context.setCloseBlocked(false);
     runtime.closeDrawer();
+    expect(runtime.drawerOpen.value).toBe(false);
+    expect(runtime.drawer.value).toBeDefined();
+
+    runtime.disposeDrawer();
     expect(runtime.drawer.value).toBeUndefined();
   });
 
@@ -31,6 +35,9 @@ describe('module page detail extension runtime', () => {
 
     expect(source).toMatch(/useModulePageDetailExtensionRuntime/);
     expect(source).toMatch(/@close="closeEnhancementDrawer"/);
+    expect(source).toMatch(/drawerOpen: enhancementDrawerOpen/);
+    expect(source).toMatch(/:open="enhancementDrawerOpen"/);
+    expect(source).toMatch(/@after-close="disposeEnhancementDrawer"/);
     expect(source).toMatch(/:context="sectionContext\(record\)"/);
     expect(source).toMatch(/<RecordDetailFields[\s\S]*:file-transfer-context="context"/);
   });

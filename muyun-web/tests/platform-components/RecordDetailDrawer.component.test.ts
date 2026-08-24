@@ -7,7 +7,7 @@ describe('RecordDetailDrawer', () => {
     vi.restoreAllMocks();
   });
 
-  it('mounts Ant Design Drawer into the root DOM supplied by its owning page', () => {
+  it('keeps a workspace drawer inline under the root supplied by its owning page', () => {
     const container = document.createElement('section');
     document.body.append(container);
     const wrapper = mount(RecordDetailDrawer, {
@@ -23,9 +23,51 @@ describe('RecordDetailDrawer', () => {
       },
     });
 
-    expect(wrapper.findComponent({ name: 'ADrawer' }).props('getContainer')).toBe(container);
+    expect(wrapper.findComponent({ name: 'ADrawer' }).props('getContainer')).toBe(false);
     wrapper.unmount();
     container.remove();
+  });
+
+  it('forwards transition completion from its inline workspace drawer', async () => {
+    const container = document.createElement('section');
+    document.body.append(container);
+    const wrapper = mount(RecordDetailDrawer, {
+      props: { open: true, title: '职员详情', container },
+      global: {
+        stubs: {
+          ADrawer: {
+            name: 'ADrawer',
+            emits: ['afterOpenChange'],
+            template: '<section><slot /></section>',
+          },
+        },
+      },
+    });
+
+    wrapper.findComponent({ name: 'ADrawer' }).vm.$emit('afterOpenChange', false);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('afterClose')).toHaveLength(1);
+    wrapper.unmount();
+    container.remove();
+  });
+
+  it('forwards transition completion from the side-panel workspace drawer', async () => {
+    const wrapper = mount(RecordDetailDrawer, {
+      props: { open: true, title: '职员详情', scope: 'viewport' },
+      global: {
+        stubs: {
+          UiSidePanel: {
+            name: 'UiSidePanel',
+            emits: ['afterClose'],
+            template: '<section><slot /></section>',
+          },
+        },
+      },
+    });
+
+    wrapper.findComponent({ name: 'UiSidePanel' }).vm.$emit('afterClose');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('afterClose')).toHaveLength(1);
   });
 
   it('does not create a drawer without its owning page root', () => {
