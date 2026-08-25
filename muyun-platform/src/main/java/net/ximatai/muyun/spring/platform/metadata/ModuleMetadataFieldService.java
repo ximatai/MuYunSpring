@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldMeasureUnitConversionMode;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldMeasureUnitMode;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldMoneyMode;
@@ -354,7 +355,7 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
         } else if (hasReferenceDependentConfig(moduleField)) {
             throw new PlatformException("reference module config requires referenceModuleAlias");
         }
-        moduleField.setReferenceModulePlusFields(normalizeFieldNameSet(
+        moduleField.setReferenceModulePlusFields(normalizeReferenceSelectionProjectionSet(
                 moduleField.getReferenceModulePlusFields(), "referenceModulePlusFields"));
     }
 
@@ -764,6 +765,25 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
         LinkedHashSet<String> normalized = new LinkedHashSet<>();
         for (String field : fields) {
             normalized.add(PlatformNameRules.requireFieldName(field, label));
+        }
+        return normalized;
+    }
+
+    /**
+     * Reference plus fields are client-safe selection projections, not necessarily direct target fields.
+     * Store their canonical relative path while runtime compilation validates each declared reference hop.
+     */
+    private Set<String> normalizeReferenceSelectionProjectionSet(Set<String> fields, String label) {
+        if (fields == null || fields.isEmpty()) {
+            return fields;
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String field : fields) {
+            try {
+                normalized.add(new ReferenceSelectionProjection(field).key());
+            } catch (IllegalArgumentException exception) {
+                throw new PlatformException(label + " must be a relative reference field path: " + field, exception);
+            }
         }
         return normalized;
     }

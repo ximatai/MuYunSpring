@@ -1151,6 +1151,17 @@ class DynamicRecordWebControllerTest {
                         .content("""
                                 {
                                   "navigatorHostModuleAlias": "mr.device",
+                                  "navigatorTargetLevelKey": "project"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
+                .andExpect(jsonPath("$.message").value("Page navigator scope is required: tenant"));
+
+        plannedMvc.perform(post("/{moduleAlias}/navigator/reference/query", MODULE).contentType("application/json")
+                        .content("""
+                                {
+                                  "navigatorHostModuleAlias": "mr.device",
                                   "navigatorTargetLevelKey": "project",
                                   "externalQueryValues": {"tenantId": "tenant_a", "ignoredTenantId": "forged"}
                                 }
@@ -1593,7 +1604,9 @@ class DynamicRecordWebControllerTest {
 
         plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
                         .content("{\"uiConfigId\":\"ui-list\"}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
+                .andExpect(jsonPath("$.message").value("Page navigator scope is required: tenant"));
         plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
                         .content("{\"uiConfigId\":\"ui-list\",\"externalQueryValues\":{\"tenantId\":\"tenant_a\"}}"))
                 .andExpect(status().isOk());
@@ -1602,10 +1615,9 @@ class DynamicRecordWebControllerTest {
                 .andExpect(status().isOk());
 
         ArgumentCaptor<Criteria> criteria = ArgumentCaptor.forClass(Criteria.class);
-        verify(mainEntity, times(3)).pageQuery(criteria.capture(), any(PageRequest.class), any(Sort[].class));
-        assertThat(criteria.getAllValues().getFirst().getRoot().getEntries()).isEmpty();
-        assertThat(criteria.getAllValues().get(1).getRoot().getEntries()).hasSize(1);
-        assertThat(criteria.getAllValues().get(2).getRoot().getEntries()).hasSize(2);
+        verify(mainEntity, times(2)).pageQuery(criteria.capture(), any(PageRequest.class), any(Sort[].class));
+        assertThat(criteria.getAllValues().getFirst().getRoot().getEntries()).hasSize(1);
+        assertThat(criteria.getAllValues().get(1).getRoot().getEntries()).hasSize(2);
         verifyNoInteractions(snapshotService);
     }
 

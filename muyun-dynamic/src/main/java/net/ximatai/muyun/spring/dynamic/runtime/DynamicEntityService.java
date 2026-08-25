@@ -835,13 +835,41 @@ public class DynamicEntityService implements
         return referenceServiceResolver.apply(target);
     }
 
+    /** Supplies dynamic plans first and falls back to the platform's static/dynamic target registry. */
+    net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver referenceTargetResolver() {
+        return new net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver() {
+            @Override
+            public java.util.Optional<net.ximatai.muyun.spring.ability.reference.ReferenceAbility<?>> resolve(
+                    ReferenceTarget target) {
+                try {
+                    return java.util.Optional.of(referenceAbility(target));
+                } catch (RuntimeException ignored) {
+                    return net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver().resolve(target);
+                }
+            }
+
+            @Override
+            public java.util.Optional<ReferencePlan> referencePlan(ReferenceTarget sourceTarget, String sourceField) {
+                try {
+                    return java.util.Optional.of(referenceService(sourceTarget).referencePlan(sourceField));
+                } catch (RuntimeException ignored) {
+                    return net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver()
+                            .referencePlan(sourceTarget, sourceField);
+                }
+            }
+        };
+    }
+
     private net.ximatai.muyun.spring.ability.reference.ReferenceAbility<?> referenceAbility(ReferenceTarget target) {
+        java.util.Optional<net.ximatai.muyun.spring.ability.reference.ReferenceAbility<?>> registered =
+                net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver().resolve(target);
+        if (registered.isPresent()) {
+            return registered.get();
+        }
         try {
             return referenceService(target).referenceAbility();
         } catch (RuntimeException dynamicResolutionFailure) {
-            return net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver()
-                    .resolve(target)
-                    .orElseThrow(() -> dynamicResolutionFailure);
+            throw dynamicResolutionFailure;
         }
     }
 

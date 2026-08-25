@@ -63,13 +63,8 @@ public class CompiledNavigatorReferenceQueryContextResolver implements Navigator
 
     private Criteria navigatorCriteria(String sourceModuleAlias, WebQueryRequest request) {
         if (request == null || !hasNavigatorReferenceContext(request)) return Criteria.of();
-        Criteria criteria = Criteria.of();
-        for (PageContextBindingDefinition binding : navigatorBindings(sourceModuleAlias, request)) {
-            Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->
-                    request.externalQueryValues().get(binding.targetKey()));
-            if (selectedValue != null) criteria.eq(binding.targetKey(), selectedValue);
-        }
-        return criteria;
+        return PageContextScopePolicy.criteria(navigatorBindings(sourceModuleAlias, request),
+                request.externalQueryValues(), true);
     }
 
     private List<PageContextBindingDefinition> navigatorBindings(String sourceModuleAlias, WebQueryRequest request) {

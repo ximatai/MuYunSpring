@@ -160,14 +160,15 @@ final class CrudWebRuntimeSupport {
     }
 
     static Criteria navigatorCriteria(CrudWeb<?, ?> controller, WebQueryRequest request) {
-        Criteria criteria = Criteria.of();
         String uiConfigId = request == null ? null : request.uiConfigId();
-        for (PageContextBindingDefinition binding : pageContextBindings(controller, uiConfigId, PageContextTarget.LIST_QUERY)) {
-            Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->
-                    request == null || request.externalQueryValues() == null ? null : request.externalQueryValues().get(binding.targetKey()));
-            if (selectedValue != null) criteria.eq(binding.targetKey(), selectedValue);
-        }
-        return criteria;
+        return PageContextScopePolicy.criteria(
+                pageContextBindings(controller, uiConfigId, PageContextTarget.LIST_QUERY),
+                request == null ? Map.of() : request.externalQueryValues(), false);
+    }
+
+    static List<PageContextBindingDefinition> recordScopeBindings(CrudWeb<?, ?> controller) {
+        return PageContextScopePolicy.recordScopeBindings(
+                pageContextBindings(controller, null, PageContextTarget.LIST_QUERY));
     }
 
     private static WebQueryRequest withoutNavigatorExternalValues(CrudWeb<?, ?> controller, WebQueryRequest request) {

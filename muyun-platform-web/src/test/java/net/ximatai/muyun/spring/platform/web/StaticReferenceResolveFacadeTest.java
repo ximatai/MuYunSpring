@@ -180,6 +180,59 @@ class StaticReferenceResolveFacadeTest {
     }
 
     @Test
+    void shouldResolveStaticSourceToDynamicMultiHopSelectionProjectionThroughTheUnifiedTargetResolver() {
+        @SuppressWarnings("unchecked") CrudAbility<MultiHopSelectionOrder> source = mock(CrudAbility.class);
+        doReturn(MultiHopSelectionOrder.class).when(source).modelClass();
+        doReturn("sales.multi_hop_selection_order").when(source).getModuleAlias();
+        DynamicRecordService dynamicRecords = mock(DynamicRecordService.class);
+        when(dynamicRecords.referenceOptions(eq("crm"), eq("customer"), any(), any(PageRequest.class)))
+                .thenReturn(PageResult.of(List.of(new ReferenceOption("customer-1", "星云科技")), 1,
+                        PageRequest.of(1, 20)));
+        @SuppressWarnings("unchecked") ReferenceAbility<?> customer = mock(ReferenceAbility.class);
+        when(customer.projections(List.of("customer-1"), List.of("organizationId")))
+                .thenReturn(Map.of("customer-1", Map.of("organizationId", "organization-1")));
+        @SuppressWarnings("unchecked") ReferenceAbility<?> organization = mock(ReferenceAbility.class);
+        when(organization.projections(List.of("organization-1"), List.of("regionCode")))
+                .thenReturn(Map.of("organization-1", Map.of("regionCode", "CN-31")));
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureReferenceTargetResolver(
+                new net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver() {
+                    @Override
+                    public java.util.Optional<ReferenceAbility<?>> resolve(net.ximatai.muyun.spring.ability.reference.ReferenceTarget target) {
+                        return switch (target.qualifiedName()) {
+                            case "crm.customer" -> java.util.Optional.of(customer);
+                            case "crm.organization" -> java.util.Optional.of(organization);
+                            default -> java.util.Optional.empty();
+                        };
+                    }
+
+                    @Override
+                    public java.util.Optional<net.ximatai.muyun.spring.ability.reference.ReferencePlan> referencePlan(
+                            net.ximatai.muyun.spring.ability.reference.ReferenceTarget target, String sourceField) {
+                        return "crm.customer".equals(target.qualifiedName()) && "organizationId".equals(sourceField)
+                                ? java.util.Optional.of(net.ximatai.muyun.spring.ability.reference.ReferencePlan.of(
+                                        "organizationId", net.ximatai.muyun.spring.ability.reference.ReferenceTarget.of("crm", "organization"),
+                                        net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE))
+                                : java.util.Optional.empty();
+                    }
+                });
+        try {
+            StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.multi_hop_selection_order", "订单")
+                    .modelClass(MultiHopSelectionOrder.class).build();
+            StaticReferenceResolveFacade facade = new StaticReferenceResolveFacade(
+                    new StaticModuleDefinitionCatalog(List.of(definition)), new StaticAbilityCatalog(List.of(source)), dynamicRecords);
+
+            var response = facade.resolve("sales.multi_hop_selection_order", "customerId", new WebReferenceResolveRequest(
+                    WebReferenceResolveMode.QUERY, null, null, List.of(), List.of(), null,
+                    new net.ximatai.muyun.spring.web.WebPageRequest(1, 20), true, null, null, null, null, null));
+
+            assertThat(response.options()).singleElement().satisfies(item ->
+                    assertThat(item.projections()).containsEntry("organizationId.regionCode", "CN-31"));
+        } finally {
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetReferenceTargetResolver();
+        }
+    }
+
+    @Test
     void shouldResolveCandidatesInTheEditedRecordTenantEvenForASystemOperator() {
         @SuppressWarnings("unchecked") CrudAbility<Order> source = mock(CrudAbility.class);
         doReturn(Order.class).when(source).modelClass();

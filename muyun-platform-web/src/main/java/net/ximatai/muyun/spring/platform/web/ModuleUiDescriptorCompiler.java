@@ -96,6 +96,7 @@ public final class ModuleUiDescriptorCompiler {
                 staticReferenceSummaryFields(definition.modelClass());
         Map<ViewFieldRef, FieldValueType> fieldTypes = new LinkedHashMap<>(fieldTypes(definition.entities()));
         writeOnlyInputs.forEach((fieldName, fieldType) -> fieldTypes.put(ViewFieldRef.main(fieldName), fieldType));
+        validateTreeResourceMainEntity(uiDefinition.page(), definition.entities());
         ResolvedModuleUiDescriptor descriptor = compileResolved(uiDefinition, ModuleKind.STATIC, definition.title(),
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
                         staticRecordLabelField(definition), Map.copyOf(fieldTypes), FieldControlDescriptorCatalog.standard(),
@@ -532,6 +533,15 @@ public final class ModuleUiDescriptorCompiler {
         if (resource == null) return;
         if (navigator == null || navigator.levels().stream().noneMatch(level -> level.key().equals(resource.scopeNavigatorKey()))) {
             throw new IllegalArgumentException("tree resource scope navigator is not declared: " + resource.scopeNavigatorKey());
+        }
+    }
+
+    private static void validateTreeResourceMainEntity(ModulePageDefinition page, List<EntityDefinition> entities) {
+        if (!(page instanceof TreeManagementPageDefinition tree) || tree.treeResource() == null) return;
+        PageTreeResourceDefinition resource = tree.treeResource();
+        if (entities != null && !entities.isEmpty() && resource.resource().equals(entities.getFirst().alias())) {
+            throw new IllegalArgumentException("tree resource must be a contributed resource, not the page main entity: "
+                    + resource.resource());
         }
     }
 

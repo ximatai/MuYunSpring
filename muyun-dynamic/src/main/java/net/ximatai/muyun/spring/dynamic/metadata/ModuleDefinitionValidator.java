@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.dynamic.metadata;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
+import net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
@@ -61,7 +62,7 @@ public class ModuleDefinitionValidator {
         }
         validateFormulaRuleTargets(module, entities);
         for (EntityReferenceDefinition reference : module.references()) {
-            validateReference(reference, entities, module.moduleAlias());
+            validateReference(reference, entities, module.moduleAlias(), module.references());
         }
         for (EntityReferenceLoadDefinition load : module.referenceLoads()) {
             validateReferenceLoad(load, entities, module.moduleAlias(), module.references());
@@ -962,6 +963,13 @@ public class ModuleDefinitionValidator {
     }
 
     public void validateReference(EntityReferenceDefinition reference, Map<String, EntityDefinition> entities, String moduleAlias) {
+        validateReference(reference, entities, moduleAlias, List.of());
+    }
+
+    private void validateReference(EntityReferenceDefinition reference,
+                                   Map<String, EntityDefinition> entities,
+                                   String moduleAlias,
+                                   List<EntityReferenceDefinition> references) {
         if (reference == null) {
             throw new ModuleDefinitionException("reference must not be null");
         }
@@ -984,6 +992,7 @@ public class ModuleDefinitionValidator {
         EntityDefinition targetEntity = moduleAlias != null && moduleAlias.equals(target.moduleAlias())
                 ? requireEntity(entities, target.entityAlias(), "reference target entity")
                 : null;
+        validateSelectionProjections(plan, target, entities, moduleAlias, references);
         if (!reference.projections().isEmpty()) {
             if (targetEntity != null) {
                 requireReferenceTargetCapability(targetEntity, target);
@@ -1000,6 +1009,52 @@ public class ModuleDefinitionValidator {
         }
         validateReferenceInteractionRules(reference, source, target, entities, moduleAlias);
     }
+
+    /**
+     * A selection projection is a relative path from the selected reference target.  For
+     * in-module dynamic targets every hop is known at publish time, so reject invalid fields
+     * and collection hops before the runtime can attempt a read.
+     */
+    private void validateSelectionProjections(ReferencePlan plan,
+                                              ReferenceTarget target,
+                                              Map<String, EntityDefinition> entities,
+                                              String moduleAlias,
+                                              List<EntityReferenceDefinition> references) {
+        if (plan.selectionProjections().isEmpty()) {
+            return;
+        }
+        if (plan.cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
+            throw new ModuleDefinitionException("reference selection projection requires cardinality ONE: "
+                    + plan.sourceField());
+        }
+        for (ReferenceSelectionProjection projection : plan.selectionProjections()) {
+            ReferenceTarget current = target;
+            List<String> path = projection.path();
+            for (String viaField : path.subList(0, path.size() - 1)) {
+                if (moduleAlias == null || !moduleAlias.equals(current.moduleAlias())) {
+                    // A foreign module owns this metadata. Its own publish validator and the
+                    // runtime resolver validate the remaining declared hop.
+                    break;
+                }
+                EntityDefinition currentEntity = requireEntity(entities, current.entityAlias(),
+                        "reference selection projection hop source entity");
+                requireField(currentEntity, viaField, "reference selection projection hop");
+                EntityReferenceDefinition hop = requireReference(references, currentEntity.alias(), viaField);
+                if (hop.cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
+                    throw new ModuleDefinitionException("reference selection projection hop requires cardinality ONE: "
+                            + current.qualifiedName() + "." + viaField);
+                }
+                current = hop.target();
+            }
+            if (moduleAlias != null && moduleAlias.equals(current.moduleAlias())) {
+                EntityDefinition terminalEntity = requireEntity(entities, current.entityAlias(),
+                        "reference selection projection terminal entity");
+                requireReferenceTargetCapability(terminalEntity, current);
+                requireField(terminalEntity, projection.targetField(), "reference selection projection terminal field");
+            }
+        }
+    }
+
 
     private void validateReferenceLoad(EntityReferenceLoadDefinition load,
                                        Map<String, EntityDefinition> entities,

@@ -93,6 +93,33 @@ it('adds a fixed page context header without allowing a request to replace it', 
   ]);
 });
 
+it('resolves page context headers for each request', async () => {
+  const requests: Array<{ path: string; headers?: Record<string, string> }> = [];
+  const base: HttpClient = {
+    async request(options) {
+      requests.push(options);
+      return undefined as never;
+    },
+  };
+  let context = '{"scheme":"scheme-a"}';
+  const client = withHttpHeaders(base, () => ({ 'X-MuYun-Page-Context': context }));
+
+  await client.request({ path: '/platform.menu/view/menu-a' });
+  context = '{"scheme":"scheme-b"}';
+  await client.request({ path: '/platform.menu/remove/menu-b' });
+
+  assert.deepEqual(requests, [
+    {
+      path: '/platform.menu/view/menu-a',
+      headers: { 'X-MuYun-Page-Context': '{"scheme":"scheme-a"}' },
+    },
+    {
+      path: '/platform.menu/remove/menu-b',
+      headers: { 'X-MuYun-Page-Context': '{"scheme":"scheme-b"}' },
+    },
+  ]);
+});
+
 it('limits page context headers to the owning module requests', async () => {
   const requests: Array<{ path: string; headers?: Record<string, string> }> = [];
   const base: HttpClient = {

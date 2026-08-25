@@ -20,7 +20,7 @@ import net.ximatai.muyun.spring.web.ActionWeb;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.platform.web.RecycleBinPurgeWeb;
 import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
-import net.ximatai.muyun.spring.platform.web.PageContextServerValueResolver;
+import net.ximatai.muyun.spring.platform.web.PageContextScopePolicy;
 import net.ximatai.muyun.spring.platform.web.PageContextSource;
 import net.ximatai.muyun.spring.platform.web.PageContextTarget;
 import net.ximatai.muyun.spring.platform.web.NavigatorListQueryMode;
@@ -491,13 +491,8 @@ public class DynamicRecordWebController implements
         }
         Criteria sourceCriteria = referenceSourceCriteria(moduleAlias, request);
         if (!hasHost) return sourceCriteria;
-        Criteria criteria = Criteria.of();
-        for (PageContextBindingDefinition binding : navigatorReferenceBindings(moduleAlias, request)) {
-            Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->
-                    request.externalQueryValues() == null ? null : request.externalQueryValues().get(binding.targetKey()));
-            if (selectedValue != null) criteria.eq(binding.targetKey(), selectedValue);
-        }
-        return andCriteria(sourceCriteria, criteria);
+        return andCriteria(sourceCriteria, PageContextScopePolicy.criteria(
+                navigatorReferenceBindings(moduleAlias, request), request.externalQueryValues(), true));
     }
 
     /** Reference sources retain ordinary query controls but never inherit their own LIST_QUERY bindings. */
@@ -563,17 +558,16 @@ public class DynamicRecordWebController implements
     }
 
     private Criteria navigatorCriteria(String moduleAlias, WebQueryRequest request, PageContextTarget target) {
-        Criteria criteria = Criteria.of();
-        for (PageContextBindingDefinition binding : navigatorQueryBindings(moduleAlias,
-                request == null ? null : request.uiConfigId(), target)) {
-            Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->
-                    request == null || request.externalQueryValues() == null ? null
-                            : request.externalQueryValues().get(binding.targetKey()));
-            if (selectedValue != null) {
-                criteria.eq(binding.targetKey(), selectedValue);
-            }
-        }
-        return criteria;
+        return PageContextScopePolicy.criteria(navigatorQueryBindings(moduleAlias,
+                        request == null ? null : request.uiConfigId(), target),
+                request == null ? Map.of() : request.externalQueryValues(), false);
+    }
+
+    @Override
+    public List<PageContextBindingDefinition> recordScopeBindings() {
+        if (executionPlanCatalog == null) return List.of();
+        return PageContextScopePolicy.recordScopeBindings(
+                requireExecutionPlan(DynamicWebRequest.moduleAlias()).pageContextBindings());
     }
 
     private List<PageContextBindingDefinition> navigatorQueryBindings(String moduleAlias, String uiConfigId,
@@ -854,6 +848,7 @@ public class DynamicRecordWebController implements
     @Transactional
     public DynamicRecord insert(@RequestBody DynamicRecord normalized) {
         return webScope(() -> {
+            applyRecordScopeForCreate(normalized);
             validateWritableSaveFields(normalized, "");
             validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
             String id = service().insert(normalized);
@@ -870,6 +865,8 @@ public class DynamicRecordWebController implements
                                 @RequestBody DynamicRecord normalized) {
         return webScope(() -> {
             normalized.setId(id);
+            requireRecordScope(selectForAction(PlatformAction.UPDATE, id));
+            applyRecordScopeForCreate(normalized);
             validateWritableSaveFields(normalized, "");
             validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
             requireDataScopeRecord(PlatformAction.UPDATE, id);
@@ -1014,6 +1011,17 @@ public class DynamicRecordWebController implements
             return selectFromDataScope(dataScopeAbility, action, id);
         }
         return service().select(id);
+    }
+
+    private void applyRecordScopeForCreate(DynamicRecord record) {
+        PageContextScopePolicy.requiredRecordScopeValues(recordScopeBindings())
+                .forEach(record::setValue);
+    }
+
+    private void requireRecordScope(DynamicRecord record) {
+        if (record == null) return;
+        PageContextScopePolicy.requireRecordValues(
+                PageContextScopePolicy.requiredRecordScopeValues(recordScopeBindings()), record::getValue);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

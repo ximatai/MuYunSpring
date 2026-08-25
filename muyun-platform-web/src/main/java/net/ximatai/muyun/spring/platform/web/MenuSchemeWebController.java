@@ -28,11 +28,6 @@ public class MenuSchemeWebController extends net.ximatai.muyun.spring.web.WebSup
                         .field("alias", field -> field.label("方案 alias").required()
                                 .enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
                         .field("title", field -> field.label("方案名称").required())
-                        .field("tenantId", field -> field.label("所属租户").hidden())
-                        .field("scopeType", field -> field.label("scope 类型").uiType("select")
-                                .enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
-                        .field("scopeId", field -> field.label("scope ID")
-                                .enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
                         .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
                 .build();
     }

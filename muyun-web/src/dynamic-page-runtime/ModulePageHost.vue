@@ -140,13 +140,15 @@ const activeTreeResourceClient = ref<ModuleTreeClient<QueryListRecord>>();
 const treeReloadKey = ref(0);
 const selectedTreeRecord = ref<QueryListRecord>();
 const moduleRequestPrefix = `/${props.descriptor.target.moduleAlias}`;
+const pageContextHeader = ref<string>();
 const rawContext = createModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
   http: withHttpHeaders(
     baseContext.http,
-    {
+    () => ({
       'X-MuYun-Menu-Id': props.descriptor.menuId,
-    },
+      'X-MuYun-Page-Context': pageContextHeader.value,
+    }),
     (request) => request.path === moduleRequestPrefix || request.path.startsWith(`${moduleRequestPrefix}/`),
   ),
 });
@@ -305,6 +307,16 @@ const {
 } = useNavigatorRuntime(context);
 const treeResource = computed<ResolvedPageTreeResourceDescriptor | undefined>(
   () => runtimePage.value?.treeResource,
+);
+watch(
+  selectedNavigatorRecords,
+  (records) => {
+    const values = Object.entries(records).flatMap(([key, record]) =>
+      record?.id == null ? [] : [[key, String(record.id)] as const],
+    );
+    pageContextHeader.value = values.length === 0 ? undefined : JSON.stringify(Object.fromEntries(values));
+  },
+  { deep: true, immediate: true },
 );
 const treeResourceScopeRecord = computed(() => {
   const resource = treeResource.value;

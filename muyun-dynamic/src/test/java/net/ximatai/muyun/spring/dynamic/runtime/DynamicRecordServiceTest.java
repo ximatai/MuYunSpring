@@ -1981,6 +1981,40 @@ class DynamicRecordServiceTest {
     }
 
     @Test
+    void shouldExposeCrossSourceDynamicProjectionReadsThroughReferenceDataScope() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of(referenceRow("contract-1", "Contract One")));
+        DataScopeCriteriaService dataScope = mock(DataScopeCriteriaService.class);
+        when(dataScope.resolveReadScope(eq(MODULE), any(ActionExecutionPolicy.class), any(Criteria.class), any()))
+                .thenAnswer(invocation -> DataScopeCriteriaResult.unrestricted(invocation.getArgument(2)));
+        DynamicRecordService service = service(operations, referenceEntity(), RuntimeEventPublisher.noop(), dataScope);
+
+        Map<String, Map<String, Object>> values = service.referenceAbility(ReferenceTarget.of(MODULE, "contract"))
+                .orElseThrow().projections(List.of("contract-1"), List.of("code"));
+
+        assertThat(values).containsEntry("contract-1", Map.of("code", "CONTRACT-1"));
+        ArgumentCaptor<ActionExecutionPolicy> policy = ArgumentCaptor.forClass(ActionExecutionPolicy.class);
+        verify(dataScope).resolveReadScope(eq(MODULE), policy.capture(), any(Criteria.class), any());
+        assertThat(policy.getValue().actionCode()).isEqualTo(PlatformAction.REFERENCE.code());
+    }
+
+    @Test
+    void shouldOmitDynamicReferenceProjectionWhenReferenceScopeCannotSeeTheTarget() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of());
+        DataScopeCriteriaService dataScope = mock(DataScopeCriteriaService.class);
+        when(dataScope.resolveReadScope(eq(MODULE), any(ActionExecutionPolicy.class), any(Criteria.class), any()))
+                .thenAnswer(invocation -> DataScopeCriteriaResult.restricted(invocation.getArgument(2)));
+        DynamicRecordService service = service(operations, referenceEntity(), RuntimeEventPublisher.noop(), dataScope);
+
+        Map<String, Map<String, Object>> values = service.referenceAbility(ReferenceTarget.of(MODULE, "contract"))
+                .orElseThrow().projections(List.of("contract-hidden"), List.of("code"));
+
+        assertThat(values).isEmpty();
+    }
+
+    @Test
     void shouldResolveDynamicReferenceQueryThroughStableServiceApi() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 2));
@@ -3163,6 +3197,79 @@ class DynamicRecordServiceTest {
         service.resolveReference(MODULE, "line", "contractId", DynamicReferenceResolveRequest.query("C-001"));
 
         verify(dataScope).resolveReadScope(eq(MODULE), any(ActionExecutionPolicy.class), any(Criteria.class), any());
+    }
+
+    @Test
+    void shouldBatchDynamicSelectionProjectionPathsThroughReferenceScopedReads() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 2));
+        when(operations.query(anyString(), anyMap())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            if (sql.contains("app_customer")) {
+                return List.of(
+                        Map.of("id", "customer-1", "title", "Customer One", "organization_id", "organization-1", "deleted", false, "version", 0),
+                        Map.of("id", "customer-2", "title", "Customer Two", "organization_id", "organization-2", "deleted", false, "version", 0));
+            }
+            if (sql.contains("app_organization")) {
+                return List.of(
+                        Map.of("id", "organization-1", "title", "Organization One", "region_code", "CN-31", "deleted", false, "version", 0),
+                        Map.of("id", "organization-2", "title", "Organization Two", "region_code", "CN-33", "deleted", false, "version", 0));
+            }
+            return List.of();
+        });
+        DataScopeCriteriaService dataScope = mock(DataScopeCriteriaService.class);
+        when(dataScope.resolveReadScope(eq(MODULE), any(ActionExecutionPolicy.class), any(Criteria.class), any()))
+                .thenAnswer(invocation -> DataScopeCriteriaResult.unrestricted(invocation.getArgument(2)));
+        EntityDefinition line = new EntityDefinition("line", "app_line", "Line", List.of(
+                FieldDefinition.string("customerId", "Customer").column("customer_id")));
+        EntityDefinition customer = new EntityDefinition("customer", "app_customer", "Customer", List.of(
+                FieldDefinition.titleField(), FieldDefinition.string("organizationId", "Organization").column("organization_id")),
+                java.util.Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        EntityDefinition organization = new EntityDefinition("organization", "app_organization", "Organization", List.of(
+                FieldDefinition.titleField(), FieldDefinition.string("regionCode", "Region").column("region_code")),
+                java.util.Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        ModuleDefinition module = ModuleDefinition.builder(MODULE, "Contract")
+                .entities(List.of(line, customer, organization))
+                .references(List.of(
+                        EntityReferenceDefinition.to("line", "customerId", MODULE + ".customer")
+                                .withRuntimeConfig(null, null, null, null, java.util.Set.of("organizationId.regionCode")),
+                        EntityReferenceDefinition.to("customer", "organizationId", MODULE + ".organization")))
+                .build();
+        DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(module);
+        DynamicRecordService service = new DynamicRecordService(runtime,
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService(), dataScope);
+        List<net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver.ProjectionRequest> reads = new ArrayList<>();
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureReferenceReadObserver(reads::add);
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureReferenceTargetResolver(
+                new net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver() {
+                    @Override
+                    public java.util.Optional<net.ximatai.muyun.spring.ability.reference.ReferenceAbility<?>> resolve(ReferenceTarget target) {
+                        return service.referenceAbility(target);
+                    }
+
+                    @Override
+                    public java.util.Optional<net.ximatai.muyun.spring.ability.reference.ReferencePlan> referencePlan(
+                            ReferenceTarget target, String sourceField) {
+                        return runtime.referencePlan(target, sourceField);
+                    }
+                });
+        try {
+            DynamicReferenceResolveResponse response = service.resolveReference(MODULE, "line", "customerId",
+                    DynamicReferenceResolveRequest.query("Customer"));
+
+            assertThat(response.options()).extracting(DynamicReferenceResolveItem::projections).containsExactly(
+                    Map.of("organizationId.regionCode", "CN-31"),
+                    Map.of("organizationId.regionCode", "CN-33"));
+            ArgumentCaptor<ActionExecutionPolicy> policies = ArgumentCaptor.forClass(ActionExecutionPolicy.class);
+            verify(dataScope, times(3)).resolveReadScope(eq(MODULE), policies.capture(), any(Criteria.class), any());
+            assertThat(policies.getAllValues()).allSatisfy(policy ->
+                    assertThat(policy.actionCode()).isEqualTo(PlatformAction.REFERENCE.code()));
+            assertThat(reads).extracting(net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver.ProjectionRequest::idCount)
+                    .containsExactly(2, 2);
+        } finally {
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetReferenceTargetResolver();
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetReferenceReadObserver();
+        }
     }
 
     @Test

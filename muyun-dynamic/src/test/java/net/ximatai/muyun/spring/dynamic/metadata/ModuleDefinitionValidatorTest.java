@@ -55,6 +55,51 @@ class ModuleDefinitionValidatorTest {
     }
 
     @Test
+    void shouldValidateEveryInModuleSelectionProjectionHopAndTerminalField() {
+        EntityDefinition line = new EntityDefinition("line", "sales_line", "Line", List.of(
+                FieldDefinition.string("customerId", "Customer").column("customer_id")));
+        EntityDefinition customer = new EntityDefinition("customer", "sales_customer", "Customer", List.of(
+                FieldDefinition.titleField(), FieldDefinition.string("organizationId", "Organization").column("organization_id")),
+                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        EntityDefinition organization = new EntityDefinition("organization", "sales_organization", "Organization", List.of(
+                FieldDefinition.titleField(), FieldDefinition.string("regionCode", "Region").column("region_code")),
+                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        EntityReferenceDefinition customerReference = EntityReferenceDefinition
+                .to("line", "customerId", "sales.contract.customer")
+                .withRuntimeConfig(null, null, null, null, Set.of("organizationId.regionCode"));
+        ModuleDefinition module = ModuleDefinition.builder("sales.contract", "Contract")
+                .entities(List.of(line, customer, organization))
+                .references(List.of(customerReference,
+                        EntityReferenceDefinition.to("customer", "organizationId", "sales.contract.organization")))
+                .build();
+
+        validator.validate(module);
+    }
+
+    @Test
+    void shouldRejectManySelectionProjectionHopAtDynamicModulePublishTime() {
+        EntityDefinition line = new EntityDefinition("line", "sales_line", "Line", List.of(
+                FieldDefinition.string("customerId", "Customer").column("customer_id")));
+        EntityDefinition customer = new EntityDefinition("customer", "sales_customer", "Customer", List.of(
+                FieldDefinition.titleField(), FieldDefinition.string("organizationIds", "Organizations").column("organization_ids")),
+                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        EntityDefinition organization = new EntityDefinition("organization", "sales_organization", "Organization", List.of(
+                FieldDefinition.titleField(), FieldDefinition.string("regionCode", "Region").column("region_code")),
+                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        ModuleDefinition module = ModuleDefinition.builder("sales.contract", "Contract")
+                .entities(List.of(line, customer, organization))
+                .references(List.of(
+                        EntityReferenceDefinition.to("line", "customerId", "sales.contract.customer")
+                                .withRuntimeConfig(null, null, null, null, Set.of("organizationIds.regionCode")),
+                        EntityReferenceDefinition.to("customer", "organizationIds", "sales.contract.organization").many()))
+                .build();
+
+        assertThatThrownBy(() -> validator.validate(module))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("selection projection hop requires cardinality ONE: sales.contract.customer.organizationIds");
+    }
+
+    @Test
     void shouldRejectCustomActionThatConflictsWithReservedWebPath() {
         ModuleDefinition module = ModuleDefinition.builder("sales.contract", "Contract")
                 .entities(List.of(contractEntity()))

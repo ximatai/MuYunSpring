@@ -33,6 +33,25 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
     @Test
+    void shouldRejectTreeResourceThatRepeatsThePageMainEntity() {
+        ModuleUiDefinition ui = ModuleUiDefinition.builder("demo.menu")
+                .page(PageTemplates.treeManagement(page -> page
+                        .navigator(navigator -> navigator.level("scheme", level -> level
+                                .microList("demo.menu_scheme", "菜单方案", "搜索菜单方案")))
+                        .treeResource("menu", "scheme", "schemeId", resource -> { })
+                        .detail(detail -> detail.editor(editor -> editor.field("schemeId")))))
+                .build();
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("demo", "demo.menu", "菜单")
+                .entities(List.of(new EntityDefinition("menu", "demo_menu", "Menu",
+                        List.of(FieldDefinition.string("schemeId", "菜单方案")))))
+                .uiDefinition(ui)
+                .build();
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition))
+                .hasMessageContaining("must be a contributed resource, not the page main entity");
+    }
+
+    @Test
     void shouldCompileAnExplicitOneReferenceSelectionProjectionForWebUiFormula() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("platform.menu")
                 .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("菜单"))

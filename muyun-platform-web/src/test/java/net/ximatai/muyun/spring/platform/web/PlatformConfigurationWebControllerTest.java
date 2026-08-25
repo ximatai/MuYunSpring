@@ -222,16 +222,19 @@ class PlatformConfigurationWebControllerTest {
         when(service.update(any(PlatformModule.class))).thenReturn(1);
 
         MockMvc mvc = abilityAwareMvcWithManagedJackson(controller);
-        mvc.perform(get("/platform.module/view/platform.sales"))
+        mvc.perform(get("/platform.module/view/platform.sales")
+                        .header("X-MuYun-Page-Context", "{\"application\":\"platform\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.moduleKind").value("static"))
                 .andExpect(jsonPath("$.entryType").value("module"));
-        mvc.perform(post("/platform.module/insert").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/platform.module/insert").header("X-MuYun-Page-Context", "{\"application\":\"platform\"}")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"alias\":\"platform.sales\",\"title\":\"销售\",\"applicationAlias\":\"platform\",\"moduleKind\":\"dynamic\",\"entryType\":\"route\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.moduleKind").value("static"))
                 .andExpect(jsonPath("$.entryType").value("module"));
-        mvc.perform(post("/platform.module/update/platform.sales").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/platform.module/update/platform.sales").header("X-MuYun-Page-Context", "{\"application\":\"platform\"}")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"销售\",\"applicationAlias\":\"platform\",\"moduleKind\":\"dynamic\",\"entryType\":\"link\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.moduleKind").value("static"))

@@ -718,8 +718,11 @@ class StaticModuleDefinitionScannerTest {
                         assertThat(binding.targetKey()).isEqualTo("schemeId");
                     });
             assertThat(ModuleUiDescriptorCompiler.compile(byAlias.get("platform.menu_scheme")).editorSurfaces())
-                    .singleElement().satisfies(surface ->
-                    assertThat(surface.key()).isEqualTo("menu_scheme_editor"));
+                    .singleElement().satisfies(surface -> {
+                        assertThat(surface.key()).isEqualTo("menu_scheme_editor");
+                        assertThat(surface.editor().fields()).extracting(field -> field.fieldRef().fieldName())
+                                .containsExactly("alias", "title", "enabled");
+                    });
             assertThat(menuDescriptor.page().treeResource()).isNull();
             assertThat(menuDescriptor.page().detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
                     .containsExactly("title", "parentId", "moduleAlias", "openMode", "enabled");

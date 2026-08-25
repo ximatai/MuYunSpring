@@ -42,6 +42,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -192,14 +193,19 @@ class MenuWebControllerTest {
         when(menuService.select("menu-2")).thenReturn(inserted);
 
         MockMvc mvc = abilityAwareMvc(controller);
-        mvc.perform(get("/platform.menu/tree").param("schemeId", "scheme-1"))
+        mvc.perform(post("/platform.menu/tree/query")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"externalQueryValues":{"schemeId":"scheme-1"}}
+                                """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].record.id").value("root-1"))
                 .andExpect(jsonPath("$.records[0].children[0].record.id").value("menu-1"));
         mvc.perform(post("/platform.menu/insert")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .header(PageContextScopePolicy.CONTEXT_HEADER, "{\"scheme\":\"scheme-1\"}")
                         .content("""
-                                {"schemeId":"scheme-1","parentId":"root-1","title":"订单","moduleAlias":"crm.order"}
+                                {"schemeId":"other-scheme","parentId":"root-1","title":"订单","moduleAlias":"crm.order"}
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.schemeId").value("scheme-1"));
@@ -226,6 +232,7 @@ class MenuWebControllerTest {
 
         mvc.perform(post("/platform.menu/insert")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .header(PageContextScopePolicy.CONTEXT_HEADER, "{\"scheme\":\"scheme-1\"}")
                         .content("""
                                 {"parentId":"root-1","title":"订单","moduleAlias":"crm.order"}
                                 """))
@@ -236,6 +243,39 @@ class MenuWebControllerTest {
                 .andExpect(jsonPath("$.actionMessage.code").value("platform.menu.open-mode-required"))
                 .andExpect(jsonPath("$.actionMessage.text").value("Module entry menu requires openMode"))
                 .andExpect(jsonPath("$.actionMessage.type").value("WARNING"));
+    }
+
+    @Test
+    void shouldRejectMenuReadsAndMutationsOutsideExplicitSchemeContext() throws Exception {
+        TenantContext.setTenantId("tenant-a");
+        MenuService menuService = mock(MenuService.class);
+        MenuManagementWebController controller = new MenuManagementWebController();
+        ReflectionTestUtils.setField(controller, "service", menuService);
+        Menu otherScheme = menu("menu-1", "scheme-2", "客户", "crm.customer");
+        when(menuService.select("menu-1")).thenReturn(otherScheme);
+        MockMvc mvc = abilityAwareMvc(controller);
+
+        mvc.perform(get("/platform.menu/tree").param("schemeId", "scheme-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Page navigator scope is required: scheme"));
+        mvc.perform(post("/platform.menu/query").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
+                .andExpect(jsonPath("$.message").value("Page navigator scope is required: scheme"));
+        mvc.perform(get("/platform.menu/view/menu-1")
+                        .header(PageContextScopePolicy.CONTEXT_HEADER, "{\"scheme\":\"scheme-1\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Record does not belong to the current page scope: schemeId"));
+        mvc.perform(post("/platform.menu/update/menu-1").contentType(MediaType.APPLICATION_JSON)
+                        .header(PageContextScopePolicy.CONTEXT_HEADER, "{\"scheme\":\"scheme-1\"}")
+                        .content("{\"title\":\"变更\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/platform.menu/delete/menu-1").contentType(MediaType.APPLICATION_JSON)
+                        .header(PageContextScopePolicy.CONTEXT_HEADER, "{\"scheme\":\"scheme-1\"}")
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+        verify(menuService, never()).update(any(Menu.class));
+        verify(menuService, never()).delete(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     private Menu menu(String id, String schemeId, String title, String moduleAlias) {
@@ -271,6 +311,7 @@ class MenuWebControllerTest {
         return MockMvcBuilders.standaloneSetup(controller)
                 .setCustomHandlerMapping(() -> new AbilityAwareHandlerMapping(objectMapper))
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler())
                 .build();
     }
 

@@ -28,19 +28,24 @@ export interface HttpClient {
  */
 export function withHttpHeaders(
   client: HttpClient,
-  headers: Record<string, string | undefined>,
+  headers: Record<string, string | undefined> | (() => Record<string, string | undefined>),
   appliesTo?: (request: HttpRequestOptions) => boolean,
 ): HttpClient {
-  const fixedHeaders: Record<string, string> = {};
-  for (const [key, value] of Object.entries(headers)) {
-    if (typeof value === 'string' && value.trim().length > 0) fixedHeaders[key] = value;
-  }
-  if (Object.keys(fixedHeaders).length === 0) return client;
+  const resolvedHeaders = () => {
+    const source = typeof headers === 'function' ? headers() : headers;
+    const normalized: Record<string, string> = {};
+    for (const [key, value] of Object.entries(source)) {
+      if (typeof value === 'string' && value.trim().length > 0) normalized[key] = value;
+    }
+    return normalized;
+  };
   return {
     request<T>(options: HttpRequestOptions) {
       if (appliesTo && !appliesTo(options)) {
         return client.request<T>(options);
       }
+      const fixedHeaders = resolvedHeaders();
+      if (Object.keys(fixedHeaders).length === 0) return client.request<T>(options);
       return client.request<T>({
         ...options,
         headers: { ...options.headers, ...fixedHeaders },

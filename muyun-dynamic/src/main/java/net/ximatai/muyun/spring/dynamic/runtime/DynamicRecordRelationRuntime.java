@@ -172,7 +172,7 @@ final class DynamicRecordRelationRuntime {
     Map<String, Map<String, Object>> projections(String moduleAlias, String entityAlias, Collection<String> ids,
                                                   Collection<String> fieldNames) {
         records.requireCapability(moduleAlias, entityAlias, EntityCapability.REFERENCE);
-        DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.VIEW, records.idsCriteria(ids));
+        DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.REFERENCE, records.idsCriteria(ids));
         return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
                 .projections(records.visibleRecordIds(moduleAlias, entityAlias, scope, ids), fieldNames));
     }

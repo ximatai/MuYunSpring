@@ -126,14 +126,8 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
         if (!(this instanceof StaticModuleUiContributor)) {
             return Criteria.of();
         }
-        Criteria criteria = Criteria.of();
-        for (PageContextBindingDefinition binding : pageContextBindings(PageContextTarget.LIST_QUERY)) {
-            Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->
-                    request == null || request.externalQueryValues() == null ? null
-                            : request.externalQueryValues().get(binding.targetKey()));
-            if (selectedValue != null) criteria.eq(binding.targetKey(), selectedValue);
-        }
-        return criteria;
+        return PageContextScopePolicy.criteria(pageContextBindings(PageContextTarget.LIST_QUERY),
+                request == null ? Map.of() : request.externalQueryValues(), false);
     }
 
     private List<PageContextBindingDefinition> pageContextBindings(PageContextTarget target) {

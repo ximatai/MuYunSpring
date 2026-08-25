@@ -10,12 +10,11 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
-import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
-import net.ximatai.muyun.spring.ability.reference.ReferenceLoadPath;
-import net.ximatai.muyun.spring.ability.reference.ReferenceLoadReader;
-import net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
+import net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjectionReader;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateCriteria;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.model.capability.TreeCapable;
@@ -198,60 +197,27 @@ public class StaticReferenceResolveFacade {
         if (plan.selectionProjections().isEmpty() || ids == null || ids.isEmpty()) {
             return Map.of();
         }
-        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
-        for (ReferenceSelectionProjection projection : plan.selectionProjections()) {
-            Map<String, Object> values = selectionProjectionValues(plan.target(), projection, ids);
-            values.forEach((id, value) -> result.computeIfAbsent(id, ignored -> new LinkedHashMap<>())
-                    .put(projection.key(), value));
-        }
-        return result.entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey,
-                entry -> Map.copyOf(entry.getValue()), (left, right) -> left, LinkedHashMap::new));
+        return ReferenceSelectionProjectionReader.read(plan.target(), ids, plan.selectionProjections(),
+                selectionProjectionResolver());
     }
 
-    private Map<String, Object> selectionProjectionValues(ReferenceTarget target,
-                                                          ReferenceSelectionProjection projection,
-                                                          List<String> ids) {
-        if (projection.path().size() == 1) {
-            Map<String, Map<String, Object>> values = targetProjections(target, ids, projection.path());
-            return values.entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey,
-                    entry -> entry.getValue().get(projection.targetField()), (left, right) -> left, LinkedHashMap::new));
-        }
-        ReferenceLoadPath path = selectionProjectionPath(target, projection);
-        return ReferenceLoadReader.readAll(path, ids, this::referenceAbility);
-    }
-
-    private ReferenceLoadPath selectionProjectionPath(ReferenceTarget sourceTarget,
-                                                       ReferenceSelectionProjection projection) {
-        ReferenceTarget current = sourceTarget;
-        List<ReferenceLoadPath.Hop> hops = new java.util.ArrayList<>();
-        for (String field : projection.path().subList(0, projection.path().size() - 1)) {
-            ReferenceTarget hopSource = current;
-            ReferencePlan hop = StaticReferenceResolver.plans(referenceAbility(hopSource).modelClass()).stream()
-                    .filter(candidate -> candidate.sourceField().equals(field))
-                    .findFirst().orElseThrow(() -> new PlatformException("selection projection hop is not a declared reference: "
-                            + hopSource.qualifiedName() + "." + field));
-            if (hop.cardinality() != ReferenceCardinality.ONE) {
-                throw new PlatformException("selection projection hop requires cardinality ONE: "
-                        + hopSource.qualifiedName() + "." + field);
+    private ReferenceTargetResolver selectionProjectionResolver() {
+        ReferenceTargetResolver platform = PlatformAbilityRuntime.referenceTargetResolver();
+        return new ReferenceTargetResolver() {
+            @Override
+            public java.util.Optional<ReferenceAbility<?>> resolve(ReferenceTarget target) {
+                java.util.Optional<ReferenceAbility<?>> staticAbility = abilities.findReference(target);
+                return staticAbility.isPresent() ? staticAbility : platform.resolve(target);
             }
-            hops.add(new ReferenceLoadPath.Hop(hop.target(), field));
-            current = hop.target();
-        }
-        return new ReferenceLoadPath("selection", sourceTarget, hops, projection.targetField(), projection.key());
-    }
 
-    private ReferenceAbility<?> referenceAbility(ReferenceTarget target) {
-        return abilities.findReference(target)
-                .orElseThrow(() -> new PlatformException("selection projection target is not a static reference: "
-                        + target.qualifiedName()));
-    }
-
-    private Map<String, Map<String, Object>> targetProjections(ReferenceTarget target, List<String> ids,
-                                                                 List<String> fields) {
-        ReferenceAbility<?> staticTarget = abilities.findReference(target).orElse(null);
-        if (staticTarget != null) return staticTarget.projections(ids, fields);
-        if (dynamicRecords != null) return dynamicRecords.projections(target.moduleAlias(), target.entityAlias(), ids, fields);
-        throw new PlatformException("reference target is not available: " + target.qualifiedName());
+            @Override
+            public java.util.Optional<ReferencePlan> referencePlan(ReferenceTarget sourceTarget, String sourceField) {
+                java.util.Optional<ReferencePlan> staticPlan = abilities.findReference(sourceTarget)
+                        .flatMap(ability -> StaticReferenceResolver.plans(ability.modelClass()).stream()
+                                .filter(plan -> sourceField.equals(plan.sourceField())).findFirst());
+                return staticPlan.isPresent() ? staticPlan : platform.referencePlan(sourceTarget, sourceField);
+            }
+        };
     }
 
     private Criteria candidateCriteria(ReferencePlan plan, WebReferenceResolveRequest request) {

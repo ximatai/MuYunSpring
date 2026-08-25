@@ -105,7 +105,9 @@ private String moduleAlias;
 
 `selectionProjections` 是唯一的读取授权：descriptor 只下发这些字段，候选解析仅在引用范围、字段保护和数据权限通过后返回其值。浏览器将其保存在临时选择上下文中，用于重算表单规则；不会写入业务草稿或保存请求。
 
-当前平台仅支持一跳 ONE 引用，即 `{sourceField.targetField}`。多跳形式已预留为路径契约，但在运行时会被明确拒绝；不要通过前端对象结构或未声明字段绕过该限制。
+路径可跨越多个已声明的 ONE 引用，例如 `{supplierId.organizationId.regionCode}`。`selectionProjections` 必须完整声明相对路径 `organizationId.regionCode`；编译期校验每一跳和末端字段，运行时按 `REFERENCE` 数据范围与字段保护批量读取。静态、动态和混合目标使用同一约束；任一跳不可见或为空时，公式只收到空值。不要通过前端对象结构或未声明字段绕过该限制。
+
+计算公式的适用场景、`WEB_UI` / `FORM_COMPUTE` 区分、动态规则阶段和即时试算边界见[计算公式使用说明](../formula/OVERVIEW.md)。
 
 ## 导航、范围与内嵌管理
 
@@ -149,6 +151,12 @@ private String moduleAlias;
 ```
 
 `resource` 必须有同名 `editorContribution`，其表单必须声明 `scopeField`，并由静态 action contribution 提供标准树 CRUD；`scopeNavigatorKey` 只能指向同页已声明的导航层级。`resource` 不能等于页面主实体：若页面维护的本来就是该树（如“菜单管理”维护 `Menu`），应使用 `bindNavigatorToList` 将导航选择绑定到主树查询，而不是声明 `treeResource`。
+
+### 必选导航范围的服务端契约
+
+`REQUIRED_SCOPE` 不是仅用于禁用前端按钮的提示。查询和树加载通过 `externalQueryValues` 传入导航选中值；查看、删除等没有请求体的记录操作则携带 `X-MuYun-Page-Context` JSON 请求头，键为导航层级 `key`，值为选中记录 ID。平台页面运行时会随导航切换自动更新它；直接调用 API 时缺失、空值或与记录不一致都会被服务端拒绝。
+
+该请求头只表达当前页面工作范围，不授予数据权限。数据范围、租户隔离和字段保护仍由对应的后端能力独立校验。
 
 若资源只适用于范围记录的某个稳定状态，可用 `availableWhenEquals` 声明字段和值；条件不满足时运行器不加载树也不开放新建，资源控制器仍须执行领域不变量。运行器把资源访问固定投影到模块的 `tree-resources/{resource}/{scopeId}` 路径，未选中范围时 fail-closed。页面模块仍拥有动作授权与 runtime descriptor，资源控制器只保留领域范围绑定、归属校验和不变量。该能力当前是静态 action contribution 的平台接入点；动态来源没有同等可执行资源注册时，应明确拒绝，而不是在前端拼业务 URL。
 

@@ -70,6 +70,15 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return null;
     }
 
+    /**
+     * Required navigator list bindings scope every standard record operation, not only the list.
+     * Dynamic controllers override this with their installed execution plan; static controllers
+     * receive it from their compiled declaration through the standard runtime adapter.
+     */
+    default List<PageContextBindingDefinition> recordScopeBindings() {
+        return CrudWebRuntimeSupport.recordScopeBindings(this);
+    }
+
     private StandardModuleWebRuntime requiredStandardModuleWebRuntime() {
         return CrudWebRuntimeSupport.requiredRuntime(this);
     }
@@ -273,6 +282,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             requireExecutionPlanAtRequest();
             T record = RecordReadSupport.requireVisible(webScopeName(), id,
                     StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id));
+            PageContextScopePolicy.requireRecordInScope(record, recordScopeBindings());
             requireMenuEntryRecord(PlatformAction.VIEW, record);
             return standardWireRecord(WebOutputSupport.record(service(), record,
                     FieldOutputContext.VIEW));
@@ -288,6 +298,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return MutationTenantScopeExecutor.forCreate(this, record, () -> webScope(() -> {
             requireExecutionPlanAtRequest();
             requireMenuEntryAction(PlatformAction.CREATE);
+            PageContextScopePolicy.applyForCreate(record, recordScopeBindings());
             List<PageContextBindingDefinition> mutationConstraints =
                     requiresModuleExecutionPlan()
                             ? requiredStandardModuleWebRuntime().mutationConstraints(webScopeName())
@@ -312,15 +323,18 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             requireExecutionPlanAtRequest();
             requireMenuEntryAction(PlatformAction.UPDATE);
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.UPDATE, id);
+            T existing = service().select(id);
+            PageContextScopePolicy.requireRecordInScope(existing, recordScopeBindings());
+            PageContextScopePolicy.applyForCreate(record, recordScopeBindings());
             if (hasActiveMenuEntryPolicy()) {
-                requireMenuEntryRecord(PlatformAction.UPDATE, service().select(id));
+                requireMenuEntryRecord(PlatformAction.UPDATE, existing);
             }
             List<PageContextBindingDefinition> mutationConstraints =
                     requiresModuleExecutionPlan()
                             ? requiredStandardModuleWebRuntime().mutationConstraints(webScopeName())
                             : CrudWebRuntimeSupport.pageContextBindings(this, null, PageContextTarget.MUTATION_CONSTRAINT);
             if (!mutationConstraints.isEmpty()) {
-                PageContextMutationConstraints.applyForUpdate(record, service().select(id), mutationConstraints);
+                PageContextMutationConstraints.applyForUpdate(record, existing, mutationConstraints);
             }
             service().update(record);
             T saved = WebOutputSupport.record(service(),
@@ -340,6 +354,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             requireMenuEntryAction(PlatformAction.DELETE);
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.DELETE, id);
             T existing = service().select(id);
+            PageContextScopePolicy.requireRecordInScope(existing, recordScopeBindings());
             requireMenuEntryRecord(PlatformAction.DELETE, existing);
             return StandardMutationResultSupport.deleted(this, id, recordLabel(existing),
                     () -> service().delete(id, request.version()));

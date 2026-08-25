@@ -13,6 +13,8 @@ import net.ximatai.muyun.spring.web.WebSupport;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
         alias = MenuService.MODULE_ALIAS, title = "菜单管理")
@@ -53,10 +55,11 @@ public class MenuManagementWebController extends WebSupport<MenuService>
 
     @Override
     public TreeScope treeScope(HttpServletRequest request) {
-        String value = TreeWebQuerySupport.externalQueryText(request, "schemeId");
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("schemeId is required");
-        }
+        Object scope = TreeWebQuerySupport.boundExternalQueryValue(request, "schemeId");
+        String value = scope == null ? PageContextScopePolicy.requiredRecordScopeValues(List.of(
+                PageContextBindingDefinition.navigatorList(SCHEME_NAVIGATOR, "schemeId",
+                        NavigatorListQueryMode.REQUIRED_SCOPE))).get("schemeId").toString() : String.valueOf(scope);
+        if (value.isBlank()) throw new IllegalArgumentException("menu tree requires scheme navigator context");
         return TreeScope.of(Criteria.of().eq("schemeId", value));
     }
 }

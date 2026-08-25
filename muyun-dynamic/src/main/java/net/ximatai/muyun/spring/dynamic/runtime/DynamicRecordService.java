@@ -6,9 +6,12 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
+import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -151,6 +154,53 @@ public class DynamicRecordService {
 
     public DynamicEntityOperations mainEntity(String moduleAlias) {
         return entity(moduleAlias, mainEntityAlias(moduleAlias));
+    }
+
+    /**
+     * A scoped adapter for the cross-source reference reader.  It deliberately delegates every
+     * projection to this service, where REFERENCE data scope and tenant context are applied.
+     */
+    public Optional<ReferenceAbility<?>> referenceAbility(ReferenceTarget target) {
+        if (target == null) {
+            return Optional.empty();
+        }
+        try {
+            requireCapability(target.moduleAlias(), target.entityAlias(), EntityCapability.REFERENCE);
+            return Optional.of(new ReferenceAbility<DynamicTitledRecord>() {
+                @Override
+                public BaseDao<DynamicTitledRecord, String> getDao() {
+                    @SuppressWarnings("unchecked")
+                    BaseDao<DynamicTitledRecord, String> dao = (BaseDao<DynamicTitledRecord, String>)
+                            (BaseDao<?, ?>) entityService(target.moduleAlias(), target.entityAlias()).getDao();
+                    return dao;
+                }
+
+                @Override
+                public String getModuleAlias() {
+                    return target.qualifiedName();
+                }
+
+                @Override
+                public ReferenceTarget referenceTarget() {
+                    return target;
+                }
+
+                @Override
+                public Map<String, Map<String, Object>> projections(Collection<String> ids,
+                                                                       Collection<String> fieldNames) {
+                    return DynamicRecordService.this.projections(target.moduleAlias(), target.entityAlias(),
+                            ids, fieldNames);
+                }
+
+                @Override
+                public PageResult<ReferenceOption> referenceOptions(Criteria criteria, PageRequest pageRequest) {
+                    return DynamicRecordService.this.referenceOptions(target.moduleAlias(), target.entityAlias(),
+                            criteria, pageRequest);
+                }
+            });
+        } catch (ModuleDefinitionException ignored) {
+            return Optional.empty();
+        }
     }
 
     public DynamicRecordActionGateway recordsForAction(String moduleAlias, PlatformAction action, String traceId) {
