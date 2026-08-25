@@ -32,6 +32,7 @@ const emit = defineEmits<{
         <h2
           class="management-panel-header-title"
           :class="{ 'management-panel-header-title--action': titleActionIcon }"
+          :title="title"
         >
           <UiButton
             v-if="titleActionIcon"
@@ -40,10 +41,10 @@ const emit = defineEmits<{
             :icon-name="titleActionIcon"
             icon-position="end"
             type="text"
-            :title="titleActionTitle"
+            :title="titleActionTitle ? `${titleActionTitle}：${title}` : title"
             @click="emit('titleAction')"
           >
-            {{ title }}
+            <span class="management-panel-header-title-action-label">{{ title }}</span>
           </UiButton>
           <template v-else>{{ title }}</template>
         </h2>
@@ -79,6 +80,7 @@ const emit = defineEmits<{
 
 .management-panel-header-title-copy {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -89,8 +91,7 @@ const emit = defineEmits<{
 }
 
 .management-panel-header-title {
-  display: inline-flex;
-  align-items: center;
+  display: block;
   margin: 0;
   min-width: 0;
   height: var(--muyun-management-panel-header-height, 30px);
@@ -120,6 +121,9 @@ const emit = defineEmits<{
 .management-panel-header-title-action {
   position: relative;
   z-index: 0;
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
   height: 100%;
   padding: 0;
   border: 0;
@@ -130,7 +134,15 @@ const emit = defineEmits<{
 }
 
 .management-panel-header-title--action {
+  display: flex;
+  align-items: center;
   overflow: visible;
+}
+
+.management-panel-header-title-action-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .management-panel-header-title-action::before {

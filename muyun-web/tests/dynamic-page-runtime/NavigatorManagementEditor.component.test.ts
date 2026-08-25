@@ -27,6 +27,15 @@ describe('NavigatorManagementEditor', () => {
     const status = wrapper.findComponent({ name: 'RecordStatusSwitch' });
     expect(status.exists()).toBe(true);
     expect(status.props('enabled')).toBe(false);
+    expect(status.props('size')).toBe('default');
+    const buttons = wrapper.findAllComponents({ name: 'RecordPanelButton' });
+    expect(buttons.map((button) => button.props('size'))).toEqual(['small', 'small']);
+    expect(
+      wrapper
+        .find('.navigator-management-title-group')
+        .findComponent({ name: 'RecordStatusSwitch' })
+        .exists(),
+    ).toBe(true);
 
     status.vm.$emit('change', true);
     await wrapper.vm.$nextTick();

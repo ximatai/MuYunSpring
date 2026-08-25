@@ -55,3 +55,27 @@ export function resolvePageContextTargetValues(
   }
   return Object.keys(values).length === 0 ? undefined : values;
 }
+
+/**
+ * Query scopes are values, not refresh signals. Preserve the prior object when
+ * a render reconstructs the same flat criteria so consumers do not reload just
+ * because their parent component rendered for an unrelated state transition.
+ */
+export function reuseEquivalentQueryValues(
+  previous: Record<string, unknown> | undefined,
+  next: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (previous === next || (!previous && !next)) return previous;
+  if (!previous || !next) return next;
+  const previousKeys = Object.keys(previous);
+  const nextKeys = Object.keys(next);
+  if (
+    previousKeys.length !== nextKeys.length ||
+    previousKeys.some(
+      (key) => !Object.prototype.hasOwnProperty.call(next, key) || !Object.is(previous[key], next[key]),
+    )
+  ) {
+    return next;
+  }
+  return previous;
+}

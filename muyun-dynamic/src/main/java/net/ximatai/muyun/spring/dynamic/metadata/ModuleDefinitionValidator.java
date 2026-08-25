@@ -33,6 +33,7 @@ public class ModuleDefinitionValidator {
     private static final String IDENTIFIER_PATTERN = "[a-z][a-z0-9_]{0,62}";
     private static final Set<String> STANDARD_COLUMNS = Set.copyOf(StandardEntitySchema.columnNames());
     private static final Set<String> STANDARD_FIELDS = Set.copyOf(StandardEntitySchema.fieldNames());
+    private static final Set<String> DISCRIMINATED_VALUE_SOURCE_STANDARD_FIELDS = Set.of(StandardEntitySchema.TENANT_ID_FIELD);
     private static final Set<String> DATA_SCOPE_COLUMNS = Set.copyOf(PlatformDataScopeSchema.columnNames());
     private static final Set<String> DATA_SCOPE_FIELDS = Set.copyOf(PlatformDataScopeSchema.fieldNames());
     private final FormulaEngine formulaEngine = new FormulaEngine();
@@ -63,6 +64,9 @@ public class ModuleDefinitionValidator {
         validateFormulaRuleTargets(module, entities);
         for (EntityReferenceDefinition reference : module.references()) {
             validateReference(reference, entities, module.moduleAlias(), module.references());
+        }
+        for (EntityDiscriminatedValueDefinition value : module.discriminatedValues()) {
+            validateDiscriminatedValue(value, entities);
         }
         for (EntityReferenceLoadDefinition load : module.referenceLoads()) {
             validateReferenceLoad(load, entities, module.moduleAlias(), module.references());
@@ -671,6 +675,34 @@ public class ModuleDefinitionValidator {
 
     public void validateReference(EntityReferenceDefinition reference, Map<String, EntityDefinition> entities) {
         validateReference(reference, entities, null);
+    }
+
+    /** Validates a dynamic declaration before it becomes a writable runtime contract. */
+    public void validateDiscriminatedValue(EntityDiscriminatedValueDefinition value,
+                                           Map<String, EntityDefinition> entities) {
+        if (value == null) throw new ModuleDefinitionException("discriminated value must not be null");
+        EntityDefinition entity = requireEntity(entities, value.sourceEntityAlias(), "discriminated value entity");
+        requireField(entity, value.valueField(), "discriminated value field");
+        requireValueSourceField(entity, value.discriminatorField(), "discriminator field");
+        try {
+            net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValuePlan plan = value.plan();
+            for (net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCasePlan branch : plan.cases()) {
+                if (branch.source() == net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueSource.FIELD) {
+                    requireValueSourceField(entity, branch.sourceField(), "discriminator source field");
+                }
+                if (branch.reference() != null) {
+                    if (branch.reference().cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
+                        throw new ModuleDefinitionException("discriminator reference must be ONE: " + value.valueField());
+                    }
+                    for (net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependency dependency
+                            : branch.reference().candidateDependencies()) {
+                        requireValueSourceField(entity, dependency.sourceField(), "discriminator reference dependency");
+                    }
+                }
+            }
+        } catch (IllegalArgumentException error) {
+            throw new ModuleDefinitionException("invalid discriminated value: " + value.valueField() + ": " + error.getMessage());
+        }
     }
 
     public void validateView(EntityViewDefinition view, Map<String, EntityDefinition> entities) {
@@ -1374,5 +1406,12 @@ public class ModuleDefinitionValidator {
                 .filter(field -> field.fieldName().equals(fieldName))
                 .findFirst()
                 .orElseThrow(() -> new ModuleDefinitionException("unknown " + name + ": " + entity.alias() + "." + fieldName));
+    }
+
+    private void requireValueSourceField(EntityDefinition entity, String fieldName, String name) {
+        if (DISCRIMINATED_VALUE_SOURCE_STANDARD_FIELDS.contains(fieldName)) {
+            return;
+        }
+        requireField(entity, fieldName, name);
     }
 }

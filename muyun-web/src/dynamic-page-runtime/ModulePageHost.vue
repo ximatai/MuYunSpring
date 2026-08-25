@@ -109,6 +109,7 @@ import {
   externalPageContextCriteriaKeys,
   requiredNavigatorListScopeCriteriaKeys,
   resolvePageContextTargetValues,
+  reuseEquivalentQueryValues,
 } from './pageContextRuntime';
 import { FormComputeCoordinator } from './formComputeCoordinator';
 import { useModulePageBootstrap } from './composables/useModulePageBootstrap';
@@ -674,6 +675,7 @@ const modulePageTitle = computed(
     props.descriptor.title ??
     recordLabel.value,
 );
+const treePanelTitle = computed(() => runtimePage.value?.treeResource?.title ?? `${modulePageTitle.value}树`);
 const listSearchPlaceholder = computed(
   () => runtimePage.value?.list?.searchPlaceholder ?? `搜索${recordLabel.value}`,
 );
@@ -1432,13 +1434,31 @@ function navigatorDescendantKeys(levelKey: string): Set<string> {
   return descendants;
 }
 
+const navigatorExplorerQueryValueCache = new Map<string, Record<string, unknown> | undefined>();
+const navigatorExplorerQueryValuesByLevel = computed(() => {
+  const activeLevelKeys = new Set<string>();
+  const values = new Map<string, Record<string, unknown> | undefined>();
+  for (const level of navigatorLevels.value) {
+    const levelKey = level.descriptor.key;
+    activeLevelKeys.add(levelKey);
+    const resolved = resolvePageContextTargetValues(
+      pageContextBindings.value,
+      'NAVIGATOR_QUERY',
+      pageContextSourceValues.value,
+      levelKey,
+    );
+    const stable = reuseEquivalentQueryValues(navigatorExplorerQueryValueCache.get(levelKey), resolved);
+    navigatorExplorerQueryValueCache.set(levelKey, stable);
+    values.set(levelKey, stable);
+  }
+  for (const levelKey of navigatorExplorerQueryValueCache.keys()) {
+    if (!activeLevelKeys.has(levelKey)) navigatorExplorerQueryValueCache.delete(levelKey);
+  }
+  return values;
+});
+
 function navigatorExplorerQueryValues(levelKey: string): Record<string, unknown> | undefined {
-  return resolvePageContextTargetValues(
-    pageContextBindings.value,
-    'NAVIGATOR_QUERY',
-    pageContextSourceValues.value,
-    levelKey,
-  );
+  return navigatorExplorerQueryValuesByLevel.value.get(levelKey);
 }
 
 /**
@@ -2795,9 +2815,9 @@ function recordTitle(record: QueryListRecord | undefined) {
       </ManagementExplorerColumn>
       <ManagementExplorerColumn>
         <RecordExplorerPanel
-          :title="`${modulePageTitle}树`"
+          :title="treePanelTitle"
           :subtitle="mainTreeScopeContext"
-          :refresh-title="`刷新${modulePageTitle}树`"
+          :refresh-title="`刷新${treePanelTitle}`"
           :search-keyword="treeSearchKeyword"
           :search-placeholder="listSearchPlaceholder"
           @update:search-keyword="treeSearchKeyword = $event"

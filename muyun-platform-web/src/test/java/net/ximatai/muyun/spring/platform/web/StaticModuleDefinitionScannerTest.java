@@ -721,7 +721,10 @@ class StaticModuleDefinitionScannerTest {
                     .singleElement().satisfies(surface -> {
                         assertThat(surface.key()).isEqualTo("menu_scheme_editor");
                         assertThat(surface.editor().fields()).extracting(field -> field.fieldRef().fieldName())
-                                .containsExactly("alias", "title", "enabled");
+                                .containsExactly("alias", "title", "scopeType", "tenantId", "scopeId", "enabled");
+                        assertThat(surface.editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("tenantId"))
+                                .singleElement().satisfies(field -> assertThat(field.reference().targetModuleAlias())
+                                        .isEqualTo("iam.tenant"));
                     });
             assertThat(menuDescriptor.page().treeResource()).isNull();
             assertThat(menuDescriptor.page().detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
@@ -768,7 +771,7 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(resource.scopeNavigatorKey()).isEqualTo("category");
                 assertThat(resource.scopeField()).isEqualTo("categoryId");
                 assertThat(resource.scopeRecordField()).isEqualTo("categoryKind");
-                assertThat(resource.scopeRecordEquals()).isEqualTo("DICTIONARY");
+                assertThat(resource.scopeRecordEquals()).isEqualTo("dictionary");
                 assertThat(resource.title()).isEqualTo("字典项");
             });
             assertThat(dictionaryDescriptor.page().detail().editor()).satisfies(view -> {

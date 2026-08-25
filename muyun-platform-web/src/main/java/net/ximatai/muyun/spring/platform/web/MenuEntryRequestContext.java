@@ -40,8 +40,17 @@ public record MenuEntryRequestContext(String menuId, String moduleAlias, String 
      * Rejects using one visible menu as a capability to invoke a different module.
      */
     public static void requireModuleAlias(String requestedModuleAlias) {
+        requireModuleAlias(requestedModuleAlias, null);
+    }
+
+    /**
+     * Allows a statically declared child module to serve a page opened through its parent menu.
+     * The parent relation is server-side module metadata, never a browser-supplied override.
+     */
+    public static void requireModuleAlias(String requestedModuleAlias, String pageEntryParentModuleAlias) {
         current().ifPresent(context -> {
-            if (!context.moduleAlias.equals(requestedModuleAlias)) {
+            if (!context.moduleAlias.equals(requestedModuleAlias)
+                    && !context.moduleAlias.equals(pageEntryParentModuleAlias)) {
                 throw new PlatformException("Menu entry module mismatch: menu " + context.menuId
                         + " targets " + context.moduleAlias + ", requested " + requestedModuleAlias);
             }

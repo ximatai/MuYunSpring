@@ -38,6 +38,22 @@ it('routes every standard card shell through the shared content and form surface
   assert.match(source, /@validity-change="updateLocalEditFormValidity"/);
 });
 
+it('uses a declared tree resource title as the tree panel title without appending a generic suffix', () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
+    'utf8',
+  );
+
+  assert.match(
+    source,
+    /const treePanelTitle = computed\([\s\S]*treeResource\?\.title \?\? `\$\{modulePageTitle\.value\}树`/,
+  );
+  assert.match(
+    source,
+    /<RecordExplorerPanel[\s\S]*?:title="treePanelTitle"[\s\S]*?:refresh-title="`刷新\$\{treePanelTitle\}`"/,
+  );
+});
+
 it('declares cancellation destinations from the detail entry context', () => {
   const source = readFileSync(
     resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),

@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueValidator;
 import net.ximatai.muyun.spring.ability.initialdata.InitialDataAbility;
 import net.ximatai.muyun.spring.ability.initialdata.InitialDataOptions;
 import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
@@ -146,6 +147,7 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
             scheme.setScopeType(TenantContext.isSystem() ? MenuScopeType.SYSTEM : MenuScopeType.TENANT);
         }
         normalizeScope(scheme);
+        DiscriminatedValueValidator.normalizeAndValidate(scheme);
         rejectDuplicateAlias(scheme);
     }
 
@@ -168,18 +170,11 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
                     throw BusinessExceptions.warning("platform.menu-scheme.tenant-required",
                             "Tenant menu scheme requires tenantId");
                 }
-                if (scheme.getScopeId() == null || scheme.getScopeId().isBlank()) {
-                    scheme.setScopeId(scheme.getTenantId());
-                }
             }
             case ORGANIZATION -> {
                 if (scheme.getTenantId() == null || scheme.getTenantId().isBlank()) {
                     throw BusinessExceptions.warning("platform.menu-scheme.organization-tenant-required",
                             "Organization menu scheme requires tenantId");
-                }
-                if (scheme.getScopeId() == null || scheme.getScopeId().isBlank()) {
-                    throw BusinessExceptions.warning("platform.menu-scheme.organization-scope-required",
-                            "Organization menu scheme requires scopeId");
                 }
             }
         }

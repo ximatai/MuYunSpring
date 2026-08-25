@@ -70,6 +70,10 @@ it('record explorer panel uses a single title contract', () => {
     headerSource,
     /<h2[\s\S]*?class="management-panel-header-title"[\s\S]*?<UiButton[\s\S]*?class="management-panel-header-title-action"/,
   );
+  assert.match(headerSource, /management-panel-header-title-action-label/);
+  assert.match(headerSource, /text-overflow: ellipsis/);
+  assert.match(headerSource, /max-width: 100%/);
+  assert.match(headerSource, /\.management-panel-header-title \{\s*display: block;/);
   assert.notMatch(headerSource, /<h2 v-else/);
   assert.notMatch(headerSource, /record-status-switch-offset-y/);
   assert.notMatch(statusSwitchSource, /translateY\(/);

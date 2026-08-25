@@ -69,10 +69,14 @@ public class StaticReferenceResolveFacade {
         StaticModuleDefinition source = modules.find(moduleAlias)
                 .orElseThrow(() -> new PlatformException("static module is not available: " + moduleAlias));
         ReferencePlan plan = sourceModels(source).stream()
-                .flatMap(modelClass -> StaticReferenceResolver.rules(modelClass).stream())
-                .filter(rule -> rule.plan().sourceField().equals(fieldName))
+                .flatMap(modelClass -> java.util.stream.Stream.concat(
+                        StaticReferenceResolver.rules(modelClass).stream().map(StaticReferenceResolver.ReferenceRule::plan),
+                        StaticReferenceResolver.discriminatedValuePlans(modelClass).stream()
+                                .flatMap(value -> value.cases().stream())
+                                .map(net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCasePlan::reference)
+                                .filter(java.util.Objects::nonNull)))
+                .filter(candidate -> candidate.sourceField().equals(fieldName))
                 .findFirst()
-                .map(rule -> rule.plan())
                 .orElseThrow(() -> new PlatformException("static reference field is not available: " + moduleAlias + "." + fieldName));
         WebReferenceResolveRequest normalized = request == null ? WebReferenceResolveRequest.empty() : request;
         return WebReferenceTenantScope.within(normalized, plan.tenantScope(),

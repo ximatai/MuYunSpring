@@ -20,6 +20,8 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCasePlan;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueSource;
 import net.ximatai.muyun.spring.common.model.capability.EnabledCapable;
 import net.ximatai.muyun.spring.common.model.capability.TitledCapable;
 import net.ximatai.muyun.spring.common.model.capability.TreeCapable;
@@ -28,6 +30,7 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityDiscriminatedValueDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityRelationDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -41,6 +44,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -57,6 +61,44 @@ import static org.mockito.Mockito.when;
 class DynamicRecordDaoTest {
     private static final String SCHEMA = "public";
     private static final String TABLE = "app_contract";
+
+    @Test
+    void shouldNormalizeDiscriminatedFieldBeforeInsert() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.insertItem(eq(SCHEMA), eq(TABLE), anyMap(), eq("id")))
+                .thenAnswer(invocation -> invocation.<Map<String, Object>>getArgument(2).get("id"));
+        EntityDefinition entity = new EntityDefinition(
+                "contract",
+                TABLE,
+                "Contract",
+                List.of(
+                        FieldDefinition.string("scopeType", "Scope type").column("scope_type").required(),
+                        FieldDefinition.string("scopeId", "Scope id").column("scope_id")
+                )
+        );
+        ModuleDefinition module = ModuleDefinition.builder("sales.contract", "Sales")
+                .entities(List.of(entity))
+                .discriminatedValues(List.of(new EntityDiscriminatedValueDefinition(
+                        "contract", "scopeId", "scopeType", Set.of("tenant"),
+                        List.of(new DiscriminatedValueCasePlan("tenant", DiscriminatedValueSource.FIELD,
+                                null, "tenantId", null))
+                )))
+                .build();
+        DynamicEntityService service = DynamicEntityService.withModule(
+                new DynamicRecordDao(operations, entity), "sales.contract", DynamicRecordLifecycle.NONE, module,
+                ignored -> null
+        );
+        DynamicRecord record = new DynamicRecord(entity)
+                .setValue("scopeType", "tenant");
+        record.setTenantId("tenant-a");
+
+        service.insert(record);
+
+        assertThat(record.getValue("scopeId")).isEqualTo("tenant-a");
+        ArgumentCaptor<Map<String, Object>> body = mapCaptor();
+        verify(operations).insertItem(eq(SCHEMA), eq(TABLE), body.capture(), eq("id"));
+        assertThat(body.getValue()).containsEntry("scope_id", "tenant-a");
+    }
 
     @Test
     void shouldInsertWithTableColumnsAndEntityDefaults() {

@@ -11,6 +11,7 @@ const props = withDefaults(
     /** Explains why this otherwise visible status control is unavailable. */
     disabledReason?: string;
     loading?: boolean;
+    size?: 'default' | 'small';
     showLabel?: boolean;
   }>(),
   {
@@ -18,6 +19,7 @@ const props = withDefaults(
     disabled: false,
     disabledReason: undefined,
     loading: false,
+    size: 'default',
     showLabel: true,
   },
 );
@@ -46,6 +48,7 @@ function handleChange(enabled: boolean) {
       :checked="checked"
       :disabled="disabled"
       :loading="loading"
+      :size="size"
       checked-text="启"
       unchecked-text="停"
       @change="handleChange"

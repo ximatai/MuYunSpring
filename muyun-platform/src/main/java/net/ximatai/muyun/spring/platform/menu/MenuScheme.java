@@ -10,6 +10,10 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEnt
 import net.ximatai.muyun.spring.common.initialdata.InitialDataFields;
 import net.ximatai.muyun.spring.common.option.OptionField;
 import net.ximatai.muyun.spring.common.option.OptionSourceType;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValue;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCase;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueSource;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateBinding;
 
 @Getter
 @Setter
@@ -28,5 +32,12 @@ public class MenuScheme extends StandardEnabledSortableEntity {
     private MenuScopeType scopeType = MenuScopeType.TENANT;
 
     @Column(name = "scope_id", type = ColumnType.VARCHAR, length = 64, comment = "Menu scheme scope id")
+    @DiscriminatedValue(discriminator = "scopeType", enumType = MenuScopeType.class, cases = {
+            @DiscriminatedValueCase(when = "system", source = DiscriminatedValueSource.FIXED, fixedValue = "system"),
+            @DiscriminatedValueCase(when = "tenant", source = DiscriminatedValueSource.FIELD, sourceField = "tenantId"),
+            @DiscriminatedValueCase(when = "organization", source = DiscriminatedValueSource.REFERENCE,
+                    moduleAlias = "iam", entityAlias = "organization",
+                    candidateBindings = @ReferenceCandidateBinding(sourceField = "tenantId", targetField = "tenantId"))
+    })
     private String scopeId;
 }

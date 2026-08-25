@@ -1114,20 +1114,41 @@ public final class ModuleUiDescriptorCompiler {
         if (modelClass == null) {
             return Map.of();
         }
-        return StaticReferenceResolver.rules(modelClass).stream()
+        java.util.stream.Stream<java.util.Map.Entry<String, net.ximatai.muyun.spring.ability.reference.ReferencePlan>> declared =
+                StaticReferenceResolver.rules(modelClass).stream()
+                        .map(rule -> java.util.Map.entry(rule.plan().sourceField(), rule.plan()));
+        java.util.stream.Stream<java.util.Map.Entry<String, net.ximatai.muyun.spring.ability.reference.ReferencePlan>> discriminated =
+                StaticReferenceResolver.discriminatedValuePlans(modelClass).stream()
+                        .flatMap(plan -> plan.cases().stream())
+                        .filter(plan -> plan.reference() != null)
+                        .map(plan -> java.util.Map.entry(plan.reference().sourceField(), plan.reference()));
+        java.util.stream.Stream<java.util.Map.Entry<String, ResolvedReferenceFieldDescriptor>> standardScope =
+                java.util.stream.Stream.of(java.util.Map.entry(StandardEntitySchema.TENANT_ID_FIELD,
+                        new ResolvedReferenceFieldDescriptor("iam.tenant",
+                                net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                                "title", pickerModeResolver.apply("iam.tenant"))));
+        Map<String, ResolvedReferenceFieldDescriptor> declaredReferences = java.util.stream.Stream.concat(declared, discriminated)
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                        rule -> rule.plan().sourceField(),
-                        rule -> new ResolvedReferenceFieldDescriptor(rule.target().qualifiedName(), rule.cardinality(),
-                                referenceTitleField(modelClass, rule.plan().sourceField()),
-                                pickerModeResolver.apply(rule.target().qualifiedName()),
+                        java.util.Map.Entry::getKey,
+                        entry -> {
+                            net.ximatai.muyun.spring.ability.reference.ReferencePlan plan = entry.getValue();
+                            return new ResolvedReferenceFieldDescriptor(plan.target().qualifiedName(), plan.cardinality(),
+                                referenceTitleField(modelClass, plan.sourceField()),
+                                pickerModeResolver.apply(plan.target().qualifiedName()),
                                 ReferenceCandidateDelivery.SOURCE_FIELD,
                                 "/platform.module/" + moduleAlias + "/references/"
-                                        + rule.plan().sourceField() + "/resolve",
-                                rule.plan().candidateDependencies(),
-                                rule.plan().selectionProjections().stream()
-                                        .map(ResolvedReferenceSelectionProjectionDescriptor::new).toList()),
+                                        + plan.sourceField() + "/resolve",
+                                plan.candidateDependencies(),
+                                plan.selectionProjections().stream()
+                                        .map(ResolvedReferenceSelectionProjectionDescriptor::new).toList());
+                        },
                         (left, right) -> left
                 ));
+        return java.util.stream.Stream.concat(declaredReferences.entrySet().stream(), standardScope)
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        java.util.Map.Entry::getKey,
+                        java.util.Map.Entry::getValue,
+                        (declaredReference, standardReference) -> declaredReference));
     }
 
     /**

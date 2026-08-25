@@ -9,6 +9,7 @@ const props = withDefaults(
     checked?: boolean;
     disabled?: boolean;
     loading?: boolean;
+    size?: 'default' | 'small';
     checkedText?: string;
     uncheckedText?: string;
   }>(),
@@ -16,6 +17,7 @@ const props = withDefaults(
     checked: false,
     disabled: false,
     loading: false,
+    size: 'default',
     checkedText: undefined,
     uncheckedText: undefined,
   },
@@ -41,6 +43,7 @@ function handleChange(checked: unknown) {
     :checked="props.checked"
     :disabled="props.disabled"
     :loading="props.loading"
+    :size="props.size"
     :class="[$attrs.class, { 'ui-switch--icon-only': !hasText }]"
     :style="$attrs.style"
     @change="handleChange"
@@ -53,6 +56,7 @@ function handleChange(checked: unknown) {
     :checked="props.checked"
     :disabled="props.disabled"
     :loading="props.loading"
+    :size="props.size"
     :class="[$attrs.class, 'ui-switch--icon-only']"
     :style="$attrs.style"
     @change="handleChange"

@@ -16,6 +16,32 @@ class ModuleDefinitionValidatorTest {
     private final ModuleDefinitionValidator validator = new ModuleDefinitionValidator();
 
     @Test
+    void shouldRejectDiscriminatedReferenceWithUnknownDependencyField() {
+        net.ximatai.muyun.spring.ability.reference.ReferencePlan reference = new net.ximatai.muyun.spring.ability.reference.ReferencePlan(
+                "scopeId", net.ximatai.muyun.spring.ability.reference.ReferenceTarget.of("iam", "organization"),
+                net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE, List.of(),
+                net.ximatai.muyun.spring.ability.reference.ReferenceIntegrityPolicy.DEFAULT,
+                net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope.SAME_TENANT,
+                List.of(new net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependency("unknownScopeId", "tenantId", true)),
+                List.of());
+        var branch = new net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCasePlan(
+                "organization", net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueSource.REFERENCE,
+                null, null, reference);
+        EntityDefinition entity = new EntityDefinition("scope_rule", "sales_scope_rule", "Scope rule", List.of(
+                FieldDefinition.string("scopeType", "Scope type").column("scope_type"),
+                FieldDefinition.string("scopeId", "Scope id").column("scope_id")), Set.of());
+        ModuleDefinition module = ModuleDefinition.builder("sales.scope_rule", "Scope rule")
+                .entities(List.of(entity))
+                .discriminatedValues(List.of(new EntityDiscriminatedValueDefinition("scope_rule", "scopeId", "scopeType",
+                        Set.of("organization"), List.of(branch))))
+                .build();
+
+        assertThatThrownBy(() -> validator.validate(module))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("unknown discriminator reference dependency");
+    }
+
+    @Test
     void shouldRejectRestrictPolicyForManyReference() {
         ModuleDefinition module = ModuleDefinition.builder("sales.invoice", "Invoice")
                 .entities(List.of(

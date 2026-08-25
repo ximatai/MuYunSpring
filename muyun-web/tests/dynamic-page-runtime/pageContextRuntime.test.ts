@@ -3,6 +3,7 @@ import {
   externalPageContextCriteriaKeys,
   requiredNavigatorListScopeCriteriaKeys,
   resolvePageContextTargetValues,
+  reuseEquivalentQueryValues,
 } from '@/dynamic-page-runtime/pageContextRuntime';
 
 describe('resolvePageContextTargetValues', () => {
@@ -164,5 +165,17 @@ describe('resolvePageContextTargetValues', () => {
     expect(externalPageContextCriteriaKeys(multiLevelBindings, 'NAVIGATOR_QUERY', 'department')).toEqual([
       'organizationId',
     ]);
+  });
+});
+
+describe('reuseEquivalentQueryValues', () => {
+  it('keeps a query scope stable when an unrelated render reconstructs identical criteria', () => {
+    const previous = { applicationAlias: 'platform' };
+
+    expect(reuseEquivalentQueryValues(previous, { applicationAlias: 'platform' })).toBe(previous);
+    expect(reuseEquivalentQueryValues(previous, { applicationAlias: 'iam' })).toEqual({
+      applicationAlias: 'iam',
+    });
+    expect(reuseEquivalentQueryValues(previous, undefined)).toBeUndefined();
   });
 });
