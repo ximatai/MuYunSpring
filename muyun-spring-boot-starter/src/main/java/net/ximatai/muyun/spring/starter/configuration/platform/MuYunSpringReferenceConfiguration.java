@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.platform.reference.StaticReferenceDeletionGuard;
 import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
 import net.ximatai.muyun.spring.platform.reference.PlatformChildAbilityResolver;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordRuntime;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
@@ -66,9 +67,10 @@ public class MuYunSpringReferenceConfiguration {
     /** 将静态及动态目标解析规则安装到引用候选与标题投影链路。 */
     ReferenceTargetResolverRegistration referenceTargetResolverRegistration(
             StaticAbilityCatalog staticAbilities,
-            ObjectProvider<DynamicRecordRuntime> dynamicRuntime) {
+            ObjectProvider<DynamicRecordRuntime> dynamicRuntime,
+            ObjectProvider<DynamicRecordService> dynamicRecords) {
         return new ReferenceTargetResolverRegistration(new PlatformReferenceTargetResolver(
-                staticAbilities, dynamicRuntime.getIfAvailable()));
+                staticAbilities, dynamicRuntime.getIfAvailable(), dynamicRecords.getIfAvailable()));
     }
 
     @Bean

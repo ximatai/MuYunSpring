@@ -26,6 +26,8 @@ const props = withDefaults(
      * They are forwarded as standard query values rather than filtered in the browser.
      */
     externalQueryValues?: Record<string, unknown>;
+    navigatorHostModuleAlias?: string;
+    navigatorTargetLevelKey?: string;
     keyword?: string;
     emptyDescription?: string;
     loadingTip?: string;
@@ -43,6 +45,8 @@ const props = withDefaults(
     selectedId: undefined,
     reloadKey: undefined,
     externalQueryValues: undefined,
+    navigatorHostModuleAlias: undefined,
+    navigatorTargetLevelKey: undefined,
     keyword: '',
     emptyDescription: '暂无记录',
     loadingTip: '加载记录列表',
@@ -133,6 +137,12 @@ async function loadRecords() {
       page: { pageNum: 1, pageSize: 200 },
       ...(props.externalQueryValues && Object.keys(props.externalQueryValues).length > 0
         ? { externalQueryValues: props.externalQueryValues }
+        : {}),
+      ...(props.navigatorHostModuleAlias && props.navigatorTargetLevelKey
+        ? {
+            navigatorHostModuleAlias: props.navigatorHostModuleAlias,
+            navigatorTargetLevelKey: props.navigatorTargetLevelKey,
+          }
         : {}),
     });
     if (requestSeq !== recordsRequestSeq) return;

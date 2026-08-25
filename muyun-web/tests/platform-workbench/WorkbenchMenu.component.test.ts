@@ -988,7 +988,7 @@ describe('Workbench compact menu', () => {
     expect(wrapper.emitted('userCommand')).toEqual([['themeSkin']]);
   });
 
-  it('keeps the refresh entry visible but disabled until page refresh has an independent contract', () => {
+  it('requests a refresh for only the active page when the topbar action is requested', async () => {
     const wrapper = shallowMount(Workbench, {
       props: {
         startup: {
@@ -1006,8 +1006,12 @@ describe('Workbench compact menu', () => {
         },
       },
     });
-    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('disabled')).toBeDefined();
-    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('title')).toBe('刷新当前页暂未实现');
+    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('disabled')).not.toBe('true');
+    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('title')).toBe('刷新当前页');
+
+    await wrapper.get('[aria-label="刷新当前页"]').trigger('click');
+
+    expect(wrapper.emitted('refreshPage')).toEqual([['application']]);
   });
 
   it('presents the shared module host without leaking its legacy dynamic route name', () => {

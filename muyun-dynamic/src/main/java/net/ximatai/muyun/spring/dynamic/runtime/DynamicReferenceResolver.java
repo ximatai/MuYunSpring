@@ -5,6 +5,8 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
+import net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjectionReader;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceAffectDefinition;
@@ -50,8 +52,11 @@ final class DynamicReferenceResolver {
     private DynamicReferenceResolveResponse query(DynamicReferenceResolveRequest request) {
         Criteria criteria = queryCriteria(request);
         PageResult<DynamicRecord> page = targetService.pageQuery(criteria, request.pageRequest());
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(
+                page.getRecords(), request.includeProjections());
         List<DynamicReferenceResolveItem> items = page.getRecords().stream()
-                .map(record -> item(record, matchedBy(record, request.fuzzy(), request.matchMode()), request.includeProjections()))
+                .map(record -> item(record, matchedBy(record, request.fuzzy(), request.matchMode()),
+                        request.includeProjections(), selectionProjections.get(record.getId())))
                 .toList();
         return new DynamicReferenceResolveResponse(
                 resolveQueryStatus(page.getTotal()),
@@ -115,12 +120,17 @@ final class DynamicReferenceResolver {
             return new DynamicReferenceResolveResult(value, DynamicReferenceResolveStatus.NOT_FOUND, matchMode, null, List.of());
         }
         if (page.getTotal() == 1 && page.getRecords().size() == 1) {
+            DynamicRecord record = page.getRecords().getFirst();
             return new DynamicReferenceResolveResult(value, DynamicReferenceResolveStatus.RESOLVED, matchMode,
-                    item(page.getRecords().getFirst(), matchMode, request.includeProjections()), List.of());
+                    item(record, matchMode, request.includeProjections(), selectionProjections(
+                            List.of(record), request.includeProjections()).get(record.getId())), List.of());
         }
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(page.getRecords(),
+                request.includeProjections());
         return new DynamicReferenceResolveResult(value, DynamicReferenceResolveStatus.AMBIGUOUS, matchMode, null,
                 page.getRecords().stream()
-                        .map(record -> item(record, matchMode, request.includeProjections()))
+                        .map(record -> item(record, matchMode, request.includeProjections(),
+                                selectionProjections.get(record.getId())))
                         .toList());
     }
 
@@ -151,18 +161,21 @@ final class DynamicReferenceResolver {
 
     private DynamicReferenceResolveItem item(DynamicRecord record,
                                              DynamicReferenceMatchMode matchedBy,
-                                             boolean includeProjections) {
+                                             boolean includeProjections,
+                                             Map<String, Object> selectionProjections) {
         return new DynamicReferenceResolveItem(
                 record.getId(),
                 targetService.referenceTitle(record),
                 matchedBy,
-                projectionValues(record, includeProjections),
+                projectionValues(record, includeProjections, selectionProjections),
                 affectPatch(record)
         );
     }
 
-    private Map<String, Object> projectionValues(DynamicRecord record, boolean includeProjections) {
-        if (!includeProjections || plan.projections().isEmpty()) {
+    private Map<String, Object> projectionValues(DynamicRecord record,
+                                                  boolean includeProjections,
+                                                  Map<String, Object> selectionProjections) {
+        if (!includeProjections || (plan.projections().isEmpty() && plan.selectionProjections().isEmpty())) {
             return Map.of();
         }
         Map<String, Object> values = new LinkedHashMap<>();
@@ -173,7 +186,19 @@ final class DynamicReferenceResolver {
                     FieldOutputContext.REFERENCE
             ));
         }
+        if (selectionProjections != null) {
+            values.putAll(selectionProjections);
+        }
         return values;
+    }
+
+    private Map<String, Map<String, Object>> selectionProjections(List<DynamicRecord> records,
+                                                                   boolean includeProjections) {
+        if (!includeProjections || plan.selectionProjections().isEmpty() || records == null || records.isEmpty()) {
+            return Map.of();
+        }
+        return ReferenceSelectionProjectionReader.read(plan.target(), records.stream().map(DynamicRecord::getId).toList(),
+                plan.selectionProjections(), targetService.referenceTargetResolver());
     }
 
     private Map<String, Object> affectPatch(DynamicRecord record) {

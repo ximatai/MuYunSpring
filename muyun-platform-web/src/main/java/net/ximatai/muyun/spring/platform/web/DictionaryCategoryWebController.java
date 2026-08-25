@@ -42,7 +42,7 @@ public class DictionaryCategoryWebController
                                         .manageable())
                                 .bindNavigatorToNavigator("application", "category", "applicationAlias"))
                         .treeResource("item", "category", "categoryId", resource -> resource
-                                .availableWhenEquals("categoryKind", DictionaryCategoryKind.DICTIONARY.name())
+                                .availableWhenEquals("categoryKind", DictionaryCategoryKind.DICTIONARY.getCode())
                                 .title("字典项")
                                 .emptyDescription("请选择字典类目，或在类目中维护后新增字典项")
                                 .createTitle("新建字典项"))

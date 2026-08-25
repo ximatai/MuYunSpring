@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.dynamic.web;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
 import net.ximatai.muyun.spring.platform.web.ListQuerySummaryRuntime;
+import net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService;
 import net.ximatai.muyun.spring.platform.attachment.RecordAttachmentAccessService;
 import net.ximatai.muyun.spring.platform.attachment.RecordAttachmentService;
 import net.ximatai.muyun.spring.platform.code.CodeBusinessPreviewService;
@@ -29,7 +30,8 @@ public class DynamicRecordWebServiceConfiguration {
             ObjectProvider<FieldUiControlBindingService> fieldUiControlBindingService,
             DynamicRelationProjectionReadService relationProjectionReadService,
             ObjectProvider<ModuleExecutionPlanCatalog> executionPlanCatalog,
-            ObjectProvider<ListQuerySummaryRuntime> listQuerySummaryRuntime) {
+            ObjectProvider<ListQuerySummaryRuntime> listQuerySummaryRuntime,
+            ObjectProvider<PlatformModuleRuntimeContextService> runtimeContextService) {
         return new DynamicRecordQueryServices(
                 pageConfigSnapshotService.getIfAvailable(),
                 queryItemService.getIfAvailable(),
@@ -37,7 +39,7 @@ public class DynamicRecordWebServiceConfiguration {
                 fieldUiControlService.getIfAvailable(),
                 fieldUiControlBindingService.getIfAvailable(),
                 relationProjectionReadService,
-                executionPlanCatalog.getIfAvailable(), listQuerySummaryRuntime.getIfAvailable());
+                executionPlanCatalog.getIfAvailable(), listQuerySummaryRuntime.getIfAvailable(), runtimeContextService.getIfAvailable());
     }
 
     @Bean

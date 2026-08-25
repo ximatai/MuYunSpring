@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   externalPageContextCriteriaKeys,
+  requiredNavigatorListScopeCriteriaKeys,
   resolvePageContextTargetValues,
+  reuseEquivalentQueryValues,
 } from '@/dynamic-page-runtime/pageContextRuntime';
 
 describe('resolvePageContextTargetValues', () => {
@@ -114,6 +116,31 @@ describe('resolvePageContextTargetValues', () => {
     expect(externalPageContextCriteriaKeys([...bindings], 'NAVIGATOR_QUERY')).toEqual(['tenantId']);
   });
 
+  it('requires only required-scope navigator bindings while retaining optional filters as query values', () => {
+    const listBindings = [
+      {
+        source: 'NAVIGATOR',
+        sourceKey: 'tenant',
+        target: 'LIST_QUERY',
+        targetKey: 'tenantId',
+        navigatorListQueryMode: 'REQUIRED_SCOPE',
+      },
+      {
+        source: 'NAVIGATOR',
+        sourceKey: 'project',
+        target: 'LIST_QUERY',
+        targetKey: 'projectId',
+        navigatorListQueryMode: 'OPTIONAL_FILTER',
+      },
+    ] as const;
+
+    expect(requiredNavigatorListScopeCriteriaKeys(listBindings)).toEqual(['tenantId']);
+    expect(resolvePageContextTargetValues(listBindings, 'LIST_QUERY', { NAVIGATOR: {} })).toBeUndefined();
+    expect(
+      resolvePageContextTargetValues(listBindings, 'LIST_QUERY', { NAVIGATOR: { project: 'project-1' } }),
+    ).toEqual({ projectId: 'project-1' });
+  });
+
   it('keeps required navigator-query criteria isolated to their target level', () => {
     const multiLevelBindings = [
       {
@@ -138,5 +165,17 @@ describe('resolvePageContextTargetValues', () => {
     expect(externalPageContextCriteriaKeys(multiLevelBindings, 'NAVIGATOR_QUERY', 'department')).toEqual([
       'organizationId',
     ]);
+  });
+});
+
+describe('reuseEquivalentQueryValues', () => {
+  it('keeps a query scope stable when an unrelated render reconstructs identical criteria', () => {
+    const previous = { applicationAlias: 'platform' };
+
+    expect(reuseEquivalentQueryValues(previous, { applicationAlias: 'platform' })).toBe(previous);
+    expect(reuseEquivalentQueryValues(previous, { applicationAlias: 'iam' })).toEqual({
+      applicationAlias: 'iam',
+    });
+    expect(reuseEquivalentQueryValues(previous, undefined)).toBeUndefined();
   });
 });

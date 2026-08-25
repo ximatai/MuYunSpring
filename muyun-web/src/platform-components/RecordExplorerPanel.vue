@@ -8,6 +8,7 @@ defineOptions({ name: 'RecordExplorerPanel' });
 const props = withDefaults(
   defineProps<{
     title: string;
+    subtitle?: string;
     refreshTitle?: string;
     searchKeyword?: string;
     searchPlaceholder?: string;
@@ -15,6 +16,7 @@ const props = withDefaults(
   }>(),
   {
     refreshTitle: undefined,
+    subtitle: undefined,
     searchKeyword: '',
     searchPlaceholder: '搜索名称、编码或 ID',
     searchable: true,
@@ -63,6 +65,7 @@ async function focusSearchInput() {
     <ManagementPanelHeader
       class="record-explorer-panel-header"
       :title="title"
+      :subtitle="subtitle"
       title-action-icon="reload"
       :title-action-title="refreshTitle ?? `刷新${title}`"
       @title-action="emit('refresh')"

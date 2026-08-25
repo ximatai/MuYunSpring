@@ -518,7 +518,7 @@ export type MenuScopeType = 'system' | 'tenant' | 'organization';
 export interface MenuScheme extends StandardEnabledSortableEntity {
   alias?: string;
   scopeType?: MenuScopeType;
-  scopeId?: string;
+  organizationId?: string;
 }
 
 export interface ModuleMenuTarget {
@@ -738,6 +738,9 @@ export interface WebQueryRequest {
   quickSearch?: string;
   quickSearchFields?: string[];
   externalQueryValues?: Record<string, unknown>;
+  /** Host page and target level for a navigator REFERENCE query. */
+  navigatorHostModuleAlias?: string;
+  navigatorTargetLevelKey?: string;
 }
 
 /** Shared field-reference delivery contract for static and metadata-backed modules. */
@@ -765,6 +768,14 @@ export interface WebReferenceResolveRequest {
   uiConfigId?: string;
   queryTemplateId?: string;
   externalQueryValues?: Record<string, unknown>;
+  /**
+   * Host page that owns this navigator reference request.  Reference transports
+   * use it only to resolve the declared NAVIGATOR_QUERY bindings; ordinary
+   * module queries deliberately ignore it.
+   */
+  navigatorHostModuleAlias?: string;
+  /** Navigator level in the host page whose source is being queried. */
+  navigatorTargetLevelKey?: string;
 }
 
 export interface WebReferenceResolveItem {
@@ -1006,6 +1017,20 @@ export interface ResolvedReferenceFieldDescriptor {
   candidateDependencies?: ReferenceCandidateDependency[];
   /** Read-side title projection for this scalar reference, when supplied by the server. */
   titleField?: string;
+  /**
+   * Explicitly authorized target-field paths available after choosing this ONE reference.
+   * Paths are relative to this reference field; the form runtime prefixes them with the
+   * descriptor-owned source field name before exposing them to WEB_UI formulas.
+   */
+  selectionProjections?: ResolvedReferenceSelectionProjectionDescriptor[];
+}
+
+/**
+ * A declared projection below a record-picker target. Every non-terminal segment is a declared
+ * ONE reference; the terminal segment is the selected value delivered by the server.
+ */
+export interface ResolvedReferenceSelectionProjectionDescriptor {
+  path: string[];
 }
 
 export interface ReferenceCandidateDependency {
@@ -1073,11 +1098,12 @@ export type ModulePageTemplate = 'FLAT_MANAGEMENT' | 'LIST_DETAIL_CARD' | 'TREE_
 export interface ResolvedPageExplorerDescriptor {
   title: string;
   searchPlaceholder: string;
+  /** Optional record field rendered as the compact navigator secondary identity. */
+  secondaryField?: string;
   emptyDescription: string;
   recordLabel: string;
   fallbackTitle: string;
   titleField: string;
-  secondaryField?: string;
   mutedWhenDisabled: boolean;
 }
 
@@ -1092,6 +1118,8 @@ export interface ResolvedPageNavigatorLevelDescriptor {
   sourceModuleAlias: string;
   title: string;
   searchPlaceholder: string;
+  /** Optional record field rendered as the compact navigator secondary identity. */
+  secondaryField?: string;
   /** Presentation policy applied after the source has authoritatively loaded. */
   singleResultPolicy?: 'NONE' | 'AUTO_SELECT' | 'AUTO_SELECT_AND_HIDE';
   /** Explicit initial selection policy; omitted means the navigator starts unselected. */
@@ -1113,6 +1141,11 @@ export interface ResolvedPageContextBindingDescriptor {
   targetNavigatorLevelKey?: string;
   /** Field name of the record picker which receives this query context. */
   targetPickerFieldKey?: string;
+  /**
+   * Only applies to NAVIGATOR -> LIST_QUERY. Omitted descriptors remain required for backwards
+   * compatibility with previously published page definitions.
+   */
+  navigatorListQueryMode?: 'REQUIRED_SCOPE' | 'OPTIONAL_FILTER';
 }
 
 export interface ResolvedPageNavigatorManagementDescriptor {

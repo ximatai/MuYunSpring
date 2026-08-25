@@ -68,7 +68,9 @@ function visible(fieldName: string, state: ModulePageFormContributionState) {
 }
 
 const fieldNames = computed(() =>
-  [...props.fields.keys()].filter((fieldName) => visible(fieldName, stateSnapshot())),
+  [...props.fields.keys()].filter(
+    (fieldName) => !props.excludeFieldNames?.includes(fieldName) && visible(fieldName, stateSnapshot()),
+  ),
 );
 
 function imageUploadHintOf(fieldName: string) {

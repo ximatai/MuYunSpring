@@ -99,7 +99,7 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
                     + handlerMethod.getBeanType().getName() + "#" + handlerMethod.getMethod().getName());
         }
         ActionExecutionContext resolved = context.get();
-        MenuEntryRequestContext.requireModuleAlias(resolved.moduleAlias());
+        MenuEntryRequestContext.requireModuleAlias(resolved.moduleAlias(), pageEntryParentModuleAlias(handlerMethod));
         ActingContextHolder.Scope actingScope = null;
         try {
             if (actingRequestResolver != null) {
@@ -121,6 +121,11 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
             }
             throw ex;
         }
+    }
+
+    private static String pageEntryParentModuleAlias(HandlerMethod handlerMethod) {
+        PlatformPageEntryChild child = handlerMethod.getBeanType().getAnnotation(PlatformPageEntryChild.class);
+        return child == null ? null : child.parentModuleAlias();
     }
 
     @Override

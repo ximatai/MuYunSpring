@@ -16,6 +16,32 @@ class ModuleDefinitionValidatorTest {
     private final ModuleDefinitionValidator validator = new ModuleDefinitionValidator();
 
     @Test
+    void shouldRejectDiscriminatedReferenceWithUnknownDependencyField() {
+        net.ximatai.muyun.spring.ability.reference.ReferencePlan reference = new net.ximatai.muyun.spring.ability.reference.ReferencePlan(
+                "scopeId", net.ximatai.muyun.spring.ability.reference.ReferenceTarget.of("iam", "organization"),
+                net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE, List.of(),
+                net.ximatai.muyun.spring.ability.reference.ReferenceIntegrityPolicy.DEFAULT,
+                net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope.SAME_TENANT,
+                List.of(new net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependency("unknownScopeId", "tenantId", true)),
+                List.of());
+        var branch = new net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCasePlan(
+                "organization", net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueSource.REFERENCE,
+                null, null, reference);
+        EntityDefinition entity = new EntityDefinition("scope_rule", "sales_scope_rule", "Scope rule", List.of(
+                FieldDefinition.string("scopeType", "Scope type").column("scope_type"),
+                FieldDefinition.string("scopeId", "Scope id").column("scope_id")), Set.of());
+        ModuleDefinition module = ModuleDefinition.builder("sales.scope_rule", "Scope rule")
+                .entities(List.of(entity))
+                .discriminatedValues(List.of(new EntityDiscriminatedValueDefinition("scope_rule", "scopeId", "scopeType",
+                        Set.of("organization"), List.of(branch))))
+                .build();
+
+        assertThatThrownBy(() -> validator.validate(module))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("unknown discriminator reference dependency");
+    }
+
+    @Test
     void shouldRejectRestrictPolicyForManyReference() {
         ModuleDefinition module = ModuleDefinition.builder("sales.invoice", "Invoice")
                 .entities(List.of(
@@ -52,6 +78,51 @@ class ModuleDefinitionValidatorTest {
         assertThatThrownBy(() -> validator.validate(module))
                 .isInstanceOf(ModuleDefinitionException.class)
                 .hasMessageContaining("CASCADE_DELETE reference deletion requires cardinality ONE: invoiceIds");
+    }
+
+    @Test
+    void shouldValidateEveryInModuleSelectionProjectionHopAndTerminalField() {
+        EntityDefinition line = new EntityDefinition("line", "sales_line", "Line", List.of(
+                FieldDefinition.string("customerId", "Customer").column("customer_id")));
+        EntityDefinition customer = new EntityDefinition("customer", "sales_customer", "Customer", List.of(
+                FieldDefinition.titleField(), FieldDefinition.string("organizationId", "Organization").column("organization_id")),
+                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        EntityDefinition organization = new EntityDefinition("organization", "sales_organization", "Organization", List.of(
+                FieldDefinition.titleField(), FieldDefinition.string("regionCode", "Region").column("region_code")),
+                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        EntityReferenceDefinition customerReference = EntityReferenceDefinition
+                .to("line", "customerId", "sales.contract.customer")
+                .withRuntimeConfig(null, null, null, null, Set.of("organizationId.regionCode"));
+        ModuleDefinition module = ModuleDefinition.builder("sales.contract", "Contract")
+                .entities(List.of(line, customer, organization))
+                .references(List.of(customerReference,
+                        EntityReferenceDefinition.to("customer", "organizationId", "sales.contract.organization")))
+                .build();
+
+        validator.validate(module);
+    }
+
+    @Test
+    void shouldRejectManySelectionProjectionHopAtDynamicModulePublishTime() {
+        EntityDefinition line = new EntityDefinition("line", "sales_line", "Line", List.of(
+                FieldDefinition.string("customerId", "Customer").column("customer_id")));
+        EntityDefinition customer = new EntityDefinition("customer", "sales_customer", "Customer", List.of(
+                FieldDefinition.titleField(), FieldDefinition.string("organizationIds", "Organizations").column("organization_ids")),
+                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        EntityDefinition organization = new EntityDefinition("organization", "sales_organization", "Organization", List.of(
+                FieldDefinition.titleField(), FieldDefinition.string("regionCode", "Region").column("region_code")),
+                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        ModuleDefinition module = ModuleDefinition.builder("sales.contract", "Contract")
+                .entities(List.of(line, customer, organization))
+                .references(List.of(
+                        EntityReferenceDefinition.to("line", "customerId", "sales.contract.customer")
+                                .withRuntimeConfig(null, null, null, null, Set.of("organizationIds.regionCode")),
+                        EntityReferenceDefinition.to("customer", "organizationIds", "sales.contract.organization").many()))
+                .build();
+
+        assertThatThrownBy(() -> validator.validate(module))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("selection projection hop requires cardinality ONE: sales.contract.customer.organizationIds");
     }
 
     @Test

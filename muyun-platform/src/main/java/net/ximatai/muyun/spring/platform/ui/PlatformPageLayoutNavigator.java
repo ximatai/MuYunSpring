@@ -39,7 +39,8 @@ public final class PlatformPageLayoutNavigator {
             for (JsonNode level : levels) {
                 values.add(new PlatformPageNavigatorLevel(text(level, "key", config), text(level, "kind", config),
                         text(level, "sourceModuleAlias", config), optionalText(level, "title", config),
-                        optionalText(level, "searchPlaceholder", config), management(level.get("management"), config),
+                        optionalText(level, "searchPlaceholder", config), optionalText(level, "secondaryField", config),
+                        management(level.get("management"), config),
                         optionalText(level, "singleResultPolicy", config),
                         optionalText(level, "initialSelectionPolicy", config), optionalText(level, "sourceScope", config)));
             }
@@ -62,7 +63,8 @@ public final class PlatformPageLayoutNavigator {
             values.add(new PlatformPageContextBinding(text(binding, "source", config), text(binding, "sourceKey", config),
                     text(binding, "target", config), text(binding, "targetKey", config),
                     optionalText(binding, "targetNavigatorLevelKey", config),
-                    optionalText(binding, "targetPickerFieldKey", config)));
+                    optionalText(binding, "targetPickerFieldKey", config),
+                    optionalText(binding, "navigatorListQueryMode", config)));
         }
         return values;
     }

@@ -12,7 +12,6 @@ import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.web.query.WebQueryRequests;
-import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
@@ -121,22 +120,14 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
     }
 
     private Criteria navigatorCriteria(WebQueryRequest request) {
-        // Avoid touching an optional static page declaration when this request carries no
-        // navigator value and there is no server-owned session context to apply. Besides
-        // keeping the fallback transport lazy, this preserves read-only static controllers
-        // that contribute a projection but do not opt into page-context governance.
-        if ((request == null || request.externalQueryValues() == null || request.externalQueryValues().isEmpty())
-                && CurrentUserContext.currentUser().isEmpty()) {
+        // Controllers outside the static page DSL retain their lazy fallback path. A controller
+        // that opts into a page declaration must always evaluate its LIST_QUERY bindings: a
+        // REQUIRED_SCOPE is a server contract, not a browser-only loading convention.
+        if (!(this instanceof StaticModuleUiContributor)) {
             return Criteria.of();
         }
-        Criteria criteria = Criteria.of();
-        for (PageContextBindingDefinition binding : pageContextBindings(PageContextTarget.LIST_QUERY)) {
-            Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->
-                    request == null || request.externalQueryValues() == null ? null
-                            : request.externalQueryValues().get(binding.targetKey()));
-            if (selectedValue != null) criteria.eq(binding.targetKey(), selectedValue);
-        }
-        return criteria;
+        return PageContextScopePolicy.criteria(pageContextBindings(PageContextTarget.LIST_QUERY),
+                request == null ? Map.of() : request.externalQueryValues(), false);
     }
 
     private List<PageContextBindingDefinition> pageContextBindings(PageContextTarget target) {

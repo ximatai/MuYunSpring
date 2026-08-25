@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.dynamic.metadata;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
+import net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
@@ -32,6 +33,7 @@ public class ModuleDefinitionValidator {
     private static final String IDENTIFIER_PATTERN = "[a-z][a-z0-9_]{0,62}";
     private static final Set<String> STANDARD_COLUMNS = Set.copyOf(StandardEntitySchema.columnNames());
     private static final Set<String> STANDARD_FIELDS = Set.copyOf(StandardEntitySchema.fieldNames());
+    private static final Set<String> DISCRIMINATED_VALUE_SOURCE_STANDARD_FIELDS = Set.of(StandardEntitySchema.TENANT_ID_FIELD);
     private static final Set<String> DATA_SCOPE_COLUMNS = Set.copyOf(PlatformDataScopeSchema.columnNames());
     private static final Set<String> DATA_SCOPE_FIELDS = Set.copyOf(PlatformDataScopeSchema.fieldNames());
     private final FormulaEngine formulaEngine = new FormulaEngine();
@@ -61,7 +63,10 @@ public class ModuleDefinitionValidator {
         }
         validateFormulaRuleTargets(module, entities);
         for (EntityReferenceDefinition reference : module.references()) {
-            validateReference(reference, entities, module.moduleAlias());
+            validateReference(reference, entities, module.moduleAlias(), module.references());
+        }
+        for (EntityDiscriminatedValueDefinition value : module.discriminatedValues()) {
+            validateDiscriminatedValue(value, entities);
         }
         for (EntityReferenceLoadDefinition load : module.referenceLoads()) {
             validateReferenceLoad(load, entities, module.moduleAlias(), module.references());
@@ -672,6 +677,34 @@ public class ModuleDefinitionValidator {
         validateReference(reference, entities, null);
     }
 
+    /** Validates a dynamic declaration before it becomes a writable runtime contract. */
+    public void validateDiscriminatedValue(EntityDiscriminatedValueDefinition value,
+                                           Map<String, EntityDefinition> entities) {
+        if (value == null) throw new ModuleDefinitionException("discriminated value must not be null");
+        EntityDefinition entity = requireEntity(entities, value.sourceEntityAlias(), "discriminated value entity");
+        requireField(entity, value.valueField(), "discriminated value field");
+        requireValueSourceField(entity, value.discriminatorField(), "discriminator field");
+        try {
+            net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValuePlan plan = value.plan();
+            for (net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCasePlan branch : plan.cases()) {
+                if (branch.source() == net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueSource.FIELD) {
+                    requireValueSourceField(entity, branch.sourceField(), "discriminator source field");
+                }
+                if (branch.reference() != null) {
+                    if (branch.reference().cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
+                        throw new ModuleDefinitionException("discriminator reference must be ONE: " + value.valueField());
+                    }
+                    for (net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependency dependency
+                            : branch.reference().candidateDependencies()) {
+                        requireValueSourceField(entity, dependency.sourceField(), "discriminator reference dependency");
+                    }
+                }
+            }
+        } catch (IllegalArgumentException error) {
+            throw new ModuleDefinitionException("invalid discriminated value: " + value.valueField() + ": " + error.getMessage());
+        }
+    }
+
     public void validateView(EntityViewDefinition view, Map<String, EntityDefinition> entities) {
         if (view == null) {
             throw new ModuleDefinitionException("view must not be null");
@@ -962,6 +995,13 @@ public class ModuleDefinitionValidator {
     }
 
     public void validateReference(EntityReferenceDefinition reference, Map<String, EntityDefinition> entities, String moduleAlias) {
+        validateReference(reference, entities, moduleAlias, List.of());
+    }
+
+    private void validateReference(EntityReferenceDefinition reference,
+                                   Map<String, EntityDefinition> entities,
+                                   String moduleAlias,
+                                   List<EntityReferenceDefinition> references) {
         if (reference == null) {
             throw new ModuleDefinitionException("reference must not be null");
         }
@@ -984,6 +1024,7 @@ public class ModuleDefinitionValidator {
         EntityDefinition targetEntity = moduleAlias != null && moduleAlias.equals(target.moduleAlias())
                 ? requireEntity(entities, target.entityAlias(), "reference target entity")
                 : null;
+        validateSelectionProjections(plan, target, entities, moduleAlias, references);
         if (!reference.projections().isEmpty()) {
             if (targetEntity != null) {
                 requireReferenceTargetCapability(targetEntity, target);
@@ -1000,6 +1041,52 @@ public class ModuleDefinitionValidator {
         }
         validateReferenceInteractionRules(reference, source, target, entities, moduleAlias);
     }
+
+    /**
+     * A selection projection is a relative path from the selected reference target.  For
+     * in-module dynamic targets every hop is known at publish time, so reject invalid fields
+     * and collection hops before the runtime can attempt a read.
+     */
+    private void validateSelectionProjections(ReferencePlan plan,
+                                              ReferenceTarget target,
+                                              Map<String, EntityDefinition> entities,
+                                              String moduleAlias,
+                                              List<EntityReferenceDefinition> references) {
+        if (plan.selectionProjections().isEmpty()) {
+            return;
+        }
+        if (plan.cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
+            throw new ModuleDefinitionException("reference selection projection requires cardinality ONE: "
+                    + plan.sourceField());
+        }
+        for (ReferenceSelectionProjection projection : plan.selectionProjections()) {
+            ReferenceTarget current = target;
+            List<String> path = projection.path();
+            for (String viaField : path.subList(0, path.size() - 1)) {
+                if (moduleAlias == null || !moduleAlias.equals(current.moduleAlias())) {
+                    // A foreign module owns this metadata. Its own publish validator and the
+                    // runtime resolver validate the remaining declared hop.
+                    break;
+                }
+                EntityDefinition currentEntity = requireEntity(entities, current.entityAlias(),
+                        "reference selection projection hop source entity");
+                requireField(currentEntity, viaField, "reference selection projection hop");
+                EntityReferenceDefinition hop = requireReference(references, currentEntity.alias(), viaField);
+                if (hop.cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
+                    throw new ModuleDefinitionException("reference selection projection hop requires cardinality ONE: "
+                            + current.qualifiedName() + "." + viaField);
+                }
+                current = hop.target();
+            }
+            if (moduleAlias != null && moduleAlias.equals(current.moduleAlias())) {
+                EntityDefinition terminalEntity = requireEntity(entities, current.entityAlias(),
+                        "reference selection projection terminal entity");
+                requireReferenceTargetCapability(terminalEntity, current);
+                requireField(terminalEntity, projection.targetField(), "reference selection projection terminal field");
+            }
+        }
+    }
+
 
     private void validateReferenceLoad(EntityReferenceLoadDefinition load,
                                        Map<String, EntityDefinition> entities,
@@ -1319,5 +1406,12 @@ public class ModuleDefinitionValidator {
                 .filter(field -> field.fieldName().equals(fieldName))
                 .findFirst()
                 .orElseThrow(() -> new ModuleDefinitionException("unknown " + name + ": " + entity.alias() + "." + fieldName));
+    }
+
+    private void requireValueSourceField(EntityDefinition entity, String fieldName, String name) {
+        if (DISCRIMINATED_VALUE_SOURCE_STANDARD_FIELDS.contains(fieldName)) {
+            return;
+        }
+        requireField(entity, fieldName, name);
     }
 }

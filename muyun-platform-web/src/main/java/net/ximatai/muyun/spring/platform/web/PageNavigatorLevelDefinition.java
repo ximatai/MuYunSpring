@@ -8,10 +8,25 @@ public record PageNavigatorLevelDefinition(String key,
                                            String sourceModuleAlias,
                                            String title,
                                            String searchPlaceholder,
+                                           String secondaryField,
                                            PageNavigatorManagementDefinition management,
                                            PageNavigatorSingleResultPolicy singleResultPolicy,
                                            PageNavigatorInitialSelectionPolicy initialSelectionPolicy,
                                            PageNavigatorSourceScope sourceScope) {
+    /** Compatibility constructor for declarations without a secondary identity. */
+    public PageNavigatorLevelDefinition(String key,
+                                        PageNavigatorKind kind,
+                                        String sourceModuleAlias,
+                                        String title,
+                                        String searchPlaceholder,
+                                        PageNavigatorManagementDefinition management,
+                                        PageNavigatorSingleResultPolicy singleResultPolicy,
+                                        PageNavigatorInitialSelectionPolicy initialSelectionPolicy,
+                                        PageNavigatorSourceScope sourceScope) {
+        this(key, kind, sourceModuleAlias, title, searchPlaceholder, null, management, singleResultPolicy,
+                initialSelectionPolicy, sourceScope);
+    }
+
     public PageNavigatorLevelDefinition {
         key = PlatformNameRules.requireFieldName(key, "navigator level key");
         if (kind == null) throw new IllegalArgumentException("navigator level kind must not be null");
@@ -19,6 +34,8 @@ public record PageNavigatorLevelDefinition(String key,
         title = title == null || title.isBlank() ? "范围" : title.trim();
         searchPlaceholder = searchPlaceholder == null || searchPlaceholder.isBlank()
                 ? "搜索" + title : searchPlaceholder.trim();
+        secondaryField = secondaryField == null || secondaryField.isBlank()
+                ? null : PlatformNameRules.requireFieldName(secondaryField, "navigator secondary field");
         singleResultPolicy = singleResultPolicy == null ? PageNavigatorSingleResultPolicy.NONE : singleResultPolicy;
         initialSelectionPolicy = initialSelectionPolicy == null ? PageNavigatorInitialSelectionPolicy.NONE
                 : initialSelectionPolicy;
@@ -31,6 +48,7 @@ public record PageNavigatorLevelDefinition(String key,
         private String sourceModuleAlias;
         private String title;
         private String searchPlaceholder;
+        private String secondaryField;
         private PageNavigatorManagementDefinition management;
         private PageNavigatorSingleResultPolicy singleResultPolicy = PageNavigatorSingleResultPolicy.NONE;
         private PageNavigatorInitialSelectionPolicy initialSelectionPolicy = PageNavigatorInitialSelectionPolicy.NONE;
@@ -44,6 +62,12 @@ public record PageNavigatorLevelDefinition(String key,
 
         public Builder microList(String sourceModuleAlias, String title, String searchPlaceholder) {
             return source(PageNavigatorKind.MICRO_LIST, sourceModuleAlias, title, searchPlaceholder);
+        }
+
+        /** Field rendered as the compact secondary identity for this navigator. */
+        public Builder secondaryField(String value) {
+            secondaryField = value;
+            return this;
         }
 
         /**
@@ -90,7 +114,7 @@ public record PageNavigatorLevelDefinition(String key,
         }
 
         PageNavigatorLevelDefinition build() {
-            return new PageNavigatorLevelDefinition(key, kind, sourceModuleAlias, title, searchPlaceholder,
+            return new PageNavigatorLevelDefinition(key, kind, sourceModuleAlias, title, searchPlaceholder, secondaryField,
                     management, singleResultPolicy, initialSelectionPolicy, sourceScope);
         }
     }

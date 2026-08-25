@@ -93,6 +93,33 @@ it('adds a fixed page context header without allowing a request to replace it', 
   ]);
 });
 
+it('resolves page context headers for each request', async () => {
+  const requests: Array<{ path: string; headers?: Record<string, string> }> = [];
+  const base: HttpClient = {
+    async request(options) {
+      requests.push(options);
+      return undefined as never;
+    },
+  };
+  let context = '{"scheme":"scheme-a"}';
+  const client = withHttpHeaders(base, () => ({ 'X-MuYun-Page-Context': context }));
+
+  await client.request({ path: '/platform.menu/view/menu-a' });
+  context = '{"scheme":"scheme-b"}';
+  await client.request({ path: '/platform.menu/remove/menu-b' });
+
+  assert.deepEqual(requests, [
+    {
+      path: '/platform.menu/view/menu-a',
+      headers: { 'X-MuYun-Page-Context': '{"scheme":"scheme-a"}' },
+    },
+    {
+      path: '/platform.menu/remove/menu-b',
+      headers: { 'X-MuYun-Page-Context': '{"scheme":"scheme-b"}' },
+    },
+  ]);
+});
+
 it('limits page context headers to the owning module requests', async () => {
   const requests: Array<{ path: string; headers?: Record<string, string> }> = [];
   const base: HttpClient = {
@@ -1146,6 +1173,43 @@ it('module context creates standard CRUD capabilities from configured http facto
     assert.equal(context.runtime.can('update'), true);
     assert.equal(context.runtime.action('update')?.available, true);
     assert.equal(context.runtime.action('update')?.title, 'Update');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('navigator reference contexts attach their immutable host level to list and tree requests', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    if (request.url.endsWith('/reference-context')) {
+      return Response.json({
+        ...runtimeContext(),
+        navigatorSourceCapabilities: ['REFERENCE_QUERY', 'REFERENCE_TREE'],
+      });
+    }
+    return Response.json({ records: [] });
+  };
+
+  try {
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const context = createModuleContext({
+      moduleAlias: 'mr.project',
+      runtimeAccess: 'REFERENCE',
+      navigatorReference: { hostModuleAlias: 'mr.device', targetLevelKey: 'project' },
+    });
+
+    await context.runtime.ready;
+    await context.crud.query({ externalQueryValues: { tenantId: 'tenant-a' } });
+
+    assert.equal(requests[1].url, 'http://api.local/mr.project/navigator/reference/query');
+    assert.deepEqual(await requests[1].json(), {
+      externalQueryValues: { tenantId: 'tenant-a' },
+      navigatorHostModuleAlias: 'mr.device',
+      navigatorTargetLevelKey: 'project',
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

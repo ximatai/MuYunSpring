@@ -9,6 +9,11 @@ import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.standard.StandardEnabledTreeEntity;
 import net.ximatai.muyun.spring.common.initialdata.InitialDataFields;
 import net.ximatai.muyun.spring.common.model.capability.PlatformManagedCapable;
+import net.ximatai.muyun.spring.common.option.OptionField;
+import net.ximatai.muyun.spring.common.option.OptionSourceType;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 
 @Getter
 @Setter
@@ -25,12 +30,17 @@ public class Menu extends StandardEnabledTreeEntity implements PlatformManagedCa
     private String id;
 
     @Column(name = "scheme_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Menu scheme id")
+    @ReferenceTo(target = MenuSchemeService.class, tenantScope = ReferenceTenantScope.GLOBAL)
     private String schemeId;
 
     @Column(name = "open_mode", type = ColumnType.VARCHAR, length = 32, comment = "Menu open mode")
+    @OptionField(type = OptionSourceType.ENUM, enumType = MenuOpenMode.class)
     private MenuOpenMode openMode;
 
     @Column(name = "module_alias", type = ColumnType.VARCHAR, length = 128, comment = "Target module alias")
+    @ReferenceTo(target = PlatformModuleService.class,
+            tenantScope = ReferenceTenantScope.GLOBAL,
+            selectionProjections = {"entryType"})
     private String moduleAlias;
 
     @Column(name = "route", type = ColumnType.VARCHAR, length = 256, comment = "Route path")
@@ -40,6 +50,7 @@ public class Menu extends StandardEnabledTreeEntity implements PlatformManagedCa
     private String externalUrl;
 
     @Column(name = "page_mode", type = ColumnType.VARCHAR, length = 32, comment = "Low-code page mode")
+    @OptionField(type = OptionSourceType.ENUM, enumType = MenuPageMode.class)
     private MenuPageMode pageMode;
 
     @Column(name = "default_ui_config_id", type = ColumnType.VARCHAR, length = 32, comment = "Default UI config id")

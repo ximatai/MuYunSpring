@@ -72,12 +72,32 @@ describe('RecordQueryListPanel', () => {
         title: '控件属性',
         showTitle: false,
       },
+      global: { stubs: { ManagementPanelHeader: false } },
     });
 
     await flushPromises();
 
     expect(wrapper.find('.record-query-list-title').exists()).toBe(false);
     expect(wrapper.find('[aria-label="刷新控件属性"]').exists()).toBe(true);
+  });
+
+  it('uses the shared management header while keeping title refresh scoped to this list', async () => {
+    const requests: WebQueryRequest[] = [];
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context: createContext({ id: 'note-1' }, requests), title: '用户管理' },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    const header = wrapper.findComponent({ name: 'ManagementPanelHeader' });
+    expect(header.exists()).toBe(true);
+    expect(header.props()).toMatchObject({
+      title: '用户管理',
+      titleActionIcon: 'reload',
+      titleActionTitle: '刷新用户管理',
+    });
+
+    header.vm.$emit('titleAction');
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
   });
 
   it('renders embedded read mode without operational chrome or a standalone border', async () => {
@@ -129,6 +149,7 @@ describe('RecordQueryListPanel', () => {
           { externalCriteriaKey: 'onlineOnly', title: '仅在线', uiType: 'SWITCH', defaultValue: false },
         ],
       },
+      global: { stubs: { ManagementPanelHeader: false } },
     });
 
     await vi.waitFor(() => expect(requests).toHaveLength(1));

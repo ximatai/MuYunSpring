@@ -1664,7 +1664,7 @@ describe('ModulePageHost', () => {
                 scopeNavigatorKey: 'category',
                 scopeField: 'categoryId',
                 scopeRecordField: 'categoryKind',
-                scopeRecordEquals: 'DICTIONARY',
+                scopeRecordEquals: 'dictionary',
                 title: '字典项',
                 emptyDescription: '暂无字典项',
                 createTitle: '新建字典项',
@@ -1724,7 +1724,7 @@ describe('ModulePageHost', () => {
         .find((explorer) => explorer.props('context').moduleAlias === 'platform.dictionary_category'),
     ).toBeUndefined();
     const categoryNavigator = wrapper.findComponent({ name: 'PageNavigatorExplorer' });
-    categoryNavigator.vm.$emit('select', { id: 'folder-1', title: '目录', categoryKind: 'FOLDER' });
+    categoryNavigator.vm.$emit('select', { id: 'folder-1', title: '目录', categoryKind: 'folder' });
     await flushPromises();
     expect(
       wrapper
@@ -1733,7 +1733,7 @@ describe('ModulePageHost', () => {
     ).toBeUndefined();
     expect(requestedPaths).not.toContain('/platform.dictionary_category/tree-resources/item/folder-1/tree');
 
-    categoryNavigator.vm.$emit('select', { id: 'category-1', title: '时区', categoryKind: 'DICTIONARY' });
+    categoryNavigator.vm.$emit('select', { id: 'category-1', title: '时区', categoryKind: 'dictionary' });
     await flushPromises();
 
     const tree = wrapper
@@ -1758,6 +1758,13 @@ describe('ModulePageHost', () => {
       { actionCode: 'view', available: true },
       { actionCode: 'update', available: true },
     ]);
+    const firstScopeReloadKey = tree!.props('reloadKey') as number;
+    categoryNavigator.vm.$emit('select', { id: 'category-2', title: '语言', categoryKind: 'dictionary' });
+    await flushPromises();
+    expect(tree!.props('reloadKey')).toBe(firstScopeReloadKey + 1);
+    // The host is a navigator, not a tree module itself. TREE_MANAGEMENT still
+    // owns a persistent right-side detail card for its tree resource.
+    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).exists()).toBe(false);
   });
 
   it('rejects business detail drawer enhancements for tree modules instead of silently ignoring them', async () => {

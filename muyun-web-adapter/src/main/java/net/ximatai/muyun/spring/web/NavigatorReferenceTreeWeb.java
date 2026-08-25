@@ -19,7 +19,8 @@ public interface NavigatorReferenceTreeWeb<T extends EntityContract & TreeCapabl
     @ActionEndpoint(PlatformAction.REFERENCE)
     default WebListResponse<?> navigatorReferenceTreeQuery(HttpServletRequest request,
                                                            @RequestBody(required = false) WebQueryRequest query) {
-        TreeWebQuerySupport.bind(request, query);
+        NavigatorReferenceQueryContextResolver resolver = navigatorReferenceQueryContextResolver();
+        TreeWebQuerySupport.bind(request, resolver == null ? query : resolver.normalizeRequest(webScopeName(), query));
         return webScope(() -> new WebListResponse<>(referenceChildren(request, TreeAbility.ROOT_ID).stream()
                 .map(record -> referenceNode(request, record)).toList()));
     }

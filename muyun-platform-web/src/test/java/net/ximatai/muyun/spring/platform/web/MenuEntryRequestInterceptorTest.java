@@ -32,7 +32,11 @@ class MenuEntryRequestInterceptorTest {
         assertThat(MenuEntryRequestContext.current()).contains(new MenuEntryRequestContext(
                 "menu.system-user", "iam.user", "{\"entry\":\"system-user\"}"));
         MenuEntryRequestContext.requireModuleAlias("iam.user");
+        MenuEntryRequestContext.requireModuleAlias("iam.user_profile", "iam.user");
         assertThatThrownBy(() -> MenuEntryRequestContext.requireModuleAlias("iam.role"))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("module mismatch");
+        assertThatThrownBy(() -> MenuEntryRequestContext.requireModuleAlias("iam.user_profile", "iam.role"))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("module mismatch");
 

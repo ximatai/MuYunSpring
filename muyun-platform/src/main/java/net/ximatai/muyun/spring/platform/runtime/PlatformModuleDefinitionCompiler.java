@@ -514,7 +514,10 @@ public class PlatformModuleDefinitionCompiler {
         requireReferenceTargetField(fieldNames, moduleField.getReferenceModuleLabelField(), "reference label field");
         if (moduleField.getReferenceModulePlusFields() != null) {
             for (String plusField : moduleField.getReferenceModulePlusFields()) {
-                requireReferenceTargetField(fieldNames, plusField, "reference plus field");
+                // A plus field is a selection-projection path. The first target field is not
+                // necessarily terminal; ModuleDefinitionValidator verifies its reference hops
+                // against the complete compiled dynamic module.
+                new net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection(plusField);
             }
         }
     }

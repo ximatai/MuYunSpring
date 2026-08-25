@@ -99,9 +99,7 @@ export class FormulaRuntime {
       return node.arguments.length === 0 && isFormulaValue(node.value) ? node.value : undefined;
     }
     if (node.kind === 'FIELD') {
-      return node.arguments.length === 0 &&
-        typeof node.field === 'string' &&
-        /^[A-Za-z][A-Za-z0-9_]*$/.test(node.field)
+      return node.arguments.length === 0 && typeof node.field === 'string' && isWebUiFieldName(node.field)
         ? asFormulaValue(record[node.field])
         : undefined;
     }
@@ -265,7 +263,14 @@ function isValidWebUiRoot(node: FormulaNode): boolean {
 
 function isValidWebUiNode(node: FormulaNode, depth: number, budget: FormulaBudget): boolean {
   if (++budget.count > 64 || depth > 12 || !Array.isArray(node.arguments)) return false;
-  if (node.kind === 'FIELD') return node.operator == null && node.value == null && isDirectField(node);
+  if (node.kind === 'FIELD')
+    return (
+      node.operator == null &&
+      node.value == null &&
+      node.arguments.length === 0 &&
+      typeof node.field === 'string' &&
+      isWebUiFieldName(node.field)
+    );
   if (node.kind === 'VALUE')
     return (
       node.operator == null &&
@@ -305,7 +310,12 @@ function isValidWebUiNode(node: FormulaNode, depth: number, budget: FormulaBudge
 }
 
 function isWebUiField(node: FormulaNode, depth: number, budget: FormulaBudget): boolean {
-  return isValidWebUiNode(node, depth, budget) && node.kind === 'FIELD';
+  return (
+    isValidWebUiNode(node, depth, budget) &&
+    node.kind === 'FIELD' &&
+    typeof node.field === 'string' &&
+    isWebUiFieldName(node.field)
+  );
 }
 
 function isWebUiLiteral(node: FormulaNode, depth: number, budget: FormulaBudget): boolean {
@@ -433,6 +443,11 @@ function isDirectField(node: FormulaNode): node is FormulaNode & { field: string
     typeof node.field === 'string' &&
     /^[A-Za-z][A-Za-z0-9_]*$/.test(node.field)
   );
+}
+
+/** WEB_UI formulas may read descriptor-authorized reference selection context through dot paths. */
+function isWebUiFieldName(field: string) {
+  return /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$/.test(field);
 }
 
 function isComputeBinaryOperator(

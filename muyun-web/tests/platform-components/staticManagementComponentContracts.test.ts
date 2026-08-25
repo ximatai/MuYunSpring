@@ -70,16 +70,31 @@ it('record explorer panel uses a single title contract', () => {
     headerSource,
     /<h2[\s\S]*?class="management-panel-header-title"[\s\S]*?<UiButton[\s\S]*?class="management-panel-header-title-action"/,
   );
+  assert.match(headerSource, /management-panel-header-title-action-label/);
+  assert.match(headerSource, /management-panel-header-title-label/);
+  assert.match(headerSource, /\.management-panel-header-title-group \{[\s\S]*?gap: 4px/);
+  assert.match(headerSource, /management-panel-header-title-copy--with-status/);
+  assert.match(headerSource, /\.management-panel-header-title-copy--with-status \{\s*flex: 0 1 auto/);
+  assert.match(headerSource, /text-overflow: ellipsis/);
+  assert.match(headerSource, /\.management-panel-header-subtitle \{\s*margin: 1px 0 0;/);
+  assert.match(headerSource, /management-panel-header-title--with-subtitle/);
+  assert.match(headerSource, /max-width: 100%/);
+  assert.match(
+    headerSource,
+    /\.management-panel-header-title \{\s*display: flex;[\s\S]*?align-items: center;/,
+  );
   assert.notMatch(headerSource, /<h2 v-else/);
   assert.notMatch(headerSource, /record-status-switch-offset-y/);
   assert.notMatch(statusSwitchSource, /translateY\(/);
-  assert.match(headerSource, /\.management-panel-header-title-action::before/);
-  assert.match(headerSource, /left: calc\(100% \+ 6px\)/);
-  assert.match(headerSource, /top: 50%/);
-  assert.match(headerSource, /transform: translate\(-4px, -50%\)/);
-  assert.match(headerSource, /transform: translate\(0, -50%\)/);
-  assert.match(headerSource, /position: absolute/);
-  assert.notMatch(headerSource, /margin-inline-start: 6px/);
+  assert.match(headerSource, /padding: 0 4px/);
+  assert.match(headerSource, /margin-inline-start: -4px/);
+  assert.match(headerSource, /background: var\(--muyun-hover\)/);
+  assert.match(headerSource, /ant-btn-text:not\(:disabled\):focus-visible/);
+  assert.match(headerSource, /width: 0/);
+  assert.match(headerSource, /width: 14px/);
+  assert.match(headerSource, /margin-inline-start: 6px/);
+  assert.notMatch(headerSource, /management-panel-header-title-action::before/);
+  assert.notMatch(headerSource, /position: absolute/);
   assert.match(layoutSource, /<RecordDetailPanel[\s\S]*<slot name="detail-status"/);
   assert.match(workspaceSource, /--muyun-management-panel-padding-block/);
 });
@@ -358,14 +373,8 @@ it('page navigator renders levels through the standard module runner', () => {
 
 it('static edit draft normalizers preserve standard record fields', () => {
   const roleSource = readSource('src/views/RoleManagementView.vue');
-  const menuStateSource = readSource('src/views/menuManagementState.ts');
 
   assert.match(roleSource, /function normalizedRoleDraft[\s\S]*normalizeRecordDraft<Role>\(draft,/);
-  assert.match(menuStateSource, /function normalizeSchemeDraft[\s\S]*return \{\s*\.\.\.record,/);
-  assert.match(
-    menuStateSource,
-    /function normalizeMenuDraft[\s\S]*const normalized: MenuRecord = \{\s*\.\.\.record,/,
-  );
 });
 
 it('record explorer panel focuses and closes search from keyboard', () => {
@@ -463,49 +472,14 @@ it('record picker delegates single-value interaction to the standard select adap
   assert.match(treeSelectSource, /:filter-tree-node="filterTreeNode"/);
 });
 
-it('menu management keeps scheme actions inline and delegates search to panel', () => {
-  const menuViewSource = readSource('src/views/MenuManagementView.vue');
-  const contractsSource = readSource('src/web-contracts/index.ts');
-  const schemePanelStart = menuViewSource.indexOf('title="菜单方案"');
-  const menuTreePanelStart = menuViewSource.indexOf('title="菜单树"');
-  const schemePanelSource = menuViewSource.slice(schemePanelStart, menuTreePanelStart);
-  const menuTreePanelSource = menuViewSource.slice(menuTreePanelStart);
-
-  assert.match(menuViewSource, /function schemeActionsOf/);
-  assert.match(menuViewSource, /function schemeItemOf/);
-  assert.match(menuViewSource, /function handleSchemeInlineAction/);
-  assert.match(schemePanelSource, /:item-of="schemeItemOf"/);
-  assert.match(schemePanelSource, /@action="handleSchemeInlineAction"/);
-  assert.match(schemePanelSource, /:filter-option="schemeFilterOption"/);
-  assert.notMatch(schemePanelSource, /title="编辑菜单方案"/);
-  assert.notMatch(schemePanelSource, /title="删除菜单方案"/);
-  assert.match(menuTreePanelSource, /search-mode="none"/);
-  assert.match(menuTreePanelSource, /search-trigger="external"/);
-  assert.match(contractsSource, /export interface MenuRecord extends StandardEnabledTreeEntity/);
-});
-
 it('static management explorers use unified item descriptors', () => {
-  const explorerViews = ['MenuManagementView.vue', 'RoleManagementView.vue'];
+  const explorerViews = ['RoleManagementView.vue'];
 
   for (const fileName of explorerViews) {
     const source = readSource(`src/views/${fileName}`);
     assert.match(source, /RecordExplorerItemDescriptor/, fileName);
     assert.match(source, /:item-of=/, fileName);
   }
-
-  const menuSource = readSource('src/views/MenuManagementView.vue');
-
-  assert.notMatch(menuSource, /:tag-of=|:actions-of=/);
-});
-
-it('menu entry low-code fields are only exposed for dynamic module entries', () => {
-  const menuViewSource = readSource('src/views/MenuManagementView.vue');
-
-  assert.match(menuViewSource, /<label v-if="isDynamicModuleEntry"[\s\S]*页面模式/);
-  assert.match(menuViewSource, /<label v-if="isDynamicModuleEntry"[\s\S]*默认 UI 配置/);
-  assert.match(menuViewSource, /<label v-if="isDynamicModuleEntry"[\s\S]*默认查询模板/);
-  assert.match(menuViewSource, /<label v-if="isDynamicModuleEntry" class="full-row"[\s\S]*入口参数 JSON/);
-  assert.notMatch(menuViewSource, /<label v-if="hasModuleEntry" class="full-row"[\s\S]*入口参数 JSON/);
 });
 
 it('application scope switcher remains a platform component for legacy scoped pages', () => {
@@ -524,7 +498,6 @@ it('three-column management pages use the platform detail panel', () => {
   const indexSource = readSource('src/platform-components/index.ts');
   const panelSource = readSource('src/platform-components/RecordDetailPanel.vue');
   const layoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
-  const menuViewSource = readSource('src/views/MenuManagementView.vue');
 
   assert.match(indexSource, /RecordDetailPanel/);
   assert.match(panelSource, /defineOptions\(\{ name: 'RecordDetailPanel', inheritAttrs: false \}\)/);
@@ -540,10 +513,6 @@ it('three-column management pages use the platform detail panel', () => {
   assert.match(layoutSource, /<slot name="explorer-actions" \/>/);
   assert.match(layoutSource, /<slot name="detail-actions" \/>/);
   assert.notMatch(layoutSource, /RecordStatusTag|card-header|title-line/);
-  assert.equal(matchCount(menuViewSource, /<RecordDetailPanel/g), 1);
-  assert.match(menuViewSource, /<template #editor>[\s\S]*scheme-editor-panel/);
-  assert.match(menuViewSource, /<RecordDetailPanel class="menu-detail-column"[\s\S]*:title="menuCardTitle"/);
-  assert.notMatch(menuViewSource, /<RecordDetailPanel[\s\S]*:title="schemeCardTitle"/);
   assert.notMatch(layoutSource, /actionMessage|message success|message\.success/);
 });
 
@@ -727,6 +696,9 @@ it('user management keeps account basics separate from employment binding and ro
   assert.notMatch(userViewSource, /calc\(100vh|calc\(100dvh/);
   assert.match(userViewSource, /<CrudRecordListExplorer/);
   assert.match(userViewSource, /<RecordQueryListPanel/);
+  assert.match(userViewSource, /X-MuYun-Page-Context/);
+  assert.match(userViewSource, /JSON\.stringify\(\{ tenant: String\(tenant\.id\) \}\)/);
+  assert.match(userViewSource, /useUserSessionRows\(\{ context: scopedUserContext/);
   assert.match(userViewSource, /:expanded-row-keys="expandedUserKeys"/);
   assert.match(userViewSource, /@row-expand="handleUserRowExpand"/);
   assert.match(userViewSource, /<template #expandedRow="\{ record \}">/);
@@ -766,7 +738,7 @@ it('user management keeps account basics separate from employment binding and ro
   assert.match(userSessionExpandedSource, /@media \(max-width: 980px\)/);
   assert.match(
     userViewSource,
-    /useUserSessionRows\(\{ context: userContext, source: 'user-management-(list|detail)' \}\)/,
+    /useUserSessionRows\(\{ context: scopedUserContext, source: 'user-management-list' \}\)/,
   );
   assert.match(userViewSource, /usePageBusinessEventHandler\(handleUserSessionBusinessEvent\)/);
   assert.match(userViewSource, /:cell-renderers="\{ onlineStatus: userOnlineStatusTitle \}"/);
@@ -837,12 +809,6 @@ it('user management keeps account basics separate from employment binding and ro
   assert.notMatch(userViewSource, /permissionMatrix/);
   assert.notMatch(userViewSource, /sessionAudit/);
   assert.notMatch(userViewSource, /forceLogout/);
-});
-
-it('ordinary management pages do not infer their height from the workbench chrome', () => {
-  for (const viewPath of ['src/views/MenuManagementView.vue']) {
-    assert.notMatch(readSource(viewPath), /calc\(100vh|calc\(100dvh/);
-  }
 });
 
 it('password management uses the standard module runner with a source-owned card assistant', () => {
@@ -1015,7 +981,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /<RecordPanelState/);
   assert.match(
     hostSource,
-    /v-if="!treeModule && !flatManagementPage && \(!listDetailCardPage \|\| detailSurfaceUsesDrawer\)"/,
+    /v-if="!persistentTreeDetail && !flatManagementPage && \(!listDetailCardPage \|\| detailSurfaceUsesDrawer\)"/,
   );
   assert.match(
     hostSource,
@@ -1060,7 +1026,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /await presentModuleActionSuccess\(result, enabling \? '已启用' : '已停用'\)/);
   assert.match(hostSource, /presentPlatformError\(cause, \{ source: 'module-action', phase: 'action' \}\)/);
   assert.notMatch(hostSource, /formViewCode/);
-  assert.notMatch(hostSource, /:subtitle=/);
+  assert.match(hostSource, /:subtitle="mainTreeScopeContext"/);
   assert.notMatch(hostSource, /<button/);
   assert.notMatch(hostSource, /@muyun\/vue-ui-antdv/);
   assert.notMatch(hostSource, /等待接入页面 bootstrap 与列表查询/);
@@ -1190,6 +1156,9 @@ it('production workbench delegates page lifetime to the Vue Router outlet', () =
   assert.match(appSource, /<RouterView v-slot="\{ Component, route \}">/);
   assert.match(appSource, /<KeepAlive>[\s\S]*<StaticRoutePageHost/);
   assert.match(appSource, /:key="pageCacheKey\(route, activeTabKey\)"/);
+  assert.match(appSource, /:refresh-revision="pageRefreshRevisionFor\(activeTabKey\)"/);
+  assert.match(workbenchSource, /emit\('refreshPage', activeTabKey\.value\)/);
+  assert.notMatch(workbenchSource, /activePageContentKey|pageRefreshRevision/);
   assert.notMatch(appSource, /PlatformAdminRouteOutlet|WorkbenchOutlet/);
 });
 

@@ -34,6 +34,8 @@ const props = withDefaults(
     reloadKey?: number;
     /** Descriptor-owned criteria from upstream navigator levels. */
     externalQueryValues?: Record<string, unknown>;
+    navigatorHostModuleAlias?: string;
+    navigatorTargetLevelKey?: string;
     keyword?: string;
     searchMode?: TreeRecordSearchMode;
     searchTrigger?: 'inline' | 'external';
@@ -53,6 +55,8 @@ const props = withDefaults(
     selectedId: undefined,
     reloadKey: undefined,
     externalQueryValues: undefined,
+    navigatorHostModuleAlias: undefined,
+    navigatorTargetLevelKey: undefined,
     keyword: undefined,
     searchMode: 'always',
     searchTrigger: 'inline',
@@ -138,8 +142,21 @@ async function loadTree() {
     const treeCapability = props.context.abilities.tree();
     const response = await treeCapability.tree(
       props.externalQueryValues && Object.keys(props.externalQueryValues).length > 0
-        ? { externalQueryValues: props.externalQueryValues }
-        : undefined,
+        ? {
+            externalQueryValues: props.externalQueryValues,
+            ...(props.navigatorHostModuleAlias && props.navigatorTargetLevelKey
+              ? {
+                  navigatorHostModuleAlias: props.navigatorHostModuleAlias,
+                  navigatorTargetLevelKey: props.navigatorTargetLevelKey,
+                }
+              : {}),
+          }
+        : props.navigatorHostModuleAlias && props.navigatorTargetLevelKey
+          ? {
+              navigatorHostModuleAlias: props.navigatorHostModuleAlias,
+              navigatorTargetLevelKey: props.navigatorTargetLevelKey,
+            }
+          : undefined,
     );
     if (requestSeq !== treeRequestSeq) {
       return;

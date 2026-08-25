@@ -443,6 +443,7 @@ class IamWebControllerTest {
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "unpaged", true,
+                                "externalQueryValues", Map.of("categoryId", "category-1"),
                                 "quickSearch", "dev",
                                 "quickSearchFields", List.of("categoryId"),
                                 "conditions", List.of(Map.of(
@@ -468,6 +469,7 @@ class IamWebControllerTest {
         mvc.perform(post("/iam.position/query")
                         .contentType("application/json")
                         .content(json(Map.of(
+                                "externalQueryValues", Map.of("categoryId", "category-1"),
                                 "conditions", List.of(Map.of(
                                         "fieldName", "categoryId",
                                         "operator", "EQ",
@@ -494,6 +496,7 @@ class IamWebControllerTest {
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "unpaged", true,
+                                "externalQueryValues", Map.of("categoryId", "category-1"),
                                 "conditions", List.of(Map.of(
                                         "fieldName", "categoryId",
                                         "operator", "EQ",
@@ -624,6 +627,7 @@ class IamWebControllerTest {
                 .thenReturn(List.of(), List.of(organization("org-1", "HQ", "Headquarters")));
 
         mvc.perform(post("/iam.organization/insert")
+                        .header("X-MuYun-Page-Context", "{\"tenant\":\"tenant_a\"}")
                         .contentType("application/json")
                         .content(json(organization(null, "HQ", "Headquarters"))))
                 .andExpect(status().isCreated())
@@ -646,6 +650,7 @@ class IamWebControllerTest {
                 .thenReturn(List.of(), List.of(), List.of(user("user-1", "alice", "Alice")));
 
         mvc.perform(post("/iam.user/insert")
+                        .header("X-MuYun-Page-Context", "{\"tenant\":\"tenant_a\"}")
                         .contentType("application/json")
                         .content("""
                                 {
@@ -677,6 +682,7 @@ class IamWebControllerTest {
                 .thenReturn(List.of(), List.of(), List.of(user("user-1", "alice", "Alice")));
 
         mvc.perform(post("/iam.user/insert")
+                        .header("X-MuYun-Page-Context", "{\"tenant\":\"demo\"}")
                         .contentType("application/json")
                         .content("""
                                 {
@@ -838,6 +844,7 @@ class IamWebControllerTest {
         });
 
         mvc.perform(post("/iam.user/update/{id}", "user-1")
+                        .header("X-MuYun-Page-Context", "{\"tenant\":\"tenant_a\"}")
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1301,6 +1308,7 @@ class IamWebControllerTest {
         when(departmentService.select("dept-1")).thenReturn(saved);
 
         mvc.perform(post("/iam.department/insert")
+                        .header("X-MuYun-Page-Context", "{\"organization\":\"org-1\"}")
                         .contentType("application/json")
                         .content("""
                                 {"organizationId":"org-1","code":"FIN","title":"Finance","enabled":true}
@@ -1342,6 +1350,7 @@ class IamWebControllerTest {
         when(employeeService.select("employee-1")).thenReturn(saved);
 
         mvc.perform(post("/iam.employee/insert")
+                        .header("X-MuYun-Page-Context", "{\"organization\":\"org-1\"}")
                         .contentType("application/json")
                         .content("""
                                 {"organizationId":"org-1","departmentId":"dept-1","employeeNo":"E001","title":"Alice","enabled":true}

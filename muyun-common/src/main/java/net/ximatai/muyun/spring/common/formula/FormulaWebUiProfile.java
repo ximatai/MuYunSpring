@@ -20,7 +20,8 @@ final class FormulaWebUiProfile {
     static final int MAX_STRING_LITERAL_LENGTH = 128;
     private static final int MAX_NODE_COUNT = 64;
     private static final int MAX_NODE_DEPTH = 12;
-    private static final Pattern FIELD = Pattern.compile("[A-Za-z][A-Za-z0-9_]*");
+    /** A field is local unless descriptor compilation validates its reference path. */
+    private static final Pattern FIELD = Pattern.compile("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)*");
 
     private FormulaWebUiProfile() {
     }

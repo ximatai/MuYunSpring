@@ -59,13 +59,26 @@ public record PageNavigatorDefinition(List<PageNavigatorLevelDefinition> levels,
         }
 
         public Builder bindNavigatorToList(String sourceLevelKey, String field) {
-            contextBindings.add(PageContextBindingDefinition.navigator(sourceLevelKey, PageContextTarget.LIST_QUERY, field));
+            return bindNavigatorToList(sourceLevelKey, field, NavigatorListQueryMode.REQUIRED_SCOPE);
+        }
+
+        /**
+         * Binds a navigator selection to the list query and form default. The query mode affects
+         * only the list: form defaults remain a convenience value when a selection exists.
+         */
+        public Builder bindNavigatorToList(String sourceLevelKey, String field, NavigatorListQueryMode queryMode) {
+            contextBindings.add(PageContextBindingDefinition.navigatorList(sourceLevelKey, field, queryMode));
             contextBindings.add(PageContextBindingDefinition.navigator(sourceLevelKey, PageContextTarget.FORM_DEFAULT, field));
             return this;
         }
 
         public Builder bindNavigatorToList(ModuleUiNavigatorKey sourceLevelKey, ModuleUiField field) {
             return bindNavigatorToList(value(sourceLevelKey), name(field));
+        }
+
+        public Builder bindNavigatorToList(ModuleUiNavigatorKey sourceLevelKey, ModuleUiField field,
+                                           NavigatorListQueryMode queryMode) {
+            return bindNavigatorToList(value(sourceLevelKey), name(field), queryMode);
         }
 
         public Builder bindNavigatorToNavigator(String sourceLevelKey, String targetLevelKey, String field) {

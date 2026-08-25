@@ -51,6 +51,7 @@ const emit = defineEmits<{
   closeTabs: [keys: string[]];
   toggleTabLock: [key: string];
   reorderTabs: [keys: string[]];
+  refreshPage: [key: string];
   'update:activeTabKey': [key: string];
   userCommand: [key: string];
 }>();
@@ -127,6 +128,17 @@ function toTabItem(tab: MenuTab): UiTabItem {
 function handleTabChange(key: string) {
   emit('update:activeTabKey', key);
   emit('changeTab', key);
+}
+
+/**
+ * Requests a refresh of the active page instance.
+ *
+ * The router/cache owner performs the actual remount. This keeps tab switches
+ * from recreating the shared KeepAlive subtree and discarding other drafts.
+ */
+function refreshActivePage() {
+  if (!activeTabKey.value) return;
+  emit('refreshPage', activeTabKey.value);
 }
 
 function handleUserCommand(key: string) {
@@ -374,8 +386,9 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
                 aria-label="刷新当前页"
                 icon-name="reload"
                 type="text"
-                title="刷新当前页暂未实现"
-                disabled
+                title="刷新当前页"
+                :disabled="!activeTab"
+                @click="refreshActivePage"
               />
             </div>
             <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>

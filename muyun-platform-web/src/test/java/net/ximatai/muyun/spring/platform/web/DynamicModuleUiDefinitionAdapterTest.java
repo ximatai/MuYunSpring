@@ -274,6 +274,7 @@ class DynamicModuleUiDefinitionAdapterTest {
                   {"source":"NAVIGATOR","sourceKey":"organization","target":"LIST_QUERY","targetKey":"organizationId"}
                 ],"levels":[
                   {"key":"tenant","kind":"MICRO_LIST","sourceModuleAlias":"iam.tenant","title":"租户",
+                   "secondaryField":"scopeId",
                    "singleResultPolicy":"AUTO_SELECT_AND_HIDE","initialSelectionPolicy":"FIRST_RECORD","sourceScope":"CURRENT_TENANT",
                    "management":{"actions":["CREATE"]}
                    },
@@ -288,6 +289,7 @@ class DynamicModuleUiDefinitionAdapterTest {
 
         PageNavigatorDefinition navigator = ((ListDetailCardPageDefinition) definition.page()).navigator();
         assertThat(navigator.levels()).hasSize(2);
+        assertThat(navigator.levels().getFirst().secondaryField()).isEqualTo("scopeId");
         assertThat(navigator.levels().getFirst().singleResultPolicy())
                 .isEqualTo(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE);
         assertThat(navigator.levels().getFirst().initialSelectionPolicy())

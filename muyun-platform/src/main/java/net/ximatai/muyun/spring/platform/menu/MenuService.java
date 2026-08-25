@@ -39,12 +39,14 @@ import java.util.Set;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
+import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
 
 @Service
 public class MenuService extends AbstractAbilityService<Menu> implements
         SoftDeleteAbility<Menu>,
         EnableAbility<Menu>,
         TreeAbility<Menu>,
+        ReferencerAbility<Menu>,
         PlatformManagedProtectionAbility<Menu>,
         InitialDataAbility<Menu>,
         QueryAbility<Menu> {
@@ -125,6 +127,16 @@ public class MenuService extends AbstractAbilityService<Menu> implements
     public void beforeUpdate(Menu menu) {
         validateImmutableScheme(menu);
         normalizeAndValidate(menu);
+    }
+
+    /**
+     * Menu targets are a soft platform link: normal writes validate them in
+     * {@link #normalizeTarget(Menu)}, while trusted bootstrap data may precede
+     * registration of the referenced platform modules.
+     */
+    @Override
+    public void validateReferenceIntegrity(Menu existing, Menu menu) {
+        // MenuService owns the stronger entry-type-aware validation in beforeInsert/beforeUpdate.
     }
 
     @Override

@@ -25,6 +25,12 @@ public @interface ReferenceTo {
      */
     ReferenceCandidateBinding[] candidateBindings() default {};
 
+    /**
+     * Target fields intentionally delivered with a selected candidate for WEB_UI formulas.
+     * They are not copied into the referencing record and are masked in REFERENCE output context.
+     */
+    String[] selectionProjections() default {};
+
     /** Tenant boundary for candidate lookup and value translation. */
     ReferenceTenantScope tenantScope() default ReferenceTenantScope.SAME_TENANT;
 

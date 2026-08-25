@@ -36,6 +36,16 @@ public final class TreeWebQuerySupport {
         return request.getParameter(key);
     }
 
+    /** Returns a descriptor-owned tree-query value without falling back to URL parameters. */
+    public static Object boundExternalQueryValue(HttpServletRequest request, String key) {
+        if (request == null || key == null || key.isBlank()
+                || !Boolean.TRUE.equals(request.getAttribute(QUERY_REQUEST_BOUND_ATTRIBUTE))) {
+            return null;
+        }
+        Object queryRequest = request.getAttribute(QUERY_REQUEST_ATTRIBUTE);
+        return queryRequest instanceof WebQueryRequest query ? query.externalQueryValues().get(key) : null;
+    }
+
     public static String externalQueryText(HttpServletRequest request, String key) {
         Object value = externalQueryValue(request, key);
         return value == null ? null : String.valueOf(value);

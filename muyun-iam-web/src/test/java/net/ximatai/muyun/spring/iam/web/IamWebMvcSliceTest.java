@@ -348,7 +348,8 @@ class IamWebMvcSliceTest {
                 .thenReturn(Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a")));
         when(employeeService.selectForAction(PlatformAction.VIEW, "employee-1")).thenReturn(employee);
 
-        mvc.perform(get("/iam.employee/view/employee-1"))
+        mvc.perform(get("/iam.employee/view/employee-1")
+                        .header("X-MuYun-Page-Context", "{\"organization\":\"org-1\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value("employee-1"))
                 .andExpect(jsonPath("$.departmentId").value("dept-1"))
@@ -465,6 +466,7 @@ class IamWebMvcSliceTest {
                                     {"fieldName":"enabled","operator":"EQ","values":[true]}
                                   ],
                                   "externalQueryValues": {
+                                    "organizationId": "org-1",
                                     "departmentScope": {
                                       "organizationId": "org-1",
                                       "departmentId": "dept-root",
@@ -516,7 +518,7 @@ class IamWebMvcSliceTest {
         try {
             mvc.perform(post("/iam.employee/query")
                             .contentType("application/json")
-                            .content("{}"))
+                            .content("{\"externalQueryValues\":{\"organizationId\":\"org-1\"}}"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.records[0].id").value("employee-1"))
                     .andExpect(jsonPath("$.records[0].employeeNo").value("E001"))
@@ -543,6 +545,7 @@ class IamWebMvcSliceTest {
                         .contentType("application/json")
                         .content("""
                                 {
+                                  "externalQueryValues":{"organizationId":"org-1"},
                                   "conditions": [
                                     {"fieldName":"passwordHash","operator":"EQ","values":["secret"]}
                                   ]
@@ -565,7 +568,7 @@ class IamWebMvcSliceTest {
         mvc.perform(post("/iam.employee/query")
                         .contentType("application/json")
                         .content("""
-                                {"queryTemplateId":"employee-default"}
+                                {"queryTemplateId":"employee-default","externalQueryValues":{"organizationId":"org-1"}}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))

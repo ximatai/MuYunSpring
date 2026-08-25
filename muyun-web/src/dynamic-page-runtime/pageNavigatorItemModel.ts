@@ -12,11 +12,15 @@ export interface NavigatorItemRecord {
 /** Page navigators expose only the actions explicitly declared by the page. */
 export function navigatorItemOf(
   record: NavigatorItemRecord,
+  secondaryField: string | undefined,
   manageable: boolean,
   actionsOf: ((record: { id?: string }) => RecordInlineAction[]) | undefined,
 ): RecordExplorerItemDescriptor {
   const title = String(record.title ?? record.name ?? record.code ?? record.id ?? '未命名记录');
-  const secondary = record.code ?? record.alias;
+  const secondary =
+    secondaryField == null
+      ? (record.code ?? record.alias)
+      : (record as Record<string, unknown>)[secondaryField];
   return {
     title,
     ...(secondary && secondary !== title ? { secondary: String(secondary) } : {}),

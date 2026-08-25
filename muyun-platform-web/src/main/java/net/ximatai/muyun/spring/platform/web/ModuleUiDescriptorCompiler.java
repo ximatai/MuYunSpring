@@ -96,9 +96,11 @@ public final class ModuleUiDescriptorCompiler {
                 staticReferenceSummaryFields(definition.modelClass());
         Map<ViewFieldRef, FieldValueType> fieldTypes = new LinkedHashMap<>(fieldTypes(definition.entities()));
         writeOnlyInputs.forEach((fieldName, fieldType) -> fieldTypes.put(ViewFieldRef.main(fieldName), fieldType));
+        validateTreeResourceMainEntity(uiDefinition.page(), definition.entities());
         ResolvedModuleUiDescriptor descriptor = compileResolved(uiDefinition, ModuleKind.STATIC, definition.title(),
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
-                        staticRecordLabelField(definition), Map.copyOf(fieldTypes), FieldControlDescriptorCatalog.standard());
+                        staticRecordLabelField(definition), Map.copyOf(fieldTypes), FieldControlDescriptorCatalog.standard(),
+                        false);
         List<ResolvedPageDetailEditorContribution> resolvedContributions = uiDefinition.editorContributions().stream()
                 .map(contribution -> {
                     Class<?> modelClass = definition.entityModelClasses().get(contribution.resource());
@@ -209,6 +211,25 @@ public final class ModuleUiDescriptorCompiler {
                                                               String defaultRecordLabelField,
                                                               Map<ViewFieldRef, FieldValueType> fieldTypes,
                                                               Map<String, ResolvedFieldControlDescriptor> fieldControls) {
+        return compileResolved(definition, moduleKind, title, optionFields, referenceFields, referenceSummaryFields,
+                defaultRecordLabelField, fieldTypes, fieldControls, true);
+    }
+
+    /**
+     * A static action contribution can own a resource model different from its host module. Its
+     * editor must therefore be compiled only after the contribution's resource model, references
+     * and field controls have been resolved. The host descriptor is otherwise compiled normally.
+     */
+    private static ResolvedModuleUiDescriptor compileResolved(ModuleUiDefinition definition,
+                                                              ModuleKind moduleKind,
+                                                              String title,
+                                                              Map<String, ResolvedOptionFieldDescriptor> optionFields,
+                                                              Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
+                                                              Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
+                                                              String defaultRecordLabelField,
+                                                              Map<ViewFieldRef, FieldValueType> fieldTypes,
+                                                              Map<String, ResolvedFieldControlDescriptor> fieldControls,
+                                                              boolean compileEditorContributions) {
         return new ResolvedModuleUiDescriptor(
                 ResolvedModuleUiDescriptor.SCHEMA_VERSION,
                 definition.moduleAlias(),
@@ -225,9 +246,11 @@ public final class ModuleUiDescriptorCompiler {
                 definition.editorSurfaces().stream().map(surface ->
                         new ResolvedEditorSurfaceDescriptor(surface.key(), compileView(surface.editor(), optionFields,
                                 referenceFields, referenceSummaryFields, fieldTypes, fieldControls))).toList(),
-                definition.editorContributions().stream().map(contribution ->
+                compileEditorContributions
+                        ? definition.editorContributions().stream().map(contribution ->
                         new ResolvedPageDetailEditorContribution(contribution.resource(), compileView(contribution.editor(),
-                                optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls))).toList(),
+                                optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls))).toList()
+                        : List.of(),
                 List.of()
         );
     }
@@ -513,12 +536,31 @@ public final class ModuleUiDescriptorCompiler {
         }
     }
 
+    private static void validateTreeResourceMainEntity(ModulePageDefinition page, List<EntityDefinition> entities) {
+        if (!(page instanceof TreeManagementPageDefinition tree) || tree.treeResource() == null) return;
+        PageTreeResourceDefinition resource = tree.treeResource();
+        if (entities != null && !entities.isEmpty() && resource.resource().equals(entities.getFirst().alias())) {
+            throw new IllegalArgumentException("tree resource must be a contributed resource, not the page main entity: "
+                    + resource.resource());
+        }
+    }
+
     private static void validateTreeResourceContribution(ResolvedModulePageDescriptor page,
                                                          List<ResolvedPageDetailEditorContribution> contributions) {
         if (page == null || page.treeResource() == null) return;
         String resource = page.treeResource().resource();
         if (contributions.stream().noneMatch(contribution -> contribution.resource().equals(resource))) {
             throw new IllegalArgumentException("tree resource requires an editor contribution: " + resource);
+        }
+        ResolvedPageDetailEditorContribution contribution = contributions.stream()
+                .filter(candidate -> candidate.resource().equals(resource))
+                .findFirst()
+                .orElseThrow();
+        boolean hasScopeField = contribution.editor().fields().stream()
+                .anyMatch(field -> field.fieldRef().fieldName().equals(page.treeResource().scopeField()));
+        if (!hasScopeField) {
+            throw new IllegalArgumentException("tree resource editor must declare its scope field: resource="
+                    + resource + ", field=" + page.treeResource().scopeField());
         }
     }
 
@@ -668,6 +710,7 @@ public final class ModuleUiDescriptorCompiler {
                                                       Map<ViewFieldRef, FieldValueType> fieldTypes,
                                                       Map<String, ResolvedFieldControlDescriptor> fieldControls,
                                                       boolean relationFacts) {
+        validateReferenceFormulaPaths(view, referenceFields);
         List<ResolvedViewFieldDescriptor> fields = view.fields().stream()
                 .map(field -> compileField(view.viewKind(), field, optionFields, referenceFields,
                         referenceSummaryFields, fieldTypes, fieldControls, relationFacts))
@@ -684,6 +727,51 @@ public final class ModuleUiDescriptorCompiler {
                         group.fields().stream().map(ViewFieldDefinition::fieldRef).toList())).toList(),
                 compileFormComputeRules(view, fields)
         );
+    }
+
+    /**
+     * WEB_UI formulas may only cross one explicitly exposed ONE-reference. The generic formula
+     * grammar deliberately does not decide whether a dot denotes a child row or a reference;
+     * that decision belongs to this model-aware descriptor compiler.
+     */
+    private static void validateReferenceFormulaPaths(ViewDefinition view,
+                                                      Map<String, ResolvedReferenceFieldDescriptor> referenceFields) {
+        if (view == null) {
+            return;
+        }
+        Map<String, ResolvedReferenceFieldDescriptor> declaredReferences = referenceFields == null ? Map.of() : referenceFields;
+        for (ViewFieldDefinition field : view.fields()) {
+            validateReferenceFormulaPath(view, field.fieldRef().fieldName(), field.visible(), declaredReferences);
+            validateReferenceFormulaPath(view, field.fieldRef().fieldName(), field.required(), declaredReferences);
+            validateReferenceFormulaPath(view, field.fieldRef().fieldName(), field.readOnly(), declaredReferences);
+        }
+    }
+
+    private static void validateReferenceFormulaPath(ViewDefinition view,
+                                                     String ownerField,
+                                                     UiRule<Boolean> rule,
+                                                     Map<String, ResolvedReferenceFieldDescriptor> referenceFields) {
+        if (rule == null || rule.formula() == null) return;
+        for (String path : rule.formula().program().referencedFields()) {
+            String[] segments = path.split("\\.");
+            if (segments.length == 1) continue;
+            ResolvedReferenceFieldDescriptor reference = referenceFields.get(segments[0]);
+            if (reference == null) {
+                throw new IllegalArgumentException("WEB_UI formula path source must be a declared reference: "
+                        + view.viewCode() + "." + ownerField + "." + path);
+            }
+            if (reference.cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
+                throw new IllegalArgumentException("WEB_UI formula path requires a ONE reference: "
+                        + view.viewCode() + "." + ownerField + "." + path);
+            }
+            java.util.List<String> relativePath = java.util.Arrays.stream(segments).skip(1).toList();
+            boolean selected = reference.selectionProjections().stream()
+                    .anyMatch(projection -> projection.path().equals(relativePath));
+            if (!selected) {
+                throw new IllegalArgumentException("WEB_UI formula path is not an explicitly authorised reference selection projection: "
+                        + view.viewCode() + "." + ownerField + "." + path);
+            }
+        }
     }
 
     /**
@@ -1026,18 +1114,41 @@ public final class ModuleUiDescriptorCompiler {
         if (modelClass == null) {
             return Map.of();
         }
-        return StaticReferenceResolver.rules(modelClass).stream()
+        java.util.stream.Stream<java.util.Map.Entry<String, net.ximatai.muyun.spring.ability.reference.ReferencePlan>> declared =
+                StaticReferenceResolver.rules(modelClass).stream()
+                        .map(rule -> java.util.Map.entry(rule.plan().sourceField(), rule.plan()));
+        java.util.stream.Stream<java.util.Map.Entry<String, net.ximatai.muyun.spring.ability.reference.ReferencePlan>> discriminated =
+                StaticReferenceResolver.discriminatedValuePlans(modelClass).stream()
+                        .flatMap(plan -> plan.cases().stream())
+                        .filter(plan -> plan.reference() != null)
+                        .map(plan -> java.util.Map.entry(plan.reference().sourceField(), plan.reference()));
+        java.util.stream.Stream<java.util.Map.Entry<String, ResolvedReferenceFieldDescriptor>> standardScope =
+                java.util.stream.Stream.of(java.util.Map.entry(StandardEntitySchema.TENANT_ID_FIELD,
+                        new ResolvedReferenceFieldDescriptor("iam.tenant",
+                                net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                                "title", pickerModeResolver.apply("iam.tenant"))));
+        Map<String, ResolvedReferenceFieldDescriptor> declaredReferences = java.util.stream.Stream.concat(declared, discriminated)
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                        rule -> rule.plan().sourceField(),
-                        rule -> new ResolvedReferenceFieldDescriptor(rule.target().qualifiedName(), rule.cardinality(),
-                                referenceTitleField(modelClass, rule.plan().sourceField()),
-                                pickerModeResolver.apply(rule.target().qualifiedName()),
+                        java.util.Map.Entry::getKey,
+                        entry -> {
+                            net.ximatai.muyun.spring.ability.reference.ReferencePlan plan = entry.getValue();
+                            return new ResolvedReferenceFieldDescriptor(plan.target().qualifiedName(), plan.cardinality(),
+                                referenceTitleField(modelClass, plan.sourceField()),
+                                pickerModeResolver.apply(plan.target().qualifiedName()),
                                 ReferenceCandidateDelivery.SOURCE_FIELD,
                                 "/platform.module/" + moduleAlias + "/references/"
-                                        + rule.plan().sourceField() + "/resolve",
-                                rule.plan().candidateDependencies()),
+                                        + plan.sourceField() + "/resolve",
+                                plan.candidateDependencies(),
+                                plan.selectionProjections().stream()
+                                        .map(ResolvedReferenceSelectionProjectionDescriptor::new).toList());
+                        },
                         (left, right) -> left
                 ));
+        return java.util.stream.Stream.concat(declaredReferences.entrySet().stream(), standardScope)
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        java.util.Map.Entry::getKey,
+                        java.util.Map.Entry::getValue,
+                        (declaredReference, standardReference) -> declaredReference));
     }
 
     /**

@@ -92,6 +92,46 @@ class ReferenceReadPipelineTest {
         assertThat(records.getFirst()).containsEntry("customerTitle", null);
     }
 
+    @Test
+    void shouldBatchMultiHopSelectionProjectionsThroughTheSourceIndependentTargetResolver() {
+        ReferenceTarget organization = ReferenceTarget.of("tenant", "organization");
+        List<List<String>> customerRequests = new ArrayList<>();
+        List<List<String>> organizationRequests = new ArrayList<>();
+        ReferenceAbility<?> customer = new FakeReferenceAbility((ids, fields) -> {
+            customerRequests.add(List.copyOf(ids));
+            return Map.of("customer-1", Map.of("organizationId", "organization-1"),
+                    "customer-2", Map.of("organizationId", "organization-2"));
+        });
+        ReferenceAbility<?> dynamicOrganization = new FakeReferenceAbility((ids, fields) -> {
+            organizationRequests.add(List.copyOf(ids));
+            return Map.of("organization-1", Map.of("regionCode", "CN-31"),
+                    "organization-2", Map.of("regionCode", "CN-33"));
+        });
+        ReferenceTargetResolver resolver = new ReferenceTargetResolver() {
+            @Override
+            public java.util.Optional<ReferenceAbility<?>> resolve(ReferenceTarget target) {
+                return java.util.Optional.of(target.equals(CUSTOMER) ? customer : dynamicOrganization);
+            }
+
+            @Override
+            public java.util.Optional<ReferencePlan> referencePlan(ReferenceTarget target, String sourceField) {
+                return CUSTOMER.equals(target) && "organizationId".equals(sourceField)
+                        ? java.util.Optional.of(ReferencePlan.of("organizationId", organization, ReferenceCardinality.ONE))
+                        : java.util.Optional.empty();
+            }
+        };
+
+        Map<String, Map<String, Object>> values = ReferenceSelectionProjectionReader.read(CUSTOMER,
+                List.of("customer-1", "customer-2"),
+                List.of(new ReferenceSelectionProjection("organizationId.regionCode")), resolver);
+
+        assertThat(values).containsExactly(
+                Map.entry("customer-1", Map.of("organizationId.regionCode", "CN-31")),
+                Map.entry("customer-2", Map.of("organizationId.regionCode", "CN-33")));
+        assertThat(customerRequests).containsExactly(List.of("customer-1", "customer-2"));
+        assertThat(organizationRequests).containsExactly(List.of("organization-1", "organization-2"));
+    }
+
     private static Map<String, Object> record(Object... values) {
         Map<String, Object> record = new LinkedHashMap<>();
         for (int index = 0; index < values.length; index += 2) record.put((String) values[index], values[index + 1]);

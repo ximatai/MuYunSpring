@@ -63,6 +63,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:startup': [value: WorkbenchStartupState];
   navigate: [navigation: AppWorkbenchNavigation];
+  refreshPage: [key: string];
   userCommand: [key: string];
 }>();
 
@@ -371,6 +372,7 @@ async function restoreLockedTabs() {
     @close-tabs="closeTabs"
     @reorder-tabs="reorderTabs"
     @toggle-tab-lock="toggleTabLock"
+    @refresh-page="emit('refreshPage', $event)"
     @user-command="emit('userCommand', $event)"
   >
     <template #default="{ pageDescriptor }">

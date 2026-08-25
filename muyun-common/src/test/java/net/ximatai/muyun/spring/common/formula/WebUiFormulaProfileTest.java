@@ -34,13 +34,13 @@ class WebUiFormulaProfileTest {
     }
 
     @Test
-    void rejectsAssignmentsServerOnlyFunctionsAndCrossRecordPaths() {
+    void rejectsAssignmentsAndServerOnlyFunctionsButRetainsDescriptorValidatedReferencePaths() {
         assertThatThrownBy(() -> engine.compileWebUiProgram("{status} = 'enabled'"))
                 .hasMessageContaining("WEB_UI profile");
         assertThatThrownBy(() -> engine.compileWebUiProgram("NOW() == '2026-01-01'"))
                 .hasMessageContaining("WEB_UI profile");
-        assertThatThrownBy(() -> engine.compileWebUiProgram("PRESENT({items.amount})"))
-                .hasMessageContaining("WEB_UI profile");
+        FormulaProgram program = engine.compileWebUiProgram("PRESENT({moduleAlias.entryType})");
+        assertThat(program.referencedFields()).containsExactly("moduleAlias.entryType");
     }
 
     @Test

@@ -15,6 +15,9 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceReadPipeline;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetProvider;
 import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCasePlan;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValuePlan;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueSource;
 import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.ability.security.FieldProtectionPlan;
@@ -287,6 +290,7 @@ public class DynamicEntityService implements
         prepareDynamicAbilityDefaults(record);
         lifecycle.beforeInsert(record);
         record.formulaReport(capabilityRuntimes.formula().beforeInsert(record));
+        normalizeDiscriminatedValues(record, null);
         validateChildPayload(record);
         record.validateForInsert();
         validateFieldValues(record);
@@ -296,24 +300,42 @@ public class DynamicEntityService implements
 
     @Override
     public void beforeUpdate(DynamicRecord record) {
+        beforeUpdate(record, record == null ? null : activeRaw(record.getId()));
+    }
+
+    /**
+     * Reuses the mutation snapshot supplied by {@link net.ximatai.muyun.spring.ability.CrudAbility}
+     * so formula evaluation, discriminated values and reference validation observe one persisted
+     * state throughout an update.
+     */
+    @Override
+    public void beforeUpdate(DynamicRecord record, DynamicRecord existing) {
         rejectWriteProtectedFields(record);
         lifecycle.beforeUpdate(record);
         DynamicFormulaRuntime formulaRuntime = capabilityRuntimes.formula();
         if (formulaRuntime.hasBeforeUpdateRules(record)) {
             FormulaRuntimeReport report = formulaRuntime.beforeUpdate(
                     record,
-                    activeRaw(record.getId()),
+                    existing,
                     existingChildrenForFormula(record)
             );
             record.formulaReport(report);
         } else {
             record.formulaReport(new FormulaRuntimeReport());
         }
+        normalizeDiscriminatedValues(record, existing);
         validateChildPayload(record);
         record.validateForUpdate();
         validateFieldValues(record);
-        validateReferenceValues(record, activeRaw(record.getId()));
+        validateReferenceValues(record, existing);
         validateTreePlacement(record);
+    }
+
+    @Override
+    public DynamicRecord selectExistingForScopedMutation(DynamicRecord record) {
+        return record == null || record.getId() == null || record.getId().isBlank()
+                ? null
+                : activeRaw(record.getId());
     }
 
     @Override
@@ -804,7 +826,7 @@ public class DynamicEntityService implements
                 .toList();
     }
 
-    private ReferencePlan referencePlan(String sourceField) {
+    ReferencePlan referencePlan(String sourceField) {
         return referenceDefinition(sourceField).plan();
     }
 
@@ -831,17 +853,45 @@ public class DynamicEntityService implements
         referencePlan(plan.sourceField());
     }
 
-    private DynamicEntityService referenceService(ReferenceTarget target) {
+    DynamicEntityService referenceService(ReferenceTarget target) {
         return referenceServiceResolver.apply(target);
     }
 
+    /** Supplies dynamic plans first and falls back to the platform's static/dynamic target registry. */
+    net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver referenceTargetResolver() {
+        return new net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver() {
+            @Override
+            public java.util.Optional<net.ximatai.muyun.spring.ability.reference.ReferenceAbility<?>> resolve(
+                    ReferenceTarget target) {
+                try {
+                    return java.util.Optional.of(referenceAbility(target));
+                } catch (RuntimeException ignored) {
+                    return net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver().resolve(target);
+                }
+            }
+
+            @Override
+            public java.util.Optional<ReferencePlan> referencePlan(ReferenceTarget sourceTarget, String sourceField) {
+                try {
+                    return java.util.Optional.of(referenceService(sourceTarget).referencePlan(sourceField));
+                } catch (RuntimeException ignored) {
+                    return net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver()
+                            .referencePlan(sourceTarget, sourceField);
+                }
+            }
+        };
+    }
+
     private net.ximatai.muyun.spring.ability.reference.ReferenceAbility<?> referenceAbility(ReferenceTarget target) {
+        java.util.Optional<net.ximatai.muyun.spring.ability.reference.ReferenceAbility<?>> registered =
+                net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver().resolve(target);
+        if (registered.isPresent()) {
+            return registered.get();
+        }
         try {
             return referenceService(target).referenceAbility();
         } catch (RuntimeException dynamicResolutionFailure) {
-            return net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver()
-                    .resolve(target)
-                    .orElseThrow(() -> dynamicResolutionFailure);
+            throw dynamicResolutionFailure;
         }
     }
 
@@ -1004,6 +1054,78 @@ public class DynamicEntityService implements
     private void validateReferenceValues(DynamicRecord record,
                                          DynamicRecord existing) {
         validateReferenceValues(record, existing, true);
+    }
+
+    /** Applies the same plan emitted by static {@code @DiscriminatedValue} declarations. */
+    private void normalizeDiscriminatedValues(DynamicRecord record, DynamicRecord existing) {
+        for (DiscriminatedValuePlan plan : discriminatedValuePlans()) {
+            Object discriminator = isDiscriminatedValueExplicit(record, plan.discriminatorField()) || existing == null
+                    ? discriminatedValue(record, plan.discriminatorField())
+                    : discriminatedValue(existing, plan.discriminatorField());
+            DiscriminatedValueCasePlan branch = plan.caseFor(discriminator);
+            if (branch == null) {
+                throw new IllegalArgumentException("dynamic discriminator value has no declared branch: " + plan.valueField());
+            }
+            if (branch.source() == DiscriminatedValueSource.FIXED) {
+                record.setValue(plan.valueField(), branch.fixedValue());
+            } else if (branch.source() == DiscriminatedValueSource.FIELD) {
+                Object source = isDiscriminatedValueExplicit(record, branch.sourceField()) || existing == null
+                        ? discriminatedValue(record, branch.sourceField())
+                        : discriminatedValue(existing, branch.sourceField());
+                if (source == null || String.valueOf(source).isBlank()) {
+                    throw new IllegalArgumentException("dynamic discriminator source field is required: " + branch.sourceField());
+                }
+                record.setValue(plan.valueField(), source);
+            } else {
+                validateDiscriminatedReference(record, existing, plan.valueField(), branch.reference());
+            }
+        }
+    }
+
+    private Object discriminatedValue(DynamicRecord record, String fieldName) {
+        if (StandardEntitySchema.TENANT_ID_FIELD.equals(fieldName)) {
+            return record.getTenantId();
+        }
+        return record.getValue(fieldName);
+    }
+
+    private boolean isDiscriminatedValueExplicit(DynamicRecord record, String fieldName) {
+        return StandardEntitySchema.TENANT_ID_FIELD.equals(fieldName)
+                ? record.getTenantId() != null
+                : record.isExplicitlySet(fieldName);
+    }
+
+    private List<DiscriminatedValuePlan> discriminatedValuePlans() {
+        if (module == null) return List.of();
+        return module.discriminatedValues().stream()
+                .filter(value -> dao.getEntity().alias().equals(value.sourceEntityAlias()))
+                .map(net.ximatai.muyun.spring.dynamic.metadata.EntityDiscriminatedValueDefinition::plan)
+                .toList();
+    }
+
+    private void validateDiscriminatedReference(DynamicRecord record, DynamicRecord existing, String valueField, ReferencePlan plan) {
+        Object value = isDiscriminatedValueExplicit(record, valueField) || existing == null
+                ? discriminatedValue(record, valueField) : discriminatedValue(existing, valueField);
+        List<String> ids = plan.normalizeValues(value);
+        if (ids.isEmpty()) throw new IllegalArgumentException("dynamic discriminator reference value is required: " + valueField);
+        validateReferenceIds(plan, ids, List.of());
+        if (plan.candidateDependencies().isEmpty()) return;
+        Map<String, Map<String, Object>> targets = referenceAbility(plan.target()).projections(ids,
+                plan.candidateDependencies().stream().map(dependency -> dependency.targetField()).toList());
+        for (String id : ids) {
+            Map<String, Object> target = targets.get(id);
+            for (var dependency : plan.candidateDependencies()) {
+                Object source = isDiscriminatedValueExplicit(record, dependency.sourceField()) || existing == null
+                        ? discriminatedValue(record, dependency.sourceField())
+                        : discriminatedValue(existing, dependency.sourceField());
+                if (dependency.required() && (source == null || String.valueOf(source).isBlank())) {
+                    throw new IllegalArgumentException("dynamic discriminator reference dependency is required: " + dependency.sourceField());
+                }
+                if (source != null && !Objects.equals(String.valueOf(source), String.valueOf(target == null ? null : target.get(dependency.targetField())))) {
+                    throw new IllegalArgumentException("dynamic discriminator reference target does not satisfy dependency: " + dependency.sourceField());
+                }
+            }
+        }
     }
 
     private void validateReferenceValues(DynamicRecord record,

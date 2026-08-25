@@ -424,6 +424,69 @@ describe('RecordFormFields', () => {
     expect(wrapper.emitted('update:field')).toContainEqual(['customerName', '星云科技']);
   });
 
+  it('recomputes UI rules from declared single-reference projections without mutating the draft', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'moduleAlias',
+        {
+          fieldRef: { fieldName: 'moduleAlias' },
+          label: '模块',
+          uiType: 'recordPicker',
+          reference: {
+            targetModuleAlias: 'platform.module',
+            cardinality: 'ONE',
+            selectionProjections: [{ path: ['entryType'] }],
+          },
+        },
+      ],
+      [
+        'pageMode',
+        {
+          fieldRef: { fieldName: 'pageMode' },
+          label: '页面模式',
+          visible: {
+            formula: {
+              expression: "{moduleAlias.entryType} == 'MODULE'",
+              program: {
+                schemaVersion: 1,
+                profile: 'WEB_UI',
+                referencedFields: ['moduleAlias.entryType'],
+                root: {
+                  kind: 'BINARY',
+                  operator: '==',
+                  arguments: [
+                    { kind: 'FIELD', field: 'moduleAlias.entryType', arguments: [] },
+                    { kind: 'VALUE', value: 'MODULE', arguments: [] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ],
+    ]);
+    const record = { moduleAlias: 'platform.module', pageMode: 'LIST' };
+    const wrapper = mount(RecordFormFields, {
+      props: { record, fields, pickerConfigs: { moduleAlias: { context: {} as never } } },
+    });
+    const picker = wrapper.findComponent({ name: 'RecordPicker' });
+
+    expect(wrapper.text()).not.toContain('页面模式');
+    picker.vm.$emit('selection-resolved', {
+      id: 'platform.module',
+      projections: { entryType: 'MODULE', internalOnly: 'not-in-formula-context' },
+    });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain('页面模式');
+    expect(record).toEqual({ moduleAlias: 'platform.module', pageMode: 'LIST' });
+    expect(wrapper.emitted('update:field')).toBeUndefined();
+
+    picker.vm.$emit('selection-resolved', undefined);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).not.toContain('页面模式');
+  });
+
   it('applies affect patches from selected multi-value references in selection order', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [

@@ -40,7 +40,11 @@ public record TreeManagementPageDefinition(PageNavigatorDefinition navigator, Pa
             return this;
         }
 
-        /** Makes a declared action contribution the page's navigator-scoped main tree. */
+        /**
+         * Makes a separately declared action contribution the page's navigator-scoped main tree.
+         * Do not use this for the containing module's ordinary tree; bind navigator context to that
+         * tree with {@link PageNavigatorDefinition.Builder#bindNavigatorToList(String, String)}.
+         */
         public Builder treeResource(String resource, String scopeNavigatorKey, String scopeField,
                                     Consumer<PageTreeResourceDefinition.Builder> customizer) {
             PageTreeResourceDefinition.Builder builder = new PageTreeResourceDefinition.Builder(

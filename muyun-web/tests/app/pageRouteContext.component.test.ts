@@ -41,6 +41,7 @@ const RouteCacheHarness = defineComponent({
       activeTabKey: 'page:tab-a',
     });
     const activeTabKey = ref('page:tab-a');
+    const pageRefreshRevisions = ref<Record<string, number>>({});
 
     async function changeTab(key: string) {
       const tab = startup.value.tabs?.find((item) => item.key === key);
@@ -50,10 +51,26 @@ const RouteCacheHarness = defineComponent({
       await router.push(tab.fullPath);
     }
 
-    return { activeTabKey, changeTab, pageCacheKey, startup };
+    function pageRefreshRevisionFor(tabKey: string) {
+      return pageRefreshRevisions.value[tabKey] ?? 0;
+    }
+
+    function refreshPage(tabKey: string) {
+      pageRefreshRevisions.value = {
+        ...pageRefreshRevisions.value,
+        [tabKey]: pageRefreshRevisionFor(tabKey) + 1,
+      };
+    }
+
+    return { activeTabKey, changeTab, pageCacheKey, pageRefreshRevisionFor, refreshPage, startup };
   },
   template: `
-    <Workbench :startup="startup" :active-tab-key="activeTabKey" @change-tab="changeTab">
+    <Workbench
+      :startup="startup"
+      :active-tab-key="activeTabKey"
+      @change-tab="changeTab"
+      @refresh-page="refreshPage"
+    >
       <template #default>
         <RouterView v-slot="{ Component, route }">
           <KeepAlive>
@@ -61,6 +78,7 @@ const RouteCacheHarness = defineComponent({
               :key="pageCacheKey(route, String(route.query.InstanceKey ?? 'default'))"
               :component="Component"
               :route="route"
+              :refresh-revision="pageRefreshRevisionFor(activeTabKey)"
             />
           </KeepAlive>
         </RouterView>
@@ -69,7 +87,7 @@ const RouteCacheHarness = defineComponent({
   `,
 });
 
-it('does not let another tab route reset the cached page draft', async () => {
+it('keeps tab drafts isolated and refreshes only the current page instance', async () => {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/page', component: StatefulPage, meta: { cacheable: true } }],
@@ -83,9 +101,20 @@ it('does not let another tab route reset the cached page draft', async () => {
   await draft.setValue('draft-a');
   await wrapper.findComponent(Workbench).vm.$emit('changeTab', 'page:tab-b');
   await flushPromises();
+  await wrapper.get('[data-testid="draft"]').setValue('draft-b');
   await wrapper.findComponent(Workbench).vm.$emit('changeTab', 'page:tab-a');
   await flushPromises();
 
   expect(wrapper.get<HTMLInputElement>('[data-testid="draft"]').element.value).toBe('draft-a');
+
+  await wrapper.get('[aria-label="刷新当前页"]').trigger('click');
+  await flushPromises();
+
+  expect(wrapper.get<HTMLInputElement>('[data-testid="draft"]').element.value).toBe('initial:tab-a');
+
+  await wrapper.findComponent(Workbench).vm.$emit('changeTab', 'page:tab-b');
+  await flushPromises();
+
+  expect(wrapper.get<HTMLInputElement>('[data-testid="draft"]').element.value).toBe('draft-b');
   wrapper.unmount();
 });

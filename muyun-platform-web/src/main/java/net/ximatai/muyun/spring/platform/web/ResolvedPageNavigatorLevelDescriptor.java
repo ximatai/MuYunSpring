@@ -8,10 +8,25 @@ public record ResolvedPageNavigatorLevelDescriptor(String key,
                                                    String sourceModuleAlias,
                                                    String title,
                                                    String searchPlaceholder,
+                                                   String secondaryField,
                                                    ResolvedPageNavigatorManagementDescriptor management,
                                                    PageNavigatorSingleResultPolicy singleResultPolicy,
                                                    PageNavigatorInitialSelectionPolicy initialSelectionPolicy,
                                                    PageNavigatorSourceScope sourceScope) {
+    /** Compatibility constructor for resolved descriptors without a secondary identity. */
+    public ResolvedPageNavigatorLevelDescriptor(String key,
+                                                PageNavigatorKind kind,
+                                                String sourceModuleAlias,
+                                                String title,
+                                                String searchPlaceholder,
+                                                ResolvedPageNavigatorManagementDescriptor management,
+                                                PageNavigatorSingleResultPolicy singleResultPolicy,
+                                                PageNavigatorInitialSelectionPolicy initialSelectionPolicy,
+                                                PageNavigatorSourceScope sourceScope) {
+        this(key, kind, sourceModuleAlias, title, searchPlaceholder, null, management, singleResultPolicy,
+                initialSelectionPolicy, sourceScope);
+    }
+
     public ResolvedPageNavigatorLevelDescriptor {
         singleResultPolicy = singleResultPolicy == null ? PageNavigatorSingleResultPolicy.NONE : singleResultPolicy;
         initialSelectionPolicy = initialSelectionPolicy == null ? PageNavigatorInitialSelectionPolicy.NONE
@@ -21,7 +36,8 @@ public record ResolvedPageNavigatorLevelDescriptor(String key,
 
     static ResolvedPageNavigatorLevelDescriptor from(PageNavigatorLevelDefinition definition) {
         return new ResolvedPageNavigatorLevelDescriptor(definition.key(), definition.kind(), definition.sourceModuleAlias(),
-                definition.title(), definition.searchPlaceholder(), ResolvedPageNavigatorManagementDescriptor.from(definition.management()),
+                definition.title(), definition.searchPlaceholder(), definition.secondaryField(),
+                ResolvedPageNavigatorManagementDescriptor.from(definition.management()),
                 definition.singleResultPolicy(), definition.initialSelectionPolicy(), definition.sourceScope());
     }
 }

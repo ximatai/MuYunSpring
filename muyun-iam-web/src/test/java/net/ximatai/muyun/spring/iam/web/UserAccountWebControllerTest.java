@@ -3,6 +3,8 @@ package net.ximatai.muyun.spring.iam.web;
 import net.ximatai.muyun.spring.web.ActionResultResponseAdvice;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
+import net.ximatai.muyun.spring.web.WebQueryCondition;
+import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.platform.web.ActionEndpointContextResolver;
 import net.ximatai.muyun.spring.platform.web.ActionEndpointInterceptor;
 import net.ximatai.muyun.spring.platform.web.MenuEntryRequestContext;
@@ -28,6 +30,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.Instant;
 import java.util.List;
@@ -50,6 +54,67 @@ class UserAccountWebControllerTest {
     void tearDown() {
         CurrentUserContext.clear();
         TenantContext.clear();
+        RequestContextHolder.resetRequestAttributes();
+    }
+
+    @Test
+    void shouldTreatTenantNavigatorAsAnOptionalUserListFilter() {
+        var page = (net.ximatai.muyun.spring.platform.web.ListDetailCardPageDefinition) new UserAccountWebController()
+                .moduleUiDefinition().page();
+
+        assertThat(page.navigator().contextBindings())
+                .filteredOn(binding -> binding.sourceKey().equals("tenant")
+                        && binding.targetKey().equals("tenantId")
+                        && binding.target() == net.ximatai.muyun.spring.platform.web.PageContextTarget.LIST_QUERY)
+                .singleElement()
+                .satisfies(binding -> assertThat(binding.navigatorListQueryMode())
+                        .isEqualTo(net.ximatai.muyun.spring.platform.web.NavigatorListQueryMode.OPTIONAL_FILTER));
+    }
+
+    @Test
+    void shouldScopeAnUnselectedSystemUserWorkspaceToSystemAccounts() {
+        UserAccountWebController controller = new UserAccountWebController();
+        WebQueryRequest request = new WebQueryRequest(null, List.of(), List.of());
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("admin", "Admin"))) {
+            assertThat(controller.queryForCurrentWorkspace(request).conditions())
+                    .containsExactly(new WebQueryCondition("tenantId", "NULL", List.of()));
+        }
+    }
+
+    @Test
+    void shouldRetainAnExplicitTenantPageContextForSystemUserQueries() {
+        UserAccountWebController controller = new UserAccountWebController();
+        WebQueryRequest request = new WebQueryRequest(null, List.of(), List.of());
+        org.springframework.mock.web.MockHttpServletRequest servletRequest =
+                new org.springframework.mock.web.MockHttpServletRequest();
+        servletRequest.addHeader("X-MuYun-Page-Context", "{\"tenant\":\"demo\"}");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("admin", "Admin"))) {
+            assertThat(controller.queryForCurrentWorkspace(request)).isSameAs(request);
+        }
+    }
+
+    @Test
+    void shouldRetainAnExplicitTenantNavigatorValueForSystemUserQueries() {
+        UserAccountWebController controller = new UserAccountWebController();
+        WebQueryRequest request = new WebQueryRequest(null, List.of(), List.of())
+                .withExternalQueryValues(java.util.Map.of("tenantId", "demo"));
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("admin", "Admin"))) {
+            assertThat(controller.queryForCurrentWorkspace(request)).isSameAs(request);
+        }
+    }
+
+    @Test
+    void shouldNotInjectSystemAccountScopeForTenantUsers() {
+        UserAccountWebController controller = new UserAccountWebController();
+        WebQueryRequest request = new WebQueryRequest(null, List.of(), List.of());
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.tenantUser("tenant-admin", "Tenant Admin", "demo"))) {
+            assertThat(controller.queryForCurrentWorkspace(request)).isSameAs(request);
+        }
     }
 
     @Test

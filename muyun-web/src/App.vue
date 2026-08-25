@@ -118,6 +118,7 @@ configureUserPreferenceBackend({
 });
 
 const startup = ref<WorkbenchStartupState>();
+const pageRefreshRevisions = ref<Record<string, number>>({});
 const currentUser = computed(() => startup.value?.session.currentUser);
 const currentTimeZone = computed(() => currentUser.value?.timeZone);
 const loading = ref(true);
@@ -888,6 +889,7 @@ function handleCloseTab(key: string) {
     activeTabKey: result.activeTabKey,
   };
   activeTabKey.value = result.activeTabKey;
+  discardPageRefreshRevisions([key]);
   if (lockedTabs.value.some((tab) => tab.key === key))
     updateLockedTabs(removeLockedMenuTabs(lockedTabs.value, [key]));
   syncBrowserUrl(startup.value, 'replace');
@@ -905,6 +907,7 @@ function handleCloseTabs(keys: string[]) {
     activeTabKey: result.activeTabKey,
   };
   activeTabKey.value = result.activeTabKey;
+  discardPageRefreshRevisions(keys);
   const nextLockedTabs = removeLockedMenuTabs(lockedTabs.value, keys);
   if (nextLockedTabs.length !== lockedTabs.value.length) updateLockedTabs(nextLockedTabs);
   syncBrowserUrl(startup.value, 'replace');
@@ -982,6 +985,30 @@ function requiresLogin(cause: unknown) {
   }
   return isAuthenticationRequiredError(cause);
 }
+
+function pageRefreshRevisionFor(tabKey: string | undefined) {
+  return tabKey ? (pageRefreshRevisions.value[tabKey] ?? 0) : 0;
+}
+
+/** Rebuilds exactly the requested page instance without touching other cached tabs. */
+function refreshPage(tabKey: string) {
+  pageRefreshRevisions.value = {
+    ...pageRefreshRevisions.value,
+    [tabKey]: pageRefreshRevisionFor(tabKey) + 1,
+  };
+}
+
+/** Refresh revisions are page-instance state and must leave with their closed tabs. */
+function discardPageRefreshRevisions(keys: readonly string[]) {
+  if (keys.length === 0) return;
+  const discarded = new Set(keys);
+  const retained = Object.fromEntries(
+    Object.entries(pageRefreshRevisions.value).filter(([key]) => !discarded.has(key)),
+  );
+  if (Object.keys(retained).length !== Object.keys(pageRefreshRevisions.value).length) {
+    pageRefreshRevisions.value = retained;
+  }
+}
 </script>
 
 <template>
@@ -1009,6 +1036,7 @@ function requiresLogin(cause: unknown) {
       @close-tabs="handleCloseTabs"
       @toggle-tab-lock="handleToggleTabLock"
       @reorder-tabs="handleReorderTabs"
+      @refresh-page="refreshPage"
       @user-command="handleUserCommand"
     >
       <template #default>
@@ -1020,6 +1048,7 @@ function requiresLogin(cause: unknown) {
               :component="Component"
               :route="route"
               :page-descriptor="pageDescriptorForRoute()"
+              :refresh-revision="pageRefreshRevisionFor(activeTabKey)"
             />
           </KeepAlive>
           <StaticRoutePageHost
@@ -1028,6 +1057,7 @@ function requiresLogin(cause: unknown) {
             :component="Component"
             :route="route"
             :page-descriptor="pageDescriptorForRoute()"
+            :refresh-revision="pageRefreshRevisionFor(activeTabKey)"
           />
         </RouterView>
       </template>

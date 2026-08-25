@@ -673,7 +673,8 @@ class StaticModuleDefinitionScannerTest {
                     () -> withService(new MenuSchemeWebController(), mock(MenuSchemeService.class)));
             context.registerBean(MenuManagementWebController.class,
                     () -> withService(new MenuManagementWebController(),
-                            mock(net.ximatai.muyun.spring.platform.menu.MenuService.class)));
+                            new net.ximatai.muyun.spring.platform.menu.MenuService(mock(BaseDao.class),
+                                    mock(MenuSchemeService.class), mock(PlatformModuleService.class))));
             context.registerBean(DictionaryCategoryWebController.class, () -> {
                 DictionaryCategoryWebController controller = new DictionaryCategoryWebController();
                 ReflectionTestUtils.setField(controller, "service", context.getBean(DictionaryCategoryService.class));
@@ -694,13 +695,43 @@ class StaticModuleDefinitionScannerTest {
                     "platform.menu_scheme", "platform.menu", "platform.dictionary_category");
             assertThat(byAlias.get("platform.menu_scheme").actions())
                     .extracting(StaticModuleActionDefinition::actionCode)
-                    .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
+                    .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query", "reference",
                             "sort", "enable", "disable");
-            assertThat(byAlias.get("platform.menu_scheme").entryRoute()).isEqualTo("/platform/menu-scheme");
-            assertThat(byAlias.get("platform.menu").actions())
-                    .extracting(StaticModuleActionDefinition::actionCode)
-                    .containsExactlyInAnyOrder("create", "view", "update", "delete", "query",
-                            "tree", "sort", "enable", "disable");
+            assertThat(byAlias.get("platform.menu_scheme").entryRoute()).isBlank();
+            assertThat(byAlias.get("platform.menu_scheme").entities())
+                    .extracting(EntityDefinition::alias)
+                    .containsExactly("menu_scheme");
+            ResolvedModuleUiDescriptor menuDescriptor =
+                    ModuleUiDescriptorCompiler.compile(byAlias.get("platform.menu"));
+            assertThat(menuDescriptor.page().template()).isEqualTo(ModulePageTemplate.TREE_MANAGEMENT);
+            assertThat(menuDescriptor.page().navigator().levels()).singleElement().satisfies(level -> {
+                assertThat(level.key()).isEqualTo("scheme");
+                assertThat(level.sourceModuleAlias()).isEqualTo("platform.menu_scheme");
+                assertThat(level.secondaryField()).isEqualTo("scopeTypeTitle");
+                assertThat(level.management().editorSurface()).isEqualTo("menu_scheme_editor");
+            });
+            assertThat(menuDescriptor.page().navigator().contextBindings())
+                    .anySatisfy(binding -> {
+                        assertThat(binding.source()).isEqualTo(PageContextSource.NAVIGATOR);
+                        assertThat(binding.sourceKey()).isEqualTo("scheme");
+                        assertThat(binding.target()).isEqualTo(PageContextTarget.LIST_QUERY);
+                        assertThat(binding.targetKey()).isEqualTo("schemeId");
+                    });
+            assertThat(ModuleUiDescriptorCompiler.compile(byAlias.get("platform.menu_scheme")).editorSurfaces())
+                    .singleElement().satisfies(surface -> {
+                        assertThat(surface.key()).isEqualTo("menu_scheme_editor");
+                        assertThat(surface.editor().fields()).extracting(field -> field.fieldRef().fieldName())
+                                .containsExactly("alias", "title", "scopeType", "tenantId", "organizationId", "enabled");
+                        assertThat(surface.editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("tenantId"))
+                                .singleElement().satisfies(field -> assertThat(field.reference().targetModuleAlias())
+                                        .isEqualTo("iam.tenant"));
+                        assertThat(surface.editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("organizationId"))
+                                .singleElement().satisfies(field -> assertThat(field.reference().targetModuleAlias())
+                                        .isEqualTo("iam.organization"));
+                    });
+            assertThat(menuDescriptor.page().treeResource()).isNull();
+            assertThat(menuDescriptor.page().detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
+                    .containsExactly("title", "parentId", "moduleAlias", "openMode", "enabled");
             assertThat(byAlias.get("platform.dictionary_category").actions())
                     .extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query", "reference",
@@ -743,7 +774,7 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(resource.scopeNavigatorKey()).isEqualTo("category");
                 assertThat(resource.scopeField()).isEqualTo("categoryId");
                 assertThat(resource.scopeRecordField()).isEqualTo("categoryKind");
-                assertThat(resource.scopeRecordEquals()).isEqualTo("DICTIONARY");
+                assertThat(resource.scopeRecordEquals()).isEqualTo("dictionary");
                 assertThat(resource.title()).isEqualTo("字典项");
             });
             assertThat(dictionaryDescriptor.page().detail().editor()).satisfies(view -> {
@@ -766,6 +797,12 @@ class StaticModuleDefinitionScannerTest {
                         assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                         assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
                                 .containsExactly("categoryId", "code", "title", "parentId", "enabled");
+                        assertThat(view.fields()).anySatisfy(field ->
+                                assertThat(field.fieldRef().fieldName()).isEqualTo(
+                                        dictionaryDescriptor.page().treeResource().scopeField()));
+                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("categoryId"))
+                                .singleElement()
+                                .satisfies(field -> assertThat(field.visible().constant()).isFalse());
                         assertThat(view.fields()).extracting(field -> field.fieldRef().relationCode())
                                 .containsOnly("item");
                         assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("parentId"))

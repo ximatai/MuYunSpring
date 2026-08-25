@@ -13,7 +13,8 @@ public record ReferencePlan(
         List<ReferenceProjection> projections,
         ReferenceIntegrityPolicy integrity,
         ReferenceTenantScope tenantScope,
-        List<ReferenceCandidateDependency> candidateDependencies
+        List<ReferenceCandidateDependency> candidateDependencies,
+        List<ReferenceSelectionProjection> selectionProjections
 ) {
     public ReferencePlan {
         if (sourceField == null || sourceField.isBlank()) {
@@ -29,6 +30,8 @@ public record ReferencePlan(
         integrity = integrity == null ? ReferenceIntegrityPolicy.DEFAULT : integrity;
         tenantScope = tenantScope == null ? ReferenceTenantScope.SAME_TENANT : tenantScope;
         candidateDependencies = candidateDependencies == null ? List.of() : List.copyOf(candidateDependencies);
+        selectionProjections = selectionProjections == null ? List.of() : selectionProjections.stream()
+                .filter(java.util.Objects::nonNull).distinct().toList();
         if (cardinality == ReferenceCardinality.MANY
                 && integrity.onTargetUnavailable() == ReferenceTargetUnavailablePolicy.RESTRICT) {
             throw new PlatformException("RESTRICT reference deletion requires cardinality ONE: " + sourceField);
@@ -44,7 +47,7 @@ public record ReferencePlan(
                          ReferenceTarget target,
                          ReferenceCardinality cardinality) {
         this(sourceField, target, cardinality, List.of(), ReferenceIntegrityPolicy.DEFAULT,
-                ReferenceTenantScope.SAME_TENANT, List.of());
+                ReferenceTenantScope.SAME_TENANT, List.of(), List.of());
     }
 
     public ReferencePlan(String sourceField,
@@ -52,23 +55,31 @@ public record ReferencePlan(
                          ReferenceCardinality cardinality,
                          List<ReferenceProjection> projections,
                          ReferenceIntegrityPolicy integrity) {
-        this(sourceField, target, cardinality, projections, integrity, ReferenceTenantScope.SAME_TENANT, List.of());
+        this(sourceField, target, cardinality, projections, integrity, ReferenceTenantScope.SAME_TENANT, List.of(), List.of());
     }
 
     public ReferencePlan(String sourceField, ReferenceTarget target, ReferenceCardinality cardinality,
                          List<ReferenceProjection> projections, ReferenceIntegrityPolicy integrity,
                          ReferenceTenantScope tenantScope) {
-        this(sourceField, target, cardinality, projections, integrity, tenantScope, List.of());
+        this(sourceField, target, cardinality, projections, integrity, tenantScope, List.of(), List.of());
     }
 
     public static ReferencePlan of(String sourceField, ReferenceTarget target, ReferenceCardinality cardinality) {
         return new ReferencePlan(sourceField, target, cardinality, List.of(), ReferenceIntegrityPolicy.DEFAULT,
-                ReferenceTenantScope.SAME_TENANT, List.of());
+                ReferenceTenantScope.SAME_TENANT, List.of(), List.of());
     }
 
     public ReferencePlan withProjection(String targetField, String outputField) {
         return new ReferencePlan(sourceField(), target, cardinality,
-                appendProjection(new ReferenceProjection(targetField, outputField)), integrity, tenantScope, candidateDependencies);
+                appendProjection(new ReferenceProjection(targetField, outputField)), integrity, tenantScope,
+                candidateDependencies, selectionProjections);
+    }
+
+    /** Compatibility constructor for callers created before picker selection projections existed. */
+    public ReferencePlan(String sourceField, ReferenceTarget target, ReferenceCardinality cardinality,
+                         List<ReferenceProjection> projections, ReferenceIntegrityPolicy integrity,
+                         ReferenceTenantScope tenantScope, List<ReferenceCandidateDependency> candidateDependencies) {
+        this(sourceField, target, cardinality, projections, integrity, tenantScope, candidateDependencies, List.of());
     }
 
     public List<String> normalizeValues(Object value) {

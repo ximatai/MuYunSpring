@@ -77,7 +77,7 @@ class PlatformMenuInitialDataDeclarationProviderTest {
             assertThat(scheme).satisfies(value -> {
                 assertThat(value.getAlias()).isEqualTo(MenuSchemeService.ADMIN_SCHEME_ALIAS);
                 assertThat(value.getScopeType()).isEqualTo(MenuScopeType.SYSTEM);
-                assertThat(value.getScopeId()).isEqualTo(MenuSchemeService.SYSTEM_SCOPE_ID);
+                assertThat(value.getOrganizationId()).isNull();
                 assertThat(value.getTitle()).isEqualTo("平台超管");
             });
             assertThat(menuService.rootMenus(scheme.getId()))
@@ -351,6 +351,7 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     @Test
     void shouldDeclareMenusForCoreAdministrationEntryPoints() {
         assertMenu(ApplicationWebController.class, PlatformMenuGroups.MODELING, "应用管理", 10);
+        assertMenu(MenuManagementWebController.class, PlatformMenuGroups.SETTINGS, "菜单管理", 10);
         assertMenu(OrganizationWebController.class, PlatformMenuGroups.IDENTITY, "", 20);
         assertMenu(DepartmentWebController.class, PlatformMenuGroups.IDENTITY, "部门管理", 30);
         assertMenu(PositionWebController.class, PlatformMenuGroups.IDENTITY, "岗位管理", 40);
@@ -383,7 +384,6 @@ class PlatformMenuInitialDataDeclarationProviderTest {
         scheme.setId(MenuSchemeService.ADMIN_SCHEME_ID);
         scheme.setAlias(MenuSchemeService.ADMIN_SCHEME_ALIAS);
         scheme.setScopeType(MenuScopeType.SYSTEM);
-        scheme.setScopeId(MenuSchemeService.SYSTEM_SCOPE_ID);
         schemeDao.insert(scheme);
         Menu platform = menu(
                 PlatformMenuGroups.PLATFORM,

@@ -11,10 +11,16 @@ public record PageContextBindingDefinition(PageContextSource source,
                                            PageContextTarget target,
                                            String targetKey,
                                            String targetNavigatorLevelKey,
-                                           String targetPickerFieldKey) {
+                                           String targetPickerFieldKey,
+                                           NavigatorListQueryMode navigatorListQueryMode) {
     public PageContextBindingDefinition(PageContextSource source, String sourceKey, PageContextTarget target,
                                         String targetKey, String targetNavigatorLevelKey) {
-        this(source, sourceKey, target, targetKey, targetNavigatorLevelKey, null);
+        this(source, sourceKey, target, targetKey, targetNavigatorLevelKey, null, null);
+    }
+
+    public PageContextBindingDefinition(PageContextSource source, String sourceKey, PageContextTarget target,
+                                        String targetKey, String targetNavigatorLevelKey, String targetPickerFieldKey) {
+        this(source, sourceKey, target, targetKey, targetNavigatorLevelKey, targetPickerFieldKey, null);
     }
 
     public PageContextBindingDefinition {
@@ -41,11 +47,25 @@ public record PageContextBindingDefinition(PageContextSource source,
         if (target == PageContextTarget.MUTATION_CONSTRAINT && source != PageContextSource.SESSION) {
             throw new IllegalArgumentException("mutation constraints require a server-authoritative SESSION source");
         }
+        if (navigatorListQueryMode != null && (source != PageContextSource.NAVIGATOR
+                || target != PageContextTarget.LIST_QUERY)) {
+            throw new IllegalArgumentException("navigator list query mode requires a NAVIGATOR LIST_QUERY binding");
+        }
+        if (source == PageContextSource.NAVIGATOR && target == PageContextTarget.LIST_QUERY
+                && navigatorListQueryMode == null) {
+            navigatorListQueryMode = NavigatorListQueryMode.REQUIRED_SCOPE;
+        }
     }
 
     public static PageContextBindingDefinition navigator(String sourceLevelKey, PageContextTarget target,
                                                          String targetKey) {
         return new PageContextBindingDefinition(PageContextSource.NAVIGATOR, sourceLevelKey, target, targetKey, null);
+    }
+
+    public static PageContextBindingDefinition navigatorList(String sourceLevelKey, String targetKey,
+                                                              NavigatorListQueryMode queryMode) {
+        return new PageContextBindingDefinition(PageContextSource.NAVIGATOR, sourceLevelKey,
+                PageContextTarget.LIST_QUERY, targetKey, null, null, queryMode);
     }
 
     public static PageContextBindingDefinition navigatorToNavigator(String sourceLevelKey, String targetLevelKey,

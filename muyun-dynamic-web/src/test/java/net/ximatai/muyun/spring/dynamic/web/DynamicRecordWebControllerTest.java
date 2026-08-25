@@ -77,6 +77,9 @@ import net.ximatai.muyun.spring.platform.web.ModuleQueryFormField;
 import net.ximatai.muyun.spring.platform.web.ModuleQueryTemplatePlan;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.NavigatorListQueryMode;
+import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
+import net.ximatai.muyun.spring.platform.web.PageContextTarget;
 import net.ximatai.muyun.spring.platform.web.PageListDefinition;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.ResolvedModuleReadField;
@@ -1124,6 +1127,92 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldApplyOnlyTargetNavigatorQueryBindingToCrossModuleDynamicNavigatorReference() throws Exception {
+        String hostModule = "mr.device";
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan()));
+        catalog.replaceDynamicPlan(hostModule, java.util.Optional.of(installedNavigatorHostPlan(hostModule, List.of(
+                PageContextBindingDefinition.navigator("tenant", PageContextTarget.LIST_QUERY, "ignoredTenantId"),
+                PageContextBindingDefinition.navigatorToNavigator("tenant", "project", "tenantId")))));
+        DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");
+        record.setId("contract-1");
+        when(service.pageForAction(eq(MODULE), eq(ENTITY), eq(PlatformAction.REFERENCE.code()), any(Criteria.class),
+                any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(record), 1, PageRequest.of(1, 20)));
+        MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .executionPlans(catalog).build())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+
+        plannedMvc.perform(post("/{moduleAlias}/navigator/reference/query", MODULE).contentType("application/json")
+                        .content("""
+                                {
+                                  "navigatorHostModuleAlias": "mr.device",
+                                  "navigatorTargetLevelKey": "project"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
+                .andExpect(jsonPath("$.message").value("Page navigator scope is required: tenant"));
+
+        plannedMvc.perform(post("/{moduleAlias}/navigator/reference/query", MODULE).contentType("application/json")
+                        .content("""
+                                {
+                                  "navigatorHostModuleAlias": "mr.device",
+                                  "navigatorTargetLevelKey": "project",
+                                  "externalQueryValues": {"tenantId": "tenant_a", "ignoredTenantId": "forged"}
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Criteria> criteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(service).pageForAction(eq(MODULE), eq(ENTITY), eq(PlatformAction.REFERENCE.code()), criteria.capture(),
+                any(PageRequest.class), any(Sort[].class));
+        assertThat(criteria.getValue().getRoot().getEntries()).hasSize(1);
+        assertThat(((net.ximatai.muyun.database.core.orm.CriteriaClause) criteria.getValue().getRoot()
+                .getEntries().getFirst().getNode()).getField()).isEqualTo("tenantId");
+
+        when(mainEntity.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(record), 1, PageRequest.of(1, 20)));
+        plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
+                        .content("{\"uiConfigId\":\"ui-list\",\"externalQueryValues\":{\"tenantId\":\"tenant_a\"}}"))
+                .andExpect(status().isOk());
+        ArgumentCaptor<Criteria> listCriteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(mainEntity).pageQuery(listCriteria.capture(), any(PageRequest.class), any(Sort[].class));
+        assertThat(listCriteria.getValue().getRoot().getEntries()).isEmpty();
+    }
+
+    @Test
+    void shouldRejectNavigatorReferenceWhenTargetLevelIsHiddenOrPointsAtAnotherSource() throws Exception {
+        String hostModule = "mr.device";
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan()));
+        catalog.replaceDynamicPlan(hostModule, java.util.Optional.of(installedNavigatorHostPlan(hostModule, List.of(
+                PageContextBindingDefinition.navigatorToNavigator("tenant", "project", "tenantId")))));
+        MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .executionPlans(catalog).build())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+
+        plannedMvc.perform(post("/{moduleAlias}/navigator/reference/query", MODULE).contentType("application/json")
+                        .content("""
+                                {"navigatorHostModuleAlias":"mr.device","navigatorTargetLevelKey":"tenant"}
+                                """))
+                .andExpect(status().isBadRequest());
+        plannedMvc.perform(post("/{moduleAlias}/navigator/reference/query", MODULE).contentType("application/json")
+                        .content("""
+                                {"navigatorHostModuleAlias":"mr.device","navigatorTargetLevelKey":"unknown"}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void shouldReadNavigatorReferenceTreeThroughReferenceActionScope() throws Exception {
         DynamicRecord root = new DynamicRecord(entity()).setValue("code", "ROOT");
         root.setId("root-1");
@@ -1395,6 +1484,7 @@ class DynamicRecordWebControllerTest {
                                   "uiConfigId": "ui-list",
                                   "queryTemplateId": "tpl-active",
                                   "externalQueryValues": {
+                                    "tenantId": "tenant_a",
                                     "owner": "user-1",
                                     "optional": null
                                   },
@@ -1490,6 +1580,44 @@ class DynamicRecordWebControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Save requires published FORM uiConfigId")));
 
+        verifyNoInteractions(snapshotService);
+    }
+
+    @Test
+    void shouldApplyPresentNavigatorValuesFromInstalledPlanRegardlessOfQueryMode() throws Exception {
+        PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan(List.of(
+                PageContextBindingDefinition.navigatorList("tenant", "tenantId", NavigatorListQueryMode.REQUIRED_SCOPE),
+                PageContextBindingDefinition.navigatorList("project", "projectId", NavigatorListQueryMode.OPTIONAL_FILTER)))));
+        MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .query(snapshotService, null, null).executionPlans(catalog).build())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+        DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");
+        record.setId("contract-1");
+        when(mainEntity.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(record), 1, PageRequest.of(1, 20)));
+
+        plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
+                        .content("{\"uiConfigId\":\"ui-list\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
+                .andExpect(jsonPath("$.message").value("Page navigator scope is required: tenant"));
+        plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
+                        .content("{\"uiConfigId\":\"ui-list\",\"externalQueryValues\":{\"tenantId\":\"tenant_a\"}}"))
+                .andExpect(status().isOk());
+        plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
+                        .content("{\"uiConfigId\":\"ui-list\",\"externalQueryValues\":{\"tenantId\":\"tenant_a\",\"projectId\":\"project-1\"}}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Criteria> criteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(mainEntity, times(2)).pageQuery(criteria.capture(), any(PageRequest.class), any(Sort[].class));
+        assertThat(criteria.getAllValues().getFirst().getRoot().getEntries()).hasSize(1);
+        assertThat(criteria.getAllValues().get(1).getRoot().getEntries()).hasSize(2);
         verifyNoInteractions(snapshotService);
     }
 
@@ -3561,11 +3689,21 @@ class DynamicRecordWebControllerTest {
     }
 
     private ModuleExecutionPlan installedDynamicPlan() {
-        return installedDynamicPlan(null);
+        return installedDynamicPlan(null, List.of());
     }
 
     private ModuleExecutionPlan installedDynamicPlan(
             java.util.function.Consumer<PageListDefinition.QuerySummariesBuilder> querySummaries) {
+        return installedDynamicPlan(querySummaries, List.of());
+    }
+
+    private ModuleExecutionPlan installedDynamicPlan(List<PageContextBindingDefinition> pageContextBindings) {
+        return installedDynamicPlan(null, pageContextBindings);
+    }
+
+    private ModuleExecutionPlan installedDynamicPlan(
+            java.util.function.Consumer<PageListDefinition.QuerySummariesBuilder> querySummaries,
+            List<PageContextBindingDefinition> pageContextBindings) {
         ModuleUiDefinition definition = ModuleUiDefinition.builder(MODULE)
                 .page(PageTemplates.listDetailCard(page -> page
                         .list(list -> {
@@ -3584,13 +3722,34 @@ class DynamicRecordWebControllerTest {
                 List.of(), List.of());
         return new ModuleExecutionPlan(MODULE, "dynamic-runtime-1-ui-1", descriptor,
                 new ResolvedModuleReadModel(MODULE, ENTITY,
-                        List.of(new ResolvedModuleReadField(ENTITY, null, "code", false))), List.of(),
+                        List.of(new ResolvedModuleReadField(ENTITY, null, "code", false))), pageContextBindings,
                 net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder(MODULE).build(), schema,
                 List.of("tpl-active"), List.of(new ModuleQueryTemplatePlan("tpl-active", List.of(
                         new ModuleQueryTemplatePlan.Node(net.ximatai.muyun.spring.platform.ui.PlatformQueryGroupOperator.AND,
                                 "code", DynamicQueryOperator.EQ, null, "code", null, List.of())))), "ui-list", "form-v1",
                 List.of(new ModuleQueryFormField("code", ModuleQueryFormField.Mode.DEFAULT, List.of())), List.of(),
                 List.of(new ModuleMutationFieldValidation(null, "code", false, true)), List.of(), false);
+    }
+
+    private ModuleExecutionPlan installedNavigatorHostPlan(String moduleAlias,
+                                                            List<PageContextBindingDefinition> pageContextBindings) {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder(moduleAlias)
+                .page(PageTemplates.listDetailCard(page -> page
+                        .navigator(navigator -> navigator
+                                .level("tenant", level -> level.microList("iam.tenant", "Tenant", null))
+                                .level("project", level -> level.microList(MODULE, "Project", null))
+                                .bind(PageContextBindingDefinition.navigatorToNavigator("tenant", "project", "tenantId")))
+                        .list(list -> list.fields(fields -> fields.field("code")))
+                        .detail(detail -> detail.editor(editor -> editor.field("code")))))
+                .build();
+        var descriptor = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, "Device");
+        var schema = new net.ximatai.muyun.spring.ability.query.QuerySchema(moduleAlias, "device",
+                new net.ximatai.muyun.spring.ability.query.QuerySchema.QuickSearch(false, List.of(), List.of()),
+                List.of(), List.of(), List.of());
+        return new ModuleExecutionPlan(moduleAlias, "dynamic-device-runtime-1", descriptor,
+                new ResolvedModuleReadModel(moduleAlias, "device", List.of()), pageContextBindings,
+                net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder(moduleAlias).build(), schema,
+                List.of(), List.of(), "ui-list", "form-v1", List.of(), List.of(), List.of(), List.of(), false);
     }
 
     private DynamicRecordWebControllerFixture controllerFixture(
@@ -3697,7 +3856,7 @@ class DynamicRecordWebControllerTest {
                     new TenantRequestScope(activeTenantVerifier),
                     new DynamicRecordQueryServices(pageConfigSnapshotService, queryItemService,
                             moduleMetadataFieldService, fieldUiControlService, fieldUiControlBindingService,
-                            relationProjectionReadService, executionPlanCatalog, listQuerySummaryRuntime),
+                            relationProjectionReadService, executionPlanCatalog, listQuerySummaryRuntime, null),
                     new DynamicRecordAttachmentServices(recordAttachmentService, recordAttachmentAccessService),
                     new DynamicRecordActionServices(codeBusinessPreviewService, referenceRecordGenerationFacade,
                             duplicateCheckService, navigationService));

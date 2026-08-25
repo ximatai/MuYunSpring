@@ -23,10 +23,21 @@ public final class PageCapabilityContractValidator {
 
     public static void validate(String moduleAlias, String template, Set<String> traits,
                                 Set<String> capabilityCodes, Set<String> actionCodes) {
+        validate(moduleAlias, template, traits, capabilityCodes, actionCodes, false);
+    }
+
+    /**
+     * A tree-management workbench may be backed by an aggregate tree resource rather than by the
+     * page module's own record model. In that case the caller proves the resource's TREE contract
+     * separately; requiring TREE from the host module would reject a valid scoped tree workspace.
+     */
+    public static void validate(String moduleAlias, String template, Set<String> traits,
+                                Set<String> capabilityCodes, Set<String> actionCodes,
+                                boolean treeResourceBacked) {
         Set<String> safeTraits = traits == null ? Set.of() : Set.copyOf(traits);
         Set<String> safeCapabilities = capabilityCodes == null ? Set.of() : Set.copyOf(capabilityCodes);
         Set<String> safeActions = actionCodes == null ? Set.of() : Set.copyOf(actionCodes);
-        if (TREE_MANAGEMENT.equals(template)) {
+        if (TREE_MANAGEMENT.equals(template) && !treeResourceBacked) {
             requireCapability(moduleAlias, TREE_MANAGEMENT, safeCapabilities, EntityCapability.TREE);
             requireActions(moduleAlias, TREE_MANAGEMENT, safeActions, PlatformAction.TREE);
         }

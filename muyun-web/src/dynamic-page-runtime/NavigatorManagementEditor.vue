@@ -49,10 +49,11 @@ const emit = defineEmits<{
   <Transition name="navigator-management-drawer">
     <section v-if="open" class="navigator-management-panel">
       <header class="navigator-management-header">
-        <h3>{{ title }}</h3>
-        <div class="navigator-management-actions">
+        <div class="navigator-management-title-group">
+          <h3>{{ title }}</h3>
           <RecordStatusSwitch
             v-if="showEnabled"
+            class="navigator-management-status-switch"
             :enabled="enabled"
             :disabled="enabledDisabled"
             :disabled-reason="enabledDisabledReason"
@@ -60,11 +61,14 @@ const emit = defineEmits<{
             :show-label="false"
             @change="emit('toggleEnabled', $event)"
           />
-          <RecordPanelButton :disabled="saving || enabledLoading" @click="emit('close')">
+        </div>
+        <div class="navigator-management-actions">
+          <RecordPanelButton size="small" :disabled="saving || enabledLoading" @click="emit('close')">
             取消
           </RecordPanelButton>
           <RecordPanelButton
             type="primary"
+            size="small"
             :loading="saving"
             :disabled="enabledLoading"
             @click="emit('save')"
@@ -121,6 +125,7 @@ const emit = defineEmits<{
 }
 
 .navigator-management-header,
+.navigator-management-title-group,
 .navigator-management-actions {
   display: flex;
   align-items: center;
@@ -131,13 +136,26 @@ const emit = defineEmits<{
   gap: 10px;
 }
 
+.navigator-management-title-group {
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 4px;
+}
+
+.navigator-management-status-switch {
+  transform: scale(0.9);
+  transform-origin: left center;
+}
+
 .navigator-management-content {
   min-height: 0;
   overflow: auto;
 }
 
 .navigator-management-header h3 {
+  flex: 0 1 9em;
   min-width: 0;
+  max-width: 9em;
   margin: 0;
   overflow: hidden;
   color: var(--muyun-text);
@@ -149,7 +167,8 @@ const emit = defineEmits<{
 
 .navigator-management-actions {
   flex: 0 0 auto;
-  gap: 8px;
+  margin-left: auto;
+  gap: 6px;
 }
 
 /* Navigator panels are intentionally narrow and vertically oriented. Keep their

@@ -9,6 +9,7 @@ withDefaults(
     disabled?: boolean;
     loading?: boolean;
     danger?: boolean;
+    size?: 'small' | 'middle' | 'large';
     title?: string;
     ariaLabel?: string;
     iconName?: UiIconName;
@@ -18,6 +19,7 @@ withDefaults(
     disabled: false,
     loading: false,
     danger: false,
+    size: 'middle',
     title: undefined,
     ariaLabel: undefined,
     iconName: undefined,
@@ -33,6 +35,7 @@ const emit = defineEmits<{ click: [event: MouseEvent] }>();
     :disabled="disabled"
     :loading="loading"
     :danger="danger"
+    :size="size"
     :title="title"
     :aria-label="ariaLabel"
     :icon-name="iconName"

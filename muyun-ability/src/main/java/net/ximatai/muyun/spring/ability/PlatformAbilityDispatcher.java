@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueValidator;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
 import java.util.List;
@@ -204,6 +205,11 @@ final class PlatformAbilityDispatcher {
                                                                 T existing,
                                                                 T entity,
                                                                 boolean update) {
+        // Discriminated fields may derive a persisted value from the selected branch. Normalize
+        // them before generic option/reference checks so every later write validator sees one
+        // coherent record, regardless of whether the declaration is static or dynamic.
+        Class<?> modelClass = ability.modelClass() == null ? entity.getClass() : ability.modelClass();
+        DiscriminatedValueValidator.normalizeAndValidate(modelClass, entity);
         runStaticOptionFieldValidation(ability, entity);
         runReferenceIntegrityValidation(ability, existing, entity, update);
         TenantUniqueConstraintSupport.validate(ability, entity);
@@ -359,6 +365,8 @@ final class PlatformAbilityDispatcher {
                         + rule.target().qualifiedName() + "." + rule.plan().sourceField()
                         + " -> " + unavailable);
             }
+            net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependencyValidator.validate(
+                    entity, ids, rule.plan(), target);
         }
     }
 

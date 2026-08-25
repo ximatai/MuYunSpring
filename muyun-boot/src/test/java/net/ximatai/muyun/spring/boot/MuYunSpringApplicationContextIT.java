@@ -666,6 +666,7 @@ class MuYunSpringApplicationContextIT {
                 ),
                 List.of(new WebSort("employeeTitle", false))
         );
+        httpFilterRequest = httpFilterRequest.withExternalQueryValues(Map.of("tenantId", tenantId));
         ResponseEntity<JsonNode> httpFiltered = restTemplate.exchange(
                 "/iam.user/query", HttpMethod.POST, new HttpEntity<>(httpFilterRequest, headers), JsonNode.class);
 
@@ -752,6 +753,7 @@ class MuYunSpringApplicationContextIT {
                 ),
                 List.of()
         );
+        httpRejectRequest = httpRejectRequest.withExternalQueryValues(Map.of("tenantId", tenantId));
         ResponseEntity<JsonNode> httpRejected = restTemplate.exchange(
                 "/iam.user/query", HttpMethod.POST, new HttpEntity<>(httpRejectRequest, headers), JsonNode.class);
 

@@ -65,6 +65,10 @@ export function useNavigatorRuntime(context: ModuleContext<QueryListRecord>) {
           http: context.http,
           moduleAlias: descriptor.sourceModuleAlias,
           runtimeAccess: 'REFERENCE',
+          navigatorReference: {
+            hostModuleAlias: context.moduleAlias,
+            targetLevelKey: descriptor.key,
+          },
         });
         await navigatorContext.runtime.ready;
         const requiredCapability = descriptor.kind === 'TREE' ? 'REFERENCE_TREE' : 'REFERENCE_QUERY';

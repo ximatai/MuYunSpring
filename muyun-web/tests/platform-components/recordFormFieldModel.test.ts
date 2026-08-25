@@ -8,6 +8,7 @@ import {
   resolveRecordBooleanStatusValue,
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
+  resolveReferenceSelectionContext,
   evaluateUiFormula,
   recordFieldRendererRegistry,
   decodeNumberEditorValue,
@@ -47,6 +48,120 @@ it('clears declared dependent references from the full form catalog', () => {
       fields,
     ),
   ).toEqual({ organizationId: 'organization-b', departmentId: undefined });
+});
+
+it('clears transitive and branching reference dependencies after an ancestor changes', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    ['tenantId', descriptorField('tenantId', '所属租户')],
+    ['organizationId', dependentReferenceField('organizationId', '所属机构', 'tenantId')],
+    ['departmentId', dependentReferenceField('departmentId', '所属部门', 'organizationId')],
+    ['positionId', dependentReferenceField('positionId', '所属岗位', 'departmentId')],
+    ['tenantOwnerId', dependentReferenceField('tenantOwnerId', '租户负责人', 'tenantId')],
+  ]);
+
+  expect(
+    applyReferenceDependencyClears(
+      {
+        tenantId: 'tenant-a',
+        organizationId: undefined,
+        departmentId: 'department-a',
+        positionId: 'position-a',
+        tenantOwnerId: 'owner-a',
+      },
+      'tenantId',
+      'tenant-b',
+      fields,
+    ),
+  ).toEqual({
+    tenantId: 'tenant-b',
+    organizationId: undefined,
+    departmentId: undefined,
+    positionId: undefined,
+    tenantOwnerId: undefined,
+  });
+});
+
+it('preserves transitive reference selections when the source value did not change', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    ['tenantId', descriptorField('tenantId', '所属租户')],
+    ['organizationId', dependentReferenceField('organizationId', '所属机构', 'tenantId')],
+    ['departmentId', dependentReferenceField('departmentId', '所属部门', 'organizationId')],
+  ]);
+
+  expect(
+    applyReferenceDependencyClears(
+      { tenantId: 'tenant-a', organizationId: 'organization-a', departmentId: 'department-a' },
+      'tenantId',
+      'tenant-a',
+      fields,
+    ),
+  ).toEqual({ tenantId: 'tenant-a', organizationId: 'organization-a', departmentId: 'department-a' });
+});
+
+it('exposes only descriptor-authorized reference selection projections to WEB_UI formulas', () => {
+  const reference = {
+    targetModuleAlias: 'platform.module',
+    cardinality: 'ONE' as const,
+    selectionProjections: [{ path: ['entryType'] }],
+  };
+  const selectionContext = resolveReferenceSelectionContext('moduleAlias', reference, {
+    id: 'platform.module',
+    projections: { entryType: 'MODULE', internalOnly: 'must-not-leak' },
+  });
+  const visible = resolveRecordFormFieldState('pageMode', {
+    fields: new Map([
+      [
+        'pageMode',
+        {
+          fieldRef: { fieldName: 'pageMode' },
+          label: '页面模式',
+          visible: {
+            formula: {
+              expression: "{moduleAlias.entryType} == 'MODULE'",
+              program: {
+                schemaVersion: 1,
+                profile: 'WEB_UI',
+                referencedFields: ['moduleAlias.entryType'],
+                root: {
+                  kind: 'BINARY',
+                  operator: '==',
+                  arguments: [
+                    { kind: 'FIELD', field: 'moduleAlias.entryType', arguments: [] },
+                    { kind: 'VALUE', value: 'MODULE', arguments: [] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ],
+    ]),
+    record: { moduleAlias: 'platform.module' },
+    selectionContext,
+  });
+
+  expect(selectionContext).toEqual({ 'moduleAlias.entryType': 'MODULE' });
+  expect(visible.visible).toBe(true);
+  expect('internalOnly' in selectionContext).toBe(false);
+  expect(
+    resolveReferenceSelectionContext('moduleAlias', reference, {
+      id: 'platform.module',
+      // A candidate response omits a protected projection instead of leaking it to the form.
+      projections: { internalOnly: 'still-not-authorized' },
+    }),
+  ).toEqual({});
+
+  expect(
+    resolveReferenceSelectionContext(
+      'supplierId',
+      {
+        targetModuleAlias: 'supplier',
+        cardinality: 'ONE',
+        selectionProjections: [{ path: ['organizationId', 'regionCode'] }],
+      },
+      { id: 'supplier-1', projections: { 'organizationId.regionCode': 'CN-31' } },
+    ),
+  ).toEqual({ 'supplierId.organizationId.regionCode': 'CN-31' });
 });
 
 it('registers every renderer kind promised by the persisted web-form support matrix', () => {
@@ -980,4 +1095,19 @@ function descriptorField(fieldName: string, label: string): RecordFormFieldDescr
     readOnly: { constant: false },
     visible: { constant: true },
   } as RecordFormFieldDescriptor;
+}
+
+function dependentReferenceField(
+  fieldName: string,
+  label: string,
+  sourceField: string,
+): RecordFormFieldDescriptor {
+  return {
+    ...descriptorField(fieldName, label),
+    reference: {
+      targetModuleAlias: `test.${fieldName}`,
+      cardinality: 'ONE',
+      candidateDependencies: [{ sourceField, targetField: sourceField, required: true }],
+    },
+  };
 }

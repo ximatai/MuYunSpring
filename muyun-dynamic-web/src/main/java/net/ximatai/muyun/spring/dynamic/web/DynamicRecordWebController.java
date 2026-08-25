@@ -20,10 +20,13 @@ import net.ximatai.muyun.spring.web.ActionWeb;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.platform.web.RecycleBinPurgeWeb;
 import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
-import net.ximatai.muyun.spring.platform.web.PageContextServerValueResolver;
+import net.ximatai.muyun.spring.platform.web.PageContextScopePolicy;
 import net.ximatai.muyun.spring.platform.web.PageContextSource;
 import net.ximatai.muyun.spring.platform.web.PageContextTarget;
+import net.ximatai.muyun.spring.platform.web.NavigatorListQueryMode;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan;
+import net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService;
 import net.ximatai.muyun.spring.platform.web.ListQuerySummaryRuntime;
 import net.ximatai.muyun.spring.platform.web.ModuleMutationFieldValidation;
 import net.ximatai.muyun.spring.platform.web.ModuleQueryFormField;
@@ -179,6 +182,7 @@ public class DynamicRecordWebController implements
     private final DynamicRelationProjectionReadService dynamicRelationProjectionReadService;
     private final ModuleExecutionPlanCatalog executionPlanCatalog;
     private final ListQuerySummaryRuntime listQuerySummaryRuntime;
+    private final PlatformModuleRuntimeContextService runtimeContextService;
     private final TenantRequestScope tenantRequestScope;
     private RecycleBinFacade recycleBinFacade;
     private final DynamicOpenApiGenerator openApiGenerator = new DynamicOpenApiGenerator();
@@ -205,6 +209,7 @@ public class DynamicRecordWebController implements
         this.dynamicRelationProjectionReadService = queryServices.relationProjectionReadService();
         this.executionPlanCatalog = queryServices.executionPlanCatalog();
         this.listQuerySummaryRuntime = queryServices.listQuerySummaryRuntime();
+        this.runtimeContextService = queryServices.runtimeContextService();
         this.tenantRequestScope = tenantRequestScope;
     }
 
@@ -457,7 +462,7 @@ public class DynamicRecordWebController implements
     private List<String> querySchemaExternalCriteriaKeys(String moduleAlias, String uiConfigId,
                                                           String queryTemplateId) {
         java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>();
-        navigatorQueryBindings(moduleAlias, uiConfigId).stream()
+        navigatorQueryBindings(moduleAlias, uiConfigId, PageContextTarget.LIST_QUERY).stream()
                 .filter(binding -> binding.source() != PageContextSource.SESSION)
                 .map(PageContextBindingDefinition::targetKey)
                 .forEach(keys::add);
@@ -471,34 +476,116 @@ public class DynamicRecordWebController implements
         if (request == null || !hasText(request.uiConfigId())) {
             return Criteria.of();
         }
-        Criteria criteria = Criteria.of();
-        for (PageContextBindingDefinition binding : navigatorQueryBindings(moduleAlias, request.uiConfigId())) {
-            Object selectedValue = PageContextServerValueResolver.resolve(binding).orElseGet(() ->
-                    request.externalQueryValues() == null ? null : request.externalQueryValues().get(binding.targetKey()));
-            if (selectedValue != null) {
-                criteria.eq(binding.targetKey(), selectedValue);
-            }
-        }
-        return criteria;
+        return navigatorCriteria(moduleAlias, request, PageContextTarget.LIST_QUERY);
     }
 
-    private List<PageContextBindingDefinition> navigatorQueryBindings(String moduleAlias, String uiConfigId) {
-        if (!hasText(uiConfigId)) {
-            return List.of();
+    private Criteria navigatorReferenceCriteria(String moduleAlias, WebQueryRequest request) {
+        if (request == null) {
+            return referenceSourceCriteria(moduleAlias, null);
         }
+        boolean hasHost = hasText(request.navigatorHostModuleAlias());
+        boolean hasTarget = hasText(request.navigatorTargetLevelKey());
+        if (hasHost != hasTarget) {
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED,
+                    "Navigator reference requires both host module alias and target level key");
+        }
+        Criteria sourceCriteria = referenceSourceCriteria(moduleAlias, request);
+        if (!hasHost) return sourceCriteria;
+        return andCriteria(sourceCriteria, PageContextScopePolicy.criteria(
+                navigatorReferenceBindings(moduleAlias, request), request.externalQueryValues(), true));
+    }
+
+    /** Reference sources retain ordinary query controls but never inherit their own LIST_QUERY bindings. */
+    private Criteria referenceSourceCriteria(String moduleAlias, WebQueryRequest request) {
+        if (executionPlanCatalog != null) {
+            ModuleExecutionPlan plan = requireExecutionPlan(moduleAlias);
+            Criteria templateCriteria = Criteria.of();
+            if (request != null && hasText(request.queryTemplateId())) {
+                if (!plan.queryTemplateIds().contains(request.queryTemplateId())) {
+                    throw new PlatformException("Query template is not enabled by module execution plan: "
+                            + request.queryTemplateId());
+                }
+                ModuleQueryTemplatePlan template = plan.queryTemplates().stream()
+                        .filter(candidate -> candidate.templateId().equals(request.queryTemplateId())).findFirst()
+                        .orElseThrow(() -> new PlatformException("Query template has no compiled execution facts: "
+                                + request.queryTemplateId()));
+                templateCriteria = compiledTemplateCriteria(template, request.externalQueryValues());
+            }
+            List<DynamicQueryCondition> conditions = request == null ? List.of()
+                    : DynamicWebQueryMapper.queryConditions(request.conditions());
+            validatePlanConditions(plan.querySchema(), conditions);
+            Criteria manualCriteria = conditions.isEmpty() ? Criteria.of() : service().queryCriteria(conditions);
+            Criteria treeCriteria = request == null || request.criteria() == null ? Criteria.of()
+                    : DynamicWebQueryMapper.queryCriteria(request.criteria(), nested -> {
+                        validatePlanConditions(plan.querySchema(), nested);
+                        return service().queryCriteria(nested);
+                    });
+            return andCriteria(templateCriteria, plannedQueryFormCriteria(request, plan.queryFormFields()), manualCriteria,
+                    treeCriteria, plannedQuickSearchCriteria(request, plan.querySchema()));
+        }
+        Criteria templateCriteria = Criteria.of();
+        if (request != null && hasText(request.queryTemplateId())) {
+            requireLowCodeQueryServices();
+            validateQueryTemplateBelongsToModule(moduleAlias, request.queryTemplateId());
+            templateCriteria = queryItemService.compile(request.queryTemplateId(), request.externalQueryValues());
+        }
+        Criteria manualCriteria = request == null || request.conditions().isEmpty()
+                ? Criteria.of() : service().queryCriteria(DynamicWebQueryMapper.queryConditions(request.conditions()));
+        Criteria treeCriteria = request == null || request.criteria() == null ? Criteria.of()
+                : DynamicWebQueryMapper.queryCriteria(request.criteria(), service()::queryCriteria);
+        Criteria queryFormCriteria = DynamicWebQueryFormSupport.queryFormCriteria(moduleAlias, request,
+                pageConfigSnapshotService, moduleMetadataFieldService, fieldUiControlService,
+                fieldUiControlBindingService, service()::queryCriteria);
+        return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria,
+                quickSearchCriteria(moduleAlias, request));
+    }
+
+    private List<PageContextBindingDefinition> navigatorReferenceBindings(String sourceModuleAlias, WebQueryRequest request) {
+        if (executionPlanCatalog == null) return List.of();
+        var hostPlan = requireExecutionPlan(request.navigatorHostModuleAlias());
+        var descriptor = runtimeContextService == null ? hostPlan.uiDescriptor()
+                : runtimeContextService.context(request.navigatorHostModuleAlias()).uiDescriptor();
+        var navigator = descriptor == null || descriptor.page() == null ? null : descriptor.page().navigator();
+        if (navigator == null || navigator.levels().stream().noneMatch(level -> level.key().equals(request.navigatorTargetLevelKey())
+                && level.sourceModuleAlias().equals(sourceModuleAlias))) {
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED,
+                    "Navigator request target does not match source module");
+        }
+        return hostPlan.pageContextBindings().stream()
+                .filter(binding -> binding.target() == PageContextTarget.NAVIGATOR_QUERY)
+                .filter(binding -> request.navigatorTargetLevelKey().equals(binding.targetNavigatorLevelKey()))
+                .toList();
+    }
+
+    private Criteria navigatorCriteria(String moduleAlias, WebQueryRequest request, PageContextTarget target) {
+        return PageContextScopePolicy.criteria(navigatorQueryBindings(moduleAlias,
+                        request == null ? null : request.uiConfigId(), target),
+                request == null ? Map.of() : request.externalQueryValues(), false);
+    }
+
+    @Override
+    public List<PageContextBindingDefinition> recordScopeBindings() {
+        if (executionPlanCatalog == null) return List.of();
+        return PageContextScopePolicy.recordScopeBindings(
+                requireExecutionPlan(DynamicWebRequest.moduleAlias()).pageContextBindings());
+    }
+
+    private List<PageContextBindingDefinition> navigatorQueryBindings(String moduleAlias, String uiConfigId,
+                                                                       PageContextTarget target) {
         if (executionPlanCatalog != null) {
             return requireExecutionPlan(moduleAlias).pageContextBindings().stream()
-                    .filter(binding -> binding.target() == PageContextTarget.LIST_QUERY)
+                    .filter(binding -> binding.target() == target)
                     .toList();
         }
         // Compatibility only for standalone controller fixtures assembled without the platform runtime.
-        if (pageConfigSnapshotService == null) return List.of();
+        if (pageConfigSnapshotService == null || !hasText(uiConfigId)) return List.of();
         PlatformUiConfig uiConfig = publishedUiConfig(pageConfigSnapshotService.snapshot(moduleAlias), uiConfigId);
         return PlatformPageLayoutNavigator.contextBindings(uiConfig).stream()
-                .filter(binding -> "LIST_QUERY".equals(binding.target()))
+                .filter(binding -> target.name().equals(binding.target()))
                 .map(binding -> new PageContextBindingDefinition(PageContextSource.valueOf(binding.source()), binding.sourceKey(),
                         PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey(),
-                        binding.targetPickerFieldKey()))
+                        binding.targetPickerFieldKey(), binding.navigatorListQueryMode() == null ? null
+                                : NavigatorListQueryMode.valueOf(binding.navigatorListQueryMode())))
                 .toList();
     }
 
@@ -678,7 +765,7 @@ public class DynamicRecordWebController implements
                     DynamicWebRequest.moduleAlias(),
                     mainEntityAlias(DynamicWebRequest.moduleAlias()),
                     PlatformAction.REFERENCE.code(),
-                    queryCriteria(request),
+                    navigatorReferenceCriteria(DynamicWebRequest.moduleAlias(), request),
                     PageRequest.of(page.pageNum(), page.pageSize()),
                     querySorts(request));
             return WebPageResponse.from(WebOutputSupport.page(service(), result, FieldOutputContext.LIST));
@@ -698,7 +785,7 @@ public class DynamicRecordWebController implements
     private List<DynamicRecord> navigatorReferenceChildren(WebQueryRequest request, String parentId) {
         String moduleAlias = DynamicWebRequest.moduleAlias();
         return recordService.childrenForAction(moduleAlias, mainEntityAlias(moduleAlias), PlatformAction.REFERENCE.code(),
-                queryCriteria(request), parentId);
+                navigatorReferenceCriteria(moduleAlias, request), parentId);
     }
 
     private WebTreeNode<DynamicRecord> navigatorReferenceTreeNode(WebQueryRequest request, DynamicRecord record) {
@@ -761,6 +848,7 @@ public class DynamicRecordWebController implements
     @Transactional
     public DynamicRecord insert(@RequestBody DynamicRecord normalized) {
         return webScope(() -> {
+            applyRecordScopeForCreate(normalized);
             validateWritableSaveFields(normalized, "");
             validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
             String id = service().insert(normalized);
@@ -777,6 +865,8 @@ public class DynamicRecordWebController implements
                                 @RequestBody DynamicRecord normalized) {
         return webScope(() -> {
             normalized.setId(id);
+            requireRecordScope(selectForAction(PlatformAction.UPDATE, id));
+            applyRecordScopeForCreate(normalized);
             validateWritableSaveFields(normalized, "");
             validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
             requireDataScopeRecord(PlatformAction.UPDATE, id);
@@ -921,6 +1011,17 @@ public class DynamicRecordWebController implements
             return selectFromDataScope(dataScopeAbility, action, id);
         }
         return service().select(id);
+    }
+
+    private void applyRecordScopeForCreate(DynamicRecord record) {
+        PageContextScopePolicy.requiredRecordScopeValues(recordScopeBindings())
+                .forEach(record::setValue);
+    }
+
+    private void requireRecordScope(DynamicRecord record) {
+        if (record == null) return;
+        PageContextScopePolicy.requireRecordValues(
+                PageContextScopePolicy.requiredRecordScopeValues(recordScopeBindings()), record::getValue);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

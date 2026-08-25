@@ -112,7 +112,7 @@ export function createModuleCrudClient<TRecord>(
 /** The navigation-only read surface deliberately does not reuse the module query endpoint. */
 export function createNavigatorReferenceCrudClient<TRecord>(
   http: HttpClient,
-  options: { moduleAlias: string },
+  options: { moduleAlias: string; navigatorReference?: NavigatorReferenceRequestContext },
 ): ModuleCrudClient<TRecord> {
   const normal = createModuleCrudClient<TRecord>(http, options);
   const modulePath = modulePathOf(options.moduleAlias);
@@ -122,7 +122,7 @@ export function createNavigatorReferenceCrudClient<TRecord>(
       http.request<WebPageResponse<TRecord>>({
         method: 'POST',
         path: `${modulePath}/navigator/reference/query`,
-        body: request,
+        body: navigatorReferenceRequest(request, options.navigatorReference),
       }),
   };
 }
@@ -200,7 +200,7 @@ export function createModuleTreeClient<TRecord>(
 
 export function createNavigatorReferenceTreeClient<TRecord>(
   http: HttpClient,
-  options: { moduleAlias: string },
+  options: { moduleAlias: string; navigatorReference?: NavigatorReferenceRequestContext },
 ): ModuleTreeClient<TRecord> {
   const normal = createNavigatorReferenceCrudClient<TRecord>(http, options);
   const modulePath = modulePathOf(options.moduleAlias);
@@ -210,11 +210,28 @@ export function createNavigatorReferenceTreeClient<TRecord>(
       http.request<WebListResponse<WebTreeNode<TRecord>>>({
         method: 'POST',
         path: `${modulePath}/navigator/reference/tree/query`,
-        body: request,
+        body: navigatorReferenceRequest(request, options.navigatorReference),
       }),
     treeFlat: () => Promise.reject(new Error('Navigator reference tree does not expose flat traversal')),
     subtree: () => Promise.reject(new Error('Navigator reference tree does not expose subtree traversal')),
     sort: () => Promise.reject(new Error('Navigator reference tree is read-only')),
+  };
+}
+
+export interface NavigatorReferenceRequestContext {
+  hostModuleAlias: string;
+  targetLevelKey: string;
+}
+
+function navigatorReferenceRequest(
+  request: WebQueryRequest | undefined,
+  context: NavigatorReferenceRequestContext | undefined,
+): WebQueryRequest | undefined {
+  if (!context) return request;
+  return {
+    ...request,
+    navigatorHostModuleAlias: context.hostModuleAlias,
+    navigatorTargetLevelKey: context.targetLevelKey,
   };
 }
 

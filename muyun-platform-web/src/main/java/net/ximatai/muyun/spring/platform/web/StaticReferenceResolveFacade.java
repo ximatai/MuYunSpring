@@ -10,8 +10,11 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
+import net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjectionReader;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateCriteria;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.model.capability.TreeCapable;
@@ -66,10 +69,14 @@ public class StaticReferenceResolveFacade {
         StaticModuleDefinition source = modules.find(moduleAlias)
                 .orElseThrow(() -> new PlatformException("static module is not available: " + moduleAlias));
         ReferencePlan plan = sourceModels(source).stream()
-                .flatMap(modelClass -> StaticReferenceResolver.rules(modelClass).stream())
-                .filter(rule -> rule.plan().sourceField().equals(fieldName))
+                .flatMap(modelClass -> java.util.stream.Stream.concat(
+                        StaticReferenceResolver.rules(modelClass).stream().map(StaticReferenceResolver.ReferenceRule::plan),
+                        StaticReferenceResolver.discriminatedValuePlans(modelClass).stream()
+                                .flatMap(value -> value.cases().stream())
+                                .map(net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCasePlan::reference)
+                                .filter(java.util.Objects::nonNull)))
+                .filter(candidate -> candidate.sourceField().equals(fieldName))
                 .findFirst()
-                .map(rule -> rule.plan())
                 .orElseThrow(() -> new PlatformException("static reference field is not available: " + moduleAlias + "." + fieldName));
         WebReferenceResolveRequest normalized = request == null ? WebReferenceResolveRequest.empty() : request;
         return WebReferenceTenantScope.within(normalized, plan.tenantScope(),
@@ -100,8 +107,11 @@ public class StaticReferenceResolveFacade {
         }
         PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
         PageResult<ReferenceOption> result = referenceOptions(plan.target(), criteria, pageRequest);
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
+                result.getRecords().stream().map(ReferenceOption::id).toList());
         List<WebReferenceResolveItem> options = result.getRecords().stream()
-                .map(option -> new WebReferenceResolveItem(option.id(), option.title(), null, null, null)).toList();
+                .map(option -> new WebReferenceResolveItem(option.id(), option.title(), null,
+                        selectionProjections.get(option.id()), null)).toList();
         return new WebReferenceResolveResponse(options.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,
                 WebReferenceResolveMode.QUERY, options, List.of(), pageRequest.getOffset(), page.pageSize(), result.getTotal());
     }
@@ -116,11 +126,13 @@ public class StaticReferenceResolveFacade {
         }
         Map<String, String> titles = referenceOptions(plan.target(), criteria, PageRequests.all()).getRecords().stream()
                 .collect(java.util.stream.Collectors.toMap(ReferenceOption::id, ReferenceOption::title, (left, right) -> left));
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan, ids);
         List<WebReferenceResolveResult> results = request.values().stream().map(value -> {
             String id = value == null ? null : String.valueOf(value);
             String title = id == null ? null : titles.get(id);
             WebReferenceResolveItem item = title == null ? null
-                    : new WebReferenceResolveItem(id, title, WebReferenceMatchMode.KEY, null, null);
+                    : new WebReferenceResolveItem(id, title, WebReferenceMatchMode.KEY,
+                    selectionProjections.get(id), null);
             return new WebReferenceResolveResult(value,
                     item == null ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.RESOLVED,
                     item == null ? null : WebReferenceMatchMode.KEY, item, List.of());
@@ -142,8 +154,10 @@ public class StaticReferenceResolveFacade {
         }
         Map<String, List<TreeCapable>> children = treeChildrenByParent((ReferenceAbility) referenceAbility,
                 candidateCriteria(plan, request));
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
+                children.values().stream().flatMap(List::stream).map(TreeCapable::getId).toList());
         List<WebTreeNode<WebReferenceResolveItem>> nodes = children.getOrDefault(TreeAbility.ROOT_ID, List.of()).stream()
-                .map(record -> treeNode((ReferenceAbility) referenceAbility, children, record))
+                .map(record -> treeNode((ReferenceAbility) referenceAbility, children, record, selectionProjections))
                 .toList();
         return new WebReferenceResolveResponse(nodes.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,
                 WebReferenceResolveMode.TREE, List.of(), List.of(), 0, 0, nodes.size(), nodes);
@@ -174,12 +188,40 @@ public class StaticReferenceResolveFacade {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private WebTreeNode<WebReferenceResolveItem> treeNode(ReferenceAbility referenceAbility,
                                                            Map<String, List<TreeCapable>> children,
-                                                           TreeCapable record) {
+                                                           TreeCapable record,
+                                                           Map<String, Map<String, Object>> selectionProjections) {
         WebReferenceResolveItem item = new WebReferenceResolveItem(record.getId(),
-                referenceAbility.referenceTitle(record), null, null, null);
+                referenceAbility.referenceTitle(record), null, selectionProjections.get(record.getId()), null);
         return new WebTreeNode<>(item, children.getOrDefault(record.getId(), List.of()).stream()
-                .map(child -> treeNode(referenceAbility, children, child))
+                .map(child -> treeNode(referenceAbility, children, child, selectionProjections))
                 .toList());
+    }
+
+    private Map<String, Map<String, Object>> selectionProjections(ReferencePlan plan, List<String> ids) {
+        if (plan.selectionProjections().isEmpty() || ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        return ReferenceSelectionProjectionReader.read(plan.target(), ids, plan.selectionProjections(),
+                selectionProjectionResolver());
+    }
+
+    private ReferenceTargetResolver selectionProjectionResolver() {
+        ReferenceTargetResolver platform = PlatformAbilityRuntime.referenceTargetResolver();
+        return new ReferenceTargetResolver() {
+            @Override
+            public java.util.Optional<ReferenceAbility<?>> resolve(ReferenceTarget target) {
+                java.util.Optional<ReferenceAbility<?>> staticAbility = abilities.findReference(target);
+                return staticAbility.isPresent() ? staticAbility : platform.resolve(target);
+            }
+
+            @Override
+            public java.util.Optional<ReferencePlan> referencePlan(ReferenceTarget sourceTarget, String sourceField) {
+                java.util.Optional<ReferencePlan> staticPlan = abilities.findReference(sourceTarget)
+                        .flatMap(ability -> StaticReferenceResolver.plans(ability.modelClass()).stream()
+                                .filter(plan -> sourceField.equals(plan.sourceField())).findFirst());
+                return staticPlan.isPresent() ? staticPlan : platform.referencePlan(sourceTarget, sourceField);
+            }
+        };
     }
 
     private Criteria candidateCriteria(ReferencePlan plan, WebReferenceResolveRequest request) {

@@ -15,6 +15,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.database.core.orm.Criteria;
@@ -204,6 +205,22 @@ public class DynamicRecordRuntime implements AutoCloseable {
         }
         try {
             return java.util.Optional.of(entityService(target.moduleAlias(), target.entityAlias()).referenceAbility());
+        } catch (ModuleDefinitionException ignored) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    /** Resolves a declared dynamic outgoing reference for source-independent path reads. */
+    public java.util.Optional<ReferencePlan> referencePlan(ReferenceTarget sourceTarget, String sourceField) {
+        if (sourceTarget == null || sourceField == null || sourceField.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        try {
+            return registry.requireModule(sourceTarget.moduleAlias()).references().stream()
+                    .filter(reference -> sourceTarget.entityAlias().equals(reference.sourceEntityAlias()))
+                    .filter(reference -> sourceField.equals(reference.sourceField()))
+                    .map(net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition::plan)
+                    .findFirst();
         } catch (ModuleDefinitionException ignored) {
             return java.util.Optional.empty();
         }

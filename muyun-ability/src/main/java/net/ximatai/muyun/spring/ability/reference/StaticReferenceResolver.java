@@ -1,6 +1,10 @@
 package net.ximatai.muyun.spring.ability.reference;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValue;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCase;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCasePlan;
+import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValuePlan;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Collection;
@@ -16,6 +20,7 @@ public final class StaticReferenceResolver {
     private static final Map<Class<?>, List<ReferenceRule>> RULES = new ConcurrentHashMap<>();
     private static final Map<Class<?>, List<ReferenceLoadPath>> LOAD_PATHS = new ConcurrentHashMap<>();
     private static final Map<Class<?>, List<ReferenceSummaryPlan>> SUMMARY_PLANS = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, List<DiscriminatedValuePlan>> DISCRIMINATED_VALUES = new ConcurrentHashMap<>();
 
     private StaticReferenceResolver() {
     }
@@ -72,6 +77,12 @@ public final class StaticReferenceResolver {
         return SUMMARY_PLANS.computeIfAbsent(modelClass, StaticReferenceResolver::compileSummaryPlans);
     }
 
+    /** Compiles field-local discriminator declarations without treating every branch as a normal reference. */
+    public static List<DiscriminatedValuePlan> discriminatedValuePlans(Class<?> modelClass) {
+        if (modelClass == null) return List.of();
+        return DISCRIMINATED_VALUES.computeIfAbsent(modelClass, StaticReferenceResolver::compileDiscriminatedValuePlans);
+    }
+
     public static List<String> values(Object record, ReferencePlan plan) {
         if (record == null || plan == null) {
             return List.of();
@@ -106,6 +117,7 @@ public final class StaticReferenceResolver {
         RULES.clear();
         LOAD_PATHS.clear();
         SUMMARY_PLANS.clear();
+        DISCRIMINATED_VALUES.clear();
     }
 
     private static List<ReferenceRule> loadRules(Class<?> modelClass) {
@@ -146,6 +158,65 @@ public final class StaticReferenceResolver {
             }
         }
         return List.copyOf(rules.values());
+    }
+
+    private static List<DiscriminatedValuePlan> compileDiscriminatedValuePlans(Class<?> modelClass) {
+        LinkedHashMap<String, Field> fields = fields(modelClass);
+        List<DiscriminatedValuePlan> plans = new java.util.ArrayList<>();
+        for (Field field : fields.values()) {
+            DiscriminatedValue annotation = field.getAnnotation(DiscriminatedValue.class);
+            if (annotation == null) continue;
+            if (!fields.containsKey(annotation.discriminator())) {
+                throw new PlatformException("discriminator field does not exist: " + modelClass.getName() + "." + annotation.discriminator());
+            }
+            if (!net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum.class.isAssignableFrom(annotation.enumType())) {
+                throw new PlatformException("discriminator enum must implement CodeTitleEnum: " + annotation.enumType().getName());
+            }
+            Set<String> enumCodes = java.util.Arrays.stream(annotation.enumType().getEnumConstants())
+                    .map(value -> ((net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum) value).getCode())
+                    .collect(java.util.stream.Collectors.toSet());
+            List<DiscriminatedValueCasePlan> cases = java.util.Arrays.stream(annotation.cases()).map(value -> {
+                if (!enumCodes.contains(value.when())) {
+                    throw new PlatformException("discriminator case is not declared by enum: " + value.when());
+                }
+                return discriminatedCasePlan(field.getName(), fields, value);
+            }).toList();
+            if (cases.size() != enumCodes.size() || !cases.stream().map(DiscriminatedValueCasePlan::when).collect(java.util.stream.Collectors.toSet()).containsAll(enumCodes)) {
+                throw new PlatformException("discriminated value must declare every enum case: " + field.getName());
+            }
+            plans.add(new DiscriminatedValuePlan(field.getName(), annotation.discriminator(), enumCodes, cases));
+        }
+        return List.copyOf(plans);
+    }
+
+    private static DiscriminatedValueCasePlan discriminatedCasePlan(String valueField, Map<String, Field> fields,
+                                                                      DiscriminatedValueCase value) {
+        return switch (value.source()) {
+            case FIXED -> new DiscriminatedValueCasePlan(value.when(), value.source(), value.fixedValue(), null, null);
+            case FIELD -> {
+                if (!fields.containsKey(value.sourceField())) {
+                    throw new PlatformException("discriminator source field does not exist: " + value.sourceField());
+                }
+                yield new DiscriminatedValueCasePlan(value.when(), value.source(), null, value.sourceField(), null);
+            }
+            case REFERENCE -> {
+                if (value.cardinality() != ReferenceCardinality.ONE) {
+                    throw new PlatformException("discriminator reference must be ONE: " + valueField);
+                }
+                List<ReferenceCandidateDependency> dependencies = java.util.Arrays.stream(value.candidateBindings())
+                        .map(binding -> {
+                            if (!fields.containsKey(binding.sourceField())) {
+                                throw new PlatformException("discriminator reference dependency source field does not exist: "
+                                        + binding.sourceField());
+                            }
+                            return new ReferenceCandidateDependency(binding.sourceField(), binding.targetField(), binding.required());
+                        })
+                        .toList();
+                yield new DiscriminatedValueCasePlan(value.when(), value.source(), null, null,
+                        new ReferencePlan(valueField, targetOf(value), ReferenceCardinality.ONE, List.of(),
+                                ReferenceIntegrityPolicy.from(value.integrity()), value.tenantScope(), dependencies, List.of()));
+            }
+        };
     }
 
     private static List<ReferenceLoadPath> compileLoadPaths(Class<?> modelClass) {
@@ -234,7 +305,9 @@ public final class StaticReferenceResolver {
                 java.util.Arrays.stream(referenceTo.candidateBindings())
                         .map(binding -> new ReferenceCandidateDependency(binding.sourceField(), binding.targetField(),
                                 binding.required()))
-                        .toList()
+                        .toList(),
+                java.util.Arrays.stream(referenceTo.selectionProjections())
+                        .map(ReferenceSelectionProjection::new).toList()
         );
     }
 
@@ -253,6 +326,16 @@ public final class StaticReferenceResolver {
         } catch (PlatformException ex) {
             throw ex;
         }
+    }
+
+    private static ReferenceTarget targetOf(DiscriminatedValueCase reference) {
+        boolean hasTargetClass = reference.target() != null && reference.target() != Void.class;
+        boolean hasTargetAlias = reference.moduleAlias() != null && !reference.moduleAlias().isBlank();
+        boolean hasEntityAlias = reference.entityAlias() != null && !reference.entityAlias().isBlank();
+        if (hasTargetClass == hasTargetAlias || hasTargetAlias != hasEntityAlias) {
+            throw new PlatformException("discriminator reference requires exactly one of target or moduleAlias/entityAlias");
+        }
+        return hasTargetAlias ? ReferenceTarget.of(reference.moduleAlias(), reference.entityAlias()) : targetOfService(reference.target());
     }
 
     public static ReferenceTarget targetOfService(Class<?> serviceType) {
