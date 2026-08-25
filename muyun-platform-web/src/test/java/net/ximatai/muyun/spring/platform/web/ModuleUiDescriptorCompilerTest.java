@@ -149,6 +149,22 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldCompileColorPickerForTheStaticFormWhileKeepingReadViewsOnTheirUiType() {
+        ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("mr.tag")
+                .page(PageTemplates.listDetailCard(card -> card
+                        .list(list -> list.fields(fields -> fields.field("color", field -> field.uiType("colorPicker"))))
+                        .detail(detail -> detail
+                                .display(display -> display.field("color", field -> field.uiType("colorPicker")))
+                                .editor(editor -> editor.field("color", field -> field.uiType("colorPicker"))))))
+                .build()).page();
+
+        assertThat(page.detail().editor().fields().getFirst().fieldControl()).isEqualTo(
+                new ResolvedFieldControlDescriptor("colorPicker", "COLOR_PICKER", "SCALAR", Map.of(), List.of()));
+        assertThat(page.list().fields().fields().getFirst().uiType()).isEqualTo("colorPicker");
+        assertThat(page.detail().display().fields().getFirst().uiType()).isEqualTo("colorPicker");
+    }
+
+    @Test
     void shouldRejectUnknownUiTypeInsteadOfLeavingBrowserFallback() {
         assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
                 .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))

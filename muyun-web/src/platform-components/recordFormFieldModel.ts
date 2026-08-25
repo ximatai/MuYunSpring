@@ -129,6 +129,7 @@ export const recordFieldRendererRegistry: readonly RecordFieldRenderer[] = [
   { rendererType: 'DECIMAL', controlType: 'numberInput', supports: () => true },
   { rendererType: 'DATE', controlType: 'dateInput', supports: () => true },
   { rendererType: 'DATETIME', controlType: 'dateTimeInput', supports: () => true },
+  { rendererType: 'COLOR_PICKER', controlType: 'colorPicker', supports: () => true },
   { rendererType: 'JSON', controlType: 'textarea', supports: () => true },
   { rendererType: 'SWITCH', controlType: 'switch', supports: () => true },
   // Both select variants depend on a published option binding. A missing binding must not

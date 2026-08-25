@@ -1132,7 +1132,7 @@ function columnsFromRuntimeListView(view: ResolvedViewDescriptor | undefined): R
               ? 'booleanStatus'
               : field.uiType === 'tagList'
                 ? 'tagList'
-                : field.uiType === 'colorPicker'
+                : field.fieldControl?.rendererType === 'COLOR_PICKER' || field.uiType === 'colorPicker'
                   ? 'colorPicker'
                   : field.valuePresentation === 'FILE_SIZE'
                     ? 'fileSize'

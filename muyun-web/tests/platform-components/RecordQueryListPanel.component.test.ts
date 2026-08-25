@@ -8,6 +8,94 @@ import type { ModuleContext } from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
 
 describe('RecordQueryListPanel', () => {
+  it('renders a color-picker list projection as a color swatch', async () => {
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'tag-1', color: '#1677ff' }),
+        title: '标签',
+        columns: [{ key: 'color', title: '颜色', type: 'colorPicker' }],
+      },
+      global: {
+        stubs: {
+          UiDataTable: {
+            props: ['columns', 'rows'],
+            template: `
+              <div>
+                <template v-for="row in rows" :key="row.key">
+                  <template v-for="column in columns" :key="column.key">
+                    <slot name="cell" :record="row" :column="column" />
+                  </template>
+                </template>
+              </div>
+            `,
+          },
+        },
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.find('.record-query-list-color').text()).toContain('#1677ff');
+    expect(wrapper.find('.record-query-list-color i').attributes('style')).toContain(
+      'background-color: rgb(22, 119, 255)',
+    );
+  });
+
+  it('renders a dynamic color_picker descriptor as a color swatch by renderer type', async () => {
+    const context = createContext({ id: 'tag-1', color: '#1677ff' });
+    Object.assign(context.runtime, {
+      ready: Promise.resolve({
+        uiDescriptor: {
+          page: {
+            list: {
+              fields: {
+                fields: [
+                  {
+                    fieldRef: { fieldName: 'color' },
+                    label: '颜色',
+                    uiType: 'color_picker',
+                    visible: { constant: true },
+                    fieldControl: {
+                      alias: 'color_picker',
+                      rendererType: 'COLOR_PICKER',
+                      valueShape: 'SCALAR',
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      }),
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context, title: '标签' },
+      global: {
+        stubs: {
+          UiDataTable: {
+            props: ['columns', 'rows'],
+            template: `
+              <div>
+                <template v-for="row in rows" :key="row.key">
+                  <template v-for="column in columns" :key="column.key">
+                    <slot name="cell" :record="row" :column="column" />
+                  </template>
+                </template>
+              </div>
+            `,
+          },
+        },
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.find('.record-query-list-color').text()).toContain('#1677ff');
+    expect(wrapper.find('.record-query-list-color i').attributes('style')).toContain(
+      'background-color: rgb(22, 119, 255)',
+    );
+  });
+
   it('uses one display line by default and preserves configured multiline limits with the full text tooltip', async () => {
     const columns: RecordQueryListColumn[] = [
       { key: 'summary', title: '摘要' },

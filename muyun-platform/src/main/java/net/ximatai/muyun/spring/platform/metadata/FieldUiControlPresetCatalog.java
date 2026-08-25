@@ -21,7 +21,7 @@ public final class FieldUiControlPresetCatalog {
             ViewControlType.TEXT, ViewControlType.TEXTAREA, ViewControlType.NUMBER,
             ViewControlType.DECIMAL, ViewControlType.SWITCH, ViewControlType.SELECT,
             ViewControlType.MULTI_SELECT, ViewControlType.DATE, ViewControlType.DATETIME,
-            ViewControlType.JSON);
+            ViewControlType.COLOR_PICKER, ViewControlType.JSON);
 
     public static List<FieldUiControl> fieldUiControls() {
         return List.of(
@@ -38,6 +38,7 @@ public final class FieldUiControlPresetCatalog {
                 fieldUiType("multi_select", "下拉多选", "json", FieldUiControlValueShape.COLLECTION, ViewControlType.MULTI_SELECT),
                 fieldUiType("date", "日期", "date", FieldUiControlValueShape.SCALAR, ViewControlType.DATE),
                 fieldUiType("datetime", "日期时间", "datetime", FieldUiControlValueShape.SCALAR, ViewControlType.DATETIME),
+                fieldUiType("color_picker", "颜色选择器", "string", FieldUiControlValueShape.SCALAR, ViewControlType.COLOR_PICKER),
                 fieldUiType("date_time_with_time_zone", "日期时间（含时区）", "zoned_datetime", FieldUiControlValueShape.COMPOSITE, "dateTime", ViewControlType.DATETIME),
                 fieldUiType("json", "JSON", "json", FieldUiControlValueShape.SCALAR, ViewControlType.JSON),
                 fieldUiType("date_range", "日期区间", "date", FieldUiControlValueShape.COMPOSITE, "start", ViewControlType.DATE),

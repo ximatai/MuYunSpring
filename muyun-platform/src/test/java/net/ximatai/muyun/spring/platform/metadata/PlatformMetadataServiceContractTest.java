@@ -795,7 +795,7 @@ class PlatformMetadataServiceContractTest {
         assertThat(FieldUiControlPresetCatalog.fieldUiControls())
                 .extracting(FieldUiControl::getAlias)
                 .contains("text", "textarea", "file_size", "amount", "select", "multi_select",
-                        "date_time_with_time_zone");
+                        "color_picker", "date_time_with_time_zone");
         assertThat(FieldUiControlPresetCatalog.fieldUiControls())
                 .filteredOn(control -> "file_size".equals(control.getAlias()))
                 .singleElement()
@@ -807,6 +807,15 @@ class PlatformMetadataServiceContractTest {
                 .filteredOn(control -> "multi_select".equals(control.getAlias()))
                 .extracting(FieldUiControl::getValueShape)
                 .containsExactly(FieldUiControlValueShape.COLLECTION);
+        assertThat(FieldUiControlPresetCatalog.fieldUiControls())
+                .filteredOn(control -> "color_picker".equals(control.getAlias()))
+                .singleElement()
+                .satisfies(control -> {
+                    assertThat(control.getDefaultFieldSpecAlias()).isEqualTo("string");
+                    assertThat(control.getRendererType()).isEqualTo(ViewControlType.COLOR_PICKER);
+                    assertThat(control.getValueShape()).isEqualTo(FieldUiControlValueShape.SCALAR);
+                    assertThat(control.getEnabled()).isTrue();
+                });
         assertThat(FieldUiControlPresetCatalog.fieldUiControls())
                 .filteredOn(control -> "date_time_with_time_zone".equals(control.getAlias()))
                 .extracting(FieldUiControl::getValueShape)
