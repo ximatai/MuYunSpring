@@ -50,6 +50,54 @@ it('clears declared dependent references from the full form catalog', () => {
   ).toEqual({ organizationId: 'organization-b', departmentId: undefined });
 });
 
+it('clears transitive and branching reference dependencies after an ancestor changes', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    ['tenantId', descriptorField('tenantId', '所属租户')],
+    ['organizationId', dependentReferenceField('organizationId', '所属机构', 'tenantId')],
+    ['departmentId', dependentReferenceField('departmentId', '所属部门', 'organizationId')],
+    ['positionId', dependentReferenceField('positionId', '所属岗位', 'departmentId')],
+    ['tenantOwnerId', dependentReferenceField('tenantOwnerId', '租户负责人', 'tenantId')],
+  ]);
+
+  expect(
+    applyReferenceDependencyClears(
+      {
+        tenantId: 'tenant-a',
+        organizationId: undefined,
+        departmentId: 'department-a',
+        positionId: 'position-a',
+        tenantOwnerId: 'owner-a',
+      },
+      'tenantId',
+      'tenant-b',
+      fields,
+    ),
+  ).toEqual({
+    tenantId: 'tenant-b',
+    organizationId: undefined,
+    departmentId: undefined,
+    positionId: undefined,
+    tenantOwnerId: undefined,
+  });
+});
+
+it('preserves transitive reference selections when the source value did not change', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    ['tenantId', descriptorField('tenantId', '所属租户')],
+    ['organizationId', dependentReferenceField('organizationId', '所属机构', 'tenantId')],
+    ['departmentId', dependentReferenceField('departmentId', '所属部门', 'organizationId')],
+  ]);
+
+  expect(
+    applyReferenceDependencyClears(
+      { tenantId: 'tenant-a', organizationId: 'organization-a', departmentId: 'department-a' },
+      'tenantId',
+      'tenant-a',
+      fields,
+    ),
+  ).toEqual({ tenantId: 'tenant-a', organizationId: 'organization-a', departmentId: 'department-a' });
+});
+
 it('exposes only descriptor-authorized reference selection projections to WEB_UI formulas', () => {
   const reference = {
     targetModuleAlias: 'platform.module',
@@ -1047,4 +1095,19 @@ function descriptorField(fieldName: string, label: string): RecordFormFieldDescr
     readOnly: { constant: false },
     visible: { constant: true },
   } as RecordFormFieldDescriptor;
+}
+
+function dependentReferenceField(
+  fieldName: string,
+  label: string,
+  sourceField: string,
+): RecordFormFieldDescriptor {
+  return {
+    ...descriptorField(fieldName, label),
+    reference: {
+      targetModuleAlias: `test.${fieldName}`,
+      cardinality: 'ONE',
+      candidateDependencies: [{ sourceField, targetField: sourceField, required: true }],
+    },
+  };
 }

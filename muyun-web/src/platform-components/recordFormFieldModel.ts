@@ -51,15 +51,30 @@ export function applyReferenceDependencyClears(
 ): RecordFormRecord {
   const next = { ...record, [fieldName]: value };
   if (record[fieldName] === value || !fields) return next;
-  for (const [dependentFieldName, descriptor] of fields) {
-    if (
-      dependentFieldName !== fieldName &&
-      descriptor.reference?.candidateDependencies?.some(
-        (dependency) => dependency.sourceField === fieldName,
-      ) &&
-      record[dependentFieldName] != null
-    ) {
-      next[dependentFieldName] = undefined;
+
+  // Candidate dependencies form a directed graph. Traverse the whole graph,
+  // including an already-empty intermediary, because a lower-level picker can
+  // still hold a value invalidated by an ancestor change.
+  const pendingSourceFields = [fieldName];
+  const visitedSourceFields = new Set<string>();
+  while (pendingSourceFields.length > 0) {
+    const sourceField = pendingSourceFields.shift();
+    if (!sourceField || visitedSourceFields.has(sourceField)) continue;
+    visitedSourceFields.add(sourceField);
+
+    for (const [dependentFieldName, descriptor] of fields) {
+      if (
+        dependentFieldName === fieldName ||
+        !descriptor.reference?.candidateDependencies?.some(
+          (dependency) => dependency.sourceField === sourceField,
+        )
+      ) {
+        continue;
+      }
+      if (next[dependentFieldName] != null) {
+        next[dependentFieldName] = undefined;
+      }
+      pendingSourceFields.push(dependentFieldName);
     }
   }
   return next;

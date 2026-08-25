@@ -188,7 +188,7 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
      * cross-tenant user directory. This server-side criterion also protects direct requests.
      */
     WebQueryRequest queryForCurrentWorkspace(WebQueryRequest request) {
-        if (PageContextScopePolicy.hasContextValue("tenant")) return request;
+        if (PageContextScopePolicy.hasContextValue("tenant") || hasSelectedTenantNavigator(request)) return request;
         boolean systemUser = CurrentUserContext.currentUser()
                 .map(currentUser -> currentUser.system())
                 .orElse(false);
@@ -201,6 +201,12 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
                 request.sorts(), request.uiConfigId(), request.queryTemplateId(), request.externalQueryValues(),
                 request.navigationSession(), request.quickSearch(), request.quickSearchFields(), request.navigationQueryKey(),
                 request.navigatorHostModuleAlias(), request.navigatorTargetLevelKey());
+    }
+
+    private boolean hasSelectedTenantNavigator(WebQueryRequest request) {
+        if (request == null) return false;
+        Object tenantId = request.externalQueryValues().get("tenantId");
+        return tenantId != null && !String.valueOf(tenantId).isBlank();
     }
 
     @Override

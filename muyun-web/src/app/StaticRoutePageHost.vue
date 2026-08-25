@@ -18,6 +18,8 @@ const props = defineProps<{
   component: Component;
   route: RouteLocationNormalizedLoaded;
   pageDescriptor?: PageDescriptor;
+  /** Refreshes this page's inner route component without evicting sibling tabs from KeepAlive. */
+  refreshRevision?: number;
 }>();
 
 const moduleAlias = computed(() => String(props.route.meta.moduleAlias ?? ''));
@@ -68,9 +70,9 @@ function workspaceViewDefinitionForModulePage(view: ModulePageWorkspaceView) {
 
 <template>
   <ModuleContextProvider v-if="moduleAlias" :module-alias="moduleAlias">
-    <WorkspaceViewOutlet v-if="workspaceView" :descriptor="workspaceDescriptor" />
-    <component :is="component" v-else />
+    <WorkspaceViewOutlet v-if="workspaceView" :key="refreshRevision" :descriptor="workspaceDescriptor" />
+    <component :is="component" v-else :key="refreshRevision" />
   </ModuleContextProvider>
-  <WorkspaceViewOutlet v-else-if="workspaceView" :descriptor="workspaceDescriptor" />
-  <component :is="component" v-else />
+  <WorkspaceViewOutlet v-else-if="workspaceView" :key="refreshRevision" :descriptor="workspaceDescriptor" />
+  <component :is="component" v-else :key="refreshRevision" />
 </template>

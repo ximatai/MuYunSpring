@@ -1191,7 +1191,7 @@ defineExpose({ clearSelection, refresh });
       class="record-query-list-header"
       :title="showTitle ? title : ''"
       :title-action-icon="showTitle ? 'reload' : undefined"
-      :title-action-title="showTitle ? refreshTitle ?? `刷新${title}` : undefined"
+      :title-action-title="showTitle ? (refreshTitle ?? `刷新${title}`) : undefined"
       :title-action-disabled="queryActionsDisabled"
       @title-action="refresh"
     >
@@ -1223,36 +1223,36 @@ defineExpose({ clearSelection, refresh });
             <slot name="toolbarActions" :refresh="refresh" />
           </div>
           <div class="record-query-list-query-actions">
-          <UiSearchInput
-            v-if="queryable"
-            :value="quickSearchKeyword"
-            class="record-query-list-search"
-            :disabled="quickSearchDisabled"
-            :placeholder="quickSearchPlaceholder"
-            @update:value="handleQuickSearchInput"
-            @search="submitQuickSearch"
-          />
-          <UiCheckbox
-            v-for="control in persistentQueryControls"
-            :key="control.externalCriteriaKey"
-            class="record-query-list-persistent-query-control"
-            :checked="persistentQueryValue(control)"
-            :disabled="queryActionsDisabled"
-            @change="updatePersistentQueryValue(control, $event)"
-          >
-            {{ control.title }}
-          </UiCheckbox>
-          <UiButton
-            v-if="queryable"
-            class="record-query-list-advanced"
-            :class="{ 'is-selected': conditionsExpanded }"
-            type="text"
-            icon-name="filter"
-            :disabled="conditionsDisabled"
-            @click="toggleConditions"
-          >
-            高级<span v-if="conditionCount"> {{ conditionCount }}</span>
-          </UiButton>
+            <UiSearchInput
+              v-if="queryable"
+              :value="quickSearchKeyword"
+              class="record-query-list-search"
+              :disabled="quickSearchDisabled"
+              :placeholder="quickSearchPlaceholder"
+              @update:value="handleQuickSearchInput"
+              @search="submitQuickSearch"
+            />
+            <UiCheckbox
+              v-for="control in persistentQueryControls"
+              :key="control.externalCriteriaKey"
+              class="record-query-list-persistent-query-control"
+              :checked="persistentQueryValue(control)"
+              :disabled="queryActionsDisabled"
+              @change="updatePersistentQueryValue(control, $event)"
+            >
+              {{ control.title }}
+            </UiCheckbox>
+            <UiButton
+              v-if="queryable"
+              class="record-query-list-advanced"
+              :class="{ 'is-selected': conditionsExpanded }"
+              type="text"
+              icon-name="filter"
+              :disabled="conditionsDisabled"
+              @click="toggleConditions"
+            >
+              高级<span v-if="conditionCount"> {{ conditionCount }}</span>
+            </UiButton>
           </div>
         </div>
       </template>

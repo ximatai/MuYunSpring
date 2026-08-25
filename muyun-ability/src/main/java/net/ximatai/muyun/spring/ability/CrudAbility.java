@@ -98,16 +98,26 @@ public interface CrudAbility<T extends EntityContract> {
 
     @PlatformOperation(PlatformAction.UPDATE)
     default int update(T entity) {
+        return updateWithExisting(entity, null);
+    }
+
+    /**
+     * Updates through a caller-provided active snapshot when an enclosing ability has already
+     * loaded one. This keeps soft-delete restoration and write-time validation on the same record
+     * state without creating a second persistence read. This is infrastructure coordination for
+     * ability implementations, not an application-facing alternative to {@link #update(EntityContract)}.
+     */
+    default int updateWithExisting(T entity, T existingSnapshot) {
         DataScopeCriteriaResult mutationScope = mutationRecordScope(PlatformAction.UPDATE, entity == null ? null : entity.getId());
         return withTenantScope(mutationScope, () -> {
-            T existing = selectExistingForScopedMutation(entity);
+            T existing = existingSnapshot == null ? selectExistingForScopedMutation(entity) : existingSnapshot;
             if (TenantContext.currentTenantId().isPresent() && existing == null) {
                 return 0;
             }
             if (existing != null && !allowsTenantOwnershipChange(existing, entity)) {
                 entity.setTenantId(existing.getTenantId());
             }
-            Integer expectedVersion = expectedVersionForUpdate(entity);
+            Integer expectedVersion = expectedVersionForUpdate(entity, existing);
             EntityLifecycle.prepareUpdate(entity, Instant.now(), EntityLifecycle.nextVersion(expectedVersion));
             T platformManagedExisting = existing == null && this instanceof PlatformManagedProtectionAbility<?>
                     ? selectActiveRaw(entity.getId())
@@ -118,7 +128,7 @@ public interface CrudAbility<T extends EntityContract> {
                 PlatformAbilityDispatcher.beforeUpdateSave(this, existing, platformManagedDecision.record());
                 return updatePreparedRecord(platformManagedDecision.record(), expectedVersion, false);
             }
-            beforeUpdate(entity);
+            beforeUpdate(entity, existing);
             validateTreePlacementIfNeeded(entity);
             PlatformAbilityDispatcher.beforeUpdateSave(this, existing, entity);
             return updatePreparedRecord(entity, expectedVersion, true);
@@ -266,6 +276,14 @@ public interface CrudAbility<T extends EntityContract> {
     default void beforeUpdate(T entity) {
     }
 
+    /**
+     * Write hook with the persisted record selected for this mutation. The single-argument hook
+     * remains the compatibility extension point for ordinary static services.
+     */
+    default void beforeUpdate(T entity, T existing) {
+        beforeUpdate(entity);
+    }
+
     default void beforeDelete(String id) {
     }
 
@@ -316,6 +334,21 @@ public interface CrudAbility<T extends EntityContract> {
         return current.getVersion();
     }
 
+    /**
+     * Computes the update version from the already scoped mutation snapshot when available.
+     * Services with write-time rules can consume the same snapshot through the two-argument
+     * {@link #beforeUpdate(EntityContract, EntityContract)} hook.
+     */
+    default Integer expectedVersionForUpdate(T entity, T existing) {
+        if (entity.getVersion() != null) {
+            return entity.getVersion();
+        }
+        if (existing != null) {
+            return existing.getVersion();
+        }
+        return expectedVersionForUpdate(entity);
+    }
+
     default boolean shouldPrepareTreeDefault(T entity) {
         return true;
     }
@@ -346,7 +379,7 @@ public interface CrudAbility<T extends EntityContract> {
                 .orElse(null);
     }
 
-    private T selectExistingForScopedMutation(T entity) {
+    default T selectExistingForScopedMutation(T entity) {
         if (entity == null || entity.getId() == null || entity.getId().isBlank()) {
             return null;
         }

@@ -69,8 +69,7 @@ function visible(fieldName: string, state: ModulePageFormContributionState) {
 
 const fieldNames = computed(() =>
   [...props.fields.keys()].filter(
-    (fieldName) =>
-      !props.excludeFieldNames?.includes(fieldName) && visible(fieldName, stateSnapshot()),
+    (fieldName) => !props.excludeFieldNames?.includes(fieldName) && visible(fieldName, stateSnapshot()),
   ),
 );
 

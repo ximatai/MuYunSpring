@@ -1,7 +1,7 @@
 package net.ximatai.muyun.spring.ability.discriminator;
 
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
-import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependency;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependencyValidator;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
@@ -9,7 +9,6 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /** Normalizes and validates static discriminated fields through the standard reference facade. */
 public final class DiscriminatedValueValidator {
@@ -17,8 +16,14 @@ public final class DiscriminatedValueValidator {
     }
 
     public static void normalizeAndValidate(Object record) {
+        normalizeAndValidate(record == null ? null : record.getClass(), record);
+    }
+
+    /** Uses the service-declared model class when a static service stores a proxy or subtype. */
+    public static void normalizeAndValidate(Class<?> modelClass, Object record) {
         if (record == null) return;
-        for (DiscriminatedValuePlan plan : StaticReferenceResolver.discriminatedValuePlans(record.getClass())) {
+        Class<?> resolvedModelClass = modelClass == null ? record.getClass() : modelClass;
+        for (DiscriminatedValuePlan plan : StaticReferenceResolver.discriminatedValuePlans(resolvedModelClass)) {
             normalizeAndValidate(record, plan);
         }
     }
@@ -54,21 +59,6 @@ public final class DiscriminatedValueValidator {
         if (titles.size() != values.size()) {
             throw new PlatformException("discriminator reference target is unavailable: " + target.qualifiedName() + "." + valueField);
         }
-        List<ReferenceCandidateDependency> dependencies = reference.candidateDependencies();
-        if (dependencies.isEmpty()) return;
-        Map<String, Map<String, Object>> targets = ability.projections(values,
-                dependencies.stream().map(ReferenceCandidateDependency::targetField).toList());
-        for (String id : values) {
-            Map<String, Object> targetValues = targets.get(id);
-            for (ReferenceCandidateDependency dependency : dependencies) {
-                Object source = StaticReferenceResolver.readLoadedValue(record, dependency.sourceField());
-                if (dependency.required() && (source == null || String.valueOf(source).isBlank())) {
-                    throw new PlatformException("discriminator reference dependency is required: " + dependency.sourceField());
-                }
-                if (source != null && !Objects.equals(String.valueOf(source), String.valueOf(targetValues == null ? null : targetValues.get(dependency.targetField())))) {
-                    throw new PlatformException("discriminator reference target does not satisfy dependency: " + dependency.sourceField());
-                }
-            }
-        }
+        ReferenceCandidateDependencyValidator.validate(record, values, reference, ability);
     }
 }

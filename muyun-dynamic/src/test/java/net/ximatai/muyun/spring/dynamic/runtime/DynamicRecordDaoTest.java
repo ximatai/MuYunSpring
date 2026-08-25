@@ -17,7 +17,12 @@ import net.ximatai.muyun.spring.common.identity.BusinessPrincipal;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.ability.EnableAbility;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependency;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCasePlan;
@@ -98,6 +103,60 @@ class DynamicRecordDaoTest {
         ArgumentCaptor<Map<String, Object>> body = mapCaptor();
         verify(operations).insertItem(eq(SCHEMA), eq(TABLE), body.capture(), eq("id"));
         assertThat(body.getValue()).containsEntry("scope_id", "tenant-a");
+    }
+
+    @Test
+    void shouldReuseOneExistingSnapshotForDynamicUpdateDiscriminatorReferenceValidation() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
+                "id", "contract-1",
+                "scope_type", "organization",
+                "scope_id", "org-a",
+                "region_code", "CN",
+                "deleted", Boolean.FALSE,
+                "version", 3
+        )));
+        when(operations.patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString())).thenReturn(1);
+        EntityDefinition entity = new EntityDefinition(
+                "contract", TABLE, "Contract", List.of(
+                FieldDefinition.string("scopeType", "Scope type").column("scope_type"),
+                FieldDefinition.string("scopeId", "Scope id").column("scope_id"),
+                FieldDefinition.string("regionCode", "Region code").column("region_code")
+        ));
+        ReferenceTarget organizationTarget = ReferenceTarget.of("iam", "organization");
+        ReferencePlan organizationReference = new ReferencePlan("scopeId", organizationTarget,
+                ReferenceCardinality.ONE, List.of(), null, null,
+                List.of(ReferenceCandidateDependency.required("regionCode", "regionCode")));
+        ModuleDefinition module = ModuleDefinition.builder("sales.contract", "Sales")
+                .entities(List.of(entity))
+                .discriminatedValues(List.of(new EntityDiscriminatedValueDefinition(
+                        "contract", "scopeId", "scopeType", Set.of("organization"),
+                        List.of(new DiscriminatedValueCasePlan("organization", DiscriminatedValueSource.REFERENCE,
+                                null, null, organizationReference))
+                )))
+                .build();
+        @SuppressWarnings("unchecked")
+        ReferenceAbility<?> organization = mock(ReferenceAbility.class);
+        when(organization.titles(List.of("org-a"))).thenReturn(Map.of("org-a", "机构 A"));
+        when(organization.projections(List.of("org-a"), List.of("regionCode")))
+                .thenReturn(Map.of("org-a", Map.of("regionCode", "CN")));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target -> organizationTarget.equals(target)
+                ? java.util.Optional.of(organization) : java.util.Optional.empty());
+        try {
+            DynamicEntityService service = DynamicEntityService.withModule(
+                    new DynamicRecordDao(operations, entity), "sales.contract", DynamicRecordLifecycle.NONE, module,
+                    ignored -> { throw new IllegalStateException("no dynamic relation is needed"); });
+            DynamicRecord update = new DynamicRecord(entity).setValue("regionCode", "CN");
+            update.setId("contract-1");
+
+            assertThat(service.update(update)).isEqualTo(1);
+            assertThat(update.getValue("scopeId")).isNull();
+            verify(operations, times(1)).query(anyString(), anyMap());
+            verify(organization).titles(List.of("org-a"));
+            verify(organization).projections(List.of("org-a"), List.of("regionCode"));
+        } finally {
+            PlatformAbilityRuntime.resetReferenceTargetResolver();
+        }
     }
 
     @Test

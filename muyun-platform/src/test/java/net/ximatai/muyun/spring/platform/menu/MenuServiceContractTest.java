@@ -198,6 +198,68 @@ class MenuServiceContractTest {
     }
 
     @Test
+    void shouldRejectChangingTenantOwnershipOfPopulatedScheme() {
+        AtomicReference<MenuService> menuServiceReference = new AtomicReference<>();
+        MenuSchemeService guardedSchemeService = new MenuSchemeService(
+                schemeDao, Optional.empty(), SystemMenuSchemeAccessPolicy.DENY_ALL, menuServiceReference::get);
+        MenuService guardedMenuService = new MenuService(menuDao, guardedSchemeService, moduleService);
+        menuServiceReference.set(guardedMenuService);
+
+        String schemeId;
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            schemeId = guardedSchemeService.insert(scheme("default", MenuScopeType.TENANT, null));
+            guardedMenuService.insert(moduleMenu(schemeId, "客户", TreeAbility.ROOT_ID, "crm.customer"));
+        }
+
+        try (TenantContext.Scope ignored = TenantContext.system("move populated scheme")) {
+            MenuScheme changedScope = scheme("default", MenuScopeType.TENANT, null);
+            changedScope.setId(schemeId);
+            changedScope.setTenantId("tenant-b");
+            changedScope.setVersion(0);
+
+            assertThatThrownBy(() -> guardedSchemeService.update(changedScope))
+                    .isInstanceOfSatisfying(BusinessException.class, exception ->
+                            assertThat(exception.actionMessage().code())
+                                    .isEqualTo("platform.menu-scheme.tenant-change-with-menus-denied"));
+        }
+    }
+
+    @Test
+    void shouldAllowScopeRefinementWithinTenantForPopulatedScheme() {
+        AtomicReference<MenuService> menuServiceReference = new AtomicReference<>();
+        MenuSchemeService guardedSchemeService = new MenuSchemeService(
+                schemeDao, Optional.empty(), SystemMenuSchemeAccessPolicy.DENY_ALL, menuServiceReference::get);
+        MenuService guardedMenuService = new MenuService(menuDao, guardedSchemeService, moduleService);
+        menuServiceReference.set(guardedMenuService);
+        ReferenceAbility<?> organizationReference = mock(ReferenceAbility.class);
+        when(organizationReference.titles(anyCollection())).thenReturn(Map.of("org-a", "机构 A"));
+        when(organizationReference.projections(anyCollection(), eq(List.of("tenantId"))))
+                .thenReturn(Map.of("org-a", Map.of("tenantId", "tenant-a")));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target -> "iam.organization".equals(target.qualifiedName())
+                ? Optional.of(organizationReference) : Optional.empty());
+
+        String schemeId;
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            schemeId = guardedSchemeService.insert(scheme("default", MenuScopeType.TENANT, null));
+            guardedMenuService.insert(moduleMenu(schemeId, "客户", TreeAbility.ROOT_ID, "crm.customer"));
+        }
+
+        try (TenantContext.Scope ignored = TenantContext.system("refine populated scheme scope")) {
+            MenuScheme refined = scheme("default", MenuScopeType.ORGANIZATION, "org-a");
+            refined.setId(schemeId);
+            refined.setTenantId("tenant-a");
+            refined.setVersion(0);
+
+            assertThat(guardedSchemeService.update(refined)).isEqualTo(1);
+            assertThat(guardedSchemeService.select(schemeId)).satisfies(saved -> {
+                assertThat(saved.getScopeType()).isEqualTo(MenuScopeType.ORGANIZATION);
+                assertThat(saved.getTenantId()).isEqualTo("tenant-a");
+                assertThat(saved.getOrganizationId()).isEqualTo("org-a");
+            });
+        }
+    }
+
+    @Test
     void shouldCreateSchemeScopedMenuTreeAndRejectUnscopedRootLookup() {
         String schemeId;
         String rootId;

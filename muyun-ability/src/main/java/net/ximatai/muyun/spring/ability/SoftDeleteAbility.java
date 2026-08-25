@@ -60,7 +60,7 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
         entity.setDeleted(Boolean.FALSE);
         entity.setDeletedAt(null);
         entity.setDeletedBy(null);
-        return CrudAbility.super.update(entity);
+        return CrudAbility.super.updateWithExisting(entity, active);
     }
 
     @Override

@@ -97,6 +97,17 @@ class UserAccountWebControllerTest {
     }
 
     @Test
+    void shouldRetainAnExplicitTenantNavigatorValueForSystemUserQueries() {
+        UserAccountWebController controller = new UserAccountWebController();
+        WebQueryRequest request = new WebQueryRequest(null, List.of(), List.of())
+                .withExternalQueryValues(java.util.Map.of("tenantId", "demo"));
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("admin", "Admin"))) {
+            assertThat(controller.queryForCurrentWorkspace(request)).isSameAs(request);
+        }
+    }
+
+    @Test
     void shouldNotInjectSystemAccountScopeForTenantUsers() {
         UserAccountWebController controller = new UserAccountWebController();
         WebQueryRequest request = new WebQueryRequest(null, List.of(), List.of());

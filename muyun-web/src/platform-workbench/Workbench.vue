@@ -51,6 +51,7 @@ const emit = defineEmits<{
   closeTabs: [keys: string[]];
   toggleTabLock: [key: string];
   reorderTabs: [keys: string[]];
+  refreshPage: [key: string];
   'update:activeTabKey': [key: string];
   userCommand: [key: string];
 }>();
@@ -61,8 +62,6 @@ const activeTabKey = computed(
   () => props.activeTabKey ?? props.startup?.activeTabKey ?? tabs.value[0]?.key ?? '',
 );
 const activeTab = computed(() => openedTabs.value.find((tab) => tab.key === activeTabKey.value));
-const pageRefreshRevision = ref(0);
-const activePageContentKey = computed(() => `${activeTabKey.value}:${pageRefreshRevision.value}`);
 const activePageDescriptor = computed(() => pageDescriptorOf(activeTab.value));
 const currentUser = computed(() => props.startup?.session.currentUser);
 const userDisplayName = computed(() => currentUser.value?.username ?? currentUser.value?.userId ?? '未登录');
@@ -131,10 +130,15 @@ function handleTabChange(key: string) {
   emit('changeTab', key);
 }
 
-/** Recreates the active page host while retaining the workbench tab and its URL. */
+/**
+ * Requests a refresh of the active page instance.
+ *
+ * The router/cache owner performs the actual remount. This keeps tab switches
+ * from recreating the shared KeepAlive subtree and discarding other drafts.
+ */
 function refreshActivePage() {
-  if (!activeTab.value) return;
-  pageRefreshRevision.value += 1;
+  if (!activeTabKey.value) return;
+  emit('refreshPage', activeTabKey.value);
 }
 
 function handleUserCommand(key: string) {
@@ -434,7 +438,6 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
           <UiError v-else-if="error" :message="error" />
           <div v-else-if="activeTab" class="tab-panel-host">
             <div
-              :key="activePageContentKey"
               class="tab-page"
               :class="{ 'tab-page--workspace': activePageDescriptor?.layout === 'workspace' }"
             >

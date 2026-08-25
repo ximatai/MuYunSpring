@@ -79,7 +79,10 @@ it('record explorer panel uses a single title contract', () => {
   assert.match(headerSource, /\.management-panel-header-subtitle \{\s*margin: 1px 0 0;/);
   assert.match(headerSource, /management-panel-header-title--with-subtitle/);
   assert.match(headerSource, /max-width: 100%/);
-  assert.match(headerSource, /\.management-panel-header-title \{\s*display: flex;[\s\S]*?align-items: center;/);
+  assert.match(
+    headerSource,
+    /\.management-panel-header-title \{\s*display: flex;[\s\S]*?align-items: center;/,
+  );
   assert.notMatch(headerSource, /<h2 v-else/);
   assert.notMatch(headerSource, /record-status-switch-offset-y/);
   assert.notMatch(statusSwitchSource, /translateY\(/);
@@ -1153,6 +1156,9 @@ it('production workbench delegates page lifetime to the Vue Router outlet', () =
   assert.match(appSource, /<RouterView v-slot="\{ Component, route \}">/);
   assert.match(appSource, /<KeepAlive>[\s\S]*<StaticRoutePageHost/);
   assert.match(appSource, /:key="pageCacheKey\(route, activeTabKey\)"/);
+  assert.match(appSource, /:refresh-revision="pageRefreshRevisionFor\(activeTabKey\)"/);
+  assert.match(workbenchSource, /emit\('refreshPage', activeTabKey\.value\)/);
+  assert.notMatch(workbenchSource, /activePageContentKey|pageRefreshRevision/);
   assert.notMatch(appSource, /PlatformAdminRouteOutlet|WorkbenchOutlet/);
 });
 

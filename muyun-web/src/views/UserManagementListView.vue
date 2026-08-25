@@ -64,7 +64,8 @@ const currentUserTenant = computed<Tenant | undefined>(() => {
   return { id: tenantId, title: tenantId, alias: tenantId, enabled: true } as Tenant;
 });
 const userListContext = computed(
-  () => createScopedUserModuleContext(scopedUserContext, selectedTenant.value) as ModuleContext<QueryListRecord>,
+  () =>
+    createScopedUserModuleContext(scopedUserContext, selectedTenant.value) as ModuleContext<QueryListRecord>,
 );
 const userListColumns = computed<RecordQueryListColumn[]>(() => [
   { key: 'username', title: '账号', width: '180px' },

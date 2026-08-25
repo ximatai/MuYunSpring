@@ -98,8 +98,10 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
 
     @Override
     public void beforeUpdate(MenuScheme scheme) {
-        validateImmutableAlias(scheme);
+        MenuScheme existing = selectIgnoreSoftDelete(scheme.getId());
+        validateImmutableAlias(existing, scheme);
         normalizeAndValidate(scheme);
+        rejectTenantOwnershipChangeWhenMenusExist(existing, scheme);
     }
 
     @Override
@@ -193,23 +195,40 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
     }
 
     private void rejectDeleteWhenMenusExist(String schemeId) {
-        if (schemeId == null || schemeId.isBlank() || menuServiceProvider == null) {
-            return;
-        }
-        MenuService menuService = menuServiceProvider.get();
-        if (menuService == null) {
-            return;
-        }
-        long menuCount = menuService.count(Criteria.of().eq("schemeId", schemeId));
-        if (menuCount > 0) {
+        if (menusExist(schemeId)) {
             throw BusinessExceptions.warning("platform.menu-scheme.delete-with-menus-denied",
                     "Menu scheme cannot be deleted while menus exist: " + schemeId);
         }
     }
 
+    /**
+     * A menu inherits its tenant ownership from the scheme when it is created. Moving a populated
+     * scheme to another tenant would therefore make the already persisted menu tree inconsistent.
+     * Scope refinements inside one tenant remain valid: tenant-to-organization and organization
+     * changes do not alter menu ownership.
+     */
+    private void rejectTenantOwnershipChangeWhenMenusExist(MenuScheme existing, MenuScheme incoming) {
+        if (existing == null || Objects.equals(existing.getTenantId(), incoming.getTenantId())
+                || !menusExist(existing.getId())) {
+            return;
+        }
+        throw BusinessExceptions.warning("platform.menu-scheme.tenant-change-with-menus-denied",
+                "Menu scheme tenant cannot be changed while menus exist: " + existing.getId());
+    }
+
+    private boolean menusExist(String schemeId) {
+        if (schemeId == null || schemeId.isBlank() || menuServiceProvider == null) {
+            return false;
+        }
+        MenuService menuService = menuServiceProvider.get();
+        if (menuService == null) {
+            return false;
+        }
+        return menuService.count(Criteria.of().eq("schemeId", schemeId)) > 0;
+    }
+
     /** Alias is the stable external identity; scope remains a validated business-owned setting. */
-    private void validateImmutableAlias(MenuScheme scheme) {
-        MenuScheme existing = selectIgnoreSoftDelete(scheme.getId());
+    private void validateImmutableAlias(MenuScheme existing, MenuScheme scheme) {
         if (existing == null) {
             return;
         }

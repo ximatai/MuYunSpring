@@ -300,25 +300,42 @@ public class DynamicEntityService implements
 
     @Override
     public void beforeUpdate(DynamicRecord record) {
+        beforeUpdate(record, record == null ? null : activeRaw(record.getId()));
+    }
+
+    /**
+     * Reuses the mutation snapshot supplied by {@link net.ximatai.muyun.spring.ability.CrudAbility}
+     * so formula evaluation, discriminated values and reference validation observe one persisted
+     * state throughout an update.
+     */
+    @Override
+    public void beforeUpdate(DynamicRecord record, DynamicRecord existing) {
         rejectWriteProtectedFields(record);
         lifecycle.beforeUpdate(record);
         DynamicFormulaRuntime formulaRuntime = capabilityRuntimes.formula();
         if (formulaRuntime.hasBeforeUpdateRules(record)) {
             FormulaRuntimeReport report = formulaRuntime.beforeUpdate(
                     record,
-                    activeRaw(record.getId()),
+                    existing,
                     existingChildrenForFormula(record)
             );
             record.formulaReport(report);
         } else {
             record.formulaReport(new FormulaRuntimeReport());
         }
-        normalizeDiscriminatedValues(record, activeRaw(record.getId()));
+        normalizeDiscriminatedValues(record, existing);
         validateChildPayload(record);
         record.validateForUpdate();
         validateFieldValues(record);
-        validateReferenceValues(record, activeRaw(record.getId()));
+        validateReferenceValues(record, existing);
         validateTreePlacement(record);
+    }
+
+    @Override
+    public DynamicRecord selectExistingForScopedMutation(DynamicRecord record) {
+        return record == null || record.getId() == null || record.getId().isBlank()
+                ? null
+                : activeRaw(record.getId());
     }
 
     @Override
