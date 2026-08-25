@@ -44,8 +44,10 @@ export function resolveRecordDetailDisplayValue(
       return option.title;
     }
   }
+  // `treeRootTitle` names the virtual root inside an editor picker. In a read-only detail,
+  // it is an absent parent rather than record data, so preserve the platform empty-value display.
   if (field.treeRootTitle && value === 'root') {
-    return field.treeRootTitle;
+    return emptyText;
   }
   const referenceTitle = field.referenceTitleField ? record[field.referenceTitleField] : undefined;
   if (field.controlType === 'recordPicker' && isReferenceSummary(referenceTitle)) {

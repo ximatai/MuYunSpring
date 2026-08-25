@@ -212,7 +212,7 @@ class PlatformModelSchemaTest {
     @Test
     void shouldMapMenuModelsAsPlatformTables() {
         assertThat(columnNames(mapper.toTable(MenuScheme.class)))
-                .contains("id", "tenant_id", "alias", "scope_type", "scope_id", "title", "enabled", "sort_order")
+                .contains("id", "tenant_id", "alias", "scope_type", "organization_id", "title", "enabled", "sort_order")
                 .doesNotContain("parent_id", "application_alias");
         assertThat(columnNames(mapper.toTable(Menu.class)))
                 .contains("id", "tenant_id", "scheme_id", "parent_id", "module_alias",

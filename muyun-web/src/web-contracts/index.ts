@@ -518,7 +518,7 @@ export type MenuScopeType = 'system' | 'tenant' | 'organization';
 export interface MenuScheme extends StandardEnabledSortableEntity {
   alias?: string;
   scopeType?: MenuScopeType;
-  scopeId?: string;
+  organizationId?: string;
 }
 
 export interface ModuleMenuTarget {

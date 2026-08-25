@@ -53,7 +53,7 @@ class DefaultTenantMenuProvisionerTest {
             assertThat(scheme).isNotNull();
             assertThat(scheme.getAlias()).isEqualTo(DefaultTenantMenuProvisioner.TENANT_ADMIN_SCHEME_ALIAS);
             assertThat(scheme.getScopeType()).isEqualTo(MenuScopeType.TENANT);
-            assertThat(scheme.getScopeId()).isEqualTo("demo");
+            assertThat(scheme.getOrganizationId()).isNull();
             assertThat(scheme.getTenantId()).isEqualTo("demo");
 
             assertThat(menuService.rootMenus(schemeId))
@@ -260,7 +260,6 @@ class DefaultTenantMenuProvisionerTest {
             scheme.setId(MenuSchemeService.ADMIN_SCHEME_ID);
             scheme.setAlias(MenuSchemeService.ADMIN_SCHEME_ALIAS);
             scheme.setScopeType(MenuScopeType.SYSTEM);
-            scheme.setScopeId(MenuSchemeService.SYSTEM_SCOPE_ID);
             scheme.setTitle("平台超管");
             scheme.setEnabled(Boolean.TRUE);
             schemeService.insert(scheme);

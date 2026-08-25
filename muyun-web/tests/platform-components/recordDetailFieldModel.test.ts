@@ -59,9 +59,9 @@ it('record detail display resolves runtime option codes through the source-neutr
   );
 });
 
-it('record detail display only renders a tree root title when the descriptor declares it', () => {
+it('record detail display renders a virtual tree root as the standard empty value', () => {
   const field = formField('parentId', { treeRootTitle: '根模块' });
-  assert.equal(resolveRecordDetailDisplayValue(field, { parentId: 'root' }), '根模块');
+  assert.equal(resolveRecordDetailDisplayValue(field, { parentId: 'root' }), '-');
   assert.equal(resolveRecordDetailDisplayValue(field, { parentId: 'ordinary-root' }), 'ordinary-root');
 });
 

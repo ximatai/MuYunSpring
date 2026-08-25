@@ -34,7 +34,7 @@ public class MenuManagementWebController extends WebSupport<MenuService>
                         .navigator(navigator -> navigator
                                 .level(SCHEME_NAVIGATOR, level -> level
                                         .microList(MenuSchemeService.MODULE_ALIAS, "菜单方案", "搜索菜单方案")
-                                        .secondaryField("scopeId")
+                                        .secondaryField("scopeTypeTitle")
                                         .manageable(SCHEME_EDITOR)
                                         .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
                                 .bindNavigatorToList(SCHEME_NAVIGATOR, "schemeId")

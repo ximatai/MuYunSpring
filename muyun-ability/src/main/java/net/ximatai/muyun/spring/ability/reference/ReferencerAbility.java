@@ -42,6 +42,12 @@ public interface ReferencerAbility<T extends EntityContract> extends CrudAbility
         if (entity == null || modelClass == null) {
             return;
         }
+        // Model-only services deliberately run without the assembled target catalog. Runtime
+        // services always provide one, where both existence and candidate dependencies apply.
+        if (net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver()
+                == ReferenceTargetResolver.NONE) {
+            return;
+        }
         for (StaticReferenceResolver.ReferenceRule rule : StaticReferenceResolver.rules(modelClass)) {
             List<String> ids = StaticReferenceResolver.values(entity, rule.plan());
             if (ids.isEmpty()) {
@@ -62,6 +68,8 @@ public interface ReferencerAbility<T extends EntityContract> extends CrudAbility
                         + rule.target().qualifiedName() + "." + rule.plan().sourceField()
                         + " -> " + unavailable);
             }
+            ReferenceCandidateDependencyValidator.validate(entity, ids, rule.plan(),
+                    requireReferenceAbility(rule.target(), "candidate dependency"));
         }
     }
 

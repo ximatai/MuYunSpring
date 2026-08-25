@@ -104,7 +104,7 @@ public interface CrudAbility<T extends EntityContract> {
             if (TenantContext.currentTenantId().isPresent() && existing == null) {
                 return 0;
             }
-            if (existing != null) {
+            if (existing != null && !allowsTenantOwnershipChange(existing, entity)) {
                 entity.setTenantId(existing.getTenantId());
             }
             Integer expectedVersion = expectedVersionForUpdate(entity);
@@ -134,6 +134,14 @@ public interface CrudAbility<T extends EntityContract> {
             return 0;
         }
         return delete(entity.getId(), entity.getVersion());
+    }
+
+    /**
+     * Tenant ownership is immutable by default. A service may opt in only for an explicit,
+     * validated business transition and should normally restrict it to the system context.
+     */
+    default boolean allowsTenantOwnershipChange(T existing, T incoming) {
+        return false;
     }
 
     @PlatformOperation(PlatformAction.DELETE)

@@ -1682,7 +1682,7 @@ function updateNavigatorManagementDraft(
   if (!draft) return;
   const level = navigatorManagementLevel.value;
   navigatorManagementDetail.draft.value = applyFormComputeAfterChange(
-    { ...draft, [fieldName]: value },
+    applyReferenceDependencyClears(draft, fieldName, value, navigatorManagementFormFields.value),
     fieldName,
     formComputeRulesOf(
       level?.context.runtime.snapshot()?.uiDescriptor,

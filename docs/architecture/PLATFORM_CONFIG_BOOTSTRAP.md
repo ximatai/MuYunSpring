@@ -154,7 +154,7 @@
 1. `MenuScheme`：菜单方案，支持系统、租户和机构三个 scope。系统/租户口径优先形成闭环，机构方案先保留模型边界，等机构体系进入后再启用业务闭环。
 2. `Menu`：某个方案下的菜单节点。一个菜单只属于一个方案；同一个模块如需出现在多个方案或多个位置，创建多个菜单节点分别挂同一个 `moduleAlias`。
 
-系统方案只在系统态维护和读取，不作为租户菜单 fallback 模板。默认 `platform.user.super_admin` 是系统用户，不归属任何租户；租户管理员需要访问平台能力时，应通过租户或机构菜单方案显式配置。`MenuScheme.alias/scope/tenantId` 创建后不可变，`Menu.schemeId` 创建后不可变；如需跨方案调整，应新建菜单节点或后续提供明确的整树迁移能力。
+系统方案只在系统态维护和读取，不作为租户菜单 fallback 模板。默认 `platform.user.super_admin` 是系统用户，不归属任何租户；租户管理员需要访问平台能力时，应通过租户或机构菜单方案显式配置。`MenuScheme.alias` 是稳定外部标识，创建后不可变；范围字段可被维护，但每次保存都必须满足对应范围的不变量，跨租户归属调整仅允许系统态执行。`Menu.schemeId` 创建后不可变；如需跨方案调整，应新建菜单节点或后续提供明确的整树迁移能力。
 
 `MenuScheme` 建议字段：
 
@@ -163,7 +163,7 @@
 | `tenantId`  | 租户 ID；系统方案为空                                            |
 | `alias`     | 方案别名，在同一 scope 内唯一                                    |
 | `scopeType` | `SYSTEM` / `TENANT` / `ORGANIZATION`                             |
-| `scopeId`   | scope 标识；租户方案默认等于 `tenantId`，系统方案固定为 `system` |
+| `organizationId` | 适用机构；仅 `ORGANIZATION` 范围填写，并受 `tenantId` 约束的标准机构引用 |
 | `title`     | 方案名称                                                         |
 | `enabled`   | 是否启用                                                         |
 | `sortOrder` | 排序                                                             |
@@ -241,7 +241,6 @@
 | `id`        | `platform.menu_scheme.admin` |
 | `alias`     | `platform_admin`             |
 | `scopeType` | `SYSTEM`                     |
-| `scopeId`   | `system`                     |
 | `title`     | `平台超管`                   |
 
 该方案不作为租户菜单 fallback。平台超级管理员账号以系统用户身份读取该方案；租户和机构菜单仍由各自方案维护。

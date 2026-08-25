@@ -359,6 +359,8 @@ final class PlatformAbilityDispatcher {
                         + rule.target().qualifiedName() + "." + rule.plan().sourceField()
                         + " -> " + unavailable);
             }
+            net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependencyValidator.validate(
+                    entity, ids, rule.plan(), target);
         }
     }
 

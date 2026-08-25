@@ -70,9 +70,9 @@ Web 维护面按“独立配置根 + 模块聚合子资源”组织：应用、�
 
 静态模型将声明放在被判别字段上：`@DiscriminatedValue` 指定判别字段、其 `CodeTitleEnum` 类型和每个 enum code 的分支。动态模块以 `EntityDiscriminatedValueDefinition` 提供同构定义，并使用已发布选项的 code 集合；其取值来源和候选依赖可以使用动态业务字段或当前支持的标准字段 `tenantId`，但被写入的判别值字段和判别字段必须是模块自身的可写字段。两侧都编译为同一个 `DiscriminatedValuePlan`，由服务端负责固定值/字段值归一和引用完整性、候选依赖校验；页面公式只消费该事实来控制显隐或必填，不决定引用目标。
 
-`MenuScheme.scopeId` 是第一个用例：系统范围固定为 `system`，租户范围取 `tenantId`，机构范围为受 `tenantId` 约束的机构引用。此能力不把所有“scope”模型强行统一：计量换算、编码规则等具有不同的字段组合和业务选择逻辑，只有满足上述判别值语义时才接入。
+判别字段适合“同一个持久化值由不同分支产生”的模型；它不把所有“scope”模型强行统一。计量换算、编码规则等具有不同的字段组合和业务选择逻辑，只有满足上述判别值语义时才接入。
 
-`tenantId` 是平台标准作用域引用：当静态模块在页面中显式声明该字段时，UI 会将其渲染为 `iam.tenant` 的单值记录选择器；它不是每个模型重复声明的业务 `@ReferenceTo`。`MenuScheme` 在租户和机构范围都要求先选择适用租户，随后租户范围自动归一 `scopeId`，机构范围再以该租户约束机构候选。
+`tenantId` 是平台标准作用域引用：当静态模块在页面中显式声明该字段时，UI 会将其渲染为 `iam.tenant` 的单值记录选择器；它不是每个模型重复声明的业务 `@ReferenceTo`。`MenuScheme` 是明确字段建模：系统范围不填写作用域对象；租户范围由 `tenantId` 表达；机构范围同时填写 `tenantId` 和带候选依赖的标准引用 `organizationId`。页面公式只据 `scopeType` 控制显隐和必填，不再生成或归一化伪造的 scope 值。
 
 静态查询 schema 会在 `QueryAbility.querySchema()` 中按模型同名字段自动合并 `@OptionField` 或 `@DictionaryField` 元数据；静态页面字段选项应在模块 UI descriptor 编译链中合并，不再以 service `FormAbility.formSchema()` 作为目标来源。业务 service 的 `QueryDescriptor` 只声明查询语义；模块 UI 声明只表达页面意图。读模型字段通过 `@OptionLoad(source = "...")` 声明从已绑定选项中提取的 `OptionItem` 属性，默认读取 `title`；`field` 可显式选择 `code`、`enabled`、`sortOrder` 或 `parentCode`。动态元数据在输出虚拟字段上使用同构声明：`FieldDefinition.string("subjectTitle", "学科").virtual().optionLoad("subjectCode")`。因此选项值字段只声明候选与校验，投影字段自行声明读取来源；当存在 `field = "title"` 的投影时，schema 或 descriptor 暴露对应的 `optionTitleField`。枚举来源在静态对象或 SQL 投影中出现 Java 枚举常量名时，会先按声明的 `CodeTitleEnum` 精确归一为业务 code；字典来源始终按持久化 code 精确匹配，不做大小写模糊兼容。
 

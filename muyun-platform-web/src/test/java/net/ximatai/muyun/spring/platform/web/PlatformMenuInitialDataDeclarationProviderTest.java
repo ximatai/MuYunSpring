@@ -77,7 +77,7 @@ class PlatformMenuInitialDataDeclarationProviderTest {
             assertThat(scheme).satisfies(value -> {
                 assertThat(value.getAlias()).isEqualTo(MenuSchemeService.ADMIN_SCHEME_ALIAS);
                 assertThat(value.getScopeType()).isEqualTo(MenuScopeType.SYSTEM);
-                assertThat(value.getScopeId()).isEqualTo(MenuSchemeService.SYSTEM_SCOPE_ID);
+                assertThat(value.getOrganizationId()).isNull();
                 assertThat(value.getTitle()).isEqualTo("平台超管");
             });
             assertThat(menuService.rootMenus(scheme.getId()))
@@ -384,7 +384,6 @@ class PlatformMenuInitialDataDeclarationProviderTest {
         scheme.setId(MenuSchemeService.ADMIN_SCHEME_ID);
         scheme.setAlias(MenuSchemeService.ADMIN_SCHEME_ALIAS);
         scheme.setScopeType(MenuScopeType.SYSTEM);
-        scheme.setScopeId(MenuSchemeService.SYSTEM_SCOPE_ID);
         schemeDao.insert(scheme);
         Menu platform = menu(
                 PlatformMenuGroups.PLATFORM,

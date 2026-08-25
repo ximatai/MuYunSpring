@@ -2,6 +2,8 @@ package net.ximatai.muyun.spring.platform.menu;
 
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
@@ -21,11 +23,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class MenuServiceContractTest {
     private final TestMemoryDao<MenuScheme> schemeDao = new TestMemoryDao<>();
@@ -47,6 +54,7 @@ class MenuServiceContractTest {
     void tearDown() {
         CurrentUserContext.clear();
         TenantContext.clear();
+        PlatformAbilityRuntime.resetReferenceTargetResolver();
     }
 
     @Test
@@ -70,7 +78,8 @@ class MenuServiceContractTest {
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
             assertThat(schemeService.select(tenantASchemeId)).isNotNull();
             assertThat(schemeService.select(tenantBSchemeId)).isNull();
-            assertThat(schemeService.select(tenantASchemeId).getScopeId()).isEqualTo("tenant-a");
+            assertThat(schemeService.select(tenantASchemeId).getTenantId()).isEqualTo("tenant-a");
+            assertThat(schemeService.select(tenantASchemeId).getOrganizationId()).isNull();
         }
     }
 
@@ -86,6 +95,25 @@ class MenuServiceContractTest {
     }
 
     @Test
+    void shouldRejectOrganizationSchemeWhenOrganizationBelongsToAnotherTenant() {
+        ReferenceAbility<?> organizationReference = mock(ReferenceAbility.class);
+        when(organizationReference.titles(anyCollection())).thenReturn(Map.of("org-b", "其他租户机构"));
+        when(organizationReference.projections(anyCollection(), eq(List.of("tenantId"))))
+                .thenReturn(Map.of("org-b", Map.of("tenantId", "tenant-b")));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target ->
+                "iam.organization".equals(target.qualifiedName())
+                        ? Optional.of(organizationReference)
+                        : Optional.empty());
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThatThrownBy(() -> schemeService.insert(
+                    scheme("organization_default", MenuScopeType.ORGANIZATION, "org-b")))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("reference target does not satisfy dependency: tenantId");
+        }
+    }
+
+    @Test
     void shouldCreateSystemSchemeWithoutTenant() {
         String schemeId;
         try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
@@ -94,14 +122,15 @@ class MenuServiceContractTest {
 
         MenuScheme saved = schemeService.select(schemeId);
         assertThat(saved.getTenantId()).isNull();
-        assertThat(saved.getScopeId()).isEqualTo(MenuSchemeService.SYSTEM_SCOPE_ID);
+        assertThat(saved.getOrganizationId()).isNull();
     }
 
     @Test
-    void shouldDefaultNewSchemeToSystemScopeInSystemContext() {
+    void shouldDefaultAnUnspecifiedSchemeToSystemScopeInSystemContext() {
         MenuScheme scheme = new MenuScheme();
         scheme.setAlias("system_default");
         scheme.setTitle("System default");
+        scheme.setScopeType(null);
 
         String schemeId;
         try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
@@ -110,8 +139,20 @@ class MenuServiceContractTest {
 
         MenuScheme saved = schemeService.select(schemeId);
         assertThat(saved.getScopeType()).isEqualTo(MenuScopeType.SYSTEM);
-        assertThat(saved.getScopeId()).isEqualTo(MenuSchemeService.SYSTEM_SCOPE_ID);
         assertThat(saved.getTenantId()).isNull();
+        assertThat(saved.getOrganizationId()).isNull();
+    }
+
+    @Test
+    void shouldRejectTenantScopeWithoutTenantInsteadOfChangingItsScope() {
+        MenuScheme scheme = scheme("tenant_default", MenuScopeType.TENANT, null);
+
+        try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
+            assertThatThrownBy(() -> schemeService.insert(scheme))
+                    .isInstanceOfSatisfying(BusinessException.class, exception ->
+                            assertThat(exception.actionMessage().code())
+                                    .isEqualTo("platform.menu-scheme.tenant-required"));
+        }
     }
 
     @Test
@@ -126,28 +167,33 @@ class MenuServiceContractTest {
     }
 
     @Test
-    void shouldRejectSchemeIdentityChanges() {
+    void shouldKeepSchemeAliasImmutableWhileAllowingValidatedScopeChanges() {
         String schemeId;
-        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
-            schemeId = schemeService.insert(scheme("default", MenuScopeType.TENANT, null));
-            MenuScheme changedAlias = scheme("mobile", MenuScopeType.TENANT, "tenant-a");
+        try (TenantContext.Scope ignored = TenantContext.system("create system scheme")) {
+            schemeId = schemeService.insert(scheme("default", MenuScopeType.SYSTEM, null));
+            MenuScheme changedAlias = scheme("mobile", MenuScopeType.SYSTEM, null);
             changedAlias.setId(schemeId);
             changedAlias.setVersion(0);
             assertThatThrownBy(() -> schemeService.update(changedAlias))
                     .isInstanceOfSatisfying(BusinessException.class, exception ->
                             assertThat(exception.actionMessage().code())
-                                    .isEqualTo("platform.menu-scheme.identity-immutable"))
-                    .hasMessageContaining("identity");
+                                    .isEqualTo("platform.menu-scheme.alias-immutable"))
+                    .hasMessageContaining("alias");
+        }
 
-            MenuScheme changedScope = scheme("default", MenuScopeType.ORGANIZATION, "org-a");
+        try (TenantContext.Scope ignored = TenantContext.system("change menu scheme scope")) {
+            MenuScheme changedScope = scheme("default", MenuScopeType.TENANT, null);
             changedScope.setId(schemeId);
-            changedScope.setTenantId("tenant-a");
+            changedScope.setTenantId("tenant-b");
             changedScope.setVersion(0);
-            assertThatThrownBy(() -> schemeService.update(changedScope))
-                    .isInstanceOfSatisfying(BusinessException.class, exception ->
-                            assertThat(exception.actionMessage().code())
-                                    .isEqualTo("platform.menu-scheme.identity-immutable"))
-                    .hasMessageContaining("identity");
+            schemeService.update(changedScope);
+
+            assertThat(schemeService.select(schemeId)).satisfies(saved -> {
+                assertThat(saved.getAlias()).isEqualTo("default");
+                assertThat(saved.getScopeType()).isEqualTo(MenuScopeType.TENANT);
+                assertThat(saved.getTenantId()).isEqualTo("tenant-b");
+                assertThat(saved.getOrganizationId()).isNull();
+            });
         }
     }
 
@@ -586,7 +632,7 @@ class MenuServiceContractTest {
         String systemMenuId;
         try (TenantContext.Scope ignored = TenantContext.system("test system menu scheme")) {
             String systemSchemeId = schemeService.insert(scheme(
-                    "platform_admin", MenuScopeType.SYSTEM, MenuSchemeService.SYSTEM_SCOPE_ID));
+                    "platform_admin", MenuScopeType.SYSTEM, null));
             systemMenuId = scopedMenuService.insert(moduleMenu(
                     systemSchemeId, "平台客户", TreeAbility.ROOT_ID, "crm.customer"));
         }
@@ -606,7 +652,7 @@ class MenuServiceContractTest {
                 Optional.of((moduleAlias, currentUser) -> true));
         try (TenantContext.Scope ignored = TenantContext.system("test system menu scheme")) {
             String systemSchemeId = schemeService.insert(scheme(
-                    "platform_admin", MenuScopeType.SYSTEM, MenuSchemeService.SYSTEM_SCOPE_ID));
+                    "platform_admin", MenuScopeType.SYSTEM, null));
             scopedMenuService.insert(moduleMenu(
                     systemSchemeId, "平台客户", TreeAbility.ROOT_ID, "crm.customer"));
         }
@@ -620,11 +666,11 @@ class MenuServiceContractTest {
         }
     }
 
-    private MenuScheme scheme(String alias, MenuScopeType scopeType, String scopeId) {
+    private MenuScheme scheme(String alias, MenuScopeType scopeType, String organizationId) {
         MenuScheme scheme = new MenuScheme();
         scheme.setAlias(alias);
         scheme.setScopeType(scopeType);
-        scheme.setScopeId(scopeId);
+        scheme.setOrganizationId(organizationId);
         scheme.setTitle(alias);
         return scheme;
     }

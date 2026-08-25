@@ -297,7 +297,6 @@ class MenuWebControllerTest {
         scheme.setAlias(alias);
         scheme.setTitle(alias);
         scheme.setScopeType(MenuScopeType.TENANT);
-        scheme.setScopeId("tenant-a");
         scheme.setEnabled(Boolean.TRUE);
         return scheme;
     }

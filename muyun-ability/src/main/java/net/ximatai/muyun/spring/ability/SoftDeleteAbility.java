@@ -54,7 +54,9 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
         if (active == null) {
             return 0;
         }
-        entity.setTenantId(active.getTenantId());
+        if (!allowsTenantOwnershipChange(active, entity)) {
+            entity.setTenantId(active.getTenantId());
+        }
         entity.setDeleted(Boolean.FALSE);
         entity.setDeletedAt(null);
         entity.setDeletedBy(null);

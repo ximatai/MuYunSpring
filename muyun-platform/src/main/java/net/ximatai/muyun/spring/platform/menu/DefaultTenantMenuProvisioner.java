@@ -66,7 +66,6 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
         scheme.setId(schemeId);
         scheme.setAlias(TENANT_ADMIN_SCHEME_ALIAS);
         scheme.setScopeType(MenuScopeType.TENANT);
-        scheme.setScopeId(tenantId);
         scheme.setTitle(TENANT_ADMIN_SCHEME_TITLE);
         scheme.setEnabled(Boolean.TRUE);
         scheme.setSortOrder(1);
@@ -78,7 +77,7 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
         return schemeService.list(Criteria.of()
                         .eq(StandardEntitySchema.TENANT_ID_FIELD, tenantId)
                         .eq("scopeType", MenuScopeType.TENANT)
-                        .eq("scopeId", tenantId)
+                        .eqNullable("organizationId", null)
                         .eq("alias", TENANT_ADMIN_SCHEME_ALIAS),
                 PageRequest.of(1, 1))
                 .stream()
@@ -89,7 +88,7 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
     private void validateExistingScheme(MenuScheme existing, String tenantId) {
         if (!Objects.equals(existing.getTenantId(), tenantId)
                 || existing.getScopeType() != MenuScopeType.TENANT
-                || !Objects.equals(existing.getScopeId(), tenantId)
+                || existing.getOrganizationId() != null
                 || !Objects.equals(existing.getAlias(), TENANT_ADMIN_SCHEME_ALIAS)) {
             throw new PlatformException("Default tenant menu scheme identity drift: " + existing.getId());
         }

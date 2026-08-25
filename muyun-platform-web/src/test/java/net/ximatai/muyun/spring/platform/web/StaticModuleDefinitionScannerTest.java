@@ -707,7 +707,7 @@ class StaticModuleDefinitionScannerTest {
             assertThat(menuDescriptor.page().navigator().levels()).singleElement().satisfies(level -> {
                 assertThat(level.key()).isEqualTo("scheme");
                 assertThat(level.sourceModuleAlias()).isEqualTo("platform.menu_scheme");
-                assertThat(level.secondaryField()).isEqualTo("scopeId");
+                assertThat(level.secondaryField()).isEqualTo("scopeTypeTitle");
                 assertThat(level.management().editorSurface()).isEqualTo("menu_scheme_editor");
             });
             assertThat(menuDescriptor.page().navigator().contextBindings())
@@ -721,10 +721,13 @@ class StaticModuleDefinitionScannerTest {
                     .singleElement().satisfies(surface -> {
                         assertThat(surface.key()).isEqualTo("menu_scheme_editor");
                         assertThat(surface.editor().fields()).extracting(field -> field.fieldRef().fieldName())
-                                .containsExactly("alias", "title", "scopeType", "tenantId", "scopeId", "enabled");
+                                .containsExactly("alias", "title", "scopeType", "tenantId", "organizationId", "enabled");
                         assertThat(surface.editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("tenantId"))
                                 .singleElement().satisfies(field -> assertThat(field.reference().targetModuleAlias())
                                         .isEqualTo("iam.tenant"));
+                        assertThat(surface.editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("organizationId"))
+                                .singleElement().satisfies(field -> assertThat(field.reference().targetModuleAlias())
+                                        .isEqualTo("iam.organization"));
                     });
             assertThat(menuDescriptor.page().treeResource()).isNull();
             assertThat(menuDescriptor.page().detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
@@ -797,6 +800,9 @@ class StaticModuleDefinitionScannerTest {
                         assertThat(view.fields()).anySatisfy(field ->
                                 assertThat(field.fieldRef().fieldName()).isEqualTo(
                                         dictionaryDescriptor.page().treeResource().scopeField()));
+                        assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("categoryId"))
+                                .singleElement()
+                                .satisfies(field -> assertThat(field.visible().constant()).isFalse());
                         assertThat(view.fields()).extracting(field -> field.fieldRef().relationCode())
                                 .containsOnly("item");
                         assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("parentId"))

@@ -9,17 +9,16 @@ import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEntity;
 import net.ximatai.muyun.spring.common.initialdata.InitialDataFields;
 import net.ximatai.muyun.spring.common.option.OptionField;
+import net.ximatai.muyun.spring.common.option.OptionLoad;
 import net.ximatai.muyun.spring.common.option.OptionSourceType;
-import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValue;
-import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueCase;
-import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueSource;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateBinding;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 
 @Getter
 @Setter
 @Table(name = "platform_menu_scheme", comment = "Platform menu scheme")
 @InitialDataFields(
-        identity = {"alias", "scopeType", "scopeId", "tenantId"},
+        identity = {"alias", "scopeType", "tenantId", "organizationId"},
         operator = {"title", "enabled", "sortOrder"}
 )
 public class MenuScheme extends StandardEnabledSortableEntity {
@@ -31,13 +30,17 @@ public class MenuScheme extends StandardEnabledSortableEntity {
     @OptionField(type = OptionSourceType.ENUM, enumType = MenuScopeType.class)
     private MenuScopeType scopeType = MenuScopeType.TENANT;
 
-    @Column(name = "scope_id", type = ColumnType.VARCHAR, length = 64, comment = "Menu scheme scope id")
-    @DiscriminatedValue(discriminator = "scopeType", enumType = MenuScopeType.class, cases = {
-            @DiscriminatedValueCase(when = "system", source = DiscriminatedValueSource.FIXED, fixedValue = "system"),
-            @DiscriminatedValueCase(when = "tenant", source = DiscriminatedValueSource.FIELD, sourceField = "tenantId"),
-            @DiscriminatedValueCase(when = "organization", source = DiscriminatedValueSource.REFERENCE,
-                    moduleAlias = "iam", entityAlias = "organization",
-                    candidateBindings = @ReferenceCandidateBinding(sourceField = "tenantId", targetField = "tenantId"))
-    })
-    private String scopeId;
+    /** Stable read projection for list and navigator presentation. */
+    @OptionLoad(source = "scopeType")
+    private transient String scopeTypeTitle;
+
+    /**
+     * Organization boundary for an organization-scoped scheme. A tenant-scoped scheme is
+     * already identified by the inherited {@code tenantId}; a system scheme has neither.
+     */
+    @Column(name = "organization_id", type = ColumnType.VARCHAR, length = 64,
+            comment = "Organization menu scheme scope")
+    @ReferenceTo(moduleAlias = "iam", entityAlias = "organization",
+            candidateBindings = @ReferenceCandidateBinding(sourceField = "tenantId", targetField = "tenantId"))
+    private String organizationId;
 }
