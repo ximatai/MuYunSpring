@@ -362,7 +362,7 @@ it('page navigator renders levels through the standard module runner', () => {
   const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
   const navigatorRuntimeSource = readSource('src/dynamic-page-runtime/composables/useNavigatorRuntime.ts');
 
-  assert.match(hostSource, /useNavigatorRuntime\(context\)/);
+  assert.match(hostSource, /useNavigatorRuntime\(context, baseContext\.http\)/);
   assert.match(navigatorRuntimeSource, /navigatorLevels = ref<NavigatorLevelRuntime\[\]>/);
   assert.match(hostSource, /selectedNavigatorRecords/);
   assert.match(hostSource, /function selectNavigatorRecord/);
@@ -931,7 +931,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /context\.crud\.enable\(id, \{ version \}\)/);
   assert.match(hostSource, /context\.crud\.disable\(id, \{ version \}\)/);
   assert.match(hostSource, /:exclude-field-names="\['enabled'\]"/);
-  assert.match(hostSource, /useNavigatorRuntime\(context\)/);
+  assert.match(hostSource, /useNavigatorRuntime\(context, baseContext\.http\)/);
   assert.match(hostSource, /isListPage/);
   assert.match(hostSource, /listUiConfigId/);
   assert.match(navigatorRuntimeSource, /runtimePage\.value\?\.navigator\?\.levels/);

@@ -11,7 +11,7 @@ import type {
   ResolvedPageContextBindingDescriptor,
   ResolvedPageNavigatorLevelDescriptor,
 } from '@muyun/web-contracts';
-import { createModuleContext, type ModuleContext } from '@muyun/web-core';
+import { createModuleContext, type HttpClient, type ModuleContext } from '@muyun/web-core';
 
 /** Runtime state that belongs to the page/navigator session rather than to a Vue host. */
 export interface NavigatorLevelRuntime {
@@ -25,7 +25,10 @@ export interface NavigatorLevelRuntime {
  * contexts. The host only binds the returned state to visual surfaces; this
  * keeps list, detail and tree templates on the same navigator session.
  */
-export function useNavigatorRuntime(context: ModuleContext<QueryListRecord>) {
+export function useNavigatorRuntime(
+  context: ModuleContext<QueryListRecord>,
+  crossModuleHttp: HttpClient = context.http,
+) {
   const formFields = ref<Map<string, RecordFormFieldDescriptor>>(resolveRecordFormFields(undefined));
   const detailDisplayFields = ref(resolveRecordDetailFields(undefined));
   const runtimePage = ref<ResolvedModulePageDescriptor>();
@@ -62,7 +65,7 @@ export function useNavigatorRuntime(context: ModuleContext<QueryListRecord>) {
     navigatorLevels.value = await Promise.all(
       descriptors.map(async (descriptor) => {
         const navigatorContext = createModuleContext<QueryListRecord>({
-          http: context.http,
+          http: crossModuleHttp,
           moduleAlias: descriptor.sourceModuleAlias,
           runtimeAccess: 'REFERENCE',
           navigatorReference: {

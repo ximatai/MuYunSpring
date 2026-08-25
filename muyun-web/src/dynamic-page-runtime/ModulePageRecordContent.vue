@@ -9,7 +9,7 @@ import {
   type RecordFormRecord,
   type RecordFormFieldDescriptor,
 } from '@muyun/platform-components';
-import type { ModuleContext } from '@muyun/web-core';
+import type { HttpClient, ModuleContext } from '@muyun/web-core';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 import type {
   ModulePageDetailSection,
@@ -24,6 +24,8 @@ defineOptions({ name: 'ModulePageRecordContent' });
 
 defineProps<{
   context: ModuleContext<QueryListRecord>;
+  /** Neutral transport for reference target modules. */
+  crossModuleHttp?: HttpClient;
   mode: 'view' | 'edit' | 'create';
   record: QueryListRecord;
   selectedRecord?: QueryListRecord;
@@ -97,6 +99,7 @@ function updateChildren(relationField: string, records: QueryListRecord[]) {
   <ModulePageDetailRelations
     v-if="uiDescriptor && relationsAvailable"
     :source-context="context"
+    :cross-module-http="crossModuleHttp"
     :ui-descriptor="uiDescriptor"
     :relations="relations"
     :parent-record="(mode === 'view' ? selectedRecord : record) ?? record"

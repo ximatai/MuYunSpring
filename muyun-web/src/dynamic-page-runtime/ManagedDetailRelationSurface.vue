@@ -17,13 +17,19 @@ import {
   type RecordQueryListColumn,
 } from '@muyun/platform-components';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
-import { createManagedDetailRelationClient, createModuleContext, type ModuleContext } from '@muyun/web-core';
+import {
+  createManagedDetailRelationClient,
+  createModuleContext,
+  type HttpClient,
+  type ModuleContext,
+} from '@muyun/web-core';
 import { useManagedDetailRelationRuntime } from './composables/useManagedDetailRelationRuntime';
 
 defineOptions({ name: 'ManagedDetailRelationSurface' });
 
 const props = defineProps<{
   sourceContext: ModuleContext<QueryListRecord>;
+  crossModuleHttp?: HttpClient;
   uiDescriptor: ResolvedModuleUiDescriptor;
   relation: ResolvedDetailRelationDescriptor;
   parentRecord: QueryListRecord;
@@ -60,7 +66,7 @@ const pickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() =
     if (!reference) continue;
     configs[field.fieldRef.fieldName] = {
       context: createModuleContext<RecordPickerRecord>({
-        http: props.sourceContext.http,
+        http: props.crossModuleHttp ?? props.sourceContext.http,
         moduleAlias: reference.targetModuleAlias,
       }),
       mode: recordPickerModeOf(reference.pickerMode),

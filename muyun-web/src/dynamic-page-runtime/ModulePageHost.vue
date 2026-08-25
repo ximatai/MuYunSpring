@@ -305,7 +305,7 @@ const {
   navigatorSingleResultKeys,
   navigatorDismissedSelectionKeys,
   loadRuntimeForm,
-} = useNavigatorRuntime(context);
+} = useNavigatorRuntime(context, baseContext.http);
 const treeResource = computed<ResolvedPageTreeResourceDescriptor | undefined>(
   () => runtimePage.value?.treeResource,
 );
@@ -468,7 +468,7 @@ const navigatorManagementPickerConfigs = computed<Record<string, RecordFormField
     const reference = field.reference;
     if (!reference) continue;
     configs[field.fieldRef.fieldName] = {
-      context: createModuleContext({ http: context.http, moduleAlias: reference.targetModuleAlias }),
+      context: createModuleContext({ http: baseContext.http, moduleAlias: reference.targetModuleAlias }),
       mode: recordPickerModeOf(reference.pickerMode),
       allowClear: !field.required?.constant,
     };
@@ -1098,7 +1098,7 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
       continue;
     }
     const pickerContext = createModuleContext<RecordPickerRecord>({
-      http: context.http,
+      http: baseContext.http,
       moduleAlias: reference.targetModuleAlias,
       runtimeAccess: 'REFERENCE',
     });
@@ -2460,6 +2460,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       <ModulePageRecordContent
         v-else-if="editingRecord"
         :context="context"
+        :cross-module-http="baseContext.http"
         :mode="editorMode"
         :record="editingRecord"
         :selected-record="selectedRecord"
@@ -2637,6 +2638,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         <template v-if="listRowExpansionEnabled" #expandedRow="{ record }">
           <ModulePageListExpansionSurface
             :source-context="context"
+            :cross-module-http="baseContext.http"
             :ui-descriptor="runtimeUiDescriptor!"
             :record="record"
             :relation-entries="listRelationExpansions"
@@ -2714,6 +2716,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         <ModulePageRecordContent
           v-else-if="editingRecord"
           :context="context"
+          :cross-module-http="baseContext.http"
           :mode="editorMode"
           :record="editingRecord"
           :selected-record="selectedRecord"
@@ -2980,6 +2983,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           <ModulePageDetailRelations
             v-if="runtimeUiDescriptor && detailRelationsAvailable"
             :source-context="context"
+            :cross-module-http="baseContext.http"
             :ui-descriptor="runtimeUiDescriptor"
             :relations="executableDetailRelations"
             :parent-record="(editorMode === 'view' ? selectedRecord : editingRecord) as QueryListRecord"
@@ -3053,6 +3057,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       <template v-if="listRowExpansionEnabled" #expandedRow="{ record }">
         <ModulePageListExpansionSurface
           :source-context="context"
+          :cross-module-http="baseContext.http"
           :ui-descriptor="runtimeUiDescriptor!"
           :record="record"
           :relation-entries="listRelationExpansions"
@@ -3135,6 +3140,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           <ModulePageRecordContent
             v-else
             :context="context"
+            :cross-module-http="baseContext.http"
             :mode="editorMode"
             :record="editingRecord"
             :selected-record="selectedRecord"
@@ -3164,6 +3170,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         <ModulePageRecordContent
           v-if="editingRecord"
           :context="context"
+          :cross-module-http="baseContext.http"
           :mode="editorMode"
           :record="editingRecord"
           :selected-record="selectedRecord"

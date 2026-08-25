@@ -22,7 +22,12 @@ import type {
   ResolvedModuleUiDescriptor,
   WebPageResponse,
 } from '@muyun/web-contracts';
-import { createModuleContext, createReferenceResolveClient, type ModuleContext } from '@muyun/web-core';
+import {
+  createModuleContext,
+  createReferenceResolveClient,
+  type HttpClient,
+  type ModuleContext,
+} from '@muyun/web-core';
 import { RelationFormComputeCoordinator } from './relationFormComputeCoordinator';
 
 defineOptions({ name: 'ManagedDetailRelationInlineSurface' });
@@ -30,6 +35,7 @@ defineOptions({ name: 'ManagedDetailRelationInlineSurface' });
 const props = withDefaults(
   defineProps<{
     sourceContext: ModuleContext<QueryListRecord>;
+    crossModuleHttp?: HttpClient;
     uiDescriptor: ResolvedModuleUiDescriptor;
     relation: ResolvedDetailRelationDescriptor;
     parentRecord: QueryListRecord;
@@ -44,6 +50,7 @@ const props = withDefaults(
   }>(),
   {
     density: 'default',
+    crossModuleHttp: undefined,
     reloadKey: undefined,
     addRequestKey: undefined,
     removeRequestKey: undefined,
@@ -184,7 +191,7 @@ function pickerConfigsOf(row: DraftRow): Record<string, RecordFormFieldPickerCon
       };
     }
     const pickerContext = createModuleContext<RecordPickerRecord>({
-      http: props.sourceContext.http,
+      http: props.crossModuleHttp ?? props.sourceContext.http,
       moduleAlias: reference.targetModuleAlias,
     });
     result[fieldName] = {

@@ -2263,6 +2263,223 @@ describe('ModulePageHost', () => {
     expect(relationRequests).toBe(0);
     rect.mockRestore();
   });
+
+  it('keeps menu identity on the host module and excludes it from navigator source contexts', async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.url.endsWith('/platform.module/platform.module/context')) {
+        return Response.json({
+          moduleAlias: 'platform.module',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'platform.module',
+            page: page({
+              navigator: {
+                levels: [
+                  {
+                    key: 'application',
+                    kind: 'LIST',
+                    sourceModuleAlias: 'platform.application',
+                    title: '应用',
+                  },
+                ],
+                contextBindings: [],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/platform.application/reference-context')) {
+        return Response.json({
+          moduleAlias: 'platform.application',
+          capabilities: [],
+          navigatorSourceCapabilities: ['REFERENCE_QUERY'],
+          actions: [],
+        });
+      }
+      if (request.url.endsWith('/platform.module/query')) {
+        return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
+      }
+      if (request.url.endsWith('/platform.menu/platform.menu.module.platform.module/entry?clientType=WEB')) {
+        return Response.json({
+          entry: {
+            menuId: 'platform.menu.module.platform.module',
+            moduleAlias: 'platform.module',
+            pageMode: 'LIST',
+          },
+          clientType: 'WEB',
+          mainEntityAlias: 'module',
+          resolvedConfig: { uiFields: [], queryItems: [], actionBlocks: [] },
+          openApiPath: '/platform.module/openapi',
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          menuId: 'platform.menu.module.platform.module',
+          target: { moduleAlias: 'platform.module', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+        },
+      },
+    });
+    await flushPromises();
+    await wrapper.findComponent({ name: 'RecordQueryListPanel' }).props('context').crud.query();
+
+    const hostRequest = requests.find((request) => request.url.endsWith('/platform.module/query'));
+    const navigatorRequest = requests.find((request) =>
+      request.url.endsWith('/platform.module/platform.application/reference-context'),
+    );
+    expect(hostRequest?.headers.get('X-MuYun-Menu-Id')).toBe('platform.menu.module.platform.module');
+    expect(navigatorRequest?.headers.get('X-MuYun-Menu-Id')).toBeNull();
+  });
+
+  it('keeps source-field resolution scoped while ordinary reference pickers remain neutral', async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.url.endsWith('/platform.module/platform.module/context')) {
+        return Response.json({
+          moduleAlias: 'platform.module',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'platform.module',
+            page: page({
+              detail: {
+                emptyDescription: '请选择模块',
+                createTitle: '新建模块',
+                editor: {
+                  viewCode: 'default_form',
+                  viewKind: 'FORM',
+                  fields: [
+                    {
+                      fieldRef: { fieldName: 'applicationAlias' },
+                      reference: { targetModuleAlias: 'platform.application', cardinality: 'ONE' },
+                    },
+                    {
+                      fieldRef: { fieldName: 'ownerId' },
+                      reference: {
+                        targetModuleAlias: 'iam.user',
+                        cardinality: 'ONE',
+                        candidateDelivery: 'SOURCE_FIELD',
+                      },
+                    },
+                  ],
+                },
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.menu/platform.menu.module.platform.module/entry?clientType=WEB')) {
+        return Response.json({
+          entry: {
+            menuId: 'platform.menu.module.platform.module',
+            moduleAlias: 'platform.module',
+            pageMode: 'LIST',
+          },
+          clientType: 'WEB',
+          mainEntityAlias: 'module',
+          resolvedConfig: { uiFields: [], queryItems: [], actionBlocks: [] },
+          openApiPath: '/platform.module/openapi',
+        });
+      }
+      if (request.url.endsWith('/platform.module/platform.application/reference-context')) {
+        return Response.json({
+          moduleAlias: 'platform.application',
+          capabilities: [],
+          actions: [],
+        });
+      }
+      if (request.url.endsWith('/platform.application/navigator/reference/query')) {
+        return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
+      }
+      if (request.url.endsWith('/platform.module/references/ownerId/resolve')) {
+        return Response.json({
+          status: 'OK',
+          mode: 'QUERY',
+          options: [],
+          results: [],
+          offset: 0,
+          limit: 50,
+          total: 0,
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          menuId: 'platform.menu.module.platform.module',
+          target: { moduleAlias: 'platform.module', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+          RecordModeDrawer: { template: '<section><slot name="form" /></section>' },
+          ModulePageRecordContent: false,
+        },
+      },
+    });
+    await flushPromises();
+    wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
+    await flushPromises();
+
+    const pickerConfigs = wrapper
+      .findComponent({ name: 'ModulePageRecordContent' })
+      .props('pickerConfigs') as {
+      applicationAlias: {
+        context: { runtime: { ready: Promise<unknown> }; crud: { query: () => Promise<unknown> } };
+      };
+      ownerId: { loadOptions: (keyword: string) => Promise<unknown> };
+    };
+    await pickerConfigs.applicationAlias.context.runtime.ready;
+    await pickerConfigs.applicationAlias.context.crud.query();
+    await pickerConfigs.ownerId.loadOptions('admin');
+
+    const normalRuntimeRequest = requests.find((request) =>
+      request.url.endsWith('/platform.module/platform.application/reference-context'),
+    );
+    const normalQueryRequest = requests.find((request) =>
+      request.url.endsWith('/platform.application/navigator/reference/query'),
+    );
+    const sourceResolverRequest = requests.find((request) =>
+      request.url.endsWith('/platform.module/references/ownerId/resolve'),
+    );
+    expect(normalRuntimeRequest?.headers.get('X-MuYun-Menu-Id')).toBeNull();
+    expect(normalQueryRequest?.headers.get('X-MuYun-Menu-Id')).toBeNull();
+    expect(sourceResolverRequest?.headers.get('X-MuYun-Menu-Id')).toBe(
+      'platform.menu.module.platform.module',
+    );
+  });
 });
 
 function childEditor(resource: string, fieldName: string) {
