@@ -22,6 +22,20 @@ export function externalPageContextCriteriaKeys(
     .map((binding) => binding.targetKey);
 }
 
+/** Browser-provided navigator keys that must be selected before a page list may query. */
+export function requiredNavigatorListScopeCriteriaKeys(
+  bindings: readonly ResolvedPageContextBindingDescriptor[],
+): string[] {
+  return bindings
+    .filter(
+      (binding) =>
+        binding.source === 'NAVIGATOR' &&
+        binding.target === 'LIST_QUERY' &&
+        binding.navigatorListQueryMode !== 'OPTIONAL_FILTER',
+    )
+    .map((binding) => binding.targetKey);
+}
+
 /** Resolves declared context flows without coupling a target to navigator UI state. */
 export function resolvePageContextTargetValues(
   bindings: readonly ResolvedPageContextBindingDescriptor[],

@@ -738,6 +738,9 @@ export interface WebQueryRequest {
   quickSearch?: string;
   quickSearchFields?: string[];
   externalQueryValues?: Record<string, unknown>;
+  /** Host page and target level for a navigator REFERENCE query. */
+  navigatorHostModuleAlias?: string;
+  navigatorTargetLevelKey?: string;
 }
 
 /** Shared field-reference delivery contract for static and metadata-backed modules. */
@@ -765,6 +768,14 @@ export interface WebReferenceResolveRequest {
   uiConfigId?: string;
   queryTemplateId?: string;
   externalQueryValues?: Record<string, unknown>;
+  /**
+   * Host page that owns this navigator reference request.  Reference transports
+   * use it only to resolve the declared NAVIGATOR_QUERY bindings; ordinary
+   * module queries deliberately ignore it.
+   */
+  navigatorHostModuleAlias?: string;
+  /** Navigator level in the host page whose source is being queried. */
+  navigatorTargetLevelKey?: string;
 }
 
 export interface WebReferenceResolveItem {
@@ -1113,6 +1124,11 @@ export interface ResolvedPageContextBindingDescriptor {
   targetNavigatorLevelKey?: string;
   /** Field name of the record picker which receives this query context. */
   targetPickerFieldKey?: string;
+  /**
+   * Only applies to NAVIGATOR -> LIST_QUERY. Omitted descriptors remain required for backwards
+   * compatibility with previously published page definitions.
+   */
+  navigatorListQueryMode?: 'REQUIRED_SCOPE' | 'OPTIONAL_FILTER';
 }
 
 export interface ResolvedPageNavigatorManagementDescriptor {

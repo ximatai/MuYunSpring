@@ -11,10 +11,15 @@ public record PlatformPageContextBinding(String source,
                                          String target,
                                          String targetKey,
                                          String targetNavigatorLevelKey,
-                                         String targetPickerFieldKey) {
+                                         String targetPickerFieldKey,
+                                         String navigatorListQueryMode) {
     public PlatformPageContextBinding(String source, String sourceKey, String target, String targetKey,
                                       String targetNavigatorLevelKey) {
-        this(source, sourceKey, target, targetKey, targetNavigatorLevelKey, null);
+        this(source, sourceKey, target, targetKey, targetNavigatorLevelKey, null, null);
+    }
+    public PlatformPageContextBinding(String source, String sourceKey, String target, String targetKey,
+                                      String targetNavigatorLevelKey, String targetPickerFieldKey) {
+        this(source, sourceKey, target, targetKey, targetNavigatorLevelKey, targetPickerFieldKey, null);
     }
     public PlatformPageContextBinding {
         if (!"SESSION".equals(source) && !"NAVIGATOR".equals(source)) {
@@ -43,6 +48,16 @@ public record PlatformPageContextBinding(String source,
         }
         if (!"PICKER_QUERY".equals(target) && targetPickerFieldKey != null) {
             throw new IllegalArgumentException("only picker-query context bindings can target a picker field");
+        }
+        if (navigatorListQueryMode != null && (!"NAVIGATOR".equals(source) || !"LIST_QUERY".equals(target))) {
+            throw new IllegalArgumentException("navigator list query mode requires a NAVIGATOR LIST_QUERY binding");
+        }
+        if ("NAVIGATOR".equals(source) && "LIST_QUERY".equals(target) && navigatorListQueryMode == null) {
+            navigatorListQueryMode = "REQUIRED_SCOPE";
+        }
+        if (navigatorListQueryMode != null && !"REQUIRED_SCOPE".equals(navigatorListQueryMode)
+                && !"OPTIONAL_FILTER".equals(navigatorListQueryMode)) {
+            throw new IllegalArgumentException("navigator list query mode is invalid: " + navigatorListQueryMode);
         }
     }
 }

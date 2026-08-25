@@ -12,6 +12,11 @@ import java.util.function.Supplier;
 public interface ScopedWeb<S> {
     S service();
 
+    /** Optional platform hook; generic adapters intentionally depend only on this stable seam. */
+    default NavigatorReferenceQueryContextResolver navigatorReferenceQueryContextResolver() {
+        return null;
+    }
+
     default <T> T webScope(Supplier<T> action) {
         return webScope(webScopeName(), true, action);
     }

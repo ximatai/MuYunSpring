@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   externalPageContextCriteriaKeys,
+  requiredNavigatorListScopeCriteriaKeys,
   resolvePageContextTargetValues,
 } from '@/dynamic-page-runtime/pageContextRuntime';
 
@@ -112,6 +113,31 @@ describe('resolvePageContextTargetValues', () => {
       ),
     ).toEqual(['organizationId']);
     expect(externalPageContextCriteriaKeys([...bindings], 'NAVIGATOR_QUERY')).toEqual(['tenantId']);
+  });
+
+  it('requires only required-scope navigator bindings while retaining optional filters as query values', () => {
+    const listBindings = [
+      {
+        source: 'NAVIGATOR',
+        sourceKey: 'tenant',
+        target: 'LIST_QUERY',
+        targetKey: 'tenantId',
+        navigatorListQueryMode: 'REQUIRED_SCOPE',
+      },
+      {
+        source: 'NAVIGATOR',
+        sourceKey: 'project',
+        target: 'LIST_QUERY',
+        targetKey: 'projectId',
+        navigatorListQueryMode: 'OPTIONAL_FILTER',
+      },
+    ] as const;
+
+    expect(requiredNavigatorListScopeCriteriaKeys(listBindings)).toEqual(['tenantId']);
+    expect(resolvePageContextTargetValues(listBindings, 'LIST_QUERY', { NAVIGATOR: {} })).toBeUndefined();
+    expect(
+      resolvePageContextTargetValues(listBindings, 'LIST_QUERY', { NAVIGATOR: { project: 'project-1' } }),
+    ).toEqual({ projectId: 'project-1' });
   });
 
   it('keeps required navigator-query criteria isolated to their target level', () => {

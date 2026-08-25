@@ -25,6 +25,7 @@ const props = defineProps<{
   reloadKey: number;
   keyword: string;
   externalQueryValues?: Record<string, unknown>;
+  navigatorHostModuleAlias: string;
   /** Whether this navigator's upstream selection scope is available. */
   ready?: boolean;
   /** The navigator's declared upstream query scope is not settled yet. */
@@ -75,6 +76,8 @@ function itemOf(record: NavigatorItemRecord) {
       :reload-key="reloadKey"
       :keyword="keyword"
       :external-query-values="externalQueryValues"
+      :navigator-host-module-alias="navigatorHostModuleAlias"
+      :navigator-target-level-key="level.descriptor.key"
       search-mode="none"
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
@@ -91,6 +94,8 @@ function itemOf(record: NavigatorItemRecord) {
       :reload-key="reloadKey"
       :keyword="keyword"
       :external-query-values="externalQueryValues"
+      :navigator-host-module-alias="navigatorHostModuleAlias"
+      :navigator-target-level-key="level.descriptor.key"
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
       :actions-of="actionsOf"

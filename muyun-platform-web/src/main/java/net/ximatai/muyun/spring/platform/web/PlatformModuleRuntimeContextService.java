@@ -282,7 +282,8 @@ public class PlatformModuleRuntimeContextService {
                 || runtimeContext.uiDescriptor().page().navigator() == null ? List.of()
                 : runtimeContext.uiDescriptor().page().navigator().contextBindings().stream()
                 .map(binding -> new PageContextBindingDefinition(binding.source(), binding.sourceKey(), binding.target(),
-                        binding.targetKey(), binding.targetNavigatorLevelKey(), binding.targetPickerFieldKey()))
+                        binding.targetKey(), binding.targetNavigatorLevelKey(), binding.targetPickerFieldKey(),
+                        binding.navigatorListQueryMode()))
                 .toList();
         DynamicModuleDescriptor dynamicDescriptor = dynamicRecordService.describe(validAlias);
         DynamicEntityDescriptor mainEntity = dynamicDescriptor.entities().stream()

@@ -252,7 +252,8 @@ public final class DynamicModuleUiDefinitionAdapter {
     private static PageContextBindingDefinition contextBinding(PlatformPageContextBinding binding) {
         return new PageContextBindingDefinition(PageContextSource.valueOf(binding.source()), binding.sourceKey(),
                 PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey(),
-                binding.targetPickerFieldKey());
+                binding.targetPickerFieldKey(), binding.navigatorListQueryMode() == null ? null
+                        : NavigatorListQueryMode.valueOf(binding.navigatorListQueryMode()));
     }
 
     private static JsonNode pageRoot(PlatformUiConfig config) {

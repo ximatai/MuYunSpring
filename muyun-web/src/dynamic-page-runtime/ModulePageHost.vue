@@ -105,7 +105,11 @@ import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { shouldHideSingleResultNavigator } from './navigatorVisibility';
 import { type RecordDetailTransitionOptions, useRecordDetailController } from './recordDetailController';
-import { externalPageContextCriteriaKeys, resolvePageContextTargetValues } from './pageContextRuntime';
+import {
+  externalPageContextCriteriaKeys,
+  requiredNavigatorListScopeCriteriaKeys,
+  resolvePageContextTargetValues,
+} from './pageContextRuntime';
 import { FormComputeCoordinator } from './formComputeCoordinator';
 import { useModulePageBootstrap } from './composables/useModulePageBootstrap';
 import { useNavigatorRuntime, type NavigatorLevelRuntime } from './composables/useNavigatorRuntime';
@@ -842,12 +846,17 @@ const navigatorListCriteriaKeys = computed(() =>
     ? []
     : externalPageContextCriteriaKeys(pageContextBindings.value, 'LIST_QUERY'),
 );
+const requiredNavigatorListScopeKeys = computed(() =>
+  navigatorEntryPolicy.value.bypassListScope || emptyNavigatorListScope.value !== undefined
+    ? []
+    : requiredNavigatorListScopeCriteriaKeys(pageContextBindings.value),
+);
 /**
  * Tree endpoints may require a navigator-provided scope. Do not issue an
  * unscoped request while asynchronous navigator selection is still settling.
  */
 const navigatorListScopeReady = computed(() =>
-  navigatorListCriteriaKeys.value.every((key) => navigatorListQueryValues.value?.[key] != null),
+  requiredNavigatorListScopeKeys.value.every((key) => navigatorListQueryValues.value?.[key] != null),
 );
 const navigatorCreateDefaults = computed<Record<string, unknown>>(() => {
   const defaults =
@@ -2423,6 +2432,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :reload-key="scopeReloadKey"
             :keyword="scopeSearchKeyword"
             :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
+            :navigator-host-module-alias="context.moduleAlias"
             search-mode="none"
             :empty-description="`暂无${level.descriptor.title}`"
             :actions-of="(record) => navigatorInlineActions(level, record)"
@@ -2442,6 +2452,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :reload-key="scopeReloadKey"
             :keyword="scopeSearchKeyword"
             :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
+            :navigator-host-module-alias="context.moduleAlias"
             :empty-description="`暂无${level.descriptor.title}`"
             :actions-of="(record) => navigatorInlineActions(level, record)"
             @loaded="handleNavigatorLoaded(level, $event)"
@@ -2655,6 +2666,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :reload-key="scopeReloadKey"
           :keyword="scopeSearchKeyword"
           :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
+          :navigator-host-module-alias="context.moduleAlias"
           :ready="navigatorManagementScopeReady(level)"
           :create-disabled="!navigatorManagementScopeReady(level)"
           :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
@@ -2916,6 +2928,8 @@ function recordTitle(record: QueryListRecord | undefined) {
       :query-template-id="listQueryTemplateId"
       :page-size="listPageSize"
       :ready="pageReady && navigatorListScopeReady"
+      :external-query-values="navigatorListQueryValues"
+      :required-external-criteria-keys="navigatorListCriteriaKeys"
       :mode="listMode"
       :persistent-query-controls="persistentListQueryControls"
       :query-summaries="listQuerySummaries"

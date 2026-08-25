@@ -519,7 +519,7 @@ class DataScopeWebTest {
 
         @Override
         public ModuleUiDefinition moduleUiDefinition() {
-            return ModuleUiDefinition.builder("demo.dataScopedCrud")
+            return ModuleUiDefinition.builder("demo.data_scoped_crud")
                     .page(PageTemplates.treeManagement(page -> page
                             .detail(detail -> detail.display(display -> display.field("title")))))
                     .build();

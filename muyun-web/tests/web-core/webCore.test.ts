@@ -1151,6 +1151,43 @@ it('module context creates standard CRUD capabilities from configured http facto
   }
 });
 
+it('navigator reference contexts attach their immutable host level to list and tree requests', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    if (request.url.endsWith('/reference-context')) {
+      return Response.json({
+        ...runtimeContext(),
+        navigatorSourceCapabilities: ['REFERENCE_QUERY', 'REFERENCE_TREE'],
+      });
+    }
+    return Response.json({ records: [] });
+  };
+
+  try {
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const context = createModuleContext({
+      moduleAlias: 'mr.project',
+      runtimeAccess: 'REFERENCE',
+      navigatorReference: { hostModuleAlias: 'mr.device', targetLevelKey: 'project' },
+    });
+
+    await context.runtime.ready;
+    await context.crud.query({ externalQueryValues: { tenantId: 'tenant-a' } });
+
+    assert.equal(requests[1].url, 'http://api.local/mr.project/navigator/reference/query');
+    assert.deepEqual(await requests[1].json(), {
+      externalQueryValues: { tenantId: 'tenant-a' },
+      navigatorHostModuleAlias: 'mr.device',
+      navigatorTargetLevelKey: 'project',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 it('module runtime authorization updates Vue computed state after context loads', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json(runtimeContext());

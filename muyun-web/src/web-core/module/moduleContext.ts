@@ -12,6 +12,7 @@ import {
   createModuleCrudClient,
   createNavigatorReferenceCrudClient,
   createNavigatorReferenceTreeClient,
+  type NavigatorReferenceRequestContext,
   createModuleTreeClient,
   type ModuleEnableClient,
   type ModuleCrudClient,
@@ -45,6 +46,7 @@ export interface ModuleContextConfig {
 export interface ModuleContextOptions extends ModuleContextConfig {
   moduleAlias: string;
   runtimeAccess?: 'MENU' | 'REFERENCE';
+  navigatorReference?: NavigatorReferenceRequestContext;
 }
 
 const moduleContextConfigKey: InjectionKey<ModuleContextConfig> = Symbol('muyun.module-context-config');
@@ -63,7 +65,12 @@ export function provideModuleContextConfig(config: ModuleContextConfig) {
 
 export function createModuleContext<TRecord>(options: ModuleContextOptions): ModuleContext<TRecord> {
   const http = resolveModuleHttpClient(options);
-  return moduleContextOf<TRecord>(http, options.moduleAlias, options.runtimeAccess);
+  return moduleContextOf<TRecord>(
+    http,
+    options.moduleAlias,
+    options.runtimeAccess,
+    options.navigatorReference,
+  );
 }
 
 export function createModuleTreeContext<TRecord>(options: ModuleContextOptions): ModuleTreeContext<TRecord> {
@@ -132,8 +139,9 @@ function moduleContextOf<TRecord>(
   http: HttpClient,
   moduleAlias: string,
   runtimeAccess: 'MENU' | 'REFERENCE' = 'MENU',
+  navigatorReference?: NavigatorReferenceRequestContext,
 ): ModuleContext<TRecord> {
-  const { crud, tree } = moduleClientsFor<TRecord>(http, moduleAlias, runtimeAccess);
+  const { crud, tree } = moduleClientsFor<TRecord>(http, moduleAlias, runtimeAccess, navigatorReference);
   const enable: ModuleEnableClient = {
     enable: crud.enable,
     disable: crud.disable,
@@ -159,11 +167,12 @@ function moduleClientsFor<TRecord>(
   http: HttpClient,
   moduleAlias: string,
   runtimeAccess: 'MENU' | 'REFERENCE',
+  navigatorReference?: NavigatorReferenceRequestContext,
 ) {
   if (runtimeAccess === 'REFERENCE') {
     return {
-      crud: createNavigatorReferenceCrudClient<TRecord>(http, { moduleAlias }),
-      tree: createNavigatorReferenceTreeClient<TRecord>(http, { moduleAlias }),
+      crud: createNavigatorReferenceCrudClient<TRecord>(http, { moduleAlias, navigatorReference }),
+      tree: createNavigatorReferenceTreeClient<TRecord>(http, { moduleAlias, navigatorReference }),
     };
   }
   return {

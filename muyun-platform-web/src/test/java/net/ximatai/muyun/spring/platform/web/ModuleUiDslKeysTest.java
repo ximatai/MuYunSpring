@@ -35,6 +35,25 @@ class ModuleUiDslKeysTest {
                 .containsExactly("tenant", "category");
         assertThat(navigator.contextBindings()).extracting(PageContextBindingDefinition::targetKey)
                 .contains("tenantId", "categoryId");
+        assertThat(navigator.contextBindings()).filteredOn(binding -> binding.target() == PageContextTarget.LIST_QUERY
+                        && binding.source() == PageContextSource.NAVIGATOR)
+                .extracting(PageContextBindingDefinition::navigatorListQueryMode)
+                .containsExactly(NavigatorListQueryMode.REQUIRED_SCOPE);
+    }
+
+    @Test
+    void shouldAllowNavigatorListBindingToBeAnOptionalFilter() {
+        PageNavigatorDefinition navigator = new PageNavigatorDefinition.Builder()
+                .level("project", level -> level.microList("mr.project", "项目", "搜索项目"))
+                .bindNavigatorToList("project", "projectId", NavigatorListQueryMode.OPTIONAL_FILTER)
+                .build();
+
+        assertThat(navigator.contextBindings()).filteredOn(binding -> binding.target() == PageContextTarget.LIST_QUERY)
+                .extracting(PageContextBindingDefinition::navigatorListQueryMode)
+                .containsExactly(NavigatorListQueryMode.OPTIONAL_FILTER);
+        assertThat(navigator.contextBindings()).filteredOn(binding -> binding.target() == PageContextTarget.FORM_DEFAULT)
+                .extracting(PageContextBindingDefinition::navigatorListQueryMode)
+                .containsExactly((NavigatorListQueryMode) null);
     }
 
     @Test

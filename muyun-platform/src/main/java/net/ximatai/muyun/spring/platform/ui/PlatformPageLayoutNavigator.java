@@ -62,7 +62,8 @@ public final class PlatformPageLayoutNavigator {
             values.add(new PlatformPageContextBinding(text(binding, "source", config), text(binding, "sourceKey", config),
                     text(binding, "target", config), text(binding, "targetKey", config),
                     optionalText(binding, "targetNavigatorLevelKey", config),
-                    optionalText(binding, "targetPickerFieldKey", config)));
+                    optionalText(binding, "targetPickerFieldKey", config),
+                    optionalText(binding, "navigatorListQueryMode", config)));
         }
         return values;
     }
