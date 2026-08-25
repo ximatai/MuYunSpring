@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.web.RecordReadSupport;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
+import net.ximatai.muyun.spring.web.WebQueryCondition;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
@@ -24,6 +25,8 @@ import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
+import net.ximatai.muyun.spring.platform.web.NavigatorListQueryMode;
+import net.ximatai.muyun.spring.platform.web.PageContextScopePolicy;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
@@ -40,6 +43,7 @@ import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.iam.employee.Employee;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccount;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
@@ -59,6 +63,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -135,7 +140,7 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
                                 .microList("iam.tenant", "租户", "搜索租户")
                                 .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
                                 .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
-                        .bindNavigatorToList("tenant", "tenantId"))
+                        .bindNavigatorToList("tenant", "tenantId", NavigatorListQueryMode.OPTIONAL_FILTER))
                 .list(list -> list
                 .fields(fields -> fields
                         .title("用户列表")
@@ -174,7 +179,28 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
     @PostMapping("/query")
     @ActionEndpoint(PlatformAction.QUERY)
     public WebPageResponse<UserAccount> query(@RequestBody(required = false) WebQueryRequest request) {
-        return CrudWeb.super.query(request);
+        return CrudWeb.super.query(queryForCurrentWorkspace(request));
+    }
+
+    /**
+     * The platform super administrator is intentionally tenantless. Before it explicitly selects
+     * a tenant, the user page is therefore the system-account workspace, not an unscoped
+     * cross-tenant user directory. This server-side criterion also protects direct requests.
+     */
+    WebQueryRequest queryForCurrentWorkspace(WebQueryRequest request) {
+        if (PageContextScopePolicy.hasContextValue("tenant")) return request;
+        boolean systemUser = CurrentUserContext.currentUser()
+                .map(currentUser -> currentUser.system())
+                .orElse(false);
+        if (!systemUser) return request;
+
+        List<WebQueryCondition> conditions = new ArrayList<>(request == null ? List.of() : request.conditions());
+        conditions.add(new WebQueryCondition("tenantId", "NULL", List.of()));
+        if (request == null) return new WebQueryRequest(null, conditions, List.of());
+        return new WebQueryRequest(request.page(), request.unpaged(), conditions, request.criteria(), request.queryForm(),
+                request.sorts(), request.uiConfigId(), request.queryTemplateId(), request.externalQueryValues(),
+                request.navigationSession(), request.quickSearch(), request.quickSearchFields(), request.navigationQueryKey(),
+                request.navigatorHostModuleAlias(), request.navigatorTargetLevelKey());
     }
 
     @Override

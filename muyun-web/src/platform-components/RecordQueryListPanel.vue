@@ -44,6 +44,7 @@ import {
 import { presentPlatformError, presentPlatformMessage } from './platformErrorFeedback';
 import DateTimeText from './DateTimeText.vue';
 import FileSizeText from './FileSizeText.vue';
+import ManagementPanelHeader from './ManagementPanelHeader.vue';
 import RecordActionBar from './RecordActionBar.vue';
 import RecycleBinModeButton from './RecycleBinModeButton.vue';
 import RecordStatusTag from './RecordStatusTag.vue';
@@ -1185,46 +1186,43 @@ defineExpose({ clearSelection, refresh });
       'is-chrome-free': !headerVisible && !pageable && !showRecycleBin,
     }"
   >
-    <header v-if="headerVisible" class="record-query-list-header">
-      <UiButton
-        v-if="showTitle"
-        class="record-query-list-title"
-        icon-name="reload"
-        icon-position="end"
-        type="text"
-        :disabled="queryActionsDisabled"
-        :title="refreshTitle ?? `刷新${title}`"
-        @click="refresh"
-      >
-        <span>{{ title }}</span>
-      </UiButton>
-      <div class="record-query-list-actions">
-        <div class="record-query-list-operation-actions">
-          <UiButton
-            v-if="!showTitle"
-            type="text"
-            icon-name="reload"
-            :disabled="queryActionsDisabled"
-            :aria-label="refreshTitle ?? `刷新${title}`"
-            :title="refreshTitle ?? `刷新${title}`"
-            @click="refresh"
-          />
-          <RecordActionBar
-            v-if="panelActions.length > 0"
-            :context="context"
-            :actions="panelActions"
-            @action="handleAction"
-          />
-          <RecordActionBar
-            v-if="batchActionItems.length > 0"
-            :context="context"
-            :actions="batchActionItems"
-            size="compact"
-            @action="(action, event) => handleBatchAction(action, event)"
-          />
-          <slot name="toolbarActions" :refresh="refresh" />
-        </div>
-        <div class="record-query-list-query-actions">
+    <ManagementPanelHeader
+      v-if="headerVisible"
+      class="record-query-list-header"
+      :title="showTitle ? title : ''"
+      :title-action-icon="showTitle ? 'reload' : undefined"
+      :title-action-title="showTitle ? refreshTitle ?? `刷新${title}` : undefined"
+      :title-action-disabled="queryActionsDisabled"
+      @title-action="refresh"
+    >
+      <template #actions>
+        <div class="record-query-list-actions">
+          <div class="record-query-list-operation-actions">
+            <UiButton
+              v-if="!showTitle"
+              type="text"
+              icon-name="reload"
+              :disabled="queryActionsDisabled"
+              :aria-label="refreshTitle ?? `刷新${title}`"
+              :title="refreshTitle ?? `刷新${title}`"
+              @click="refresh"
+            />
+            <RecordActionBar
+              v-if="panelActions.length > 0"
+              :context="context"
+              :actions="panelActions"
+              @action="handleAction"
+            />
+            <RecordActionBar
+              v-if="batchActionItems.length > 0"
+              :context="context"
+              :actions="batchActionItems"
+              size="compact"
+              @action="(action, event) => handleBatchAction(action, event)"
+            />
+            <slot name="toolbarActions" :refresh="refresh" />
+          </div>
+          <div class="record-query-list-query-actions">
           <UiSearchInput
             v-if="queryable"
             :value="quickSearchKeyword"
@@ -1255,9 +1253,10 @@ defineExpose({ clearSelection, refresh });
           >
             高级<span v-if="conditionCount"> {{ conditionCount }}</span>
           </UiButton>
+          </div>
         </div>
-      </div>
-    </header>
+      </template>
+    </ManagementPanelHeader>
 
     <section v-if="conditionsExpanded" class="record-query-conditions">
       <div v-for="draft in conditionDrafts" :key="draft.key" class="record-query-condition-row">
@@ -1552,39 +1551,6 @@ defineExpose({ clearSelection, refresh });
 
 .record-query-list-header {
   grid-area: header;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-}
-
-.record-query-list-title {
-  flex: 0 0 auto;
-  margin: -4px 0 -4px -6px;
-  padding: 4px 6px;
-  color: var(--muyun-text);
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.record-query-list-title :deep(.ui-button-trailing-icon) {
-  width: 0;
-  margin-inline-start: 0;
-  margin-inline-end: 0;
-  color: var(--muyun-text-muted);
-  opacity: 0;
-  transition:
-    width 0.16s ease,
-    margin 0.16s ease,
-    opacity 0.16s ease;
-}
-
-.record-query-list-title:hover :deep(.ui-button-trailing-icon),
-.record-query-list-title:focus-visible :deep(.ui-button-trailing-icon) {
-  width: 14px;
-  margin-inline-start: 6px;
-  opacity: 1;
 }
 
 .record-query-list-actions,
@@ -1626,7 +1592,7 @@ defineExpose({ clearSelection, refresh });
   flex: 0 1 auto;
   margin-left: auto;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--muyun-management-panel-header-gap, 8px);
 }
 
 .record-query-list-operation-actions {
@@ -1804,10 +1770,6 @@ defineExpose({ clearSelection, refresh });
   .record-query-list-header {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .record-query-list-title {
-    align-self: flex-start;
   }
 
   .record-query-list-actions {

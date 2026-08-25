@@ -46,6 +46,12 @@ public final class PageContextScopePolicy {
         return criteria;
     }
 
+    /** Returns whether the current request carries a non-null explicit page-context value. */
+    public static boolean hasContextValue(String key) {
+        if (key == null || key.isBlank()) return false;
+        return requestContextValues().get(key) != null;
+    }
+
     /** Required record scope is the mutation/view counterpart of a required navigator list scope. */
     public static List<PageContextBindingDefinition> recordScopeBindings(List<PageContextBindingDefinition> bindings) {
         if (bindings == null || bindings.isEmpty()) return List.of();

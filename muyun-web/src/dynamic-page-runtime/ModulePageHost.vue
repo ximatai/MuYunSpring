@@ -675,7 +675,7 @@ const modulePageTitle = computed(
     props.descriptor.title ??
     recordLabel.value,
 );
-const treePanelTitle = computed(() => runtimePage.value?.treeResource?.title ?? `${modulePageTitle.value}树`);
+const treePanelTitle = computed(() => runtimePage.value?.treeResource?.title ?? modulePageTitle.value);
 const listSearchPlaceholder = computed(
   () => runtimePage.value?.list?.searchPlaceholder ?? `搜索${recordLabel.value}`,
 );

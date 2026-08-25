@@ -3,19 +3,28 @@ import { UiButton, type UiIconName } from '@muyun/vue-ui-antdv';
 
 defineOptions({ name: 'ManagementPanelHeader' });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     title: string;
     subtitle?: string;
     titleActionIcon?: UiIconName;
     titleActionTitle?: string;
+    titleActionDisabled?: boolean;
   }>(),
   {
     subtitle: undefined,
     titleActionIcon: undefined,
     titleActionTitle: undefined,
+    titleActionDisabled: false,
   },
 );
+
+function titleActionTooltip() {
+  const actionTitle = props.titleActionTitle?.trim();
+  if (!actionTitle) return props.title;
+  if (!actionTitle.startsWith('刷新')) return `${actionTitle}：${props.title}`;
+  return `刷新：${props.title}`;
+}
 
 const emit = defineEmits<{
   titleAction: [];
@@ -28,25 +37,32 @@ const emit = defineEmits<{
       <div v-if="$slots['title-prefix']" class="management-panel-header-title-prefix">
         <slot name="title-prefix" />
       </div>
-      <div class="management-panel-header-title-copy">
+      <div
+        class="management-panel-header-title-copy"
+        :class="{ 'management-panel-header-title-copy--with-status': $slots.status }"
+      >
         <h2
           class="management-panel-header-title"
-          :class="{ 'management-panel-header-title--action': titleActionIcon }"
+          :class="{
+            'management-panel-header-title--action': titleActionIcon,
+            'management-panel-header-title--with-subtitle': subtitle,
+          }"
           :title="title"
         >
           <UiButton
             v-if="titleActionIcon"
             class="management-panel-header-title-action"
-            :aria-label="titleActionTitle"
+            :aria-label="titleActionTooltip()"
             :icon-name="titleActionIcon"
             icon-position="end"
             type="text"
-            :title="titleActionTitle ? `${titleActionTitle}：${title}` : title"
+            :title="titleActionTooltip()"
+            :disabled="titleActionDisabled"
             @click="emit('titleAction')"
           >
             <span class="management-panel-header-title-action-label">{{ title }}</span>
           </UiButton>
-          <template v-else>{{ title }}</template>
+          <span v-else class="management-panel-header-title-label">{{ title }}</span>
         </h2>
         <p v-if="subtitle" class="management-panel-header-subtitle">{{ subtitle }}</p>
       </div>
@@ -74,7 +90,7 @@ const emit = defineEmits<{
   display: inline-flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: var(--muyun-management-panel-header-gap, 8px);
+  gap: 4px;
   min-width: 0;
 }
 
@@ -82,6 +98,11 @@ const emit = defineEmits<{
   display: grid;
   flex: 1 1 auto;
   min-width: 0;
+  max-width: 100%;
+}
+
+.management-panel-header-title-copy--with-status {
+  flex: 0 1 auto;
 }
 
 .management-panel-header-title-prefix {
@@ -91,7 +112,8 @@ const emit = defineEmits<{
 }
 
 .management-panel-header-title {
-  display: block;
+  display: flex;
+  align-items: center;
   margin: 0;
   min-width: 0;
   height: var(--muyun-management-panel-header-height, 30px);
@@ -102,14 +124,25 @@ const emit = defineEmits<{
   line-height: var(--muyun-management-panel-title-line-height, 22px);
 }
 
+.management-panel-header-title--with-subtitle {
+  height: var(--muyun-management-panel-title-line-height, 22px);
+}
+
 .management-panel-header-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.management-panel-header-title-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .management-panel-header-subtitle {
-  margin: 3px 0 0;
+  margin: 1px 0 0;
   overflow: hidden;
   color: var(--muyun-text-secondary);
   font-size: 12px;

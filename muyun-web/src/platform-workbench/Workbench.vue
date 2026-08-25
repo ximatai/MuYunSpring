@@ -61,6 +61,8 @@ const activeTabKey = computed(
   () => props.activeTabKey ?? props.startup?.activeTabKey ?? tabs.value[0]?.key ?? '',
 );
 const activeTab = computed(() => openedTabs.value.find((tab) => tab.key === activeTabKey.value));
+const pageRefreshRevision = ref(0);
+const activePageContentKey = computed(() => `${activeTabKey.value}:${pageRefreshRevision.value}`);
 const activePageDescriptor = computed(() => pageDescriptorOf(activeTab.value));
 const currentUser = computed(() => props.startup?.session.currentUser);
 const userDisplayName = computed(() => currentUser.value?.username ?? currentUser.value?.userId ?? '未登录');
@@ -127,6 +129,12 @@ function toTabItem(tab: MenuTab): UiTabItem {
 function handleTabChange(key: string) {
   emit('update:activeTabKey', key);
   emit('changeTab', key);
+}
+
+/** Recreates the active page host while retaining the workbench tab and its URL. */
+function refreshActivePage() {
+  if (!activeTab.value) return;
+  pageRefreshRevision.value += 1;
 }
 
 function handleUserCommand(key: string) {
@@ -374,8 +382,9 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
                 aria-label="刷新当前页"
                 icon-name="reload"
                 type="text"
-                title="刷新当前页暂未实现"
-                disabled
+                title="刷新当前页"
+                :disabled="!activeTab"
+                @click="refreshActivePage"
               />
             </div>
             <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>
@@ -425,6 +434,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
           <UiError v-else-if="error" :message="error" />
           <div v-else-if="activeTab" class="tab-panel-host">
             <div
+              :key="activePageContentKey"
               class="tab-page"
               :class="{ 'tab-page--workspace': activePageDescriptor?.layout === 'workspace' }"
             >

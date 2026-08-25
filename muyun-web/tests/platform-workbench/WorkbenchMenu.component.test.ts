@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config, mount, shallowMount } from '@vue/test-utils';
+import { defineComponent, h } from 'vue';
 import Workbench from '@/platform-workbench/Workbench.vue';
 import WorkbenchBrandControl from '@/platform-workbench/WorkbenchBrandControl.vue';
 import WorkbenchMenu from '@/platform-workbench/WorkbenchMenu.vue';
@@ -988,8 +989,15 @@ describe('Workbench compact menu', () => {
     expect(wrapper.emitted('userCommand')).toEqual([['themeSkin']]);
   });
 
-  it('keeps the refresh entry visible but disabled until page refresh has an independent contract', () => {
-    const wrapper = shallowMount(Workbench, {
+  it('recreates the active page when the topbar refresh action is requested', async () => {
+    let pageMounts = 0;
+    const RefreshProbe = defineComponent({
+      setup() {
+        pageMounts += 1;
+        return () => h('div', { class: 'refresh-probe' }, `mount:${pageMounts}`);
+      },
+    });
+    const wrapper = mount(Workbench, {
       props: {
         startup: {
           session: { currentUser: { userId: 'user-1', tenantId: 'tenant-a', system: false } },
@@ -1005,9 +1013,15 @@ describe('Workbench compact menu', () => {
           activeTabKey: 'application',
         },
       },
+      slots: { default: () => h(RefreshProbe) },
     });
-    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('disabled')).toBeDefined();
-    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('title')).toBe('刷新当前页暂未实现');
+    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('disabled')).toBeUndefined();
+    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('title')).toBe('刷新当前页');
+    expect(pageMounts).toBe(1);
+
+    await wrapper.get('[aria-label="刷新当前页"]').trigger('click');
+
+    expect(pageMounts).toBe(2);
   });
 
   it('presents the shared module host without leaking its legacy dynamic route name', () => {

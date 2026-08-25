@@ -16,7 +16,7 @@ import {
 } from '@muyun/platform-components';
 import { UiRecordExplorerItem, confirmAction } from '@muyun/vue-ui-antdv';
 import type { Tenant, UserAccount, UserSessionView, WebQueryRequest } from '@muyun/web-contracts';
-import { useModuleContext, type ModuleContext } from '@muyun/web-core';
+import { createModuleContext, useModuleContext, withHttpHeaders, type ModuleContext } from '@muyun/web-core';
 import { useWorkbenchNavigation } from '@muyun/platform-workbench';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import { usePageBusinessEventHandler } from '../platform-admin-runtime/pageRealtime';
@@ -35,6 +35,16 @@ const userReloadKey = ref(0);
 const selectedTenant = ref<Tenant>();
 const selectedUserKey = ref<string>();
 const actionLoading = ref(false);
+const userModuleRequestPrefix = '/iam.user';
+const scopedUserContext = createModuleContext<UserAccount>({
+  moduleAlias: 'iam.user',
+  http: withHttpHeaders(
+    userContext.http,
+    () => ({ 'X-MuYun-Page-Context': tenantPageContextHeader(selectedTenant.value) }),
+    (request) =>
+      request.path === userModuleRequestPrefix || request.path.startsWith(`${userModuleRequestPrefix}/`),
+  ),
+});
 const {
   expandedUserKeys,
   handleUserListLoaded,
@@ -44,7 +54,7 @@ const {
   resetUserSessionRows,
   userOnlineStatusTitle,
   userSessionState,
-} = useUserSessionRows({ context: userContext, source: 'user-management-list' });
+} = useUserSessionRows({ context: scopedUserContext, source: 'user-management-list' });
 
 const tenantListContext = computed(() => tenantContext as unknown as ModuleContext<CrudRecordListBase>);
 const canBrowseTenants = computed(() => currentUser?.value?.system === true);
@@ -54,7 +64,7 @@ const currentUserTenant = computed<Tenant | undefined>(() => {
   return { id: tenantId, title: tenantId, alias: tenantId, enabled: true } as Tenant;
 });
 const userListContext = computed(
-  () => createScopedUserModuleContext(userContext, selectedTenant.value) as ModuleContext<QueryListRecord>,
+  () => createScopedUserModuleContext(scopedUserContext, selectedTenant.value) as ModuleContext<QueryListRecord>,
 );
 const userListColumns = computed<RecordQueryListColumn[]>(() => [
   { key: 'username', title: '账号', width: '180px' },
@@ -65,7 +75,6 @@ const userListColumns = computed<RecordQueryListColumn[]>(() => [
   { key: 'employeeTitle', title: '职员姓名', width: '150px' },
   { key: 'lastLoginAt', title: '最后登录时间', type: 'datetime', width: '180px' },
 ]);
-const userListReady = computed(() => Boolean(selectedTenant.value?.id));
 const userListTitle = computed(() =>
   selectedTenant.value ? `用户列表 - ${tenantTitle(selectedTenant.value)}` : '用户列表',
 );
@@ -95,17 +104,17 @@ function createScopedUserModuleContext(
   };
 }
 
+function tenantPageContextHeader(tenant: Tenant | undefined) {
+  return tenant?.id == null ? undefined : JSON.stringify({ tenant: String(tenant.id) });
+}
+
 /** 在原有查询条件上补上当前租户编号。 */
 function scopedUserQuery(request: WebQueryRequest | undefined, tenant: Tenant | undefined): WebQueryRequest {
   const conditions = [...(request?.conditions ?? [])];
-  if (tenant?.id) conditions.push({ fieldName: 'tenantId', operator: 'EQ', values: [tenant.id] });
+  if (tenant?.id) {
+    conditions.push({ fieldName: 'tenantId', operator: 'EQ', values: [tenant.id] });
+  }
   return { ...request, conditions };
-}
-
-/** 系统管理员首次进入时，默认选择第一个租户。 */
-function handleTenantsLoaded(records: CrudRecordListBase[]) {
-  if (canBrowseTenants.value && !selectedTenant.value && records.length > 0)
-    selectedTenant.value = records[0] as Tenant;
 }
 
 /** 普通用户只能看到自己的租户，因此自动建立该范围。 */
@@ -157,7 +166,7 @@ async function removeUser(record: QueryListRecord) {
     loading: actionLoading,
     source: 'user-management-list',
     record: () => (record.id ? (record as UserAccount) : undefined),
-    canExecute: (user) => userContext.can('delete', user.id) === true,
+    canExecute: (user) => scopedUserContext.can('delete', user.id) === true,
     deniedMessage: '当前用户无权删除用户',
     confirm: (user) =>
       confirmAction({
@@ -166,7 +175,7 @@ async function removeUser(record: QueryListRecord) {
         okText: '删除',
         danger: true,
       }),
-    execute: (user) => userContext.crud.delete(String(user.id), { version: user.version! }),
+    execute: (user) => scopedUserContext.crud.delete(String(user.id), { version: user.version! }),
     onExecuted: () => {
       userReloadKey.value += 1;
     },
@@ -179,7 +188,7 @@ async function revokeUserSession(record: QueryListRecord, session: UserSessionVi
     loading: actionLoading,
     source: 'user-management-list',
     record: () => (record.id ? (record as UserAccount) : undefined),
-    canExecute: (user) => userContext.can('revokeSession', user.id) === true && !session.current,
+    canExecute: (user) => scopedUserContext.can('revokeSession', user.id) === true && !session.current,
     deniedMessage: '当前用户无权下线该登录会话',
     confirm: (user) =>
       confirmAction({
@@ -189,7 +198,7 @@ async function revokeUserSession(record: QueryListRecord, session: UserSessionVi
         danger: true,
       }),
     execute: (user) =>
-      userContext.http.request<number>({
+      scopedUserContext.http.request<number>({
         method: 'POST',
         path: `/iam.user/${encodeURIComponent(user.id!)}/sessions/${encodeURIComponent(session.id)}/revoke`,
       }),
@@ -212,7 +221,7 @@ async function revokeAllUserSessions(record: QueryListRecord) {
     loading: actionLoading,
     source: 'user-management-list',
     record: () => (record.id ? (record as UserAccount) : undefined),
-    canExecute: (user) => userContext.can('revokeSessions', user.id) === true,
+    canExecute: (user) => scopedUserContext.can('revokeSessions', user.id) === true,
     deniedMessage: '当前用户无权批量下线登录会话',
     confirm: (user) =>
       confirmAction({
@@ -222,7 +231,7 @@ async function revokeAllUserSessions(record: QueryListRecord) {
         danger: true,
       }),
     execute: (user) =>
-      userContext.http.request<number>({
+      scopedUserContext.http.request<number>({
         method: 'POST',
         path: `/iam.user/${encodeURIComponent(user.id!)}/sessions/revoke`,
         body: { sessionIds },
@@ -233,13 +242,13 @@ async function revokeAllUserSessions(record: QueryListRecord) {
 
 /** 返回当前用户可以下线的会话。 */
 function revokableUserSessions(userId: string | undefined) {
-  if (!userId || userContext.can('revokeSession', userId) !== true) return [];
+  if (!userId || scopedUserContext.can('revokeSession', userId) !== true) return [];
   return userSessionState(userId).records.filter((session) => !session.current);
 }
 
 /** 判断某条会话是否能显示下线按钮。 */
 function canRevokeUserSession(userId: string | undefined, session: UserSessionView) {
-  return Boolean(userId) && !session.current && userContext.can('revokeSession', userId) === true;
+  return Boolean(userId) && !session.current && scopedUserContext.can('revokeSession', userId) === true;
 }
 
 /** 生成租户的显示名称。 */
@@ -297,7 +306,6 @@ function tenantItemOf(record: CrudRecordListBase): RecordExplorerItemDescriptor 
         loading-tip="加载租户列表"
         fallback-title="未命名租户"
         :item-of="tenantItemOf"
-        @loaded="handleTenantsLoaded"
         @select="selectTenant($event as Tenant)"
       />
     </RecordExplorerPanel>
@@ -313,7 +321,7 @@ function tenantItemOf(record: CrudRecordListBase): RecordExplorerItemDescriptor 
       :expanded-row-keys="expandedUserKeys"
       :cell-renderers="{ onlineStatus: userOnlineStatusTitle }"
       :reload-key="userReloadKey"
-      :ready="userListReady"
+      :ready="Boolean(selectedTenant?.id) || canBrowseTenants"
       quick-search-placeholder="搜索账号"
       empty-description="当前租户暂无账号"
       waiting-description="请选择租户"

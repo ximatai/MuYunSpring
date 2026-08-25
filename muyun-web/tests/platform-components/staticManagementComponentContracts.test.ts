@@ -71,9 +71,15 @@ it('record explorer panel uses a single title contract', () => {
     /<h2[\s\S]*?class="management-panel-header-title"[\s\S]*?<UiButton[\s\S]*?class="management-panel-header-title-action"/,
   );
   assert.match(headerSource, /management-panel-header-title-action-label/);
+  assert.match(headerSource, /management-panel-header-title-label/);
+  assert.match(headerSource, /\.management-panel-header-title-group \{[\s\S]*?gap: 4px/);
+  assert.match(headerSource, /management-panel-header-title-copy--with-status/);
+  assert.match(headerSource, /\.management-panel-header-title-copy--with-status \{\s*flex: 0 1 auto/);
   assert.match(headerSource, /text-overflow: ellipsis/);
+  assert.match(headerSource, /\.management-panel-header-subtitle \{\s*margin: 1px 0 0;/);
+  assert.match(headerSource, /management-panel-header-title--with-subtitle/);
   assert.match(headerSource, /max-width: 100%/);
-  assert.match(headerSource, /\.management-panel-header-title \{\s*display: block;/);
+  assert.match(headerSource, /\.management-panel-header-title \{\s*display: flex;[\s\S]*?align-items: center;/);
   assert.notMatch(headerSource, /<h2 v-else/);
   assert.notMatch(headerSource, /record-status-switch-offset-y/);
   assert.notMatch(statusSwitchSource, /translateY\(/);
@@ -687,6 +693,9 @@ it('user management keeps account basics separate from employment binding and ro
   assert.notMatch(userViewSource, /calc\(100vh|calc\(100dvh/);
   assert.match(userViewSource, /<CrudRecordListExplorer/);
   assert.match(userViewSource, /<RecordQueryListPanel/);
+  assert.match(userViewSource, /X-MuYun-Page-Context/);
+  assert.match(userViewSource, /JSON\.stringify\(\{ tenant: String\(tenant\.id\) \}\)/);
+  assert.match(userViewSource, /useUserSessionRows\(\{ context: scopedUserContext/);
   assert.match(userViewSource, /:expanded-row-keys="expandedUserKeys"/);
   assert.match(userViewSource, /@row-expand="handleUserRowExpand"/);
   assert.match(userViewSource, /<template #expandedRow="\{ record \}">/);
@@ -726,7 +735,7 @@ it('user management keeps account basics separate from employment binding and ro
   assert.match(userSessionExpandedSource, /@media \(max-width: 980px\)/);
   assert.match(
     userViewSource,
-    /useUserSessionRows\(\{ context: userContext, source: 'user-management-(list|detail)' \}\)/,
+    /useUserSessionRows\(\{ context: scopedUserContext, source: 'user-management-list' \}\)/,
   );
   assert.match(userViewSource, /usePageBusinessEventHandler\(handleUserSessionBusinessEvent\)/);
   assert.match(userViewSource, /:cell-renderers="\{ onlineStatus: userOnlineStatusTitle \}"/);
