@@ -172,7 +172,7 @@ class MenuWebControllerTest {
     }
 
     @Test
-    void shouldExposeSchemeScopedMenuMaintenanceAndTree() throws Exception {
+    void shouldExposeMenuMaintenanceAndTreeScopedByNavigatorScheme() throws Exception {
         TenantContext.setTenantId("tenant-a");
         MenuService menuService = mock(MenuService.class);
         MenuManagementWebController controller = new MenuManagementWebController();
@@ -184,20 +184,22 @@ class MenuWebControllerTest {
                 .thenReturn(List.of(root));
         when(menuService.children(any(Criteria.class), org.mockito.ArgumentMatchers.eq("root-1")))
                 .thenReturn(List.of(child));
+        when(menuService.selectInScope(any(Criteria.class), org.mockito.ArgumentMatchers.eq("root-1")))
+                .thenReturn(root);
         when(menuService.children(any(Criteria.class), org.mockito.ArgumentMatchers.eq("menu-1")))
                 .thenReturn(List.of());
         when(menuService.insert(any(Menu.class))).thenReturn("menu-2");
         when(menuService.select("menu-2")).thenReturn(inserted);
 
         MockMvc mvc = abilityAwareMvc(controller);
-        mvc.perform(get("/platform.menu-scheme/scheme-1/menus/tree"))
+        mvc.perform(get("/platform.menu/tree").param("schemeId", "scheme-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].record.id").value("root-1"))
                 .andExpect(jsonPath("$.records[0].children[0].record.id").value("menu-1"));
-        mvc.perform(post("/platform.menu-scheme/scheme-1/menus/insert")
+        mvc.perform(post("/platform.menu/insert")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"schemeId":"other-scheme","parentId":"root-1","title":"订单","moduleAlias":"crm.order"}
+                                {"schemeId":"scheme-1","parentId":"root-1","title":"订单","moduleAlias":"crm.order"}
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.schemeId").value("scheme-1"));
@@ -222,7 +224,7 @@ class MenuWebControllerTest {
                 .setControllerAdvice(new PlatformWebExceptionHandler())
                 .build();
 
-        mvc.perform(post("/platform.menu-scheme/scheme-1/menus/insert")
+        mvc.perform(post("/platform.menu/insert")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"parentId":"root-1","title":"订单","moduleAlias":"crm.order"}
@@ -234,22 +236,6 @@ class MenuWebControllerTest {
                 .andExpect(jsonPath("$.actionMessage.code").value("platform.menu.open-mode-required"))
                 .andExpect(jsonPath("$.actionMessage.text").value("Module entry menu requires openMode"))
                 .andExpect(jsonPath("$.actionMessage.type").value("WARNING"));
-    }
-
-    @Test
-    void shouldRejectCrossSchemeMenuUpdate() {
-        MenuService menuService = mock(MenuService.class);
-        MenuManagementWebController controller = new MenuManagementWebController();
-        ReflectionTestUtils.setField(controller, "service", menuService);
-        when(menuService.select("menu-1")).thenReturn(menu("menu-1", "other-scheme", "客户", "crm.customer"));
-
-        org.springframework.mock.web.MockHttpServletRequest request = new org.springframework.mock.web.MockHttpServletRequest();
-        request.setAttribute(org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE,
-                java.util.Map.of("schemeId", "scheme-1"));
-
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.update(request, "menu-1", new Menu()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("menu does not belong to scheme");
     }
 
     private Menu menu(String id, String schemeId, String title, String moduleAlias) {

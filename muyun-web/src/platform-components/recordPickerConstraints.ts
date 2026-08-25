@@ -6,6 +6,8 @@ export interface RecordPickerRecord {
   enabled?: boolean;
   /** Server-authorized values applied after choosing this candidate. */
   affectPatch?: Record<string, unknown>;
+  /** Server-authorized target projections used only by the owning form's transient UI context. */
+  projections?: Record<string, unknown>;
 }
 
 export interface PickerConstraintContext<TRecord extends RecordPickerRecord> {

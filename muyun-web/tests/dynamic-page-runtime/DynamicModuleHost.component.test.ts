@@ -1758,6 +1758,13 @@ describe('ModulePageHost', () => {
       { actionCode: 'view', available: true },
       { actionCode: 'update', available: true },
     ]);
+    const firstScopeReloadKey = tree!.props('reloadKey') as number;
+    categoryNavigator.vm.$emit('select', { id: 'category-2', title: '语言', categoryKind: 'DICTIONARY' });
+    await flushPromises();
+    expect(tree!.props('reloadKey')).toBe(firstScopeReloadKey + 1);
+    // The host is a navigator, not a tree module itself. TREE_MANAGEMENT still
+    // owns a persistent right-side detail card for its tree resource.
+    expect(wrapper.findComponent({ name: 'RecordModeDrawer' }).exists()).toBe(false);
   });
 
   it('rejects business detail drawer enhancements for tree modules instead of silently ignoring them', async () => {

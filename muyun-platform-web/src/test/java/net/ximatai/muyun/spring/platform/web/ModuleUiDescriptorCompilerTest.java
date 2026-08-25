@@ -33,6 +33,74 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
     @Test
+    void shouldCompileAnExplicitOneReferenceSelectionProjectionForWebUiFormula() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("platform.menu")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("菜单"))
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("moduleAlias")
+                                .field("pageMode", field -> field.visible(UiRule.formula(
+                                        UiFormula.booleanExpression("{moduleAlias.entryType} == 'MODULE'"))))))))
+                .build();
+        ResolvedReferenceFieldDescriptor module = new ResolvedReferenceFieldDescriptor("platform.module",
+                ReferenceCardinality.ONE, null, ReferencePickerMode.LIST, ReferenceCandidateDelivery.SOURCE_FIELD,
+                "/platform.menu/references/moduleAlias/resolve", List.of(),
+                List.of(new ResolvedReferenceSelectionProjectionDescriptor("entryType")));
+
+        ResolvedViewFieldDescriptor field = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.STATIC, "菜单",
+                Map.of(), Map.of("moduleAlias", module), null, Map.of()).page().detail().editor().fields().get(1);
+
+        assertThat(field.visible().formula().program().referencedFields()).containsExactly("moduleAlias.entryType");
+    }
+
+    @Test
+    void shouldRejectWebUiReferenceFormulaThatIsNotExplicitlyAuthorised() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("platform.menu")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("菜单"))
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("moduleAlias")
+                                .field("pageMode", field -> field.visible(UiRule.formula(
+                                        UiFormula.booleanExpression("{moduleAlias.entryType} == 'MODULE'"))))))))
+                .build();
+        ResolvedReferenceFieldDescriptor module = new ResolvedReferenceFieldDescriptor("platform.module",
+                ReferenceCardinality.ONE);
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, ModuleKind.STATIC, "菜单", Map.of(),
+                Map.of("moduleAlias", module), null, Map.of()))
+                .hasMessageContaining("not an explicitly authorised reference selection projection");
+    }
+
+    @Test
+    void shouldRejectManyButCompileExplicitMultiHopWebUiReferenceFormulaPaths() {
+        ModuleUiDefinition many = ModuleUiDefinition.builder("platform.menu")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("菜单"))
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("moduleAliases")
+                                .field("pageMode", field -> field.visible(UiRule.formula(
+                                        UiFormula.booleanExpression("{moduleAliases.entryType} == 'MODULE'"))))))))
+                .build();
+        ResolvedReferenceFieldDescriptor references = new ResolvedReferenceFieldDescriptor("platform.module",
+                ReferenceCardinality.MANY, null, ReferencePickerMode.LIST, ReferenceCandidateDelivery.SOURCE_FIELD,
+                null, List.of(), List.of(new ResolvedReferenceSelectionProjectionDescriptor("entryType")));
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(many, ModuleKind.STATIC, "菜单", Map.of(),
+                Map.of("moduleAliases", references), null, Map.of()))
+                .hasMessageContaining("requires a ONE reference");
+
+        ModuleUiDefinition multiHop = ModuleUiDefinition.builder("platform.menu")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("菜单"))
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("moduleAlias")
+                                .field("pageMode", field -> field.visible(UiRule.formula(
+                                        UiFormula.booleanExpression("{moduleAlias.ownerId.regionCode} == 'CN'"))))))))
+                .build();
+        ResolvedReferenceFieldDescriptor module = new ResolvedReferenceFieldDescriptor("platform.module",
+                ReferenceCardinality.ONE, null, ReferencePickerMode.LIST, ReferenceCandidateDelivery.SOURCE_FIELD,
+                null, List.of(), List.of(new ResolvedReferenceSelectionProjectionDescriptor(
+                List.of("ownerId", "regionCode"))));
+        assertThatCode(() -> ModuleUiDescriptorCompiler.compile(multiHop, ModuleKind.STATIC, "菜单", Map.of(),
+                Map.of("moduleAlias", module), null, Map.of())).doesNotThrowAnyException();
+    }
+
+    @Test
     void shouldCompilePersistentListQueryControlAsUiState() {
         ResolvedPageListPersistentQueryControlDescriptor persistentControl = ModuleUiDescriptorCompiler.compile(
                 ModuleUiDefinition.builder("sales.order")

@@ -91,6 +91,22 @@ public ModuleUiDefinition moduleUiDefinition() {
 
 默认编辑器应覆盖主资源的标准新建与编辑。确实存在同一模块多个稳定编辑面时，使用 `editors(...)` 声明命名 surface；不要在外层页面复制字段集合。
 
+### 引用选择驱动的字段规则
+
+`visible`、`required`、`readOnly` 可以使用 `UiFormula` 声明字段规则。规则读取本记录字段时使用 `{fieldName}`；当规则依赖已选择的 ONE 引用目标时，可使用声明式点路径：
+
+```java
+@ReferenceTo(target = PlatformModuleService.class, selectionProjections = {"entryType"})
+private String moduleAlias;
+
+.field("pageMode", field -> field.visible(
+        UiFormula.booleanExpression("{moduleAlias.entryType} == 'module'")))
+```
+
+`selectionProjections` 是唯一的读取授权：descriptor 只下发这些字段，候选解析仅在引用范围、字段保护和数据权限通过后返回其值。浏览器将其保存在临时选择上下文中，用于重算表单规则；不会写入业务草稿或保存请求。
+
+当前平台仅支持一跳 ONE 引用，即 `{sourceField.targetField}`。多跳形式已预留为路径契约，但在运行时会被明确拒绝；不要通过前端对象结构或未声明字段绕过该限制。
+
 ## 导航、范围与内嵌管理
 
 导航用于建立当前页面的上下文和查询范围，不是第二套业务数据模型。选择范围后，绑定会进入右侧列表查询；创建时仍要由模型引用约束、保存校验和数据权限保证真实归属。
@@ -116,9 +132,9 @@ public ModuleUiDefinition moduleUiDefinition() {
 
 `manageable` 是二元开关：声明后才启用该来源的标准新建、编辑、删除；未声明时不出现编辑态。它不配置动作子集，也不绕过来源模块的 `create`、`update`、`delete` 权限、数据范围、乐观锁或编辑器校验。可选的 `editorKey` 只选择来源模块已声明的编辑 surface，不能在使用方复制一套来源字段。
 
-### 导航范围内的主树资源
+### 导航范围内的贡献树资源
 
-当页面的主流程是“先选范围，再维护一个独立树资源”时，仍使用 `treeManagement`，不要新增业务三栏组件，也不要把树塞进详情扩展。主树通过已注册的 `editorContribution` 声明为资源，并显式指定提供持久化父范围的导航层级：
+`treeResource` 只用于“页面主模块以外的、已贡献到该页面的树资源”。典型场景是先选范围、再维护独立的子资源树；不要新增业务三栏组件，也不要把树塞进详情扩展。主树通过已注册的 `editorContribution` 声明为资源，并显式指定提供持久化父范围的导航层级：
 
 ```java
 .navigator(navigator -> navigator
@@ -132,7 +148,9 @@ public ModuleUiDefinition moduleUiDefinition() {
         .createTitle("新建字典项"))
 ```
 
-`resource` 必须有同名 `editorContribution`，并由静态 action contribution 提供标准树 CRUD；`scopeNavigatorKey` 只能指向同页已声明的导航层级。若资源只适用于范围记录的某个稳定状态，可用 `availableWhenEquals` 声明字段和值；条件不满足时运行器不加载树也不开放新建，资源控制器仍须执行领域不变量。运行器把资源访问固定投影到模块的 `tree-resources/{resource}/{scopeId}` 路径，未选中范围时 fail-closed。页面模块仍拥有动作授权与 runtime descriptor，资源控制器只保留领域范围绑定、归属校验和不变量。该能力当前是静态 action contribution 的平台接入点；动态来源没有同等可执行资源注册时，应明确拒绝，而不是在前端拼业务 URL。
+`resource` 必须有同名 `editorContribution`，其表单必须声明 `scopeField`，并由静态 action contribution 提供标准树 CRUD；`scopeNavigatorKey` 只能指向同页已声明的导航层级。`resource` 不能等于页面主实体：若页面维护的本来就是该树（如“菜单管理”维护 `Menu`），应使用 `bindNavigatorToList` 将导航选择绑定到主树查询，而不是声明 `treeResource`。
+
+若资源只适用于范围记录的某个稳定状态，可用 `availableWhenEquals` 声明字段和值；条件不满足时运行器不加载树也不开放新建，资源控制器仍须执行领域不变量。运行器把资源访问固定投影到模块的 `tree-resources/{resource}/{scopeId}` 路径，未选中范围时 fail-closed。页面模块仍拥有动作授权与 runtime descriptor，资源控制器只保留领域范围绑定、归属校验和不变量。该能力当前是静态 action contribution 的平台接入点；动态来源没有同等可执行资源注册时，应明确拒绝，而不是在前端拼业务 URL。
 
 ## 关系和子资源
 

@@ -530,7 +530,7 @@ public class PlatformModuleRuntimeContextService {
         List<ResolvedPageNavigatorLevelDescriptor> visibleLevels = navigator.levels().stream()
                 .filter(level -> visibleLevelKeys.contains(level.key()))
                 .map(level -> new ResolvedPageNavigatorLevelDescriptor(level.key(), level.kind(),
-                        level.sourceModuleAlias(), level.title(), level.searchPlaceholder(), level.management(),
+                        level.sourceModuleAlias(), level.title(), level.searchPlaceholder(), level.secondaryField(), level.management(),
                         level.singleResultPolicy(), level.initialSelectionPolicy(), level.sourceScope()))
                 .toList();
         List<ResolvedPageContextBindingDescriptor> visibleBindings = navigator.contextBindings().stream()
@@ -652,7 +652,9 @@ public class PlatformModuleRuntimeContextService {
                                                 ReferenceCandidateDelivery.SOURCE_FIELD,
                                                 "/" + dynamicDescriptor.moduleAlias() + "/references/"
                                                         + field.fieldName() + "/resolve",
-                                                field.reference().candidateDependencies()),
+                                                field.reference().candidateDependencies(),
+                                                field.reference().plusFields().stream()
+                                                        .map(ResolvedReferenceSelectionProjectionDescriptor::new).toList()),
                                         (left, right) -> left)),
                         this::referencePickerMode))
                 .orElseGet(java.util.Map::of);

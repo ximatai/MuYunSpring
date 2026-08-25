@@ -2,6 +2,8 @@ package net.ximatai.muyun.spring.platform.menu;
 
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.common.exception.PlatformConfigurationException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -48,6 +50,13 @@ class MenuServiceContractTest {
     }
 
     @Test
+    void shouldResolveMenuModuleReferenceGlobally() throws NoSuchFieldException {
+        ReferenceTo reference = Menu.class.getDeclaredField("moduleAlias").getAnnotation(ReferenceTo.class);
+
+        assertThat(reference.tenantScope()).isEqualTo(ReferenceTenantScope.GLOBAL);
+    }
+
+    @Test
     void shouldCreateTenantMenuSchemeWithScopeAliasAndTenantIsolation() {
         String tenantASchemeId;
         String tenantBSchemeId;
@@ -86,6 +95,23 @@ class MenuServiceContractTest {
         MenuScheme saved = schemeService.select(schemeId);
         assertThat(saved.getTenantId()).isNull();
         assertThat(saved.getScopeId()).isEqualTo(MenuSchemeService.SYSTEM_SCOPE_ID);
+    }
+
+    @Test
+    void shouldDefaultNewSchemeToSystemScopeInSystemContext() {
+        MenuScheme scheme = new MenuScheme();
+        scheme.setAlias("system_default");
+        scheme.setTitle("System default");
+
+        String schemeId;
+        try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
+            schemeId = schemeService.insert(scheme);
+        }
+
+        MenuScheme saved = schemeService.select(schemeId);
+        assertThat(saved.getScopeType()).isEqualTo(MenuScopeType.SYSTEM);
+        assertThat(saved.getScopeId()).isEqualTo(MenuSchemeService.SYSTEM_SCOPE_ID);
+        assertThat(saved.getTenantId()).isNull();
     }
 
     @Test

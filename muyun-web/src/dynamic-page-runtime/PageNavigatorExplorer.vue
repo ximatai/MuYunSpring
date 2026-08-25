@@ -31,6 +31,8 @@ const props = defineProps<{
   /** The navigator's declared upstream query scope is not settled yet. */
   createDisabled?: boolean;
   createDisabledReason?: string;
+  /** Human-readable context supplied by an upstream navigator selection. */
+  scopeSubtitle?: string;
   actionsOf?: (record: { id?: string }) => RecordInlineAction[];
 }>();
 
@@ -45,7 +47,12 @@ const emit = defineEmits<{
 }>();
 
 function itemOf(record: NavigatorItemRecord) {
-  return navigatorItemOf(record, props.level.descriptor.management !== undefined, props.actionsOf);
+  return navigatorItemOf(
+    record,
+    props.level.descriptor.secondaryField,
+    props.level.descriptor.management !== undefined,
+    props.actionsOf,
+  );
 }
 </script>
 
@@ -53,6 +60,7 @@ function itemOf(record: NavigatorItemRecord) {
   <RecordExplorerPanel
     :class="{ 'page-navigator-explorer--readonly': !level.descriptor.management }"
     :title="level.descriptor.title"
+    :subtitle="scopeSubtitle"
     :refresh-title="`刷新${level.descriptor.title}${level.tree ? '树' : '列表'}`"
     :search-keyword="keyword"
     :search-placeholder="level.descriptor.searchPlaceholder"

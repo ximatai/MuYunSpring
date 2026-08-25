@@ -25,9 +25,8 @@ class UiFormulaTest {
         assertThatThrownBy(() -> UiFormula.booleanExpression("NOW() == '2026-01-01'"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("WEB_UI profile");
-        assertThatThrownBy(() -> UiFormula.booleanExpression("PRESENT({directory.id})"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("WEB_UI profile");
+        assertThat(UiFormula.booleanExpression("PRESENT({directory.id})").program().referencedFields())
+                .containsExactly("directory.id");
     }
 
     @Test

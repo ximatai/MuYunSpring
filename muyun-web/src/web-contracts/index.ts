@@ -1017,6 +1017,20 @@ export interface ResolvedReferenceFieldDescriptor {
   candidateDependencies?: ReferenceCandidateDependency[];
   /** Read-side title projection for this scalar reference, when supplied by the server. */
   titleField?: string;
+  /**
+   * Explicitly authorized target-field paths available after choosing this ONE reference.
+   * Paths are relative to this reference field; the form runtime prefixes them with the
+   * descriptor-owned source field name before exposing them to WEB_UI formulas.
+   */
+  selectionProjections?: ResolvedReferenceSelectionProjectionDescriptor[];
+}
+
+/**
+ * A declared projection below a record-picker target. Every non-terminal segment is a declared
+ * ONE reference; the terminal segment is the selected value delivered by the server.
+ */
+export interface ResolvedReferenceSelectionProjectionDescriptor {
+  path: string[];
 }
 
 export interface ReferenceCandidateDependency {
@@ -1084,11 +1098,12 @@ export type ModulePageTemplate = 'FLAT_MANAGEMENT' | 'LIST_DETAIL_CARD' | 'TREE_
 export interface ResolvedPageExplorerDescriptor {
   title: string;
   searchPlaceholder: string;
+  /** Optional record field rendered as the compact navigator secondary identity. */
+  secondaryField?: string;
   emptyDescription: string;
   recordLabel: string;
   fallbackTitle: string;
   titleField: string;
-  secondaryField?: string;
   mutedWhenDisabled: boolean;
 }
 
@@ -1103,6 +1118,8 @@ export interface ResolvedPageNavigatorLevelDescriptor {
   sourceModuleAlias: string;
   title: string;
   searchPlaceholder: string;
+  /** Optional record field rendered as the compact navigator secondary identity. */
+  secondaryField?: string;
   /** Presentation policy applied after the source has authoritatively loaded. */
   singleResultPolicy?: 'NONE' | 'AUTO_SELECT' | 'AUTO_SELECT_AND_HIDE';
   /** Explicit initial selection policy; omitted means the navigator starts unselected. */

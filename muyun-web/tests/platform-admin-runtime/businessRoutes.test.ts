@@ -13,12 +13,10 @@ import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 it('uses backend application and module aliases for every public static route', () => {
   assert.deepEqual(platformAdminRoutePrefixes, [
     '/_platform/workspace',
-    '/platform/menu-scheme',
     '/iam/role',
     '/iam/role/authorization',
   ]);
   assert.deepEqual(platformAdminModuleRoutes, {
-    'platform.menu_scheme': '/platform/menu-scheme',
     'iam.role': '/iam/role',
   });
 });

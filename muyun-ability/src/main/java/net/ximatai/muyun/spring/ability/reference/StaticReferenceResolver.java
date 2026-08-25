@@ -234,7 +234,9 @@ public final class StaticReferenceResolver {
                 java.util.Arrays.stream(referenceTo.candidateBindings())
                         .map(binding -> new ReferenceCandidateDependency(binding.sourceField(), binding.targetField(),
                                 binding.required()))
-                        .toList()
+                        .toList(),
+                java.util.Arrays.stream(referenceTo.selectionProjections())
+                        .map(ReferenceSelectionProjection::new).toList()
         );
     }
 

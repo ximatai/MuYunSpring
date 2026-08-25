@@ -23,6 +23,7 @@ import {
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
   resolveRecordBooleanStatusValue,
+  resolveReferenceSelectionContext,
   decodeDateTimeLocalEditorValue,
   decodeJsonEditorValue,
   decodeNumberEditorValue,
@@ -34,6 +35,7 @@ import {
   type RecordFormFieldState,
   type RecordFormFieldValue,
   type RecordFormRecord,
+  type RecordFormSelectionContext,
 } from './recordFormFieldModel';
 import { hasOptionHierarchy, optionItemsToOptions, optionItemsToTree } from './optionFieldOptions';
 import { loadOptionFieldItems } from './optionFieldOptionCache';
@@ -106,6 +108,13 @@ const optionItems = ref<Record<string, OptionItemDescriptor[]>>({});
 const loadingOptionFields = ref(new Set<string>());
 const optionFieldErrors = ref<Record<string, string>>({});
 const editorFieldErrors = ref<Record<string, string>>({});
+const referenceSelectionContext = ref<RecordFormSelectionContext>({});
+const referenceSelectionSourceIds = ref<Record<string, string | undefined>>({});
+const referenceSelectionValues = computed(() =>
+  [...(props.fields ?? new Map<string, RecordFormFieldDescriptor>())]
+    .filter(([, field]) => field.reference?.cardinality === 'ONE')
+    .map(([fieldName]) => [fieldName, recordPickerFieldValue(fieldName)] as const),
+);
 const requiredFieldErrors = computed<Record<string, string>>(() => {
   const errors: Record<string, string> = {};
   for (const field of fieldStates.value) {
@@ -147,6 +156,17 @@ watch(
 watch([() => props.record.id, () => props.formSessionKey], () => {
   // A new record/session must never inherit parser failures from its predecessor.
   editorFieldErrors.value = {};
+  clearReferenceSelectionContext();
+});
+watch(referenceSelectionValues, (values) => {
+  for (const [fieldName, value] of values) {
+    if (
+      referenceSelectionSourceIds.value[fieldName] != null &&
+      referenceSelectionSourceIds.value[fieldName] !== value
+    ) {
+      updateReferenceSelectionContext(fieldName, undefined);
+    }
+  }
 });
 watch(formValidity, (validity) => emit('validity-change', validity), { immediate: true });
 
@@ -157,6 +177,7 @@ function fieldState(fieldName: string): RecordFormFieldState {
     pickerConfigs: props.pickerConfigs,
     placeholderOf: props.placeholderOf,
     record: props.record,
+    selectionContext: referenceSelectionContext.value,
   });
 }
 
@@ -330,6 +351,35 @@ function applyPickerSelection(
   }
 }
 
+/**
+ * Reference projections are transient presentation facts. They are kept out of the form draft
+ * and are only mapped through a descriptor-declared path for WEB_UI formula evaluation.
+ */
+function updateReferenceSelectionContext(
+  fieldName: string,
+  record: import('./recordPickerConstraints').RecordPickerRecord | undefined,
+) {
+  const reference = props.fields?.get(fieldName)?.reference;
+  if (!reference || reference.cardinality !== 'ONE') return;
+  const next = { ...referenceSelectionContext.value };
+  for (const projection of reference.selectionProjections ?? []) {
+    if (projection.path.length > 0) {
+      delete next[`${fieldName}.${projection.path.join('.')}`];
+    }
+  }
+  Object.assign(next, resolveReferenceSelectionContext(fieldName, reference, record));
+  referenceSelectionContext.value = next;
+  referenceSelectionSourceIds.value = {
+    ...referenceSelectionSourceIds.value,
+    [fieldName]: record?.id,
+  };
+}
+
+function clearReferenceSelectionContext() {
+  referenceSelectionContext.value = {};
+  referenceSelectionSourceIds.value = {};
+}
+
 function applyMultiPickerSelection(
   fieldName: string,
   records: import('./recordPickerConstraints').RecordPickerRecord[],
@@ -427,7 +477,10 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 </script>
 
 <template>
-  <template v-for="(field, index) in fieldStates" :key="`${field.fieldName}:${validationRequestKey}`">
+  <template
+    v-for="(field, index) in fieldStates"
+    :key="`${field.fieldName}:${formSessionKey ?? ''}:${validationRequestKey}`"
+  >
     <slot name="before-field" :field="field" />
     <template v-if="groupOf(field) && groupStartsAt(field, index)">
       <div v-if="!groupOf(fieldStates[index - 1])" class="record-form-group-divider" aria-hidden="true" />
@@ -489,6 +542,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           :filter-option="field.pickerConfig.filterOption"
           @update:value="updateField(field.fieldName, $event)"
           @select="applyPickerSelection(field.fieldName, $event)"
+          @selection-resolved="updateReferenceSelectionContext(field.fieldName, $event)"
         />
         <RecordMultiPicker
           v-else-if="field.controlType === 'recordMultiPicker' && field.pickerConfig"

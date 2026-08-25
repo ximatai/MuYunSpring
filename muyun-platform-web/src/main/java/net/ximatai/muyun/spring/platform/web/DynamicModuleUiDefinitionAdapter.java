@@ -238,7 +238,7 @@ public final class DynamicModuleUiDefinitionAdapter {
         if (navigator == null) return null;
         List<PageNavigatorLevelDefinition> levels = navigator.levels().stream().map(level -> new PageNavigatorLevelDefinition(
                 level.key(), PageNavigatorKind.valueOf(level.kind()), level.sourceModuleAlias(), level.title(),
-                level.searchPlaceholder(), level.management() == null ? null
+                level.searchPlaceholder(), level.secondaryField(), level.management() == null ? null
                         : new PageNavigatorManagementDefinition(level.management().editorSurface()),
                 PageNavigatorSingleResultPolicy.valueOf(level.singleResultPolicy()),
                 PageNavigatorInitialSelectionPolicy.valueOf(level.initialSelectionPolicy()),

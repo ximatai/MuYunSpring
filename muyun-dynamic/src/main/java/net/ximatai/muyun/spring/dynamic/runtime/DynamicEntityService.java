@@ -804,7 +804,7 @@ public class DynamicEntityService implements
                 .toList();
     }
 
-    private ReferencePlan referencePlan(String sourceField) {
+    ReferencePlan referencePlan(String sourceField) {
         return referenceDefinition(sourceField).plan();
     }
 
@@ -831,7 +831,7 @@ public class DynamicEntityService implements
         referencePlan(plan.sourceField());
     }
 
-    private DynamicEntityService referenceService(ReferenceTarget target) {
+    DynamicEntityService referenceService(ReferenceTarget target) {
         return referenceServiceResolver.apply(target);
     }
 

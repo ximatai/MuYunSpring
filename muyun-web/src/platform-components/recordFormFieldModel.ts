@@ -32,6 +32,11 @@ export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewField
   valueType?: ViewFieldValueType;
 };
 export type RecordFormRecord = Record<string, unknown>;
+/**
+ * Ephemeral, descriptor-authorized values from selected ONE references. These are deliberately
+ * separate from the draft because they describe the selected target, not fields owned by it.
+ */
+export type RecordFormSelectionContext = Record<string, unknown>;
 
 /**
  * Applies the platform-owned consequence of changing a reference dependency.
@@ -341,14 +346,30 @@ export function resolveRecordFormFieldState(
     pickerConfigs?: Record<string, RecordFormFieldPickerConfig>;
     placeholderOf?: (fieldName: string, field: RecordFormFieldState) => string | undefined;
     record?: RecordFormRecord;
+    selectionContext?: RecordFormSelectionContext;
   } = {},
 ): RecordFormFieldState {
   const field = options.fields?.get(fieldName);
   const fallback = options.fallback?.[fieldName];
   const label = field?.label ?? fallback?.label ?? fieldName;
-  const required = evaluateUiRule(field?.required, options.record, fallback?.required ?? false);
-  const readOnly = evaluateUiRule(field?.readOnly, options.record, fallback?.readOnly ?? false);
-  const visible = evaluateUiRule(field?.visible, options.record, fallback?.visible ?? true);
+  const required = evaluateUiRule(
+    field?.required,
+    options.record,
+    fallback?.required ?? false,
+    options.selectionContext,
+  );
+  const readOnly = evaluateUiRule(
+    field?.readOnly,
+    options.record,
+    fallback?.readOnly ?? false,
+    options.selectionContext,
+  );
+  const visible = evaluateUiRule(
+    field?.visible,
+    options.record,
+    fallback?.visible ?? true,
+    options.selectionContext,
+  );
   const controlType = controlTypeOf(field, fallback);
   const booleanStatus = controlType === 'booleanStatus' ? field?.booleanStatus : undefined;
   const hasOption = field?.option != null;
@@ -403,14 +424,45 @@ function evaluateUiRule(
   rule: UiRule<boolean> | undefined,
   record: RecordFormRecord | undefined,
   fallback: boolean,
+  selectionContext?: RecordFormSelectionContext,
 ) {
   if (!rule) return fallback;
   if (typeof rule.constant === 'boolean') return rule.constant;
-  return rule.formula ? evaluateUiFormula(rule.formula, record ?? {}) : fallback;
+  return rule.formula ? evaluateUiFormula(rule.formula, record ?? {}, selectionContext) : fallback;
 }
 
-export function evaluateUiFormula(formula: UiFormula, record: RecordFormRecord): boolean {
-  return new FormulaRuntime().evaluateWebUi(formula.program, record);
+export function evaluateUiFormula(
+  formula: UiFormula,
+  record: RecordFormRecord,
+  selectionContext?: RecordFormSelectionContext,
+): boolean {
+  return new FormulaRuntime().evaluateWebUi(formula.program, { ...record, ...selectionContext });
+}
+
+/**
+ * Produces the only reference-derived values that WEB_UI formulas may observe. The descriptor
+ * owns both the source field and relative target paths; browser code never infers a path from a
+ * candidate object. The first delivery supports ONE references only.
+ */
+export function resolveReferenceSelectionContext(
+  sourceField: string,
+  reference: ResolvedReferenceFieldDescriptor | undefined,
+  record: RecordPickerRecord | undefined,
+): RecordFormSelectionContext {
+  if (reference?.cardinality !== 'ONE' || !record?.projections) return {};
+  const context: RecordFormSelectionContext = {};
+  for (const projection of reference.selectionProjections ?? []) {
+    if (!isReferenceSelectionProjectionPath(projection.path)) continue;
+    const projectionKey = projection.path.join('.');
+    if (Object.hasOwn(record.projections, projectionKey)) {
+      context[`${sourceField}.${projectionKey}`] = record.projections[projectionKey];
+    }
+  }
+  return context;
+}
+
+function isReferenceSelectionProjectionPath(path: string[]) {
+  return path.length > 0 && path.every((segment) => /^[A-Za-z][A-Za-z0-9_]*$/.test(segment));
 }
 
 /**

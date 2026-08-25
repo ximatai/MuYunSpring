@@ -21,12 +21,14 @@ import java.util.Comparator;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 
 @Service
 public class PlatformModuleService extends AbstractAbilityService<PlatformModule> implements
         SoftDeleteAbility<PlatformModule>,
         EnableAbility<PlatformModule>,
         TreeAbility<PlatformModule>,
+        ReferenceAbility<PlatformModule>,
         PlatformManagedProtectionAbility<PlatformModule>,
         QueryAbility<PlatformModule>,
         ApplicationReferenceContributor {

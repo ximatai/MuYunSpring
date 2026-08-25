@@ -5,7 +5,6 @@ import type {
   PageLayoutMode,
   RoutePageTarget,
 } from '@muyun/web-contracts';
-const MenuManagementView = defineAsyncComponent(() => import('../views/MenuManagementView.vue'));
 const RoleManagementView = defineAsyncComponent(() => import('../views/RoleManagementView.vue'));
 const RoleAuthorizationView = defineAsyncComponent(() => import('../views/RoleAuthorizationView.vue'));
 
@@ -20,12 +19,6 @@ export interface PlatformAdminRoute {
 }
 
 export const platformAdminRoutes: PlatformAdminRoute[] = [
-  {
-    route: '/platform/menu-scheme',
-    moduleAlias: 'platform.menu_scheme',
-    component: MenuManagementView,
-    layout: 'workspace',
-  },
   {
     route: '/iam/role',
     moduleAlias: 'iam.role',

@@ -65,10 +65,8 @@ public interface ReferenceAbility<T extends EntityContract & TitledCapable> exte
         }
         LinkedHashSet<String> normalizedIds = new LinkedHashSet<>(ids);
         LinkedHashSet<String> normalizedFields = new LinkedHashSet<>(fieldNames);
-        List<T> entities = getDao().query(
-                activeCriteria(Criteria.of().in(StandardEntitySchema.ID_FIELD, List.copyOf(normalizedIds))),
-                PageRequests.all()
-        ).stream().peek(this::restoreReferenceProtectedFields).toList();
+        List<T> entities = referenceOptionPage(Criteria.of().in(StandardEntitySchema.ID_FIELD,
+                List.copyOf(normalizedIds)), PageRequests.all()).getRecords();
         Map<String, Map<String, Object>> loaded = new LinkedHashMap<>();
         for (T entity : entities) {
             Map<String, Object> values = new LinkedHashMap<>();

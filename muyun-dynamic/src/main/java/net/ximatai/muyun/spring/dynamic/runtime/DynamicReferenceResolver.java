@@ -5,6 +5,8 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
+import net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceAffectDefinition;
@@ -162,7 +164,7 @@ final class DynamicReferenceResolver {
     }
 
     private Map<String, Object> projectionValues(DynamicRecord record, boolean includeProjections) {
-        if (!includeProjections || plan.projections().isEmpty()) {
+        if (!includeProjections || (plan.projections().isEmpty() && plan.selectionProjections().isEmpty())) {
             return Map.of();
         }
         Map<String, Object> values = new LinkedHashMap<>();
@@ -173,7 +175,29 @@ final class DynamicReferenceResolver {
                     FieldOutputContext.REFERENCE
             ));
         }
+        for (ReferenceSelectionProjection projection : plan.selectionProjections()) {
+            values.put(projection.key(), selectionProjectionValue(record, projection));
+        }
         return values;
+    }
+
+    private Object selectionProjectionValue(DynamicRecord source, ReferenceSelectionProjection projection) {
+        DynamicEntityService current = targetService;
+        DynamicRecord record = source;
+        List<String> path = projection.path();
+        for (String field : path.subList(0, path.size() - 1)) {
+            ReferencePlan hop = current.referencePlan(field);
+            if (hop.cardinality() != ReferenceCardinality.ONE) {
+                throw new IllegalArgumentException("selection projection hop requires cardinality ONE: " + field);
+            }
+            Object id = record.getValue(field);
+            if (id == null) return null;
+            current = current.referenceService(hop.target());
+            record = current.activeRaw(String.valueOf(id));
+            if (record == null) return null;
+        }
+        String terminal = projection.targetField();
+        return current.maskProtectedValue(terminal, record.getValue(terminal), FieldOutputContext.REFERENCE);
     }
 
     private Map<String, Object> affectPatch(DynamicRecord record) {

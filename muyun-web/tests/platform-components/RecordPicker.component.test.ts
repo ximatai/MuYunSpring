@@ -118,6 +118,31 @@ it('translates a selected ID missing from the candidate page through the source 
   ]);
 });
 
+it('publishes the resolved edit value with its authorized projections', async () => {
+  const resolveOptions = vi
+    .fn()
+    .mockResolvedValue([{ id: 'platform.module', title: '模块管理', projections: { entryType: 'MODULE' } }]);
+  const wrapper = shallowMount(RecordPicker, {
+    props: {
+      mode: 'list',
+      value: 'platform.module',
+      loadOptions: vi.fn().mockResolvedValue([]),
+      resolveOptions,
+      context: {
+        runtime: { ready: Promise.resolve() },
+        abilities: { tryTree: () => undefined },
+        crud: { query: vi.fn() },
+      } as never,
+    },
+  });
+
+  await flushPromises();
+
+  assert.deepEqual(wrapper.emitted('selection-resolved')?.at(-1), [
+    { id: 'platform.module', title: '模块管理', projections: { entryType: 'MODULE' } },
+  ]);
+});
+
 it('filters tree candidates when a multi-value picker is searched', async () => {
   const tree = vi.fn().mockResolvedValue({
     records: [

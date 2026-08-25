@@ -55,6 +55,11 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:value': [value: string | undefined];
   select: [record: RecordPickerRecord | undefined];
+  /**
+   * Emits the record resolved for the current value, including during edit restoration.
+   * Consumers use it for transient UI state only; `select` retains its user-selection semantics.
+   */
+  'selection-resolved': [record: RecordPickerRecord | undefined];
 }>();
 const loading = ref(false);
 const error = ref<string>();
@@ -88,7 +93,10 @@ watch(keyword, () => {
 });
 watch(
   () => props.value,
-  () => void resolveSelectedOption(),
+  () => {
+    emitResolvedSelection();
+    void resolveSelectedOption();
+  },
 );
 
 async function loadRecords() {
@@ -107,6 +115,7 @@ async function loadRecords() {
     if (actualMode.value === 'tree' && treeAbility) {
       tree.value = props.loadTree ? await props.loadTree() : (await treeAbility.tree()).records;
       records.value = flattenTreeRecords(tree.value);
+      await resolveSelectedOption();
       return;
     }
     await loadListRecords();
@@ -120,9 +129,29 @@ async function loadRecords() {
 
 async function resolveSelectedOption() {
   const value = props.value;
-  if (!props.resolveOptions || !value || records.value.some((record) => record.id === value)) return;
+  if (!value) {
+    emit('selection-resolved', undefined);
+    return;
+  }
+  const existing = records.value.find((record) => record.id === value);
+  if (existing) {
+    emit('selection-resolved', existing);
+    return;
+  }
+  if (!props.resolveOptions) {
+    emit('selection-resolved', undefined);
+    return;
+  }
   const resolved = await props.resolveOptions([value]);
+  // An earlier request may settle after the form has moved to a different record.
+  if (props.value !== value) return;
   records.value = [...records.value, ...resolved.filter((record) => record.id !== undefined)];
+  emitResolvedSelection();
+}
+
+function emitResolvedSelection() {
+  const value = props.value;
+  emit('selection-resolved', value ? records.value.find((record) => record.id === value) : undefined);
 }
 
 async function loadListRecords() {
@@ -169,12 +198,14 @@ function updateValue(value: string | number | (string | number)[] | null) {
   if (id == null) {
     emit('update:value', undefined);
     emit('select', undefined);
+    emit('selection-resolved', undefined);
     return;
   }
   const record = records.value.find((item) => item.id === String(id));
   if (!record || isRecordDisabled(record)) return;
   emit('update:value', record.id);
   emit('select', record);
+  emit('selection-resolved', record);
 }
 </script>
 

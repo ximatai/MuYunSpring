@@ -10,6 +10,10 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoadPath;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoadReader;
+import net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateCriteria;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -100,8 +104,11 @@ public class StaticReferenceResolveFacade {
         }
         PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
         PageResult<ReferenceOption> result = referenceOptions(plan.target(), criteria, pageRequest);
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
+                result.getRecords().stream().map(ReferenceOption::id).toList());
         List<WebReferenceResolveItem> options = result.getRecords().stream()
-                .map(option -> new WebReferenceResolveItem(option.id(), option.title(), null, null, null)).toList();
+                .map(option -> new WebReferenceResolveItem(option.id(), option.title(), null,
+                        selectionProjections.get(option.id()), null)).toList();
         return new WebReferenceResolveResponse(options.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,
                 WebReferenceResolveMode.QUERY, options, List.of(), pageRequest.getOffset(), page.pageSize(), result.getTotal());
     }
@@ -116,11 +123,13 @@ public class StaticReferenceResolveFacade {
         }
         Map<String, String> titles = referenceOptions(plan.target(), criteria, PageRequests.all()).getRecords().stream()
                 .collect(java.util.stream.Collectors.toMap(ReferenceOption::id, ReferenceOption::title, (left, right) -> left));
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan, ids);
         List<WebReferenceResolveResult> results = request.values().stream().map(value -> {
             String id = value == null ? null : String.valueOf(value);
             String title = id == null ? null : titles.get(id);
             WebReferenceResolveItem item = title == null ? null
-                    : new WebReferenceResolveItem(id, title, WebReferenceMatchMode.KEY, null, null);
+                    : new WebReferenceResolveItem(id, title, WebReferenceMatchMode.KEY,
+                    selectionProjections.get(id), null);
             return new WebReferenceResolveResult(value,
                     item == null ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.RESOLVED,
                     item == null ? null : WebReferenceMatchMode.KEY, item, List.of());
@@ -142,8 +151,10 @@ public class StaticReferenceResolveFacade {
         }
         Map<String, List<TreeCapable>> children = treeChildrenByParent((ReferenceAbility) referenceAbility,
                 candidateCriteria(plan, request));
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
+                children.values().stream().flatMap(List::stream).map(TreeCapable::getId).toList());
         List<WebTreeNode<WebReferenceResolveItem>> nodes = children.getOrDefault(TreeAbility.ROOT_ID, List.of()).stream()
-                .map(record -> treeNode((ReferenceAbility) referenceAbility, children, record))
+                .map(record -> treeNode((ReferenceAbility) referenceAbility, children, record, selectionProjections))
                 .toList();
         return new WebReferenceResolveResponse(nodes.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,
                 WebReferenceResolveMode.TREE, List.of(), List.of(), 0, 0, nodes.size(), nodes);
@@ -174,12 +185,73 @@ public class StaticReferenceResolveFacade {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private WebTreeNode<WebReferenceResolveItem> treeNode(ReferenceAbility referenceAbility,
                                                            Map<String, List<TreeCapable>> children,
-                                                           TreeCapable record) {
+                                                           TreeCapable record,
+                                                           Map<String, Map<String, Object>> selectionProjections) {
         WebReferenceResolveItem item = new WebReferenceResolveItem(record.getId(),
-                referenceAbility.referenceTitle(record), null, null, null);
+                referenceAbility.referenceTitle(record), null, selectionProjections.get(record.getId()), null);
         return new WebTreeNode<>(item, children.getOrDefault(record.getId(), List.of()).stream()
-                .map(child -> treeNode(referenceAbility, children, child))
+                .map(child -> treeNode(referenceAbility, children, child, selectionProjections))
                 .toList());
+    }
+
+    private Map<String, Map<String, Object>> selectionProjections(ReferencePlan plan, List<String> ids) {
+        if (plan.selectionProjections().isEmpty() || ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        for (ReferenceSelectionProjection projection : plan.selectionProjections()) {
+            Map<String, Object> values = selectionProjectionValues(plan.target(), projection, ids);
+            values.forEach((id, value) -> result.computeIfAbsent(id, ignored -> new LinkedHashMap<>())
+                    .put(projection.key(), value));
+        }
+        return result.entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey,
+                entry -> Map.copyOf(entry.getValue()), (left, right) -> left, LinkedHashMap::new));
+    }
+
+    private Map<String, Object> selectionProjectionValues(ReferenceTarget target,
+                                                          ReferenceSelectionProjection projection,
+                                                          List<String> ids) {
+        if (projection.path().size() == 1) {
+            Map<String, Map<String, Object>> values = targetProjections(target, ids, projection.path());
+            return values.entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey,
+                    entry -> entry.getValue().get(projection.targetField()), (left, right) -> left, LinkedHashMap::new));
+        }
+        ReferenceLoadPath path = selectionProjectionPath(target, projection);
+        return ReferenceLoadReader.readAll(path, ids, this::referenceAbility);
+    }
+
+    private ReferenceLoadPath selectionProjectionPath(ReferenceTarget sourceTarget,
+                                                       ReferenceSelectionProjection projection) {
+        ReferenceTarget current = sourceTarget;
+        List<ReferenceLoadPath.Hop> hops = new java.util.ArrayList<>();
+        for (String field : projection.path().subList(0, projection.path().size() - 1)) {
+            ReferenceTarget hopSource = current;
+            ReferencePlan hop = StaticReferenceResolver.plans(referenceAbility(hopSource).modelClass()).stream()
+                    .filter(candidate -> candidate.sourceField().equals(field))
+                    .findFirst().orElseThrow(() -> new PlatformException("selection projection hop is not a declared reference: "
+                            + hopSource.qualifiedName() + "." + field));
+            if (hop.cardinality() != ReferenceCardinality.ONE) {
+                throw new PlatformException("selection projection hop requires cardinality ONE: "
+                        + hopSource.qualifiedName() + "." + field);
+            }
+            hops.add(new ReferenceLoadPath.Hop(hop.target(), field));
+            current = hop.target();
+        }
+        return new ReferenceLoadPath("selection", sourceTarget, hops, projection.targetField(), projection.key());
+    }
+
+    private ReferenceAbility<?> referenceAbility(ReferenceTarget target) {
+        return abilities.findReference(target)
+                .orElseThrow(() -> new PlatformException("selection projection target is not a static reference: "
+                        + target.qualifiedName()));
+    }
+
+    private Map<String, Map<String, Object>> targetProjections(ReferenceTarget target, List<String> ids,
+                                                                 List<String> fields) {
+        ReferenceAbility<?> staticTarget = abilities.findReference(target).orElse(null);
+        if (staticTarget != null) return staticTarget.projections(ids, fields);
+        if (dynamicRecords != null) return dynamicRecords.projections(target.moduleAlias(), target.entityAlias(), ids, fields);
+        throw new PlatformException("reference target is not available: " + target.qualifiedName());
     }
 
     private Criteria candidateCriteria(ReferencePlan plan, WebReferenceResolveRequest request) {

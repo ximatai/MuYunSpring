@@ -137,6 +137,8 @@ const navigatorEntryPolicy = ref<ModulePageNavigatorEnhancement>({});
 // page module as the authorization/runtime owner and switch only the standard
 // CRUD/tree transport after the last navigator range is selected.
 const activeTreeResourceClient = ref<ModuleTreeClient<QueryListRecord>>();
+const treeReloadKey = ref(0);
+const selectedTreeRecord = ref<QueryListRecord>();
 const moduleRequestPrefix = `/${props.descriptor.target.moduleAlias}`;
 const rawContext = createModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
@@ -323,7 +325,7 @@ const mainTreeScopeReady = computed(() =>
 );
 watch(
   [treeResource, treeResourceScopeRecord, treeResourceScopeReady],
-  ([resource, scopeRecord, scopeReady]) => {
+  ([resource, scopeRecord, scopeReady], [previousResource, previousScopeRecord, previousScopeReady]) => {
     const scopeId = scopeRecord?.id == null ? undefined : String(scopeRecord.id);
     activeTreeResourceClient.value =
       resource && scopeId && scopeReady
@@ -332,6 +334,23 @@ watch(
             `/${context.moduleAlias}/tree-resources/${encodeURIComponent(resource.resource)}/${encodeURIComponent(scopeId)}`,
           )
         : undefined;
+
+    const scopeChanged =
+      previousResource !== undefined &&
+      (resource?.resource !== previousResource?.resource ||
+        scopeId !== (previousScopeRecord?.id == null ? undefined : String(previousScopeRecord.id)) ||
+        scopeReady !== previousScopeReady);
+    if (!scopeChanged) return;
+
+    // The tree explorer keeps a stable context object. A navigator scope switch
+    // must therefore explicitly invalidate its old resource tree and detail;
+    // otherwise a former scope's node is read through the newly scoped client.
+    invalidatePendingRequests();
+    treeReloadKey.value += 1;
+    selectedTreeRecord.value = undefined;
+    detail.close();
+    selectedRecord.value = undefined;
+    editingRecord.value = undefined;
   },
   { immediate: true },
 );
@@ -351,8 +370,6 @@ const {
   reload: reloadModulePage,
   closeDetail,
 });
-const treeReloadKey = ref(0);
-const selectedTreeRecord = ref<QueryListRecord>();
 const treeSearchKeyword = ref('');
 const flatManagementSearchKeyword = ref('');
 const flatManagementReloadKey = ref(0);
@@ -592,6 +609,9 @@ const showDetailSystemInfo = computed(() => runtimePage.value?.detail?.showSyste
 // A tree domain owns the explorer; TREE_MANAGEMENT owns the matching detail surface.
 // Keep the capability fallback for older static modules that have not yet declared a page root.
 const treeManagementPage = computed(() => runtimePage.value?.template === 'TREE_MANAGEMENT');
+// TREE_MANAGEMENT keeps the resource detail in its right card even when the page module itself
+// is only the navigator host and the actual tree arrives through a treeResource contribution.
+const persistentTreeDetail = computed(() => treeManagementPage.value || treeModule.value);
 const listDetailMinimumWidth = computed(() =>
   listDetailWorkspaceMinWidth(visibleNavigatorLevels.value.length),
 );
@@ -662,6 +682,41 @@ const mainTreeScopeDescription = computed(() => {
   if (!resource || !treeResourceScopeRecord.value?.id) return '请先选择导航范围';
   if (resource.scopeRecordField) return '当前导航范围不支持维护此资源';
   return '请先选择导航范围';
+});
+const treeResourceScopeContext = computed(() => {
+  const resource = treeResource.value;
+  return resource ? navigatorScopeContext([resource.scopeNavigatorKey]) : undefined;
+});
+function navigatorScopeContext(keys: readonly string[]): string | undefined {
+  const keySet = new Set(keys);
+  const values = navigatorLevels.value.flatMap((level) => {
+    if (!keySet.has(level.descriptor.key)) return [];
+    const record = selectedNavigatorRecords.value[level.descriptor.key];
+    const title = recordTitle(record);
+    if (!record || !title) return [];
+    const secondaryField = level.descriptor.secondaryField;
+    const secondary = secondaryField == null ? undefined : record[secondaryField];
+    const displayTitle = secondary && String(secondary) !== title ? `${title}（${secondary}）` : title;
+    return [`${level.descriptor.title}：${displayTitle}`];
+  });
+  return values.length === 0 ? undefined : values.join(' · ');
+}
+function navigatorPanelScopeContext(levelKey: string): string | undefined {
+  return navigatorScopeContext(
+    pageContextBindings.value
+      .filter(
+        (binding) => binding.target === 'NAVIGATOR_QUERY' && binding.targetNavigatorLevelKey === levelKey,
+      )
+      .map((binding) => binding.sourceKey),
+  );
+}
+const mainTreeScopeContext = computed(() => {
+  if (treeResource.value) return treeResourceScopeContext.value;
+  return navigatorScopeContext(
+    pageContextBindings.value
+      .filter((binding) => binding.target === 'LIST_QUERY' && binding.source === 'NAVIGATOR')
+      .map((binding) => binding.sourceKey),
+  );
 });
 const treeRootTitle = computed(
   () => formFields.value.get('parentId')?.treeRootTitle ?? `根${recordLabel.value}`,
@@ -994,7 +1049,7 @@ const detailRelationsAvailable = computed(() => {
   );
 });
 const treeParentPickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() => {
-  if (!treeModule.value || !formFields.value.has('parentId')) {
+  if (!persistentTreeDetail.value || !formFields.value.has('parentId')) {
     return {} as Record<string, RecordFormFieldPickerConfig>;
   }
   const hasPickerQueryScope = pickerQueryFieldNames.value.has('parentId');
@@ -1054,6 +1109,9 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
         id: item.id,
         title: item.title,
         ...(item.projections ?? {}),
+        // Keep resolver projections distinct from the draft-shaped convenience fields above:
+        // RecordFormFields exposes only descriptor-declared paths to WEB_UI formulas.
+        projections: item.projections,
         affectPatch: item.affectPatch,
       });
       sourceReferencePickerConfig.loadOptions = async (keyword: string) => {
@@ -1473,20 +1531,30 @@ function createNavigatorRecord(level: NavigatorLevelRuntime, parentId?: string) 
   // Incoming navigator bindings constrain this source and must also establish
   // its ownership fields when creating a new source record (for example,
   // tenantId on a tenant-scoped category). Tree child creation adds parentId.
+  const sessionFormDefaults = resolvePageContextTargetValues(
+    pageContextBindings.value.filter(
+      (binding) => binding.source === 'SESSION' && binding.target === 'FORM_DEFAULT',
+    ),
+    'FORM_DEFAULT',
+    pageContextSourceValues.value,
+  );
   const defaults = {
+    ...(sessionFormDefaults ?? {}),
     ...(navigatorExplorerQueryValues(level.descriptor.key) ?? {}),
     ...(parentId ? { parentId } : {}),
   };
   navigatorManagementDetail.beginCreate(defaults);
   const draft = navigatorManagementDetail.draft.value;
   if (draft) {
-    navigatorManagementDetail.draft.value = applyFormComputeAfterChanges(
-      draft,
-      Object.keys(defaults),
+    const computeRules =
       formComputeRulesOf(
         level.context.runtime.snapshot()?.uiDescriptor,
         level.descriptor.management?.editorSurface,
-      ),
+      ) ?? [];
+    navigatorManagementDetail.draft.value = applyFormComputeAfterChanges(
+      draft,
+      Object.keys(defaults),
+      computeRules,
     );
   }
 }
@@ -1768,7 +1836,7 @@ function formComputeRulesOf(
   editorSurface?: string,
 ): readonly ResolvedFormComputeRuleDescriptor[] | undefined {
   const view = formViewOf(uiDescriptor, editorSurface);
-  return view?.formComputeRules;
+  return view?.formComputeRules ?? [];
 }
 
 function formViewOf(
@@ -1804,7 +1872,7 @@ function createRecord(parentId?: string) {
   // Only a tree's persistent detail card has a meaningful record to restore.
   // A list drawer creates an independent draft: cancelling it must close the
   // drawer rather than reopen the row that happened to be selected.
-  detail.beginCreate(defaults, { cancelDestination: treeModule.value ? 'restore-view' : 'close' });
+  detail.beginCreate(defaults, { cancelDestination: persistentTreeDetail.value ? 'restore-view' : 'close' });
   if (editingRecord.value) {
     editingRecord.value = applyFormComputeAfterChanges(
       editingRecord.value,
@@ -1873,7 +1941,7 @@ async function saveRecord() {
       void context.recordActions(savedId).catch(() => undefined);
     }
     selectedRecord.value = persistedRecord;
-    if (treeModule.value) {
+    if (persistentTreeDetail.value) {
       selectedTreeRecord.value = persistedRecord;
     }
     detail.applySaved(persistedRecord);
@@ -2064,7 +2132,7 @@ function modulePageActionStateContext(): ModulePageActionStateContext {
 
 function reloadModulePage() {
   refreshList();
-  if (!treeModule.value) {
+  if (!persistentTreeDetail.value) {
     treeReloadKey.value += 1;
   }
 }
@@ -2074,7 +2142,7 @@ function reloadModulePage() {
  * RecordQueryListPanel observes reloadKey and only re-runs loadRecords().
  */
 function refreshList() {
-  if (treeModule.value) {
+  if (persistentTreeDetail.value) {
     treeReloadKey.value += 1;
     return;
   }
@@ -2670,6 +2738,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :ready="navigatorManagementScopeReady(level)"
           :create-disabled="!navigatorManagementScopeReady(level)"
           :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
+          :scope-subtitle="navigatorPanelScopeContext(level.descriptor.key)"
           :actions-of="(record) => navigatorInlineActions(level, record)"
           @update:keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
@@ -2715,6 +2784,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       <ManagementExplorerColumn>
         <RecordExplorerPanel
           :title="`${modulePageTitle}树`"
+          :subtitle="mainTreeScopeContext"
           :refresh-title="`刷新${modulePageTitle}树`"
           :search-keyword="treeSearchKeyword"
           :search-placeholder="listSearchPlaceholder"
@@ -2961,7 +3031,7 @@ function recordTitle(record: QueryListRecord | undefined) {
     </RecordQueryListPanel>
 
     <RecordModeDrawer
-      v-if="!treeModule && !flatManagementPage && (!listDetailCardPage || detailSurfaceUsesDrawer)"
+      v-if="!persistentTreeDetail && !flatManagementPage && (!listDetailCardPage || detailSurfaceUsesDrawer)"
       :open="detailOpen"
       :title="detailTitle"
       render-mode="inline"

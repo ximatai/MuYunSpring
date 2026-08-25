@@ -3,11 +3,14 @@ package net.ximatai.muyun.spring.platform.web;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 
 /**
- * Declares the executable main tree of a {@link ModulePageTemplate#TREE_MANAGEMENT} page.
+ * Declares the executable <em>contributed</em> main tree of a
+ * {@link ModulePageTemplate#TREE_MANAGEMENT} page.
  *
- * <p>The containing module remains the page and authorization owner.  {@code resource} names a
- * registered static action contribution; {@code scopeNavigatorKey} supplies the persisted parent
- * selected in the page navigator.  The browser never receives a business-specific route.</p>
+ * <p>This is deliberately not the normal tree of the containing module. The containing module
+ * remains the page and authorization owner; {@code resource} names a separately registered static
+ * action contribution. {@code scopeNavigatorKey} supplies the persisted parent selected in the page
+ * navigator and {@code scopeField} is the contribution's required parent binding. The browser never
+ * receives a business-specific route.</p>
  */
 public record PageTreeResourceDefinition(String resource, String scopeNavigatorKey, String scopeField,
                                          String scopeRecordField, String scopeRecordEquals,

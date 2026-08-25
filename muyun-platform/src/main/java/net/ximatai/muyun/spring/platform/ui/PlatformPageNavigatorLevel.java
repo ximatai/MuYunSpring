@@ -8,6 +8,7 @@ public record PlatformPageNavigatorLevel(String key,
                                          String sourceModuleAlias,
                                          String title,
                                          String searchPlaceholder,
+                                         String secondaryField,
                                          PlatformPageNavigatorManagement management,
                                          String singleResultPolicy,
                                          String initialSelectionPolicy,
@@ -27,6 +28,8 @@ public record PlatformPageNavigatorLevel(String key,
         sourceModuleAlias = PlatformNameRules.requireModuleAlias(sourceModuleAlias);
         title = title == null || title.isBlank() ? null : title.trim();
         searchPlaceholder = searchPlaceholder == null || searchPlaceholder.isBlank() ? null : searchPlaceholder.trim();
+        secondaryField = secondaryField == null || secondaryField.isBlank()
+                ? null : PlatformNameRules.requireFieldName(secondaryField, "navigator secondary field");
         singleResultPolicy = singleResultPolicy == null || singleResultPolicy.isBlank()
                 ? "NONE" : singleResultPolicy.trim();
         initialSelectionPolicy = initialSelectionPolicy == null || initialSelectionPolicy.isBlank()
@@ -35,6 +38,13 @@ public record PlatformPageNavigatorLevel(String key,
         requireSupported(singleResultPolicy, SINGLE_RESULT_POLICIES, "singleResultPolicy");
         requireSupported(initialSelectionPolicy, INITIAL_SELECTION_POLICIES, "initialSelectionPolicy");
         requireSupported(sourceScope, SOURCE_SCOPES, "sourceScope");
+    }
+
+    public PlatformPageNavigatorLevel(String key, String kind, String sourceModuleAlias, String title,
+                                      String searchPlaceholder, PlatformPageNavigatorManagement management,
+                                      String singleResultPolicy, String initialSelectionPolicy, String sourceScope) {
+        this(key, kind, sourceModuleAlias, title, searchPlaceholder, null, management, singleResultPolicy,
+                initialSelectionPolicy, sourceScope);
     }
 
     private static void requireSupported(String value, java.util.Set<String> supported, String name) {

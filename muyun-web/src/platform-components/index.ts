@@ -165,7 +165,6 @@ export {
   createEmptyStaticTreeClient,
   createStaticTreeResourceModuleContext,
 } from './staticTreeResourceModuleContext';
-export { createScopedResourceTreeModuleContext } from './scopedResourceTreeModuleContext';
 export {
   presentPlatformError,
   presentPlatformMessage,
@@ -214,4 +213,3 @@ export type {
 export type { TreeRecordBase } from './treeRecordModel';
 export type { ScopedTreeModuleContextOptions } from './scopedTreeModuleContext';
 export type { StaticTreeResourceModuleContextOptions } from './staticTreeResourceModuleContext';
-export type { ScopedResourceTreeModuleContextOptions } from './scopedResourceTreeModuleContext';

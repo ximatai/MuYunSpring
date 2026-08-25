@@ -40,6 +40,67 @@ import static org.mockito.Mockito.when;
 
 class StaticReferenceResolveFacadeTest {
     @Test
+    void shouldDeliverExplicitSelectionProjectionsWithoutWritingTheSourceRecord() {
+        @SuppressWarnings("unchecked") CrudAbility<SelectionOrder> source = mock(CrudAbility.class);
+        doReturn(SelectionOrder.class).when(source).modelClass();
+        doReturn("sales.selection_order").when(source).getModuleAlias();
+        @SuppressWarnings("unchecked") ReferenceAbility<Customer> target = mock(ReferenceAbility.class);
+        doReturn(Customer.class).when(target).modelClass();
+        doReturn("crm.customer").when(target).getModuleAlias();
+        when(target.referenceOptions(any(), any(PageRequest.class)))
+                .thenReturn(PageResult.of(List.of(new ReferenceOption("customer-1", "星云科技")), 1,
+                        PageRequest.of(1, 20)));
+        when(target.projections(List.of("customer-1"), List.of("status")))
+                .thenReturn(Map.of("customer-1", Map.of("status", "ACTIVE")));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.selection_order", "订单")
+                .modelClass(SelectionOrder.class).build();
+        StaticReferenceResolveFacade facade = new StaticReferenceResolveFacade(
+                new StaticModuleDefinitionCatalog(List.of(definition)), new StaticAbilityCatalog(List.of(source, target)));
+
+        var response = facade.resolve("sales.selection_order", "customerId", new WebReferenceResolveRequest(
+                WebReferenceResolveMode.QUERY, null, null, List.of(), List.of(), null,
+                new net.ximatai.muyun.spring.web.WebPageRequest(1, 20), true, null, null, null, null, null));
+
+        assertThat(response.options()).singleElement().satisfies(item ->
+                assertThat(item.projections()).containsEntry("status", "ACTIVE"));
+        verify(target).projections(List.of("customer-1"), List.of("status"));
+    }
+
+    @Test
+    void shouldDeliverExplicitMultiHopSelectionProjection() {
+        @SuppressWarnings("unchecked") CrudAbility<MultiHopSelectionOrder> source = mock(CrudAbility.class);
+        doReturn(MultiHopSelectionOrder.class).when(source).modelClass();
+        doReturn("sales.multi_hop_selection_order").when(source).getModuleAlias();
+        @SuppressWarnings("unchecked") ReferenceAbility<SelectionCustomer> customer = mock(ReferenceAbility.class);
+        doReturn(SelectionCustomer.class).when(customer).modelClass();
+        doReturn("crm.customer").when(customer).getModuleAlias();
+        when(customer.referenceOptions(any(), any(PageRequest.class)))
+                .thenReturn(PageResult.of(List.of(new ReferenceOption("customer-1", "星云科技")), 1,
+                        PageRequest.of(1, 20)));
+        when(customer.projections(List.of("customer-1"), List.of("organizationId")))
+                .thenReturn(Map.of("customer-1", Map.of("organizationId", "organization-1")));
+        @SuppressWarnings("unchecked") ReferenceAbility<SelectionOrganization> organization = mock(ReferenceAbility.class);
+        doReturn(SelectionOrganization.class).when(organization).modelClass();
+        doReturn("crm.organization").when(organization).getModuleAlias();
+        when(organization.projections(List.of("organization-1"), List.of("regionCode")))
+                .thenReturn(Map.of("organization-1", Map.of("regionCode", "CN-31")));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.multi_hop_selection_order", "订单")
+                .modelClass(MultiHopSelectionOrder.class).build();
+        StaticReferenceResolveFacade facade = new StaticReferenceResolveFacade(
+                new StaticModuleDefinitionCatalog(List.of(definition)),
+                new StaticAbilityCatalog(List.of(source, customer, organization)));
+
+        var response = facade.resolve("sales.multi_hop_selection_order", "customerId", new WebReferenceResolveRequest(
+                WebReferenceResolveMode.QUERY, null, null, List.of(), List.of(), null,
+                new net.ximatai.muyun.spring.web.WebPageRequest(1, 20), true, null, null, null, null, null));
+
+        assertThat(response.options()).singleElement().satisfies(item ->
+                assertThat(item.projections()).containsEntry("organizationId.regionCode", "CN-31"));
+        verify(customer).projections(List.of("customer-1"), List.of("organizationId"));
+        verify(organization).projections(List.of("organization-1"), List.of("regionCode"));
+    }
+
+    @Test
     void shouldKeepNullBusinessValuesInReferenceResolveFormContext() {
         Map<String, Object> formValues = new LinkedHashMap<>();
         formValues.put("mobile", null);
@@ -319,6 +380,25 @@ class StaticReferenceResolveFacadeTest {
     private static final class Order extends StandardEntity {
         @ReferenceTo(moduleAlias = "crm", entityAlias = "customer")
         private String customerId;
+    }
+
+    private static final class SelectionOrder extends StandardEntity {
+        @ReferenceTo(moduleAlias = "crm", entityAlias = "customer", selectionProjections = "status")
+        private String customerId;
+    }
+
+    private static final class MultiHopSelectionOrder extends StandardEntity {
+        @ReferenceTo(moduleAlias = "crm", entityAlias = "customer", selectionProjections = "organizationId.regionCode")
+        private String customerId;
+    }
+
+    private static final class SelectionCustomer extends StandardTitledEntity {
+        @ReferenceTo(moduleAlias = "crm", entityAlias = "organization")
+        private String organizationId;
+    }
+
+    private static final class SelectionOrganization extends StandardTitledEntity {
+        private String regionCode;
     }
 
     private static final class Customer extends StandardTitledEntity {

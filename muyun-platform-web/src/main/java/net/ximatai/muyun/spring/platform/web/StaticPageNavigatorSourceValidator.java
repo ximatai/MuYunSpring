@@ -53,7 +53,8 @@ final class StaticPageNavigatorSourceValidator {
                 .collect(Collectors.toUnmodifiableSet());
         PageCapabilityContractValidator.validate(definition.moduleAlias(), page.template().name(),
                 traits(page).stream().map(Enum::name).collect(Collectors.toUnmodifiableSet()),
-                definition.capabilities().stream().map(Enum::name).collect(Collectors.toUnmodifiableSet()), actionCodes);
+                definition.capabilities().stream().map(Enum::name).collect(Collectors.toUnmodifiableSet()), actionCodes,
+                page instanceof TreeManagementPageDefinition tree && tree.treeResource() != null);
         if (page instanceof TreeManagementPageDefinition tree && tree.treeResource() != null) {
             validateTreeResource(definition, actionCodes, tree.treeResource());
         }
@@ -61,6 +62,23 @@ final class StaticPageNavigatorSourceValidator {
 
     private static void validateTreeResource(StaticModuleDefinition definition, Set<String> actionCodes,
                                              PageTreeResourceDefinition resource) {
+        if (!definition.entities().isEmpty()
+                && definition.entities().getFirst().alias().equals(resource.resource())) {
+            throw new IllegalStateException("tree resource must be a contributed resource, not the page module tree: module="
+                    + definition.moduleAlias() + ", resource=" + resource.resource());
+        }
+        PageDetailEditorContribution contribution = definition.uiDefinition().editorContributions().stream()
+                .filter(candidate -> candidate.resource().equals(resource.resource()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("tree resource requires an editor contribution: module="
+                        + definition.moduleAlias() + ", resource=" + resource.resource()));
+        boolean hasScopeField = contribution.editor().fields().stream()
+                .anyMatch(field -> field.fieldRef().fieldName().equals(resource.scopeField()));
+        if (!hasScopeField) {
+            throw new IllegalStateException("tree resource editor must declare its scope field: module="
+                    + definition.moduleAlias() + ", resource=" + resource.resource() + ", field="
+                    + resource.scopeField());
+        }
         for (PlatformAction action : List.of(PlatformAction.CREATE, PlatformAction.VIEW, PlatformAction.UPDATE,
                 PlatformAction.DELETE, PlatformAction.QUERY, PlatformAction.TREE, PlatformAction.SORT)) {
             String actionCode = resource.resource() + "_" + action.code();

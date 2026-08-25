@@ -351,6 +351,7 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     @Test
     void shouldDeclareMenusForCoreAdministrationEntryPoints() {
         assertMenu(ApplicationWebController.class, PlatformMenuGroups.MODELING, "应用管理", 10);
+        assertMenu(MenuManagementWebController.class, PlatformMenuGroups.SETTINGS, "菜单管理", 10);
         assertMenu(OrganizationWebController.class, PlatformMenuGroups.IDENTITY, "", 20);
         assertMenu(DepartmentWebController.class, PlatformMenuGroups.IDENTITY, "部门管理", 30);
         assertMenu(PositionWebController.class, PlatformMenuGroups.IDENTITY, "岗位管理", 40);

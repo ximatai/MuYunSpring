@@ -139,8 +139,11 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
 
     private void normalizeAndValidate(MenuScheme scheme) {
         scheme.setAlias(requireAlias(scheme.getAlias()));
-        if (scheme.getScopeType() == null) {
-            scheme.setScopeType(MenuScopeType.TENANT);
+        if (scheme.getScopeType() == null || (TenantContext.isSystem()
+                && scheme.getScopeType() == MenuScopeType.TENANT
+                && (scheme.getTenantId() == null || scheme.getTenantId().isBlank())
+                && (scheme.getScopeId() == null || scheme.getScopeId().isBlank()))) {
+            scheme.setScopeType(TenantContext.isSystem() ? MenuScopeType.SYSTEM : MenuScopeType.TENANT);
         }
         normalizeScope(scheme);
         rejectDuplicateAlias(scheme);
