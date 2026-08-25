@@ -119,18 +119,19 @@ const emit = defineEmits<{
 }
 
 .management-panel-header-title-action {
-  position: relative;
-  z-index: 0;
   display: inline-flex;
+  align-items: center;
   max-width: 100%;
   min-width: 0;
   height: 100%;
-  padding: 0;
+  margin-inline-start: -4px;
+  padding: 0 4px;
   border: 0;
   background: transparent;
   border-radius: 4px;
   color: inherit;
   font: inherit;
+  transition: background 120ms ease;
 }
 
 .management-panel-header-title--action {
@@ -145,45 +146,29 @@ const emit = defineEmits<{
   white-space: nowrap;
 }
 
-.management-panel-header-title-action::before {
-  position: absolute;
-  z-index: -1;
-  inset: 0 -24px 0 -4px;
-  border-radius: 4px;
+:deep(.management-panel-header-title-action.ant-btn-text:not(:disabled):hover),
+:deep(.management-panel-header-title-action.ant-btn-text:not(:disabled):focus-visible) {
   background: var(--muyun-hover);
-  content: '';
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
-}
-
-:deep(.management-panel-header-title-action.ant-btn-text:not(:disabled):hover) {
-  background: transparent;
 }
 
 .management-panel-header-title-action :deep(.ui-button-trailing-icon) {
-  position: absolute;
-  top: 50%;
-  left: calc(100% + 6px);
-  width: 14px;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 0;
   margin-inline: 0;
   color: var(--muyun-text-muted);
   opacity: 0;
   overflow: hidden;
-  transform: translate(-4px, -50%);
   transition:
     opacity 120ms ease,
-    transform 120ms ease;
+    width 120ms ease,
+    margin-inline-start 120ms ease;
 }
 
 .management-panel-header-title-action:hover :deep(.ui-button-trailing-icon),
 .management-panel-header-title-action:focus-visible :deep(.ui-button-trailing-icon) {
-  opacity: 1;
-  transform: translate(0, -50%);
-}
-
-.management-panel-header-title-action:hover::before,
-.management-panel-header-title-action:focus-visible::before {
+  width: 14px;
+  margin-inline-start: 6px;
   opacity: 1;
 }
 

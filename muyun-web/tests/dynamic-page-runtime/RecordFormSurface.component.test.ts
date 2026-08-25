@@ -17,7 +17,7 @@ describe('record form surface', () => {
     expect(source).toMatch(/row-gap: 16px/);
   });
 
-  it('applies field policy and aggregates descriptor and contribution validity', async () => {
+  it('applies field policy, honours excluded fields and aggregates descriptor and contribution validity', async () => {
     const Contribution = defineComponent({
       name: 'Contribution',
       props: { context: { type: Object, required: true } },
@@ -34,10 +34,11 @@ describe('record form surface', () => {
     });
     const wrapper = mount(RecordFormSurface, {
       props: {
-        record: { title: '租户', hidden: '不显示' },
+        record: { title: '租户', hidden: '不显示', enabled: true },
         fields: new Map([
           ['title', { fieldRef: { fieldName: 'title' }, uiType: 'input' }],
           ['hidden', { fieldRef: { fieldName: 'hidden' }, uiType: 'input' }],
+          ['enabled', { fieldRef: { fieldName: 'enabled' }, uiType: 'enabledStatus' }],
         ]),
         mode: 'edit',
         formSessionKey: 1,
@@ -53,6 +54,7 @@ describe('record form surface', () => {
           },
         ],
         fieldPolicies: [{ fieldName: 'hidden', visible: () => false }],
+        excludeFieldNames: ['enabled'],
       },
       global: { stubs: { RecordFormFields: RecordFormFieldsStub } },
     });
