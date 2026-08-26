@@ -387,9 +387,10 @@ function brokerUrlOf(options: RealtimeClientOptions) {
   // Keep the handshake under the same host-level API mount as HTTP requests.
   // A leading slash would discard a configured context path such as `/api`.
   const brokerPath = options.brokerPath ?? 'ws/platform';
-  const baseUrl =
-    options.baseUrl ?? (typeof window === 'undefined' ? 'http://localhost' : window.location.origin);
-  const url = new URL(brokerPath, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+  const configuredBase = options.baseUrl ?? origin;
+  const apiBase = new URL(configuredBase, origin);
+  const url = new URL(brokerPath, apiBase.toString().endsWith('/') ? apiBase.toString() : `${apiBase}/`);
   if (url.protocol === 'https:') {
     url.protocol = 'wss:';
   } else {
