@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { TreeSelect as ATreeSelect } from 'ant-design-vue';
 import type { OptionValue, OptionValueList } from '@muyun/web-contracts';
 
@@ -11,7 +12,7 @@ export interface UiTreeSelectNode {
   children?: UiTreeSelectNode[];
 }
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     value?: OptionValue | OptionValueList | null;
     treeData: UiTreeSelectNode[];
@@ -50,6 +51,10 @@ function normalize(value: unknown) {
   }
   emit('update:value', typeof value === 'string' || typeof value === 'number' ? value : null);
 }
+
+const searchListeners = computed(() =>
+  props.showSearch ? { onSearch: (keyword: string) => emit('search', keyword) } : {},
+);
 </script>
 
 <template>
@@ -67,6 +72,6 @@ function normalize(value: unknown) {
     :class="$attrs.class"
     :style="$attrs.style"
     @update:value="normalize"
-    @search="emit('search', $event)"
+    v-on="searchListeners"
   />
 </template>

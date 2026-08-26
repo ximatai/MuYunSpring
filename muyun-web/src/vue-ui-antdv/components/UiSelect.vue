@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { Select as ASelect } from 'ant-design-vue';
 import type { Option, OptionValue, OptionValueList } from '@muyun/web-contracts';
 
 defineOptions({ name: 'UiSelect', inheritAttrs: false });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     value?: OptionValue | OptionValueList | null;
     options: Option[];
@@ -43,6 +44,10 @@ function normalize(value: unknown) {
   }
   emit('update:value', typeof value === 'string' || typeof value === 'number' ? value : null);
 }
+
+const searchListeners = computed(() =>
+  props.showSearch ? { onSearch: (keyword: string) => emit('search', keyword) } : {},
+);
 </script>
 
 <template>
@@ -58,7 +63,7 @@ function normalize(value: unknown) {
     :loading="loading"
     :class="$attrs.class"
     :style="$attrs.style"
-    @search="emit('search', $event)"
+    v-on="searchListeners"
     @update:value="normalize"
   />
 </template>

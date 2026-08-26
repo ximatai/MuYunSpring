@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   RecordExplorerPanel,
   createScopedTreeModuleContext,
   presentPlatformError,
 } from '@muyun/platform-components';
-import { UiSpin, UiTree, type UiTreeNode } from '@muyun/vue-ui-antdv';
+import { UiButton, UiSpin, UiTree, type UiTreeNode } from '@muyun/vue-ui-antdv';
 import type { Organization, Tenant, WebTreeNode } from '@muyun/web-contracts';
 import { useModuleContext } from '@muyun/web-core';
 import type { ModulePageNavigatorExtensionContext } from '@muyun/dynamic-page-runtime';
@@ -20,13 +20,20 @@ const organizationContext = useModuleContext<Organization>({ moduleAlias: 'iam.o
 const currentUser = useCurrentUserContext();
 const keyword = ref('');
 const loading = ref(false);
+const loadingMore = ref(false);
+const hasMoreTenants = ref(false);
+const tenantPage = ref(0);
 const nodes = ref<UiTreeNode[]>([]);
 const expandedKeys = ref<string[]>([]);
+const treeReloadKey = ref(0);
 const tenants = new Map<string, Tenant>();
 const organizations = new Map<string, Organization>();
 const organizationTenantIds = new Map<string, string>();
 /** A collapse invalidates every in-flight response for that tenant. */
 const organizationLoadGenerations = new Map<string, number>();
+const TENANT_ROOT_PAGE_SIZE = 100;
+let tenantLoadRevision = 0;
+let tenantSearchTimer: ReturnType<typeof setTimeout> | undefined;
 
 const canBrowseTenants = computed(() => currentUser?.value?.system === true);
 const currentUserTenant = computed<Tenant | undefined>(() => {
@@ -34,7 +41,7 @@ const currentUserTenant = computed<Tenant | undefined>(() => {
   if (currentUser?.value?.system === true || !tenantId) return undefined;
   return { id: tenantId, title: tenantId, alias: tenantId, enabled: true } as Tenant;
 });
-const visibleNodes = computed(() => filterNodes(nodes.value, keyword.value));
+const visibleNodes = computed(() => nodes.value);
 const selectedTreeKey = computed(() => props.context.selectionKey);
 
 watch(
@@ -48,8 +55,27 @@ watch(
 );
 
 onMounted(() => void loadTenants());
+onBeforeUnmount(() => {
+  if (tenantSearchTimer) clearTimeout(tenantSearchTimer);
+});
 
-async function loadTenants() {
+watch([canBrowseTenants, currentUserTenant], () => void loadTenants());
+
+watch(keyword, () => {
+  if (!canBrowseTenants.value) return;
+  if (tenantSearchTimer) clearTimeout(tenantSearchTimer);
+  tenantSearchTimer = setTimeout(() => void loadTenants(), 240);
+});
+
+async function loadTenants(options: { append?: boolean } = {}) {
+  const append = options.append === true;
+  const revision = ++tenantLoadRevision;
+  if (!append) {
+    expandedKeys.value = [];
+    treeReloadKey.value += 1;
+    tenantPage.value = 0;
+    hasMoreTenants.value = false;
+  }
   if (!canBrowseTenants.value) {
     const tenant = currentUserTenant.value;
     if (!tenant?.id) {
@@ -61,20 +87,37 @@ async function loadTenants() {
     nodes.value = [tenantNode(tenant)];
     return;
   }
-  loading.value = true;
+  loading.value = !append;
+  loadingMore.value = append;
   try {
     await tenantContext.runtime.ready;
-    const response = await tenantContext.abilities.crud().query({ page: { pageNum: 1, pageSize: 200 } });
-    tenants.clear();
+    const nextPage = append ? tenantPage.value + 1 : 1;
+    const response = await tenantContext.abilities.crud().query({
+      page: { pageNum: nextPage, pageSize: TENANT_ROOT_PAGE_SIZE },
+      quickSearch: keyword.value.trim() || undefined,
+    });
+    if (revision !== tenantLoadRevision) return;
+    if (!append) tenants.clear();
+    const knownNodeKeys = new Set(append ? nodes.value.map((node) => node.key) : []);
     response.records.forEach((tenant) => {
       if (tenant.id) tenants.set(tenant.id, tenant);
     });
-    nodes.value = response.records.map(tenantNode);
+    const loadedNodes = response.records.map(tenantNode).filter((node) => !knownNodeKeys.has(node.key));
+    nodes.value = append ? [...nodes.value, ...loadedNodes] : loadedNodes;
+    tenantPage.value = nextPage;
+    hasMoreTenants.value = response.totalKnown
+      ? nextPage < response.pages
+      : response.records.length === TENANT_ROOT_PAGE_SIZE;
   } catch (cause) {
+    if (revision !== tenantLoadRevision) return;
     nodes.value = [];
+    hasMoreTenants.value = false;
     presentPlatformError(cause, { source: 'role-scope-tree', phase: 'load' });
   } finally {
-    loading.value = false;
+    if (revision === tenantLoadRevision) {
+      loading.value = false;
+      loadingMore.value = false;
+    }
   }
 }
 
@@ -219,17 +262,6 @@ function tenantTitle(tenant: Tenant | undefined) {
 function organizationTitle(organization: Organization | undefined) {
   return String(organization?.title ?? organization?.code ?? organization?.id ?? '未命名机构');
 }
-function filterNodes(items: UiTreeNode[], search: string): UiTreeNode[] {
-  const normalized = search.trim().toLowerCase();
-  if (!normalized) return items;
-  return items.flatMap((item) => {
-    const children = item.children ? filterNodes(item.children, search) : undefined;
-    const matches = [item.title, item.secondary, item.key].some((value) =>
-      value?.toLowerCase().includes(normalized),
-    );
-    return matches || (children?.length ?? 0) > 0 ? [{ ...item, ...(children ? { children } : {}) }] : [];
-  });
-}
 </script>
 
 <template>
@@ -249,11 +281,17 @@ function filterNodes(items: UiTreeNode[], search: string): UiTreeNode[] {
       v-model:expanded-keys="expandedKeys"
       :nodes="visibleNodes"
       :selected-key="selectedTreeKey"
+      :reload-key="treeReloadKey"
       :load-children="loadChildren"
       reload-on-reexpand
       @select="handleSelect"
       @deselect="clearSelection"
       @unload-children="unloadChildren"
     />
+    <template v-if="canBrowseTenants && hasMoreTenants" #footer>
+      <UiButton type="text" icon-name="reload" :loading="loadingMore" @click="loadTenants({ append: true })">
+        加载更多租户
+      </UiButton>
+    </template>
   </RecordExplorerPanel>
 </template>

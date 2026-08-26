@@ -1138,7 +1138,7 @@ export interface ResolvedPageNavigatorLevelDescriptor {
 }
 
 export interface ResolvedPageContextBindingDescriptor {
-  source: 'SESSION' | 'NAVIGATOR';
+  source: 'SESSION' | 'NAVIGATOR' | 'RESOLVED_SELECTION';
   sourceKey: string;
   target: 'LIST_QUERY' | 'NAVIGATOR_QUERY' | 'FORM_DEFAULT' | 'PICKER_QUERY' | 'MUTATION_CONSTRAINT';
   targetKey: string;

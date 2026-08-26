@@ -10,6 +10,7 @@ import org.springframework.beans.BeanWrapperImpl;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -174,6 +175,27 @@ public final class PageContextScopePolicy {
             throw new IllegalArgumentException("page mutation context binding is required");
         }
         return requiredAuthoritativeValue(binding, moduleAlias, action, selectionResolvers);
+    }
+
+    /**
+     * Delivers server-resolved selection values for a presentation target.
+     *
+     * <p>This is intentionally separate from mutation application: the browser may render these
+     * values in a draft, but the create/update endpoints still resolve and stamp them again.</p>
+     */
+    public static Map<String, Object> resolvedSelectionValues(List<PageContextBindingDefinition> bindings,
+                                                               PageContextTarget target,
+                                                               String moduleAlias, PlatformAction action,
+                                                               PageSelectionContextResolverRegistry selectionResolvers) {
+        if (bindings == null || bindings.isEmpty()) return Map.of();
+        Map<String, Object> values = new LinkedHashMap<>();
+        for (PageContextBindingDefinition binding : bindings) {
+            if (binding.target() != target || binding.source() != PageContextSource.RESOLVED_SELECTION) continue;
+            PageContextValue value = requiredAuthoritativeValue(binding, moduleAlias, action, selectionResolvers);
+            if (value.present()) values.put(binding.targetKey(), value.value());
+        }
+        // A platform selection intentionally carries present-null owner fields; Map.copyOf rejects null values.
+        return Collections.unmodifiableMap(new LinkedHashMap<>(values));
     }
 
     /** Verifies arbitrary record representations, including dynamic records, against page scope values. */

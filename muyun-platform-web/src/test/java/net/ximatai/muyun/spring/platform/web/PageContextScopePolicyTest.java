@@ -127,6 +127,33 @@ class PageContextScopePolicyTest {
         assertThat(record.ownerScopeId).isNull();
     }
 
+    @Test
+    void shouldExposeOnlyServerResolvedSelectionFieldsForFormDefaults() {
+        MockHttpServletRequest servletRequest = selectionRequest("organization-1");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("admin", "Admin"))) {
+            assertThat(PageContextScopePolicy.resolvedSelectionValues(List.of(
+                    PageContextBindingDefinition.resolvedSelection("roleScope", PageContextTarget.FORM_DEFAULT,
+                            "ownerScopeType"),
+                    PageContextBindingDefinition.resolvedSelection("roleScope", PageContextTarget.FORM_DEFAULT,
+                            "ownerScopeId")), PageContextTarget.FORM_DEFAULT, "iam.role", PlatformAction.CREATE,
+                    new PageSelectionContextResolverRegistry(List.of(new PageSelectionContextResolver() {
+                        @Override public String selectionKind() { return "roleScope"; }
+
+                        @Override public ResolvedPageSelectionContext resolve(PageSelectionContextRequest request) {
+                            assertThat(request.action()).isEqualTo(PlatformAction.CREATE);
+                            return new ResolvedPageSelectionContext("roleScope", "organization-1", Map.of(
+                                    "ownerScopeType", PageContextValue.of("organization"),
+                                    "ownerScopeId", PageContextValue.of("organization-1")));
+                        }
+                    }))))
+                    .containsExactlyInAnyOrderEntriesOf(Map.of(
+                            "ownerScopeType", "organization", "ownerScopeId", "organization-1"));
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
     private static MockHttpServletRequest selectionRequest(String key) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("X-MuYun-Page-Selection", "{\"kind\":\"roleScope\",\"key\":\"" + key + "\"}");

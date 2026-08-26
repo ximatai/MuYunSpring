@@ -24,6 +24,8 @@ import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler;
+import net.ximatai.muyun.spring.platform.web.ActionEndpointContextResolver;
+import net.ximatai.muyun.spring.platform.web.ActionEndpointInterceptor;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
@@ -36,6 +38,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -779,6 +782,59 @@ class IamWebControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value("role-1"))
                 .andExpect(jsonPath("$.tenantId").value("demo"));
+    }
+
+    @Test
+    void shouldCreateRoleThroughActualSelectionResolverAfterActionInterceptorAuthorizesRequest() throws Exception {
+        currentUser = CurrentUser.systemUser("admin", "Admin");
+        TenantService scopedTenantService = mock(TenantService.class);
+        OrganizationService scopedOrganizationService = mock(OrganizationService.class);
+        Tenant tenant = new Tenant();
+        tenant.setId("demo");
+        tenant.setEnabled(true);
+        when(scopedTenantService.requireActiveTenant("demo")).thenReturn(tenant);
+        Organization organization = new Organization();
+        organization.setId("demo_org");
+        organization.setTenantId("demo");
+        organization.setEnabled(true);
+        when(scopedOrganizationService.requireEnabled("demo_org", "role owner organization is not active: demo_org"))
+                .thenReturn(organization);
+
+        RoleWebController securedController = new RoleWebController(grantableActionResolver);
+        ReflectionTestUtils.setField(securedController, "service", roleService);
+        securedController.setRoleScopeSelectionResolver(new RoleScopePageSelectionResolver(
+                scopedTenantService, scopedOrganizationService));
+        Role saved = tenantScopedRole("role-1", "demo");
+        when(roleService.insert(any())).thenAnswer(invocation -> {
+            Role incoming = invocation.getArgument(0);
+            assertThat(incoming.getTenantId()).isEqualTo("demo");
+            assertThat(incoming.getOwnerScopeType()).isEqualTo(RoleOwnerScopeType.ORGANIZATION);
+            assertThat(incoming.getOwnerScopeId()).isEqualTo("demo_org");
+            assertThat(incoming.getOwnerScopeKey()).isEqualTo("organization:demo_org");
+            return "role-1";
+        });
+        when(roleService.select("role-1")).thenReturn(saved);
+        MockMvc securedMvc = MockMvcBuilders.standaloneSetup(securedController)
+                .addInterceptors(new ActionEndpointInterceptor(new AllowAllActionExecutionPolicyService(),
+                        new ActionEndpointContextResolver()))
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.ofNullable(currentUser)))
+                .setControllerAdvice(new PlatformWebExceptionHandler())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .build();
+
+        securedMvc.perform(post("/iam.role/insert")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("organization:demo_org"))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "tenantId":"forged",
+                                  "title":"Organization Role",
+                                  "ownerScopeType":"platform",
+                                  "ownerScopeId":"forged"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value("role-1"));
     }
 
     @Test

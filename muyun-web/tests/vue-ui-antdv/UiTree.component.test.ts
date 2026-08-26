@@ -167,3 +167,42 @@ it('releases an explicitly collapsed lazy branch when reloading on re-expand is 
   expect(wrapper.findComponent({ name: 'ATree' }).props('loadedKeys')).toEqual([]);
   vi.useRealTimers();
 });
+
+it('does not mark a branch loaded when it is collapsed before its lazy request settles', async () => {
+  vi.useFakeTimers();
+  let resolveLoad: (() => void) | undefined;
+  const loadChildren = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveLoad = resolve;
+      }),
+  );
+  const wrapper = mount(UiTree, {
+    props: {
+      nodes: [{ key: 'tenant-1', title: '演示租户', isLeaf: false }],
+      expandedKeys: ['tenant-1'],
+      reloadOnReexpand: true,
+      minLoadingDurationMs: 0,
+      loadChildren,
+    },
+    global: {
+      stubs: {
+        ATree: { name: 'ATree', props: ['loadData', 'loadedKeys'], template: '<div />' },
+        UiRecordExplorerItem: true,
+      },
+    },
+  });
+
+  const tree = wrapper.findComponent({ name: 'ATree' });
+  const loadData = tree.props('loadData') as (node: { key: string }) => Promise<void>;
+  const loading = loadData({ key: 'tenant-1' });
+  tree.vm.$emit('expand', [], { expanded: false, node: { key: 'tenant-1' } });
+  await wrapper.setProps({ expandedKeys: [] });
+  await vi.advanceTimersByTimeAsync(180);
+  resolveLoad?.();
+  await loading;
+
+  expect(loadChildren).toHaveBeenCalledTimes(1);
+  expect(tree.props('loadedKeys')).toEqual([]);
+  vi.useRealTimers();
+});

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Tree as ATree } from 'ant-design-vue';
 import UiRecordExplorerItem from './UiRecordExplorerItem.vue';
 import type { UiRecordInlineAction, UiTreeNode } from '../types';
@@ -21,6 +21,8 @@ const props = withDefaults(
     collapseEmptyLazyBranch?: boolean;
     /** Keeps the built-in lazy-loading indicator visible long enough to be perceived. */
     minLoadingDurationMs?: number;
+    /** Replaces the current lazy snapshot, including Ant Tree's loaded-node bookkeeping. */
+    reloadKey?: number;
   }>(),
   {
     selectedKey: undefined,
@@ -28,6 +30,7 @@ const props = withDefaults(
     loadChildren: undefined,
     collapseEmptyLazyBranch: true,
     minLoadingDurationMs: DEFAULT_MIN_LOADING_DURATION_MS,
+    reloadKey: 0,
   },
 );
 
@@ -44,6 +47,19 @@ const managesLoadedKeys = computed(() => props.reloadOnReexpand || props.collaps
 const loadedKeys = ref<string[]>([]);
 const pendingBranchReleases = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingEmptyBranchCollapses = new Map<string, ReturnType<typeof setTimeout>>();
+const branchLoadGenerations = new Map<string, number>();
+
+watch(
+  () => props.reloadKey,
+  () => {
+    pendingBranchReleases.forEach(clearTimeout);
+    pendingBranchReleases.clear();
+    pendingEmptyBranchCollapses.forEach(clearTimeout);
+    pendingEmptyBranchCollapses.clear();
+    loadedKeys.value = [];
+    branchLoadGenerations.clear();
+  },
+);
 
 function handleSelect(keys: unknown[]) {
   if (keys.length === 0) {
@@ -78,6 +94,8 @@ function handleExpand(keys: unknown[], event?: { expanded?: boolean; node?: { ke
     return;
   }
   if (event?.expanded === false) {
+    invalidateBranchLoad(nodeKey);
+    loadedKeys.value = loadedKeys.value.filter((key) => key !== nodeKey);
     if (pendingRelease) clearTimeout(pendingRelease);
     // Do not mutate tree data while ATree is processing its collapse transition.
     // The small delay also coalesces accidental double-clicks on the switcher.
@@ -107,9 +125,16 @@ async function handleLoad(node: { key?: unknown }) {
       treeNode.children === undefined ||
       (props.collapseEmptyLazyBranch && treeNode.children.length === 0))
   ) {
+    const generation = nextBranchLoadGeneration(treeNode.key);
     const startedAt = Date.now();
     await props.loadChildren(treeNode);
     await waitForMinimumDuration(startedAt, props.minLoadingDurationMs);
+    if (
+      branchLoadGenerations.get(treeNode.key) !== generation ||
+      !props.expandedKeys?.includes(treeNode.key)
+    ) {
+      return;
+    }
     if (managesLoadedKeys.value && !loadedKeys.value.includes(treeNode.key)) {
       loadedKeys.value = [...loadedKeys.value, treeNode.key];
     }
@@ -117,6 +142,16 @@ async function handleLoad(node: { key?: unknown }) {
       scheduleEmptyBranchCollapse(treeNode.key);
     }
   }
+}
+
+function nextBranchLoadGeneration(nodeKey: string) {
+  const next = (branchLoadGenerations.get(nodeKey) ?? 0) + 1;
+  branchLoadGenerations.set(nodeKey, next);
+  return next;
+}
+
+function invalidateBranchLoad(nodeKey: string) {
+  nextBranchLoadGeneration(nodeKey);
 }
 
 onBeforeUnmount(() => {

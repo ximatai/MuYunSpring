@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, toRaw, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, toRaw, watch } from 'vue';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
   createQueryScopedTreeModuleContext,
@@ -148,11 +148,17 @@ const initialPageEnhancement = resolveModulePageEnhancement(
   undefined,
   props.descriptor.menuId,
 );
-const navigatorEntryPolicy = ref<ModulePageNavigatorEnhancement>(initialPageEnhancement?.navigator ?? {});
+// Enhancements may carry Vue component constructors. Keep this policy shallow so
+// the host observes policy replacement without proxying application-owned components.
+const navigatorEntryPolicy = shallowRef<ModulePageNavigatorEnhancement>(
+  initialPageEnhancement?.navigator ?? {},
+);
 const navigatorExtensionSelection = ref(initialSelectionOf(navigatorEntryPolicy.value.extension?.selection));
 const navigatorExtensionPresentation = ref(
   initialPresentationOf(navigatorEntryPolicy.value.extension?.selection),
 );
+const resolvedSelectionFormDefaults = ref<Record<string, unknown>>({});
+let resolvedSelectionFormDefaultsRequest: Promise<void> | undefined;
 // TREE_MANAGEMENT may declare a child resource as its main tree.  Keep the
 // page module as the authorization/runtime owner and switch only the standard
 // CRUD/tree transport after the last navigator range is selected.
@@ -722,7 +728,35 @@ function selectNavigatorExtensionSelection(key: string, presentation?: ModulePag
   }
   navigatorExtensionSelection.value = { kind: selection.kind, key: normalizedKey };
   navigatorExtensionPresentation.value = presentation;
+  void loadResolvedSelectionFormDefaults();
   refreshList();
+}
+async function loadResolvedSelectionFormDefaults() {
+  const selection = navigatorExtensionSelection.value;
+  const hasResolvedSelectionDefaults = pageContextBindings.value.some(
+    (binding) => binding.source === 'RESOLVED_SELECTION' && binding.target === 'FORM_DEFAULT',
+  );
+  if (!selection || !hasResolvedSelectionDefaults) {
+    resolvedSelectionFormDefaults.value = {};
+    return;
+  }
+  const requestedKey = `${selection.kind}:${selection.key}`;
+  let request: Promise<void>;
+  request = context.http
+    .request<Record<string, unknown>>({ path: `${moduleRequestPrefix}/page-context/form-defaults` })
+    .then((defaults) => {
+      const current = navigatorExtensionSelection.value;
+      if (current && `${current.kind}:${current.key}` === requestedKey) {
+        resolvedSelectionFormDefaults.value = defaults ?? {};
+      }
+    })
+    .finally(() => {
+      if (resolvedSelectionFormDefaultsRequest === request) {
+        resolvedSelectionFormDefaultsRequest = undefined;
+      }
+    });
+  resolvedSelectionFormDefaultsRequest = request;
+  return request;
 }
 function pageText(descriptor: ResolvedPageTextDescriptor | undefined): string | undefined {
   if (!descriptor) return undefined;
@@ -875,6 +909,10 @@ watch(
   () => initializeNavigatorExtensionSelection(navigatorEntryPolicy.value.extension?.selection),
   { immediate: true },
 );
+watch([navigatorExtensionSelection, pageContextBindings], () => void loadResolvedSelectionFormDefaults(), {
+  immediate: true,
+  deep: true,
+});
 const enhancementActionContributions = computed<ModulePageActionContribution[]>(
   () => pageEnhancement.value?.list?.actions ?? [],
 );
@@ -1017,6 +1055,7 @@ const pageContextSourceValues = computed(() => ({
     tenantId: currentUser?.value?.tenantId,
     organizationId: currentUser?.value?.organizationId,
   },
+  RESOLVED_SELECTION: resolvedSelectionFormDefaults.value,
 }));
 const emptyNavigatorListScope = computed(() =>
   navigatorEntryPolicy.value.emptyListScope?.({
@@ -2110,8 +2149,9 @@ function applyFormComputeAfterChanges(
   return new FormComputeCoordinator(rules).applyAfterChange(draft, changedFields);
 }
 
-function createRecord(parentId?: string) {
+async function createRecord(parentId?: string) {
   if (context.can('create') !== true) return;
+  await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
   invalidatePendingRequests();
   const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
   // Only a tree's persistent detail card has a meaningful record to restore.

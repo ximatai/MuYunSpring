@@ -166,6 +166,19 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return webScope(() -> CrudWebRuntimeSupport.formSchema(this, resource, editorSurface));
     }
 
+    /**
+     * Resolves display defaults for an opaque page selection under CREATE authorization.
+     * The returned values are convenience data for the form only; insert resolves the selection
+     * independently and remains the sole write authority.
+     */
+    @GetMapping("/page-context/form-defaults")
+    @ActionEndpoint(PlatformAction.CREATE)
+    default Map<String, Object> pageContextFormDefaults() {
+        return webScope(() -> PageContextScopePolicy.resolvedSelectionValues(
+                pageSelectionContextBindings(), PageContextTarget.FORM_DEFAULT, webScopeName(),
+                PlatformAction.CREATE, pageSelectionContextResolvers()));
+    }
+
     @PostMapping("/query")
     @ActionEndpoint(PlatformAction.QUERY)
     @SuppressWarnings("unchecked")
