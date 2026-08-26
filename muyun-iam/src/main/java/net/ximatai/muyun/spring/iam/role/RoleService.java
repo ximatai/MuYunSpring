@@ -823,11 +823,11 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         if (employeeId == null || employeeId.isBlank() || employeeService == null || employeePositionService == null) {
             return List.copyOf(effective);
         }
-        Employee employee = employeeService.select(employeeId);
+        Employee employee = employeeService.selectActiveRaw(employeeId);
         if (employee == null || !Boolean.TRUE.equals(employee.getEnabled())) {
             return List.copyOf(effective);
         }
-        for (EmployeePosition position : employeePositionService.positions(employee.getId())) {
+        for (EmployeePosition position : employeePositionService.activePositionsForRoleResolution(employee.getId())) {
             if (position == null || !Boolean.TRUE.equals(position.getEnabled())) {
                 continue;
             }

@@ -920,8 +920,9 @@ class RoleServiceContractTest {
         when(accountGrantDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(accountGrant("account-role", "user-1", ManagementScopeType.TENANT, "tenant_a")));
         when(employeeAccountService.employeeIdOfUser("user-1")).thenReturn("employee-1");
-        when(employeeService.select("employee-1")).thenReturn(employee("employee-1", "org-main", "dept-main", true));
-        when(employeePositionService.positions("employee-1"))
+        when(employeeService.selectActiveRaw("employee-1"))
+                .thenReturn(employee("employee-1", "org-main", "dept-main", true));
+        when(employeePositionService.activePositionsForRoleResolution("employee-1"))
                 .thenReturn(List.of(employeePosition("position-1", "employee-1", "org-branch", "dept-branch", true)));
         when(employmentGrantDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(employmentGrant("position-role", "position-1")));
@@ -945,6 +946,10 @@ class RoleServiceContractTest {
                         EffectiveRoleGrant::organizationId, EffectiveRoleGrant::departmentId,
                         EffectiveRoleGrant::employeePositionId)
                 .containsExactly(RoleAssignmentType.EMPLOYMENT, "position-1", "org-branch", "dept-branch", "position-1");
+        verify(employeeService).selectActiveRaw("employee-1");
+        verify(employeeService, never()).select("employee-1");
+        verify(employeePositionService).activePositionsForRoleResolution("employee-1");
+        verify(employeePositionService, never()).positions("employee-1");
     }
 
     @Test
