@@ -82,7 +82,11 @@ it('adds a fixed page context header without allowing a request to replace it', 
 
   await withHttpHeaders(base, { 'X-MuYun-Menu-Id': 'menu.system-user' }).request({
     path: '/iam.user/query',
-    headers: { 'X-MuYun-Menu-Id': 'forged', 'X-Caller': 'test' },
+    headers: {
+      'X-MuYun-Menu-Id': 'forged',
+      'x-muyun-menu-id': 'forged-lowercase',
+      'X-Caller': 'test',
+    },
   });
 
   assert.deepEqual(requests, [
@@ -467,7 +471,7 @@ it('header-scoped streaming client preserves stream capability and controlled pa
     const stream = await http.stream({
       path: '/mr.device/device-1/agent-chat/start/stream',
       method: 'POST',
-      headers: { 'X-MuYun-Menu-Id': 'forged' },
+      headers: { 'x-muyun-menu-id': 'forged-lowercase' },
     });
 
     assert.ok(stream);

@@ -47,8 +47,8 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
       if (revision === openApiCatalogRevision) openApiModuleAliases.value = new Set();
     };
   },
-  // `platform.module.actions` remains registered only to restore existing workspace tabs.
-  // New entries are descriptor-driven `platform.module_action` pages instead.
+  // The hand-authored workspace remains an explicit extension for dynamic executor binding;
+  // it has no menu identity and is not the general action-management entry.
   workspaceViews: [moduleActionWorkspaceView, metadataWorkspaceView],
   detail: {
     actions: [
@@ -74,6 +74,22 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
           openWorkspaceTab(metadataWorkspaceView, {
             moduleAlias,
             moduleTitle: titleOf(record),
+          });
+        },
+      },
+      {
+        key: 'module-manual-action-binding-workspace',
+        title: '自定义动作',
+        state: (record) => ({
+          visible: moduleAliasOf(record) !== undefined && moduleKindOf(record) === 'dynamic',
+        }),
+        run({ record, openWorkspaceTab }) {
+          const moduleAlias = moduleAliasOf(record);
+          if (!moduleAlias || moduleKindOf(record) !== 'dynamic') return;
+          openWorkspaceTab(moduleActionWorkspaceView, {
+            moduleAlias,
+            moduleTitle: titleOf(record),
+            moduleKind: 'dynamic',
           });
         },
       },
@@ -111,6 +127,10 @@ export const platformModuleActionPageEnhancement: ModulePageEnhancement = {
       unavailableDescription: '模块上下文不可用',
     },
   },
+  // Manual action binding requires an executor registry and executor-specific level validation.
+  // Keep the standard page declarative for browsing/governance; use the explicit dynamic-module
+  // extension above for that specialised binding flow.
+  standardActions: { disabled: ['create'] },
 };
 
 /**

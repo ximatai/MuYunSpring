@@ -846,7 +846,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         if (principal.employeePositionId() != null) {
             EmployeePosition position = employeePositionService == null
                     ? null
-                    : employeePositionService.select(principal.employeePositionId());
+                    : employeePositionService.selectActiveRaw(principal.employeePositionId());
             if (isActivePrincipalPosition(principal, position)) {
                 effectiveEmploymentRoleGrants(principal.employeePositionId())
                         .forEach(grant -> appendEmploymentRoleGrant(effective, grant, position));

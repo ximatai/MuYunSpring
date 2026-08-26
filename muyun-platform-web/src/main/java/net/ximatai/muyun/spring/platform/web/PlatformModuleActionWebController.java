@@ -25,10 +25,7 @@ public class PlatformModuleActionWebController
         SystemScope<PlatformModuleActionService>,
         StaticModuleUiContributor {
 
-    private static final UiFormula MANUAL_ACTION_EDITABLE =
-            UiFormula.booleanExpression("{systemManaged} != true");
-    private static final UiFormula NEW_MANUAL_ACTION_CODE_EDITABLE =
-            UiFormula.booleanExpression("!(PRESENT({id})) && {systemManaged} != true");
+    /** Manual action binding depends on the dynamic executor registry, so it remains a dedicated workspace flow. */
     private static final UiFormula PLATFORM_MANAGED_ACTION =
             UiFormula.booleanExpression("{systemManaged} == true");
 
@@ -96,33 +93,33 @@ public class PlatformModuleActionWebController
                                 .editor(form -> form.title("模块动作")
                                         .field(MODULE_ALIAS, field -> field.label("所属模块").required().hidden())
                                         .field(ACTION_CODE, field -> field.label("动作编码").required()
-                                                .enabledWhen(NEW_MANUAL_ACTION_CODE_EDITABLE))
+                                                .readOnly())
                                         .field(TITLE, field -> field.label("动作名称").required()
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(ENTITY_ALIAS, field -> field.label("目标实体")
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(PERMISSION_ACTION_CODE, field -> field.label("权限动作编码")
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(CATEGORY, field -> field.label("动作类别").required()
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(ACTION_LEVEL, field -> field.label("执行层级").required()
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(EXECUTOR_TYPE, field -> field.label("执行器类型").required()
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(EXECUTOR_KEY, field -> field.label("执行实现").required()
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(ACCESS_MODE, field -> field.label("访问方式").required()
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(ACTION_AUTH, field -> field.label("动作授权")
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(DATA_AUTH, field -> field.label("数据授权")
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(DEFAULT_GRANT_POLICY, field -> field.label("默认授予策略")
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(AVAILABLE_EXPRESSION, field -> field.label("可用条件").uiType("textarea")
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(UNAVAILABLE_MESSAGE, field -> field.label("不可用提示").uiType("textarea")
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))
+                                                .readOnly())
                                         .field(ACCESS_MODE_OVERRIDE, field -> field.label("访问方式覆盖")
                                                 .overrideOf(ACCESS_MODE)
                                                 .visible(UiRule.formula(PLATFORM_MANAGED_ACTION))
@@ -140,7 +137,7 @@ public class PlatformModuleActionWebController
                                                 .visible(UiRule.formula(PLATFORM_MANAGED_ACTION))
                                                 .enabledWhen(PLATFORM_MANAGED_ACTION))
                                         .field(ENABLED, field -> field.label("启用状态").uiType("enabledStatus")
-                                                .enabledWhen(MANUAL_ACTION_EDITABLE))))
+                                                .readOnly())))
                         .traits(traits -> traits.standardCrud().enabledStatus())))
                 .build();
     }

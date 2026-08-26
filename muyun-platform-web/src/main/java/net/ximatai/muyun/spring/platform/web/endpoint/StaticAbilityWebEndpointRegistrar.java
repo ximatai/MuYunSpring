@@ -20,6 +20,7 @@ import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade;
+import net.ximatai.muyun.spring.platform.deletion.DeletionLogService;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -75,7 +76,8 @@ public class StaticAbilityWebEndpointRegistrar implements SmartInitializingSingl
         this.recycleBinFacade = recycleBinFacade;
         this.staticModuleOpenApiEndpoint = staticModuleOpenApiEndpoint;
         this.dispatcher = new PlatformWebOperationDispatcher(endpointCatalog, objectMapper,
-                new StaticAbilityOperationRuntime(recycleBinFacade));
+                new StaticAbilityOperationRuntime(recycleBinFacade,
+                        applicationContext.getBeanProvider(DeletionLogService.class)));
     }
 
     @Override

@@ -53,9 +53,16 @@ export function withHttpHeaders(
     if (appliesTo && !appliesTo(options)) return options;
     const fixedHeaders = resolvedHeaders();
     if (Object.keys(fixedHeaders).length === 0) return options;
+    const fixedHeaderNames = new Set(Object.keys(fixedHeaders).map((key) => key.toLowerCase()));
+    // HTTP field names are case-insensitive. Remove every caller spelling before
+    // appending the trusted value so Fetch (and custom transports) never receive
+    // an ambiguous duplicate such as `x-muyun-menu-id` plus `X-MuYun-Menu-Id`.
+    const callerHeaders = Object.fromEntries(
+      Object.entries(options.headers ?? {}).filter(([key]) => !fixedHeaderNames.has(key.toLowerCase())),
+    );
     return {
       ...options,
-      headers: { ...options.headers, ...fixedHeaders },
+      headers: { ...callerHeaders, ...fixedHeaders },
     };
   };
   const wrapped: HttpClient = {

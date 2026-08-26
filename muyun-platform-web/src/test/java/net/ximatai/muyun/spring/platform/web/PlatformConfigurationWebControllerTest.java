@@ -398,7 +398,7 @@ class PlatformConfigurationWebControllerTest {
         assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
                 .contains("moduleAlias", "actionCode", "title", "executorKey", "enabled");
         assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("title"))
-                .singleElement().satisfies(field -> assertThat(field.readOnly().formula()).isNotNull());
+                .singleElement().satisfies(field -> assertThat(field.readOnly().constant()).isTrue());
         assertThat(page.detail().editor().fields())
                 .filteredOn(field -> field.fieldRef().fieldName().equals("category")
                         || field.fieldRef().fieldName().equals("actionLevel")

@@ -19,6 +19,7 @@ describe('platform module page enhancement', () => {
           unavailableDescription: '模块上下文不可用',
         },
       },
+      standardActions: { disabled: ['create'] },
     });
   });
 
@@ -41,6 +42,9 @@ describe('platform module page enhancement', () => {
         record,
         openWorkspaceTab,
       } as never);
+    actions
+      .find((action) => action.key === 'module-manual-action-binding-workspace')
+      ?.run({ record, openWorkspaceTab } as never);
 
     expect(openPage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -55,6 +59,12 @@ describe('platform module page enhancement', () => {
       1,
       expect.objectContaining({ type: 'platform.module.metadata-orchestration' }),
       { moduleAlias: 'crm.customer', moduleTitle: '客户' },
+    );
+
+    expect(openWorkspaceTab).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ type: 'platform.module.actions' }),
+      { moduleAlias: 'crm.customer', moduleTitle: '客户', moduleKind: 'dynamic' },
     );
 
     const [view, input] = openWorkspaceTab.mock.calls[0];
@@ -77,6 +87,10 @@ describe('platform module page enhancement', () => {
       view: { type: 'platform.module.metadata-orchestration' },
       input: { moduleAlias: 'crm.customer', moduleTitle: '客户' },
     });
+    expect(actions.find((action) => action.key === 'module-manual-action-binding-workspace')?.state?.({
+      id: 'iam.role',
+      moduleKind: 'static',
+    })).toEqual({ visible: false });
   });
 
   it('only exposes metadata for dynamic modules and OpenAPI after the authorized catalog has listed it', async () => {

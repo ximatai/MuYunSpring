@@ -257,6 +257,10 @@ function isOverrideField(field: RecordFormFieldState) {
 }
 
 function overrideEditorValue(field: RecordFormFieldState): OptionValue {
+  if (field.valueType === 'BOOLEAN') {
+    const value = props.record[field.fieldName];
+    return value === true ? 'true' : value === false ? 'false' : INHERIT_OPTION_VALUE;
+  }
   const value = optionWireValue(props.record[field.fieldName]);
   if (value != null) return value;
   return INHERIT_OPTION_VALUE;

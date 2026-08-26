@@ -4,7 +4,7 @@ import RecordFormFields from '@/platform-components/RecordFormFields.vue';
 import type { RecordFormFieldDescriptor } from '@/platform-components/recordFormFieldModel.ts';
 
 describe('RecordFormFields', () => {
-  it('renders declared override fields with explicit inherit, enabled and disabled states', () => {
+  it('renders declared override fields with explicit inherit, enabled and disabled states', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [
         'accessModeOverride',
@@ -54,6 +54,16 @@ describe('RecordFormFields', () => {
       { label: '开启', value: 'true' },
       { label: '关闭', value: 'false' },
     ]);
+
+    await wrapper.setProps({
+      record: { accessMode: 'AUTH_REQUIRED', actionAuth: true, actionAuthOverride: false },
+    });
+    expect(wrapper.findAllComponents({ name: 'UiSelect' })[1].props('value')).toBe('false');
+
+    await wrapper.setProps({
+      record: { accessMode: 'AUTH_REQUIRED', actionAuth: true, actionAuthOverride: true },
+    });
+    expect(wrapper.findAllComponents({ name: 'UiSelect' })[1].props('value')).toBe('true');
 
     selects[0].vm.$emit('update:value', 'LOGIN_REQUIRED');
     selects[1].vm.$emit('update:value', 'false');
