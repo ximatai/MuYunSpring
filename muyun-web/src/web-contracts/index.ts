@@ -886,7 +886,7 @@ export interface UiFormula {
 /** Versioned program compiled by FormulaEngine. The browser executes it locally and never parses expression. */
 export interface FormulaProgram {
   schemaVersion: number;
-  profile: 'WEB_UI' | 'FORM_COMPUTE';
+  profile: 'WEB_UI' | 'PAGE_TEXT' | 'FORM_COMPUTE';
   root: FormulaNode;
   referencedFields: string[];
 }
@@ -1160,10 +1160,18 @@ export interface ResolvedPageNavigatorManagementDescriptor {
 export interface ResolvedPageListDescriptor {
   searchPlaceholder: string;
   fields: ResolvedViewDescriptor;
+  /** Main-content header copy; PAGE_TEXT programs run only against the host display context. */
+  title?: ResolvedPageTextDescriptor;
+  subtitle?: ResolvedPageTextDescriptor;
   /** Read-only placements of declared aggregate relations beneath an expanded list row. */
   relationExpansions?: ResolvedPageListRelationExpansionDescriptor[];
   persistentQueryControls?: ResolvedPageListPersistentQueryControlDescriptor[];
   querySummaries?: ResolvedPageListQuerySummaryDescriptor[];
+}
+
+export interface ResolvedPageTextDescriptor {
+  text?: string;
+  program?: FormulaProgram;
 }
 
 export interface ResolvedPageListQuerySummaryDescriptor {

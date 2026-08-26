@@ -642,8 +642,8 @@ describe('ModulePageHost', () => {
 
   it('uses the same record grant for the standard view row action and double-click', async () => {
     let viewRequests = 0;
-    globalThis.fetch = async (input) => {
-      const request = new Request(input);
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
       if (request.url.endsWith('/platform.module/crm.customer/context')) {
         return Response.json({
           moduleAlias: 'crm.customer',
@@ -2099,6 +2099,90 @@ describe('ModulePageHost', () => {
     );
     expect(wrapper.findComponent({ name: 'TreeRecordExplorer' }).exists()).toBe(false);
     expect(refreshModulePageList('demo.tree')).toBe(false);
+  });
+
+  it('mounts one navigator extension beside the standard list without exposing its CRUD context', async () => {
+    const ScopeTree = {
+      name: 'ScopeTree',
+      props: ['context'],
+      template: '<aside>范围树</aside>',
+    };
+    const requestHeaders: Headers[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requestHeaders.push(request.headers);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) {
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: { schemaVersion: '1', moduleAlias: 'crm.customer', page: page() },
+        });
+      }
+      if (request.url.endsWith('/platform.menu/customer-menu/entry?clientType=WEB')) {
+        return Response.json({
+          entry: { menuId: 'customer-menu', moduleAlias: 'crm.customer', pageMode: 'LIST' },
+          clientType: 'WEB',
+          mainEntityAlias: 'customer',
+          resolvedConfig: { uiFields: [], queryItems: [], actionBlocks: [] },
+          openApiPath: '/crm.customer/openapi',
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    configureModulePageEnhancements([
+      {
+        id: 'customer-scope-tree',
+        target: { moduleAlias: 'crm.customer' },
+        navigator: {
+          extension: {
+            key: 'customer-scope-tree',
+            component: ScopeTree,
+            selection: { kind: 'customerScope', initialKey: () => 'platform' },
+          },
+        },
+      },
+    ]);
+
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          menuId: 'customer-menu',
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+
+    const extension = wrapper.findComponent({ name: 'ScopeTree' });
+    expect(extension.exists()).toBe(true);
+    expect(extension.props('context')).toEqual(
+      expect.objectContaining({
+        moduleAlias: 'crm.customer',
+        selectionKey: 'platform',
+        selectSelectionKey: expect.any(Function),
+        refreshList: expect.any(Function),
+        reload: expect.any(Function),
+      }),
+    );
+    expect(extension.props('context')).not.toHaveProperty('module');
+    expect(
+      requestHeaders.some(
+        (headers) => headers.get('X-MuYun-Page-Selection') === '{"kind":"customerScope","key":"platform"}',
+      ),
+    ).toBe(true);
   });
 
   it('applies signed form-compute rules through the host draft coordinator after a field edit', async () => {

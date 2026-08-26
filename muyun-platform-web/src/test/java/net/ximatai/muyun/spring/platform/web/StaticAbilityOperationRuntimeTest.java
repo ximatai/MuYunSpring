@@ -6,6 +6,8 @@ import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.platform.deletion.DeletionLogService;
 import net.ximatai.muyun.spring.platform.deletion.DeletionOperation;
@@ -133,6 +135,25 @@ class StaticAbilityOperationRuntimeTest {
         assertThat(runtime.execute(endpoint, request, new RecordActionWebRequest(1))).isEqualTo(1);
 
         verify(service).enable("action-b", 1);
+    }
+
+    @Test
+    void shouldApplyResolvedSelectionToGeneratedOperationOfLegacyCrudController() throws Exception {
+        PlatformModuleActionService service = mock(PlatformModuleActionService.class);
+        PlatformModuleAction action = action("action-b", "platform.module-b");
+        when(service.select("action-b")).thenReturn(action);
+        StaticAbilityOperationRuntime runtime = new StaticAbilityOperationRuntime(mock(ObjectProvider.class));
+        RegisteredWebEndpoint endpoint = actionEndpoint(PlatformAction.ENABLE, selectionActionAnchor(service), service);
+        MockHttpServletRequest request = request("action-b");
+        request.addHeader("X-MuYun-Page-Selection", "{\"kind\":\"roleScope\",\"key\":\"module-a\"}");
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("admin", "Admin"))) {
+            assertThatThrownBy(() -> executeWithRequest(request, () -> runtime.execute(endpoint, request,
+                    new RecordActionWebRequest(1))))
+                    .hasMessageContaining("Record does not belong to the current page scope: moduleAlias");
+        }
+
+        verify(service, never()).enable("action-b", 1);
     }
 
     @Test
@@ -268,6 +289,45 @@ class StaticAbilityOperationRuntimeTest {
             public java.util.List<PageContextBindingDefinition> recordScopeBindings() {
                 return java.util.List.of(PageContextBindingDefinition.navigatorList("module", "moduleAlias",
                         navigatorScopeMode));
+            }
+        };
+    }
+
+    private CrudWeb<PlatformModuleAction, PlatformModuleActionService> selectionActionAnchor(
+            PlatformModuleActionService service) {
+        return new CrudWeb<>() {
+            @Override
+            public PlatformModuleActionService service() {
+                return service;
+            }
+
+            @Override
+            public <T> T webScope(java.util.function.Supplier<T> action) {
+                return action.get();
+            }
+
+            @Override
+            public String webScopeName() {
+                return "platform.module_action";
+            }
+
+            @Override
+            public java.util.List<PageContextBindingDefinition> recordScopeBindings() {
+                return java.util.List.of(PageContextBindingDefinition.resolvedSelection("roleScope",
+                        PageContextTarget.LIST_QUERY, "moduleAlias"));
+            }
+
+            @Override
+            public PageSelectionContextResolverRegistry pageSelectionContextResolvers() {
+                return new PageSelectionContextResolverRegistry(java.util.List.of(new PageSelectionContextResolver() {
+                    @Override public String selectionKind() { return "roleScope"; }
+
+                    @Override public ResolvedPageSelectionContext resolve(PageSelectionContextRequest request) {
+                        assertThat(request.action()).isEqualTo(PlatformAction.ENABLE);
+                        return new ResolvedPageSelectionContext("roleScope", "module-a",
+                                Map.of("moduleAlias", PageContextValue.of("platform.module-a")));
+                    }
+                }));
             }
         };
     }

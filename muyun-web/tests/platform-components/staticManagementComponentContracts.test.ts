@@ -472,14 +472,17 @@ it('record picker delegates single-value interaction to the standard select adap
   assert.match(treeSelectSource, /:filter-tree-node="filterTreeNode"/);
 });
 
-it('static management explorers use unified item descriptors', () => {
-  const explorerViews = ['RoleManagementView.vue'];
+it('role scope navigation uses the platform tree with deferred children', () => {
+  const roleSource = readSource('src/views/RoleManagementView.vue');
+  const treeSource = readSource('src/vue-ui-antdv/components/UiTree.vue');
 
-  for (const fileName of explorerViews) {
-    const source = readSource(`src/views/${fileName}`);
-    assert.match(source, /RecordExplorerItemDescriptor/, fileName);
-    assert.match(source, /:item-of=/, fileName);
-  }
+  assert.match(roleSource, /<UiTree/);
+  assert.match(roleSource, /:load-children="loadScopeTreeChildren"/);
+  assert.match(roleSource, /tenantRootTreeNode/);
+  assert.match(roleSource, /organizationTreeNode/);
+  assert.match(roleSource, /createScopedTreeModuleContext/);
+  assert.match(treeSource, /loadChildren\?: \(node: UiTreeNode\) => Promise<void>/);
+  assert.match(treeSource, /event\?\.expanded/);
 });
 
 it('application scope switcher remains a platform component for legacy scoped pages', () => {
@@ -516,31 +519,29 @@ it('three-column management pages use the platform detail panel', () => {
   assert.notMatch(layoutSource, /actionMessage|message success|message\.success/);
 });
 
-it('role management keeps basic scope management separate from binding and authorization', () => {
+it('role management enters the standard runner while keeping IAM scope and actions injected', () => {
   const roleViewSource = readSource('src/views/RoleManagementView.vue');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
+  const roleScopeTreeSource = readSource('src/platform-admin-runtime/role/RoleScopeTree.vue');
+  const roleEnhancementSource = readSource('src/platform-admin-runtime/roleModulePageEnhancement.ts');
   const contractsSource = readSource('src/web-contracts/index.ts');
   const panelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
 
-  assert.match(routesSource, /moduleAlias: 'iam\.role'/);
-  assert.match(routesSource, /route: '\/iam\/role'/);
-  assert.match(roleViewSource, /defineOptions\(\{ name: 'RoleManagementView' \}\)/);
-  assert.match(roleViewSource, /moduleAlias: 'iam\.tenant'/);
-  assert.match(roleViewSource, /moduleAlias: 'iam\.organization'/);
-  assert.match(roleViewSource, /moduleAlias: 'iam\.role'/);
-  assert.match(roleViewSource, /role-management-page/);
-  assert.match(roleViewSource, /height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
-  assert.match(roleViewSource, /@media \(max-width: 980px\)[\s\S]*height: auto;[\s\S]*overflow: visible;/);
-  assert.notMatch(roleViewSource, /calc\(100vh|calc\(100dvh/);
-  assert.match(roleViewSource, /<CrudRecordListExplorer/);
-  assert.match(roleViewSource, /<TreeRecordExplorer/);
-  assert.match(roleViewSource, /<RecordQueryListPanel/);
-  assert.match(roleViewSource, /selectedScope/);
-  assert.match(roleViewSource, /canBrowseTenants/);
-  assert.match(roleViewSource, /currentUserTenant/);
-  assert.match(roleViewSource, /initializeTenantUserScope/);
-  assert.match(roleViewSource, /secondary="当前租户"/);
-  assert.match(roleViewSource, /v-if="!canBrowseTenants && currentUserTenant"/);
+  assert.notMatch(routesSource, /route: '\/iam\/role',/);
+  assert.match(roleScopeTreeSource, /defineOptions\(\{ name: 'RoleScopeTree' \}\)/);
+  assert.match(roleScopeTreeSource, /moduleAlias: 'iam\.tenant'/);
+  assert.match(roleScopeTreeSource, /moduleAlias: 'iam\.organization'/);
+  assert.match(roleScopeTreeSource, /<UiTree/);
+  assert.match(roleScopeTreeSource, /loadChildren/);
+  assert.match(roleScopeTreeSource, /clearSelection/);
+  assert.notMatch(roleScopeTreeSource, /tenant-root:|租户本级角色/);
+  assert.match(roleScopeTreeSource, /key: `tenant:\$\{tenant\.id \?\? ''\}`/);
+  assert.match(roleEnhancementSource, /target: \{ moduleAlias: 'iam\.role' \}/);
+  assert.match(roleEnhancementSource, /kind: 'roleScope'/);
+  assert.match(roleEnhancementSource, /RoleAccountGrantDrawerSurface/);
+  assert.match(roleEnhancementSource, /RoleEmploymentGrantDrawerSurface/);
+  assert.match(roleEnhancementSource, /RoleAuthorizationDrawerSurface/);
+  assert.match(roleViewSource, /tenantRootTreeNode/);
   assert.match(roleViewSource, /selectPlatformScope/);
   assert.match(roleViewSource, /title: '平台角色'/);
   assert.match(roleViewSource, /selectTenantRootScope/);
@@ -946,13 +947,13 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /:ready="pageReady && navigatorListScopeReady"/);
   assert.match(hostSource, /\$\{pageMode\.value\}入口暂未接入模块页面运行器/);
   assert.match(navigatorRuntimeSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
-  assert.match(hostSource, /:explorer-count="visibleNavigatorLevels\.length"/);
+  assert.match(hostSource, /:explorer-count="navigatorExplorerCount"/);
   assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);
-  assert.match(hostSource, /listDetailWorkspaceMinWidth\(visibleNavigatorLevels\.value\.length\)/);
+  assert.match(hostSource, /listDetailWorkspaceMinWidth\(navigatorExplorerCount\.value\)/);
   assert.match(hostSource, /new ResizeObserver\(\(\) => updateDetailSurfaceForWorkspaceWidth\(\)\)/);
   assert.match(hostSource, /workspaceWidth < listDetailMinimumWidth\.value/);
   assert.equal(/max-width: 719px/.test(hostSource), false);
-  assert.match(hostSource, /:navigator-count="visibleNavigatorLevels\.length"/);
+  assert.match(hostSource, /:navigator-count="navigatorExplorerCount"/);
   assert.match(hostSource, /<ManagementWorkspace[\s\S]*v-else-if="treeManagementPage \|\| treeModule"/);
   assert.match(hostSource, /<CrudRecordListExplorer/);
   assert.match(hostSource, /<PageNavigatorExplorer/);

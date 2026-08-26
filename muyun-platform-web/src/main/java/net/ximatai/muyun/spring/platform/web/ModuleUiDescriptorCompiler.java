@@ -40,6 +40,7 @@ import java.util.function.Function;
 
 public final class ModuleUiDescriptorCompiler {
     private static final FormulaEngine FORMULA_ENGINE = new FormulaEngine();
+    private static final Set<String> PAGE_TEXT_FIELDS = Set.of("selection.label", "selection.secondaryLabel");
     private static final String ALIAS_FIELD = "alias";
     private static final Set<String> PLATFORM_FIELD_NAMES = platformFieldNames();
     private static final Map<String, FieldValueType> STANDARD_FIELD_TYPES = standardFieldTypes();
@@ -502,6 +503,7 @@ public final class ModuleUiDescriptorCompiler {
                         new ResolvedPageListDescriptor(card.list().searchPlaceholder(),
                                 compileView(card.list().list(), optionFields, referenceFields,
                                         referenceSummaryFields, fieldTypes, fieldControls),
+                                pageText(card.list().title()), pageText(card.list().subtitle()),
                                 card.list().relationExpansions().stream()
                                         .map(expansion -> new ResolvedPageListRelationExpansionDescriptor(
                                                 expansion.relationCode(), expansion.fields()))
@@ -527,6 +529,16 @@ public final class ModuleUiDescriptorCompiler {
                         List.copyOf(tree.traits().values()));
             }
         };
+    }
+
+    private static ResolvedPageTextDescriptor pageText(PageTextDefinition definition) {
+        if (definition == null) return null;
+        if (definition.text() != null) return new ResolvedPageTextDescriptor(definition.text(), null);
+        FormulaProgram program = FORMULA_ENGINE.compilePageTextProgram(definition.expression());
+        if (!PAGE_TEXT_FIELDS.containsAll(program.referencedFields())) {
+            throw new IllegalArgumentException("page text may reference only " + PAGE_TEXT_FIELDS);
+        }
+        return new ResolvedPageTextDescriptor(null, program);
     }
 
     private static void validateTreeResource(PageTreeResourceDefinition resource, PageNavigatorDefinition navigator) {

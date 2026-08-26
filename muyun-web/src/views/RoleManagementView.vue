@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
-  CrudRecordListExplorer,
   RecordActionBar,
   RecordDetailDrawer,
   RecordDetailPanel,
@@ -11,7 +10,6 @@ import {
   RecordMetaSection,
   RecordQueryListPanel,
   RecordStatusSwitch,
-  TreeRecordExplorer,
   createScopedTreeModuleContext,
   executeStaticFormSave,
   executeStaticRecordAction,
@@ -20,23 +18,20 @@ import {
   presentPlatformMessage,
   resolveRecordFormFieldState,
   resolveRecordFormFields,
-  type CrudRecordListBase,
   type QueryListRecord,
   type RecordActionItem,
-  type RecordExplorerItemDescriptor,
   type RecordFormFieldFallback,
   type RecordFormRecord,
   type RecordQueryListColumn,
   type ResolvedRecordActionItem,
-  type TreeRecordBase,
 } from '@muyun/platform-components';
 import {
   UiButton,
-  UiEmpty,
   UiError,
   UiInput,
-  UiRecordExplorerItem,
   UiSpin,
+  UiTree,
+  type UiTreeNode,
   confirmAction,
 } from '@muyun/vue-ui-antdv';
 import type {
@@ -47,6 +42,7 @@ import type {
   RoleOwnerScopeType,
   RoleSharePolicy,
   Tenant,
+  WebTreeNode,
   WebQueryRequest,
 } from '@muyun/web-contracts';
 import { useModuleContext, type ModuleContext } from '@muyun/web-core';
@@ -103,9 +99,6 @@ const roleContext = useModuleContext<Role>({ moduleAlias: 'iam.role' });
 const currentUser = useCurrentUserContext();
 const tenantSearchKeyword = ref('');
 const pageRoot = ref<HTMLElement | null>(null);
-const organizationSearchKeyword = ref('');
-const tenantReloadKey = ref(0);
-const organizationReloadKey = ref(0);
 const roleReloadKey = ref(0);
 const selectedTenant = ref<Tenant>();
 const selectedScope = ref<RoleScope>();
@@ -131,8 +124,15 @@ const isDrawerWorkspaceView = computed(
   () => isWorkspaceView.value && workspaceViewHost?.presentation === 'drawer',
 );
 const shouldRenderRoleDetailDrawer = computed(() => !isWorkspaceView.value || isDrawerWorkspaceView.value);
-const tenantListContext = computed(() => tenantContext as unknown as ModuleContext<CrudRecordListBase>);
-const selectedTenantId = computed(() => selectedTenant.value?.id);
+const scopeTreeNodes = ref<UiTreeNode[]>([]);
+const scopeTreeExpandedKeys = ref<string[]>([]);
+const scopeTreeLoading = ref(false);
+const scopeTenants = new Map<string, Tenant>();
+const scopeOrganizations = new Map<string, Organization>();
+const scopeOrganizationTenantIds = new Map<string, string>();
+const visibleScopeTreeNodes = computed(() =>
+  filterScopeTreeNodes(scopeTreeNodes.value, tenantSearchKeyword.value),
+);
 const canSelectPlatformScope = computed(() => currentUser?.value?.system === true);
 const canBrowseTenants = computed(() => currentUser?.value?.system === true);
 const currentUserTenant = computed<Tenant | undefined>(() => {
@@ -147,14 +147,6 @@ const currentUserTenant = computed<Tenant | undefined>(() => {
     enabled: true,
   } as Tenant;
 });
-const organizationTreeContext = computed(() =>
-  createScopedTreeModuleContext(organizationContext, {
-    scopeFieldName: 'tenantId',
-    scopeValue: selectedTenantId.value,
-    treePath: '/iam.organization/tree',
-  }),
-);
-const organizationPanelVisible = computed(() => selectedScope.value?.kind !== 'platform');
 const roleListContext = computed(
   () => createScopedRoleModuleContext(roleContext, selectedScope.value) as ModuleContext<QueryListRecord>,
 );
@@ -366,6 +358,9 @@ let disposeRoleWorkspaceHandoffRecipient: (() => void) | undefined;
 
 onMounted(() => {
   void loadRoleFormDefinition();
+  if (!isWorkspaceView.value || isDrawerWorkspaceView.value) {
+    void loadScopeTree();
+  }
   if (!isWorkspaceView.value || !props.recordId || !props.scopeKind) return;
   const input = roleWorkspaceInput();
   if (input && !isDrawerWorkspaceView.value) {
@@ -504,17 +499,145 @@ function updateRoleDraftField(
   roleDraft.value = next;
 }
 
-function handleTenantsLoaded(records: CrudRecordListBase[]) {
+async function loadScopeTree() {
+  if (isWorkspaceView.value && !isDrawerWorkspaceView.value) {
+    return;
+  }
   if (!canBrowseTenants.value) {
+    const tenant = currentUserTenant.value;
+    if (!tenant?.id) return;
+    scopeTenants.set(tenant.id, tenant);
+    scopeTreeNodes.value = [tenantTreeNode(tenant)];
+    initializeTenantUserScope(tenant);
     return;
   }
-  if (!selectedScope.value && canSelectPlatformScope.value) {
-    selectPlatformScope();
+  scopeTreeLoading.value = true;
+  try {
+    await tenantContext.runtime.ready;
+    const response = await tenantContext.abilities.crud().query({ page: { pageNum: 1, pageSize: 200 } });
+    scopeTenants.clear();
+    response.records.forEach((record) => {
+      if (record.id) scopeTenants.set(record.id, record);
+    });
+    scopeTreeNodes.value = response.records.map(tenantTreeNode);
+    if (!selectedScope.value && canSelectPlatformScope.value) {
+      selectPlatformScope();
+    }
+  } catch (cause) {
+    scopeTreeNodes.value = [];
+    presentPlatformError(cause, { source: 'role-management', phase: 'load' });
+  } finally {
+    scopeTreeLoading.value = false;
+  }
+}
+
+function tenantTreeNode(tenant: Tenant): UiTreeNode {
+  return {
+    key: tenantNodeKey(tenant.id),
+    title: tenantTitle(tenant),
+    secondary: tenant.alias ?? tenant.id,
+    muted: tenant.enabled === false,
+    isLeaf: false,
+  };
+}
+
+async function loadScopeTreeChildren(node: UiTreeNode) {
+  const tenantId = tenantIdFromNodeKey(node.key);
+  if (!tenantId || node.children !== undefined) return;
+  const tenant = scopeTenants.get(tenantId);
+  if (!tenant) return;
+  try {
+    const scopedContext = createScopedTreeModuleContext(organizationContext, {
+      scopeFieldName: 'tenantId',
+      scopeValue: tenantId,
+      treePath: '/iam.organization/tree',
+    });
+    await scopedContext.runtime.ready;
+    const response = await scopedContext.abilities.tree().tree();
+    const children = [
+      tenantRootTreeNode(tenant),
+      ...response.records.map((record) => organizationTreeNode(record, tenantId)),
+    ];
+    replaceScopeTreeNode(node.key, { ...node, children });
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'role-management', phase: 'load' });
+    throw cause;
+  }
+}
+
+function tenantRootTreeNode(tenant: Tenant): UiTreeNode {
+  return {
+    key: tenantRootNodeKey(tenant.id),
+    title: tenantTitle(tenant),
+    secondary: '租户本级角色',
+    isLeaf: true,
+  };
+}
+
+function organizationTreeNode(node: WebTreeNode<Organization>, tenantId: string): UiTreeNode {
+  const record = node.record;
+  if (record.id) {
+    scopeOrganizations.set(record.id, record);
+    scopeOrganizationTenantIds.set(record.id, tenantId);
+  }
+  return {
+    key: organizationNodeKey(record.id),
+    title: organizationTitle(record),
+    secondary: record.code ?? record.id,
+    muted: record.enabled === false,
+    isLeaf: node.children.length === 0,
+    children: node.children.map((child) => organizationTreeNode(child, tenantId)),
+  };
+}
+
+function handleScopeTreeSelect(node: UiTreeNode) {
+  const tenantId = tenantIdFromNodeKey(node.key);
+  if (tenantId) {
+    const tenant = scopeTenants.get(tenantId);
+    if (tenant) selectTenant(tenant);
     return;
   }
-  if (!selectedTenant.value && records.length > 0) {
-    selectTenant(records[0] as Tenant);
+  const tenantRootId = tenantRootIdFromNodeKey(node.key);
+  if (tenantRootId) {
+    const tenant = scopeTenants.get(tenantRootId);
+    if (tenant) selectTenant(tenant);
+    return;
   }
+  const organizationId = organizationIdFromNodeKey(node.key);
+  if (!organizationId) return;
+  const organization = scopeOrganizations.get(organizationId);
+  const organizationTenantId = scopeOrganizationTenantIds.get(organizationId);
+  if (organization && organizationTenantId) {
+    selectedTenant.value = scopeTenants.get(organizationTenantId);
+    selectOrganizationScope(organization);
+  }
+}
+
+function replaceScopeTreeNode(key: string, replacement: UiTreeNode) {
+  const replace = (nodes: UiTreeNode[]): UiTreeNode[] =>
+    nodes.map((node) =>
+      node.key === key ? replacement : node.children ? { ...node, children: replace(node.children) } : node,
+    );
+  scopeTreeNodes.value = replace(scopeTreeNodes.value);
+}
+
+function tenantNodeKey(id: string | undefined) {
+  return `tenant:${id ?? ''}`;
+}
+function tenantRootNodeKey(id: string | undefined) {
+  return `tenant-root:${id ?? ''}`;
+}
+function organizationNodeKey(id: string | undefined) {
+  return `organization:${id ?? ''}`;
+}
+function tenantIdFromNodeKey(key: string) {
+  return key.startsWith('tenant:') ? key.slice('tenant:'.length) : undefined;
+}
+function tenantRootIdFromNodeKey(key: string) {
+  return key.startsWith('tenant-root:') ? key.slice('tenant-root:'.length) : undefined;
+}
+function organizationIdFromNodeKey(key: string) {
+  return key.startsWith('organization:') ? key.slice('organization:'.length) : undefined;
 }
 
 function initializeTenantUserScope(record = currentUserTenant.value) {
@@ -523,7 +646,6 @@ function initializeTenantUserScope(record = currentUserTenant.value) {
   }
   selectedTenant.value = record;
   selectTenantRootScope(record);
-  organizationReloadKey.value += 1;
 }
 
 function selectPlatformScope() {
@@ -538,13 +660,24 @@ function selectPlatformScope() {
   };
 }
 
+/** The absence of a tree selection is the platform-role scope, not a tree node. */
+function clearScopeSelection() {
+  if (!canLeaveRoleDetailContext()) {
+    return;
+  }
+  if (!canSelectPlatformScope.value) {
+    selectTenantRootScope();
+    return;
+  }
+  selectPlatformScope();
+}
+
 function selectTenant(record: Tenant) {
   if (!canLeaveRoleDetailContext()) {
     return;
   }
   selectedTenant.value = record;
   selectTenantRootScope(record);
-  organizationReloadKey.value += 1;
 }
 
 function selectTenantRootScope(record = selectedTenant.value) {
@@ -1197,7 +1330,7 @@ function roleTitle(record: Partial<Role> | QueryListRecord | undefined) {
   return String(record?.title ?? record?.id ?? '角色');
 }
 
-function tenantTitle(record: Tenant | CrudRecordListBase | undefined) {
+function tenantTitle(record: Tenant | undefined) {
   return String(record?.title ?? record?.alias ?? record?.id ?? '未命名租户');
 }
 
@@ -1241,20 +1374,16 @@ function ownerScopeTypeTitle(value: RoleOwnerScopeType | undefined) {
   return '租户';
 }
 
-function tenantItemOf(record: CrudRecordListBase): RecordExplorerItemDescriptor {
-  return {
-    title: tenantTitle(record),
-    secondary: record.alias ?? record.id,
-    muted: record.enabled === false,
-  };
-}
-
-function organizationItemOf(record: TreeRecordBase): RecordExplorerItemDescriptor {
-  return {
-    title: record.title ?? record.code ?? record.id ?? '未命名机构',
-    secondary: record.code ?? record.id,
-    muted: record.enabled === false,
-  };
+function filterScopeTreeNodes(nodes: UiTreeNode[], keyword: string): UiTreeNode[] {
+  const normalized = keyword.trim().toLowerCase();
+  if (!normalized) return nodes;
+  return nodes.flatMap((node) => {
+    const children = node.children ? filterScopeTreeNodes(node.children, keyword) : undefined;
+    const matches = [node.title, node.secondary, node.key].some((value) =>
+      value?.toLowerCase().includes(normalized),
+    );
+    return matches || (children?.length ?? 0) > 0 ? [{ ...node, ...(children ? { children } : {}) }] : [];
+  });
 }
 
 function parseRoleIds(value: unknown) {
@@ -1276,7 +1405,6 @@ function parseRoleIds(value: unknown) {
     ref="pageRoot"
     class="role-management-page"
     :class="{
-      'role-management-page-platform': !organizationPanelVisible,
       'role-management-page--task': isWorkspaceView && !isDrawerWorkspaceView,
     }"
   >
@@ -1288,86 +1416,25 @@ function parseRoleIds(value: unknown) {
       :search-keyword="tenantSearchKeyword"
       search-placeholder="搜索租户名称、alias 或 ID"
       :searchable="canBrowseTenants"
-      @refresh="canBrowseTenants ? (tenantReloadKey += 1) : initializeTenantUserScope()"
+      @refresh="loadScopeTree"
       @update:search-keyword="tenantSearchKeyword = $event"
     >
-      <button
-        v-if="canSelectPlatformScope"
-        class="role-platform-scope"
-        type="button"
-        @click="selectPlatformScope"
-      >
-        <UiRecordExplorerItem
-          title="平台角色"
-          secondary="全局范围"
-          clickable
-          :selected="selectedScope?.kind === 'platform'"
-        />
-      </button>
-      <button
-        v-if="!canBrowseTenants && currentUserTenant"
-        class="role-tenant-root-scope"
-        type="button"
-        @click="selectTenant(currentUserTenant)"
-      >
-        <UiRecordExplorerItem
-          :title="tenantTitle(currentUserTenant)"
-          secondary="当前租户"
-          clickable
-          :selected="selectedTenant?.id === currentUserTenant.id"
-        />
-      </button>
-      <CrudRecordListExplorer
+      <UiSpin v-if="scopeTreeLoading" tip="加载租户" />
+      <UiTree
         v-else
-        :context="tenantListContext"
-        :selected-id="selectedTenant?.id"
-        :reload-key="tenantReloadKey"
-        :keyword="tenantSearchKeyword"
-        empty-description="暂无租户"
-        loading-tip="加载租户列表"
-        fallback-title="未命名租户"
-        :item-of="tenantItemOf"
-        @loaded="handleTenantsLoaded"
-        @select="selectTenant($event as Tenant)"
+        v-model:expanded-keys="scopeTreeExpandedKeys"
+        :nodes="visibleScopeTreeNodes"
+        :selected-key="
+          selectedScope?.kind === 'tenant'
+            ? tenantRootNodeKey(selectedScope.id)
+            : selectedScope?.kind === 'organization'
+              ? organizationNodeKey(selectedScope.id)
+              : undefined
+        "
+        :load-children="loadScopeTreeChildren"
+        @select="handleScopeTreeSelect"
+        @deselect="clearScopeSelection"
       />
-    </RecordExplorerPanel>
-
-    <RecordExplorerPanel
-      v-if="(!isWorkspaceView || isDrawerWorkspaceView) && organizationPanelVisible"
-      class="role-scope-panel"
-      title="归属范围"
-      refresh-title="刷新机构树"
-      :search-keyword="organizationSearchKeyword"
-      search-placeholder="搜索机构名称、编码或 ID"
-      :searchable="Boolean(selectedTenant)"
-      @refresh="organizationReloadKey += 1"
-      @update:search-keyword="organizationSearchKeyword = $event"
-    >
-      <UiEmpty v-if="selectedScope?.kind === 'platform'" description="平台角色不需要选择租户内范围" />
-      <UiEmpty v-else-if="!selectedTenant" description="请选择左侧租户" />
-      <template v-else>
-        <button class="role-tenant-root-scope" type="button" @click="selectTenantRootScope()">
-          <UiRecordExplorerItem
-            :title="tenantTitle(selectedTenant)"
-            secondary="租户本级角色"
-            clickable
-            :selected="selectedScope?.kind === 'tenant' && selectedScope.id === selectedTenant.id"
-          />
-        </button>
-        <TreeRecordExplorer
-          :context="organizationTreeContext"
-          :selected-id="selectedScope?.kind === 'organization' ? selectedScope.id : undefined"
-          :reload-key="organizationReloadKey"
-          :keyword="organizationSearchKeyword"
-          search-mode="none"
-          search-trigger="external"
-          empty-description="当前租户暂无机构"
-          loading-tip="加载机构树"
-          fallback-title="未命名机构"
-          :item-of="organizationItemOf"
-          @select="selectOrganizationScope($event as Organization)"
-        />
-      </template>
     </RecordExplorerPanel>
 
     <RecordQueryListPanel
@@ -1574,15 +1641,11 @@ function parseRoleIds(value: unknown) {
 .role-management-page {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(240px, 300px) minmax(240px, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   gap: 12px;
   height: 100%;
   min-height: 0;
   overflow: hidden;
-}
-
-.role-management-page-platform {
-  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
 }
 
 .role-management-page--task {
@@ -1600,7 +1663,6 @@ function parseRoleIds(value: unknown) {
   min-height: 0;
 }
 
-.role-platform-scope,
 .role-tenant-root-scope {
   display: block;
   flex: 0 0 auto;
@@ -1644,20 +1706,6 @@ function parseRoleIds(value: unknown) {
 @media (max-width: 1180px) {
   .role-management-page {
     grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-    grid-template-rows: minmax(0, 0.95fr) minmax(0, 1.3fr);
-  }
-
-  .role-management-page-platform {
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr);
-  }
-
-  .role-list-panel {
-    grid-column: 1 / -1;
-  }
-
-  .role-management-page-platform .role-list-panel {
-    grid-column: auto;
   }
 }
 
@@ -1671,16 +1719,7 @@ function parseRoleIds(value: unknown) {
 @media (max-width: 760px) {
   .role-management-page {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(180px, 0.65fr) minmax(220px, 0.8fr) minmax(360px, 1fr);
-  }
-
-  .role-list-panel {
-    grid-column: auto;
-  }
-
-  .role-management-page-platform {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(180px, 0.65fr) minmax(360px, 1fr);
+    grid-template-rows: minmax(220px, 0.8fr) minmax(360px, 1fr);
   }
 }
 </style>

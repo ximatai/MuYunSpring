@@ -317,7 +317,7 @@ public final class StaticAbilityOperationRuntime {
         if (scope.target.anchor() instanceof RecordWebProjectionPolicy policy) {
             policy.requireRecord(request, action, id);
         }
-        requireCrudPageContextRecord(scope, id);
+        requireCrudPageContextRecord(scope, id, action);
     }
 
     /**
@@ -325,7 +325,7 @@ public final class StaticAbilityOperationRuntime {
      * by the generated ability dispatcher rather than {@link CrudWeb}'s own MVC defaults.
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private void requireCrudPageContextRecord(OperationScope scope, String id) {
+    private void requireCrudPageContextRecord(OperationScope scope, String id, PlatformAction action) {
         if (!(scope.target.anchor() instanceof CrudWeb crudWeb)) {
             return;
         }
@@ -337,28 +337,37 @@ public final class StaticAbilityOperationRuntime {
             throw new IllegalStateException(scope.webScopeName() + " requires CrudAbility for page record scope");
         }
         EntityContract record = (EntityContract) ability.select(id);
-        PageContextScopePolicy.requireRecordInScope(record, requiredScopeBindings);
+        PageContextScopePolicy.requireRecordInScope(record, requiredScopeBindings, crudWeb.webScopeName(), action,
+                crudWeb.pageSelectionContextResolvers());
     }
 
     @SuppressWarnings("rawtypes")
-    private void requireCrudPageContextRecord(OperationScope scope, EntityContract record) {
+    private void requireCrudPageContextRecord(OperationScope scope, EntityContract record, PlatformAction action) {
         if (!(scope.target.anchor() instanceof CrudWeb crudWeb)) {
             return;
         }
         List<PageContextBindingDefinition> requiredScopeBindings = requiredCrudPageContextBindings(crudWeb);
         if (!requiredScopeBindings.isEmpty()) {
-            PageContextScopePolicy.requireRecordInScope(record, requiredScopeBindings);
+            PageContextScopePolicy.requireRecordInScope(record, requiredScopeBindings, crudWeb.webScopeName(), action,
+                    crudWeb.pageSelectionContextResolvers());
         }
     }
 
     @SuppressWarnings("rawtypes")
     private List<PageContextBindingDefinition> requiredCrudPageContextBindings(CrudWeb crudWeb) {
         StandardModuleWebRuntime runtime = crudWeb.standardModuleWebRuntime();
+        List<PageContextBindingDefinition> bindings = PageContextScopePolicy.recordScopeBindings(
+                crudWeb.recordScopeBindings());
         if (!crudWeb.requiresModuleExecutionPlan()
                 && (runtime == null || !runtime.hasPlan(crudWeb.webScopeName()))) {
-            return List.of();
+            // Legacy controllers historically did not apply browser navigator values to generated
+            // operations. Keep that compatibility boundary, while still enforcing the new
+            // server-authoritative selection source for static controllers such as iam.role.
+            return bindings.stream()
+                    .filter(binding -> binding.source() == PageContextSource.RESOLVED_SELECTION)
+                    .toList();
         }
-        return PageContextScopePolicy.recordScopeBindings(crudWeb.recordScopeBindings());
+        return bindings;
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -409,7 +418,7 @@ public final class StaticAbilityOperationRuntime {
                 throw new IllegalArgumentException("recycle-bin record not found: " + id);
             }
             EntityContract record = (EntityContract) records.getFirst();
-            requireCrudPageContextRecord(scope, record);
+            requireCrudPageContextRecord(scope, record, PlatformAction.RECYCLE_BIN_QUERY);
             return WebOutputSupport.record(ability, record, FieldOutputContext.VIEW);
         });
     }
@@ -501,7 +510,7 @@ public final class StaticAbilityOperationRuntime {
         EntityContract record = (EntityContract) ability.selectIgnoreSoftDelete(
                 log.operation(sourceDeleteOperationId).getRootRecordId());
         if (record != null) {
-            requireCrudPageContextRecord(scope, record);
+            requireCrudPageContextRecord(scope, record, PlatformAction.RECYCLE_BIN_RESTORE);
         }
     }
 

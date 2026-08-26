@@ -7,6 +7,9 @@ import net.ximatai.muyun.spring.web.BusinessMutation;
 import net.ximatai.muyun.spring.web.BusinessMutationResultSupport;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
+import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
+import net.ximatai.muyun.spring.platform.web.PageContextTarget;
+import net.ximatai.muyun.spring.platform.web.PageSelectionContextResolverRegistry;
 import net.ximatai.muyun.spring.web.MutationTenantScopeExecutor;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
 import net.ximatai.muyun.spring.web.WebListResponse;
@@ -59,10 +62,11 @@ import java.util.LinkedHashMap;
 import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
-        alias = "iam.role", title = "角色管理", route = "/iam/role")
+        alias = "iam.role", title = "角色管理")
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, order = 70)
 @RequestMapping("/iam.role")
@@ -70,11 +74,24 @@ public class RoleWebController extends WebSupport<RoleService> implements
         CrudWeb<Role, RoleService>,
         MutationTenantScopeResolver<Role>,
         StaticModuleUiContributor {
+    private static final List<PageContextBindingDefinition> ROLE_SCOPE_SELECTION_BINDINGS = Stream.of(
+                    PageContextBindingDefinition.resolvedSelectionFields(RoleScopePageSelectionResolver.SELECTION_KIND,
+                            PageContextTarget.LIST_QUERY, "ownerScopeKey"),
+                    PageContextBindingDefinition.resolvedSelectionFields(RoleScopePageSelectionResolver.SELECTION_KIND,
+                            PageContextTarget.FORM_DEFAULT, "ownerScopeType", "ownerScopeId", "ownerScopeKey"),
+                    PageContextBindingDefinition.resolvedSelectionFields(RoleScopePageSelectionResolver.SELECTION_KIND,
+                            PageContextTarget.MUTATION_CONSTRAINT, "ownerScopeType", "ownerScopeId",
+                            "ownerScopeKey", "tenantId"))
+            .flatMap(List::stream)
+            .toList();
+
     private final RoleGrantableActionResolver grantableActionResolver;
     private final MenuService menuService;
     private final PlatformModuleService platformModuleService;
     private EmployeeEmploymentReadService employeeEmploymentReadService;
     private TenantApplicationService tenantApplicationService;
+    private PageSelectionContextResolverRegistry roleScopeSelectionResolvers =
+            new PageSelectionContextResolverRegistry(List.of());
 
     public RoleWebController(RoleGrantableActionResolver grantableActionResolver) {
         this(grantableActionResolver, (MenuService) null, (PlatformModuleService) null);
@@ -113,11 +130,28 @@ public class RoleWebController extends WebSupport<RoleService> implements
         this.tenantApplicationService = tenantApplicationService;
     }
 
+    @Autowired(required = false)
+    void setRoleScopeSelectionResolver(RoleScopePageSelectionResolver roleScopeSelectionResolver) {
+        this.roleScopeSelectionResolvers = new PageSelectionContextResolverRegistry(List.of(roleScopeSelectionResolver));
+    }
+
+    @Override
+    public PageSelectionContextResolverRegistry pageSelectionContextResolvers() {
+        return roleScopeSelectionResolvers;
+    }
+
+    @Override
+    public List<PageContextBindingDefinition> pageSelectionContextBindings() {
+        return ROLE_SCOPE_SELECTION_BINDINGS;
+    }
+
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(RoleService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page
-                .list(list -> list.fields(fields -> fields
+                .list(list -> list.header(header -> header.title("角色管理")
+                        .subtitleExpression("{selection.label}"))
+                        .fields(fields -> fields
                         .title("角色列表")
                         .field("title", field -> field.label("角色名称").width("180px"))
                         .field("assignmentType", field -> field.label("授权层级").uiType("select").width("110px"))

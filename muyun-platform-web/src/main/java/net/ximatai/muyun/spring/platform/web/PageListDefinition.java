@@ -6,6 +6,7 @@ import java.util.function.Consumer;
 
 /** The pageable record-list slot of {@link ModulePageTemplate#LIST_DETAIL_CARD}. */
 public record PageListDefinition(String searchPlaceholder, ViewDefinition list,
+                                 PageTextDefinition title, PageTextDefinition subtitle,
                                  List<PageListRelationExpansionDefinition> relationExpansions,
                                  List<PageListPersistentQueryControlDefinition> persistentQueryControls,
                                  List<PageListQuerySummaryDefinition> querySummaries) {
@@ -33,30 +34,40 @@ public record PageListDefinition(String searchPlaceholder, ViewDefinition list,
 
     /** Source-compatible constructor for lists without a row expansion. */
     public PageListDefinition(String searchPlaceholder, ViewDefinition list) {
-        this(searchPlaceholder, list, List.of(), List.of(), List.of());
+        this(searchPlaceholder, list, null, null, List.of(), List.of(), List.of());
     }
 
     /** Source-compatible constructor for lists without persistent query controls. */
     public PageListDefinition(String searchPlaceholder, ViewDefinition list,
                               List<PageListRelationExpansionDefinition> relationExpansions) {
-        this(searchPlaceholder, list, relationExpansions, List.of(), List.of());
+        this(searchPlaceholder, list, null, null, relationExpansions, List.of(), List.of());
     }
 
     /** Source-compatible constructor for lists with persistent controls but no footer summaries. */
     public PageListDefinition(String searchPlaceholder, ViewDefinition list,
                               List<PageListRelationExpansionDefinition> relationExpansions,
                               List<PageListPersistentQueryControlDefinition> persistentQueryControls) {
-        this(searchPlaceholder, list, relationExpansions, persistentQueryControls, List.of());
+        this(searchPlaceholder, list, null, null, relationExpansions, persistentQueryControls, List.of());
     }
 
     public static final class Builder {
         private String searchPlaceholder;
         private ViewDefinition list;
+        private PageTextDefinition title;
+        private PageTextDefinition subtitle;
         private final List<PageListRelationExpansionDefinition> relationExpansions = new ArrayList<>();
         private final List<PageListPersistentQueryControlDefinition> persistentQueryControls = new ArrayList<>();
         private final List<PageListQuerySummaryDefinition> querySummaries = new ArrayList<>();
 
         public Builder searchPlaceholder(String value) { searchPlaceholder = value; return this; }
+        /** Declares the descriptor-owned header in the main list content region. */
+        public Builder header(Consumer<HeaderBuilder> customizer) {
+            HeaderBuilder builder = new HeaderBuilder();
+            if (customizer != null) customizer.accept(builder);
+            title = builder.title;
+            subtitle = builder.subtitle;
+            return this;
+        }
         public Builder fields(Consumer<ViewDefinition.Builder> customizer) {
             // The list slot is the module's standard query projection.  Keep its
             // stable view code so the existing query/action protocol need not
@@ -92,8 +103,19 @@ public record PageListDefinition(String searchPlaceholder, ViewDefinition list,
             return this;
         }
         PageListDefinition build() {
-            return new PageListDefinition(searchPlaceholder, list, relationExpansions, persistentQueryControls, querySummaries);
+            return new PageListDefinition(searchPlaceholder, list, title, subtitle,
+                    relationExpansions, persistentQueryControls, querySummaries);
         }
+    }
+
+    /** Copy owned by the list's main-content header, never by application chrome or navigation. */
+    public static final class HeaderBuilder {
+        private PageTextDefinition title;
+        private PageTextDefinition subtitle;
+        public HeaderBuilder title(String value) { title = PageTextDefinition.text(value); return this; }
+        public HeaderBuilder titleExpression(String value) { title = PageTextDefinition.expression(value); return this; }
+        public HeaderBuilder subtitle(String value) { subtitle = PageTextDefinition.text(value); return this; }
+        public HeaderBuilder subtitleExpression(String value) { subtitle = PageTextDefinition.expression(value); return this; }
     }
 
     public static final class QuerySummariesBuilder {

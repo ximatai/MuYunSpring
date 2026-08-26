@@ -5,7 +5,6 @@ import type {
   PageLayoutMode,
   RoutePageTarget,
 } from '@muyun/web-contracts';
-const RoleManagementView = defineAsyncComponent(() => import('../views/RoleManagementView.vue'));
 const RoleAuthorizationView = defineAsyncComponent(() => import('../views/RoleAuthorizationView.vue'));
 
 export interface PlatformAdminRoute {
@@ -19,12 +18,6 @@ export interface PlatformAdminRoute {
 }
 
 export const platformAdminRoutes: PlatformAdminRoute[] = [
-  {
-    route: '/iam/role',
-    moduleAlias: 'iam.role',
-    component: RoleManagementView,
-    layout: 'workspace',
-  },
   {
     route: '/iam/role/authorization',
     moduleAlias: 'iam.role',

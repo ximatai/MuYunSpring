@@ -97,4 +97,16 @@ class WebUiFormulaProfileTest {
         assertThat(program.root().arguments().get(1).arguments().getFirst().value()).isEqualTo(0.001d);
         assertThat(engine.evaluateValue("-1e-3", FormulaRuntimeData.of(Map.of()))).isEqualTo(-0.001d);
     }
+
+    @Test
+    void compilesPresentationOnlyPageTextWithoutReusingBooleanOrMutationProfiles() {
+        FormulaProgram program = engine.compilePageTextProgram("{selection.label} + ' · ' + {selection.secondaryLabel}");
+
+        assertThat(program.profile()).isEqualTo(FormulaExecutionProfile.PAGE_TEXT);
+        assertThat(program.referencedFields()).containsExactly("selection.label", "selection.secondaryLabel");
+        assertThatThrownBy(() -> engine.compilePageTextProgram("PRESENT({selection.label})"))
+                .hasMessageContaining("PAGE_TEXT profile");
+        assertThatThrownBy(() -> engine.compilePageTextProgram("{selection.label} = '平台角色'"))
+                .hasMessageContaining("PAGE_TEXT profile");
+    }
 }

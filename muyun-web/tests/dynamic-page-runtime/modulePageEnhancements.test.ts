@@ -287,6 +287,47 @@ describe('module page enhancements', () => {
     ).toThrow('重复声明记录卡片辅助区域');
   });
 
+  it('reserves one controlled navigator extension surface for a standard page', () => {
+    const ScopeTree = { template: '<aside>scope tree</aside>' };
+    const registry = createModulePageEnhancementRegistry([
+      {
+        id: 'customer-scope-tree',
+        target: { moduleAlias: 'crm.customer' },
+        navigator: { extension: { key: 'customer-scope-tree', component: ScopeTree } },
+      },
+    ]);
+
+    expect(registry.resolve('crm.customer')?.navigator?.extension).toEqual({
+      key: 'customer-scope-tree',
+      component: ScopeTree,
+    });
+
+    expect(() =>
+      createModulePageEnhancementRegistry([
+        {
+          id: 'first-scope-tree',
+          target: { moduleAlias: 'crm.customer' },
+          navigator: { extension: { key: 'first', component: ScopeTree } },
+        },
+        {
+          id: 'second-scope-tree',
+          target: { moduleAlias: 'crm.customer' },
+          navigator: { extension: { key: 'second', component: ScopeTree } },
+        },
+      ]),
+    ).toThrow('重复声明导航扩展区域');
+
+    expect(() =>
+      createModulePageEnhancementRegistry([
+        {
+          id: 'blank-scope-tree',
+          target: { moduleAlias: 'crm.customer' },
+          navigator: { extension: { key: ' ', component: ScopeTree } },
+        },
+      ]),
+    ).toThrow('导航扩展 key 不能为空');
+  });
+
   it('detaches and deeply freezes card record snapshots', () => {
     const source = { title: '客户', children: [{ title: '联系人' }] };
     const snapshot = createReadonlyCardRecordSnapshot(source);

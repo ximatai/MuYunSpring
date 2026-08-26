@@ -15,6 +15,15 @@ public final class MutationTenantScopeExecutor {
                 .flatMap(resolver -> resolver.tenantIdForCreate(record)), action);
     }
 
+    /**
+     * Runs a mutation in the tenant scope already resolved by a trusted page-selection contract.
+     * A {@code null} tenant deliberately means system scope; callers must not fall back to a
+     * browser record-derived resolver after selecting that branch.
+     */
+    public static <R> R forAuthoritativeTenantScope(String tenantId, Supplier<R> action) {
+        return run(Optional.ofNullable(tenantId), action);
+    }
+
     public static <T extends EntityContract, R> R forUpdate(Object owner,
                                                             String id,
                                                             T record,

@@ -13,6 +13,9 @@ import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.web.MuYunSpringJacksonConfiguration;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
+import net.ximatai.muyun.spring.platform.web.PageContextValue;
+import net.ximatai.muyun.spring.platform.web.PageSelectionContextRequest;
+import net.ximatai.muyun.spring.platform.web.ResolvedPageSelectionContext;
 import net.ximatai.muyun.spring.platform.web.MenuEntryRequestContext;
 import net.ximatai.muyun.spring.platform.web.MenuEntryRequestInterceptor;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
@@ -280,6 +283,24 @@ class IamWebControllerTest {
         PositionWebController positionController = new PositionWebController();
         UserAccountWebController userAccountController = new UserAccountWebController();
         RoleWebController roleController = new RoleWebController(grantableActionResolver);
+        RoleScopePageSelectionResolver roleScopeResolver = mock(RoleScopePageSelectionResolver.class);
+        when(roleScopeResolver.selectionKind()).thenReturn(RoleScopePageSelectionResolver.SELECTION_KIND);
+        when(roleScopeResolver.resolve(any(PageSelectionContextRequest.class))).thenAnswer(invocation -> {
+            PageSelectionContextRequest selection = invocation.getArgument(0);
+            String key = selection.selectionKey();
+            RoleOwnerScopeType type = key.equals("platform") ? RoleOwnerScopeType.PLATFORM
+                    : key.startsWith("organization:") ? RoleOwnerScopeType.ORGANIZATION : RoleOwnerScopeType.TENANT;
+            String scopeId = type == RoleOwnerScopeType.PLATFORM ? null
+                    : key.substring(key.indexOf(':') + 1);
+            String tenantId = type == RoleOwnerScopeType.PLATFORM ? null
+                    : type == RoleOwnerScopeType.TENANT ? scopeId : "demo";
+            return new ResolvedPageSelectionContext(RoleScopePageSelectionResolver.SELECTION_KIND, key, Map.of(
+                    "ownerScopeType", PageContextValue.of(type),
+                    "ownerScopeId", PageContextValue.of(scopeId),
+                    "ownerScopeKey", PageContextValue.of(key),
+                    "tenantId", PageContextValue.of(tenantId)
+            ));
+        });
         ReflectionTestUtils.setField(tenantController, "service", tenantService);
         ReflectionTestUtils.setField(tenantController, "standardModuleWebRuntime", tenantRuntime(tenantController));
         ReflectionTestUtils.setField(organizationController, "service", organizationService);
@@ -288,6 +309,7 @@ class IamWebControllerTest {
         ReflectionTestUtils.setField(userAccountController, "service", userAccountService);
         ReflectionTestUtils.setField(userAccountController, "standardModuleWebRuntime", userRuntime(userAccountController));
         ReflectionTestUtils.setField(roleController, "service", roleService);
+        roleController.setRoleScopeSelectionResolver(roleScopeResolver);
         mvc = MockMvcBuilders
                 .standaloneSetup(
                         tenantController,
@@ -712,6 +734,7 @@ class IamWebControllerTest {
         when(roleService.select("role-1")).thenReturn(saved);
 
         mvc.perform(post("/iam.role/insert")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("tenant:tenant_a"))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -743,6 +766,7 @@ class IamWebControllerTest {
         when(roleService.select("role-1")).thenReturn(saved);
 
         mvc.perform(post("/iam.role/insert")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("organization:demo_org"))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -766,6 +790,7 @@ class IamWebControllerTest {
         existing.setTitle("Organization Role");
         existing.setOwnerScopeType(RoleOwnerScopeType.ORGANIZATION);
         existing.setOwnerScopeId("demo_org");
+        existing.setOwnerScopeKey("organization:demo_org");
         when(roleService.select("role-1")).thenReturn(existing);
         when(roleService.delete("role-1", 0)).thenAnswer(invocation -> {
             assertThat(TenantContext.currentTenantId()).contains("demo");
@@ -773,6 +798,7 @@ class IamWebControllerTest {
         });
 
         mvc.perform(post("/iam.role/delete/{id}", "role-1")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("organization:demo_org"))
                         .contentType("application/json")
                         .content("{\"version\":0}"))
                 .andExpect(status().isOk())
@@ -783,15 +809,18 @@ class IamWebControllerTest {
     void shouldSortTenantScopedRoleUnderResolvedExistingRecordTenantForSystemUser() throws Exception {
         currentUser = CurrentUser.systemUser("admin", "Admin");
         Role existing = tenantScopedRole("role-1", "demo");
+        Role previous = tenantScopedRole("role-0", "demo");
         when(roleService.select("role-1")).thenReturn(existing);
+        when(roleService.select("role-0")).thenReturn(previous);
         doAnswer(invocation -> {
             assertThat(TenantContext.currentTenantId()).contains("demo");
             return null;
         }).when(roleService).moveAfter("role-1", "role-0");
 
         mvc.perform(post("/iam.role/sort/{id}", "role-1")
-                        .contentType("application/json")
-                        .content("""
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("tenant:demo"))
+                .contentType("application/json")
+                .content("""
                                 {"previousId":"role-0"}
                                 """))
                 .andExpect(status().isOk())
@@ -1628,6 +1657,7 @@ class IamWebControllerTest {
         role.setTitle("Tenant Role");
         role.setOwnerScopeType(RoleOwnerScopeType.TENANT);
         role.setOwnerScopeId(tenantId);
+        role.setOwnerScopeKey("tenant:" + tenantId);
         role.setEnabled(Boolean.TRUE);
         role.setSortOrder(1);
         return role;
@@ -1803,5 +1833,9 @@ class IamWebControllerTest {
 
     private String json(Object value) throws Exception {
         return objectMapper.writeValueAsString(value);
+    }
+
+    private static String roleScopeHeader(String key) {
+        return "{\"kind\":\"roleScope\",\"key\":\"" + key + "\"}";
     }
 }

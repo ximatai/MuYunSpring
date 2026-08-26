@@ -63,6 +63,15 @@ export interface ModulePageStandardActionsEnhancement {
 export interface ModulePageNavigatorEnhancement {
   /** Hides descriptor navigators when this entry is not navigated by their business scope. */
   hidden?: boolean;
+  /**
+   * One application-owned navigator surface mounted beside descriptor navigators.
+   *
+   * This is intentionally a single region: the page runner retains layout,
+   * record querying and mutation ownership. An extension may render an
+   * authorized business range selector, but it cannot replace the standard
+   * list or declare executable page context.
+   */
+  extension?: ModulePageNavigatorExtension;
   /** Declares one navigator as an entry-owned, immutable page context. */
   lockedEntry?: ModulePageLockedNavigatorEntry;
   /** Allows the standard list to load without navigator-derived list criteria. */
@@ -72,6 +81,51 @@ export interface ModulePageNavigatorEnhancement {
    * navigator rendering and request lifecycle; this hook contributes only typed list conditions.
    */
   emptyListScope?(context: ModulePageEmptyNavigatorScopeContext): readonly WebQueryCondition[] | undefined;
+}
+
+export interface ModulePageNavigatorExtension {
+  key: string;
+  /** Frontend-owned component; backend descriptors never select a component. */
+  component: Component;
+  /**
+   * Optional opaque selection channel owned by the standard page host.
+   *
+   * A navigator extension may select only a declared `key`; the host serializes
+   * the `{ kind, key }` pair into its controlled request header. Extensions
+   * never receive a mutable query map or mutation payload.
+   */
+  selection?: ModulePageNavigatorSelection;
+}
+
+export interface ModulePageNavigatorSelection {
+  /** Server-registered resolver kind, not a business field name. */
+  kind: string;
+  /** Resolves the first trusted selection before the standard page starts its requests. */
+  initialKey?(currentUser?: CurrentUser): string | undefined;
+  /** Presentation-only copy for the initial trusted selection. It is never sent to the server. */
+  initialPresentation?(currentUser?: CurrentUser): ModulePageSelectionPresentation | undefined;
+}
+
+/** The only display facts a navigator extension may contribute to PAGE_TEXT. */
+export interface ModulePageSelectionPresentation {
+  label: string;
+  secondaryLabel?: string;
+}
+
+/** Deliberately small host context for one navigator extension surface. */
+export interface ModulePageNavigatorExtensionContext {
+  moduleAlias: string;
+  /** Current opaque selection key, if this extension declared a selection channel. */
+  selectionKey?: string;
+  /**
+   * Replaces the extension's opaque selection key and reloads the standard
+   * list. The host owns header serialization and every CRUD request.
+   */
+  selectSelectionKey(key: string, presentation?: ModulePageSelectionPresentation): void;
+  /** Reloads only the standard list while retaining the platform-owned query state. */
+  refreshList(): void;
+  /** Reloads the page's standard record surfaces. */
+  reload(): void;
 }
 
 export interface ModulePageLockedNavigatorEntry {
@@ -580,6 +634,14 @@ function composeModulePageEnhancements(
       `模块页面增强目标 ${targetKey(target.moduleAlias, target.viewCode)} 重复声明记录卡片辅助区域`,
     );
   }
+  const navigatorExtensions = enhancements
+    .map((enhancement) => enhancement.navigator?.extension)
+    .filter((extension): extension is ModulePageNavigatorExtension => extension !== undefined);
+  if (navigatorExtensions.length > 1) {
+    throw new Error(
+      `模块页面增强目标 ${targetKey(target.moduleAlias, target.viewCode)} 重复声明导航扩展区域`,
+    );
+  }
   const list = composeListEnhancement(enhancements, actionColumnWidths[0], rowExpansions[0]);
   const detail = composeDetailEnhancement(enhancements);
   const form = composeFormEnhancement(enhancements);
@@ -592,6 +654,7 @@ function composeModulePageEnhancements(
       if (!contribution) return resolved;
       return {
         hidden: resolved?.hidden || contribution.hidden,
+        extension: contribution.extension ?? resolved?.extension,
         lockedEntry: contribution.lockedEntry ?? resolved?.lockedEntry,
         bypassListScope: resolved?.bypassListScope || contribution.bypassListScope,
         emptyListScope: contribution.emptyListScope ?? resolved?.emptyListScope,
@@ -708,6 +771,10 @@ function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
   const fieldPolicies = enhancement.form?.fieldPolicies ?? [];
   if (new Set(fieldPolicies.map((policy) => policy.fieldName)).size !== fieldPolicies.length) {
     throw new Error(`模块页面增强 ${enhancement.id} 对同一表单字段重复声明展示策略`);
+  }
+  const navigatorExtension = enhancement.navigator?.extension;
+  if (navigatorExtension && !navigatorExtension.key.trim()) {
+    throw new Error(`模块页面增强 ${enhancement.id} 的导航扩展 key 不能为空`);
   }
   assertNoReservedActionKeys(enhancement.id, enhancement.list?.actions ?? [], ['create']);
   assertNoReservedActionKeys(enhancement.id, enhancement.list?.rowActions ?? [], ['view', 'edit', 'delete']);

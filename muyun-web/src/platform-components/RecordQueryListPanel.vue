@@ -103,6 +103,8 @@ const props = withDefaults(
   defineProps<{
     context: ModuleContext<QueryListRecord>;
     title: string;
+    /** Descriptor-owned secondary copy in the main content header. */
+    subtitle?: string;
     columns?: RecordQueryListColumn[];
     /** Columns appended to, or anchored around, the descriptor-owned list fields. */
     additionalColumns?: Array<RecordQueryListColumn & { before?: string; after?: string }>;
@@ -167,6 +169,7 @@ const props = withDefaults(
   }>(),
   {
     rowKey: 'id',
+    subtitle: undefined,
     columns: () => [],
     additionalColumns: () => [],
     cellComponents: () => [],
@@ -1190,6 +1193,7 @@ defineExpose({ clearSelection, refresh });
       v-if="headerVisible"
       class="record-query-list-header"
       :title="showTitle ? title : ''"
+      :subtitle="showTitle ? subtitle : undefined"
       :title-action-icon="showTitle ? 'reload' : undefined"
       :title-action-title="showTitle ? (refreshTitle ?? `刷新${title}`) : undefined"
       :title-action-disabled="queryActionsDisabled"
