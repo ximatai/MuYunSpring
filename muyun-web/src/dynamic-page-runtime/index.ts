@@ -13,6 +13,10 @@ export {
 } from './modulePageEnhancements';
 export { provideModulePageNavigation, useModulePageNavigation } from './modulePageNavigation';
 export {
+  NAVIGATOR_ENTRY_MODULE_ALIAS_QUERY_KEY,
+  NAVIGATOR_ENTRY_RECORD_ID_QUERY_KEY,
+} from './navigatorEntrySelection';
+export {
   createModulePageListRefreshRegistry,
   modulePageListRefreshRegistry,
   refreshModulePageList,
@@ -48,6 +52,7 @@ export type {
   ModulePageEnhancementActivationContext,
   ModulePageEnhancementRegistry,
   ModulePageEnhancementTarget,
+  ModulePageLockedNavigatorEntry,
   ModulePageCardAssistant,
   ModulePageCardAssistantContext,
   ModulePageCardAssistantPlacement,

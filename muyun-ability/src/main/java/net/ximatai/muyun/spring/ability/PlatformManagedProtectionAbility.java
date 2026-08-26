@@ -22,6 +22,18 @@ public interface PlatformManagedProtectionAbility<T extends EntityContract & Pla
         );
     }
 
+    /**
+     * Whether the ordinary record editor may be offered for a platform-managed record.
+     *
+     * <p>Allowing lifecycle-only changes such as enable or sort does not imply that a general
+     * update form is safe: a service must opt in when it has a bounded, declarative subset of
+     * ordinary editable fields. The mutation guard remains authoritative for the actual changed
+     * fields.</p>
+     */
+    default boolean allowsOrdinaryPlatformManagedUpdate() {
+        return false;
+    }
+
     default boolean allowOrdinaryPlatformManagedInsert(T entity) {
         return false;
     }
@@ -37,10 +49,20 @@ public interface PlatformManagedProtectionAbility<T extends EntityContract & Pla
             return Optional.empty();
         }
         if (PlatformAction.UPDATE.matches(actionCode)) {
-            return Optional.of(RecordActionAvailabilityDecision.unavailable("平台托管记录不可编辑"));
+            return allowsOrdinaryPlatformManagedUpdate()
+                    ? Optional.empty()
+                    : Optional.of(RecordActionAvailabilityDecision.unavailable("平台托管记录不可编辑"));
         }
         if (PlatformAction.DELETE.matches(actionCode)) {
             return Optional.of(RecordActionAvailabilityDecision.unavailable("平台托管记录不可删除"));
+        }
+        if ((PlatformAction.ENABLE.matches(actionCode) || PlatformAction.DISABLE.matches(actionCode))
+                && !editablePlatformManagedFields().contains(PlatformAbilityFields.ENABLED_FIELD)) {
+            return Optional.of(RecordActionAvailabilityDecision.unavailable("平台托管记录不可变更启用状态"));
+        }
+        if (PlatformAction.SORT.matches(actionCode)
+                && !editablePlatformManagedFields().contains(PlatformAbilityFields.SORT_FIELD)) {
+            return Optional.of(RecordActionAvailabilityDecision.unavailable("平台托管记录不可调整排序"));
         }
         return Optional.empty();
     }

@@ -63,6 +63,8 @@ export interface ModulePageStandardActionsEnhancement {
 export interface ModulePageNavigatorEnhancement {
   /** Hides descriptor navigators when this entry is not navigated by their business scope. */
   hidden?: boolean;
+  /** Declares one navigator as an entry-owned, immutable page context. */
+  lockedEntry?: ModulePageLockedNavigatorEntry;
   /** Allows the standard list to load without navigator-derived list criteria. */
   bypassListScope?: boolean;
   /**
@@ -70,6 +72,13 @@ export interface ModulePageNavigatorEnhancement {
    * navigator rendering and request lifecycle; this hook contributes only typed list conditions.
    */
   emptyListScope?(context: ModulePageEmptyNavigatorScopeContext): readonly WebQueryCondition[] | undefined;
+}
+
+export interface ModulePageLockedNavigatorEntry {
+  /** Descriptor navigator key whose selection is supplied by the page address. */
+  navigatorKey: string;
+  /** Text shown if the addressed record cannot be resolved or authorized. */
+  unavailableDescription: string;
 }
 
 export interface ModulePageEmptyNavigatorScopeContext {
@@ -583,6 +592,7 @@ function composeModulePageEnhancements(
       if (!contribution) return resolved;
       return {
         hidden: resolved?.hidden || contribution.hidden,
+        lockedEntry: contribution.lockedEntry ?? resolved?.lockedEntry,
         bypassListScope: resolved?.bypassListScope || contribution.bypassListScope,
         emptyListScope: contribution.emptyListScope ?? resolved?.emptyListScope,
       };

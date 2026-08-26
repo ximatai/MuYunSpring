@@ -908,8 +908,9 @@ describe('ModulePageHost', () => {
   it('keeps a list dormant until every declared navigator scope is selected', async () => {
     window.localStorage.setItem('muyun.preference.module-page.detail-surface.crm.customer', '"drawer"');
     let detailRequests = 0;
-    globalThis.fetch = async (input) => {
-      const request = new Request(input);
+    let listPageContextHeader: string | null | undefined;
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
       if (request.url.endsWith('/platform.module/crm.customer/context')) {
         return Response.json({
           moduleAlias: 'crm.customer',
@@ -974,6 +975,10 @@ describe('ModulePageHost', () => {
         detailRequests += 1;
         return Response.json({ id: 'customer-1', title: '客户一' });
       }
+      if (request.url.endsWith('/crm.customer/query')) {
+        listPageContextHeader = request.headers.get('X-MuYun-Page-Context');
+        return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
+      }
       throw new Error(`Unexpected request: ${request.url}`);
     };
     configureModuleContext({
@@ -1032,6 +1037,8 @@ describe('ModulePageHost', () => {
       organizationId: 'organization-1',
     });
     expect(panel.props('ready')).toBe(true);
+    await panel.props('context').crud.query();
+    expect(listPageContextHeader).toBe('{"tenant":"tenant-1","organization":"organization-1"}');
 
     explorers[0].vm.$emit('select', { id: 'tenant-2', title: '乙租户' });
     await flushPromises();
@@ -1475,6 +1482,280 @@ describe('ModulePageHost', () => {
     await flushPromises();
     expect(organizationTree?.props('selectedId')).toBeUndefined();
     expect(organizationTree?.props('externalQueryValues')).toEqual({ tenantId: 'tenant-2' });
+  });
+
+  it('preselects a navigator only from its reference-authorized loaded records and consumes the entry once', async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.url.endsWith('/platform.module/demo.action/context')) {
+        return Response.json({
+          moduleAlias: 'demo.action',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'demo.action',
+            page: page({
+              navigator: {
+                contextBindings: [],
+                levels: [
+                  {
+                    key: 'module',
+                    kind: 'MICRO_LIST',
+                    sourceModuleAlias: 'platform.module',
+                    title: '模块',
+                    searchPlaceholder: '搜索模块',
+                  },
+                ],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/platform.module/reference-context')) {
+        return Response.json({ moduleAlias: 'platform.module', capabilities: [], actions: [] });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-params' },
+          target: { moduleAlias: 'demo.action', pageMode: 'LIST' },
+          params: {
+            _muyunNavigatorModuleAlias: 'platform.module',
+            _muyunNavigatorRecordId: 'platform.application',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+        },
+      },
+    });
+
+    await flushPromises();
+    const navigator = wrapper
+      .findAllComponents({ name: 'CrudRecordListExplorer' })
+      .find((explorer) => explorer.props('context').moduleAlias === 'platform.module');
+    expect(navigator).toBeDefined();
+    navigator!.vm.$emit('loaded', [
+      { id: 'platform.application', title: '平台应用' },
+      { id: 'platform.module', title: '平台模块' },
+    ]);
+    await flushPromises();
+    expect(navigator!.props('selectedId')).toBe('platform.application');
+
+    await wrapper.setProps({
+      descriptor: {
+        ...wrapper.props('descriptor'),
+        params: {
+          _muyunNavigatorModuleAlias: 'platform.module',
+          _muyunNavigatorRecordId: 'platform.module',
+        },
+      },
+    });
+    await flushPromises();
+    expect(navigator!.props('selectedId')).toBeUndefined();
+    expect(requests.some((request) => request.url.includes('/platform.module/view/'))).toBe(false);
+  });
+
+  it('does not let a delayed prior entry resolution overwrite a replacement entry', async () => {
+    let resolveFirstEntryQuery: ((response: Response) => void) | undefined;
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url.endsWith('/platform.module/demo.action/context')) {
+        return Response.json({
+          moduleAlias: 'demo.action',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'demo.action',
+            page: page({
+              navigator: {
+                contextBindings: [],
+                levels: [
+                  {
+                    key: 'module',
+                    kind: 'MICRO_LIST',
+                    sourceModuleAlias: 'platform.module',
+                    title: '模块',
+                    searchPlaceholder: '搜索模块',
+                  },
+                ],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/platform.module/reference-context')) {
+        return Response.json({ moduleAlias: 'platform.module', capabilities: [], actions: [] });
+      }
+      if (request.url.endsWith('/platform.module/navigator/reference/query')) {
+        const body = (await request.clone().json()) as {
+          conditions?: Array<{ values?: string[] }>;
+        };
+        if (body.conditions?.[0]?.values?.[0] === 'module-a') {
+          return new Promise<Response>((resolve) => {
+            resolveFirstEntryQuery = resolve;
+          });
+        }
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-params' },
+          target: { moduleAlias: 'demo.action', pageMode: 'LIST' },
+          params: {
+            _muyunNavigatorModuleAlias: 'platform.module',
+            _muyunNavigatorRecordId: 'module-a',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+        },
+      },
+    });
+
+    await flushPromises();
+    const navigator = wrapper
+      .findAllComponents({ name: 'CrudRecordListExplorer' })
+      .find((explorer) => explorer.props('context').moduleAlias === 'platform.module');
+    expect(navigator).toBeDefined();
+    navigator!.vm.$emit('loaded', [{ id: 'other-module', title: '其他模块' }]);
+    await flushPromises();
+    expect(resolveFirstEntryQuery).toBeDefined();
+
+    await wrapper.setProps({
+      descriptor: {
+        ...wrapper.props('descriptor'),
+        params: {
+          _muyunNavigatorModuleAlias: 'platform.module',
+          _muyunNavigatorRecordId: 'module-b',
+        },
+      },
+    });
+    navigator!.vm.$emit('loaded', [{ id: 'module-b', title: '模块 B' }]);
+    await flushPromises();
+    expect(navigator!.props('selectedId')).toBe('module-b');
+
+    resolveFirstEntryQuery!(
+      Response.json({
+        records: [{ id: 'module-a', title: '模块 A' }],
+        total: 1,
+        pageNum: 1,
+        pageSize: 1,
+        pages: 1,
+        totalKnown: true,
+      }),
+    );
+    await flushPromises();
+    expect(navigator!.props('selectedId')).toBe('module-b');
+  });
+
+  it('ignores an entry navigator record absent from the authoritative reference result', async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.url.endsWith('/platform.module/demo.action/context')) {
+        return Response.json({
+          moduleAlias: 'demo.action',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'demo.action',
+            page: page({
+              navigator: {
+                contextBindings: [],
+                levels: [
+                  {
+                    key: 'module',
+                    kind: 'MICRO_LIST',
+                    sourceModuleAlias: 'platform.module',
+                    title: '模块',
+                    searchPlaceholder: '搜索模块',
+                  },
+                ],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/platform.module/reference-context')) {
+        return Response.json({ moduleAlias: 'platform.module', capabilities: [], actions: [] });
+      }
+      if (request.url.endsWith('/platform.module/navigator/reference/query')) {
+        return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 1, pages: 0, totalKnown: true });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-params' },
+          target: { moduleAlias: 'demo.action', pageMode: 'LIST' },
+          params: {
+            _muyunNavigatorModuleAlias: 'platform.module',
+            _muyunNavigatorRecordId: 'not-authorized',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+        },
+      },
+    });
+
+    await flushPromises();
+    const navigator = wrapper
+      .findAllComponents({ name: 'CrudRecordListExplorer' })
+      .find((explorer) => explorer.props('context').moduleAlias === 'platform.module');
+    expect(navigator).toBeDefined();
+    navigator!.vm.$emit('loaded', [{ id: 'platform.application', title: '平台应用' }]);
+    await flushPromises();
+    expect(navigator!.props('selectedId')).toBeUndefined();
+    const exactReferenceQuery = requests.find((request) =>
+      request.url.endsWith('/platform.module/navigator/reference/query'),
+    );
+    expect(exactReferenceQuery).toBeDefined();
+    expect(await exactReferenceQuery!.json()).toMatchObject({
+      page: { pageNum: 1, pageSize: 1 },
+      conditions: [{ fieldName: 'id', operator: 'EQ', values: ['not-authorized'] }],
+      navigatorHostModuleAlias: 'demo.action',
+      navigatorTargetLevelKey: 'module',
+    });
   });
 
   it('does not open a manageable downstream navigator until its declared incoming scope is selected', async () => {
@@ -2262,6 +2543,223 @@ describe('ModulePageHost', () => {
     expect(wrapper.findComponent({ name: 'ModulePageRecordContent' }).exists()).toBe(false);
     expect(relationRequests).toBe(0);
     rect.mockRestore();
+  });
+
+  it('keeps menu identity on the host module and excludes it from navigator source contexts', async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.url.endsWith('/platform.module/platform.module/context')) {
+        return Response.json({
+          moduleAlias: 'platform.module',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'platform.module',
+            page: page({
+              navigator: {
+                levels: [
+                  {
+                    key: 'application',
+                    kind: 'LIST',
+                    sourceModuleAlias: 'platform.application',
+                    title: '应用',
+                  },
+                ],
+                contextBindings: [],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/platform.application/reference-context')) {
+        return Response.json({
+          moduleAlias: 'platform.application',
+          capabilities: [],
+          navigatorSourceCapabilities: ['REFERENCE_QUERY'],
+          actions: [],
+        });
+      }
+      if (request.url.endsWith('/platform.module/query')) {
+        return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
+      }
+      if (request.url.endsWith('/platform.menu/platform.menu.module.platform.module/entry?clientType=WEB')) {
+        return Response.json({
+          entry: {
+            menuId: 'platform.menu.module.platform.module',
+            moduleAlias: 'platform.module',
+            pageMode: 'LIST',
+          },
+          clientType: 'WEB',
+          mainEntityAlias: 'module',
+          resolvedConfig: { uiFields: [], queryItems: [], actionBlocks: [] },
+          openApiPath: '/platform.module/openapi',
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          menuId: 'platform.menu.module.platform.module',
+          target: { moduleAlias: 'platform.module', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+        },
+      },
+    });
+    await flushPromises();
+    await wrapper.findComponent({ name: 'RecordQueryListPanel' }).props('context').crud.query();
+
+    const hostRequest = requests.find((request) => request.url.endsWith('/platform.module/query'));
+    const navigatorRequest = requests.find((request) =>
+      request.url.endsWith('/platform.module/platform.application/reference-context'),
+    );
+    expect(hostRequest?.headers.get('X-MuYun-Menu-Id')).toBe('platform.menu.module.platform.module');
+    expect(navigatorRequest?.headers.get('X-MuYun-Menu-Id')).toBeNull();
+  });
+
+  it('keeps source-field resolution scoped while ordinary reference pickers remain neutral', async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.url.endsWith('/platform.module/platform.module/context')) {
+        return Response.json({
+          moduleAlias: 'platform.module',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'platform.module',
+            page: page({
+              detail: {
+                emptyDescription: '请选择模块',
+                createTitle: '新建模块',
+                editor: {
+                  viewCode: 'default_form',
+                  viewKind: 'FORM',
+                  fields: [
+                    {
+                      fieldRef: { fieldName: 'applicationAlias' },
+                      reference: { targetModuleAlias: 'platform.application', cardinality: 'ONE' },
+                    },
+                    {
+                      fieldRef: { fieldName: 'ownerId' },
+                      reference: {
+                        targetModuleAlias: 'iam.user',
+                        cardinality: 'ONE',
+                        candidateDelivery: 'SOURCE_FIELD',
+                      },
+                    },
+                  ],
+                },
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.menu/platform.menu.module.platform.module/entry?clientType=WEB')) {
+        return Response.json({
+          entry: {
+            menuId: 'platform.menu.module.platform.module',
+            moduleAlias: 'platform.module',
+            pageMode: 'LIST',
+          },
+          clientType: 'WEB',
+          mainEntityAlias: 'module',
+          resolvedConfig: { uiFields: [], queryItems: [], actionBlocks: [] },
+          openApiPath: '/platform.module/openapi',
+        });
+      }
+      if (request.url.endsWith('/platform.module/platform.application/reference-context')) {
+        return Response.json({
+          moduleAlias: 'platform.application',
+          capabilities: [],
+          actions: [],
+        });
+      }
+      if (request.url.endsWith('/platform.application/navigator/reference/query')) {
+        return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
+      }
+      if (request.url.endsWith('/platform.module/references/ownerId/resolve')) {
+        return Response.json({
+          status: 'OK',
+          mode: 'QUERY',
+          options: [],
+          results: [],
+          offset: 0,
+          limit: 50,
+          total: 0,
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          menuId: 'platform.menu.module.platform.module',
+          target: { moduleAlias: 'platform.module', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+          RecordModeDrawer: { template: '<section><slot name="form" /></section>' },
+          ModulePageRecordContent: false,
+        },
+      },
+    });
+    await flushPromises();
+    wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
+    await flushPromises();
+
+    const pickerConfigs = wrapper
+      .findComponent({ name: 'ModulePageRecordContent' })
+      .props('pickerConfigs') as {
+      applicationAlias: {
+        context: { runtime: { ready: Promise<unknown> }; crud: { query: () => Promise<unknown> } };
+      };
+      ownerId: { loadOptions: (keyword: string) => Promise<unknown> };
+    };
+    await pickerConfigs.applicationAlias.context.runtime.ready;
+    await pickerConfigs.applicationAlias.context.crud.query();
+    await pickerConfigs.ownerId.loadOptions('admin');
+
+    const normalRuntimeRequest = requests.find((request) =>
+      request.url.endsWith('/platform.module/platform.application/reference-context'),
+    );
+    const normalQueryRequest = requests.find((request) =>
+      request.url.endsWith('/platform.application/navigator/reference/query'),
+    );
+    const sourceResolverRequest = requests.find((request) =>
+      request.url.endsWith('/platform.module/references/ownerId/resolve'),
+    );
+    expect(normalRuntimeRequest?.headers.get('X-MuYun-Menu-Id')).toBeNull();
+    expect(normalQueryRequest?.headers.get('X-MuYun-Menu-Id')).toBeNull();
+    expect(sourceResolverRequest?.headers.get('X-MuYun-Menu-Id')).toBe(
+      'platform.menu.module.platform.module',
+    );
   });
 });
 

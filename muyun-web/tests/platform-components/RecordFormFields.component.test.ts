@@ -4,6 +4,75 @@ import RecordFormFields from '@/platform-components/RecordFormFields.vue';
 import type { RecordFormFieldDescriptor } from '@/platform-components/recordFormFieldModel.ts';
 
 describe('RecordFormFields', () => {
+  it('renders declared override fields with explicit inherit, enabled and disabled states', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'accessModeOverride',
+        {
+          fieldRef: { fieldName: 'accessModeOverride' },
+          label: '访问方式覆盖',
+          uiType: 'select',
+          overrideOf: 'accessMode',
+        },
+      ],
+      [
+        'actionAuthOverride',
+        {
+          fieldRef: { fieldName: 'actionAuthOverride' },
+          label: '动作授权覆盖',
+          uiType: 'switch',
+          valueType: 'BOOLEAN',
+          overrideOf: 'actionAuth',
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: { accessMode: 'AUTH_REQUIRED', actionAuth: true },
+        fields,
+        fallback: {
+          accessModeOverride: {
+            label: '访问方式覆盖',
+            options: [
+              { label: '需要授权', value: 'AUTH_REQUIRED' },
+              { label: '登录可用', value: 'LOGIN_REQUIRED' },
+            ],
+          },
+        },
+      },
+    });
+
+    const selects = wrapper.findAllComponents({ name: 'UiSelect' });
+    expect(selects).toHaveLength(2);
+    expect(selects[0].props('value')).toBe('__muyun_inherit__');
+    expect(selects[0].props('options')).toContainEqual({
+      label: '继承（需要授权）',
+      value: '__muyun_inherit__',
+    });
+    expect(selects[1].props('options')).toEqual([
+      { label: '继承（开启）', value: '__muyun_inherit__' },
+      { label: '开启', value: 'true' },
+      { label: '关闭', value: 'false' },
+    ]);
+
+    await wrapper.setProps({
+      record: { accessMode: 'AUTH_REQUIRED', actionAuth: true, actionAuthOverride: false },
+    });
+    expect(wrapper.findAllComponents({ name: 'UiSelect' })[1].props('value')).toBe('false');
+
+    await wrapper.setProps({
+      record: { accessMode: 'AUTH_REQUIRED', actionAuth: true, actionAuthOverride: true },
+    });
+    expect(wrapper.findAllComponents({ name: 'UiSelect' })[1].props('value')).toBe('true');
+
+    selects[0].vm.$emit('update:value', 'LOGIN_REQUIRED');
+    selects[1].vm.$emit('update:value', 'false');
+    selects[0].vm.$emit('update:value', '__muyun_inherit__');
+    expect(wrapper.emitted('update:field')).toContainEqual(['accessModeOverride', 'LOGIN_REQUIRED']);
+    expect(wrapper.emitted('update:field')).toContainEqual(['actionAuthOverride', false]);
+    expect(wrapper.emitted('update:field')).toContainEqual(['accessModeOverride', undefined]);
+  });
+
   it('defaults ordinary switches to off while keeping enabled status on', () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       ['primaryPosition', { fieldRef: { fieldName: 'primaryPosition' }, label: '主任职', uiType: 'switch' }],

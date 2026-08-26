@@ -3,11 +3,29 @@ import {
   createWorkspaceViewDescriptor,
   createWorkspaceViewRegistry,
 } from '@/platform-workbench/workspaceViews.ts';
-import { platformModulePageEnhancement } from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
+import {
+  platformModuleActionPageEnhancement,
+  platformModulePageEnhancement,
+} from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
 
 describe('platform module page enhancement', () => {
-  it('opens the existing action and metadata workspace views with restorable record input', () => {
+  it('declares action management as a hidden, locked child page of one module', () => {
+    expect(platformModuleActionPageEnhancement).toMatchObject({
+      target: { moduleAlias: 'platform.module_action' },
+      navigator: {
+        hidden: true,
+        lockedEntry: {
+          navigatorKey: 'module',
+          unavailableDescription: '模块上下文不可用',
+        },
+      },
+      standardActions: { disabled: ['create'] },
+    });
+  });
+
+  it('opens actions as a descriptor-driven page scoped to its governed module', () => {
     const actions = platformModulePageEnhancement.detail?.actions ?? [];
+    const openPage = vi.fn();
     const openWorkspaceTab = vi.fn();
     const record = { id: 'crm.customer', alias: 'crm.customer', title: '客户', moduleKind: 'dynamic' };
 
@@ -15,6 +33,7 @@ describe('platform module page enhancement', () => {
       .find((action) => action.key === 'module-actions-workspace')
       ?.run({
         record,
+        openPage,
         openWorkspaceTab,
       } as never);
     actions
@@ -23,16 +42,29 @@ describe('platform module page enhancement', () => {
         record,
         openWorkspaceTab,
       } as never);
+    actions
+      .find((action) => action.key === 'module-manual-action-binding-workspace')
+      ?.run({ record, openWorkspaceTab } as never);
 
-    expect(openWorkspaceTab).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ type: 'platform.module.actions' }),
-      { moduleAlias: 'crm.customer', moduleTitle: '客户', moduleKind: 'dynamic' },
+    expect(openPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { moduleAlias: 'platform.module_action', pageMode: 'LIST' },
+        params: {
+          _muyunNavigatorModuleAlias: 'platform.module',
+          _muyunNavigatorRecordId: 'crm.customer',
+        },
+      }),
     );
     expect(openWorkspaceTab).toHaveBeenNthCalledWith(
-      2,
+      1,
       expect.objectContaining({ type: 'platform.module.metadata-orchestration' }),
       { moduleAlias: 'crm.customer', moduleTitle: '客户' },
+    );
+
+    expect(openWorkspaceTab).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ type: 'platform.module.actions' }),
+      { moduleAlias: 'crm.customer', moduleTitle: '客户', moduleKind: 'dynamic' },
     );
 
     const [view, input] = openWorkspaceTab.mock.calls[0];
@@ -52,9 +84,17 @@ describe('platform module page enhancement', () => {
       },
     ]).resolve(descriptor);
     expect(restored).toMatchObject({
-      view: { type: 'platform.module.actions' },
-      input: { moduleAlias: 'crm.customer', moduleTitle: '客户', moduleKind: 'dynamic' },
+      view: { type: 'platform.module.metadata-orchestration' },
+      input: { moduleAlias: 'crm.customer', moduleTitle: '客户' },
     });
+    expect(
+      actions
+        .find((action) => action.key === 'module-manual-action-binding-workspace')
+        ?.state?.({
+          id: 'iam.role',
+          moduleKind: 'static',
+        }),
+    ).toEqual({ visible: false });
   });
 
   it('only exposes metadata for dynamic modules and OpenAPI after the authorized catalog has listed it', async () => {

@@ -82,7 +82,11 @@ it('adds a fixed page context header without allowing a request to replace it', 
 
   await withHttpHeaders(base, { 'X-MuYun-Menu-Id': 'menu.system-user' }).request({
     path: '/iam.user/query',
-    headers: { 'X-MuYun-Menu-Id': 'forged', 'X-Caller': 'test' },
+    headers: {
+      'X-MuYun-Menu-Id': 'forged',
+      'x-muyun-menu-id': 'forged-lowercase',
+      'X-Caller': 'test',
+    },
   });
 
   assert.deepEqual(requests, [
@@ -438,6 +442,47 @@ it('http client requests event-stream media type for authenticated streams', asy
     assert.ok(stream);
     assert.equal(requests[0].headers.get('Accept'), 'text/event-stream');
     assert.equal(requests[0].headers.get('Authorization'), 'Bearer test-token');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+it('header-scoped streaming client preserves stream capability and controlled page context', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return new Response('event: complete\n\ndata: {}\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  };
+
+  try {
+    const http = withHttpHeaders(
+      createHttpClient({ baseUrl: 'http://api.local' }),
+      {
+        'X-MuYun-Menu-Id': 'menu.device',
+        'X-MuYun-Page-Context': '{"device":"device-1"}',
+      },
+      (request) => request.path.startsWith('/mr.device/'),
+    );
+
+    assert.equal(isHttpStreamClient(http), true);
+    const stream = await http.stream({
+      path: '/mr.device/device-1/agent-chat/start/stream',
+      method: 'POST',
+      headers: { 'x-muyun-menu-id': 'forged-lowercase' },
+    });
+
+    assert.ok(stream);
+    assert.equal(requests[0].headers.get('Accept'), 'text/event-stream');
+    assert.equal(requests[0].headers.get('X-MuYun-Menu-Id'), 'menu.device');
+    assert.equal(requests[0].headers.get('X-MuYun-Page-Context'), '{"device":"device-1"}');
+
+    await http.stream({ path: '/iam.user/session/stream' });
+
+    assert.equal(requests[1].headers.get('X-MuYun-Menu-Id'), null);
+    assert.equal(requests[1].headers.get('X-MuYun-Page-Context'), null);
   } finally {
     globalThis.fetch = originalFetch;
   }

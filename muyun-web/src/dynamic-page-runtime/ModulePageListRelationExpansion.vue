@@ -6,7 +6,7 @@ import type {
   ResolvedPageListRelationExpansionDescriptor,
   WebListResponse,
 } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+import type { HttpClient, ModuleContext } from '@muyun/web-core';
 import { RecordPanelState, type QueryListRecord } from '@muyun/platform-components';
 import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
 
@@ -14,6 +14,7 @@ defineOptions({ name: 'ModulePageListRelationExpansion' });
 
 const props = defineProps<{
   sourceContext: ModuleContext<QueryListRecord>;
+  crossModuleHttp?: HttpClient;
   uiDescriptor: ResolvedModuleUiDescriptor;
   record: QueryListRecord;
   relation: ResolvedDetailRelationDescriptor;
@@ -82,6 +83,7 @@ watch(
     <ModulePageDetailRelations
       v-else-if="parentRecord"
       :source-context="sourceContext"
+      :cross-module-http="crossModuleHttp"
       :ui-descriptor="uiDescriptor"
       :relations="[displayRelation]"
       :parent-record="parentRecord"

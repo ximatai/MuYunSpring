@@ -204,7 +204,12 @@ describe('module page enhancements', () => {
     configureModulePageEnhancements([]);
     expect(
       resolveModulePageEnhancement('platform.module')?.detail?.actions?.map((action) => action.key),
-    ).toEqual(['module-actions-workspace', 'module-metadata-orchestration-workspace', 'module-openapi-page']);
+    ).toEqual([
+      'module-actions-workspace',
+      'module-metadata-orchestration-workspace',
+      'module-manual-action-binding-workspace',
+      'module-openapi-page',
+    ]);
   });
 
   it('accepts a business record-view presentation that keeps the platform view lifecycle', () => {

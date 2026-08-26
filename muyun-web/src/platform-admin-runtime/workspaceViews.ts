@@ -1,7 +1,10 @@
 import { workspaceViewContributions } from './workspaceViewContributions';
 import { configureWorkspaceViewContributions } from '@muyun/platform-workbench';
 import { configureModulePageEnhancementContributions } from '@muyun/dynamic-page-runtime';
-import { platformModulePageEnhancement } from './platformModulePageEnhancement';
+import {
+  platformModuleActionPageEnhancement,
+  platformModulePageEnhancement,
+} from './platformModulePageEnhancement';
 import { passwordPolicyPageEnhancement } from './passwordPolicyPageEnhancement';
 import { tenantModulePageEnhancement } from './tenantModulePageEnhancement';
 import { employeeModulePageEnhancement } from './employeeModulePageEnhancement';
@@ -13,6 +16,7 @@ configureWorkspaceViewContributions('platform-admin-runtime', workspaceViewContr
 // same action/metadata workspace URLs before restoring tabs.
 configureModulePageEnhancementContributions('platform-admin-runtime', [
   platformModulePageEnhancement,
+  platformModuleActionPageEnhancement,
   passwordPolicyPageEnhancement,
   tenantModulePageEnhancement,
   employeeModulePageEnhancement,

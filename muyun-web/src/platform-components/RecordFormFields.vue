@@ -107,6 +107,7 @@ const fieldStates = computed<RecordFormFieldState[]>(() =>
 const optionItems = ref<Record<string, OptionItemDescriptor[]>>({});
 const loadingOptionFields = ref(new Set<string>());
 const optionFieldErrors = ref<Record<string, string>>({});
+const INHERIT_OPTION_VALUE = '__muyun_inherit__';
 const editorFieldErrors = ref<Record<string, string>>({});
 const referenceSelectionContext = ref<RecordFormSelectionContext>({});
 const referenceSelectionSourceIds = ref<Record<string, string | undefined>>({});
@@ -249,6 +250,44 @@ function optionFieldItems(field: RecordFormFieldState) {
 
 function optionFieldOptions(field: RecordFormFieldState) {
   return field.options ?? optionItemsToOptions(optionFieldItems(field));
+}
+
+function isOverrideField(field: RecordFormFieldState) {
+  return field.overrideOf != null && (field.valueType === 'BOOLEAN' || field.controlType === 'select');
+}
+
+function overrideEditorValue(field: RecordFormFieldState): OptionValue {
+  if (field.valueType === 'BOOLEAN') {
+    const value = props.record[field.fieldName];
+    return value === true ? 'true' : value === false ? 'false' : INHERIT_OPTION_VALUE;
+  }
+  const value = optionWireValue(props.record[field.fieldName]);
+  if (value != null) return value;
+  return INHERIT_OPTION_VALUE;
+}
+
+function overrideOptions(field: RecordFormFieldState) {
+  const inheritedValue = field.overrideOf == null ? undefined : props.record[field.overrideOf];
+  const options =
+    field.valueType === 'BOOLEAN'
+      ? [
+          { label: '开启', value: 'true' },
+          { label: '关闭', value: 'false' },
+        ]
+      : optionFieldOptions(field);
+  return [
+    { label: `继承（${overrideInheritedLabel(field, inheritedValue)}）`, value: INHERIT_OPTION_VALUE },
+    ...options,
+  ];
+}
+
+function overrideInheritedLabel(field: RecordFormFieldState, value: unknown): string {
+  if (field.valueType === 'BOOLEAN') return value === true ? '开启' : '关闭';
+  const code = optionWireValue(value);
+  return (
+    optionFieldOptions(field).find((option) => option.value === code)?.label ??
+    (code == null ? '未设置' : String(code))
+  );
 }
 
 function optionFieldTree(field: RecordFormFieldState) {
@@ -461,6 +500,18 @@ function updateSelectField(field: RecordFormFieldState, value: OptionValue | Opt
   emit('update:field', field.fieldName, value ?? undefined);
 }
 
+function updateOverrideField(field: RecordFormFieldState, value: OptionValue | OptionValueList | null) {
+  if (value === INHERIT_OPTION_VALUE || value == null) {
+    emit('update:field', field.fieldName, undefined);
+    return;
+  }
+  if (field.valueType === 'BOOLEAN') {
+    emit('update:field', field.fieldName, value === 'true');
+    return;
+  }
+  updateSelectField(field, value);
+}
+
 function groupOf(field: RecordFormFieldState | undefined) {
   return field?.formGroup;
 }
@@ -517,6 +568,15 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           :disabled-label="field.booleanStatus?.falseLabel"
           :enabled-tone="field.booleanStatus?.trueTone"
           :disabled-tone="field.booleanStatus?.falseTone"
+        />
+        <UiSelect
+          v-else-if="isOverrideField(field)"
+          :value="overrideEditorValue(field)"
+          :options="overrideOptions(field)"
+          :disabled="fieldDisabled(field)"
+          :loading="field.controlType === 'select' && optionFieldLoading(field)"
+          :allow-clear="false"
+          @update:value="updateOverrideField(field, $event)"
         />
         <UiSwitch
           v-else-if="field.controlType === 'switch'"

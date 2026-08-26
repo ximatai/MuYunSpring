@@ -5,7 +5,7 @@ import type {
   ResolvedModuleUiDescriptor,
   ResolvedPageListRelationExpansionDescriptor,
 } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+import type { HttpClient, ModuleContext } from '@muyun/web-core';
 import type { ModulePageListRowExpansion, ModulePageListRowExpansionContext } from './modulePageEnhancements';
 import ModulePageListRelationExpansions from './ModulePageListRelationExpansions.vue';
 
@@ -18,6 +18,7 @@ type RelationExpansionEntry = {
 
 defineProps<{
   sourceContext: ModuleContext<QueryListRecord>;
+  crossModuleHttp?: HttpClient;
   uiDescriptor: ResolvedModuleUiDescriptor;
   record: QueryListRecord;
   relationEntries: readonly RelationExpansionEntry[];
@@ -31,6 +32,7 @@ defineProps<{
     <ModulePageListRelationExpansions
       v-if="relationEntries.length > 0"
       :source-context="sourceContext"
+      :cross-module-http="crossModuleHttp"
       :ui-descriptor="uiDescriptor"
       :record="record"
       :entries="relationEntries"

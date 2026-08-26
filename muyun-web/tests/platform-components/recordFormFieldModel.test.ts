@@ -179,6 +179,7 @@ it('registers every renderer kind promised by the persisted web-form support mat
       'MULTI_SELECT',
       'DATE',
       'DATETIME',
+      'COLOR_PICKER',
       'JSON',
     ]),
   );
@@ -531,9 +532,15 @@ it.each(['number', 'integer', 'amount', 'percentage'])(
   },
 );
 
-it('record form field state renders a color picker descriptor with the shared color control', () => {
+it('record form field state executes a color picker descriptor with the shared color control', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
-    ['color', field('颜色', { uiType: 'colorPicker' })],
+    [
+      'color',
+      {
+        ...field('颜色', { uiType: 'colorPicker' }),
+        fieldControl: { alias: 'colorPicker', rendererType: 'COLOR_PICKER', valueShape: 'SCALAR' },
+      },
+    ],
   ]);
 
   assert.equal(resolveRecordFormFieldState('color', { fields }).controlType, 'colorPicker');

@@ -92,6 +92,19 @@ public class EmployeePositionService extends TenantStandardBusinessService<Emplo
     }
 
     /**
+     * Reads the persisted employment facts needed while resolving a principal's roles.
+     *
+     * <p>Authorization resolution must not trigger page-oriented option or reference projections:
+     * those projections may themselves require the caller's data scope, which is derived from the
+     * same role facts.</p>
+     */
+    public List<EmployeePosition> activePositionsForRoleResolution(String employeeId) {
+        String validEmployeeId = Preconditions.requireText(employeeId, "employeeId");
+        return getDao().query(activeCriteria(employeeCriteria(validEmployeeId)), new PageRequest(0, Integer.MAX_VALUE),
+                Sort.asc(PlatformAbilityFields.SORT_FIELD));
+    }
+
+    /**
      * A primary-position switch is an ordinary checkbox edit in the aggregate grid. Persist
      * outgoing primary rows first so the existing single-primary invariant remains valid at
      * every individual child write; no special frontend interaction is required.

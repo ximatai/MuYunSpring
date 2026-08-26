@@ -27,6 +27,16 @@ export interface HttpClient {
  * module clients about a particular page, menu, or business domain.
  */
 export function withHttpHeaders(
+  client: StreamingHttpClient,
+  headers: Record<string, string | undefined> | (() => Record<string, string | undefined>),
+  appliesTo?: (request: HttpRequestOptions) => boolean,
+): StreamingHttpClient;
+export function withHttpHeaders(
+  client: HttpClient,
+  headers: Record<string, string | undefined> | (() => Record<string, string | undefined>),
+  appliesTo?: (request: HttpRequestOptions) => boolean,
+): HttpClient;
+export function withHttpHeaders(
   client: HttpClient,
   headers: Record<string, string | undefined> | (() => Record<string, string | undefined>),
   appliesTo?: (request: HttpRequestOptions) => boolean,
@@ -39,19 +49,37 @@ export function withHttpHeaders(
     }
     return normalized;
   };
-  return {
+  const controlledRequest = (options: HttpRequestOptions): HttpRequestOptions => {
+    if (appliesTo && !appliesTo(options)) return options;
+    const fixedHeaders = resolvedHeaders();
+    if (Object.keys(fixedHeaders).length === 0) return options;
+    const fixedHeaderNames = new Set(Object.keys(fixedHeaders).map((key) => key.toLowerCase()));
+    // HTTP field names are case-insensitive. Remove every caller spelling before
+    // appending the trusted value so Fetch (and custom transports) never receive
+    // an ambiguous duplicate such as `x-muyun-menu-id` plus `X-MuYun-Menu-Id`.
+    const callerHeaders = Object.fromEntries(
+      Object.entries(options.headers ?? {}).filter(([key]) => !fixedHeaderNames.has(key.toLowerCase())),
+    );
+    return {
+      ...options,
+      headers: { ...callerHeaders, ...fixedHeaders },
+    };
+  };
+  const wrapped: HttpClient = {
     request<T>(options: HttpRequestOptions) {
-      if (appliesTo && !appliesTo(options)) {
-        return client.request<T>(options);
-      }
-      const fixedHeaders = resolvedHeaders();
-      if (Object.keys(fixedHeaders).length === 0) return client.request<T>(options);
-      return client.request<T>({
-        ...options,
-        headers: { ...options.headers, ...fixedHeaders },
-      });
+      return client.request<T>(controlledRequest(options));
     },
   };
+  if (!isHttpStreamClient(client)) {
+    return wrapped;
+  }
+  const streamingWrapped: StreamingHttpClient = {
+    ...wrapped,
+    stream(options: HttpRequestOptions) {
+      return client.stream(controlledRequest(options));
+    },
+  };
+  return streamingWrapped;
 }
 
 /**

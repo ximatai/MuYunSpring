@@ -9,7 +9,7 @@ import {
 } from '@muyun/platform-components';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+import type { HttpClient, ModuleContext } from '@muyun/web-core';
 import ManagedDetailRelationSurface from './ManagedDetailRelationSurface.vue';
 import ManagedDetailRelationInlineSurface from './ManagedDetailRelationInlineSurface.vue';
 
@@ -18,6 +18,7 @@ defineOptions({ name: 'ModulePageDetailRelations' });
 const props = withDefaults(
   defineProps<{
     sourceContext: ModuleContext<QueryListRecord>;
+    crossModuleHttp?: HttpClient;
     uiDescriptor: ResolvedModuleUiDescriptor;
     relations: ResolvedDetailRelationDescriptor[];
     parentRecord: QueryListRecord;
@@ -28,6 +29,7 @@ const props = withDefaults(
   }>(),
   {
     surface: 'detail',
+    crossModuleHttp: undefined,
     reloadKey: undefined,
     validationRequestKey: undefined,
   },
@@ -207,6 +209,7 @@ watch(
     <ManagedDetailRelationInlineSurface
       v-if="relation.embeddedField"
       :source-context="sourceContext"
+      :cross-module-http="crossModuleHttp"
       :ui-descriptor="uiDescriptor"
       :relation="relation"
       :parent-record="parentRecord"
@@ -227,6 +230,7 @@ watch(
     <ManagedDetailRelationSurface
       v-else-if="relation.queryContract?.managedGateway"
       :source-context="sourceContext"
+      :cross-module-http="crossModuleHttp"
       :ui-descriptor="uiDescriptor"
       :relation="relation"
       :parent-record="parentRecord"

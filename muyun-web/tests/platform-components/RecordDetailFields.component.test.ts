@@ -5,6 +5,34 @@ import RecordDetailFields from '@/platform-components/RecordDetailFields.vue';
 import RecordImageFileReferencePreview from '@/platform-components/RecordImageFileReferencePreview.vue';
 
 describe('RecordDetailFields', () => {
+  it('renders a color-picker read projection as a color swatch', () => {
+    const wrapper = mount(RecordDetailFields, {
+      props: {
+        record: { color: '#1677ff' },
+        fields: new Map([
+          [
+            'color',
+            {
+              fieldRef: { fieldName: 'color' },
+              label: '颜色',
+              uiType: 'colorPicker',
+              fieldControl: {
+                alias: 'colorPicker',
+                rendererType: 'COLOR_PICKER',
+                valueShape: 'SCALAR' as const,
+              },
+            },
+          ],
+        ]),
+      },
+    });
+
+    expect(wrapper.find('.record-color-value').text()).toContain('#1677ff');
+    expect(wrapper.find('.record-color-value i').attributes('style')).toContain(
+      'background-color: rgb(22, 119, 255)',
+    );
+  });
+
   it('renders a declared single-image file reference as a preview instead of its file id', () => {
     const ImagePreviewStub = defineComponent({
       name: 'RecordImageFileReferencePreview',

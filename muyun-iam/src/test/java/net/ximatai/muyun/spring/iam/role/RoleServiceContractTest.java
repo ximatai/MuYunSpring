@@ -35,6 +35,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.argThat;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -898,7 +899,7 @@ class RoleServiceContractTest {
         when(actionDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(enabledAction("ra1", "r1", "sales.contract", "view")));
         EmployeePositionService employeePositionService = mock(EmployeePositionService.class);
-        when(employeePositionService.select("position-1"))
+        when(employeePositionService.selectActiveRaw("position-1"))
                 .thenReturn(employeePosition("position-1", "employee-1", "org-1", "dept-1", true));
         RoleService service = new RoleService(roleDao, mock(AccountRoleGrantDao.class), employmentGrantDao,
                 actionDao, activeTenantVerifier(), RoleActionGrantVerifier.platformActionsOnly(),
@@ -907,6 +908,8 @@ class RoleServiceContractTest {
         BusinessPrincipal principal = BusinessPrincipal.employeePosition("employee-1", null, null, "position-1");
         assertThat(service.effectiveRoleIds(principal)).containsExactly("group-1", "r1");
         assertThat(service.hasActionPermission(principal, "sales.contract", "query")).isTrue();
+        verify(employeePositionService, atLeastOnce()).selectActiveRaw("position-1");
+        verify(employeePositionService, never()).select("position-1");
     }
 
     @Test
@@ -920,8 +923,9 @@ class RoleServiceContractTest {
         when(accountGrantDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(accountGrant("account-role", "user-1", ManagementScopeType.TENANT, "tenant_a")));
         when(employeeAccountService.employeeIdOfUser("user-1")).thenReturn("employee-1");
-        when(employeeService.select("employee-1")).thenReturn(employee("employee-1", "org-main", "dept-main", true));
-        when(employeePositionService.positions("employee-1"))
+        when(employeeService.selectActiveRaw("employee-1"))
+                .thenReturn(employee("employee-1", "org-main", "dept-main", true));
+        when(employeePositionService.activePositionsForRoleResolution("employee-1"))
                 .thenReturn(List.of(employeePosition("position-1", "employee-1", "org-branch", "dept-branch", true)));
         when(employmentGrantDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(employmentGrant("position-role", "position-1")));
@@ -945,6 +949,10 @@ class RoleServiceContractTest {
                         EffectiveRoleGrant::organizationId, EffectiveRoleGrant::departmentId,
                         EffectiveRoleGrant::employeePositionId)
                 .containsExactly(RoleAssignmentType.EMPLOYMENT, "position-1", "org-branch", "dept-branch", "position-1");
+        verify(employeeService).selectActiveRaw("employee-1");
+        verify(employeeService, never()).select("employee-1");
+        verify(employeePositionService).activePositionsForRoleResolution("employee-1");
+        verify(employeePositionService, never()).positions("employee-1");
     }
 
     @Test

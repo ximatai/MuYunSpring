@@ -129,6 +129,7 @@ export const recordFieldRendererRegistry: readonly RecordFieldRenderer[] = [
   { rendererType: 'DECIMAL', controlType: 'numberInput', supports: () => true },
   { rendererType: 'DATE', controlType: 'dateInput', supports: () => true },
   { rendererType: 'DATETIME', controlType: 'dateTimeInput', supports: () => true },
+  { rendererType: 'COLOR_PICKER', controlType: 'colorPicker', supports: () => true },
   { rendererType: 'JSON', controlType: 'textarea', supports: () => true },
   { rendererType: 'SWITCH', controlType: 'switch', supports: () => true },
   // Both select variants depend on a published option binding. A missing binding must not
@@ -228,6 +229,8 @@ export interface RecordFormFieldState {
   pickerConfig?: RecordFormFieldPickerConfig;
   booleanStatus?: BooleanStatusPresentation;
   valuePresentation?: FieldValuePresentation;
+  /** Source field used while this nullable field is inheriting instead of overriding. */
+  overrideOf?: string;
   disabledHint?: string;
   placeholder?: string;
   options?: Option[];
@@ -410,6 +413,7 @@ export function resolveRecordFormFieldState(
     ...(field?.fileReference ? { fileReference: field.fileReference } : {}),
     ...(booleanStatus ? { booleanStatus } : {}),
     ...(field?.valuePresentation ? { valuePresentation: field.valuePresentation } : {}),
+    ...(field?.overrideOf ? { overrideOf: field.overrideOf } : {}),
     ...(field?.formGroup ? { formGroup: field.formGroup } : {}),
     ...((field?.readOnly?.disabledHint ?? fallback?.disabledHint)
       ? { disabledHint: field?.readOnly?.disabledHint ?? fallback?.disabledHint }

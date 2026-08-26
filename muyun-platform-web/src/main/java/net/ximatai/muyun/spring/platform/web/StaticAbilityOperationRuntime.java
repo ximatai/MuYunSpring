@@ -7,6 +7,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
@@ -26,6 +27,7 @@ import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.dynamic.capability.StaticCapabilityActionExecution;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.platform.deletion.PurgeReport;
+import net.ximatai.muyun.spring.platform.deletion.DeletionLogService;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinActionOutcome;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinItem;
@@ -44,9 +46,16 @@ import java.util.Set;
 /** Executes standard static ability operations independently from Spring MVC handler methods. */
 public final class StaticAbilityOperationRuntime {
     private final ObjectProvider<RecycleBinFacade> recycleBinFacade;
+    private final ObjectProvider<DeletionLogService> deletionLogService;
 
     public StaticAbilityOperationRuntime(ObjectProvider<RecycleBinFacade> recycleBinFacade) {
+        this(recycleBinFacade, null);
+    }
+
+    public StaticAbilityOperationRuntime(ObjectProvider<RecycleBinFacade> recycleBinFacade,
+                                         ObjectProvider<DeletionLogService> deletionLogService) {
         this.recycleBinFacade = recycleBinFacade;
+        this.deletionLogService = deletionLogService;
     }
 
     public Object execute(RegisteredWebEndpoint endpoint, HttpServletRequest request, Object body) {
@@ -63,14 +72,15 @@ public final class StaticAbilityOperationRuntime {
                     .orElseThrow(() -> new IllegalStateException("no static runtime handler for capability action: "
                             + action.code()))
                     .execute(new StaticActionExecution(scope, request, endpoint.definition().operationCode(),
-                            recordIdForAction(request, action), body), action);
+                            recordIdForAction(request, action, endpoint.definition().operationCode()), body), action);
         }
         throw new IllegalStateException("unsupported compiled static operation: " + endpoint.definition().action());
     }
 
-    private String recordIdForAction(HttpServletRequest request, PlatformAction action) {
+    private String recordIdForAction(HttpServletRequest request, PlatformAction action, String operationCode) {
         return switch (action) {
             case ENABLE, DISABLE, SORT -> pathVariable(request, "id");
+            case RECYCLE_BIN_QUERY -> "view".equals(operationCode) ? pathVariable(request, "id") : null;
             default -> null;
         };
     }
@@ -141,6 +151,16 @@ public final class StaticAbilityOperationRuntime {
         }
         return MutationTenantScopeExecutor.forExistingRecord(scope, id, () -> scope.webScope(() -> {
             TreeWebProjectionPolicy policy = treePolicy(scope);
+            requireProjectionRecord(scope, request, PlatformAction.SORT, id);
+            if (hasText(sort.previousId())) {
+                requireProjectionRecord(scope, request, PlatformAction.SORT, sort.previousId());
+            }
+            if (hasText(sort.nextId())) {
+                requireProjectionRecord(scope, request, PlatformAction.SORT, sort.nextId());
+            }
+            if (hasText(sort.parentId()) && !TreeAbility.ROOT_ID.equals(sort.parentId())) {
+                requireProjectionRecord(scope, request, PlatformAction.SORT, sort.parentId());
+            }
             if (policy == null) {
                 requireTreeSortScope(ability, id, sort);
             } else {
@@ -297,6 +317,48 @@ public final class StaticAbilityOperationRuntime {
         if (scope.target.anchor() instanceof RecordWebProjectionPolicy policy) {
             policy.requireRecord(request, action, id);
         }
+        requireCrudPageContextRecord(scope, id);
+    }
+
+    /**
+     * A required navigator scope is a record-operation boundary, including operations delivered
+     * by the generated ability dispatcher rather than {@link CrudWeb}'s own MVC defaults.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private void requireCrudPageContextRecord(OperationScope scope, String id) {
+        if (!(scope.target.anchor() instanceof CrudWeb crudWeb)) {
+            return;
+        }
+        List<PageContextBindingDefinition> requiredScopeBindings = requiredCrudPageContextBindings(crudWeb);
+        if (requiredScopeBindings.isEmpty()) {
+            return;
+        }
+        if (!(scope.service() instanceof CrudAbility ability)) {
+            throw new IllegalStateException(scope.webScopeName() + " requires CrudAbility for page record scope");
+        }
+        EntityContract record = (EntityContract) ability.select(id);
+        PageContextScopePolicy.requireRecordInScope(record, requiredScopeBindings);
+    }
+
+    @SuppressWarnings("rawtypes")
+    private void requireCrudPageContextRecord(OperationScope scope, EntityContract record) {
+        if (!(scope.target.anchor() instanceof CrudWeb crudWeb)) {
+            return;
+        }
+        List<PageContextBindingDefinition> requiredScopeBindings = requiredCrudPageContextBindings(crudWeb);
+        if (!requiredScopeBindings.isEmpty()) {
+            PageContextScopePolicy.requireRecordInScope(record, requiredScopeBindings);
+        }
+    }
+
+    @SuppressWarnings("rawtypes")
+    private List<PageContextBindingDefinition> requiredCrudPageContextBindings(CrudWeb crudWeb) {
+        StandardModuleWebRuntime runtime = crudWeb.standardModuleWebRuntime();
+        if (!crudWeb.requiresModuleExecutionPlan()
+                && (runtime == null || !runtime.hasPlan(crudWeb.webScopeName()))) {
+            return List.of();
+        }
+        return PageContextScopePolicy.recordScopeBindings(crudWeb.recordScopeBindings());
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -346,7 +408,9 @@ public final class StaticAbilityOperationRuntime {
             if (records.isEmpty()) {
                 throw new IllegalArgumentException("recycle-bin record not found: " + id);
             }
-            return WebOutputSupport.record(ability, (EntityContract) records.getFirst(), FieldOutputContext.VIEW);
+            EntityContract record = (EntityContract) records.getFirst();
+            requireCrudPageContextRecord(scope, record);
+            return WebOutputSupport.record(ability, record, FieldOutputContext.VIEW);
         });
     }
 
@@ -392,6 +456,7 @@ public final class StaticAbilityOperationRuntime {
     private RestoreReport restore(OperationScope scope, String sourceDeleteOperationId) {
         RecycleBinAbility ability = requireService(scope, RecycleBinAbility.class);
         return scope.webScope(() -> {
+            requireRecycleBinSourceInPageScope(scope, ability, sourceDeleteOperationId);
             RecycleBinActionOutcome<EntityContract, RestoreReport> outcome =
                     (RecycleBinActionOutcome<EntityContract, RestoreReport>) (RecycleBinActionOutcome)
                             facade().restoreWithSource(ability, sourceDeleteOperationId);
@@ -405,6 +470,7 @@ public final class StaticAbilityOperationRuntime {
     private PurgeReport purge(OperationScope scope, String sourceDeleteOperationId) {
         RecycleBinAbility ability = requireService(scope, RecycleBinAbility.class);
         return scope.webScope(() -> {
+            requireRecycleBinSourceInPageScope(scope, ability, sourceDeleteOperationId);
             RecycleBinActionOutcome<EntityContract, PurgeReport> outcome =
                     (RecycleBinActionOutcome<EntityContract, PurgeReport>) (RecycleBinActionOutcome)
                             facade().purgeWithSource(ability, sourceDeleteOperationId);
@@ -418,6 +484,25 @@ public final class StaticAbilityOperationRuntime {
         RecycleBinFacade facade = recycleBinFacade.getIfAvailable();
         if (facade == null) throw new IllegalStateException("RecycleBinFacade is required by recycle-bin operation");
         return facade;
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private void requireRecycleBinSourceInPageScope(OperationScope scope,
+                                                     RecycleBinAbility ability,
+                                                     String sourceDeleteOperationId) {
+        if (!(scope.target.anchor() instanceof CrudWeb crudWeb)
+                || requiredCrudPageContextBindings(crudWeb).isEmpty()) {
+            return;
+        }
+        DeletionLogService log = deletionLogService == null ? null : deletionLogService.getIfAvailable();
+        if (log == null) {
+            throw new IllegalStateException("DeletionLogService is required by scoped recycle-bin operation");
+        }
+        EntityContract record = (EntityContract) ability.selectIgnoreSoftDelete(
+                log.operation(sourceDeleteOperationId).getRootRecordId());
+        if (record != null) {
+            requireCrudPageContextRecord(scope, record);
+        }
     }
 
     private String recordLabel(EntityContract record, Object service) {

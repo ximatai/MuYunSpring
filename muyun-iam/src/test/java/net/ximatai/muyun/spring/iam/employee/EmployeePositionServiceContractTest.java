@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -192,6 +193,22 @@ class EmployeePositionServiceContractTest {
         doReturn(List.of(relation)).when(service).list(any(), any(), any());
 
         assertThat(service.positions("employee-1")).containsExactly(relation);
+    }
+
+    @Test
+    void shouldReadRoleResolutionPositionsWithoutReferenceProjection() {
+        EmployeePositionDao dao = mock(EmployeePositionDao.class);
+        EmployeePosition relation = relation("employee-1", "org-1", "dept-1", "position-1", true);
+        when(dao.query(any(Criteria.class), any(PageRequest.class), any())).thenReturn(List.of(relation));
+        EmployeePositionService service = spy(service(dao));
+        doThrow(new AssertionError("role resolution must not use the projected list read"))
+                .when(service).list(any(), any(), any());
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
+            assertThat(service.activePositionsForRoleResolution("employee-1")).containsExactly(relation);
+        }
+
+        verify(dao).query(any(Criteria.class), any(PageRequest.class), any());
     }
 
     @Test

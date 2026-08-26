@@ -192,7 +192,7 @@ public class StaticEntityDefinitionCompiler {
                 fields.add(FieldDefinition.sortOrder());
                 continue;
             }
-            FieldType fieldType = fieldType(column.type());
+            FieldType fieldType = fieldType(field, column.type());
             FieldDefinition definition = new FieldDefinition(
                     field.getName(),
                     columnName,
@@ -242,6 +242,18 @@ public class StaticEntityDefinitionCompiler {
 
     private String columnName(Field field, Column column) {
         return column.name() == null || column.name().isBlank() ? field.getName() : column.name();
+    }
+
+    /**
+     * Java model types are the source of truth for scalar semantics. A legacy
+     * {@code @Column} may omit its database type, which must not turn a Boolean
+     * form field into a text field in the unified static descriptor.
+     */
+    private FieldType fieldType(Field field, ColumnType type) {
+        if (field != null && (field.getType() == Boolean.class || field.getType() == boolean.class)) {
+            return FieldType.BOOLEAN;
+        }
+        return fieldType(type);
     }
 
     private FieldType fieldType(ColumnType type) {

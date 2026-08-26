@@ -92,6 +92,7 @@ import java.util.Objects;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -371,9 +372,100 @@ class PlatformConfigurationWebControllerTest {
     }
 
     @Test
+    void shouldCompileModuleActionsAsNavigatorScopedStandardPageWithoutMenuEntry() {
+        PlatformModuleActionWebController controller = new PlatformModuleActionWebController();
+        StaticModuleDefinition definition = staticDefinition("platform", PlatformModuleActionService.MODULE_ALIAS,
+                "平台模块动作", PlatformModuleAction.class, controller.moduleUiDefinition(),
+                java.util.Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.CRUD,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.RECYCLE_BIN,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.SORT));
+
+        ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compileModule(definition).uiDescriptor().page();
+
+        assertThat(page.template()).isEqualTo(ModulePageTemplate.FLAT_MANAGEMENT);
+        assertThat(page.navigator().levels()).singleElement().satisfies(level -> {
+            assertThat(level.key()).isEqualTo("module");
+            assertThat(level.sourceModuleAlias()).isEqualTo(PlatformModuleService.MODULE_ALIAS);
+        });
+        assertThat(page.navigator().contextBindings()).containsExactlyInAnyOrder(
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "module",
+                        PageContextTarget.LIST_QUERY, "moduleAlias", null),
+                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "module",
+                        PageContextTarget.FORM_DEFAULT, "moduleAlias", null));
+        assertThat(page.detail().display().fields()).extracting(field -> field.fieldRef().fieldName())
+                .contains("actionCode", "title", "executorKey", "sourceType", "bindingAlias");
+        assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
+                .contains("moduleAlias", "actionCode", "title", "executorKey", "enabled");
+        assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("title"))
+                .singleElement().satisfies(field -> assertThat(field.readOnly().constant()).isTrue());
+        assertThat(page.detail().editor().fields())
+                .filteredOn(field -> field.fieldRef().fieldName().equals("category")
+                        || field.fieldRef().fieldName().equals("actionLevel")
+                        || field.fieldRef().fieldName().equals("executorType"))
+                .allSatisfy(field -> {
+                    assertThat(field.option()).isNotNull();
+                    assertThat(field.uiType()).isEqualTo("select");
+                });
+        assertThat(page.detail().editor().fields())
+                .filteredOn(field -> field.fieldRef().fieldName().equals("accessModeOverride"))
+                .singleElement().satisfies(field -> {
+                    assertThat(field.visible().formula()).isNotNull();
+                    assertThat(field.readOnly().formula()).isNotNull();
+                    assertThat(field.overrideOf()).isEqualTo("accessMode");
+                    assertThat(field.option()).isNotNull();
+                    assertThat(field.uiType()).isEqualTo("select");
+                });
+        assertThat(page.detail().editor().fields())
+                .filteredOn(field -> field.fieldRef().fieldName().equals("actionAuthOverride"))
+                .singleElement().satisfies(field -> {
+                    assertThat(field.overrideOf()).isEqualTo("actionAuth");
+                    assertThat(field.valueType()).isEqualTo(FieldValueType.BOOLEAN);
+                    assertThat(field.uiType()).isEqualTo("switch");
+                });
+    }
+
+    @Test
+    void shouldForceCanonicalModuleActionInsertIntoNavigatorScope() throws Exception {
+        PlatformModuleActionService service = mock(PlatformModuleActionService.class);
+        PlatformModuleActionWebController controller = new PlatformModuleActionWebController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        controller.setStandardModuleWebRuntime(platformModuleActionRuntime(controller));
+
+        PlatformModuleAction inserted = action("action-1", "platform.sales.order", "submit");
+        when(service.insert(any(PlatformModuleAction.class))).thenReturn("action-1");
+        when(service.select("action-1")).thenReturn(inserted);
+
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        mvc.perform(post("/platform.module_action/insert")
+                        .header(PageContextScopePolicy.CONTEXT_HEADER, "{\"module\":\"platform.sales.order\"}")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"moduleAlias":"other.module","actionCode":"submit","title":"Submit"}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.moduleAlias").value("platform.sales.order"));
+
+        ArgumentCaptor<PlatformModuleAction> captor = ArgumentCaptor.forClass(PlatformModuleAction.class);
+        verify(service).insert(captor.capture());
+        assertThat(captor.getValue().getModuleAlias()).isEqualTo("platform.sales.order");
+    }
+
+    @Test
+    void shouldRegisterCanonicalAndLegacyModuleActionHttpProjectionsWithoutPathConflict() {
+        PlatformModuleActionService service = mock(PlatformModuleActionService.class);
+        PlatformModuleActionWebController canonical = new PlatformModuleActionWebController();
+        PlatformModuleActionLegacyWebController legacy = new PlatformModuleActionLegacyWebController();
+        ReflectionTestUtils.setField(canonical, "service", service);
+        ReflectionTestUtils.setField(legacy, "service", service);
+
+        assertThatCode(() -> abilityAwareMvc(canonical, legacy)).doesNotThrowAnyException();
+    }
+
+    @Test
     void shouldQueryModuleActionsWithinPathModule() throws Exception {
         PlatformModuleActionService service = queryService(mock(PlatformModuleActionService.class));
-        PlatformModuleActionWebController controller = new PlatformModuleActionWebController();
+        PlatformModuleActionLegacyWebController controller = new PlatformModuleActionLegacyWebController();
         ReflectionTestUtils.setField(controller, "service", service);
 
         PlatformModuleAction action = action("action-1", "platform.sales.order", "submit");
@@ -399,7 +491,7 @@ class PlatformConfigurationWebControllerTest {
     @Test
     void shouldForceActionModuleAliasFromPathOnInsert() throws Exception {
         PlatformModuleActionService service = mock(PlatformModuleActionService.class);
-        PlatformModuleActionWebController controller = new PlatformModuleActionWebController();
+        PlatformModuleActionLegacyWebController controller = new PlatformModuleActionLegacyWebController();
         ReflectionTestUtils.setField(controller, "service", service);
 
         PlatformModuleAction inserted = action("action-1", "platform.sales.order", "submit");
@@ -423,7 +515,7 @@ class PlatformConfigurationWebControllerTest {
     @Test
     void shouldRejectCrossModuleActionUpdate() {
         PlatformModuleActionService service = mock(PlatformModuleActionService.class);
-        PlatformModuleActionWebController controller = new PlatformModuleActionWebController();
+        PlatformModuleActionLegacyWebController controller = new PlatformModuleActionLegacyWebController();
         ReflectionTestUtils.setField(controller, "service", service);
         when(service.select("action-1")).thenReturn(action("action-1", "other.module", "submit"));
 
@@ -1462,6 +1554,23 @@ class PlatformConfigurationWebControllerTest {
                 .toBuilder().navigatorSourceCapabilities(java.util.Set.of(
                         net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY)).build();
         StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(module, application));
+        return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
+                new StaticRecordReadProjectionService(catalog));
+    }
+
+    private StandardModuleWebRuntime platformModuleActionRuntime(PlatformModuleActionWebController controller) {
+        StaticModuleDefinition action = staticDefinition("platform", PlatformModuleActionService.MODULE_ALIAS,
+                "平台模块动作", PlatformModuleAction.class, controller.moduleUiDefinition(),
+                java.util.Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.CRUD,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.RECYCLE_BIN,
+                        net.ximatai.muyun.spring.common.platform.EntityCapability.SORT));
+        StaticModuleDefinition module = staticDefinition("platform", PlatformModuleService.MODULE_ALIAS, "模块",
+                PlatformModule.class, null,
+                java.util.Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.CRUD))
+                .toBuilder().navigatorSourceCapabilities(java.util.Set.of(
+                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY)).build();
+        StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(action, module));
         return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
                 new StaticRecordReadProjectionService(catalog));
     }

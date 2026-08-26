@@ -715,6 +715,7 @@ public final class ModuleUiDescriptorCompiler {
                 .map(field -> compileField(view.viewKind(), field, optionFields, referenceFields,
                         referenceSummaryFields, fieldTypes, fieldControls, relationFacts))
                 .toList();
+        validateOverrideSources(view, fields);
         return new ResolvedViewDescriptor(
                 view.viewCode(),
                 view.viewKind(),
@@ -727,6 +728,28 @@ public final class ModuleUiDescriptorCompiler {
                         group.fields().stream().map(ViewFieldDefinition::fieldRef).toList())).toList(),
                 compileFormComputeRules(view, fields)
         );
+    }
+
+    /**
+     * The inherited value is rendered from the same form payload. Requiring its source field in
+     * the form keeps that payload explicit and turns a misspelled source into a compile-time
+     * error instead of an ambiguous "not set" editor.
+     */
+    private static void validateOverrideSources(ViewDefinition view,
+                                                List<ResolvedViewFieldDescriptor> fields) {
+        if (view.viewKind() != ModuleViewKind.FORM) {
+            return;
+        }
+        Set<String> declaredMainFields = fields.stream()
+                .filter(field -> field.fieldRef().relationCode() == null)
+                .map(field -> field.fieldRef().fieldName())
+                .collect(java.util.stream.Collectors.toSet());
+        for (ResolvedViewFieldDescriptor field : fields) {
+            if (field.overrideOf() != null && !declaredMainFields.contains(field.overrideOf())) {
+                throw new IllegalArgumentException("override source field must be declared by the same form: "
+                        + view.viewCode() + "." + field.fieldRef().fieldName() + " -> " + field.overrideOf());
+            }
+        }
     }
 
     /**
@@ -902,6 +925,7 @@ public final class ModuleUiDescriptorCompiler {
         validateTagList(viewKind, field, referenceSummary);
         validateValuePresentation(viewKind, field, resolvedValueType);
         String resolvedUiType = resolvedUiType(viewKind, field, resolvedValueType, option, reference);
+        validateOverride(viewKind, field, resolvedValueType, fieldTypes);
         return new ResolvedViewFieldDescriptor(
                 field.fieldRef(),
                 field.label(),
@@ -921,8 +945,35 @@ public final class ModuleUiDescriptorCompiler {
                 reference,
                 referenceSummary,
                 field.maxDisplayLines(),
-                field.treeRootTitle()
+                field.treeRootTitle(),
+                field.overrideOf()
         );
+    }
+
+    /**
+     * Override semantics are intentionally explicit: a nullable field cannot infer inheritance from its
+     * name. The compiler validates form ownership and type compatibility whenever the source publishes types.
+     */
+    private static void validateOverride(ModuleViewKind viewKind,
+                                         ViewFieldDefinition field,
+                                         FieldValueType valueType,
+                                         Map<ViewFieldRef, FieldValueType> fieldTypes) {
+        String sourceField = field.overrideOf();
+        if (sourceField == null) return;
+        if (viewKind != ModuleViewKind.FORM || field.fieldRef().relationCode() != null) {
+            throw new IllegalArgumentException("override field is supported only on main FORM fields: "
+                    + field.fieldRef().fieldName());
+        }
+        if (sourceField.equals(field.fieldRef().fieldName())) {
+            throw new IllegalArgumentException("override field cannot inherit itself: " + sourceField);
+        }
+        FieldValueType sourceType = fieldTypes.get(ViewFieldRef.main(sourceField));
+        // Older source-compatible compiler entry points may not carry model field types. Form-level
+        // source ownership is still validated after all fields are resolved.
+        if (valueType != null && sourceType != null && sourceType != valueType) {
+            throw new IllegalArgumentException("override field must have the same value type as its source: "
+                    + field.fieldRef().fieldName());
+        }
     }
 
     /**

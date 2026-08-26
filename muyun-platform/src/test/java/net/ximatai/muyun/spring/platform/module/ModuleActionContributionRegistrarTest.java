@@ -77,6 +77,26 @@ class ModuleActionContributionRegistrarTest {
     }
 
     @Test
+    void shouldExposeManagedActionGovernanceUpdateButRejectDeclarationAndLifecycleChanges() {
+        moduleService.insert(module("sales.contract"));
+        registrar.register(contribution("syncWorkflow", "def-1", "ver-1", "sync"));
+        PlatformModuleAction managed = actionService.findByModuleAliasAndActionCode("sales.contract", "syncWorkflow");
+
+        assertThat(actionService.ordinaryRecordActionAvailability("update", managed)).isEmpty();
+        assertThat(actionService.ordinaryRecordActionAvailability("enable", managed))
+                .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管记录不可变更启用状态"));
+
+        PlatformModuleAction forbidden = new PlatformModuleAction();
+        forbidden.setId(managed.getId());
+        forbidden.setVersion(managed.getVersion());
+        forbidden.setTitle("不允许修改声明");
+
+        assertThatThrownBy(() -> actionService.update(forbidden))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("platform-managed");
+    }
+
+    @Test
     void shouldRequireCurrentVersionWhenClearingPermissionGovernanceOverrides() {
         moduleService.insert(module("sales.contract"));
         registrar.register(contribution("syncWorkflow", "def-1", "ver-1", "sync"));
