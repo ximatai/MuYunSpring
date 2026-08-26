@@ -443,6 +443,47 @@ it('http client requests event-stream media type for authenticated streams', asy
   }
 });
 
+it('header-scoped streaming client preserves stream capability and controlled page context', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return new Response('event: complete\n\ndata: {}\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  };
+
+  try {
+    const http = withHttpHeaders(
+      createHttpClient({ baseUrl: 'http://api.local' }),
+      {
+        'X-MuYun-Menu-Id': 'menu.device',
+        'X-MuYun-Page-Context': '{"device":"device-1"}',
+      },
+      (request) => request.path.startsWith('/mr.device/'),
+    );
+
+    assert.equal(isHttpStreamClient(http), true);
+    const stream = await http.stream({
+      path: '/mr.device/device-1/agent-chat/start/stream',
+      method: 'POST',
+      headers: { 'X-MuYun-Menu-Id': 'forged' },
+    });
+
+    assert.ok(stream);
+    assert.equal(requests[0].headers.get('Accept'), 'text/event-stream');
+    assert.equal(requests[0].headers.get('X-MuYun-Menu-Id'), 'menu.device');
+    assert.equal(requests[0].headers.get('X-MuYun-Page-Context'), '{"device":"device-1"}');
+
+    await http.stream({ path: '/iam.user/session/stream' });
+
+    assert.equal(requests[1].headers.get('X-MuYun-Menu-Id'), null);
+    assert.equal(requests[1].headers.get('X-MuYun-Page-Context'), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 it('http client keeps custom request-only clients compatible with optional streaming', () => {
   const customClient: HttpClient = {
     request: async <TResponse>() => ({ ok: true }) as TResponse,
