@@ -1237,8 +1237,8 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
   assert.notMatch(userSource, /userDetailHeaderActions/);
   assert.match(roleSource, /roleDetailOperationActions/);
   assert.notMatch(roleSource, /roleDetailHeaderActions/);
-  assert.match(roleAccountGrantSource, /<template #operation>/);
-  assert.match(roleEmploymentGrantSource, /<template #operation>/);
+  assert.match(roleAccountGrantSource, /<template v-if="!embedded" #operation>/);
+  assert.match(roleEmploymentGrantSource, /<template v-if="!embedded" #operation>/);
 });
 
 it('public management and drawer contracts use business roles instead of layout positions', () => {
@@ -1261,7 +1261,7 @@ it('public management and drawer contracts use business roles instead of layout 
   assert.notMatch(recordDetailDrawerSource, /<slot name="actions" \/>/);
   assert.notMatch(recordModeDrawerSource, /<slot name="actions" \/>/);
   for (const source of standardDrawerSources) {
-    assert.match(source, /<template #operation>/);
+    assert.match(source, /<template(?: v-if="!embedded")? #operation>/);
   }
 });
 

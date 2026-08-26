@@ -21,7 +21,9 @@ defineOptions({ name: 'RoleAccountGrantDrawer' });
 
 const props = defineProps<{
   open: boolean;
-  container: HTMLElement | null;
+  container?: HTMLElement | null;
+  /** Uses the owning platform drawer and renders only this operation's content. */
+  embedded?: boolean;
   context: ModuleContext<Role>;
   role?: Role;
 }>();
@@ -48,7 +50,7 @@ const checkedUserIds = ref<Set<string>>(new Set());
 const originalUserIds = ref<Set<string>>(new Set());
 const keyword = ref('');
 const appliedKeyword = ref('');
-const pageNum = ref(0);
+const pageNum = ref(1);
 const pageSize = 20;
 const total = ref(0);
 const loading = ref(false);
@@ -59,6 +61,18 @@ const loadFailed = ref(false);
 const client = computed(() => createRoleGrantClient(props.context.http));
 const roleId = computed(() => props.role?.id);
 const title = computed(() => (props.role ? `绑定用户 - ${roleTitle(props.role)}` : '绑定用户'));
+const contentContainer = computed(() => (props.embedded ? 'section' : RecordDetailDrawer));
+const contentContainerProps = computed(() =>
+  props.embedded
+    ? {}
+    : {
+        open: props.open,
+        title: title.value,
+        renderMode: props.container ? 'inline' : 'portal',
+        closeTitle: '关闭',
+        onClose: handleClose,
+      },
+);
 const defaultManagementScopeType = computed<ManagementScopeType>(() => {
   if (props.role?.ownerScopeType === 'platform') {
     return 'platform';
@@ -97,8 +111,8 @@ const selectedUsers = computed(() =>
   [...checkedUserIds.value].map((userId) => usersById.value[userId] ?? userFallback(userId)),
 );
 const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
-const canGoPrevious = computed(() => pageNum.value > 0);
-const canGoNext = computed(() => pageNum.value + 1 < pages.value);
+const canGoPrevious = computed(() => pageNum.value > 1);
+const canGoNext = computed(() => pageNum.value < pages.value);
 const addedUserIds = computed(() =>
   [...checkedUserIds.value].filter((userId) => !originalUserIds.value.has(userId)),
 );
@@ -167,7 +181,7 @@ async function load() {
         .filter((user): user is UserSelectorItem => !!user),
       ...boundUsers.records,
     ]);
-    await loadUsersPage(0);
+    await loadUsersPage(1);
   } catch (cause) {
     loadFailed.value = true;
     presentPlatformError(cause, { source: 'role-account-grants', phase: 'load' });
@@ -261,7 +275,7 @@ function resetState() {
   originalUserIds.value = new Set();
   keyword.value = '';
   appliedKeyword.value = '';
-  pageNum.value = 0;
+  pageNum.value = 1;
   total.value = 0;
   loading.value = false;
   loadingUsers.value = false;
@@ -304,14 +318,8 @@ function roleTitle(record: Partial<Role>) {
 </script>
 
 <template>
-  <RecordDetailDrawer
-    :open="open"
-    :title="title"
-    :render-mode="container ? 'inline' : 'portal'"
-    close-title="关闭"
-    @close="handleClose"
-  >
-    <template #operation>
+  <component :is="contentContainer" v-bind="contentContainerProps">
+    <template v-if="!embedded" #operation>
       <UiButton :disabled="saving || loading" @click="handleClose">取消</UiButton>
       <UiButton type="primary" :loading="saving" :disabled="loading || !changed" @click="save">
         确定
@@ -372,7 +380,7 @@ function roleTitle(record: Partial<Role>) {
       />
 
       <div class="role-account-grant-pagination">
-        <span>共 {{ total }} 个用户，第 {{ pageNum + 1 }} / {{ pages }} 页</span>
+        <span>共 {{ total }} 个用户，第 {{ pageNum }} / {{ pages }} 页</span>
         <div>
           <UiButton :disabled="saving || loadingUsers || !canGoPrevious" @click="loadUsersPage(pageNum - 1)">
             上一页
@@ -383,13 +391,26 @@ function roleTitle(record: Partial<Role>) {
         </div>
       </div>
     </section>
-  </RecordDetailDrawer>
+    <footer v-if="embedded" class="role-account-grant-drawer-operation">
+      <UiButton :disabled="saving || loading" @click="handleClose">取消</UiButton>
+      <UiButton type="primary" :loading="saving" :disabled="loading || !changed" @click="save">
+        确定
+      </UiButton>
+    </footer>
+  </component>
 </template>
 
 <style scoped>
 .role-account-grant-drawer-body {
   display: grid;
   gap: 12px;
+}
+
+.role-account-grant-drawer-operation {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 .role-account-grant-search {

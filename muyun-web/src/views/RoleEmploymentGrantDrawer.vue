@@ -14,7 +14,9 @@ import EmployeeEmploymentTable from './EmployeeEmploymentTable.vue';
 defineOptions({ name: 'RoleEmploymentGrantDrawer' });
 const props = defineProps<{
   open: boolean;
-  container: HTMLElement | null;
+  container?: HTMLElement | null;
+  /** Uses the owning platform drawer and renders only this operation's content. */
+  embedded?: boolean;
   context: ModuleContext<Role>;
   role?: Role;
 }>();
@@ -28,12 +30,24 @@ const selectionInitialized = ref(false);
 const loading = ref(false);
 const saving = ref(false);
 const failed = ref(false);
-const pageNum = ref(0);
+const pageNum = ref(1);
 const total = ref(0);
 const keyword = ref('');
 const roleId = computed(() => props.role?.id);
 const client = computed(() => createRoleGrantClient(props.context.http));
 const title = computed(() => `绑定任职 - ${props.role?.title ?? props.role?.id ?? ''}`);
+const contentContainer = computed(() => (props.embedded ? 'section' : RecordDetailDrawer));
+const contentContainerProps = computed(() =>
+  props.embedded
+    ? {}
+    : {
+        open: props.open,
+        title: title.value,
+        renderMode: props.container ? 'inline' : 'portal',
+        closeTitle: '关闭',
+        onClose: () => !saving.value && emit('close'),
+      },
+);
 const added = computed(() => [...selected.value].filter((id) => !original.value.has(id)));
 const removed = computed(() => [...original.value].filter((id) => !selected.value.has(id)));
 const grantByPosition = computed(
@@ -59,7 +73,7 @@ watch(
   },
   { immediate: true },
 );
-async function load(page = 0) {
+async function load(page = 1) {
   const id = roleId.value;
   if (!id) return;
   loading.value = true;
@@ -124,7 +138,7 @@ function reset() {
   original.value = new Set();
   selectionInitialized.value = false;
   keyword.value = '';
-  pageNum.value = 0;
+  pageNum.value = 1;
   total.value = 0;
   failed.value = false;
 }
@@ -170,14 +184,8 @@ function selectedEmploymentDescription(employment: EmploymentSelectorItem) {
 }
 </script>
 <template>
-  <RecordDetailDrawer
-    :open="open"
-    :title="title"
-    :render-mode="container ? 'inline' : 'portal'"
-    close-title="关闭"
-    @close="!saving && emit('close')"
-  >
-    <template #operation>
+  <component :is="contentContainer" v-bind="contentContainerProps">
+    <template v-if="!embedded" #operation>
       <UiButton :disabled="saving" @click="emit('close')">取消</UiButton>
       <UiButton
         type="primary"
@@ -226,18 +234,33 @@ function selectedEmploymentDescription(employment: EmploymentSelectorItem) {
       />
       <div class="role-employment-grant-pagination">
         <span>共 {{ total }} 个启用任职</span>
-        <UiButton :disabled="loading || pageNum === 0" @click="load(pageNum - 1)">上一页</UiButton>
-        <UiButton :disabled="loading || (pageNum + 1) * 50 >= total" @click="load(pageNum + 1)">
-          下一页
-        </UiButton>
+        <UiButton :disabled="loading || pageNum <= 1" @click="load(pageNum - 1)">上一页</UiButton>
+        <UiButton :disabled="loading || pageNum * 50 >= total" @click="load(pageNum + 1)"> 下一页 </UiButton>
       </div>
     </section>
-  </RecordDetailDrawer>
+    <footer v-if="embedded" class="role-employment-grant-operation">
+      <UiButton :disabled="saving" @click="emit('close')">取消</UiButton>
+      <UiButton
+        type="primary"
+        :loading="saving"
+        :disabled="loading || (added.length === 0 && removed.length === 0)"
+        @click="save"
+      >
+        确定
+      </UiButton>
+    </footer>
+  </component>
 </template>
 <style scoped>
 .role-employment-grant-body {
   display: grid;
   gap: 12px;
+}
+.role-employment-grant-operation {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 .role-employment-grant-body p {
   margin: 0;

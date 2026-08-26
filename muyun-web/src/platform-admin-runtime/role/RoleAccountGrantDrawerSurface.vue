@@ -14,7 +14,7 @@ const role = computed(() => props.context.record as Role | undefined);
 <template>
   <RoleAccountGrantDrawer
     open
-    :container="null"
+    embedded
     :context="module"
     :role="role"
     @close="props.context.close"
