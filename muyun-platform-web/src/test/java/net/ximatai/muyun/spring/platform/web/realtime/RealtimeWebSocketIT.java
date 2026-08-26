@@ -45,7 +45,8 @@ import static org.mockito.Mockito.when;
 
 @SpringBootTest(
         classes = RealtimeWebSocketIT.TestApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "server.servlet.context-path=/api"
 )
 class RealtimeWebSocketIT {
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
@@ -252,7 +253,7 @@ class RealtimeWebSocketIT {
         StompHeaders connectHeaders = new StompHeaders();
         connectHeaders.add("Authorization", "Bearer " + token);
         return stompClient.connectAsync(
-                        "ws://localhost:" + port + "/ws/platform",
+                        "ws://localhost:" + port + "/api/ws/platform",
                         new WebSocketHttpHeaders(),
                         connectHeaders,
                         new StompSessionHandlerAdapter() {

@@ -151,6 +151,11 @@ WebSocket endpoint + SockJS fallback
 /ws/platform
 ```
 
+这里的 `/ws/platform` 是 Spring 应用内 endpoint，不是部署后的固定根路径。它随宿主的
+Servlet context path 挂载：默认 API context 为 `/api` 时，浏览器实际握手地址是
+`/api/ws/platform`。前端应从完整 API base 推导这个地址；`/app/**`、`/topic/**` 与
+`/user/**` 则是 STOMP destination，不受 HTTP context path 影响。
+
 该入口负责：
 
 - 建立 WebSocket 连接；
@@ -164,7 +169,7 @@ WebSocket endpoint + SockJS fallback
 
 平台 destination 使用稳定命名，不直接使用 Controller URL 风格。
 
-统一基础前缀：
+握手 endpoint 与消息 destination 分别为：
 
 ```text
 /ws/platform
@@ -883,7 +888,7 @@ platform-workbench 业务视图
 范围：
 
 1. 引入后端 WebSocket/STOMP 依赖。
-2. 建立 `/ws/platform` endpoint。
+2. 建立应用内 `/ws/platform` endpoint（默认对外地址为 `/api/ws/platform`）。
 3. 建立后端实时发布门面。
 4. 建立数据变化广播 adapter。
 5. 引入前端 `@stomp/stompjs`。

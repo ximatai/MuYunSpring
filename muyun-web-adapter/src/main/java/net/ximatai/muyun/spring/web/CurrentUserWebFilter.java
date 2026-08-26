@@ -74,10 +74,21 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
     }
 
     private boolean isPasswordChangeAllowed(HttpServletRequest request) {
-        String path = request.getRequestURI();
+        String path = requestPath(request);
         return "/iam.auth/context".equals(path)
                 || "/iam.auth/changeOwnPassword".equals(path)
                 || "/iam.auth/logout".equals(path);
+    }
+
+    /** Servlet context is transport deployment detail, not part of the platform endpoint identity. */
+    private String requestPath(HttpServletRequest request) {
+        String requestUri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (requestUri != null && contextPath != null && !contextPath.isBlank()
+                && requestUri.startsWith(contextPath)) {
+            return requestUri.substring(contextPath.length());
+        }
+        return requestUri;
     }
 
     private boolean hasBearerToken(HttpServletRequest request) {

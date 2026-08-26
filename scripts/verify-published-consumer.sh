@@ -6,6 +6,7 @@ consumer_root="$repository_root/samples/published-consumer"
 consumer_repo="${MUYUN_CONSUMER_REPOSITORY:-$repository_root/build/consumer-repo}"
 consumer_port="${MUYUN_CONSUMER_PORT:-18080}"
 database_port="${MUYUN_CONSUMER_DB_PORT:-54323}"
+api_context_path="${MUYUN_API_CONTEXT_PATH:-/api}"
 consumer_version="${MUYUN_CONSUMER_VERSION:-$(awk -F= '/^muyunVersion=/ { print $2; exit }' "$repository_root/gradle.properties")}"
 project_name="muyun-published-consumer"
 log_file="$repository_root/build/published-consumer.log"
@@ -35,8 +36,10 @@ consumer_args=(-PmuyunRepository="$consumer_repo" "-PmuyunVersion=$consumer_vers
 consumer_pid=$!
 
 for _ in {1..60}; do
-  status="$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$consumer_port/" || true)"
-  if [[ "$status" != "000" ]]; then
+  # A protected endpoint must return 401 without a bearer token. This proves
+  # both that Spring is ready and that the configured API context is mounted.
+  status="$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$consumer_port$api_context_path/iam.auth/profile" || true)"
+  if [[ "$status" == "401" ]]; then
     exit 0
   fi
   if ! kill -0 "$consumer_pid" 2>/dev/null; then
@@ -47,5 +50,5 @@ for _ in {1..60}; do
 done
 
 cat "$log_file"
-echo "Published consumer did not start within 120 seconds." >&2
+echo "Published consumer did not expose its protected API within 120 seconds." >&2
 exit 1

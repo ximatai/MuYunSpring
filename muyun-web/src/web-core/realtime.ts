@@ -49,8 +49,16 @@ export interface RealtimeClient {
 }
 
 export interface RealtimeClientOptions {
+  /**
+   * Backend API base URL. The default WebSocket endpoint is resolved relative
+   * to this path, so an API mounted at `/api` connects to `/api/ws/platform`.
+   */
   baseUrl?: string;
   token?: string;
+  /**
+   * WebSocket endpoint relative to {@link baseUrl}. A root-relative or
+   * absolute URL remains an explicit override for deployments that need it.
+   */
   brokerPath?: string;
   reconnectDelay?: number;
   heartbeatIncoming?: number;
@@ -376,7 +384,9 @@ function defaultStompClientFactory(options: StompClientFactoryOptions): StompCli
 }
 
 function brokerUrlOf(options: RealtimeClientOptions) {
-  const brokerPath = options.brokerPath ?? '/ws/platform';
+  // Keep the handshake under the same host-level API mount as HTTP requests.
+  // A leading slash would discard a configured context path such as `/api`.
+  const brokerPath = options.brokerPath ?? 'ws/platform';
   const baseUrl =
     options.baseUrl ?? (typeof window === 'undefined' ? 'http://localhost' : window.location.origin);
   const url = new URL(brokerPath, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);

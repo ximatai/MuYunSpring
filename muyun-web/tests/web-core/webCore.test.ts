@@ -799,7 +799,7 @@ it('data change dispatcher bounds handled change set ids', async () => {
   assert.deepEqual(handled, ['change-set-1', 'change-set-2', 'change-set-3', 'change-set-1']);
 });
 
-it('realtime client sends bearer header and restores subscriptions after reconnect', async () => {
+it('realtime client keeps the API base path, sends bearer header and restores subscriptions after reconnect', async () => {
   let factoryOptions: StompClientFactoryOptions | undefined;
   const stomp = new FakeStompClient();
   const realtime = createRealtimeClient({
@@ -822,7 +822,7 @@ it('realtime client sends bearer header and restores subscriptions after reconne
   await realtime.connect();
   stomp.connect();
 
-  assert.equal(factoryOptions?.brokerURL, 'wss://api.local/ws/platform');
+  assert.equal(factoryOptions?.brokerURL, 'wss://api.local/base/ws/platform');
   assert.equal(factoryOptions?.connectHeaders.Authorization, 'Bearer token-1');
   assert.equal(stomp.subscribeCalls, 1);
 
