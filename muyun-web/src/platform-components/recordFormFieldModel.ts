@@ -229,6 +229,8 @@ export interface RecordFormFieldState {
   pickerConfig?: RecordFormFieldPickerConfig;
   booleanStatus?: BooleanStatusPresentation;
   valuePresentation?: FieldValuePresentation;
+  /** Source field used while this nullable field is inheriting instead of overriding. */
+  overrideOf?: string;
   disabledHint?: string;
   placeholder?: string;
   options?: Option[];
@@ -411,6 +413,7 @@ export function resolveRecordFormFieldState(
     ...(field?.fileReference ? { fileReference: field.fileReference } : {}),
     ...(booleanStatus ? { booleanStatus } : {}),
     ...(field?.valuePresentation ? { valuePresentation: field.valuePresentation } : {}),
+    ...(field?.overrideOf ? { overrideOf: field.overrideOf } : {}),
     ...(field?.formGroup ? { formGroup: field.formGroup } : {}),
     ...((field?.readOnly?.disabledHint ?? fallback?.disabledHint)
       ? { disabledHint: field?.readOnly?.disabledHint ?? fallback?.disabledHint }

@@ -1,6 +1,11 @@
 import { ref } from 'vue';
 import type { QueryListRecord } from '@muyun/platform-components';
 import type { ModulePageEnhancement, ModulePageWorkspaceView } from '@muyun/dynamic-page-runtime';
+import {
+  NAVIGATOR_ENTRY_MODULE_ALIAS_QUERY_KEY,
+  NAVIGATOR_ENTRY_RECORD_ID_QUERY_KEY,
+} from '@muyun/dynamic-page-runtime';
+import type { PageDescriptor } from '@muyun/web-contracts';
 import { createModuleOpenApiPageDescriptor, loadOpenApiCatalog } from './moduleOpenApi';
 import { moduleActionManagementWorkspaceView } from '../views/moduleActionManagementWorkspaceView';
 import { metadataOrchestrationWorkspaceView } from '../views/metadataOrchestrationWorkspaceView';
@@ -42,6 +47,8 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
       if (revision === openApiCatalogRevision) openApiModuleAliases.value = new Set();
     };
   },
+  // `platform.module.actions` remains registered only to restore existing workspace tabs.
+  // New entries are descriptor-driven `platform.module_action` pages instead.
   workspaceViews: [moduleActionWorkspaceView, metadataWorkspaceView],
   detail: {
     actions: [
@@ -49,14 +56,10 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
         key: 'module-actions-workspace',
         title: '动作',
         state: (record) => ({ visible: moduleAliasOf(record) !== undefined }),
-        run({ record, openWorkspaceTab }) {
+        run({ record, openPage }) {
           const moduleAlias = moduleAliasOf(record);
           if (!moduleAlias) return;
-          openWorkspaceTab(moduleActionWorkspaceView, {
-            moduleAlias,
-            moduleTitle: titleOf(record),
-            moduleKind: moduleKindOf(record),
-          });
+          openPage(createModuleActionPageDescriptor(moduleAlias, titleOf(record)));
         },
       },
       {
@@ -92,6 +95,42 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
     ],
   },
 };
+
+/**
+ * Action management has no menu identity of its own. Its standard CRUD page is
+ * entered from exactly one governed platform module, which is the hidden and
+ * immutable navigator scope.
+ */
+export const platformModuleActionPageEnhancement: ModulePageEnhancement = {
+  id: 'platform-module-action-entry-scope',
+  target: { moduleAlias: 'platform.module_action' },
+  navigator: {
+    hidden: true,
+    lockedEntry: {
+      navigatorKey: 'module',
+      unavailableDescription: '模块上下文不可用',
+    },
+  },
+};
+
+/**
+ * Action management has no menu identity of its own. It is the standard action
+ * resource page entered with one governed module as its required navigator.
+ */
+function createModuleActionPageDescriptor(moduleAlias: string, moduleTitle?: string): PageDescriptor {
+  return {
+    pageType: 'dynamic-module',
+    openMode: 'dynamic-runner',
+    hostType: 'module-page-host',
+    title: `动作：${moduleTitle ?? moduleAlias}`,
+    target: { moduleAlias: 'platform.module_action', pageMode: 'LIST' },
+    params: {
+      [NAVIGATOR_ENTRY_MODULE_ALIAS_QUERY_KEY]: 'platform.module',
+      [NAVIGATOR_ENTRY_RECORD_ID_QUERY_KEY]: moduleAlias,
+    },
+    tabPolicy: { identity: 'by-params', closable: true, cacheable: true },
+  };
+}
 
 function moduleAliasOf(record: QueryListRecord): string | undefined {
   return stringField(record, 'alias') ?? stringField(record, 'id');

@@ -80,6 +80,12 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
         return Set.of("accessModeOverride", "actionAuthOverride", "dataAuthOverride", "defaultGrantPolicyOverride");
     }
 
+    /** Platform-managed action declarations expose only their explicit governance overrides. */
+    @Override
+    public boolean allowsOrdinaryPlatformManagedUpdate() {
+        return !editablePlatformManagedFields().isEmpty();
+    }
+
     @Override
     public void beforeInsert(PlatformModuleAction action) {
         normalizeAndValidate(action);

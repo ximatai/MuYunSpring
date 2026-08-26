@@ -3,6 +3,8 @@ package net.ximatai.muyun.spring.platform;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.database.core.builder.TableWrapper;
 import net.ximatai.muyun.spring.common.schema.StaticEntityTableMapper;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.platform.application.Application;
 import net.ximatai.muyun.spring.platform.audit.RuntimeAuditRecord;
 import net.ximatai.muyun.spring.platform.code.CodeLedgerEntry;
@@ -39,6 +41,7 @@ import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
 import net.ximatai.muyun.spring.platform.metadata.FieldSpec;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.ui.PlatformQueryItem;
 import net.ximatai.muyun.spring.platform.ui.PlatformQueryTemplate;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
@@ -97,6 +100,15 @@ class PlatformModelSchemaTest {
         assertThat(table.getColumns().stream().filter(column -> "module_kind".equals(column.getName())).findFirst())
                 .get()
                 .satisfies(column -> assertThat(column.getLength()).isEqualTo(32));
+    }
+
+    @Test
+    void shouldDeclareModuleActionParentAsGlobalModuleReference() throws NoSuchFieldException {
+        ReferenceTo reference = PlatformModuleAction.class.getDeclaredField("moduleAlias")
+                .getAnnotation(ReferenceTo.class);
+
+        assertThat(reference.target()).isEqualTo(PlatformModuleService.class);
+        assertThat(reference.tenantScope()).isEqualTo(ReferenceTenantScope.GLOBAL);
     }
 
     @Test

@@ -7,6 +7,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
@@ -141,6 +142,16 @@ public final class StaticAbilityOperationRuntime {
         }
         return MutationTenantScopeExecutor.forExistingRecord(scope, id, () -> scope.webScope(() -> {
             TreeWebProjectionPolicy policy = treePolicy(scope);
+            requireProjectionRecord(scope, request, PlatformAction.SORT, id);
+            if (hasText(sort.previousId())) {
+                requireProjectionRecord(scope, request, PlatformAction.SORT, sort.previousId());
+            }
+            if (hasText(sort.nextId())) {
+                requireProjectionRecord(scope, request, PlatformAction.SORT, sort.nextId());
+            }
+            if (hasText(sort.parentId()) && !TreeAbility.ROOT_ID.equals(sort.parentId())) {
+                requireProjectionRecord(scope, request, PlatformAction.SORT, sort.parentId());
+            }
             if (policy == null) {
                 requireTreeSortScope(ability, id, sort);
             } else {
@@ -297,6 +308,33 @@ public final class StaticAbilityOperationRuntime {
         if (scope.target.anchor() instanceof RecordWebProjectionPolicy policy) {
             policy.requireRecord(request, action, id);
         }
+        requireCrudPageContextRecord(scope, id);
+    }
+
+    /**
+     * A required navigator scope is a record-operation boundary, including operations delivered
+     * by the generated ability dispatcher rather than {@link CrudWeb}'s own MVC defaults.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private void requireCrudPageContextRecord(OperationScope scope, String id) {
+        if (!(scope.target.anchor() instanceof CrudWeb crudWeb)) {
+            return;
+        }
+        StandardModuleWebRuntime runtime = crudWeb.standardModuleWebRuntime();
+        if (!crudWeb.requiresModuleExecutionPlan()
+                && (runtime == null || !runtime.hasPlan(crudWeb.webScopeName()))) {
+            return;
+        }
+        List<PageContextBindingDefinition> requiredScopeBindings =
+                PageContextScopePolicy.recordScopeBindings(crudWeb.recordScopeBindings());
+        if (requiredScopeBindings.isEmpty()) {
+            return;
+        }
+        if (!(scope.service() instanceof CrudAbility ability)) {
+            throw new IllegalStateException(scope.webScopeName() + " requires CrudAbility for page record scope");
+        }
+        EntityContract record = (EntityContract) ability.select(id);
+        PageContextScopePolicy.requireRecordInScope(record, requiredScopeBindings);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

@@ -923,6 +923,8 @@ export interface ViewFieldDefinition {
   maxDisplayLines?: number;
   /** User-facing title for the standard tree root sentinel in a detail field. */
   treeRootTitle?: string;
+  /** Nullable field inherits this source field until an explicit override is selected. */
+  overrideOf?: string;
 }
 
 /** Semantic group that owns a contiguous set of standard-form fields. */
@@ -990,6 +992,8 @@ export interface ResolvedViewFieldDescriptor {
   fixed?: boolean;
   booleanStatus?: BooleanStatusPresentation;
   treeRootTitle?: string;
+  /** Nullable field inherits this source field until an explicit override is selected. */
+  overrideOf?: string;
   option?: ResolvedOptionFieldDescriptor;
   reference?: ResolvedReferenceFieldDescriptor;
   referenceSummary?: ResolvedReferenceSummaryFieldDescriptor;

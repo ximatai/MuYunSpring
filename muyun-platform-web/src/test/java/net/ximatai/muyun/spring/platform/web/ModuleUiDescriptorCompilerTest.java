@@ -165,6 +165,22 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldRejectOverrideWhoseSourceIsNotDeclaredByTheSameForm() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("platform.module_action")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("模块动作"))
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("actionAuthOverride", field -> field.overrideOf("actionAuth"))))))
+                .build();
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, ModuleKind.STATIC, "模块动作",
+                Map.of(), Map.of(), null, Map.of(
+                        ViewFieldRef.main("actionAuth"), FieldValueType.BOOLEAN,
+                        ViewFieldRef.main("actionAuthOverride"), FieldValueType.BOOLEAN)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("override source field must be declared by the same form");
+    }
+
+    @Test
     void shouldRejectUnknownUiTypeInsteadOfLeavingBrowserFallback() {
         assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.order")
                 .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))

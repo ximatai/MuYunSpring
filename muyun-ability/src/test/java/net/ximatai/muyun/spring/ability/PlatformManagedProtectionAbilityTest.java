@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.common.model.capability.PlatformManagedCapable;
 import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEntity;
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -149,6 +151,20 @@ class PlatformManagedProtectionAbilityTest {
         assertThat(service.beforeUpdateCalls).isEqualTo(1);
     }
 
+    @Test
+    void managedRecordWithoutEditableFieldsShouldNotExposeUpdateOrLifecycleActions() {
+        LockedManagedRecordService service = new LockedManagedRecordService();
+        ManagedRecord record = managedRecord("managed", "Managed");
+        PlatformManagedMutationContext.runAsPlatformManaged(() -> service.insert(record));
+
+        assertThat(service.ordinaryRecordActionAvailability("update", record))
+                .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管记录不可编辑"));
+        assertThat(service.ordinaryRecordActionAvailability("enable", record))
+                .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管记录不可变更启用状态"));
+        assertThat(service.ordinaryRecordActionAvailability("sort", record))
+                .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管记录不可调整排序"));
+    }
+
     private static ManagedRecord managedRecord(String code, String title) {
         ManagedRecord record = new ManagedRecord();
         record.setCode(code);
@@ -157,7 +173,7 @@ class PlatformManagedProtectionAbilityTest {
         return record;
     }
 
-    private static final class ManagedRecordService extends AbstractAbilityService<ManagedRecord>
+    private static class ManagedRecordService extends AbstractAbilityService<ManagedRecord>
             implements PlatformManagedProtectionAbility<ManagedRecord> {
         private int beforeUpdateCalls;
         private String afterChangedModuleCode;
@@ -186,6 +202,13 @@ class PlatformManagedProtectionAbilityTest {
             if (entity.getSystemManaged() == null) {
                 entity.setSystemManaged(Boolean.FALSE);
             }
+        }
+    }
+
+    private static final class LockedManagedRecordService extends ManagedRecordService {
+        @Override
+        public Set<String> editablePlatformManagedFields() {
+            return Set.of();
         }
     }
 

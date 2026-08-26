@@ -49,6 +49,7 @@ export type {
   ModulePageRecordViewContext,
   ModulePageEnhancement,
   ModulePageEnhancementTarget,
+  ModulePageLockedNavigatorEntry,
   ModulePageRecordActionContext,
   ModulePageRecordActionContribution,
   ModulePageScopeContext,

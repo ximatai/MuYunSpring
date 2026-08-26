@@ -18,7 +18,8 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                           ResolvedReferenceFieldDescriptor reference,
                                           ResolvedReferenceSummaryFieldDescriptor referenceSummary,
                                           Integer maxDisplayLines,
-                                          String treeRootTitle) {
+                                          String treeRootTitle,
+                                          String overrideOf) {
     public ResolvedViewFieldDescriptor {
         if (fieldRef == null) {
             throw new IllegalArgumentException("resolved view field ref must not be null");
@@ -39,12 +40,38 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
         align = align == null || align.isBlank() ? null : align.trim();
         maxDisplayLines = maxDisplayLines == null ? null : requireMaxDisplayLines(maxDisplayLines);
         treeRootTitle = treeRootTitle == null || treeRootTitle.isBlank() ? null : treeRootTitle.trim();
+        overrideOf = overrideOf == null || overrideOf.isBlank() ? null : overrideOf.trim();
         if (booleanStatus != null && !"booleanStatus".equals(uiType)) {
             throw new IllegalArgumentException("boolean status presentation requires uiType booleanStatus");
         }
         if ("booleanStatus".equals(uiType) && booleanStatus == null) {
             throw new IllegalArgumentException("uiType booleanStatus requires boolean status presentation");
         }
+    }
+
+    /** Source-compatible constructor for resolved descriptors issued before override semantics were introduced. */
+    public ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
+                                       String label,
+                                       UiRule<Boolean> visible,
+                                       UiRule<Boolean> required,
+                                       UiRule<Boolean> readOnly,
+                                       String uiType,
+                                       ResolvedFieldControlDescriptor fieldControl,
+                                       FieldValueType valueType,
+                                       FieldValuePresentation valuePresentation,
+                                       String width,
+                                       Integer columnSpan,
+                                       String align,
+                                       Boolean fixed,
+                                       BooleanStatusPresentation booleanStatus,
+                                       ResolvedOptionFieldDescriptor option,
+                                       ResolvedReferenceFieldDescriptor reference,
+                                       ResolvedReferenceSummaryFieldDescriptor referenceSummary,
+                                       Integer maxDisplayLines,
+                                       String treeRootTitle) {
+        this(fieldRef, label, visible, required, readOnly, uiType, fieldControl, valueType, valuePresentation, width,
+                columnSpan, align, fixed, booleanStatus, option, reference, referenceSummary, maxDisplayLines,
+                treeRootTitle, null);
     }
 
     /** Source- and binary-compatible constructor for descriptors created before value presentations were introduced. */
@@ -64,7 +91,7 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                        ResolvedReferenceFieldDescriptor reference,
                                        ResolvedReferenceSummaryFieldDescriptor referenceSummary) {
         this(fieldRef, label, visible, required, readOnly, uiType, null, valueType, null, width, columnSpan, align, fixed,
-                booleanStatus, option, reference, referenceSummary, null, null);
+                booleanStatus, option, reference, referenceSummary, null, null, null);
     }
 
     public ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
@@ -78,7 +105,7 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                        String align,
                                        Boolean fixed) {
         this(fieldRef, label, visible, required, readOnly, uiType, null, null, null, width, columnSpan, align, fixed,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
     }
 
     /** Source-compatible constructor for descriptors with option metadata only. */
@@ -94,7 +121,7 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                        Boolean fixed,
                                        ResolvedOptionFieldDescriptor option) {
         this(fieldRef, label, visible, required, readOnly, uiType, null, null, null, width, columnSpan, align, fixed,
-                null, option, null, null, null, null);
+                null, option, null, null, null, null, null);
     }
 
     /** Source-compatible constructor for descriptors created before column spans were introduced. */
@@ -108,7 +135,7 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                        String align,
                                        Boolean fixed) {
         this(fieldRef, label, visible, required, readOnly, uiType, null, null, null, width, 1, align, fixed,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
     }
 
     /** Source-compatible constructor with a boolean status presentation. */

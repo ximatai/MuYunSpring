@@ -304,11 +304,25 @@ const {
   selectedNavigatorRecords,
   navigatorSingleResultKeys,
   navigatorDismissedSelectionKeys,
+  setNavigatorEntrySelection,
+  navigatorEntrySelectionPendingFor,
+  resolveNavigatorEntrySelection,
+  isCurrentNavigatorEntrySelection,
   loadRuntimeForm,
 } = useNavigatorRuntime(context, baseContext.http);
+const navigatorEntryReloadKeys = ref<Record<string, number>>({});
+watch(
+  () => props.descriptor.params,
+  (params) => applyNavigatorEntrySelectionChange(setNavigatorEntrySelection(params)),
+  { immediate: true, deep: true },
+);
 const treeResource = computed<ResolvedPageTreeResourceDescriptor | undefined>(
   () => runtimePage.value?.treeResource,
 );
+// The list-ready condition and its request header must observe one synchronous
+// navigator snapshot.  A pre-flush watcher leaves a reactive-tick gap in which
+// a required navigator has selected a record but the next list request still
+// carries no page context.
 watch(
   selectedNavigatorRecords,
   (records) => {
@@ -317,7 +331,7 @@ watch(
     );
     pageContextHeader.value = values.length === 0 ? undefined : JSON.stringify(Object.fromEntries(values));
   },
-  { deep: true, immediate: true },
+  { deep: true, immediate: true, flush: 'sync' },
 );
 const treeResourceScopeRecord = computed(() => {
   const resource = treeResource.value;
@@ -641,6 +655,25 @@ const visibleNavigatorLevels = computed(() =>
         );
         return !autoHidden;
       }),
+);
+function isLockedNavigator(levelKey: string): boolean {
+  return navigatorEntryPolicy.value.lockedEntry?.navigatorKey === levelKey;
+}
+const navigatorScopeUnavailableDescription = computed(
+  () => navigatorEntryPolicy.value.lockedEntry?.unavailableDescription ?? '请选择模块',
+);
+// A hidden locked navigator has no visual explorer to emit `loaded`. Resolve
+// its addressed record directly through the same REFERENCE query contract so
+// the page can become ready without ever exposing a scope picker.
+watch(
+  [navigatorLevels, () => props.descriptor.params, () => navigatorEntryPolicy.value.lockedEntry],
+  () => {
+    navigatorLevels.value.forEach((level) => {
+      if (!isLockedNavigator(level.descriptor.key) || !navigatorEntrySelectionPendingFor(level)) return;
+      resolveLockedNavigatorEntry(level);
+    });
+  },
+  { immediate: true, deep: true },
 );
 const detailSurfaceUsesDrawer = computed(
   () => narrowDetailSurface.value || detailSurfacePreference.value === 'drawer',
@@ -1346,8 +1379,9 @@ function selectListDetailRecord(record: QueryListRecord) {
  * A selection takes effect at every navigator level: it immediately constrains
  * the list and clears only selections that depend on it.
  */
-function selectNavigatorRecord(levelKey: string, record: { id?: string }) {
+function selectNavigatorRecord(levelKey: string, record: { id?: string }, source: 'user' | 'entry' = 'user') {
   if (!navigatorLevels.value.some((level) => level.descriptor.key === levelKey)) return;
+  if (source !== 'entry' && isLockedNavigator(levelKey)) return;
   const previous = selectedNavigatorRecords.value[levelKey];
   const next = { ...selectedNavigatorRecords.value };
   const clearing = previous?.id === record.id;
@@ -1364,6 +1398,7 @@ function selectNavigatorRecord(levelKey: string, record: { id?: string }) {
 }
 
 function clearNavigatorRecord(levelKey: string) {
+  if (isLockedNavigator(levelKey)) return;
   const selected = selectedNavigatorRecords.value[levelKey];
   if (!selected) return;
   navigatorDismissedSelectionKeys.value = [...new Set([...navigatorDismissedSelectionKeys.value, levelKey])];
@@ -1388,6 +1423,43 @@ function handleNavigatorLoaded(level: NavigatorLevelRuntime, records: Array<{ id
       ? [...navigatorSingleResultKeys.value, key]
       : navigatorSingleResultKeys.value.filter((candidate) => candidate !== key);
   }
+  if (navigatorEntrySelectionPendingFor(level)) {
+    resolveNavigatorEntryFromRecords(level, records);
+    return;
+  }
+  selectAutomaticNavigatorRecord(level, records);
+}
+
+function resolveLockedNavigatorEntry(level: NavigatorLevelRuntime) {
+  resolveNavigatorEntryFromRecords(level, []);
+}
+
+function resolveNavigatorEntryFromRecords(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
+  const key = level.descriptor.key;
+  const scopeIdentity = navigatorEntryScopeIdentity(key);
+  void resolveNavigatorEntrySelection(level, records, navigatorExplorerQueryValues(key)).then(
+    (resolution) => {
+      // A source scope may change while the exact REFERENCE query is in flight.
+      // Do not revive its old selection into the new context.
+      if (
+        !resolution ||
+        !isCurrentNavigatorEntrySelection(level, resolution) ||
+        scopeIdentity !== navigatorEntryScopeIdentity(key)
+      )
+        return;
+      if (resolution.record && selectedNavigatorRecords.value[key]?.id == null) {
+        selectNavigatorRecord(key, resolution.record, 'entry');
+        return;
+      }
+      selectAutomaticNavigatorRecord(level, records);
+    },
+  );
+}
+
+function selectAutomaticNavigatorRecord(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
+  if (isLockedNavigator(level.descriptor.key)) return;
+  const key = level.descriptor.key;
+  const single = records.length === 1 && records[0]?.id != null;
   const selectsSingleResult =
     single &&
     level.descriptor.singleResultPolicy !== undefined &&
@@ -1401,6 +1473,57 @@ function handleNavigatorLoaded(level: NavigatorLevelRuntime, records: Array<{ id
   ) {
     selectNavigatorRecord(key, records[0]);
   }
+}
+
+function navigatorEntryScopeIdentity(levelKey: string): string {
+  const values = navigatorExplorerQueryValues(levelKey);
+  return JSON.stringify(
+    Object.entries(values ?? {}).sort(([first], [second]) => first.localeCompare(second)),
+  );
+}
+
+/** Applies an entry replacement only to the navigator source(s) it addresses. */
+function applyNavigatorEntrySelectionChange(
+  change:
+    | {
+        previous?: { moduleAlias: string };
+        current?: { moduleAlias: string };
+      }
+    | undefined,
+) {
+  if (!change) return;
+  const aliases = new Set(
+    [change.previous?.moduleAlias, change.current?.moduleAlias].filter(
+      (alias): alias is string => alias != null,
+    ),
+  );
+  const targetKeys = navigatorLevels.value
+    .filter((level) => aliases.has(level.descriptor.sourceModuleAlias))
+    .map((level) => level.descriptor.key);
+  if (targetKeys.length === 0) return;
+
+  const affectedKeys = new Set(targetKeys);
+  targetKeys.forEach((key) =>
+    navigatorDescendantKeys(key).forEach((descendant) => affectedKeys.add(descendant)),
+  );
+  const next = { ...selectedNavigatorRecords.value };
+  const clearsSelection = [...affectedKeys].some((key) => next[key] !== undefined);
+  affectedKeys.forEach((key) => {
+    next[key] = undefined;
+  });
+  selectedNavigatorRecords.value = next;
+  navigatorDismissedSelectionKeys.value = navigatorDismissedSelectionKeys.value.filter(
+    (key) => !affectedKeys.has(key),
+  );
+  if (clearsSelection) clearSelectionForScopeChange();
+  navigatorEntryReloadKeys.value = {
+    ...navigatorEntryReloadKeys.value,
+    ...Object.fromEntries(targetKeys.map((key) => [key, (navigatorEntryReloadKeys.value[key] ?? 0) + 1])),
+  };
+}
+
+function navigatorReloadKey(levelKey: string): number {
+  return scopeReloadKey.value + (navigatorEntryReloadKeys.value[levelKey] ?? 0);
 }
 
 function preloadNavigatorRecordActions(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
@@ -2298,7 +2421,7 @@ function recordTitle(record: QueryListRecord | undefined) {
                 ? undefined
                 : String(selectedNavigatorRecords[visibleNavigatorLevels[index].descriptor.key]?.id)
             "
-            :reload-key="scopeReloadKey"
+            :reload-key="navigatorReloadKey(visibleNavigatorLevels[index].descriptor.key)"
             :keyword="scopeSearchKeyword"
             :external-query-values="
               navigatorExplorerQueryValues(visibleNavigatorLevels[index].descriptor.key)
@@ -2321,7 +2444,7 @@ function recordTitle(record: QueryListRecord | undefined) {
                 ? undefined
                 : String(selectedNavigatorRecords[visibleNavigatorLevels[index].descriptor.key]?.id)
             "
-            :reload-key="scopeReloadKey"
+            :reload-key="navigatorReloadKey(visibleNavigatorLevels[index].descriptor.key)"
             :keyword="scopeSearchKeyword"
             :external-query-values="
               navigatorExplorerQueryValues(visibleNavigatorLevels[index].descriptor.key)
@@ -2380,11 +2503,13 @@ function recordTitle(record: QueryListRecord | undefined) {
       </template>
       <template #explorer>
         <CrudRecordListExplorer
+          v-if="navigatorListScopeReady"
           :context="context"
           :selected-id="selectedRecord?.id == null ? undefined : String(selectedRecord.id)"
           :reload-key="flatManagementRecycleBin.reloadKey.value"
           :mode="flatManagementRecycleBin.mode.value"
           :keyword="flatManagementSearchKeyword"
+          :external-query-values="navigatorListQueryValues"
           :empty-description="
             flatManagementRecycleBin.active.value ? '回收站为空' : flatManagementContent?.emptyDescription
           "
@@ -2396,6 +2521,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           @select="(record) => openFlatManagementRecord(record as QueryListRecord)"
           @deselect="resetFlatManagementSelection"
         />
+        <RecordPanelState v-else :description="navigatorScopeUnavailableDescription" />
       </template>
       <template v-if="flatManagementRecycleBin.buttonVisible.value" #explorer-footer>
         <RecycleBinModeButton
@@ -2530,7 +2656,7 @@ function recordTitle(record: QueryListRecord | undefined) {
                 ? undefined
                 : String(selectedNavigatorRecords[level.descriptor.key]?.id)
             "
-            :reload-key="scopeReloadKey"
+            :reload-key="navigatorReloadKey(level.descriptor.key)"
             :keyword="scopeSearchKeyword"
             :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
             :navigator-host-module-alias="context.moduleAlias"
@@ -2550,7 +2676,7 @@ function recordTitle(record: QueryListRecord | undefined) {
                 ? undefined
                 : String(selectedNavigatorRecords[level.descriptor.key]?.id)
             "
-            :reload-key="scopeReloadKey"
+            :reload-key="navigatorReloadKey(level.descriptor.key)"
             :keyword="scopeSearchKeyword"
             :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
             :navigator-host-module-alias="context.moduleAlias"
@@ -2766,7 +2892,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               ? undefined
               : String(selectedNavigatorRecords[level.descriptor.key]?.id)
           "
-          :reload-key="scopeReloadKey"
+          :reload-key="navigatorReloadKey(level.descriptor.key)"
           :keyword="scopeSearchKeyword"
           :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
           :navigator-host-module-alias="context.moduleAlias"
