@@ -22,6 +22,7 @@ const ApiReference = defineAsyncComponent(async () => {
 const document = ref<ModuleOpenApiDocument>();
 const loading = ref(false);
 const error = ref<string>();
+let loadRevision = 0;
 const scalarConfiguration = computed(() => {
   const backendBaseUrl = openApiBackendBaseUrl();
   return {
@@ -32,7 +33,6 @@ const scalarConfiguration = computed(() => {
     hideClientButton: false,
     customFetch: createOpenApiAuthenticatedFetch(),
     showDeveloperTools: 'never' as const,
-    showToolbar: 'always' as const,
     theme: 'default' as const,
     darkMode: false,
     hideDarkModeToggle: true,
@@ -43,17 +43,28 @@ onMounted(load);
 watch(() => props.moduleAlias, load);
 
 async function load() {
+  const revision = ++loadRevision;
+  const moduleAlias = props.moduleAlias.trim();
+  if (!moduleAlias) {
+    document.value = undefined;
+    error.value = undefined;
+    loading.value = false;
+    return;
+  }
   loading.value = true;
   error.value = undefined;
   try {
-    document.value = await loadModuleOpenApi(createBackendHttpClient(), props.moduleAlias);
+    const loaded = await loadModuleOpenApi(createBackendHttpClient(), moduleAlias);
+    if (revision !== loadRevision) return;
+    document.value = loaded;
     if (document.value.info.title) {
       emit('titleResolved', document.value.info.title);
     }
   } catch (cause) {
+    if (revision !== loadRevision) return;
     error.value = presentPlatformError(cause, { source: 'module-openapi-view', phase: 'load' }).message;
   } finally {
-    loading.value = false;
+    if (revision === loadRevision) loading.value = false;
   }
 }
 </script>
