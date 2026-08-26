@@ -87,10 +87,14 @@ describe('platform module page enhancement', () => {
       view: { type: 'platform.module.metadata-orchestration' },
       input: { moduleAlias: 'crm.customer', moduleTitle: '客户' },
     });
-    expect(actions.find((action) => action.key === 'module-manual-action-binding-workspace')?.state?.({
-      id: 'iam.role',
-      moduleKind: 'static',
-    })).toEqual({ visible: false });
+    expect(
+      actions
+        .find((action) => action.key === 'module-manual-action-binding-workspace')
+        ?.state?.({
+          id: 'iam.role',
+          moduleKind: 'static',
+        }),
+    ).toEqual({ visible: false });
   });
 
   it('only exposes metadata for dynamic modules and OpenAPI after the authorized catalog has listed it', async () => {
