@@ -632,10 +632,15 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleViewSource, /authorizationDrawerOpen\.value = true/);
   assert.match(roleViewSource, /<RoleAuthorizationView[\s\S]*:role-id="authorizationRole\.id"[\s\S]*drawer/);
   assert.notMatch(roleViewSource, /createWorkspaceViewDescriptor\([\s\S]*roleAuthorizationWorkspaceView/);
+  const roleAuthorizationDrawerSurfaceSource = readSource(
+    'src/platform-admin-runtime/role/RoleAuthorizationDrawerSurface.vue',
+  );
   const roleAuthorizationViewSource = readSource('src/views/RoleAuthorizationView.vue');
   const roleAuthorizationWorkspaceViewSource = readSource('src/views/roleAuthorizationWorkspaceView.ts');
   const workspaceDrawerSource = readSource('src/platform-admin-runtime/WorkspaceViewDrawer.vue');
   assert.match(roleAuthorizationViewSource, /角色组不独立授权/);
+  assert.match(roleAuthorizationDrawerSurfaceSource, /:module-context="roleContext"/);
+  assert.match(roleAuthorizationViewSource, /props\.moduleContext \?\? defaultRoleContext/);
   assert.match(roleAuthorizationViewSource, /标准动作的数据范围模板/);
   assert.match(roleAuthorizationViewSource, /dataScopePolicyCatalog/);
   assert.match(roleAuthorizationViewSource, /action\.dataScopePolicy = 'inheritDataGrant'/);

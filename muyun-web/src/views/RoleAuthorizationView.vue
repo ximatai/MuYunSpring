@@ -28,7 +28,7 @@ import type {
   RoleDataScopePolicyCatalog,
   RolePermissionAction,
 } from '@muyun/web-contracts';
-import { useModuleContext } from '@muyun/web-core';
+import { useModuleContext, type ModuleContext } from '@muyun/web-core';
 import WorkspaceViewDrawer from '../platform-admin-runtime/WorkspaceViewDrawer.vue';
 import { useWorkspaceViewHost } from '../platform-admin-runtime/workspaceViewHost';
 import { useWorkspaceViewPromotion } from '../platform-admin-runtime/useWorkspaceViewPromotion';
@@ -44,6 +44,8 @@ defineOptions({ name: 'RoleAuthorizationView' });
 
 const props = defineProps<{
   roleId?: string;
+  /** Reuses a host-governed module context when this view is mounted as an extension surface. */
+  moduleContext?: ModuleContext<Role>;
   /** Parent page root required when this view is displayed inside a drawer. */
   container?: HTMLElement | null;
   /** A parent management tab owns the initial wide drawer before promotion. */
@@ -51,7 +53,8 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ close: [] }>();
 
-const roleContext = useModuleContext<Role>({ moduleAlias: 'iam.role' });
+const defaultRoleContext = useModuleContext<Role>({ moduleAlias: 'iam.role' });
+const roleContext = props.moduleContext ?? defaultRoleContext;
 const client = createRoleGrantClient(roleContext.http);
 const roleId = props.roleId ?? new URLSearchParams(window.location.search).get('roleId') ?? '';
 const workspaceViewHost = useWorkspaceViewHost();
