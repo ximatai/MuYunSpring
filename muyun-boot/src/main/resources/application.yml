@@ -1,0 +1,6 @@
+# The platform's HTTP surface has one host-level mount point.  It deliberately
+# applies to every MVC endpoint and WebSocket handshake, rather than relying on
+# per-controller path prefixes that dynamic endpoints could bypass.
+server:
+  servlet:
+    context-path: ${MUYUN_API_CONTEXT_PATH:/api}

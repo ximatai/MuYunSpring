@@ -122,7 +122,7 @@ dependencies {
 | 服务       | 默认地址                     |
 | ---------- | ---------------------------- |
 | PostgreSQL | `127.0.0.1:54321`            |
-| 后端 API   | `http://127.0.0.1:8080`      |
+| 后端 API   | `http://127.0.0.1:8080/api/` |
 | 前端工作台 | `http://127.0.0.1:5173/app/` |
 
 一键启动完整学校演示环境：
@@ -152,9 +152,13 @@ npm ci --prefix muyun-web
 npm run dev:backend --prefix muyun-web
 ```
 
-前端工作台默认挂载在 `/app/`，与后端 API 路径隔离。部署时可设置
-`VITE_MUYUN_WEB_BASE=/console/` 改为其他挂载前缀；Vite 资源路径和 Vue Router 会同步使用该值。
-网关应将 `<挂载前缀>/**` 回退到前端 `index.html`，而不能把这条回退规则应用到后端 API 路径。
+前端工作台默认挂载在 `/app/`，后端 HTTP API 默认统一挂载在 `/api/`，两者必须保持隔离。
+前端部署时可设置 `VITE_MUYUN_WEB_BASE=/console/` 改为其他工作台前缀；Vite 资源路径和 Vue Router
+会同步使用该值。后端宿主可设置 `MUYUN_API_CONTEXT_PATH=/api` 调整 HTTP API context path，并须让
+`VITE_MUYUN_API_BASE_URL` 指向完整 API 地址，例如 `https://example.com/api`。该 context path 自动覆盖
+静态 Controller、动态端点、OpenAPI 文档和 WebSocket 握手；STOMP 的 `/app/**` command destination
+属于消息协议，不受其影响。网关应将工作台前缀（例如 `/app/**`）回退到前端 `index.html`，将 API
+前缀（例如 `/api/**`）转发至 Spring，二者不得互相回退或代理。
 
 裸库首次启动会创建平台超级管理员：用户名 `admin`、密码 `admin123`、租户留空。该默认值只允许本地开发使用。
 

@@ -5,7 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="$ROOT_DIR/muyun-web"
 BACKEND_PORT="${MUYUN_BACKEND_PORT:-8080}"
 FRONTEND_PORT="${MUYUN_FRONTEND_PORT:-5173}"
-FRONTEND_API_BASE_URL="${VITE_MUYUN_API_BASE_URL:-http://127.0.0.1:${BACKEND_PORT}}"
+API_CONTEXT_PATH="${MUYUN_API_CONTEXT_PATH:-/api}"
+FRONTEND_API_BASE_URL="${VITE_MUYUN_API_BASE_URL:-http://127.0.0.1:${BACKEND_PORT}${API_CONTEXT_PATH}}"
 FORCE_RESTART=false
 RUN_MODE="demo"
 
@@ -31,7 +32,8 @@ Options:
 Environment:
   MUYUN_BACKEND_PORT=8080             Backend port to clean and display.
   MUYUN_FRONTEND_PORT=5173            Frontend port to clean and display.
-  VITE_MUYUN_API_BASE_URL=<backend>   Frontend API base URL. Defaults to the selected backend port.
+  MUYUN_API_CONTEXT_PATH=/api         HTTP API context path. Defaults to /api.
+  VITE_MUYUN_API_BASE_URL=<backend>   Frontend API base URL. Defaults to the selected backend API path.
 USAGE
 }
 
@@ -254,7 +256,7 @@ start_process backend start_backend
 start_process frontend start_frontend
 
 echo
-echo "Backend:  http://127.0.0.1:${BACKEND_PORT}"
+echo "Backend API: http://127.0.0.1:${BACKEND_PORT}${API_CONTEXT_PATH}"
 echo "Frontend: http://127.0.0.1:${FRONTEND_PORT}/"
 echo "Frontend API: ${FRONTEND_API_BASE_URL}"
 echo "Press Ctrl-C to stop backend and frontend."

@@ -150,7 +150,7 @@ class MuYunSpringApplicationContextIT {
     @BeforeEach
     void setUpRestTemplate() {
         restTemplate = new TestRestTemplate(new RestTemplateBuilder()
-                .rootUri("http://localhost:" + port));
+                .rootUri("http://localhost:" + port + "/api"));
     }
 
     @DynamicPropertySource

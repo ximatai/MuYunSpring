@@ -76,6 +76,18 @@ class CurrentUserWebFilterTest {
     }
 
     @Test
+    void shouldAllowPasswordChangeEndpointsBehindServletContextPath() throws Exception {
+        MockMvc mvc = restrictedMvc();
+
+        mvc.perform(get("/api/iam.auth/context").contextPath("/api"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("context"));
+        mvc.perform(post("/api/iam.auth/changeOwnPassword").contextPath("/api"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("changed"));
+    }
+
+    @Test
     void shouldRejectInvalidBearerTokenBeforeBusinessHandler() throws Exception {
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new TestController())
                 .addFilters(new CurrentUserWebFilter(Optional::empty))

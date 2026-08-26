@@ -5,6 +5,8 @@ spring:
     password: muyun_dev
 server:
   port: ${MUYUN_CONSUMER_PORT:18080}
+  servlet:
+    context-path: ${MUYUN_API_CONTEXT_PATH:/api}
 muyun:
   runtime:
     mode: development
