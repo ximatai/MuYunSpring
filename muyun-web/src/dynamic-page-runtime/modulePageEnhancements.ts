@@ -384,6 +384,12 @@ export interface ModulePageDrawer {
 /** A business-owned action rendered by the platform in a semantic drawer region. */
 export type ModulePageDrawerAction = DrawerTitleAction;
 
+/** Facts rendered by the platform-owned fixed operation region of an action drawer. */
+export interface ModulePageDrawerOperation {
+  summary?: string;
+  actions: ModulePageDrawerAction[];
+}
+
 /** Matches the Workbench input boundary; `parse` remains responsible for route-value validation. */
 export type ModulePageWorkspaceViewInput = object;
 
@@ -416,6 +422,10 @@ export interface ModulePageDrawerContext {
   reload(): void;
   /** Replaces contextual actions beside the drawer title; actions are cleared with the drawer. */
   setTitleActions(actions: ModulePageDrawerAction[]): void;
+  /** Replaces the fixed operation-region facts; the host owns their position and responsive layout. */
+  setOperation(operation?: ModulePageDrawerOperation): void;
+  /** Replaces the presentation-only subtitle below the platform-owned drawer title. */
+  setSubtitle(subtitle?: string): void;
 }
 
 /**

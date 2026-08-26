@@ -37,6 +37,7 @@ defineSlots<{
   'title-prefix'(): unknown;
   'title-actions'(): unknown;
   'header-actions'(): unknown;
+  'operation-summary'(): unknown;
   default(): unknown;
   operation(): unknown;
 }>();
@@ -97,6 +98,9 @@ watch(
         <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="emit('close')" />
       </template>
       <slot />
+      <template v-if="$slots['operation-summary']" #operation-summary>
+        <slot name="operation-summary" />
+      </template>
       <template v-if="$slots.operation" #operation>
         <slot name="operation" />
       </template>
@@ -139,6 +143,9 @@ watch(
         <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="emit('close')" />
       </template>
       <slot />
+      <template v-if="$slots['operation-summary']" #operation-summary>
+        <slot name="operation-summary" />
+      </template>
       <template v-if="$slots.operation" #operation><slot name="operation" /></template>
     </RecordDetailLayout>
   </ADrawer>

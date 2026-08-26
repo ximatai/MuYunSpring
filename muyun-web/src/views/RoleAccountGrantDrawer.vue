@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   RecordDetailDrawer,
   handlePlatformActionSuccess,
@@ -15,6 +15,7 @@ import type {
   UserSelectorItem,
 } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
+import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import { createRoleGrantClient } from './roleGrantClient';
 
 defineOptions({ name: 'RoleAccountGrantDrawer' });
@@ -24,6 +25,7 @@ const props = defineProps<{
   container?: HTMLElement | null;
   /** Uses the owning platform drawer and renders only this operation's content. */
   embedded?: boolean;
+  drawerContext?: ModulePageDrawerContext;
   context: ModuleContext<Role>;
   role?: Role;
 }>();
@@ -151,6 +153,53 @@ watch(
   },
   { immediate: true },
 );
+
+watch(
+  [
+    () => props.embedded,
+    () => props.drawerContext,
+    checkedUserIds,
+    changed,
+    addedUserIds,
+    removedUserIds,
+    saving,
+    loading,
+  ],
+  configureDrawerPresentation,
+  { immediate: true },
+);
+
+onBeforeUnmount(() => props.drawerContext?.setOperation(undefined));
+
+function configureDrawerPresentation() {
+  const drawer = props.drawerContext;
+  if (!props.embedded || !drawer) return;
+  drawer.setSubtitle(`角色：${roleTitle(props.role ?? {})} · ${scopeTitle(props.role)}`);
+  drawer.setOperation({
+    summary: selectionSummary(),
+    actions: [
+      {
+        key: 'cancel-account-role-grants',
+        label: '取消',
+        disabled: saving.value || loading.value,
+        run: handleClose,
+      },
+      {
+        key: 'save-account-role-grants',
+        label: '确定',
+        emphasis: 'primary',
+        disabled: loading.value || !changed.value,
+        loading: saving.value,
+        run: () => void save(),
+      },
+    ],
+  });
+}
+
+function selectionSummary() {
+  if (!changed.value) return `已选 ${checkedUserIds.value.size} 个用户`;
+  return `已选 ${checkedUserIds.value.size} 个用户 · 新增 ${addedUserIds.value.length} · 移除 ${removedUserIds.value.length}`;
+}
 
 async function load() {
   const id = roleId.value;
@@ -315,6 +364,12 @@ function selectedUserDescription(user: UserSelectorItem) {
 function roleTitle(record: Partial<Role>) {
   return String(record.title ?? record.id ?? '角色');
 }
+
+function scopeTitle(role: Role | undefined) {
+  if (role?.ownerScopeType === 'platform') return '平台范围';
+  if (role?.ownerScopeType === 'organization') return '机构范围';
+  return '租户范围';
+}
 </script>
 
 <template>
@@ -344,12 +399,7 @@ function roleTitle(record: Partial<Role>) {
         <UiButton icon-name="search" :disabled="saving" @click="submitSearch">查询</UiButton>
       </div>
 
-      <div class="role-account-grant-summary">
-        <span>已选 {{ checkedUserIds.size }} 个</span>
-        <span v-if="changed">新增 {{ addedUserIds.length }} 个，移除 {{ removedUserIds.length }} 个</span>
-      </div>
-
-      <section class="role-account-grant-selected">
+      <section v-if="selectedUsers.length > 0" class="role-account-grant-selected">
         <div class="role-account-grant-selected-title">
           <strong>已选用户</strong>
           <span>{{ selectedUsers.length }} 个</span>
@@ -366,7 +416,6 @@ function roleTitle(record: Partial<Role>) {
             <small>{{ selectedUserDescription(user) }}</small>
           </button>
         </div>
-        <span v-else class="role-account-grant-selected-empty">暂无已选用户</span>
       </section>
 
       <UiTable
@@ -391,12 +440,6 @@ function roleTitle(record: Partial<Role>) {
         </div>
       </div>
     </section>
-    <footer v-if="embedded" class="role-account-grant-drawer-operation">
-      <UiButton :disabled="saving || loading" @click="handleClose">取消</UiButton>
-      <UiButton type="primary" :loading="saving" :disabled="loading || !changed" @click="save">
-        确定
-      </UiButton>
-    </footer>
   </component>
 </template>
 
@@ -406,25 +449,10 @@ function roleTitle(record: Partial<Role>) {
   gap: 12px;
 }
 
-.role-account-grant-drawer-operation {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
 .role-account-grant-search {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
-}
-
-.role-account-grant-summary {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
 }
 
 .role-account-grant-selected {
@@ -450,7 +478,6 @@ function roleTitle(record: Partial<Role>) {
 }
 
 .role-account-grant-selected-title span,
-.role-account-grant-selected-empty,
 .role-account-grant-pagination {
   color: var(--muyun-text-muted);
   font-size: 12px;

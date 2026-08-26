@@ -15,6 +15,7 @@ const role = computed(() => props.context.record as Role | undefined);
   <RoleEmploymentGrantDrawer
     open
     embedded
+    :drawer-context="props.context"
     :context="module"
     :role="role"
     @close="props.context.close"

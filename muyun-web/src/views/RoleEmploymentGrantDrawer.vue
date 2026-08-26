@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   RecordDetailDrawer,
   handlePlatformActionSuccess,
@@ -8,6 +8,7 @@ import {
 import { UiButton, UiError, UiInput, UiSpin } from '@muyun/vue-ui-antdv';
 import type { EmploymentRoleGrant, EmploymentSelectorItem, Role } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
+import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import { createRoleGrantClient } from './roleGrantClient';
 import EmployeeEmploymentTable from './EmployeeEmploymentTable.vue';
 
@@ -17,6 +18,7 @@ const props = defineProps<{
   container?: HTMLElement | null;
   /** Uses the owning platform drawer and renders only this operation's content. */
   embedded?: boolean;
+  drawerContext?: ModulePageDrawerContext;
   context: ModuleContext<Role>;
   role?: Role;
 }>();
@@ -73,6 +75,37 @@ watch(
   },
   { immediate: true },
 );
+watch(
+  [() => props.embedded, () => props.drawerContext, selected, added, removed, saving, loading],
+  configureDrawerPresentation,
+  { immediate: true },
+);
+onBeforeUnmount(() => props.drawerContext?.setOperation(undefined));
+
+function configureDrawerPresentation() {
+  const drawer = props.drawerContext;
+  if (!props.embedded || !drawer) return;
+  drawer.setSubtitle(`角色：${props.role?.title ?? props.role?.id ?? '角色'} · ${scopeTitle(props.role)}`);
+  drawer.setOperation({
+    summary: `已选 ${selected.value.size} 个任职${added.value.length || removed.value.length ? ` · 新增 ${added.value.length} · 移除 ${removed.value.length}` : ''}`,
+    actions: [
+      {
+        key: 'cancel-employment-role-grants',
+        label: '取消',
+        disabled: saving.value,
+        run: () => emit('close'),
+      },
+      {
+        key: 'save-employment-role-grants',
+        label: '确定',
+        emphasis: 'primary',
+        disabled: loading.value || (added.value.length === 0 && removed.value.length === 0),
+        loading: saving.value,
+        run: () => void save(),
+      },
+    ],
+  });
+}
 async function load(page = 1) {
   const id = roleId.value;
   if (!id) return;
@@ -182,6 +215,12 @@ function selectedEmploymentDescription(employment: EmploymentSelectorItem) {
       .join(' / ') || employment.id
   );
 }
+
+function scopeTitle(role: Role | undefined) {
+  if (role?.ownerScopeType === 'platform') return '平台范围';
+  if (role?.ownerScopeType === 'organization') return '机构范围';
+  return '租户范围';
+}
 </script>
 <template>
   <component :is="contentContainer" v-bind="contentContainerProps">
@@ -238,29 +277,12 @@ function selectedEmploymentDescription(employment: EmploymentSelectorItem) {
         <UiButton :disabled="loading || pageNum * 50 >= total" @click="load(pageNum + 1)"> 下一页 </UiButton>
       </div>
     </section>
-    <footer v-if="embedded" class="role-employment-grant-operation">
-      <UiButton :disabled="saving" @click="emit('close')">取消</UiButton>
-      <UiButton
-        type="primary"
-        :loading="saving"
-        :disabled="loading || (added.length === 0 && removed.length === 0)"
-        @click="save"
-      >
-        确定
-      </UiButton>
-    </footer>
   </component>
 </template>
 <style scoped>
 .role-employment-grant-body {
   display: grid;
   gap: 12px;
-}
-.role-employment-grant-operation {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
 }
 .role-employment-grant-body p {
   margin: 0;

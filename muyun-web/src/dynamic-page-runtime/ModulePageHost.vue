@@ -3466,6 +3466,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       v-if="enhancementDrawer"
       :open="enhancementDrawerOpen"
       :title="enhancementDrawer.definition.title"
+      :subtitle="enhancementDrawer.subtitle"
       render-mode="inline"
       :width="enhancementDrawer.definition.width"
       @close="closeEnhancementDrawer"
@@ -3473,6 +3474,12 @@ function recordTitle(record: QueryListRecord | undefined) {
     >
       <template v-if="enhancementDrawer.titleActions.length" #title-actions>
         <DrawerTitleActions :actions="enhancementDrawer.titleActions" />
+      </template>
+      <template v-if="enhancementDrawer.operation?.summary" #operation-summary>
+        {{ enhancementDrawer.operation.summary }}
+      </template>
+      <template v-if="enhancementDrawer.operation" #operation>
+        <DrawerTitleActions :actions="enhancementDrawer.operation.actions" />
       </template>
       <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
     </RecordDetailDrawer>
