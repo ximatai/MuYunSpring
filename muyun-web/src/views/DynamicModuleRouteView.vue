@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { usePageDescriptor, usePageRoute } from '../app/pageRouteContext';
-import { DynamicModuleHost } from '@muyun/dynamic-page-runtime';
-import type { DynamicModulePageDescriptor, MenuPageMode } from '@muyun/web-contracts';
+import { ModulePageHost } from '@muyun/dynamic-page-runtime';
+import type { MenuPageMode, ModulePageDescriptor } from '@muyun/web-contracts';
 
 const route = usePageRoute();
 const restoredDescriptor = usePageDescriptor();
@@ -13,15 +13,15 @@ const moduleAlias = computed(() => {
   const moduleName = String(route.value.params.moduleName ?? '').replaceAll('-', '_');
   return applicationAlias && moduleName ? `${applicationAlias}.${moduleName}` : '';
 });
-const descriptor = computed<DynamicModulePageDescriptor>(() => {
+const descriptor = computed<ModulePageDescriptor>(() => {
   if (restoredDescriptor.value?.pageType === 'dynamic-module') {
-    return { ...restoredDescriptor.value, hostType: 'dynamic-module-host' };
+    return { ...restoredDescriptor.value, hostType: 'module-page-host' };
   }
 
   return {
     pageType: 'dynamic-module',
     openMode: 'dynamic-runner',
-    hostType: 'dynamic-module-host',
+    hostType: 'module-page-host',
     title: String(route.value.meta.title ?? moduleAlias.value),
     menuId: typeof route.value.meta.menuId === 'string' ? route.value.meta.menuId : undefined,
     target: {
@@ -49,5 +49,5 @@ const descriptor = computed<DynamicModulePageDescriptor>(() => {
 </script>
 
 <template>
-  <DynamicModuleHost :descriptor="descriptor" />
+  <ModulePageHost :descriptor="descriptor" />
 </template>

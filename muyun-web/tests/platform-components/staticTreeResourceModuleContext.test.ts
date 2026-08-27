@@ -4,7 +4,7 @@ import {
   createStaticTreeResourceModuleContext,
 } from '@/platform-components/staticTreeResourceModuleContext.ts';
 import type { DictionaryCategory } from '@/web-contracts/index.ts';
-import type { ModuleContext, StaticModuleTreeClient } from '@/web-core/index.ts';
+import type { ModuleContext, ModuleTreeClient } from '@/web-core/index.ts';
 
 it('static tree resource context exposes the selected resource client as crud and tree ability', async () => {
   const resourceClient = createTreeClient({ records: [{ id: 'category-status', title: '状态字典' }] });
@@ -105,7 +105,7 @@ function createContext(options: { hasTree?: boolean } = {}): ModuleContext<Dicti
 
 function createTreeClient(
   treeFlatResponse: { records: DictionaryCategory[] } = { records: [] },
-): StaticModuleTreeClient<DictionaryCategory> {
+): ModuleTreeClient<DictionaryCategory> {
   return {
     querySchema: async () => ({
       scopeName: 'platform.dictionary_category',

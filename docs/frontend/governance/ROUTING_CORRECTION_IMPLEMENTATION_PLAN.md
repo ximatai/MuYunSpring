@@ -35,9 +35,9 @@
 
 ```ts
 {
-  route: '/iam/users',
-  moduleAlias: 'iam.user',
-  componentPath: '/src/views/UserManagementView.vue',
+  route: '/iam/role/authorization',
+  moduleAlias: 'iam.role',
+  componentPath: '/src/views/RoleAuthorizationView.vue',
   layout: 'workspace',
 }
 ```

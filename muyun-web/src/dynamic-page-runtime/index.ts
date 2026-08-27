@@ -1,5 +1,4 @@
 export { default as ModulePageHost } from './ModulePageHost.vue';
-export { default as DynamicModuleHost } from './DynamicModuleHost.vue';
 export { default as DynamicModulePage } from './DynamicModulePage.vue';
 export { default as DynamicModuleWorkspaceDetailView } from './DynamicModuleWorkspaceDetailView.vue';
 export { customerDescriptor } from './mockDescriptor';

@@ -63,7 +63,7 @@ Vue Router 是页面承载方式之一，不是所有菜单和 tab 的唯一身�
 
 ### 标准模块页面宿主
 
-`ModulePageHost` 是 module 菜单的唯一正式页面宿主：它只消费来源无关 descriptor，不根据静态 Java 或动态元数据选择平行页面内核。`DynamicModuleHost` 仅是恢复已持久化 `dynamic-module-host` 值和旧扩展 import 的 deprecated wrapper，不得作为新模块或新扩展的默认入口。待已持久化 hostType 与扩展 import 都完成迁移、兼容窗口结束后删除该 wrapper 和对应 hostType 兼容分支。
+`ModulePageHost` 是 module 菜单的唯一页面宿主：它只消费来源无关 descriptor，不根据静态 Java 或动态元数据选择平行页面内核。恢复既有工作台页签时，`dynamic-module-host` 仅作为历史 descriptor 值由页签宿主映射到该正式宿主；业务运行时不保留动态专用页面壳或扩展入口。
 
 ## 目标模型
 

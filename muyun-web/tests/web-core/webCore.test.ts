@@ -14,9 +14,9 @@ import {
   createModuleTreeContext,
   createModuleCrudClient,
   createModuleTreeClient,
-  createReferenceResolveClient,
   createStaticModuleCrudClient,
   createStaticModuleTreeClient,
+  createReferenceResolveClient,
   canQueryRecycleBin,
   hasRecycleBinAbility,
   normalizeError,
@@ -1224,7 +1224,7 @@ it('static module tree client maps standard CRUD and tree endpoints by module al
   }
 });
 
-it('retains static module client factories as compatibility aliases', () => {
+it('retains static module client factories for published consumer compatibility', () => {
   assert.equal(createStaticModuleCrudClient, createModuleCrudClient);
   assert.equal(createStaticModuleTreeClient, createModuleTreeClient);
 });

@@ -280,13 +280,13 @@ export function createStaticResourceTreeClient<TRecord>(
   };
 }
 
-/** @deprecated Use ModuleCrudClient. Remove after static-prefixed consumer imports migrate. */
+/** @deprecated Use ModuleCrudClient. Retained for published consumer compatibility. */
 export type StaticModuleCrudClient<TRecord> = ModuleCrudClient<TRecord>;
-/** @deprecated Use ModuleTreeClient. Remove after static-prefixed consumer imports migrate. */
+/** @deprecated Use ModuleTreeClient. Retained for published consumer compatibility. */
 export type StaticModuleTreeClient<TRecord> = ModuleTreeClient<TRecord>;
-/** @deprecated Use createModuleCrudClient. Remove after static-prefixed consumer imports migrate. */
+/** @deprecated Use createModuleCrudClient. Retained for published consumer compatibility. */
 export const createStaticModuleCrudClient = createModuleCrudClient;
-/** @deprecated Use createModuleTreeClient. Remove after static-prefixed consumer imports migrate. */
+/** @deprecated Use createModuleTreeClient. Retained for published consumer compatibility. */
 export const createStaticModuleTreeClient = createModuleTreeClient;
 
 function modulePathOf(moduleAlias: string) {

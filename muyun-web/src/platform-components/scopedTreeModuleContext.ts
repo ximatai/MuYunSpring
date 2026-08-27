@@ -5,7 +5,7 @@ import type {
   WebQueryRequest,
   WebTreeNode,
 } from '@muyun/web-contracts';
-import type { ModuleContext, StaticCountMutationResult, StaticModuleTreeClient } from '@muyun/web-core';
+import type { ModuleContext, ModuleTreeClient, StaticCountMutationResult } from '@muyun/web-core';
 
 export interface ScopedTreeModuleContextOptions {
   scopeFieldName: string;
@@ -51,7 +51,7 @@ export function createQueryScopedTreeModuleContext<TRecord>(
 
 function withScopedTreeClient<TRecord>(
   context: ModuleContext<TRecord>,
-  treeClient: StaticModuleTreeClient<TRecord>,
+  treeClient: ModuleTreeClient<TRecord>,
 ): ModuleContext<TRecord> {
   return {
     ...context,
@@ -76,7 +76,7 @@ export function createScopedTreeModuleContext<TRecord>(
 export function createScopedTreeClient<TRecord>(
   context: ModuleContext<TRecord>,
   options: ScopedTreeModuleContextOptions,
-): StaticModuleTreeClient<TRecord> {
+): ModuleTreeClient<TRecord> {
   return createTreeScopeClient(context, {
     queryValues: () => scopeQueryParams(options),
     treePath: options.treePath,
@@ -87,7 +87,7 @@ export function createScopedTreeClient<TRecord>(
 function createTreeScopeClient<TRecord>(
   context: ModuleContext<TRecord>,
   options: TreeScopeClientOptions,
-): StaticModuleTreeClient<TRecord> {
+): ModuleTreeClient<TRecord> {
   const hasScope = () => Object.keys(options.queryValues() ?? {}).length > 0;
   return {
     ...context.crud,

@@ -165,32 +165,38 @@ it('rejects every conflicting menu that claims the same URL but permits an exact
   assert.deepEqual(issueCodes(same), []);
 });
 
-it('registers a non-menu user detail branch with the same verified user module route', () => {
-  const userList: StaticRouteDefinition = {
-    route: '/iam/users',
-    moduleAlias: 'iam.user',
-    componentPath: '/src/views/UserManagementView.vue',
+it('registers non-menu static branches with the same verified module route', () => {
+  const roleAuthorization: StaticRouteDefinition = {
+    route: '/iam/role/authorization',
+    moduleAlias: 'iam.role',
+    componentPath: '/src/views/RoleAuthorizationView.vue',
     layout: 'workspace',
   };
-  const userCreate: StaticRouteDefinition = { ...userList, route: '/iam/users/form', menuEntry: false };
-  const userDetail: StaticRouteDefinition = {
-    ...userList,
-    route: '/iam/users/form/:userId',
+  const roleAuthorizationCopy: StaticRouteDefinition = {
+    ...roleAuthorization,
+    route: '/iam/role/authorization/:roleId',
     menuEntry: false,
   };
   const loaders: Record<string, RoutePageLoader> = {
-    [userList.componentPath]: vi.fn(async () => ({}) as Component),
+    [roleAuthorization.componentPath]: vi.fn(async () => ({}) as Component),
   };
 
   const result = validateAndCompileMenuRoutes(
-    [menu({ entryType: 'route', openMode: 'tab', moduleAlias: 'iam.user', route: userList.route })],
-    [userList, userCreate, userDetail],
+    [
+      menu({
+        entryType: 'route',
+        openMode: 'tab',
+        moduleAlias: 'iam.role',
+        route: roleAuthorization.route,
+      }),
+    ],
+    [roleAuthorization, roleAuthorizationCopy],
     loaders,
   );
 
   assert.deepEqual(result.issues, []);
   assert.deepEqual(
     result.validRoutes.map((route) => route.path),
-    ['/iam/users', '/iam/users/form', '/iam/users/form/:userId'],
+    ['/iam/role/authorization', '/iam/role/authorization/:roleId'],
   );
 });
