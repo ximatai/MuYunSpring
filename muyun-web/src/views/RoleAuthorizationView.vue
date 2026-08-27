@@ -627,8 +627,8 @@ function scopeTitle(value: Role | undefined) {
         :class="['authorization-layout', { 'authorization-layout--compact-actions': !supportsDataScope }]"
       >
         <RecordExplorerPanel
-          class="module-panel"
           v-model:search-keyword="moduleKeyword"
+          class="module-panel"
           title="模块树"
           refresh-title="刷新模块目录"
           search-placeholder="搜索模块名称或别名"
