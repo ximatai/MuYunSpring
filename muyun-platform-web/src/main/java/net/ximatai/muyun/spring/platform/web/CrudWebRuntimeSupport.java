@@ -146,7 +146,7 @@ final class CrudWebRuntimeSupport {
                                                                     PageContextTarget target) {
         StandardModuleWebRuntime runtime = executionRuntime(controller);
         if (controller.requiresModuleExecutionPlan() || runtime != null && runtime.hasPlan(controller.webScopeName())) {
-            return mergeSelectionBindings(runtime.pageContextBindings(controller.webScopeName(), target), controller, target);
+            return runtime.pageContextBindings(controller.webScopeName(), target);
         }
         if (!(controller instanceof StaticModuleUiContributor contributor) || !isCurrentModuleUiDefinition(controller, contributor)) {
             return selectionBindings(controller, target);
@@ -179,12 +179,10 @@ final class CrudWebRuntimeSupport {
     static List<PageContextBindingDefinition> mutationConstraints(CrudWeb<?, ?> controller) {
         StandardModuleWebRuntime runtime = executionRuntime(controller);
         if (controller.requiresModuleExecutionPlan()) {
-            return mergeSelectionBindings(requiredRuntime(controller).mutationConstraints(controller.webScopeName()),
-                    controller, PageContextTarget.MUTATION_CONSTRAINT);
+            return requiredRuntime(controller).mutationConstraints(controller.webScopeName());
         }
         if (runtime != null && runtime.hasPlan(controller.webScopeName())) {
-            return mergeSelectionBindings(runtime.mutationConstraints(controller.webScopeName()),
-                    controller, PageContextTarget.MUTATION_CONSTRAINT);
+            return runtime.mutationConstraints(controller.webScopeName());
         }
         return pageContextBindings(controller, null, PageContextTarget.MUTATION_CONSTRAINT);
     }

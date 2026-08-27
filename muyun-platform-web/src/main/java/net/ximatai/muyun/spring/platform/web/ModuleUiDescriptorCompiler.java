@@ -102,6 +102,7 @@ public final class ModuleUiDescriptorCompiler {
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
                         staticRecordLabelField(definition), Map.copyOf(fieldTypes), FieldControlDescriptorCatalog.standard(),
                         false);
+        descriptor = withPageContextBindings(descriptor, definition.pageContextBindings());
         List<ResolvedPageDetailEditorContribution> resolvedContributions = uiDefinition.editorContributions().stream()
                 .map(contribution -> {
                     Class<?> modelClass = definition.entityModelClasses().get(contribution.resource());
@@ -120,6 +121,20 @@ public final class ModuleUiDescriptorCompiler {
                         .withDetailRelations(detailRelations),
                 readModel(definition, uiDefinition)
         );
+    }
+
+    private static ResolvedModuleUiDescriptor withPageContextBindings(ResolvedModuleUiDescriptor descriptor,
+                                                                       List<PageContextBindingDefinition> bindings) {
+        if (bindings == null || bindings.isEmpty() || descriptor.page() == null) return descriptor;
+        ResolvedPageNavigatorDescriptor navigator = descriptor.page().navigator();
+        List<ResolvedPageContextBindingDescriptor> merged = new java.util.ArrayList<>(
+                navigator == null ? List.of() : navigator.contextBindings());
+        bindings.stream().map(ResolvedPageContextBindingDescriptor::from).forEach(binding -> {
+            if (!merged.contains(binding)) merged.add(binding);
+        });
+        ResolvedPageNavigatorDescriptor resolved = new ResolvedPageNavigatorDescriptor(
+                navigator == null ? List.of() : navigator.levels(), merged);
+        return descriptor.withPage(descriptor.page().withNavigator(resolved));
     }
 
     public static ResolvedModuleUiDescriptor compile(ModuleUiDefinition definition) {

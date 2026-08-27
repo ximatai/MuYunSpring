@@ -33,6 +33,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     private final List<StaticModuleActionDefinition> actions;
     private final List<EntityDefinition> entities;
     private final ModuleUiDefinition uiDefinition;
+    private final List<PageContextBindingDefinition> pageContextBindings;
     private final List<StaticReferenceDefinition> references;
     private final List<StaticModuleReadProjectionDefinition> readProjections;
     private final Class<?> modelClass;
@@ -54,6 +55,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                                    List<StaticModuleActionDefinition> actions,
                                    List<EntityDefinition> entities,
                                    ModuleUiDefinition uiDefinition,
+                                   List<PageContextBindingDefinition> pageContextBindings,
                                    List<StaticReferenceDefinition> references,
                                    List<StaticModuleReadProjectionDefinition> readProjections,
                                    Class<?> modelClass,
@@ -88,6 +90,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
             throw new IllegalArgumentException("static module UI definition alias must match module alias: "
                     + moduleAlias + " != " + uiDefinition.moduleAlias());
         }
+        pageContextBindings = pageContextBindings == null ? List.of() : List.copyOf(pageContextBindings);
         references = references == null ? List.of() : List.copyOf(references);
         readProjections = readProjections == null ? List.of() : List.copyOf(readProjections);
         projectionJoins = projectionJoins == null ? List.of() : List.copyOf(projectionJoins);
@@ -105,6 +108,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         this.actions = actions;
         this.entities = entities;
         this.uiDefinition = uiDefinition;
+        this.pageContextBindings = pageContextBindings;
         this.references = references;
         this.readProjections = readProjections;
         this.modelClass = modelClass;
@@ -127,6 +131,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public List<StaticModuleActionDefinition> actions() { return actions; }
     public List<EntityDefinition> entities() { return entities; }
     public ModuleUiDefinition uiDefinition() { return uiDefinition; }
+    public List<PageContextBindingDefinition> pageContextBindings() { return pageContextBindings; }
     public List<StaticReferenceDefinition> references() { return references; }
     public List<StaticModuleReadProjectionDefinition> readProjections() { return readProjections; }
     public Class<?> modelClass() { return modelClass; }
@@ -148,6 +153,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public List<StaticModuleActionDefinition> getActions() { return actions; }
     public List<EntityDefinition> getEntities() { return entities; }
     public ModuleUiDefinition getUiDefinition() { return uiDefinition; }
+    public List<PageContextBindingDefinition> getPageContextBindings() { return pageContextBindings; }
     public List<StaticReferenceDefinition> getReferences() { return references; }
     public List<StaticModuleReadProjectionDefinition> getReadProjections() { return readProjections; }
     public Class<?> getModelClass() { return modelClass; }
@@ -173,6 +179,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 && Objects.equals(actions, that.actions)
                 && Objects.equals(entities, that.entities)
                 && Objects.equals(uiDefinition, that.uiDefinition)
+                && Objects.equals(pageContextBindings, that.pageContextBindings)
                 && Objects.equals(references, that.references)
                 && Objects.equals(readProjections, that.readProjections)
                 && Objects.equals(modelClass, that.modelClass)
@@ -186,7 +193,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     @Override
     public int hashCode() {
         return Objects.hash(applicationAlias, moduleAlias, title, parentModuleAlias, entryType, entryRoute,
-                entryExternalUrl, capabilities, navigatorSourceCapabilities, actions, entities, uiDefinition, references, readProjections,
+                entryExternalUrl, capabilities, navigatorSourceCapabilities, actions, entities, uiDefinition, pageContextBindings, references, readProjections,
                 modelClass, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
                 legacyReadProjectionCompatibility);
     }
@@ -205,6 +212,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 + ", actions=" + actions
                 + ", entities=" + entities
                 + ", uiDefinition=" + uiDefinition
+                + ", pageContextBindings=" + pageContextBindings
                 + ", references=" + references
                 + ", readProjections=" + readProjections
                 + ", modelClass=" + modelClass
@@ -231,6 +239,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 .actions(actions)
                 .entities(entities)
                 .uiDefinition(uiDefinition)
+                .pageContextBindings(pageContextBindings)
                 .references(references)
                 .readProjections(readProjections)
                 .modelClass(modelClass)
@@ -254,6 +263,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         private List<StaticModuleActionDefinition> actions = List.of();
         private List<EntityDefinition> entities = List.of();
         private ModuleUiDefinition uiDefinition;
+        private List<PageContextBindingDefinition> pageContextBindings = List.of();
         private List<StaticReferenceDefinition> references = List.of();
         private List<StaticModuleReadProjectionDefinition> readProjections = List.of();
         private Class<?> modelClass;
@@ -306,6 +316,11 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
             return this;
         }
 
+        public Builder pageContextBindings(List<PageContextBindingDefinition> pageContextBindings) {
+            this.pageContextBindings = pageContextBindings == null ? List.of() : List.copyOf(pageContextBindings);
+            return this;
+        }
+
         public Builder references(List<StaticReferenceDefinition> references) {
             this.references = references;
             return this;
@@ -348,7 +363,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
 
         public StaticModuleDefinition build() {
             return new StaticModuleDefinition(applicationAlias, moduleAlias, title, parentModuleAlias, entryType,
-                    entryRoute, entryExternalUrl, capabilities, navigatorSourceCapabilities, actions, entities, uiDefinition, references,
+                    entryRoute, entryExternalUrl, capabilities, navigatorSourceCapabilities, actions, entities, uiDefinition, pageContextBindings, references,
                     readProjections, modelClass, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
                     legacyReadProjectionCompatibility);
         }
