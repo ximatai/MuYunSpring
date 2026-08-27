@@ -7,6 +7,9 @@ import net.ximatai.muyun.spring.web.BusinessMutation;
 import net.ximatai.muyun.spring.web.BusinessMutationResultSupport;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
+import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
+import net.ximatai.muyun.spring.platform.web.PageContextTarget;
+import net.ximatai.muyun.spring.platform.web.PageSelectionContextResolverRegistry;
 import net.ximatai.muyun.spring.web.MutationTenantScopeExecutor;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
 import net.ximatai.muyun.spring.web.WebListResponse;
@@ -59,10 +62,11 @@ import java.util.LinkedHashMap;
 import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
-        alias = "iam.role", title = "角色管理", route = "/iam/role")
+        alias = "iam.role", title = "角色管理")
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, order = 70)
 @RequestMapping("/iam.role")
@@ -70,11 +74,25 @@ public class RoleWebController extends WebSupport<RoleService> implements
         CrudWeb<Role, RoleService>,
         MutationTenantScopeResolver<Role>,
         StaticModuleUiContributor {
+    private static final List<PageContextBindingDefinition> ROLE_SCOPE_SELECTION_BINDINGS = Stream.of(
+                    PageContextBindingDefinition.resolvedSelectionFields(RoleScopePageSelectionResolver.SELECTION_KIND,
+                            PageContextTarget.LIST_QUERY, "ownerScopeKey"),
+                    PageContextBindingDefinition.resolvedSelectionFields(RoleScopePageSelectionResolver.SELECTION_KIND,
+                            PageContextTarget.FORM_DEFAULT, "ownerScopeType", "ownerScopeId", "ownerScopeKey"),
+                    PageContextBindingDefinition.resolvedSelectionFields(RoleScopePageSelectionResolver.SELECTION_KIND,
+                            PageContextTarget.MUTATION_CONSTRAINT, "ownerScopeType", "ownerScopeId",
+                            "ownerScopeKey", "tenantId"))
+            .flatMap(List::stream)
+            .toList();
+
     private final RoleGrantableActionResolver grantableActionResolver;
     private final MenuService menuService;
     private final PlatformModuleService platformModuleService;
     private EmployeeEmploymentReadService employeeEmploymentReadService;
     private TenantApplicationService tenantApplicationService;
+    private RoleAccountCandidateQueryService roleAccountCandidateQueryService;
+    private PageSelectionContextResolverRegistry roleScopeSelectionResolvers =
+            new PageSelectionContextResolverRegistry(List.of());
 
     public RoleWebController(RoleGrantableActionResolver grantableActionResolver) {
         this(grantableActionResolver, (MenuService) null, (PlatformModuleService) null);
@@ -113,11 +131,33 @@ public class RoleWebController extends WebSupport<RoleService> implements
         this.tenantApplicationService = tenantApplicationService;
     }
 
+    @Autowired(required = false)
+    void setRoleAccountCandidateQueryService(RoleAccountCandidateQueryService roleAccountCandidateQueryService) {
+        this.roleAccountCandidateQueryService = roleAccountCandidateQueryService;
+    }
+
+    @Autowired(required = false)
+    void setRoleScopeSelectionResolver(RoleScopePageSelectionResolver roleScopeSelectionResolver) {
+        this.roleScopeSelectionResolvers = new PageSelectionContextResolverRegistry(List.of(roleScopeSelectionResolver));
+    }
+
+    @Override
+    public PageSelectionContextResolverRegistry pageSelectionContextResolvers() {
+        return roleScopeSelectionResolvers;
+    }
+
+    @Override
+    public List<PageContextBindingDefinition> pageSelectionContextBindings() {
+        return ROLE_SCOPE_SELECTION_BINDINGS;
+    }
+
     @Override
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(RoleService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page
-                .list(list -> list.fields(fields -> fields
+                .list(list -> list.header(header -> header.title("角色管理")
+                        .subtitleExpression("{selection.label}"))
+                        .fields(fields -> fields
                         .title("角色列表")
                         .field("title", field -> field.label("角色名称").width("180px"))
                         .field("assignmentType", field -> field.label("授权层级").uiType("select").width("110px"))
@@ -164,8 +204,33 @@ public class RoleWebController extends WebSupport<RoleService> implements
     @GetMapping("/{roleId}/account-grants")
     @CustomActionEndpoint(value = "accountRoleGrants", title = "账号角色授权",
             level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "roleId")
-    public List<AccountRoleGrant> accountRoleGrants(@PathVariable String roleId) {
-        return roleReadScope(roleId, () -> service().accountRoleGrants(roleId));
+    public List<AccountRoleGrant> accountRoleGrants(@PathVariable String roleId,
+                                                    @RequestParam(required = false) String targetTenantId) {
+        return roleReadScope(roleId, () -> {
+            RoleService.AccountRoleBindingScope scope = service().resolveAccountRoleBindingScope(
+                    roleId, targetTenantId);
+            return MutationTenantScopeExecutor.forAuthoritativeTenantScope(scope.tenantId(),
+                    () -> service().accountRoleGrants(roleId, targetTenantId));
+        });
+    }
+
+    @PostMapping("/{roleId}/account-role-candidates/query")
+    @CustomActionEndpoint(value = "accountRoleGrants", title = "账号角色授权",
+            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "roleId")
+    public WebPageResponse<UserSelectorItem> accountRoleCandidates(
+            @PathVariable String roleId,
+            @RequestBody(required = false) AccountRoleCandidateRequest request) {
+        return roleReadScope(roleId, () -> {
+            if (roleAccountCandidateQueryService == null) {
+                throw new IllegalStateException("user account selector is not available");
+            }
+            AccountRoleCandidateRequest normalized = request == null
+                    ? AccountRoleCandidateRequest.EMPTY : request;
+            RoleService.AccountRoleBindingScope scope = service().resolveAccountRoleBindingScope(
+                    roleId, normalized.targetTenantId());
+            return MutationTenantScopeExecutor.forAuthoritativeTenantScope(scope.tenantId(),
+                    () -> roleAccountCandidateQueryService.query(normalized.keyword(), normalized.pageOrDefault()));
+        });
     }
 
     @PostMapping("/{roleId}/account-grants")
@@ -175,11 +240,11 @@ public class RoleWebController extends WebSupport<RoleService> implements
     public String grantAccountRole(@PathVariable String roleId,
                                    @RequestBody AccountRoleGrantRequest request) {
         return roleRecordScope(roleId, () -> {
-            RoleService.RoleGrantMutationResult result = service().grantAccountRoleResult(
-                    roleId,
-                    request.userId(),
-                    request.managementScopeType(),
-                    request.managementScopeId());
+            RoleService.AccountRoleBindingScope scope = service().resolveAccountRoleBindingScope(
+                    roleId, request.targetTenantId());
+            RoleService.RoleGrantMutationResult result = MutationTenantScopeExecutor.forAuthoritativeTenantScope(
+                    scope.tenantId(), () -> service().grantAccountRoleResult(
+                            roleId, request.userId(), request.targetTenantId()));
             reportAccountRoleGranted(result.changed());
             return result.grantId();
         });
@@ -190,9 +255,13 @@ public class RoleWebController extends WebSupport<RoleService> implements
             level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "roleId")
     @BusinessMutation
     public int deleteAccountRoleGrant(@PathVariable String roleId,
-                                                   @PathVariable String grantId) {
+                                      @PathVariable String grantId,
+                                      @RequestParam(required = false) String targetTenantId) {
         return roleRecordScope(roleId, () -> {
-            int count = service().deleteAccountRoleGrant(roleId, grantId);
+            RoleService.AccountRoleBindingScope scope = service().resolveAccountRoleBindingScope(
+                    roleId, targetTenantId);
+            int count = MutationTenantScopeExecutor.forAuthoritativeTenantScope(scope.tenantId(),
+                    () -> service().deleteAccountRoleGrant(roleId, grantId, targetTenantId));
             reportAccountRoleRevoked(count > 0);
             return count;
         });
@@ -440,9 +509,16 @@ public class RoleWebController extends WebSupport<RoleService> implements
 
     public record AccountRoleGrantRequest(
             String userId,
-            ManagementScopeType managementScopeType,
-            String managementScopeId
+            String targetTenantId
     ) {
+    }
+
+    public record AccountRoleCandidateRequest(String targetTenantId, String keyword, WebPageRequest page) {
+        static final AccountRoleCandidateRequest EMPTY = new AccountRoleCandidateRequest(null, null, null);
+
+        WebPageRequest pageOrDefault() {
+            return page == null ? WebPageRequest.DEFAULT : page;
+        }
     }
 
     public record EmploymentRoleGrantRequest(

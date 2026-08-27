@@ -1,27 +1,34 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   RecordDetailDrawer,
+  RecordPicker,
   handlePlatformActionSuccess,
   presentPlatformError,
+  type RecordPickerRecord,
 } from '@muyun/platform-components';
 import { UiButton, UiError, UiInput, UiSpin, UiTable } from '@muyun/vue-ui-antdv';
+import type { UiDataTablePagination } from '@muyun/vue-ui-antdv';
 import type {
   AccountRoleGrant,
-  ManagementScopeType,
   RecordData,
   Role,
   TableContract,
+  Tenant,
   UserSelectorItem,
 } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+import { useModuleContext, type ModuleContext } from '@muyun/web-core';
+import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import { createRoleGrantClient } from './roleGrantClient';
 
 defineOptions({ name: 'RoleAccountGrantDrawer' });
 
 const props = defineProps<{
   open: boolean;
-  container: HTMLElement | null;
+  container?: HTMLElement | null;
+  /** Uses the owning platform drawer and renders only this operation's content. */
+  embedded?: boolean;
+  drawerContext?: ModulePageDrawerContext;
   context: ModuleContext<Role>;
   role?: Role;
 }>();
@@ -48,29 +55,35 @@ const checkedUserIds = ref<Set<string>>(new Set());
 const originalUserIds = ref<Set<string>>(new Set());
 const keyword = ref('');
 const appliedKeyword = ref('');
-const pageNum = ref(0);
+const pageNum = ref(1);
 const pageSize = 20;
 const total = ref(0);
 const loading = ref(false);
 const loadingUsers = ref(false);
 const saving = ref(false);
 const loadFailed = ref(false);
+const selectedTargetTenant = ref<Tenant>();
 
 const client = computed(() => createRoleGrantClient(props.context.http));
+const tenantContext = useModuleContext<Tenant>({ moduleAlias: 'iam.tenant' });
 const roleId = computed(() => props.role?.id);
 const title = computed(() => (props.role ? `绑定用户 - ${roleTitle(props.role)}` : '绑定用户'));
-const defaultManagementScopeType = computed<ManagementScopeType>(() => {
-  if (props.role?.ownerScopeType === 'platform') {
-    return 'platform';
-  }
-  if (props.role?.ownerScopeType === 'organization') {
-    return 'organization';
-  }
-  return 'tenant';
-});
-const defaultManagementScopeId = computed(() =>
-  defaultManagementScopeType.value === 'platform' ? undefined : props.role?.ownerScopeId,
+const contentContainer = computed(() => (props.embedded ? 'section' : RecordDetailDrawer));
+const contentContainerProps = computed(() =>
+  props.embedded
+    ? {}
+    : {
+        open: props.open,
+        title: title.value,
+        renderMode: props.container ? 'inline' : 'portal',
+        closeTitle: '关闭',
+        onClose: handleClose,
+      },
 );
+const needsTargetTenant = computed(() => props.role?.ownerScopeType === 'platform');
+const targetTenantId = computed(() => selectedTargetTenant.value?.id);
+const bindingReady = computed(() => !needsTargetTenant.value || !!targetTenantId.value);
+const tenantPickerContext = computed(() => tenantContext as unknown as ModuleContext<RecordPickerRecord>);
 const grantByUserId = computed(() => {
   const next = new Map<string, AccountRoleGrant>();
   for (const grant of grants.value) {
@@ -96,9 +109,6 @@ const rows = computed<UserRow[]>(() =>
 const selectedUsers = computed(() =>
   [...checkedUserIds.value].map((userId) => usersById.value[userId] ?? userFallback(userId)),
 );
-const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
-const canGoPrevious = computed(() => pageNum.value > 0);
-const canGoNext = computed(() => pageNum.value + 1 < pages.value);
 const addedUserIds = computed(() =>
   [...checkedUserIds.value].filter((userId) => !originalUserIds.value.has(userId)),
 );
@@ -125,6 +135,14 @@ const rowSelection = computed(() => ({
     checkedUserIds.value = new Set(keys.map((key) => String(key)));
   },
 }));
+const userTablePagination = computed<UiDataTablePagination>(() => ({
+  current: pageNum.value,
+  total: total.value,
+  pageSize,
+  showSizeChanger: false,
+  showQuickJumper: false,
+  onChange: (page) => void loadUsersPage(page),
+}));
 
 watch(
   () => [props.open, props.role?.id] as const,
@@ -138,23 +156,69 @@ watch(
   { immediate: true },
 );
 
+watch(
+  [
+    () => props.embedded,
+    () => props.drawerContext,
+    checkedUserIds,
+    changed,
+    bindingReady,
+    addedUserIds,
+    removedUserIds,
+    saving,
+    loading,
+  ],
+  configureDrawerPresentation,
+  { immediate: true },
+);
+
+onBeforeUnmount(() => props.drawerContext?.setOperation(undefined));
+
+function configureDrawerPresentation() {
+  const drawer = props.drawerContext;
+  if (!props.embedded || !drawer) return;
+  drawer.setSubtitle(`角色：${roleTitle(props.role ?? {})} · ${scopeTitle(props.role)}`);
+  drawer.setOperation({
+    summary: selectionSummary(),
+    actions: [
+      {
+        key: 'cancel-account-role-grants',
+        label: '取消',
+        disabled: saving.value || loading.value,
+        run: handleClose,
+      },
+      {
+        key: 'save-account-role-grants',
+        label: '确定',
+        emphasis: 'primary',
+        disabled: loading.value || !bindingReady.value || !changed.value,
+        loading: saving.value,
+        run: () => void save(),
+      },
+    ],
+  });
+}
+
+function selectionSummary() {
+  if (!bindingReady.value) return '请选择目标租户';
+  if (!changed.value) return `已选 ${checkedUserIds.value.size} 个用户`;
+  return `已选 ${checkedUserIds.value.size} 个用户 · 新增 ${addedUserIds.value.length} · 移除 ${removedUserIds.value.length}`;
+}
+
 async function load() {
   const id = roleId.value;
   if (!id) {
     resetState();
     return;
   }
+  if (!bindingReady.value) {
+    clearBindingData();
+    return;
+  }
   loading.value = true;
   loadFailed.value = false;
   try {
-    const [nextGrants, boundUsers] = await Promise.all([
-      client.value.accountRoleGrants(id),
-      client.value.userSelector({
-        roleId: id,
-        enabledOnly: false,
-        page: { pageNum: 0, pageSize: 500 },
-      }),
-    ]);
+    const nextGrants = await client.value.accountRoleGrants(id, targetTenantId.value);
     grants.value = nextGrants;
     const boundIds = new Set(
       nextGrants.map((grant) => grant.userId).filter((userId): userId is string => !!userId),
@@ -165,9 +229,8 @@ async function load() {
       ...nextGrants
         .map((grant) => userFallback(grant.userId))
         .filter((user): user is UserSelectorItem => !!user),
-      ...boundUsers.records,
     ]);
-    await loadUsersPage(0);
+    await loadUsersPage(1);
   } catch (cause) {
     loadFailed.value = true;
     presentPlatformError(cause, { source: 'role-account-grants', phase: 'load' });
@@ -177,9 +240,12 @@ async function load() {
 }
 
 async function loadUsersPage(nextPage: number) {
+  const id = roleId.value;
+  if (!id || !bindingReady.value) return;
   loadingUsers.value = true;
   try {
-    const response = await client.value.userSelector({
+    const response = await client.value.accountRoleCandidates(id, {
+      targetTenantId: targetTenantId.value,
       keyword: appliedKeyword.value,
       enabledOnly: true,
       page: { pageNum: Math.max(0, nextPage), pageSize },
@@ -212,7 +278,7 @@ function toggleUser(userId: string, checked: boolean) {
 
 async function save() {
   const id = roleId.value;
-  if (!id) {
+  if (!id || !bindingReady.value) {
     return;
   }
   if (!changed.value) {
@@ -224,14 +290,13 @@ async function save() {
     for (const userId of addedUserIds.value) {
       await client.value.grantAccountRole(id, {
         userId,
-        managementScopeType: defaultManagementScopeType.value,
-        managementScopeId: defaultManagementScopeId.value,
+        targetTenantId: targetTenantId.value,
       });
     }
     for (const userId of removedUserIds.value) {
       const grantId = grantByUserId.value.get(userId)?.id;
       if (grantId) {
-        await client.value.deleteAccountRoleGrant(id, grantId);
+        await client.value.deleteAccountRoleGrant(id, grantId, targetTenantId.value);
       }
     }
     await handlePlatformActionSuccess(
@@ -254,6 +319,11 @@ function handleClose() {
 }
 
 function resetState() {
+  selectedTargetTenant.value = undefined;
+  clearBindingData();
+}
+
+function clearBindingData() {
   grants.value = [];
   usersById.value = {};
   pageUsers.value = [];
@@ -261,12 +331,23 @@ function resetState() {
   originalUserIds.value = new Set();
   keyword.value = '';
   appliedKeyword.value = '';
-  pageNum.value = 0;
+  pageNum.value = 1;
   total.value = 0;
   loading.value = false;
   loadingUsers.value = false;
   saving.value = false;
   loadFailed.value = false;
+}
+
+async function selectTargetTenant(tenantId: string | undefined) {
+  if (!tenantId) {
+    selectedTargetTenant.value = undefined;
+    clearBindingData();
+    return;
+  }
+  const tenant = await tenantContext.crud.view(tenantId);
+  selectedTargetTenant.value = tenant ?? ({ id: tenantId, title: tenantId } as Tenant);
+  await load();
 }
 
 function removeSelectedUser(userId: string) {
@@ -301,17 +382,21 @@ function selectedUserDescription(user: UserSelectorItem) {
 function roleTitle(record: Partial<Role>) {
   return String(record.title ?? record.id ?? '角色');
 }
+
+function scopeTitle(role: Role | undefined) {
+  if (role?.ownerScopeType === 'platform') return '平台范围';
+  if (role?.ownerScopeType === 'organization') return '机构范围';
+  return '租户范围';
+}
 </script>
 
 <template>
-  <RecordDetailDrawer
-    :open="open"
-    :title="title"
-    :render-mode="container ? 'inline' : 'portal'"
-    close-title="关闭"
-    @close="handleClose"
+  <component
+    :is="contentContainer"
+    v-bind="contentContainerProps"
+    :class="{ 'role-account-grant-drawer-surface': embedded }"
   >
-    <template #operation>
+    <template v-if="!embedded" #operation>
       <UiButton :disabled="saving || loading" @click="handleClose">取消</UiButton>
       <UiButton type="primary" :loading="saving" :disabled="loading || !changed" @click="save">
         确定
@@ -323,73 +408,108 @@ function roleTitle(record: Partial<Role>) {
       <UiError title="用户加载失败" message="无法加载当前角色的用户绑定" />
       <UiButton type="primary" icon-name="reload" @click="load">重试</UiButton>
     </div>
-    <section v-else class="role-account-grant-drawer-body">
-      <div class="role-account-grant-search">
-        <UiInput
-          :value="keyword"
-          allow-clear
-          :disabled="saving"
-          placeholder="搜索用户账号"
-          @update:value="keyword = $event"
-          @keydown.enter="submitSearch"
+    <section
+      v-else
+      class="role-account-grant-drawer-body"
+      :class="{ 'role-account-grant-drawer-body--target-tenant': needsTargetTenant }"
+    >
+      <label v-if="needsTargetTenant" class="role-account-grant-target-tenant">
+        <span>目标租户</span>
+        <RecordPicker
+          :context="tenantPickerContext"
+          :value="targetTenantId"
+          mode="list"
+          placeholder="请选择角色下发的目标租户"
+          :disabled="saving || loading"
+          @update:value="selectTargetTenant"
         />
-        <UiButton icon-name="search" :disabled="saving" @click="submitSearch">查询</UiButton>
+      </label>
+
+      <div v-if="!bindingReady" class="role-account-grant-target-hint">
+        平台共享角色需要先选择目标租户，再加载可绑定账号。
       </div>
 
-      <div class="role-account-grant-summary">
-        <span>已选 {{ checkedUserIds.size }} 个</span>
-        <span v-if="changed">新增 {{ addedUserIds.length }} 个，移除 {{ removedUserIds.length }} 个</span>
-      </div>
-
-      <section class="role-account-grant-selected">
-        <div class="role-account-grant-selected-title">
-          <strong>已选用户</strong>
-          <span>{{ selectedUsers.length }} 个</span>
-        </div>
-        <div v-if="selectedUsers.length > 0" class="role-account-grant-selected-list">
-          <button
-            v-for="user in selectedUsers"
-            :key="user.id"
-            type="button"
+      <template v-else>
+        <div class="role-account-grant-search">
+          <UiInput
+            :value="keyword"
+            allow-clear
             :disabled="saving"
-            @click="removeSelectedUser(user.id)"
-          >
-            <span>{{ userTitle(user) }}</span>
-            <small>{{ selectedUserDescription(user) }}</small>
-          </button>
+            placeholder="搜索用户账号"
+            @update:value="keyword = $event"
+            @keydown.enter="submitSearch"
+          />
+          <UiButton icon-name="search" :disabled="saving" @click="submitSearch">查询</UiButton>
         </div>
-        <span v-else class="role-account-grant-selected-empty">暂无已选用户</span>
-      </section>
 
-      <UiTable
-        class="role-account-grant-table"
-        size="middle"
-        :contract="userTableContract"
-        :rows="rows"
-        :loading="loadingUsers"
-        :pagination="false"
-        :selection="rowSelection"
-      />
+        <UiTable
+          class="role-account-grant-table"
+          size="middle"
+          :contract="userTableContract"
+          :rows="rows"
+          :loading="loadingUsers"
+          :pagination="userTablePagination"
+          :selection="rowSelection"
+          fill-height
+        />
 
-      <div class="role-account-grant-pagination">
-        <span>共 {{ total }} 个用户，第 {{ pageNum + 1 }} / {{ pages }} 页</span>
-        <div>
-          <UiButton :disabled="saving || loadingUsers || !canGoPrevious" @click="loadUsersPage(pageNum - 1)">
-            上一页
-          </UiButton>
-          <UiButton :disabled="saving || loadingUsers || !canGoNext" @click="loadUsersPage(pageNum + 1)">
-            下一页
-          </UiButton>
-        </div>
-      </div>
+        <section v-if="selectedUsers.length > 0" class="role-account-grant-selected">
+          <div class="role-account-grant-selected-title">
+            <strong>已选用户</strong>
+            <span>{{ selectedUsers.length }} 个</span>
+          </div>
+          <div class="role-account-grant-selected-list">
+            <button
+              v-for="user in selectedUsers"
+              :key="user.id"
+              type="button"
+              :disabled="saving"
+              @click="removeSelectedUser(user.id)"
+            >
+              <span>{{ userTitle(user) }}</span>
+              <small>{{ selectedUserDescription(user) }}</small>
+            </button>
+          </div>
+        </section>
+      </template>
     </section>
-  </RecordDetailDrawer>
+  </component>
 </template>
 
 <style scoped>
+.role-account-grant-drawer-surface {
+  height: 100%;
+  min-height: 0;
+}
+
 .role-account-grant-drawer-body {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.role-account-grant-drawer-body--target-tenant {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.role-account-grant-target-tenant {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 280px);
+  align-items: center;
+  gap: 8px;
+  color: var(--muyun-text-muted);
+  font-size: 13px;
+}
+
+.role-account-grant-target-hint {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  color: var(--muyun-text-muted);
+  border: 1px dashed var(--muyun-border-subtle);
+  border-radius: 8px;
 }
 
 .role-account-grant-search {
@@ -398,25 +518,17 @@ function roleTitle(record: Partial<Role>) {
   gap: 8px;
 }
 
-.role-account-grant-summary {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-}
-
 .role-account-grant-selected {
   display: grid;
   gap: 8px;
+  max-block-size: 168px;
   padding: 10px;
   border: 1px solid var(--muyun-border-subtle);
   border-radius: 8px;
   background: var(--muyun-hover-subtle);
 }
 
-.role-account-grant-selected-title,
-.role-account-grant-pagination {
+.role-account-grant-selected-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -428,9 +540,7 @@ function roleTitle(record: Partial<Role>) {
   font-size: 13px;
 }
 
-.role-account-grant-selected-title span,
-.role-account-grant-selected-empty,
-.role-account-grant-pagination {
+.role-account-grant-selected-title span {
   color: var(--muyun-text-muted);
   font-size: 12px;
 }
@@ -439,6 +549,7 @@ function roleTitle(record: Partial<Role>) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  overflow: auto;
 }
 
 .role-account-grant-selected-list button {
@@ -476,11 +587,6 @@ function roleTitle(record: Partial<Role>) {
 
 .role-account-grant-table :deep(.ant-table-cell) {
   overflow-wrap: anywhere;
-}
-
-.role-account-grant-pagination > div {
-  display: flex;
-  gap: 8px;
 }
 
 .role-account-grant-drawer-state {

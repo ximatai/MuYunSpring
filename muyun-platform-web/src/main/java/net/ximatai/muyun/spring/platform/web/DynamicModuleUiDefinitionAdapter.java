@@ -207,10 +207,20 @@ public final class DynamicModuleUiDefinitionAdapter {
         PageNavigatorDefinition navigator = navigator(listConfig);
         JsonNode detail = root.path("detail");
         return new ListDetailCardPageDefinition(navigator, new PageListDefinition(list.title(), list,
+                        pageText(root.path("list").path("header").path("title")),
+                        pageText(root.path("list").path("header").path("subtitle")),
                         List.of(), List.of(), querySummaries(root)),
                 new PageDetailDefinition(null, editor.title(), null, editor, workspaceView(detail),
                         detail.path("showSystemInfo").asBoolean(true)),
                 traits(root));
+    }
+
+    /** Dynamic pages use the same source-neutral page-text model as static Java DSL. */
+    private static PageTextDefinition pageText(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return null;
+        if (node.isTextual()) return PageTextDefinition.text(node.asText());
+        String expression = node.path("expression").asText(null);
+        return expression == null ? null : PageTextDefinition.expression(expression);
     }
 
     private static List<PageListQuerySummaryDefinition> querySummaries(JsonNode root) {

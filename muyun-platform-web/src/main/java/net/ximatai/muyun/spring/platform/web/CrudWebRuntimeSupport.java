@@ -9,6 +9,8 @@ import net.ximatai.muyun.spring.ability.form.FormSchema;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
+import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.web.query.WebQueryRequests;
 import org.springframework.core.ResolvableType;
@@ -67,10 +69,10 @@ final class CrudWebRuntimeSupport {
                 throw new IllegalArgumentException("query conditions are not supported by " + controller.webScopeName());
             }
             return andCriteria(runtime.queryCriteria(controller.webScopeName(), controller.service(),
-                    WebQueryRequests.from(withoutNavigatorExternalValues(controller, request))).orElseThrow(), workspaceCriteria);
+                    WebQueryRequests.from(withoutWorkspaceExternalValues(controller, request))).orElseThrow(), workspaceCriteria);
         }
         if (controller.service() instanceof QueryAbility<?> queryAbility) {
-            return andCriteria(queryAbility.queryCriteria(WebQueryRequests.from(withoutNavigatorExternalValues(controller, request))),
+            return andCriteria(queryAbility.queryCriteria(WebQueryRequests.from(withoutWorkspaceExternalValues(controller, request))),
                     workspaceCriteria);
         }
         // A structured criteria payload is semantically more specific than its compatibility
@@ -147,7 +149,7 @@ final class CrudWebRuntimeSupport {
             return runtime.pageContextBindings(controller.webScopeName(), target);
         }
         if (!(controller instanceof StaticModuleUiContributor contributor) || !isCurrentModuleUiDefinition(controller, contributor)) {
-            return List.of();
+            return selectionBindings(controller, target);
         }
         ModulePageDefinition page = contributor.moduleUiDefinition().page();
         PageNavigatorDefinition navigator = switch (page) {
@@ -156,14 +158,17 @@ final class CrudWebRuntimeSupport {
             case TreeManagementPageDefinition tree -> tree.navigator();
             case null -> null;
         };
-        return navigator == null ? List.of() : navigator.contextBindings().stream().filter(binding -> binding.target() == target).toList();
+        return mergeSelectionBindings(navigator == null ? List.of()
+                : navigator.contextBindings().stream().filter(binding -> binding.target() == target).toList(), controller, target);
     }
 
     static Criteria navigatorCriteria(CrudWeb<?, ?> controller, WebQueryRequest request) {
         String uiConfigId = request == null ? null : request.uiConfigId();
         return PageContextScopePolicy.criteria(
                 pageContextBindings(controller, uiConfigId, PageContextTarget.LIST_QUERY),
-                request == null ? Map.of() : request.externalQueryValues(), false);
+                request == null ? Map.of() : request.externalQueryValues(), false,
+                controller.webScopeName(), net.ximatai.muyun.spring.common.platform.PlatformAction.QUERY,
+                controller.pageSelectionContextResolvers());
     }
 
     static List<PageContextBindingDefinition> recordScopeBindings(CrudWeb<?, ?> controller) {
@@ -171,14 +176,76 @@ final class CrudWebRuntimeSupport {
                 pageContextBindings(controller, null, PageContextTarget.LIST_QUERY));
     }
 
-    private static WebQueryRequest withoutNavigatorExternalValues(CrudWeb<?, ?> controller, WebQueryRequest request) {
+    static List<PageContextBindingDefinition> mutationConstraints(CrudWeb<?, ?> controller) {
+        StandardModuleWebRuntime runtime = executionRuntime(controller);
+        if (controller.requiresModuleExecutionPlan()) {
+            return requiredRuntime(controller).mutationConstraints(controller.webScopeName());
+        }
+        if (runtime != null && runtime.hasPlan(controller.webScopeName())) {
+            return runtime.mutationConstraints(controller.webScopeName());
+        }
+        return pageContextBindings(controller, null, PageContextTarget.MUTATION_CONSTRAINT);
+    }
+
+    /**
+     * Resolves the tenant context before a create mutation only when the page explicitly binds a
+     * trusted selection to {@code tenantId}. An explicit null keeps a platform selection in
+     * system scope and prevents a later record-derived resolver from widening it.
+     */
+    static java.util.Optional<ResolvedSelectionTenantScope> resolvedSelectionTenantScopeForCreate(
+            CrudWeb<?, ?> controller) {
+        List<PageContextBindingDefinition> bindings = mutationConstraints(controller).stream()
+                .filter(binding -> binding.source() == PageContextSource.RESOLVED_SELECTION)
+                .filter(binding -> StandardEntitySchema.TENANT_ID_FIELD.equals(binding.targetKey()))
+                .toList();
+        if (bindings.isEmpty()) return java.util.Optional.empty();
+        if (bindings.size() != 1) {
+            throw new IllegalStateException("create page selection may declare tenantId only once: "
+                    + controller.webScopeName());
+        }
+        PageContextValue value = PageContextScopePolicy.requiredMutationValue(bindings.getFirst(),
+                controller.webScopeName(), PlatformAction.CREATE, controller.pageSelectionContextResolvers());
+        Object tenantId = value.value();
+        if (tenantId == null) return java.util.Optional.of(new ResolvedSelectionTenantScope(null));
+        if (!(tenantId instanceof String text) || text.isBlank()) {
+            throw new IllegalStateException("resolved page selection tenantId must be a non-blank string or null: "
+                    + controller.webScopeName());
+        }
+        return java.util.Optional.of(new ResolvedSelectionTenantScope(text));
+    }
+
+    private static List<PageContextBindingDefinition> selectionBindings(CrudWeb<?, ?> controller,
+                                                                          PageContextTarget target) {
+        return controller.pageSelectionContextBindings().stream().filter(binding -> binding.target() == target).toList();
+    }
+
+    record ResolvedSelectionTenantScope(String tenantId) {
+    }
+
+    private static List<PageContextBindingDefinition> mergeSelectionBindings(List<PageContextBindingDefinition> bindings,
+                                                                               CrudWeb<?, ?> controller,
+                                                                               PageContextTarget target) {
+        List<PageContextBindingDefinition> selection = selectionBindings(controller, target);
+        if (selection.isEmpty()) return bindings;
+        List<PageContextBindingDefinition> merged = new ArrayList<>(bindings);
+        merged.addAll(selection);
+        return List.copyOf(merged);
+    }
+
+    /**
+     * Browser external values may provide ordinary query filters only. Navigator values and
+     * opaque-selection targets are resolved by their own page-context contracts and must not be
+     * compiled a second time from the request body.
+     */
+    private static WebQueryRequest withoutWorkspaceExternalValues(CrudWeb<?, ?> controller, WebQueryRequest request) {
         if (request == null || request.externalQueryValues().isEmpty()) return request;
-        Set<String> navigatorKeys = pageContextBindings(controller, request.uiConfigId(), PageContextTarget.LIST_QUERY).stream()
-                .filter(binding -> binding.source() == PageContextSource.NAVIGATOR)
+        Set<String> workspaceKeys = pageContextBindings(controller, request.uiConfigId(), PageContextTarget.LIST_QUERY).stream()
+                .filter(binding -> binding.source() == PageContextSource.NAVIGATOR
+                        || binding.source() == PageContextSource.RESOLVED_SELECTION)
                 .map(PageContextBindingDefinition::targetKey).collect(java.util.stream.Collectors.toSet());
-        if (navigatorKeys.isEmpty()) return request;
+        if (workspaceKeys.isEmpty()) return request;
         Map<String, Object> remaining = new LinkedHashMap<>(request.externalQueryValues());
-        remaining.keySet().removeAll(navigatorKeys);
+        remaining.keySet().removeAll(workspaceKeys);
         return new WebQueryRequest(request.page(), request.unpaged(), request.conditions(), request.criteria(), request.queryForm(),
                 request.sorts(), request.uiConfigId(), request.queryTemplateId(), remaining, request.navigationSession(),
                 request.quickSearch(), request.quickSearchFields(), request.navigationQueryKey());

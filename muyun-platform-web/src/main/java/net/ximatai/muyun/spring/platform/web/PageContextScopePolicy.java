@@ -4,11 +4,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import org.springframework.beans.BeanWrapper;
 import org.springframework.beans.BeanWrapperImpl;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,12 +33,32 @@ public final class PageContextScopePolicy {
     /** Appends list or navigator-reference criteria, rejecting missing required navigator values. */
     public static Criteria criteria(List<PageContextBindingDefinition> bindings, Map<String, ?> requestValues,
                                     boolean navigatorValuesRequired) {
+        return criteria(bindings, requestValues, navigatorValuesRequired, null, null, null);
+    }
+
+    /**
+     * Applies page scope with optional server-resolved selection values. The opaque header is
+     * never treated as a field map: it is passed to the registered resolver on every request.
+     */
+    public static Criteria criteria(List<PageContextBindingDefinition> bindings, Map<String, ?> requestValues,
+                                    boolean navigatorValuesRequired,
+                                    String moduleAlias, PlatformAction action,
+                                    PageSelectionContextResolverRegistry selectionResolvers) {
         Criteria criteria = Criteria.of();
         if (bindings == null || bindings.isEmpty()) return criteria;
         for (PageContextBindingDefinition binding : bindings) {
-            Object value = resolveQueryValue(binding, requestValues);
+            PageContextValue resolvedSelection = binding.source() == PageContextSource.RESOLVED_SELECTION
+                    ? PageSelectionContextRuntime.requiredValue(binding, moduleAlias, action, selectionResolvers) : null;
+            Object value = resolvedSelection == null
+                    ? resolveQueryValue(binding, requestValues)
+                    : resolvedSelection.value();
             boolean required = binding.source() == PageContextSource.NAVIGATOR
-                    && (navigatorValuesRequired || binding.navigatorListQueryMode() == NavigatorListQueryMode.REQUIRED_SCOPE);
+                    && (navigatorValuesRequired || binding.navigatorListQueryMode() == NavigatorListQueryMode.REQUIRED_SCOPE)
+                    || binding.source() == PageContextSource.RESOLVED_SELECTION;
+            if (resolvedSelection != null && value == null) {
+                criteria.isNull(binding.targetKey());
+                continue;
+            }
             if (value == null) {
                 if (required) throw missingScope(binding);
                 continue;
@@ -56,9 +78,10 @@ public final class PageContextScopePolicy {
     public static List<PageContextBindingDefinition> recordScopeBindings(List<PageContextBindingDefinition> bindings) {
         if (bindings == null || bindings.isEmpty()) return List.of();
         return bindings.stream()
-                .filter(binding -> binding.source() == PageContextSource.NAVIGATOR)
                 .filter(binding -> binding.target() == PageContextTarget.LIST_QUERY)
-                .filter(binding -> binding.navigatorListQueryMode() == NavigatorListQueryMode.REQUIRED_SCOPE)
+                .filter(binding -> binding.source() == PageContextSource.RESOLVED_SELECTION
+                        || binding.source() == PageContextSource.NAVIGATOR
+                        && binding.navigatorListQueryMode() == NavigatorListQueryMode.REQUIRED_SCOPE)
                 .toList();
     }
 
@@ -103,6 +126,78 @@ public final class PageContextScopePolicy {
         });
     }
 
+    /**
+     * Applies a required scope that may include a server-resolved opaque selection.
+     *
+     * <p>The overloaded form exists for standard CRUD operations only. It keeps the older
+     * navigator header behaviour intact while making a selection resolver run with the precise
+     * operation being performed. A present {@code null} remains a value and is stamped rather
+     * than treated as an absent context.</p>
+     */
+    public static <T> T applyForCreate(T record, List<PageContextBindingDefinition> bindings,
+                                       String moduleAlias, PlatformAction action,
+                                       PageSelectionContextResolverRegistry selectionResolvers) {
+        Map<String, PageContextValue> scope = requiredScopeValues(bindings, moduleAlias, action, selectionResolvers);
+        if (scope.isEmpty()) return record;
+        BeanWrapper properties = properties(record);
+        scope.forEach((field, value) -> {
+            if (!properties.isWritableProperty(field)) {
+                throw new IllegalArgumentException("page record scope field is not writable: " + field);
+            }
+            properties.setPropertyValue(field, value.value());
+        });
+        return record;
+    }
+
+    /** Verifies a record against a required scope, re-resolving opaque selections for this action. */
+    public static void requireRecordInScope(Object record, List<PageContextBindingDefinition> bindings,
+                                            String moduleAlias, PlatformAction action,
+                                            PageSelectionContextResolverRegistry selectionResolvers) {
+        Map<String, PageContextValue> scope = requiredScopeValues(bindings, moduleAlias, action, selectionResolvers);
+        if (scope.isEmpty()) return;
+        BeanWrapper properties = properties(record);
+        scope.forEach((field, expected) -> {
+            if (!properties.isReadableProperty(field)) {
+                throw new IllegalArgumentException("page record scope field is not readable: " + field);
+            }
+            if (!Objects.equals(properties.getPropertyValue(field), expected.value())) {
+                throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED,
+                        "Record does not belong to the current page scope: " + field);
+            }
+        });
+    }
+
+    /** Resolves mutation bindings without ever treating a browser value as an authority. */
+    static PageContextValue requiredMutationValue(PageContextBindingDefinition binding,
+                                                  String moduleAlias, PlatformAction action,
+                                                  PageSelectionContextResolverRegistry selectionResolvers) {
+        if (binding == null || binding.target() != PageContextTarget.MUTATION_CONSTRAINT) {
+            throw new IllegalArgumentException("page mutation context binding is required");
+        }
+        return requiredAuthoritativeValue(binding, moduleAlias, action, selectionResolvers);
+    }
+
+    /**
+     * Delivers server-resolved selection values for a presentation target.
+     *
+     * <p>This is intentionally separate from mutation application: the browser may render these
+     * values in a draft, but the create/update endpoints still resolve and stamp them again.</p>
+     */
+    public static Map<String, Object> resolvedSelectionValues(List<PageContextBindingDefinition> bindings,
+                                                               PageContextTarget target,
+                                                               String moduleAlias, PlatformAction action,
+                                                               PageSelectionContextResolverRegistry selectionResolvers) {
+        if (bindings == null || bindings.isEmpty()) return Map.of();
+        Map<String, Object> values = new LinkedHashMap<>();
+        for (PageContextBindingDefinition binding : bindings) {
+            if (binding.target() != target || binding.source() != PageContextSource.RESOLVED_SELECTION) continue;
+            PageContextValue value = requiredAuthoritativeValue(binding, moduleAlias, action, selectionResolvers);
+            if (value.present()) values.put(binding.targetKey(), value.value());
+        }
+        // A platform selection intentionally carries present-null owner fields; Map.copyOf rejects null values.
+        return Collections.unmodifiableMap(new LinkedHashMap<>(values));
+    }
+
     /** Verifies arbitrary record representations, including dynamic records, against page scope values. */
     public static void requireRecordValues(Map<String, Object> scope,
                                            java.util.function.Function<String, Object> fieldValue) {
@@ -119,6 +214,43 @@ public final class PageContextScopePolicy {
     private static Object resolveQueryValue(PageContextBindingDefinition binding, Map<String, ?> requestValues) {
         return PageContextServerValueResolver.resolve(binding).orElseGet(() ->
                 requestValues == null ? null : requestValues.get(binding.targetKey()));
+    }
+
+    private static Map<String, PageContextValue> requiredScopeValues(List<PageContextBindingDefinition> bindings,
+                                                                       String moduleAlias, PlatformAction action,
+                                                                       PageSelectionContextResolverRegistry selectionResolvers) {
+        if (bindings == null || bindings.isEmpty()) return Map.of();
+        Map<String, PageContextValue> values = new LinkedHashMap<>();
+        for (PageContextBindingDefinition binding : bindings) {
+            PageContextValue value = requiredAuthoritativeValue(binding, moduleAlias, action, selectionResolvers);
+            if (!value.present()) continue;
+            PageContextValue previous = values.putIfAbsent(binding.targetKey(), value);
+            if (previous != null && !Objects.equals(previous, value)) {
+                throw new IllegalStateException("conflicting page scope values for field: " + binding.targetKey());
+            }
+        }
+        return Map.copyOf(values);
+    }
+
+    private static PageContextValue requiredAuthoritativeValue(PageContextBindingDefinition binding,
+                                                               String moduleAlias, PlatformAction action,
+                                                               PageSelectionContextResolverRegistry selectionResolvers) {
+        if (binding.source() == PageContextSource.RESOLVED_SELECTION) {
+            return PageSelectionContextRuntime.requiredValue(binding, moduleAlias, action, selectionResolvers);
+        }
+        if (binding.source() == PageContextSource.NAVIGATOR) {
+            if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes)) {
+                // Direct Java callers do not carry a browser workspace. Preserve the legacy
+                // contract: navigator scope applies only to an actual HTTP page request.
+                return PageContextValue.absent();
+            }
+            Object value = contextValue(binding, requestContextValues());
+            if (value == null) throw missingScope(binding);
+            return PageContextValue.of(value);
+        }
+        Object value = PageContextServerValueResolver.resolve(binding).orElseThrow(() ->
+                new IllegalStateException("cannot resolve page context: " + binding.sourceKey()));
+        return PageContextValue.of(value);
     }
 
     private static Map<String, Object> requestContextValues() {

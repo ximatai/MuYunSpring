@@ -28,6 +28,29 @@ describe('resolvePageContextTargetValues', () => {
     ).toEqual({ tenantId: 'xcmg' });
   });
 
+  it('uses server-resolved selection fields as form defaults without deriving them from the opaque key', () => {
+    expect(
+      resolvePageContextTargetValues(
+        [
+          {
+            source: 'RESOLVED_SELECTION',
+            sourceKey: 'roleScope',
+            target: 'FORM_DEFAULT',
+            targetKey: 'ownerScopeType',
+          },
+          {
+            source: 'RESOLVED_SELECTION',
+            sourceKey: 'roleScope',
+            target: 'FORM_DEFAULT',
+            targetKey: 'ownerScopeId',
+          },
+        ],
+        'FORM_DEFAULT',
+        { RESOLVED_SELECTION: { ownerScopeType: 'organization', ownerScopeId: 'org-1' } },
+      ),
+    ).toEqual({ ownerScopeType: 'organization', ownerScopeId: 'org-1' });
+  });
+
   it('keeps navigator query flows scoped to the declared downstream level', () => {
     expect(
       resolvePageContextTargetValues(

@@ -14,6 +14,7 @@ const props = defineProps<{
   pagination?: false | UiDataTablePagination;
   selection?: UiDataTableSelection;
   size?: 'small' | 'middle' | 'large';
+  fillHeight?: boolean;
 }>();
 
 function renderCell(column: TableColumn, value: unknown) {
@@ -54,6 +55,7 @@ const columns = computed(() =>
     :pagination="pagination ?? { pageSize: 5, showSizeChanger: false }"
     :selection="selection"
     :size="size ?? 'middle'"
+    :fill-height="fillHeight"
     horizontal-scroll
     :class="$attrs.class"
     :style="$attrs.style"

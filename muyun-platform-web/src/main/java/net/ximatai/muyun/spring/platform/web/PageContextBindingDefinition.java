@@ -2,6 +2,9 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 
+import java.util.Arrays;
+import java.util.List;
+
 /**
  * A single, typed flow of page context from its source to a page consumer.
  * Navigator levels only describe selectable sources; all data propagation lives here.
@@ -44,8 +47,10 @@ public record PageContextBindingDefinition(PageContextSource source,
         if (target != PageContextTarget.PICKER_QUERY && targetPickerFieldKey != null) {
             throw new IllegalArgumentException("only picker-query context binding may target a picker field");
         }
-        if (target == PageContextTarget.MUTATION_CONSTRAINT && source != PageContextSource.SESSION) {
-            throw new IllegalArgumentException("mutation constraints require a server-authoritative SESSION source");
+        if (target == PageContextTarget.MUTATION_CONSTRAINT
+                && source != PageContextSource.SESSION
+                && source != PageContextSource.RESOLVED_SELECTION) {
+            throw new IllegalArgumentException("mutation constraints require a server-authoritative SESSION or RESOLVED_SELECTION source");
         }
         if (navigatorListQueryMode != null && (source != PageContextSource.NAVIGATOR
                 || target != PageContextTarget.LIST_QUERY)) {
@@ -82,5 +87,25 @@ public record PageContextBindingDefinition(PageContextSource source,
 
     public static PageContextBindingDefinition session(String sourceKey, PageContextTarget target, String targetKey) {
         return new PageContextBindingDefinition(PageContextSource.SESSION, sourceKey, target, targetKey, null);
+    }
+
+    /**
+     * Binds a named, server-resolved selection to a page target. The browser may only provide the
+     * selection key; the named resolver produces the field value after authorization.
+     */
+    public static PageContextBindingDefinition resolvedSelection(String selectionKind, PageContextTarget target,
+                                                                 String targetKey) {
+        return new PageContextBindingDefinition(PageContextSource.RESOLVED_SELECTION,
+                selectionKind, target, targetKey, null);
+    }
+
+    /** Binds several fields produced by the same trusted selection to one page target. */
+    public static List<PageContextBindingDefinition> resolvedSelectionFields(String selectionKind,
+                                                                              PageContextTarget target,
+                                                                              String... targetKeys) {
+        if (targetKeys == null || targetKeys.length == 0) return List.of();
+        return Arrays.stream(targetKeys)
+                .map(targetKey -> resolvedSelection(selectionKind, target, targetKey))
+                .toList();
     }
 }

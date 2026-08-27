@@ -10,15 +10,9 @@ import { routePageLoaders, staticRouteDefinitions } from '@/app/staticRouteDefin
 import { pageDescriptorFromUrl, pageDescriptorToUrl } from '@/platform-workbench/menuNavigation.ts';
 import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 
-it('uses backend application and module aliases for every public static route', () => {
-  assert.deepEqual(platformAdminRoutePrefixes, [
-    '/_platform/workspace',
-    '/iam/role',
-    '/iam/role/authorization',
-  ]);
-  assert.deepEqual(platformAdminModuleRoutes, {
-    'iam.role': '/iam/role',
-  });
+it('keeps only role authorization as a static business route', () => {
+  assert.deepEqual(platformAdminRoutePrefixes, ['/_platform/workspace', '/iam/role/authorization']);
+  assert.deepEqual(platformAdminModuleRoutes, {});
 });
 
 it('accepts every backend-published static menu route in the frontend registry', () => {
@@ -45,13 +39,17 @@ it('accepts every backend-published static menu route in the frontend registry',
   );
 });
 
-it('resolves direct static workbench pages without replacing their backend module identity', () => {
+it('keeps authorization static while role management resolves to the standard dynamic host', () => {
   const descriptor = pageDescriptorFromUrl('/iam/role/authorization?roleId=role-1', {
     businessRoutePrefixes: platformAdminRoutePrefixes,
   });
   assert.equal(descriptor.pageType, 'business-route');
   assert.deepEqual(descriptor.target, { route: '/iam/role/authorization', query: { roleId: 'role-1' } });
-  assert.equal(platformAdminModuleRoutes['iam.role'], '/iam/role');
+  const roleDescriptor = pageDescriptorFromUrl('/iam/role', {
+    businessRoutePrefixes: platformAdminRoutePrefixes,
+  });
+  assert.equal(roleDescriptor.pageType, 'dynamic-module');
+  assert.equal(roleDescriptor.target.moduleAlias, 'iam.role');
 });
 
 it('derives standard dynamic module routes without a frontend override catalog', () => {
@@ -71,18 +69,21 @@ it('derives standard dynamic module routes without a frontend override catalog',
   }
 });
 
-it('resolves a static page only when both route and backend module match', () => {
+it('resolves the remaining static page only when both route and backend module match', () => {
   const descriptor: BusinessRoutePageDescriptor = {
     pageType: 'business-route',
     openMode: 'workbench-route',
     hostType: 'business-route-host',
-    target: { route: '/iam/role', moduleAlias: 'iam.role' },
+    target: { route: '/iam/role/authorization', moduleAlias: 'iam.role' },
     tabPolicy: { identity: 'by-menu' },
   };
-  assert.equal(resolvePlatformAdminRoute(descriptor)?.route, '/iam/role');
+  assert.equal(resolvePlatformAdminRoute(descriptor)?.route, '/iam/role/authorization');
   assert.equal(isPlatformAdminRoutePage(descriptor), true);
   assert.equal(
-    resolvePlatformAdminRoute({ ...descriptor, target: { route: '/iam/role', moduleAlias: 'crm.customer' } }),
+    resolvePlatformAdminRoute({
+      ...descriptor,
+      target: { route: '/iam/role/authorization', moduleAlias: 'crm.customer' },
+    }),
     undefined,
   );
 });

@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { useModulePageFormContributionRuntime } from '@/dynamic-page-runtime/composables/useModulePageFormContributionRuntime.ts';
 import type { ModulePageFormContribution } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 import type { RecordFormFieldDescriptor } from '@/platform-components/recordFormFieldModel.ts';
@@ -83,6 +83,25 @@ describe('module page form contribution runtime', () => {
     expect(runtime.valid.value).toBe(false);
     formSessionKey.value += 1;
     expect(runtime.valid.value).toBe(true);
+  });
+
+  it('routes contribution reads through the host-owned query boundary', async () => {
+    const contributions = ref<readonly ModulePageFormContribution[]>([
+      { key: 'members', component: {}, location: { surface: 'record-card', section: 'after-fields' } },
+    ]);
+    const queryRecords = vi.fn().mockResolvedValue({ records: [], total: 0 });
+    const runtime = useModulePageFormContributionRuntime({
+      contributions,
+      mode: computed(() => 'edit' as const),
+      draft: ref({}),
+      fields: ref(formFields()),
+      formSessionKey: ref(1),
+      setField: () => undefined,
+      queryRecords,
+    });
+
+    await runtime.contextFor(contributions.value[0]).queryRecords({ quickSearch: 'role' });
+    expect(queryRecords).toHaveBeenCalledWith({ quickSearch: 'role' });
   });
 });
 

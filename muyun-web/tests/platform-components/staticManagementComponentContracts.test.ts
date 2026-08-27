@@ -283,6 +283,11 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(drawerSource, /<slot name="form" \/>/);
   assert.match(detailDrawerSource, /<RecordDetailLayout surface="drawer"[\s\S]*scrollable-content/);
   assert.match(detailDrawerSource, /subtitle\?: string/);
+  assert.match(
+    detailDrawerSource,
+    /const inlineWidth = computed\([\s\S]*min\(\$\{requestedWidth\}, calc\(100% - 32px\)\)/,
+  );
+  assert.match(detailDrawerSource, /v-else-if="renderMode === 'inline'"[\s\S]*:width="inlineWidth"/);
   assert.notMatch(detailDrawerSource, /RecordDetailPanel/);
   assert.match(detailDrawerSource, /<slot name="operation" \/>/);
   assert.notMatch(detailDrawerSource, /<slot name="actions" \/>/);
@@ -472,14 +477,17 @@ it('record picker delegates single-value interaction to the standard select adap
   assert.match(treeSelectSource, /:filter-tree-node="filterTreeNode"/);
 });
 
-it('static management explorers use unified item descriptors', () => {
-  const explorerViews = ['RoleManagementView.vue'];
+it('role scope navigation uses the platform tree with deferred children', () => {
+  const roleSource = readSource('src/views/RoleManagementView.vue');
+  const treeSource = readSource('src/vue-ui-antdv/components/UiTree.vue');
 
-  for (const fileName of explorerViews) {
-    const source = readSource(`src/views/${fileName}`);
-    assert.match(source, /RecordExplorerItemDescriptor/, fileName);
-    assert.match(source, /:item-of=/, fileName);
-  }
+  assert.match(roleSource, /<UiTree/);
+  assert.match(roleSource, /:load-children="loadScopeTreeChildren"/);
+  assert.match(roleSource, /tenantRootTreeNode/);
+  assert.match(roleSource, /organizationTreeNode/);
+  assert.match(roleSource, /createScopedTreeModuleContext/);
+  assert.match(treeSource, /loadChildren\?: \(node: UiTreeNode\) => Promise<void>/);
+  assert.match(treeSource, /event\?\.expanded/);
 });
 
 it('application scope switcher remains a platform component for legacy scoped pages', () => {
@@ -516,31 +524,38 @@ it('three-column management pages use the platform detail panel', () => {
   assert.notMatch(layoutSource, /actionMessage|message success|message\.success/);
 });
 
-it('role management keeps basic scope management separate from binding and authorization', () => {
+it('role management enters the standard runner while keeping IAM scope and actions injected', () => {
   const roleViewSource = readSource('src/views/RoleManagementView.vue');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
+  const roleScopeTreeSource = readSource('src/platform-admin-runtime/role/RoleScopeTree.vue');
+  const roleEnumTitleCellSource = readSource('src/platform-admin-runtime/role/RoleEnumTitleCell.vue');
+  const roleEnhancementSource = readSource('src/platform-admin-runtime/roleModulePageEnhancement.ts');
   const contractsSource = readSource('src/web-contracts/index.ts');
   const panelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
 
-  assert.match(routesSource, /moduleAlias: 'iam\.role'/);
-  assert.match(routesSource, /route: '\/iam\/role'/);
-  assert.match(roleViewSource, /defineOptions\(\{ name: 'RoleManagementView' \}\)/);
-  assert.match(roleViewSource, /moduleAlias: 'iam\.tenant'/);
-  assert.match(roleViewSource, /moduleAlias: 'iam\.organization'/);
-  assert.match(roleViewSource, /moduleAlias: 'iam\.role'/);
-  assert.match(roleViewSource, /role-management-page/);
-  assert.match(roleViewSource, /height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
-  assert.match(roleViewSource, /@media \(max-width: 980px\)[\s\S]*height: auto;[\s\S]*overflow: visible;/);
-  assert.notMatch(roleViewSource, /calc\(100vh|calc\(100dvh/);
-  assert.match(roleViewSource, /<CrudRecordListExplorer/);
-  assert.match(roleViewSource, /<TreeRecordExplorer/);
-  assert.match(roleViewSource, /<RecordQueryListPanel/);
-  assert.match(roleViewSource, /selectedScope/);
-  assert.match(roleViewSource, /canBrowseTenants/);
-  assert.match(roleViewSource, /currentUserTenant/);
-  assert.match(roleViewSource, /initializeTenantUserScope/);
-  assert.match(roleViewSource, /secondary="当前租户"/);
-  assert.match(roleViewSource, /v-if="!canBrowseTenants && currentUserTenant"/);
+  assert.notMatch(routesSource, /route: '\/iam\/role',/);
+  assert.match(roleScopeTreeSource, /defineOptions\(\{ name: 'RoleScopeTree' \}\)/);
+  assert.match(roleScopeTreeSource, /moduleAlias: 'iam\.tenant'/);
+  assert.match(roleScopeTreeSource, /moduleAlias: 'iam\.organization'/);
+  assert.match(roleScopeTreeSource, /<UiTree/);
+  assert.match(roleScopeTreeSource, /loadChildren/);
+  assert.match(roleScopeTreeSource, /clearSelection/);
+  assert.notMatch(roleScopeTreeSource, /tenant-root:|租户本级角色/);
+  assert.match(roleScopeTreeSource, /key: `tenant:\$\{tenant\.id \?\? ''\}`/);
+  assert.match(roleEnhancementSource, /target: \{ moduleAlias: 'iam\.role' \}/);
+  assert.match(roleEnhancementSource, /kind: 'roleScope'/);
+  assert.match(roleEnhancementSource, /RoleAccountGrantDrawerSurface/);
+  assert.match(roleEnhancementSource, /RoleEmploymentGrantDrawerSurface/);
+  assert.match(roleEnhancementSource, /RoleAuthorizationDrawerSurface/);
+  assert.match(roleEnhancementSource, /title: '角色授权', width: 820/);
+  assert.match(
+    roleEnhancementSource,
+    /cellComponents:[\s\S]*assignmentType[\s\S]*roleKind[\s\S]*sharePolicy/,
+  );
+  assert.match(roleEnhancementSource, /recordActions: roleRecordActions/);
+  assert.match(roleEnumTitleCellSource, /account: '账号角色'/);
+  assert.match(roleEnumTitleCellSource, /standard: '标准角色'/);
+  assert.match(roleViewSource, /tenantRootTreeNode/);
   assert.match(roleViewSource, /selectPlatformScope/);
   assert.match(roleViewSource, /title: '平台角色'/);
   assert.match(roleViewSource, /selectTenantRootScope/);
@@ -602,10 +617,18 @@ it('role management keeps basic scope management separate from binding and autho
     /if \(action\.key === 'bind' && selectedRole\.value\)[\s\S]*selectedRole\.value\.assignmentType === 'employment'/,
   );
   const roleEmploymentGrantDrawerSource = readSource('src/views/RoleEmploymentGrantDrawer.vue');
+  const roleAuthorizationDrawerSurfaceForOperationSource = readSource(
+    'src/platform-admin-runtime/role/RoleAuthorizationDrawerSurface.vue',
+  );
+  const roleAuthorizationSource = readSource('src/views/RoleAuthorizationView.vue');
   const employeeEmploymentTableSource = readSource('src/views/EmployeeEmploymentTable.vue');
-  assert.match(roleEmploymentGrantDrawerSource, /展开职员后选择其具体任职/);
-  assert.match(roleEmploymentGrantDrawerSource, /当前页涉及 \{\{ selectedEmployeeCount \}\} 名职员/);
-  assert.match(roleEmploymentGrantDrawerSource, /<section class="role-employment-grant-selected">/);
+  assert.notMatch(roleEmploymentGrantDrawerSource, /角色将在所选任职/);
+  assert.match(roleEmploymentGrantDrawerSource, /:pagination="employmentTablePagination"/);
+  assert.match(roleEmploymentGrantDrawerSource, /fill-height/);
+  assert.match(
+    roleEmploymentGrantDrawerSource,
+    /<section v-if="selectedEmployments\.length > 0" class="role-employment-grant-selected">/,
+  );
   assert.match(roleEmploymentGrantDrawerSource, /<strong>已选任职<\/strong>/);
   assert.match(roleEmploymentGrantDrawerSource, /@click="removeSelectedEmployment\(employment\.id\)"/);
   assert.match(roleEmploymentGrantDrawerSource, /function selectedEmploymentTitle/);
@@ -624,6 +647,26 @@ it('role management keeps basic scope management separate from binding and autho
   );
   assert.match(employeeEmploymentTableSource, /function updateEmployeeSelectedIds/);
   assert.match(employeeEmploymentTableSource, /<UiDataTable[\s\S]*horizontal-scroll/);
+  assert.match(employeeEmploymentTableSource, /:fill-height="fillHeight"/);
+  assert.match(roleAuthorizationDrawerSurfaceForOperationSource, /:drawer-context="props\.context"/);
+  assert.match(roleAuthorizationDrawerSurfaceForOperationSource, /role-authorization-drawer-surface/);
+  assert.match(roleAuthorizationDrawerSurfaceForOperationSource, /height: 100%;[\s\S]*overflow: hidden;/);
+  assert.match(roleAuthorizationSource, /const supportsDataScope = computed/);
+  assert.match(roleAuthorizationSource, /v-model:search-keyword="moduleKeyword"/);
+  assert.match(roleAuthorizationSource, /setOperation\(\{/);
+  assert.match(roleAuthorizationSource, /setSubtitle\(`\$\{roleTitle\.value\} · \$\{scopeTitle/);
+  assert.match(roleAuthorizationSource, /authorization-layout--compact-actions/);
+  assert.match(roleAuthorizationSource, /var\(--muyun-management-explorer-width, 280px\)/);
+  assert.match(
+    roleAuthorizationSource,
+    /\.action-panel :deep\(\.record-explorer-panel-content\) \{[\s\S]*overflow: hidden;/,
+  );
+  assert.match(roleAuthorizationSource, /\.action-panel :deep\(\.ui-data-table\) \{[\s\S]*flex: 1 1 auto;/);
+  assert.match(roleAuthorizationSource, /\.module-panel :deep\(\.ant-tree\) \{[\s\S]*overflow-y: auto;/);
+  assert.match(
+    roleAuthorizationSource,
+    /\.action-panel :deep\(\.ant-table-body\) \{[\s\S]*overscroll-behavior: contain;/,
+  );
   assert.notMatch(roleViewSource, /account-grants/);
   assert.notMatch(roleViewSource, /employment-grants/);
   assert.notMatch(roleViewSource, /permissionMatrix/);
@@ -631,10 +674,15 @@ it('role management keeps basic scope management separate from binding and autho
   assert.match(roleViewSource, /authorizationDrawerOpen\.value = true/);
   assert.match(roleViewSource, /<RoleAuthorizationView[\s\S]*:role-id="authorizationRole\.id"[\s\S]*drawer/);
   assert.notMatch(roleViewSource, /createWorkspaceViewDescriptor\([\s\S]*roleAuthorizationWorkspaceView/);
+  const roleAuthorizationDrawerSurfaceSource = readSource(
+    'src/platform-admin-runtime/role/RoleAuthorizationDrawerSurface.vue',
+  );
   const roleAuthorizationViewSource = readSource('src/views/RoleAuthorizationView.vue');
   const roleAuthorizationWorkspaceViewSource = readSource('src/views/roleAuthorizationWorkspaceView.ts');
   const workspaceDrawerSource = readSource('src/platform-admin-runtime/WorkspaceViewDrawer.vue');
   assert.match(roleAuthorizationViewSource, /角色组不独立授权/);
+  assert.match(roleAuthorizationDrawerSurfaceSource, /:module-context="roleContext"/);
+  assert.match(roleAuthorizationViewSource, /props\.moduleContext \?\? defaultRoleContext/);
   assert.match(roleAuthorizationViewSource, /标准动作的数据范围模板/);
   assert.match(roleAuthorizationViewSource, /dataScopePolicyCatalog/);
   assert.match(roleAuthorizationViewSource, /action\.dataScopePolicy = 'inheritDataGrant'/);
@@ -946,13 +994,13 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /:ready="pageReady && navigatorListScopeReady"/);
   assert.match(hostSource, /\$\{pageMode\.value\}入口暂未接入模块页面运行器/);
   assert.match(navigatorRuntimeSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
-  assert.match(hostSource, /:explorer-count="visibleNavigatorLevels\.length"/);
+  assert.match(hostSource, /:explorer-count="navigatorExplorerCount"/);
   assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);
-  assert.match(hostSource, /listDetailWorkspaceMinWidth\(visibleNavigatorLevels\.value\.length\)/);
+  assert.match(hostSource, /listDetailWorkspaceMinWidth\(navigatorExplorerCount\.value\)/);
   assert.match(hostSource, /new ResizeObserver\(\(\) => updateDetailSurfaceForWorkspaceWidth\(\)\)/);
   assert.match(hostSource, /workspaceWidth < listDetailMinimumWidth\.value/);
   assert.equal(/max-width: 719px/.test(hostSource), false);
-  assert.match(hostSource, /:navigator-count="visibleNavigatorLevels\.length"/);
+  assert.match(hostSource, /:navigator-count="navigatorExplorerCount"/);
   assert.match(hostSource, /<ManagementWorkspace[\s\S]*v-else-if="treeManagementPage \|\| treeModule"/);
   assert.match(hostSource, /<CrudRecordListExplorer/);
   assert.match(hostSource, /<PageNavigatorExplorer/);
@@ -1052,6 +1100,14 @@ it('consumer surface exposes basic adapter controls for business App composition
 it('data table keeps platform typography when embedded by a consumer App', () => {
   const tableSource = readSource('src/vue-ui-antdv/components/UiDataTable.vue');
 
+  assert.match(
+    tableSource,
+    /\.ui-data-table\.is-fill-height :deep\(\.ant-spin-container\),[\s\S]*?\.ui-data-table\.is-fill-height :deep\(\.ant-table\) \{[\s\S]*?display: flex;[\s\S]*?flex-direction: column;/,
+  );
+  assert.match(
+    tableSource,
+    /\.ui-data-table\.is-fill-height :deep\(\.ant-table\) \{[\s\S]*?flex: 1 1 auto;[\s\S]*?height: auto;/,
+  );
   assert.match(tableSource, /\.ui-data-table :deep\(\.ant-table\)[\s\S]*font-size: 13px/);
   assert.match(
     tableSource,
@@ -1231,8 +1287,8 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
   assert.notMatch(userSource, /userDetailHeaderActions/);
   assert.match(roleSource, /roleDetailOperationActions/);
   assert.notMatch(roleSource, /roleDetailHeaderActions/);
-  assert.match(roleAccountGrantSource, /<template #operation>/);
-  assert.match(roleEmploymentGrantSource, /<template #operation>/);
+  assert.match(roleAccountGrantSource, /<template v-if="!embedded" #operation>/);
+  assert.match(roleEmploymentGrantSource, /<template v-if="!embedded" #operation>/);
 });
 
 it('public management and drawer contracts use business roles instead of layout positions', () => {
@@ -1255,8 +1311,26 @@ it('public management and drawer contracts use business roles instead of layout 
   assert.notMatch(recordDetailDrawerSource, /<slot name="actions" \/>/);
   assert.notMatch(recordModeDrawerSource, /<slot name="actions" \/>/);
   for (const source of standardDrawerSources) {
-    assert.match(source, /<template #operation>/);
+    assert.match(source, /<template(?: v-if="!embedded")? #operation>/);
   }
+});
+
+it('platform account-role binding selects a target tenant before loading or saving candidates', () => {
+  const drawerSource = readSource('src/views/RoleAccountGrantDrawer.vue');
+  const grantClientSource = readSource('src/views/roleGrantClient.ts');
+
+  assert.match(
+    drawerSource,
+    /const needsTargetTenant = computed\(\(\) => props\.role\?\.ownerScopeType === 'platform'\)/,
+  );
+  assert.match(drawerSource, /if \(!bindingReady\.value\) \{[\s\S]*clearBindingData\(\);/);
+  assert.match(drawerSource, /<RecordPicker[\s\S]*placeholder="请选择角色下发的目标租户"/);
+  assert.match(drawerSource, /targetTenantId: targetTenantId\.value/);
+  assert.match(
+    grantClientSource,
+    /\/iam\.role\/\$\{encodeURIComponent\(roleId\)\}\/account-role-candidates\/query/,
+  );
+  assert.notMatch(grantClientSource, /\/iam\.user\/account-role-candidates\/query/);
 });
 
 it('record lists reuse their existing region for recycle-bin data and lifecycle actions', () => {

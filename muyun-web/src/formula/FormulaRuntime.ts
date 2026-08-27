@@ -20,6 +20,15 @@ export class FormulaRuntime {
     return this.evaluateNode(program.root, record, 1, { count: 0 }) === true;
   }
 
+  /** Evaluates a server-issued PAGE_TEXT program against a host-whitelisted display context. */
+  evaluatePageText(program: FormulaProgram | undefined, context: FormulaRecord): string | undefined {
+    if (!program || program.schemaVersion !== 1 || program.profile !== 'PAGE_TEXT' || !program.root)
+      return undefined;
+    if (!isValidPageTextNode(program.root, 1, { count: 0 })) return undefined;
+    const value = this.evaluatePageTextNode(program.root, context, 1, { count: 0 });
+    return typeof value === 'string' ? value : undefined;
+  }
+
   /**
    * Evaluates one server-issued FORM_COMPUTE assignment against a draft without mutating it.
    * Applying the returned patch, ordering rules, and user-value ownership remain form-runtime concerns.
@@ -247,6 +256,45 @@ export class FormulaRuntime {
     }
     return INVALID_FORMULA_VALUE;
   }
+
+  private evaluatePageTextNode(
+    node: FormulaNode,
+    context: FormulaRecord,
+    depth: number,
+    budget: FormulaBudget,
+  ): string | undefined {
+    if (++budget.count > 64 || depth > 12 || !Array.isArray(node.arguments)) return undefined;
+    if (node.kind === 'VALUE') {
+      return node.operator == null &&
+        node.field == null &&
+        node.arguments.length === 0 &&
+        typeof node.value === 'string'
+        ? node.value
+        : undefined;
+    }
+    if (node.kind === 'FIELD') {
+      if (
+        node.operator != null ||
+        node.value != null ||
+        node.arguments.length !== 0 ||
+        !isPageTextFieldName(node.field)
+      )
+        return undefined;
+      const value = context[node.field];
+      return value == null ? '' : typeof value === 'string' ? value : undefined;
+    }
+    if (
+      node.kind !== 'BINARY' ||
+      node.operator !== '+' ||
+      node.field != null ||
+      node.value != null ||
+      node.arguments.length !== 2
+    )
+      return undefined;
+    const left = this.evaluatePageTextNode(node.arguments[0], context, depth + 1, budget);
+    const right = this.evaluatePageTextNode(node.arguments[1], context, depth + 1, budget);
+    return left === undefined || right === undefined ? undefined : `${left}${right}`;
+  }
 }
 
 type FormulaValue = string | number | boolean | null | undefined;
@@ -259,6 +307,38 @@ const EMPTY_COMPUTE_RESULT: FormulaComputeResult = Object.freeze({
 
 function isValidWebUiRoot(node: FormulaNode): boolean {
   return node.kind !== 'VALUE' && node.kind !== 'FIELD' && isValidWebUiNode(node, 1, { count: 0 });
+}
+
+function isValidPageTextNode(node: FormulaNode, depth: number, budget: FormulaBudget): boolean {
+  if (++budget.count > 64 || depth > 12 || !Array.isArray(node.arguments)) return false;
+  if (node.kind === 'VALUE')
+    return (
+      node.operator == null &&
+      node.field == null &&
+      node.arguments.length === 0 &&
+      typeof node.value === 'string' &&
+      node.value.length <= 128
+    );
+  if (node.kind === 'FIELD')
+    return (
+      node.operator == null &&
+      node.value == null &&
+      node.arguments.length === 0 &&
+      isPageTextFieldName(node.field)
+    );
+  return (
+    node.kind === 'BINARY' &&
+    node.operator === '+' &&
+    node.field == null &&
+    node.value == null &&
+    node.arguments.length === 2 &&
+    isValidPageTextNode(node.arguments[0], depth + 1, budget) &&
+    isValidPageTextNode(node.arguments[1], depth + 1, budget)
+  );
+}
+
+function isPageTextFieldName(field: unknown): field is 'selection.label' | 'selection.secondaryLabel' {
+  return field === 'selection.label' || field === 'selection.secondaryLabel';
 }
 
 function isValidWebUiNode(node: FormulaNode, depth: number, budget: FormulaBudget): boolean {

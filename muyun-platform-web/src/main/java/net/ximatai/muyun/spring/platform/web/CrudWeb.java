@@ -79,8 +79,14 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return CrudWebRuntimeSupport.recordScopeBindings(this);
     }
 
-    private StandardModuleWebRuntime requiredStandardModuleWebRuntime() {
-        return CrudWebRuntimeSupport.requiredRuntime(this);
+    /** Business-owned resolvers for opaque, server-authorized page selections. */
+    default PageSelectionContextResolverRegistry pageSelectionContextResolvers() {
+        return new PageSelectionContextResolverRegistry(List.of());
+    }
+
+    /** Additional static bindings contributed by a business selection extension. */
+    default List<PageContextBindingDefinition> pageSelectionContextBindings() {
+        return List.of();
     }
 
     private StandardModuleWebRuntime executionRuntime() {
@@ -158,6 +164,19 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     default FormSchema formSchema(@RequestParam(required = false) String resource,
                                   @RequestParam(required = false) String editorSurface) {
         return webScope(() -> CrudWebRuntimeSupport.formSchema(this, resource, editorSurface));
+    }
+
+    /**
+     * Resolves display defaults for an opaque page selection under CREATE authorization.
+     * The returned values are convenience data for the form only; insert resolves the selection
+     * independently and remains the sole write authority.
+     */
+    @GetMapping("/page-context/form-defaults")
+    @ActionEndpoint(PlatformAction.CREATE)
+    default Map<String, Object> pageContextFormDefaults() {
+        return webScope(() -> PageContextScopePolicy.resolvedSelectionValues(
+                pageSelectionContextBindings(), PageContextTarget.FORM_DEFAULT, webScopeName(),
+                PlatformAction.CREATE, pageSelectionContextResolvers()));
     }
 
     @PostMapping("/query")
@@ -282,7 +301,8 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             requireExecutionPlanAtRequest();
             T record = RecordReadSupport.requireVisible(webScopeName(), id,
                     StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id));
-            PageContextScopePolicy.requireRecordInScope(record, recordScopeBindings());
+            PageContextScopePolicy.requireRecordInScope(record, recordScopeBindings(), webScopeName(),
+                    PlatformAction.VIEW, pageSelectionContextResolvers());
             requireMenuEntryRecord(PlatformAction.VIEW, record);
             return standardWireRecord(WebOutputSupport.record(service(), record,
                     FieldOutputContext.VIEW));
@@ -295,22 +315,26 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     default T insert(@RequestBody T record) {
-        return MutationTenantScopeExecutor.forCreate(this, record, () -> webScope(() -> {
+        java.util.function.Supplier<T> insert = () -> webScope(() -> {
             requireExecutionPlanAtRequest();
             requireMenuEntryAction(PlatformAction.CREATE);
-            PageContextScopePolicy.applyForCreate(record, recordScopeBindings());
-            List<PageContextBindingDefinition> mutationConstraints =
-                    requiresModuleExecutionPlan()
-                            ? requiredStandardModuleWebRuntime().mutationConstraints(webScopeName())
-                            : CrudWebRuntimeSupport.pageContextBindings(this, null, PageContextTarget.MUTATION_CONSTRAINT);
+            PageContextScopePolicy.applyForCreate(record, recordScopeBindings(), webScopeName(),
+                    PlatformAction.CREATE, pageSelectionContextResolvers());
+            List<PageContextBindingDefinition> mutationConstraints = CrudWebRuntimeSupport.mutationConstraints(this);
             if (!mutationConstraints.isEmpty()) {
-                PageContextMutationConstraints.applyForCreate(record, mutationConstraints);
+                PageContextMutationConstraints.applyForCreate(record, mutationConstraints, webScopeName(),
+                        PlatformAction.CREATE, pageSelectionContextResolvers());
             }
             String id = service().insert(record);
             T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
             StandardMutationResultSupport.created(this, id, recordLabel(saved));
             return standardWireRecord(saved);
-        }));
+        });
+        java.util.Optional<CrudWebRuntimeSupport.ResolvedSelectionTenantScope> selectionTenantScope =
+                CrudWebRuntimeSupport.resolvedSelectionTenantScopeForCreate(this);
+        return selectionTenantScope
+                .map(scope -> MutationTenantScopeExecutor.forAuthoritativeTenantScope(scope.tenantId(), insert))
+                .orElseGet(() -> MutationTenantScopeExecutor.forCreate(this, record, insert));
     }
 
     @PostMapping("/update/{id}")
@@ -324,17 +348,17 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             requireMenuEntryAction(PlatformAction.UPDATE);
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.UPDATE, id);
             T existing = service().select(id);
-            PageContextScopePolicy.requireRecordInScope(existing, recordScopeBindings());
-            PageContextScopePolicy.applyForCreate(record, recordScopeBindings());
+            PageContextScopePolicy.requireRecordInScope(existing, recordScopeBindings(), webScopeName(),
+                    PlatformAction.UPDATE, pageSelectionContextResolvers());
+            PageContextScopePolicy.applyForCreate(record, recordScopeBindings(), webScopeName(),
+                    PlatformAction.UPDATE, pageSelectionContextResolvers());
             if (hasActiveMenuEntryPolicy()) {
                 requireMenuEntryRecord(PlatformAction.UPDATE, existing);
             }
-            List<PageContextBindingDefinition> mutationConstraints =
-                    requiresModuleExecutionPlan()
-                            ? requiredStandardModuleWebRuntime().mutationConstraints(webScopeName())
-                            : CrudWebRuntimeSupport.pageContextBindings(this, null, PageContextTarget.MUTATION_CONSTRAINT);
+            List<PageContextBindingDefinition> mutationConstraints = CrudWebRuntimeSupport.mutationConstraints(this);
             if (!mutationConstraints.isEmpty()) {
-                PageContextMutationConstraints.applyForUpdate(record, existing, mutationConstraints);
+                PageContextMutationConstraints.applyForUpdate(record, existing, mutationConstraints, webScopeName(),
+                        PlatformAction.UPDATE, pageSelectionContextResolvers());
             }
             service().update(record);
             T saved = WebOutputSupport.record(service(),
@@ -354,7 +378,8 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             requireMenuEntryAction(PlatformAction.DELETE);
             StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.DELETE, id);
             T existing = service().select(id);
-            PageContextScopePolicy.requireRecordInScope(existing, recordScopeBindings());
+            PageContextScopePolicy.requireRecordInScope(existing, recordScopeBindings(), webScopeName(),
+                    PlatformAction.DELETE, pageSelectionContextResolvers());
             requireMenuEntryRecord(PlatformAction.DELETE, existing);
             return StandardMutationResultSupport.deleted(this, id, recordLabel(existing),
                     () -> service().delete(id, request.version()));

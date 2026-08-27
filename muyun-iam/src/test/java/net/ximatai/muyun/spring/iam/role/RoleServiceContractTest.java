@@ -176,6 +176,79 @@ class RoleServiceContractTest {
     }
 
     @Test
+    void shouldResolveTenantOwnedAccountRoleToItsAuthoritativeBindingScope() {
+        RoleDao roleDao = mock(RoleDao.class);
+        Role tenantRole = accountRole("tenant-account", RoleKind.STANDARD);
+        tenantRole.setTenantId("tenant_a");
+        when(roleDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(tenantRole));
+        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
+
+        assertThat(service.resolveAccountRoleBindingScope("tenant-account", null))
+                .isEqualTo(new RoleService.AccountRoleBindingScope(
+                        "tenant_a", ManagementScopeType.TENANT, "tenant_a"));
+    }
+
+    @Test
+    void shouldRequireAnExplicitTargetTenantForPlatformAccountRoles() {
+        RoleDao roleDao = mock(RoleDao.class);
+        Role platformRole = platformRole("platform-account", RoleAssignmentType.ACCOUNT, RoleKind.STANDARD,
+                RoleSharePolicy.PLATFORM);
+        when(roleDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(platformRole));
+        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
+
+        assertThatThrownBy(() -> service.resolveAccountRoleBindingScope("platform-account", null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("平台角色绑定用户前必须先选择目标租户");
+    }
+
+    @Test
+    void shouldPersistPlatformAccountRoleGrantInTheExplicitTargetTenantScope() {
+        RoleDao roleDao = mock(RoleDao.class);
+        AccountRoleGrantDao accountGrantDao = mock(AccountRoleGrantDao.class);
+        Role platformRole = platformRole("platform-account", RoleAssignmentType.ACCOUNT, RoleKind.STANDARD,
+                RoleSharePolicy.PLATFORM);
+        when(roleDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(platformRole));
+        when(accountGrantDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of());
+        when(accountGrantDao.insert(any(AccountRoleGrant.class))).thenReturn("grant-1");
+        RoleService service = service(roleDao, accountGrantDao,
+                mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
+
+        RoleService.AccountRoleBindingScope scope = service.resolveAccountRoleBindingScope(
+                "platform-account", "tenant_b");
+        assertThat(scope).extracting(RoleService.AccountRoleBindingScope::tenantId,
+                        RoleService.AccountRoleBindingScope::managementScopeType,
+                        RoleService.AccountRoleBindingScope::managementScopeId)
+                .containsExactly("tenant_b", ManagementScopeType.TENANT, "tenant_b");
+        try (TenantContext.Scope ignored = TenantContext.use("tenant_b")) {
+            assertThat(service.grantAccountRoleResult("platform-account", "user-1", "tenant_b").grantId())
+                    .isEqualTo("grant-1");
+        }
+
+        verify(accountGrantDao).insert(argThat(grant ->
+                "platform-account".equals(grant.getRoleId())
+                        && "user-1".equals(grant.getUserId())
+                        && grant.getManagementScopeType() == ManagementScopeType.TENANT
+                        && "tenant_b".equals(grant.getManagementScopeId())
+                        && "tenant_b".equals(grant.getTenantId())));
+    }
+
+    @Test
+    void shouldRejectCandidateResolutionForPlatformPrivateRoles() {
+        RoleDao roleDao = mock(RoleDao.class);
+        Role platformRole = platformRole("platform-private", RoleAssignmentType.ACCOUNT, RoleKind.STANDARD,
+                RoleSharePolicy.PRIVATE);
+        when(roleDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(platformRole));
+        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
+
+        assertThatThrownBy(() -> service.resolveAccountRoleBindingScope("platform-private", "tenant_a"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("租户不能绑定平台私有角色");
+    }
+
+    @Test
     void shouldRejectTenantBindingOfPlatformPrivateRole() {
         RoleDao roleDao = mock(RoleDao.class);
         Role privateRole = platformRole("platform-private", RoleAssignmentType.ACCOUNT, RoleKind.STANDARD,
@@ -802,6 +875,29 @@ class RoleServiceContractTest {
                 .hasFieldOrPropertyWithValue("code", "iam.role.system-managed-mutation-denied");
         verify(accountGrantDao, never()).deleteById(any());
         verify(employmentGrantDao, never()).deleteById(any());
+    }
+
+    @Test
+    void shouldRejectDeletingPlatformRoleGrantOutsideTheSelectedTargetTenant() {
+        RoleDao roleDao = mock(RoleDao.class);
+        AccountRoleGrantDao accountGrantDao = mock(AccountRoleGrantDao.class);
+        Role platformRole = platformRole("platform-account", RoleAssignmentType.ACCOUNT, RoleKind.STANDARD,
+                RoleSharePolicy.PLATFORM);
+        AccountRoleGrant tenantAGrant = accountGrant("platform-account", "user-1",
+                ManagementScopeType.TENANT, "tenant_a");
+        tenantAGrant.setId("grant-1");
+        when(roleDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(platformRole));
+        when(accountGrantDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(tenantAGrant));
+        RoleService service = service(roleDao, accountGrantDao,
+                mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant_b")) {
+            assertThatThrownBy(() -> service.deleteAccountRoleGrant("platform-account", "grant-1", "tenant_b"))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("该账号角色绑定不属于当前管理范围")
+                    .hasFieldOrPropertyWithValue("code", "iam.role.account-grant-scope-mismatch");
+        }
+        verify(accountGrantDao, never()).deleteById(any());
     }
 
     @Test

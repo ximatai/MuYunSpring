@@ -116,6 +116,25 @@ describe('FormulaRuntime FORM_COMPUTE', () => {
   });
 });
 
+describe('FormulaRuntime PAGE_TEXT', () => {
+  it('evaluates only a server-issued string projection against the whitelisted display context', () => {
+    const program = {
+      schemaVersion: 1,
+      profile: 'PAGE_TEXT' as const,
+      root: binary('+', field('selection.label'), value(' · ')),
+      referencedFields: ['selection.label'],
+    };
+
+    expect(runtime.evaluatePageText(program, { 'selection.label': '演示租户' })).toBe('演示租户 · ');
+    expect(
+      runtime.evaluatePageText({ ...program, profile: 'WEB_UI' }, { 'selection.label': '演示租户' }),
+    ).toBeUndefined();
+    expect(
+      runtime.evaluatePageText({ ...program, root: field('tenantId') }, { tenantId: 'hidden' }),
+    ).toBeUndefined();
+  });
+});
+
 function evaluateCompute(
   programValue: FormulaProgram,
   draft: Record<string, unknown>,

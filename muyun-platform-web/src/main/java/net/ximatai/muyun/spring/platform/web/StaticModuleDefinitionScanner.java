@@ -161,6 +161,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .actions(actions(bean, beanClass, capabilities))
                 .entities(entities)
                 .uiDefinition(uiDefinition(bean, module))
+                .pageContextBindings(pageContextBindings(bean))
                 .references(references(bean))
                 .readProjections(readProjections(bean, module.alias()))
                 .modelClass(modelClass)
@@ -243,6 +244,10 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             return List.of();
         }
         return StaticReferenceCompiler.compile(modelClass);
+    }
+
+    private static List<PageContextBindingDefinition> pageContextBindings(Object bean) {
+        return bean instanceof CrudWeb<?, ?> controller ? controller.pageSelectionContextBindings() : List.of();
     }
 
     private List<StaticModuleReadProjectionDefinition> readProjections(Object bean, String moduleAlias) {

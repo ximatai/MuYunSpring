@@ -841,6 +841,59 @@ it('realtime client keeps the API base path, sends bearer header and restores su
   assert.equal(stomp.subscribeCalls, 2);
 });
 
+it('realtime client resolves relative API bases against the page origin', () => {
+  const previousWindow = globalThis.window;
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: { location: { origin: 'https://mr.local' } },
+  });
+
+  try {
+    const brokerUrls = ['/api', 'api', 'https://mr.local/api', undefined].map((baseUrl) => {
+      let brokerURL: string | undefined;
+      createRealtimeClient({
+        baseUrl,
+        clientFactory: (options) => {
+          brokerURL = options.brokerURL;
+          return new FakeStompClient();
+        },
+      });
+      return brokerURL;
+    });
+
+    assert.deepEqual(brokerUrls, [
+      'wss://mr.local/api/ws/platform',
+      'wss://mr.local/api/ws/platform',
+      'wss://mr.local/api/ws/platform',
+      'wss://mr.local/ws/platform',
+    ]);
+  } finally {
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: previousWindow });
+  }
+});
+
+it('realtime client uses ws for an HTTP page origin', () => {
+  const previousWindow = globalThis.window;
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: { location: { origin: 'http://mr.local' } },
+  });
+
+  try {
+    let brokerURL: string | undefined;
+    createRealtimeClient({
+      baseUrl: '/api',
+      clientFactory: (options) => {
+        brokerURL = options.brokerURL;
+        return new FakeStompClient();
+      },
+    });
+    assert.equal(brokerURL, 'ws://mr.local/api/ws/platform');
+  } finally {
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: previousWindow });
+  }
+});
+
 it('realtime client stops reconnecting on authentication errors', async () => {
   const stomp = new FakeStompClient();
   const states: string[] = [];

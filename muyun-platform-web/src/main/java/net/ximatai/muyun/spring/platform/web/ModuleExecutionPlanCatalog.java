@@ -148,9 +148,9 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
             }
             ModuleExecutionPlan plan = new ModuleExecutionPlan(
                     definition.moduleAlias(), versionKey(definition), compilation.uiDescriptor(), compilation.readModel(),
-                    pageContextBindings(definition.uiDefinition()), queryDescriptor(definition),
+                    pageContextBindings(definition), queryDescriptor(definition),
                     QuerySchema.from(queryDescriptor(definition), definition.modelClass()),
-                    mutationConstraints(definition.uiDefinition()), definition.actions(),
+                    mutationConstraints(definition), definition.actions(),
                     definition.supports(EntityCapability.DATA_SCOPE), responseWireFieldTypes(definition),
                     detailRelationWireFieldTypes(definition, compilation.uiDescriptor()));
             listQuerySummaryContributors.validate(plan);
@@ -257,19 +257,23 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
         return target.supports(EntityCapability.TREE) ? ReferencePickerMode.TREE : ReferencePickerMode.LIST;
     }
 
-    private static List<PageContextBindingDefinition> pageContextBindings(ModuleUiDefinition definition) {
-        if (definition == null || definition.page() == null) {
-            return List.of();
+    private static List<PageContextBindingDefinition> pageContextBindings(StaticModuleDefinition definition) {
+        ModuleUiDefinition uiDefinition = definition.uiDefinition();
+        if (uiDefinition == null || uiDefinition.page() == null) {
+            return definition.pageContextBindings();
         }
-        PageNavigatorDefinition navigator = switch (definition.page()) {
+        PageNavigatorDefinition navigator = switch (uiDefinition.page()) {
             case FlatManagementPageDefinition page -> page.navigator();
             case ListDetailCardPageDefinition page -> page.navigator();
             case TreeManagementPageDefinition page -> page.navigator();
         };
-        return navigator == null ? List.of() : navigator.contextBindings();
+        List<PageContextBindingDefinition> bindings = new java.util.ArrayList<>(
+                navigator == null ? List.of() : navigator.contextBindings());
+        definition.pageContextBindings().forEach(binding -> { if (!bindings.contains(binding)) bindings.add(binding); });
+        return List.copyOf(bindings);
     }
 
-    private static List<PageContextBindingDefinition> mutationConstraints(ModuleUiDefinition definition) {
+    private static List<PageContextBindingDefinition> mutationConstraints(StaticModuleDefinition definition) {
         return pageContextBindings(definition).stream()
                 .filter(binding -> binding.target() == PageContextTarget.MUTATION_CONSTRAINT)
                 .toList();

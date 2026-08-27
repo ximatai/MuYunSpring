@@ -1,20 +1,25 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   RecordDetailDrawer,
   handlePlatformActionSuccess,
   presentPlatformError,
 } from '@muyun/platform-components';
 import { UiButton, UiError, UiInput, UiSpin } from '@muyun/vue-ui-antdv';
+import type { UiDataTablePagination } from '@muyun/vue-ui-antdv';
 import type { EmploymentRoleGrant, EmploymentSelectorItem, Role } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
+import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import { createRoleGrantClient } from './roleGrantClient';
 import EmployeeEmploymentTable from './EmployeeEmploymentTable.vue';
 
 defineOptions({ name: 'RoleEmploymentGrantDrawer' });
 const props = defineProps<{
   open: boolean;
-  container: HTMLElement | null;
+  container?: HTMLElement | null;
+  /** Uses the owning platform drawer and renders only this operation's content. */
+  embedded?: boolean;
+  drawerContext?: ModulePageDrawerContext;
   context: ModuleContext<Role>;
   role?: Role;
 }>();
@@ -28,12 +33,24 @@ const selectionInitialized = ref(false);
 const loading = ref(false);
 const saving = ref(false);
 const failed = ref(false);
-const pageNum = ref(0);
+const pageNum = ref(1);
 const total = ref(0);
 const keyword = ref('');
 const roleId = computed(() => props.role?.id);
 const client = computed(() => createRoleGrantClient(props.context.http));
 const title = computed(() => `绑定任职 - ${props.role?.title ?? props.role?.id ?? ''}`);
+const contentContainer = computed(() => (props.embedded ? 'section' : RecordDetailDrawer));
+const contentContainerProps = computed(() =>
+  props.embedded
+    ? {}
+    : {
+        open: props.open,
+        title: title.value,
+        renderMode: props.container ? 'inline' : 'portal',
+        closeTitle: '关闭',
+        onClose: () => !saving.value && emit('close'),
+      },
+);
 const added = computed(() => [...selected.value].filter((id) => !original.value.has(id)));
 const removed = computed(() => [...original.value].filter((id) => !selected.value.has(id)));
 const grantByPosition = computed(
@@ -42,15 +59,19 @@ const grantByPosition = computed(
 const displayRows = computed(() =>
   rows.value.filter((row) => !keyword.value.trim() || rowText(row).includes(keyword.value.trim())),
 );
-const selectedEmployeeCount = computed(
-  () =>
-    new Set(displayRows.value.filter((row) => selected.value.has(row.id)).map((row) => row.employeeId)).size,
-);
 const selectedEmployments = computed(() =>
   [...selected.value].map(
     (employmentId) => employmentsById.value[employmentId] ?? employmentFallback(employmentId),
   ),
 );
+const employmentTablePagination = computed<UiDataTablePagination>(() => ({
+  current: pageNum.value,
+  total: total.value,
+  pageSize: 50,
+  showSizeChanger: false,
+  showQuickJumper: false,
+  onChange: (page) => void load(page),
+}));
 watch(
   () => [props.open, props.role?.id],
   ([open]) => {
@@ -59,7 +80,38 @@ watch(
   },
   { immediate: true },
 );
-async function load(page = 0) {
+watch(
+  [() => props.embedded, () => props.drawerContext, selected, added, removed, saving, loading],
+  configureDrawerPresentation,
+  { immediate: true },
+);
+onBeforeUnmount(() => props.drawerContext?.setOperation(undefined));
+
+function configureDrawerPresentation() {
+  const drawer = props.drawerContext;
+  if (!props.embedded || !drawer) return;
+  drawer.setSubtitle(`角色：${props.role?.title ?? props.role?.id ?? '角色'} · ${scopeTitle(props.role)}`);
+  drawer.setOperation({
+    summary: `已选 ${selected.value.size} 个任职${added.value.length || removed.value.length ? ` · 新增 ${added.value.length} · 移除 ${removed.value.length}` : ''}`,
+    actions: [
+      {
+        key: 'cancel-employment-role-grants',
+        label: '取消',
+        disabled: saving.value,
+        run: () => emit('close'),
+      },
+      {
+        key: 'save-employment-role-grants',
+        label: '确定',
+        emphasis: 'primary',
+        disabled: loading.value || (added.value.length === 0 && removed.value.length === 0),
+        loading: saving.value,
+        run: () => void save(),
+      },
+    ],
+  });
+}
+async function load(page = 1) {
   const id = roleId.value;
   if (!id) return;
   loading.value = true;
@@ -124,7 +176,7 @@ function reset() {
   original.value = new Set();
   selectionInitialized.value = false;
   keyword.value = '';
-  pageNum.value = 0;
+  pageNum.value = 1;
   total.value = 0;
   failed.value = false;
 }
@@ -168,16 +220,20 @@ function selectedEmploymentDescription(employment: EmploymentSelectorItem) {
       .join(' / ') || employment.id
   );
 }
+
+function scopeTitle(role: Role | undefined) {
+  if (role?.ownerScopeType === 'platform') return '平台范围';
+  if (role?.ownerScopeType === 'organization') return '机构范围';
+  return '租户范围';
+}
 </script>
 <template>
-  <RecordDetailDrawer
-    :open="open"
-    :title="title"
-    :render-mode="container ? 'inline' : 'portal'"
-    close-title="关闭"
-    @close="!saving && emit('close')"
+  <component
+    :is="contentContainer"
+    v-bind="contentContainerProps"
+    :class="{ 'role-employment-grant-drawer-surface': embedded }"
   >
-    <template #operation>
+    <template v-if="!embedded" #operation>
       <UiButton :disabled="saving" @click="emit('close')">取消</UiButton>
       <UiButton
         type="primary"
@@ -193,18 +249,21 @@ function selectedEmploymentDescription(employment: EmploymentSelectorItem) {
       <UiError title="任职加载失败" message="无法加载任职授权" /><UiButton @click="load()">重试</UiButton>
     </div>
     <section v-else class="role-employment-grant-body">
-      <p>角色将在所选任职的机构、部门和岗位上下文中生效。展开职员后选择其具体任职。</p>
       <UiInput v-model:value="keyword" allow-clear placeholder="筛选职员、工号、机构、部门或岗位" />
-      <div>
-        已选 {{ selected.size }} 个任职；当前页涉及 {{ selectedEmployeeCount }} 名职员；新增
-        {{ added.length }} 个，移除 {{ removed.length }} 个
-      </div>
-      <section class="role-employment-grant-selected">
+      <EmployeeEmploymentTable
+        v-model:selected-ids="selected"
+        :rows="displayRows"
+        selectable
+        :disabled="saving"
+        :pagination="employmentTablePagination"
+        fill-height
+      />
+      <section v-if="selectedEmployments.length > 0" class="role-employment-grant-selected">
         <div class="role-employment-grant-selected-title">
           <strong>已选任职</strong>
           <span>{{ selectedEmployments.length }} 个</span>
         </div>
-        <div v-if="selectedEmployments.length > 0" class="role-employment-grant-selected-list">
+        <div class="role-employment-grant-selected-list">
           <button
             v-for="employment in selectedEmployments"
             :key="employment.id"
@@ -216,43 +275,33 @@ function selectedEmploymentDescription(employment: EmploymentSelectorItem) {
             <small>{{ selectedEmploymentDescription(employment) }}</small>
           </button>
         </div>
-        <span v-else class="role-employment-grant-selected-empty">暂无已选任职</span>
       </section>
-      <EmployeeEmploymentTable
-        v-model:selected-ids="selected"
-        :rows="displayRows"
-        selectable
-        :disabled="saving"
-      />
-      <div class="role-employment-grant-pagination">
-        <span>共 {{ total }} 个启用任职</span>
-        <UiButton :disabled="loading || pageNum === 0" @click="load(pageNum - 1)">上一页</UiButton>
-        <UiButton :disabled="loading || (pageNum + 1) * 50 >= total" @click="load(pageNum + 1)">
-          下一页
-        </UiButton>
-      </div>
     </section>
-  </RecordDetailDrawer>
+  </component>
 </template>
 <style scoped>
+.role-employment-grant-drawer-surface {
+  height: 100%;
+  min-height: 0;
+}
+
 .role-employment-grant-body {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 12px;
-}
-.role-employment-grant-body p {
-  margin: 0;
-  color: var(--muyun-text-muted);
+  height: 100%;
+  min-height: 0;
 }
 .role-employment-grant-selected {
   display: grid;
   gap: 8px;
+  max-block-size: 168px;
   padding: 10px;
   border: 1px solid var(--muyun-border-subtle);
   border-radius: 8px;
   background: var(--muyun-hover-subtle);
 }
-.role-employment-grant-selected-title,
-.role-employment-grant-pagination {
+.role-employment-grant-selected-title {
   display: flex;
   gap: 8px;
   align-items: center;
@@ -274,6 +323,7 @@ function selectedEmploymentDescription(employment: EmploymentSelectorItem) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  overflow: auto;
 }
 .role-employment-grant-selected-list button {
   display: inline-grid;

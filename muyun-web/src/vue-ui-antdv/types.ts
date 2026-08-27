@@ -14,7 +14,11 @@ export interface UiDataTableColumn {
 
 export interface UiDataTablePagination {
   pageSize: number;
+  current?: number;
+  total?: number;
   showSizeChanger?: boolean;
+  showQuickJumper?: boolean;
+  onChange?: (page: number, pageSize: number) => void;
 }
 
 export interface UiDataTableSelection {
@@ -53,6 +57,8 @@ export type UiTreeNodeAction = UiRecordInlineAction;
 export interface UiTreeNode {
   key: string;
   title: string;
+  /** False keeps the node expandable before its children are loaded. */
+  isLeaf?: boolean;
   disabled?: boolean;
   secondary?: string;
   tag?: string;

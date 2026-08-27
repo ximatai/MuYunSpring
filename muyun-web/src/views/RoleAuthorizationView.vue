@@ -28,7 +28,8 @@ import type {
   RoleDataScopePolicyCatalog,
   RolePermissionAction,
 } from '@muyun/web-contracts';
-import { useModuleContext } from '@muyun/web-core';
+import { useModuleContext, type ModuleContext } from '@muyun/web-core';
+import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import WorkspaceViewDrawer from '../platform-admin-runtime/WorkspaceViewDrawer.vue';
 import { useWorkspaceViewHost } from '../platform-admin-runtime/workspaceViewHost';
 import { useWorkspaceViewPromotion } from '../platform-admin-runtime/useWorkspaceViewPromotion';
@@ -44,14 +45,19 @@ defineOptions({ name: 'RoleAuthorizationView' });
 
 const props = defineProps<{
   roleId?: string;
+  /** Reuses a host-governed module context when this view is mounted as an extension surface. */
+  moduleContext?: ModuleContext<Role>;
   /** Parent page root required when this view is displayed inside a drawer. */
   container?: HTMLElement | null;
   /** A parent management tab owns the initial wide drawer before promotion. */
   drawer?: boolean;
+  /** The action drawer owns the outer title and fixed operation region. */
+  drawerContext?: ModulePageDrawerContext;
 }>();
 const emit = defineEmits<{ close: [] }>();
 
-const roleContext = useModuleContext<Role>({ moduleAlias: 'iam.role' });
+const defaultRoleContext = useModuleContext<Role>({ moduleAlias: 'iam.role' });
+const roleContext = props.moduleContext ?? defaultRoleContext;
 const client = createRoleGrantClient(roleContext.http);
 const roleId = props.roleId ?? new URLSearchParams(window.location.search).get('roleId') ?? '';
 const workspaceViewHost = useWorkspaceViewHost();
@@ -62,6 +68,7 @@ const restoredWorkspaceSession = workspaceInput
 const role = ref<Role>();
 const modules = ref<RoleAuthorizationModule[]>([]);
 const selectedModuleAlias = ref<string>();
+const moduleKeyword = ref('');
 const actions = ref<RolePermissionAction[]>([]);
 const dataGrantMatrix = ref<RoleDataGrantActionMatrix>();
 const dataScopeCatalog = ref<RoleDataScopePolicyCatalog>();
@@ -78,6 +85,7 @@ let disposeWorkspaceHandoffRecipient: (() => void) | undefined;
 const isGroup = computed(() => role.value?.roleKind === 'group');
 const isDataGrant = computed(() => role.value?.roleKind === 'dataGrant');
 const isEmploymentRole = computed(() => role.value?.assignmentType === 'employment');
+const isActionDrawerSurface = computed(() => Boolean(props.drawerContext));
 const roleTitle = computed(() => role.value?.title ?? roleId ?? '角色');
 const workspaceTitle = computed(() => `授权：${roleTitle.value}`);
 const actionPanelTitle = computed(() =>
@@ -86,14 +94,36 @@ const actionPanelTitle = computed(() =>
 const selectedModule = computed(() =>
   modules.value.find((item) => item.moduleAlias === selectedModuleAlias.value),
 );
-const moduleTreeRecords = computed(() =>
-  modules.value.map((module) => ({
-    id: module.moduleAlias,
-    parentId: module.parentId,
-    title: module.title,
-    secondary: module.applicationAlias,
-  })),
-);
+const moduleTreeRecords = computed(() => {
+  const keyword = moduleKeyword.value.trim().toLocaleLowerCase();
+  const visibleAliases = new Set(
+    keyword
+      ? modules.value
+          .filter((module) =>
+            [module.title, module.moduleAlias, module.applicationAlias]
+              .filter((value): value is string => Boolean(value))
+              .some((value) => value.toLocaleLowerCase().includes(keyword)),
+          )
+          .map((module) => module.moduleAlias)
+      : modules.value.map((module) => module.moduleAlias),
+  );
+  const byAlias = new Map(modules.value.map((module) => [module.moduleAlias, module]));
+  for (const moduleAlias of [...visibleAliases]) {
+    let parentId = byAlias.get(moduleAlias)?.parentId;
+    while (parentId && byAlias.has(parentId) && !visibleAliases.has(parentId)) {
+      visibleAliases.add(parentId);
+      parentId = byAlias.get(parentId)?.parentId;
+    }
+  }
+  return modules.value
+    .filter((module) => visibleAliases.has(module.moduleAlias))
+    .map((module) => ({
+      id: module.moduleAlias,
+      parentId: module.parentId,
+      title: module.title,
+      secondary: module.applicationAlias,
+    }));
+});
 const scopeOptions = computed(() =>
   (dataScopeCatalog.value?.options ?? []).map((option) => ({ value: option.code, label: option.title })),
 );
@@ -109,11 +139,14 @@ const referenceDependencyByField = computed(
       (dataScopeCatalog.value?.referenceDependencies ?? []).map((item) => [item.referenceFieldId, item]),
     ),
 );
-const actionColumns: UiDataTableColumn[] = [
-  { key: 'title', title: '动作', width: 130 },
-  { key: 'granted', title: '授权', width: 88, align: 'center' },
-  { key: 'dataScopePolicy', title: '数据范围', width: 160 },
-];
+const supportsDataScope = computed(
+  () => isEmploymentRole.value && actions.value.some((action) => Boolean(action.dataAuth)),
+);
+const actionColumns = computed<UiDataTableColumn[]>(() => [
+  { key: 'title', title: '动作', width: 160 },
+  { key: 'granted', title: '授权', width: 104, align: 'center' },
+  ...(supportsDataScope.value ? [{ key: 'dataScopePolicy', title: '数据范围', width: 200 }] : []),
+]);
 const dataGrantColumns: UiDataTableColumn[] = [
   { key: 'title', title: '标准动作', width: 130 },
   { key: 'configured', title: '启用模板', width: 104, align: 'center' },
@@ -127,8 +160,15 @@ const isDrawerWorkspaceView = computed(
   () => props.drawer === true || (Boolean(workspaceInput) && workspaceViewHost?.presentation === 'drawer'),
 );
 const isWorkspaceView = computed(() => Boolean(workspaceInput));
+const usesStandaloneWorkspaceShell = computed(() => isWorkspaceView.value && !isActionDrawerSurface.value);
 const workspaceContainer = computed(() =>
-  isDrawerWorkspaceView.value ? WorkspaceViewDrawer : isWorkspaceView.value ? RecordDetailPanel : 'div',
+  isActionDrawerSurface.value
+    ? 'div'
+    : isDrawerWorkspaceView.value
+      ? WorkspaceViewDrawer
+      : isWorkspaceView.value
+        ? RecordDetailPanel
+        : 'div',
 );
 const workspaceContainerProps = computed(() =>
   isDrawerWorkspaceView.value
@@ -140,7 +180,7 @@ const workspaceContainerProps = computed(() =>
         promotion: authorizationPromotion.value,
         onClose: dismissWorkspaceView,
       }
-    : isWorkspaceView.value
+    : usesStandaloneWorkspaceShell.value
       ? { title: workspaceTitle.value }
       : {},
 );
@@ -164,6 +204,12 @@ const allActionsGranted = computed(
 const someActionsGranted = computed(
   () => actions.value.some((action) => action.granted) && !allActionsGranted.value,
 );
+const actionOperationSummary = computed(() => {
+  const moduleTitle = selectedModule.value?.title ?? '未选择模块';
+  const grantedCount = actions.value.filter((action) => action.granted).length;
+  const changes = authorizationDirty.value ? '有未确认修改' : '未修改';
+  return `当前模块：${moduleTitle} · 已授权 ${grantedCount}/${actions.value.length} 项 · ${changes}`;
+});
 const authorizationPromotion = useWorkspaceViewPromotion({
   view: roleAuthorizationWorkspaceView,
   input: () => workspaceInput,
@@ -209,12 +255,46 @@ watch(
   { immediate: true },
 );
 watch(selectedModuleAlias, () => void loadActions());
+watch(
+  [roleTitle, actionOperationSummary, authorizationDirty, saving, isGroup, isDataGrant],
+  configureActionDrawerPresentation,
+  { immediate: true },
+);
 
 onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload));
 onBeforeUnmount(() => {
   disposeWorkspaceHandoffRecipient?.();
+  props.drawerContext?.setOperation(undefined);
+  props.drawerContext?.setSubtitle(undefined);
   window.removeEventListener('beforeunload', warnBeforeUnload);
 });
+
+function configureActionDrawerPresentation() {
+  const drawer = props.drawerContext;
+  if (!drawer) return;
+  drawer.setSubtitle(`${roleTitle.value} · ${scopeTitle(role.value)}`);
+  if (isGroup.value) {
+    drawer.setOperation(undefined);
+    return;
+  }
+  drawer.setOperation({
+    summary: isDataGrant.value
+      ? authorizationDirty.value
+        ? '有未确认修改'
+        : '未修改'
+      : actionOperationSummary.value,
+    actions: [
+      {
+        key: 'confirm-role-authorization',
+        label: '确认',
+        emphasis: 'primary',
+        disabled: saving.value || !authorizationDirty.value,
+        loading: saving.value,
+        run: () => void confirmAuthorization(),
+      },
+    ],
+  });
+}
 
 async function load() {
   if (!roleId) {
@@ -463,11 +543,17 @@ function warnBeforeUnload(event: BeforeUnloadEvent) {
   event.preventDefault();
   event.returnValue = '';
 }
+
+function scopeTitle(value: Role | undefined) {
+  if (value?.ownerScopeType === 'platform') return '平台范围';
+  if (value?.ownerScopeType === 'organization') return '机构范围';
+  return '租户范围';
+}
 </script>
 
 <template>
   <component :is="workspaceContainer" v-bind="workspaceContainerProps">
-    <template v-if="isWorkspaceView && !isGroup" #operation>
+    <template v-if="usesStandaloneWorkspaceShell && !isGroup" #operation>
       <UiButton
         type="primary"
         :disabled="!authorizationDirty"
@@ -478,7 +564,10 @@ function warnBeforeUnload(event: BeforeUnloadEvent) {
       </UiButton>
     </template>
     <section
-      :class="['role-authorization-page', { 'role-authorization-page--drawer': isDrawerWorkspaceView }]"
+      :class="[
+        'role-authorization-page',
+        { 'role-authorization-page--drawer': isDrawerWorkspaceView || isActionDrawerSurface },
+      ]"
     >
       <UiSpin v-if="loading" tip="加载授权信息" />
       <UiError v-else-if="error" title="授权页加载失败" :message="error" />
@@ -490,7 +579,7 @@ function warnBeforeUnload(event: BeforeUnloadEvent) {
       <RecordExplorerPanel
         v-else-if="isDataGrant && dataGrantMatrix"
         class="data-grant-content"
-        :title="isWorkspaceView ? '数据权限模板' : `数据权限模板 - ${roleTitle}`"
+        :title="usesStandaloneWorkspaceShell ? '数据权限模板' : `数据权限模板 - ${roleTitle}`"
         :searchable="false"
         @refresh="load"
       >
@@ -533,12 +622,16 @@ function warnBeforeUnload(event: BeforeUnloadEvent) {
           </template>
         </UiDataTable>
       </RecordExplorerPanel>
-      <section v-else class="authorization-layout">
+      <section
+        v-else
+        :class="['authorization-layout', { 'authorization-layout--compact-actions': !supportsDataScope }]"
+      >
         <RecordExplorerPanel
+          v-model:search-keyword="moduleKeyword"
           class="module-panel"
           title="模块树"
           refresh-title="刷新模块目录"
-          :searchable="false"
+          search-placeholder="搜索模块名称或别名"
           @refresh="load"
         >
           <RecordTreeSelector
@@ -634,6 +727,7 @@ function warnBeforeUnload(event: BeforeUnloadEvent) {
 <style scoped>
 .role-authorization-page {
   display: grid;
+  grid-template-rows: minmax(0, 1fr);
   gap: 16px;
   height: 100%;
   min-height: 0;
@@ -666,13 +760,21 @@ small {
 }
 .authorization-layout {
   display: grid;
-  grid-template-columns: minmax(230px, 280px) minmax(640px, 1fr);
+  grid-template-columns: var(--muyun-management-explorer-width, 280px) minmax(0, 1fr);
+  align-items: stretch;
   gap: 16px;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
-.role-authorization-page--drawer .authorization-layout {
-  grid-template-columns: minmax(150px, 180px) minmax(0, 1fr);
+.authorization-layout--compact-actions {
+  grid-template-columns: var(--muyun-management-explorer-width, 280px) minmax(360px, 520px);
+  justify-content: start;
+}
+@media (max-width: 960px) {
+  .authorization-layout--compact-actions {
+    grid-template-columns: minmax(220px, var(--muyun-management-explorer-width, 280px)) minmax(0, 1fr);
+  }
 }
 .module-panel,
 .action-panel,
@@ -686,14 +788,33 @@ small {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
+}
+.module-panel :deep(.record-tree-selector),
+.module-panel :deep(.ant-tree) {
+  min-height: 0;
+}
+.module-panel :deep(.ant-tree) {
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .action-panel {
   min-height: 0;
 }
 .action-panel :deep(.record-explorer-panel-content) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.action-panel :deep(.ui-data-table) {
+  flex: 1 1 auto;
   min-height: 0;
 }
-.action-panel :deep(.record-explorer-panel-content),
+.action-panel :deep(.ant-table-body) {
+  overscroll-behavior: contain;
+}
 .data-grant-content {
   display: grid;
   gap: 16px;

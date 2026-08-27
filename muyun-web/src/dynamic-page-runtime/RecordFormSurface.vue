@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import {
   RecordFormFields,
   type RecordFormFieldDescriptor,
+  type RecordFormFieldState,
   type RecordFormFieldPickerConfig,
   type RecordFormRecord,
   type RecordFormFieldValue,
@@ -57,6 +58,9 @@ const {
   setField(fieldName, value) {
     emit('update:field', fieldName, value);
   },
+  queryRecords(request) {
+    return props.optionContext.crud.query(request);
+  },
 });
 
 function policy(fieldName: string) {
@@ -71,6 +75,12 @@ const fieldNames = computed(() =>
   [...props.fields.keys()].filter(
     (fieldName) => !props.excludeFieldNames?.includes(fieldName) && visible(fieldName, stateSnapshot()),
   ),
+);
+const hiddenFields = computed(() =>
+  [...props.fields.keys()]
+    .filter((fieldName) => !fieldNames.value.includes(fieldName))
+    .map((fieldName) => stateSnapshot().fields.find((field) => field.fieldName === fieldName))
+    .filter((field): field is Readonly<RecordFormFieldState> => field !== undefined),
 );
 
 function imageUploadHintOf(fieldName: string) {
@@ -136,6 +146,15 @@ watch(
         />
       </template>
     </RecordFormFields>
+    <ModulePageFormContributionRenderer
+      v-for="field in hiddenFields"
+      :key="field.fieldName"
+      :contributions="contributionRef"
+      surface="record-card"
+      position="after"
+      :field="field"
+      :context-for="contextFor"
+    />
     <ModulePageFormContributionRenderer
       :contributions="contributionRef"
       surface="record-card"

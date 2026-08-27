@@ -420,7 +420,8 @@ class StaticModuleDefinitionScannerTest {
             assertThat(byAlias.get("iam.role")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("角色管理");
-                assertThat(definition.entryRoute()).isEqualTo("/iam/role");
+                assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
+                assertThat(definition.entryRoute()).isEmpty();
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
                                 "sort", "enable", "disable", "accountRoleGrants", "employmentRoleGrants",

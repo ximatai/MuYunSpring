@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, toRaw, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, toRaw, watch } from 'vue';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
   createQueryScopedTreeModuleContext,
@@ -51,12 +51,14 @@ import type {
   ResolvedFormComputeRuleDescriptor,
   ResolvedModuleUiDescriptor,
   ResolvedPageTreeResourceDescriptor,
+  ResolvedPageTextDescriptor,
   ResolvedPageListRelationExpansionDescriptor,
   ResolvedViewDescriptor,
   RecordInlineAction,
   RouteQueryValue,
 } from '@muyun/web-contracts';
 import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
+import { FormulaRuntime } from '../formula/FormulaRuntime';
 import {
   createModuleContext,
   createReferenceResolveClient,
@@ -84,6 +86,9 @@ import {
   type ModulePageFormContribution,
   type ModulePageFormFieldPolicy,
   type ModulePageNavigatorEnhancement,
+  type ModulePageNavigatorExtensionContext,
+  type ModulePageNavigatorSelection,
+  type ModulePageSelectionPresentation,
   type ModulePageListRowExpansionContext,
   type ModulePageRecordActionContribution,
   type ModulePageWorkspaceView,
@@ -129,11 +134,31 @@ const props = defineProps<{
   descriptor: StandardModulePageDescriptor;
 }>();
 
+const currentUser = useCurrentUserContext();
 const baseContext = useModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
 });
 const disabledStandardActions = ref<readonly string[]>([]);
-const navigatorEntryPolicy = ref<ModulePageNavigatorEnhancement>({});
+// Resolve the module-wide contribution before creating any module transport.
+// A selection-aware page must attach its initial opaque selection even to the
+// first standard runtime request; view-specific contributions still reconcile
+// below once the descriptor is loaded.
+const initialPageEnhancement = resolveModulePageEnhancement(
+  props.descriptor.target.moduleAlias,
+  undefined,
+  props.descriptor.menuId,
+);
+// Enhancements may carry Vue component constructors. Keep this policy shallow so
+// the host observes policy replacement without proxying application-owned components.
+const navigatorEntryPolicy = shallowRef<ModulePageNavigatorEnhancement>(
+  initialPageEnhancement?.navigator ?? {},
+);
+const navigatorExtensionSelection = ref(initialSelectionOf(navigatorEntryPolicy.value.extension?.selection));
+const navigatorExtensionPresentation = ref(
+  initialPresentationOf(navigatorEntryPolicy.value.extension?.selection),
+);
+const resolvedSelectionFormDefaults = ref<Record<string, unknown>>({});
+let resolvedSelectionFormDefaultsRequest: Promise<void> | undefined;
 // TREE_MANAGEMENT may declare a child resource as its main tree.  Keep the
 // page module as the authorization/runtime owner and switch only the standard
 // CRUD/tree transport after the last navigator range is selected.
@@ -142,6 +167,10 @@ const treeReloadKey = ref(0);
 const selectedTreeRecord = ref<QueryListRecord>();
 const moduleRequestPrefix = `/${props.descriptor.target.moduleAlias}`;
 const pageContextHeader = ref<string>();
+const pageSelectionHeader = computed(() => {
+  const selection = navigatorExtensionSelection.value;
+  return selection ? JSON.stringify(selection) : undefined;
+});
 const rawContext = createModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
   http: withHttpHeaders(
@@ -149,8 +178,12 @@ const rawContext = createModuleContext<QueryListRecord>({
     () => ({
       'X-MuYun-Menu-Id': props.descriptor.menuId,
       'X-MuYun-Page-Context': pageContextHeader.value,
+      'X-MuYun-Page-Selection': pageSelectionHeader.value,
     }),
-    (request) => request.path === moduleRequestPrefix || request.path.startsWith(`${moduleRequestPrefix}/`),
+    (request) =>
+      request.path === moduleRequestPrefix ||
+      request.path.startsWith(`${moduleRequestPrefix}/`) ||
+      request.path === `/platform.module/${props.descriptor.target.moduleAlias}/context`,
   ),
 });
 const context: ModuleContext<QueryListRecord> = {
@@ -225,7 +258,6 @@ function treeResourceActionCode(actionCode: string) {
     ? `${resource}_${actionCode}`
     : actionCode;
 }
-const currentUser = useCurrentUserContext();
 const modulePageNavigation = useModulePageNavigation();
 const { presentActionSuccess, runEnhancementAction } = useModulePageActions();
 const detail = useRecordDetailController<QueryListRecord>();
@@ -639,9 +671,7 @@ const treeManagementPage = computed(() => runtimePage.value?.template === 'TREE_
 // TREE_MANAGEMENT keeps the resource detail in its right card even when the page module itself
 // is only the navigator host and the actual tree arrives through a treeResource contribution.
 const persistentTreeDetail = computed(() => treeManagementPage.value || treeModule.value);
-const listDetailMinimumWidth = computed(() =>
-  listDetailWorkspaceMinWidth(visibleNavigatorLevels.value.length),
-);
+const listDetailMinimumWidth = computed(() => listDetailWorkspaceMinWidth(navigatorExplorerCount.value));
 const visibleNavigatorLevels = computed(() =>
   navigatorEntryPolicy.value.hidden
     ? []
@@ -656,6 +686,92 @@ const visibleNavigatorLevels = computed(() =>
         return !autoHidden;
       }),
 );
+const navigatorExtension = computed(() => navigatorEntryPolicy.value.extension);
+const navigatorExplorerCount = computed(
+  () => visibleNavigatorLevels.value.length + (navigatorExtension.value ? 1 : 0),
+);
+const navigatorExtensionContext = computed<ModulePageNavigatorExtensionContext>(() => ({
+  moduleAlias: context.moduleAlias,
+  selectionKey: navigatorExtensionSelection.value?.key,
+  selectSelectionKey: selectNavigatorExtensionSelection,
+  refreshList,
+  reload: reloadModulePage,
+}));
+function initializeNavigatorExtensionSelection(selection: ModulePageNavigatorSelection | undefined) {
+  if (!selection) {
+    navigatorExtensionSelection.value = undefined;
+    navigatorExtensionPresentation.value = undefined;
+    return;
+  }
+  const current = navigatorExtensionSelection.value;
+  if (current?.kind === selection.kind && current.key) return;
+  navigatorExtensionSelection.value = initialSelectionOf(selection);
+  navigatorExtensionPresentation.value = initialPresentationOf(selection);
+}
+function initialSelectionOf(selection: ModulePageNavigatorSelection | undefined) {
+  const key = selection?.initialKey?.(currentUser?.value);
+  return selection && key ? { kind: selection.kind, key } : undefined;
+}
+function initialPresentationOf(selection: ModulePageNavigatorSelection | undefined) {
+  return selection?.initialPresentation?.(currentUser?.value);
+}
+function selectNavigatorExtensionSelection(key: string, presentation?: ModulePageSelectionPresentation) {
+  const selection = navigatorExtension.value?.selection;
+  const normalizedKey = key.trim();
+  if (!selection || !normalizedKey) {
+    throw new Error('导航扩展未声明可信选择或选择键为空');
+  }
+  const current = navigatorExtensionSelection.value;
+  if (current?.kind === selection.kind && current.key === normalizedKey) {
+    navigatorExtensionPresentation.value = presentation;
+    return;
+  }
+  navigatorExtensionSelection.value = { kind: selection.kind, key: normalizedKey };
+  navigatorExtensionPresentation.value = presentation;
+  void loadResolvedSelectionFormDefaults();
+  refreshList();
+}
+async function loadResolvedSelectionFormDefaults() {
+  const selection = navigatorExtensionSelection.value;
+  const hasResolvedSelectionDefaults = pageContextBindings.value.some(
+    (binding) => binding.source === 'RESOLVED_SELECTION' && binding.target === 'FORM_DEFAULT',
+  );
+  if (!selection || !hasResolvedSelectionDefaults) {
+    resolvedSelectionFormDefaults.value = {};
+    return;
+  }
+  const requestedKey = `${selection.kind}:${selection.key}`;
+  let request: Promise<void>;
+  request = context.http
+    .request<Record<string, unknown>>({ path: `${moduleRequestPrefix}/page-context/form-defaults` })
+    .then((defaults) => {
+      const current = navigatorExtensionSelection.value;
+      if (current && `${current.kind}:${current.key}` === requestedKey) {
+        resolvedSelectionFormDefaults.value = defaults ?? {};
+      }
+    })
+    .finally(() => {
+      if (resolvedSelectionFormDefaultsRequest === request) {
+        resolvedSelectionFormDefaultsRequest = undefined;
+      }
+    });
+  resolvedSelectionFormDefaultsRequest = request;
+  return request;
+}
+function pageText(descriptor: ResolvedPageTextDescriptor | undefined): string | undefined {
+  if (!descriptor) return undefined;
+  if (descriptor.text != null) return descriptor.text;
+  return new FormulaRuntime().evaluatePageText(descriptor.program, {
+    'selection.label': navigatorExtensionPresentation.value?.label ?? '',
+    'selection.secondaryLabel': navigatorExtensionPresentation.value?.secondaryLabel ?? '',
+  });
+}
+function navigatorLevelIndex(slotIndex: number) {
+  return navigatorExtension.value ? slotIndex - 1 : slotIndex;
+}
+function navigatorLevelAt(slotIndex: number) {
+  return visibleNavigatorLevels.value[navigatorLevelIndex(slotIndex)];
+}
 function isLockedNavigator(levelKey: string): boolean {
   return navigatorEntryPolicy.value.lockedEntry?.navigatorKey === levelKey;
 }
@@ -703,11 +819,13 @@ const recordLabel = computed(
 );
 const modulePageTitle = computed(
   () =>
+    pageText(runtimePage.value?.list?.title) ??
     runtimePage.value?.treeResource?.title ??
     runtimePage.value?.explorer?.title ??
     props.descriptor.title ??
     recordLabel.value,
 );
+const modulePageSubtitle = computed(() => pageText(runtimePage.value?.list?.subtitle));
 const treePanelTitle = computed(() => runtimePage.value?.treeResource?.title ?? modulePageTitle.value);
 const listSearchPlaceholder = computed(
   () => runtimePage.value?.list?.searchPlaceholder ?? `搜索${recordLabel.value}`,
@@ -780,11 +898,21 @@ watch(
     disposePageEnhancement?.();
     disabledStandardActions.value = enhancement?.standardActions?.disabled ?? [];
     navigatorEntryPolicy.value = enhancement?.navigator ?? {};
+    initializeNavigatorExtensionSelection(navigatorEntryPolicy.value.extension?.selection);
     const dispose = enhancement?.activate?.({ module: context });
     disposePageEnhancement = typeof dispose === 'function' ? dispose : undefined;
   },
   { immediate: true },
 );
+watch(
+  () => currentUser?.value,
+  () => initializeNavigatorExtensionSelection(navigatorEntryPolicy.value.extension?.selection),
+  { immediate: true },
+);
+watch([navigatorExtensionSelection, pageContextBindings], () => void loadResolvedSelectionFormDefaults(), {
+  immediate: true,
+  deep: true,
+});
 const enhancementActionContributions = computed<ModulePageActionContribution[]>(
   () => pageEnhancement.value?.list?.actions ?? [],
 );
@@ -927,6 +1055,7 @@ const pageContextSourceValues = computed(() => ({
     tenantId: currentUser?.value?.tenantId,
     organizationId: currentUser?.value?.organizationId,
   },
+  RESOLVED_SELECTION: resolvedSelectionFormDefaults.value,
 }));
 const emptyNavigatorListScope = computed(() =>
   navigatorEntryPolicy.value.emptyListScope?.({
@@ -2020,8 +2149,9 @@ function applyFormComputeAfterChanges(
   return new FormComputeCoordinator(rules).applyAfterChange(draft, changedFields);
 }
 
-function createRecord(parentId?: string) {
+async function createRecord(parentId?: string) {
   if (context.can('create') !== true) return;
+  await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
   invalidatePendingRequests();
   const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
   // Only a tree's persistent detail card has a meaningful record to restore.
@@ -2386,82 +2516,83 @@ function recordTitle(record: QueryListRecord | undefined) {
       :explorer-searchable="!flatManagementRecycleBin.active.value"
       :mode="editorMode"
       :detail-title="detailTitle"
-      :navigator-count="visibleNavigatorLevels.length"
+      :navigator-count="navigatorExplorerCount"
       @update:explorer-search-keyword="flatManagementSearchKeyword = $event"
       @refresh="flatManagementRecycleBin.refresh"
     >
       <template #navigator="{ index }">
+        <component
+          :is="navigatorExtension.component"
+          v-if="navigatorExtension && index === 0"
+          :context="navigatorExtensionContext"
+        />
         <RecordExplorerPanel
-          v-if="visibleNavigatorLevels[index]"
-          :title="visibleNavigatorLevels[index].descriptor.title"
-          :refresh-title="`刷新${visibleNavigatorLevels[index].descriptor.title}${visibleNavigatorLevels[index].tree ? '树' : '列表'}`"
+          v-else-if="navigatorLevelAt(index)"
+          :title="navigatorLevelAt(index)!.descriptor.title"
+          :refresh-title="`刷新${navigatorLevelAt(index)!.descriptor.title}${navigatorLevelAt(index)!.tree ? '树' : '列表'}`"
           :search-keyword="scopeSearchKeyword"
-          :search-placeholder="visibleNavigatorLevels[index].descriptor.searchPlaceholder"
+          :search-placeholder="navigatorLevelAt(index)!.descriptor.searchPlaceholder"
           @update:search-keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
         >
-          <template v-if="navigatorManagementAvailable(visibleNavigatorLevels[index])" #actions>
+          <template v-if="navigatorManagementAvailable(navigatorLevelAt(index)!)" #actions>
             <ModuleActionButton
-              :context="visibleNavigatorLevels[index].context"
+              :context="navigatorLevelAt(index)!.context"
               action-code="create"
               icon-only
-              :disabled="!navigatorManagementScopeReady(visibleNavigatorLevels[index])"
+              :disabled="!navigatorManagementScopeReady(navigatorLevelAt(index)!)"
               :title="
-                navigatorManagementScopeDisabledReason(visibleNavigatorLevels[index]) ??
-                `新建${visibleNavigatorLevels[index].descriptor.title}`
+                navigatorManagementScopeDisabledReason(navigatorLevelAt(index)!) ??
+                `新建${navigatorLevelAt(index)!.descriptor.title}`
               "
-              @click="createNavigatorRecord(visibleNavigatorLevels[index])"
+              @click="createNavigatorRecord(navigatorLevelAt(index)!)"
             />
           </template>
           <TreeRecordExplorer
-            v-if="visibleNavigatorLevels[index].tree"
-            :context="visibleNavigatorLevels[index].context"
+            v-if="navigatorLevelAt(index)!.tree"
+            :context="navigatorLevelAt(index)!.context"
             :selected-id="
-              selectedNavigatorRecords[visibleNavigatorLevels[index].descriptor.key]?.id == null
+              selectedNavigatorRecords[navigatorLevelAt(index)!.descriptor.key]?.id == null
                 ? undefined
-                : String(selectedNavigatorRecords[visibleNavigatorLevels[index].descriptor.key]?.id)
+                : String(selectedNavigatorRecords[navigatorLevelAt(index)!.descriptor.key]?.id)
             "
-            :reload-key="navigatorReloadKey(visibleNavigatorLevels[index].descriptor.key)"
+            :reload-key="navigatorReloadKey(navigatorLevelAt(index)!.descriptor.key)"
             :keyword="scopeSearchKeyword"
-            :external-query-values="
-              navigatorExplorerQueryValues(visibleNavigatorLevels[index].descriptor.key)
-            "
+            :external-query-values="navigatorExplorerQueryValues(navigatorLevelAt(index)!.descriptor.key)"
             search-mode="none"
-            :empty-description="`暂无${visibleNavigatorLevels[index].descriptor.title}`"
-            :actions-of="(record) => navigatorInlineActions(visibleNavigatorLevels[index], record)"
-            @loaded="handleNavigatorLoaded(visibleNavigatorLevels[index], $event)"
-            @select="selectNavigatorRecord(visibleNavigatorLevels[index].descriptor.key, $event)"
-            @deselect="clearNavigatorRecord(visibleNavigatorLevels[index].descriptor.key)"
+            :empty-description="`暂无${navigatorLevelAt(index)!.descriptor.title}`"
+            :actions-of="(record) => navigatorInlineActions(navigatorLevelAt(index)!, record)"
+            @loaded="handleNavigatorLoaded(navigatorLevelAt(index)!, $event)"
+            @select="selectNavigatorRecord(navigatorLevelAt(index)!.descriptor.key, $event)"
+            @deselect="clearNavigatorRecord(navigatorLevelAt(index)!.descriptor.key)"
             @action="
-              (action, record) => handleNavigatorInlineAction(visibleNavigatorLevels[index], action, record)
+              (action, record) => handleNavigatorInlineAction(navigatorLevelAt(index)!, action, record)
             "
           />
           <CrudRecordListExplorer
             v-else
-            :context="visibleNavigatorLevels[index].context"
+            :context="navigatorLevelAt(index)!.context"
             :selected-id="
-              selectedNavigatorRecords[visibleNavigatorLevels[index].descriptor.key]?.id == null
+              selectedNavigatorRecords[navigatorLevelAt(index)!.descriptor.key]?.id == null
                 ? undefined
-                : String(selectedNavigatorRecords[visibleNavigatorLevels[index].descriptor.key]?.id)
+                : String(selectedNavigatorRecords[navigatorLevelAt(index)!.descriptor.key]?.id)
             "
-            :reload-key="navigatorReloadKey(visibleNavigatorLevels[index].descriptor.key)"
+            :reload-key="navigatorReloadKey(navigatorLevelAt(index)!.descriptor.key)"
             :keyword="scopeSearchKeyword"
-            :external-query-values="
-              navigatorExplorerQueryValues(visibleNavigatorLevels[index].descriptor.key)
-            "
-            :empty-description="`暂无${visibleNavigatorLevels[index].descriptor.title}`"
-            :actions-of="(record) => navigatorInlineActions(visibleNavigatorLevels[index], record)"
-            @loaded="handleNavigatorLoaded(visibleNavigatorLevels[index], $event)"
-            @select="selectNavigatorRecord(visibleNavigatorLevels[index].descriptor.key, $event)"
-            @deselect="clearNavigatorRecord(visibleNavigatorLevels[index].descriptor.key)"
+            :external-query-values="navigatorExplorerQueryValues(navigatorLevelAt(index)!.descriptor.key)"
+            :empty-description="`暂无${navigatorLevelAt(index)!.descriptor.title}`"
+            :actions-of="(record) => navigatorInlineActions(navigatorLevelAt(index)!, record)"
+            @loaded="handleNavigatorLoaded(navigatorLevelAt(index)!, $event)"
+            @select="selectNavigatorRecord(navigatorLevelAt(index)!.descriptor.key, $event)"
+            @deselect="clearNavigatorRecord(navigatorLevelAt(index)!.descriptor.key)"
             @action="
-              (action, record) => handleNavigatorInlineAction(visibleNavigatorLevels[index], action, record)
+              (action, record) => handleNavigatorInlineAction(navigatorLevelAt(index)!, action, record)
             "
           />
           <template #editor>
             <NavigatorManagementEditor
               :open="
-                navigatorManagementLevel?.descriptor.key === visibleNavigatorLevels[index].descriptor.key &&
+                navigatorManagementLevel?.descriptor.key === navigatorLevelAt(index)!.descriptor.key &&
                 navigatorManagementDetail.open.value
               "
               :title="navigatorManagementTitle"
@@ -2473,7 +2604,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               :mode="navigatorManagementDetail.mode.value"
               :form-session-key="navigatorManagementDetail.formSessionKey.value"
               :validation-request-key="navigatorManagementFormValidationRequestKey"
-              :context="visibleNavigatorLevels[index].context"
+              :context="navigatorLevelAt(index)!.context"
               :picker-configs="navigatorManagementPickerConfigs"
               :contributions="navigatorManagementFormContributions"
               :field-policies="navigatorManagementFormFieldPolicies"
@@ -2625,10 +2756,13 @@ function recordTitle(record: QueryListRecord | undefined) {
     <ManagementWorkspace
       v-else-if="listDetailCardPage"
       class="module-list-detail-workspace"
-      :explorer-count="visibleNavigatorLevels.length"
+      :explorer-count="navigatorExplorerCount"
       :detail-surface="!detailSurfaceUsesDrawer"
       :list-surface="detailSurfaceUsesDrawer"
     >
+      <ManagementExplorerColumn v-if="navigatorExtension" :key="navigatorExtension.key">
+        <component :is="navigatorExtension.component" :context="navigatorExtensionContext" />
+      </ManagementExplorerColumn>
       <ManagementExplorerColumn v-for="level in visibleNavigatorLevels" :key="level.descriptor.key">
         <RecordExplorerPanel
           :title="level.descriptor.title"
@@ -2724,7 +2858,8 @@ function recordTitle(record: QueryListRecord | undefined) {
         class="module-list"
         :class="{ 'module-list--row-expansion': listRowExpansionEnabled }"
         :context="context"
-        :title="title"
+        :title="modulePageTitle"
+        :subtitle="modulePageSubtitle"
         :selected-key="selectedRecord?.id"
         :expanded-row-keys="expandedListRowKeys"
         :reload-key="reloadKey"
@@ -2882,8 +3017,11 @@ function recordTitle(record: QueryListRecord | undefined) {
     <ManagementWorkspace
       v-else-if="treeManagementPage || treeModule"
       class="module-tree-workspace"
-      :explorer-count="visibleNavigatorLevels.length + 1"
+      :explorer-count="navigatorExplorerCount + 1"
     >
+      <ManagementExplorerColumn v-if="navigatorExtension" :key="navigatorExtension.key">
+        <component :is="navigatorExtension.component" :context="navigatorExtensionContext" />
+      </ManagementExplorerColumn>
       <ManagementExplorerColumn v-for="level in visibleNavigatorLevels" :key="level.descriptor.key">
         <PageNavigatorExplorer
           :level="level"
@@ -3143,7 +3281,8 @@ function recordTitle(record: QueryListRecord | undefined) {
       class="module-list"
       :class="{ 'module-list--row-expansion': listRowExpansionEnabled }"
       :context="context"
-      :title="title"
+      :title="modulePageTitle"
+      :subtitle="modulePageSubtitle"
       :selected-key="selectedRecord?.id"
       :expanded-row-keys="expandedListRowKeys"
       :reload-key="reloadKey"
@@ -3327,6 +3466,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       v-if="enhancementDrawer"
       :open="enhancementDrawerOpen"
       :title="enhancementDrawer.definition.title"
+      :subtitle="enhancementDrawer.subtitle"
       render-mode="inline"
       :width="enhancementDrawer.definition.width"
       @close="closeEnhancementDrawer"
@@ -3334,6 +3474,12 @@ function recordTitle(record: QueryListRecord | undefined) {
     >
       <template v-if="enhancementDrawer.titleActions.length" #title-actions>
         <DrawerTitleActions :actions="enhancementDrawer.titleActions" />
+      </template>
+      <template v-if="enhancementDrawer.operation?.summary" #operation-summary>
+        {{ enhancementDrawer.operation.summary }}
+      </template>
+      <template v-if="enhancementDrawer.operation" #operation>
+        <DrawerTitleActions :actions="enhancementDrawer.operation.actions" />
       </template>
       <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
     </RecordDetailDrawer>

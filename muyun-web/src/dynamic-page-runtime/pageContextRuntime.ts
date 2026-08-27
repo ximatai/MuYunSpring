@@ -50,7 +50,12 @@ export function resolvePageContextTargetValues(
       (target === 'NAVIGATOR_QUERY' && binding.targetNavigatorLevelKey !== targetNavigatorLevelKey)
     )
       continue;
-    const value = sourceValues[binding.source]?.[binding.sourceKey];
+    // A resolved selection is an opaque browser key. Its server response is a field map, so
+    // consume the declared target field rather than pretending the selection kind is a value.
+    const value =
+      binding.source === 'RESOLVED_SELECTION'
+        ? sourceValues.RESOLVED_SELECTION?.[binding.targetKey]
+        : sourceValues[binding.source]?.[binding.sourceKey];
     if (value != null) values[binding.targetKey] = value;
   }
   return Object.keys(values).length === 0 ? undefined : values;

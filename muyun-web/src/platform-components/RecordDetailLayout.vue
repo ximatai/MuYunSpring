@@ -75,6 +75,9 @@ withDefaults(
     </template>
     <div v-if="$slots.operation" class="record-detail-layout-operation">
       <DrawerOperationBar>
+        <template v-if="$slots['operation-summary']" #summary>
+          <slot name="operation-summary" />
+        </template>
         <slot name="operation" />
       </DrawerOperationBar>
     </div>

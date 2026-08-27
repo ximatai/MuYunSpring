@@ -36,7 +36,7 @@ describe('module page enhancements', () => {
       id: 'customer-default, customer-list',
       target: { moduleAlias: 'crm.customer', viewCode: 'default_list' },
     });
-    expect(registry.resolve('crm.customer', 'other_list')).toBe(fallback);
+    expect(registry.resolve('crm.customer', 'other_list')).toMatchObject(fallback);
     expect(registry.resolve('crm.order')).toBeUndefined();
   });
 
@@ -55,7 +55,7 @@ describe('module page enhancements', () => {
       standardActions: { disabled: ['create'] },
       navigator: { hidden: true, bypassListScope: true },
     });
-    expect(registry.resolve('iam.user', undefined, 'platform.menu.module.iam.user')).toBe(fallback);
+    expect(registry.resolve('iam.user', undefined, 'platform.menu.module.iam.user')).toMatchObject(fallback);
   });
 
   it('composes independent target contributions and rejects duplicate contribution identities', () => {
@@ -172,6 +172,76 @@ describe('module page enhancements', () => {
     ).toThrow('重复的模块页面工作视图类型');
   });
 
+  it('normalizes root record actions into both record surfaces with the same stable anchors', () => {
+    const rootActions = [
+      { key: 'timeline', title: '时间线', run: () => undefined },
+      { key: 'conversation', title: '对话', before: 'timeline', run: () => undefined },
+    ];
+    const single = createModulePageEnhancementRegistry([
+      { id: 'customer-root-actions', target: { moduleAlias: 'crm.customer' }, recordActions: rootActions },
+    ]);
+    const singlePage = single.resolve('crm.customer');
+    expect(singlePage?.list?.rowActions?.map((action) => action.key)).toEqual(['conversation', 'timeline']);
+    expect(singlePage?.detail?.actions?.map((action) => action.key)).toEqual(['conversation', 'timeline']);
+
+    const composite = createModulePageEnhancementRegistry([
+      {
+        id: 'customer-root-timeline',
+        target: { moduleAlias: 'crm.customer' },
+        recordActions: [rootActions[0]],
+      },
+      {
+        id: 'customer-root-conversation',
+        target: { moduleAlias: 'crm.customer' },
+        recordActions: [rootActions[1]],
+      },
+    ]).resolve('crm.customer');
+    expect(composite?.list?.rowActions?.map((action) => action.key)).toEqual(['conversation', 'timeline']);
+    expect(composite?.detail?.actions?.map((action) => action.key)).toEqual(['conversation', 'timeline']);
+  });
+
+  it('rejects record action keys that collide after root and local surfaces are composed', () => {
+    expect(() =>
+      createModulePageEnhancementRegistry([
+        {
+          id: 'root-list-row-action',
+          target: { moduleAlias: 'crm.customer' },
+          recordActions: [{ key: 'timeline', title: '时间线', run: () => undefined }],
+        },
+        {
+          id: 'local-list-row-conflict',
+          target: { moduleAlias: 'crm.customer' },
+          list: { rowActions: [{ key: 'timeline', title: '另一个时间线', run: () => undefined }] },
+        },
+      ]),
+    ).toThrow('同一页面区域存在重复的贡献 key');
+
+    expect(() =>
+      createModulePageEnhancementRegistry([
+        {
+          id: 'root-detail-action',
+          target: { moduleAlias: 'crm.customer' },
+          recordActions: [{ key: 'timeline', title: '时间线', run: () => undefined }],
+        },
+        {
+          id: 'local-detail-conflict',
+          target: { moduleAlias: 'crm.customer' },
+          detail: { actions: [{ key: 'timeline', title: '另一个时间线', run: () => undefined }] },
+        },
+      ]),
+    ).toThrow('同一页面区域存在重复的贡献 key');
+
+    expect(() =>
+      createModulePageEnhancementRegistry([
+        {
+          id: 'root-standard-action-conflict',
+          target: { moduleAlias: 'crm.customer' },
+          recordActions: [{ key: 'view', title: '覆盖查看', run: () => undefined }],
+        },
+      ]),
+    ).toThrow('不能覆盖平台标准动作：view');
+  });
+
   it('retains platform defaults when a consumer configures its legacy contribution set', () => {
     configureModulePageEnhancementContributions('platform-admin-runtime', [platformModulePageEnhancement]);
     configureModulePageEnhancements([
@@ -285,6 +355,47 @@ describe('module page enhancements', () => {
         },
       ]),
     ).toThrow('重复声明记录卡片辅助区域');
+  });
+
+  it('reserves one controlled navigator extension surface for a standard page', () => {
+    const ScopeTree = { template: '<aside>scope tree</aside>' };
+    const registry = createModulePageEnhancementRegistry([
+      {
+        id: 'customer-scope-tree',
+        target: { moduleAlias: 'crm.customer' },
+        navigator: { extension: { key: 'customer-scope-tree', component: ScopeTree } },
+      },
+    ]);
+
+    expect(registry.resolve('crm.customer')?.navigator?.extension).toEqual({
+      key: 'customer-scope-tree',
+      component: ScopeTree,
+    });
+
+    expect(() =>
+      createModulePageEnhancementRegistry([
+        {
+          id: 'first-scope-tree',
+          target: { moduleAlias: 'crm.customer' },
+          navigator: { extension: { key: 'first', component: ScopeTree } },
+        },
+        {
+          id: 'second-scope-tree',
+          target: { moduleAlias: 'crm.customer' },
+          navigator: { extension: { key: 'second', component: ScopeTree } },
+        },
+      ]),
+    ).toThrow('重复声明导航扩展区域');
+
+    expect(() =>
+      createModulePageEnhancementRegistry([
+        {
+          id: 'blank-scope-tree',
+          target: { moduleAlias: 'crm.customer' },
+          navigator: { extension: { key: ' ', component: ScopeTree } },
+        },
+      ]),
+    ).toThrow('导航扩展 key 不能为空');
   });
 
   it('detaches and deeply freezes card record snapshots', () => {

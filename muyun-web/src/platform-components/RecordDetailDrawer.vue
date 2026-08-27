@@ -37,6 +37,7 @@ defineSlots<{
   'title-prefix'(): unknown;
   'title-actions'(): unknown;
   'header-actions'(): unknown;
+  'operation-summary'(): unknown;
   default(): unknown;
   operation(): unknown;
 }>();
@@ -49,6 +50,12 @@ const emit = defineEmits<{
 
 const sidePanelHost = inject(sidePanelHostKey, undefined);
 const hasDrawerContainer = computed(() => props.scope === 'viewport' || Boolean(sidePanelHost?.value));
+const inlineWidth = computed(() => {
+  const requestedWidth = typeof props.width === 'number' ? `${props.width}px` : props.width;
+  // Inline drawers share the workspace's containing block. Reserve a visible
+  // edge so a wide business surface never starts outside that block.
+  return `min(${requestedWidth}, calc(100% - 32px))`;
+});
 
 function handleAfterVisibleChange(visible: boolean) {
   if (!visible) emit('afterClose');
@@ -97,6 +104,9 @@ watch(
         <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="emit('close')" />
       </template>
       <slot />
+      <template v-if="$slots['operation-summary']" #operation-summary>
+        <slot name="operation-summary" />
+      </template>
       <template v-if="$slots.operation" #operation>
         <slot name="operation" />
       </template>
@@ -108,7 +118,7 @@ watch(
     v-else-if="renderMode === 'inline'"
     :open="open"
     placement="right"
-    :width="width"
+    :width="inlineWidth"
     :get-container="false"
     :mask="closeOnOutside"
     :mask-closable="closeOnOutside"
@@ -139,6 +149,9 @@ watch(
         <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="emit('close')" />
       </template>
       <slot />
+      <template v-if="$slots['operation-summary']" #operation-summary>
+        <slot name="operation-summary" />
+      </template>
       <template v-if="$slots.operation" #operation><slot name="operation" /></template>
     </RecordDetailLayout>
   </ADrawer>

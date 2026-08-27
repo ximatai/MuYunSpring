@@ -6,6 +6,7 @@ import type {
   ModulePageDrawer,
   ModulePageDrawerAction,
   ModulePageDrawerContext,
+  ModulePageDrawerOperation,
   ModulePageRecordViewContext,
   ModulePageScopeContext,
 } from '../modulePageEnhancements';
@@ -14,6 +15,8 @@ export interface ModulePageEnhancementDrawerRuntime {
   definition: ModulePageDrawer;
   context: ModulePageDrawerContext;
   titleActions: ModulePageDrawerAction[];
+  operation?: ModulePageDrawerOperation;
+  subtitle?: string;
   closeBlocked: boolean;
 }
 
@@ -64,6 +67,8 @@ export function useModulePageDetailExtensionRuntime(options: Options) {
       // of that runtime: proxying it makes dynamic drawer mounting unstable.
       definition: { ...definition, component: markRaw(definition.component) },
       titleActions: [] as ModulePageDrawerAction[],
+      operation: undefined as ModulePageDrawerOperation | undefined,
+      subtitle: undefined as string | undefined,
       closeBlocked: false,
       context: undefined as unknown as ModulePageDrawerContext,
     };
@@ -85,6 +90,18 @@ export function useModulePageDetailExtensionRuntime(options: Options) {
         const activeDrawer = drawer.value;
         if (activeDrawer && toRaw(activeDrawer.context) === drawerContext) {
           activeDrawer.titleActions = actions;
+        }
+      },
+      setOperation(operation) {
+        const activeDrawer = drawer.value;
+        if (activeDrawer && toRaw(activeDrawer.context) === drawerContext) {
+          activeDrawer.operation = operation;
+        }
+      },
+      setSubtitle(subtitle) {
+        const activeDrawer = drawer.value;
+        if (activeDrawer && toRaw(activeDrawer.context) === drawerContext) {
+          activeDrawer.subtitle = subtitle;
         }
       },
     };

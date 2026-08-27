@@ -13,6 +13,9 @@ import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.web.MuYunSpringJacksonConfiguration;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
+import net.ximatai.muyun.spring.platform.web.PageContextValue;
+import net.ximatai.muyun.spring.platform.web.PageSelectionContextRequest;
+import net.ximatai.muyun.spring.platform.web.ResolvedPageSelectionContext;
 import net.ximatai.muyun.spring.platform.web.MenuEntryRequestContext;
 import net.ximatai.muyun.spring.platform.web.MenuEntryRequestInterceptor;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
@@ -21,19 +24,27 @@ import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler;
+import net.ximatai.muyun.spring.platform.web.ActionEndpointContextResolver;
+import net.ximatai.muyun.spring.platform.web.ActionEndpointInterceptor;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import net.ximatai.muyun.spring.web.WebPageResponse;
+import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import net.ximatai.muyun.spring.platform.web.endpoint.StaticAbilityWebEndpointRegistrar;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.department.Department;
@@ -95,10 +106,13 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -280,6 +294,24 @@ class IamWebControllerTest {
         PositionWebController positionController = new PositionWebController();
         UserAccountWebController userAccountController = new UserAccountWebController();
         RoleWebController roleController = new RoleWebController(grantableActionResolver);
+        RoleScopePageSelectionResolver roleScopeResolver = mock(RoleScopePageSelectionResolver.class);
+        when(roleScopeResolver.selectionKind()).thenReturn(RoleScopePageSelectionResolver.SELECTION_KIND);
+        when(roleScopeResolver.resolve(any(PageSelectionContextRequest.class))).thenAnswer(invocation -> {
+            PageSelectionContextRequest selection = invocation.getArgument(0);
+            String key = selection.selectionKey();
+            RoleOwnerScopeType type = key.equals("platform") ? RoleOwnerScopeType.PLATFORM
+                    : key.startsWith("organization:") ? RoleOwnerScopeType.ORGANIZATION : RoleOwnerScopeType.TENANT;
+            String scopeId = type == RoleOwnerScopeType.PLATFORM ? null
+                    : key.substring(key.indexOf(':') + 1);
+            String tenantId = type == RoleOwnerScopeType.PLATFORM ? null
+                    : type == RoleOwnerScopeType.TENANT ? scopeId : "demo";
+            return new ResolvedPageSelectionContext(RoleScopePageSelectionResolver.SELECTION_KIND, key, Map.of(
+                    "ownerScopeType", PageContextValue.of(type),
+                    "ownerScopeId", PageContextValue.of(scopeId),
+                    "ownerScopeKey", PageContextValue.of(key),
+                    "tenantId", PageContextValue.of(tenantId)
+            ));
+        });
         ReflectionTestUtils.setField(tenantController, "service", tenantService);
         ReflectionTestUtils.setField(tenantController, "standardModuleWebRuntime", tenantRuntime(tenantController));
         ReflectionTestUtils.setField(organizationController, "service", organizationService);
@@ -288,6 +320,7 @@ class IamWebControllerTest {
         ReflectionTestUtils.setField(userAccountController, "service", userAccountService);
         ReflectionTestUtils.setField(userAccountController, "standardModuleWebRuntime", userRuntime(userAccountController));
         ReflectionTestUtils.setField(roleController, "service", roleService);
+        roleController.setRoleScopeSelectionResolver(roleScopeResolver);
         mvc = MockMvcBuilders
                 .standaloneSetup(
                         tenantController,
@@ -712,6 +745,7 @@ class IamWebControllerTest {
         when(roleService.select("role-1")).thenReturn(saved);
 
         mvc.perform(post("/iam.role/insert")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("tenant:tenant_a"))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -743,6 +777,7 @@ class IamWebControllerTest {
         when(roleService.select("role-1")).thenReturn(saved);
 
         mvc.perform(post("/iam.role/insert")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("organization:demo_org"))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -758,6 +793,91 @@ class IamWebControllerTest {
     }
 
     @Test
+    void shouldCreateRoleThroughActualSelectionResolverAfterActionInterceptorAuthorizesRequest() throws Exception {
+        currentUser = CurrentUser.systemUser("admin", "Admin");
+        TenantService scopedTenantService = mock(TenantService.class);
+        OrganizationService scopedOrganizationService = mock(OrganizationService.class);
+        Tenant tenant = new Tenant();
+        tenant.setId("demo");
+        tenant.setEnabled(true);
+        when(scopedTenantService.requireActiveTenant("demo")).thenReturn(tenant);
+        Organization organization = new Organization();
+        organization.setId("demo_org");
+        organization.setTenantId("demo");
+        organization.setEnabled(true);
+        when(scopedOrganizationService.requireEnabled("demo_org", "role owner organization is not active: demo_org"))
+                .thenReturn(organization);
+
+        Role saved = tenantScopedRole("role-1", "demo");
+        when(roleService.insert(any())).thenAnswer(invocation -> {
+            Role incoming = invocation.getArgument(0);
+            assertThat(incoming.getTenantId()).isEqualTo("demo");
+            assertThat(incoming.getOwnerScopeType()).isEqualTo(RoleOwnerScopeType.ORGANIZATION);
+            assertThat(incoming.getOwnerScopeId()).isEqualTo("demo_org");
+            assertThat(incoming.getOwnerScopeKey()).isEqualTo("organization:demo_org");
+            return "role-1";
+        });
+        when(roleService.select("role-1")).thenReturn(saved);
+        MockMvc securedMvc = securedRoleMvc(scopedTenantService, scopedOrganizationService);
+
+        securedMvc.perform(post("/iam.role/insert")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("organization:demo_org"))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "tenantId":"forged",
+                                  "title":"Organization Role",
+                                  "ownerScopeType":"platform",
+                                  "ownerScopeId":"forged"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value("role-1"));
+    }
+
+    @Test
+    void shouldRejectRoleCreateWithoutTrustedSelectionAfterActionInterceptorAuthorizesRequest() throws Exception {
+        currentUser = CurrentUser.systemUser("admin", "Admin");
+
+        securedRoleMvc(mock(TenantService.class), mock(OrganizationService.class))
+                .perform(post("/iam.role/insert")
+                        .contentType("application/json")
+                        .content("""
+                                {"tenantId":"forged","title":"Organization Role","ownerScopeType":"platform"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(roleService, never()).insert(any());
+    }
+
+    @Test
+    void shouldRejectRoleCreateWhenTheAuthorizedActionContextNoLongerMatchesSelectionRequest() throws Exception {
+        currentUser = CurrentUser.systemUser("admin", "Admin");
+        HandlerInterceptor mismatchedActionContext = new HandlerInterceptor() {
+            @Override
+            public boolean preHandle(jakarta.servlet.http.HttpServletRequest request,
+                                     jakarta.servlet.http.HttpServletResponse response,
+                                     Object handler) {
+                ActionExecutionContext context = ActionExecutionContext.ofPlatformAction(RoleService.MODULE_ALIAS,
+                        PlatformAction.VIEW, Set.of(), Optional.of(currentUser));
+                ActionExecutionContextHolder.use(context.withAuthorizationResult(ActionAuthorizationResult.allowed(context)));
+                return true;
+            }
+        };
+
+        securedRoleMvc(mock(TenantService.class), mock(OrganizationService.class), mismatchedActionContext)
+                .perform(post("/iam.role/insert")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("organization:demo_org"))
+                        .contentType("application/json")
+                        .content("""
+                                {"title":"Organization Role"}
+                                """))
+                .andExpect(status().isForbidden());
+
+        verify(roleService, never()).insert(any());
+    }
+
+    @Test
     void shouldDeleteTenantScopedRoleUnderResolvedExistingRecordTenantForSystemUser() throws Exception {
         currentUser = CurrentUser.systemUser("admin", "Admin");
         Role existing = new Role();
@@ -766,6 +886,7 @@ class IamWebControllerTest {
         existing.setTitle("Organization Role");
         existing.setOwnerScopeType(RoleOwnerScopeType.ORGANIZATION);
         existing.setOwnerScopeId("demo_org");
+        existing.setOwnerScopeKey("organization:demo_org");
         when(roleService.select("role-1")).thenReturn(existing);
         when(roleService.delete("role-1", 0)).thenAnswer(invocation -> {
             assertThat(TenantContext.currentTenantId()).contains("demo");
@@ -773,6 +894,7 @@ class IamWebControllerTest {
         });
 
         mvc.perform(post("/iam.role/delete/{id}", "role-1")
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("organization:demo_org"))
                         .contentType("application/json")
                         .content("{\"version\":0}"))
                 .andExpect(status().isOk())
@@ -783,15 +905,18 @@ class IamWebControllerTest {
     void shouldSortTenantScopedRoleUnderResolvedExistingRecordTenantForSystemUser() throws Exception {
         currentUser = CurrentUser.systemUser("admin", "Admin");
         Role existing = tenantScopedRole("role-1", "demo");
+        Role previous = tenantScopedRole("role-0", "demo");
         when(roleService.select("role-1")).thenReturn(existing);
+        when(roleService.select("role-0")).thenReturn(previous);
         doAnswer(invocation -> {
             assertThat(TenantContext.currentTenantId()).contains("demo");
             return null;
         }).when(roleService).moveAfter("role-1", "role-0");
 
         mvc.perform(post("/iam.role/sort/{id}", "role-1")
-                        .contentType("application/json")
-                        .content("""
+                        .header("X-MuYun-Page-Selection", roleScopeHeader("tenant:demo"))
+                .contentType("application/json")
+                .content("""
                                 {"previousId":"role-0"}
                                 """))
                 .andExpect(status().isOk())
@@ -986,11 +1111,13 @@ class IamWebControllerTest {
         currentUser = CurrentUser.tenantUser("user-1", "User", "tenant_a");
         AccountRoleGrant accountGrant = accountRoleGrant("grant-1", "role-1", "user-2",
                 ManagementScopeType.TENANT, "tenant_a");
+        when(roleService.resolveAccountRoleBindingScope("role-1", "tenant_a"))
+                .thenReturn(new RoleService.AccountRoleBindingScope("tenant_a", ManagementScopeType.TENANT, "tenant_a"));
         EmploymentRoleGrant employmentGrant = employmentRoleGrant("grant-2", "role-2", "position-1");
-        when(roleService.grantAccountRoleResult("role-1", "user-2", ManagementScopeType.TENANT, "tenant_a"))
+        when(roleService.grantAccountRoleResult("role-1", "user-2", "tenant_a"))
                 .thenReturn(new RoleService.RoleGrantMutationResult("grant-1", true));
-        when(roleService.accountRoleGrants("role-1")).thenReturn(List.of(accountGrant));
-        when(roleService.deleteAccountRoleGrant("role-1", "grant-1")).thenReturn(1);
+        when(roleService.accountRoleGrants("role-1", "tenant_a")).thenReturn(List.of(accountGrant));
+        when(roleService.deleteAccountRoleGrant("role-1", "grant-1", "tenant_a")).thenReturn(1);
         when(roleService.grantEmploymentRoleResult("role-2", "position-1"))
                 .thenReturn(new RoleService.RoleGrantMutationResult("grant-2", true));
         when(roleService.employmentRoleGrants("role-2")).thenReturn(List.of(employmentGrant));
@@ -1003,16 +1130,18 @@ class IamWebControllerTest {
         mvc.perform(post("/iam.role/{roleId}/account-grants", "role-1")
                         .contentType("application/json")
                         .content("""
-                                {"userId":"user-2","managementScopeType":"tenant","managementScopeId":"tenant_a"}
+                                {"userId":"user-2","targetTenantId":"tenant_a"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value("grant-1"));
-        mvc.perform(get("/iam.role/{roleId}/account-grants", "role-1"))
+        mvc.perform(get("/iam.role/{roleId}/account-grants", "role-1")
+                        .param("targetTenantId", "tenant_a"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("grant-1"))
                 .andExpect(jsonPath("$[0].userId").value("user-2"))
                 .andExpect(jsonPath("$[0].managementScopeType").value("tenant"));
-        mvc.perform(post("/iam.role/{roleId}/account-grants/{grantId}/delete", "role-1", "grant-1"))
+        mvc.perform(post("/iam.role/{roleId}/account-grants/{grantId}/delete", "role-1", "grant-1")
+                        .param("targetTenantId", "tenant_a"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(1));
         mvc.perform(post("/iam.role/{roleId}/employment-grants", "role-2")
@@ -1051,16 +1180,41 @@ class IamWebControllerTest {
     }
 
     @Test
+    void shouldQueryAccountRoleCandidatesThroughTheRoleRecordScope() {
+        RoleWebController controller = new RoleWebController(grantableActionResolver);
+        RoleAccountCandidateQueryService candidateQueryService = mock(RoleAccountCandidateQueryService.class);
+        ReflectionTestUtils.setField(controller, "service", roleService);
+        controller.setRoleAccountCandidateQueryService(candidateQueryService);
+        Role role = tenantScopedRole("role-1", "tenant_a");
+        UserSelectorItem user = new UserSelectorItem(
+                "user-1", "alice", null, null, null, null, null, null, null);
+        when(roleService.select("role-1")).thenReturn(role);
+        when(roleService.resolveAccountRoleBindingScope("role-1", "tenant_a"))
+                .thenReturn(new RoleService.AccountRoleBindingScope("tenant_a", ManagementScopeType.TENANT, "tenant_a"));
+        when(candidateQueryService.query("alice", WebPageRequest.DEFAULT))
+                .thenReturn(new WebPageResponse<>(List.of(user), 1, 0, 20, 1, true, null));
+
+        WebPageResponse<UserSelectorItem> response = controller.accountRoleCandidates(
+                "role-1", new RoleWebController.AccountRoleCandidateRequest("tenant_a", "alice", null));
+
+        assertThat(response.records()).containsExactly(user);
+        verify(roleService).resolveAccountRoleBindingScope("role-1", "tenant_a");
+        verify(candidateQueryService).query("alice", WebPageRequest.DEFAULT);
+    }
+
+    @Test
     void shouldReturnActionMessageWhenRoleGrantBusinessRuleFails() throws Exception {
         currentUser = CurrentUser.tenantUser("user-1", "User", "tenant_a");
-        when(roleService.grantAccountRoleResult("role-1", "user-2", ManagementScopeType.TENANT, "tenant_a"))
+        when(roleService.resolveAccountRoleBindingScope("role-1", "tenant_a"))
+                .thenReturn(new RoleService.AccountRoleBindingScope("tenant_a", ManagementScopeType.TENANT, "tenant_a"));
+        when(roleService.grantAccountRoleResult("role-1", "user-2", "tenant_a"))
                 .thenThrow(new BusinessException("iam.role.not-account-role",
                         "role is not account role: role-1"));
 
         mvc.perform(post("/iam.role/{roleId}/account-grants", "role-1")
                         .contentType("application/json")
                         .content("""
-                                {"userId":"user-2","managementScopeType":"tenant","managementScopeId":"tenant_a"}
+                                {"userId":"user-2","targetTenantId":"tenant_a"}
                                 """))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("iam.role.not-account-role"))
@@ -1628,6 +1782,7 @@ class IamWebControllerTest {
         role.setTitle("Tenant Role");
         role.setOwnerScopeType(RoleOwnerScopeType.TENANT);
         role.setOwnerScopeId(tenantId);
+        role.setOwnerScopeKey("tenant:" + tenantId);
         role.setEnabled(Boolean.TRUE);
         role.setSortOrder(1);
         return role;
@@ -1803,5 +1958,28 @@ class IamWebControllerTest {
 
     private String json(Object value) throws Exception {
         return objectMapper.writeValueAsString(value);
+    }
+
+    private MockMvc securedRoleMvc(TenantService scopedTenantService,
+                                   OrganizationService scopedOrganizationService,
+                                   HandlerInterceptor... additionalInterceptors) {
+        RoleWebController controller = new RoleWebController(grantableActionResolver);
+        ReflectionTestUtils.setField(controller, "service", roleService);
+        controller.setRoleScopeSelectionResolver(new RoleScopePageSelectionResolver(
+                scopedTenantService, scopedOrganizationService));
+        var builder = MockMvcBuilders.standaloneSetup(controller)
+                .addInterceptors(new ActionEndpointInterceptor(new AllowAllActionExecutionPolicyService(),
+                        new ActionEndpointContextResolver()))
+                .addFilters(new CurrentUserWebFilter(() -> Optional.ofNullable(currentUser)))
+                .setControllerAdvice(new PlatformWebExceptionHandler())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper));
+        if (additionalInterceptors != null && additionalInterceptors.length > 0) {
+            builder.addInterceptors(additionalInterceptors);
+        }
+        return builder.build();
+    }
+
+    private static String roleScopeHeader(String key) {
+        return "{\"kind\":\"roleScope\",\"key\":\"" + key + "\"}";
     }
 }

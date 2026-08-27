@@ -4,7 +4,9 @@ import type {
   PageDescriptor,
   PageLayoutMode,
   RouteQueryValue,
+  WebPageResponse,
   WebQueryCondition,
+  WebQueryRequest,
 } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import type {
@@ -15,6 +17,7 @@ import type {
   QueryListRecord,
 } from '@muyun/platform-components';
 import type { DrawerTitleAction } from '@muyun/platform-components';
+import { mergeRecordActions } from '@muyun/platform-components';
 
 /**
  * Frontend-owned, constrained composition for a descriptor-driven module page.
@@ -33,6 +36,13 @@ export interface ModulePageEnhancement {
    */
   activate?(context: ModulePageEnhancementActivationContext): void | (() => void);
   list?: ModuleListEnhancement;
+  /**
+   * Business record actions shown by default in both the list-row "more"
+   * menu and the standard detail drawer operation area. Use the surface-local
+   * `list.rowActions` or `detail.actions` only when an action is intentionally
+   * limited to one presentation.
+   */
+  recordActions?: ModulePageRecordActionContribution[];
   detail?: ModuleDetailEnhancement;
   /**
    * Frontend-owned editor content mounted at a typed standard-form boundary.
@@ -63,6 +73,15 @@ export interface ModulePageStandardActionsEnhancement {
 export interface ModulePageNavigatorEnhancement {
   /** Hides descriptor navigators when this entry is not navigated by their business scope. */
   hidden?: boolean;
+  /**
+   * One application-owned navigator surface mounted beside descriptor navigators.
+   *
+   * This is intentionally a single region: the page runner retains layout,
+   * record querying and mutation ownership. An extension may render an
+   * authorized business range selector, but it cannot replace the standard
+   * list or declare executable page context.
+   */
+  extension?: ModulePageNavigatorExtension;
   /** Declares one navigator as an entry-owned, immutable page context. */
   lockedEntry?: ModulePageLockedNavigatorEntry;
   /** Allows the standard list to load without navigator-derived list criteria. */
@@ -72,6 +91,51 @@ export interface ModulePageNavigatorEnhancement {
    * navigator rendering and request lifecycle; this hook contributes only typed list conditions.
    */
   emptyListScope?(context: ModulePageEmptyNavigatorScopeContext): readonly WebQueryCondition[] | undefined;
+}
+
+export interface ModulePageNavigatorExtension {
+  key: string;
+  /** Frontend-owned component; backend descriptors never select a component. */
+  component: Component;
+  /**
+   * Optional opaque selection channel owned by the standard page host.
+   *
+   * A navigator extension may select only a declared `key`; the host serializes
+   * the `{ kind, key }` pair into its controlled request header. Extensions
+   * never receive a mutable query map or mutation payload.
+   */
+  selection?: ModulePageNavigatorSelection;
+}
+
+export interface ModulePageNavigatorSelection {
+  /** Server-registered resolver kind, not a business field name. */
+  kind: string;
+  /** Resolves the first trusted selection before the standard page starts its requests. */
+  initialKey?(currentUser?: CurrentUser): string | undefined;
+  /** Presentation-only copy for the initial trusted selection. It is never sent to the server. */
+  initialPresentation?(currentUser?: CurrentUser): ModulePageSelectionPresentation | undefined;
+}
+
+/** The only display facts a navigator extension may contribute to PAGE_TEXT. */
+export interface ModulePageSelectionPresentation {
+  label: string;
+  secondaryLabel?: string;
+}
+
+/** Deliberately small host context for one navigator extension surface. */
+export interface ModulePageNavigatorExtensionContext {
+  moduleAlias: string;
+  /** Current opaque selection key, if this extension declared a selection channel. */
+  selectionKey?: string;
+  /**
+   * Replaces the extension's opaque selection key and reloads the standard
+   * list. The host owns header serialization and every CRUD request.
+   */
+  selectSelectionKey(key: string, presentation?: ModulePageSelectionPresentation): void;
+  /** Reloads only the standard list while retaining the platform-owned query state. */
+  refreshList(): void;
+  /** Reloads the page's standard record surfaces. */
+  reload(): void;
 }
 
 export interface ModulePageLockedNavigatorEntry {
@@ -178,6 +242,8 @@ export interface ModulePageFormContributionContext {
   fields: readonly Readonly<RecordFormFieldState>[];
   /** The field at a field-boundary location, otherwise undefined. */
   field?: Readonly<RecordFormFieldState>;
+  /** Read-only query through the host-owned module context and page scope. */
+  queryRecords(request?: WebQueryRequest): Promise<WebPageResponse<QueryListRecord>>;
   setField(fieldName: string, value: RecordFormFieldValue): void;
   formSessionKey: number;
   /** Reports only this contribution's validation fact to the standard save boundary. */
@@ -330,6 +396,12 @@ export interface ModulePageDrawer {
 /** A business-owned action rendered by the platform in a semantic drawer region. */
 export type ModulePageDrawerAction = DrawerTitleAction;
 
+/** Facts rendered by the platform-owned fixed operation region of an action drawer. */
+export interface ModulePageDrawerOperation {
+  summary?: string;
+  actions: ModulePageDrawerAction[];
+}
+
 /** Matches the Workbench input boundary; `parse` remains responsible for route-value validation. */
 export type ModulePageWorkspaceViewInput = object;
 
@@ -362,6 +434,10 @@ export interface ModulePageDrawerContext {
   reload(): void;
   /** Replaces contextual actions beside the drawer title; actions are cleared with the drawer. */
   setTitleActions(actions: ModulePageDrawerAction[]): void;
+  /** Replaces the fixed operation-region facts; the host owns their position and responsive layout. */
+  setOperation(operation?: ModulePageDrawerOperation): void;
+  /** Replaces the presentation-only subtitle below the platform-owned drawer title. */
+  setSubtitle(subtitle?: string): void;
 }
 
 /**
@@ -547,7 +623,6 @@ function composeModulePageEnhancements(
   enhancements: readonly ModulePageEnhancement[],
   target: ModulePageEnhancementTarget,
 ): ModulePageEnhancement {
-  if (enhancements.length === 1) return enhancements[0];
   const actionColumnWidths = enhancements
     .map((enhancement) => enhancement.list?.actionColumnWidth)
     .filter((width): width is string | number => width !== undefined);
@@ -580,6 +655,14 @@ function composeModulePageEnhancements(
       `模块页面增强目标 ${targetKey(target.moduleAlias, target.viewCode)} 重复声明记录卡片辅助区域`,
     );
   }
+  const navigatorExtensions = enhancements
+    .map((enhancement) => enhancement.navigator?.extension)
+    .filter((extension): extension is ModulePageNavigatorExtension => extension !== undefined);
+  if (navigatorExtensions.length > 1) {
+    throw new Error(
+      `模块页面增强目标 ${targetKey(target.moduleAlias, target.viewCode)} 重复声明导航扩展区域`,
+    );
+  }
   const list = composeListEnhancement(enhancements, actionColumnWidths[0], rowExpansions[0]);
   const detail = composeDetailEnhancement(enhancements);
   const form = composeFormEnhancement(enhancements);
@@ -592,6 +675,7 @@ function composeModulePageEnhancements(
       if (!contribution) return resolved;
       return {
         hidden: resolved?.hidden || contribution.hidden,
+        extension: contribution.extension ?? resolved?.extension,
         lockedEntry: contribution.lockedEntry ?? resolved?.lockedEntry,
         bypassListScope: resolved?.bypassListScope || contribution.bypassListScope,
         emptyListScope: contribution.emptyListScope ?? resolved?.emptyListScope,
@@ -658,7 +742,7 @@ function composeListEnhancement(
     actions: enhancements.flatMap((enhancement) => enhancement.list?.actions ?? []),
     columns: enhancements.flatMap((enhancement) => enhancement.list?.columns ?? []),
     cellComponents: enhancements.flatMap((enhancement) => enhancement.list?.cellComponents ?? []),
-    rowActions: enhancements.flatMap((enhancement) => enhancement.list?.rowActions ?? []),
+    rowActions: composeRecordActions(enhancements, (enhancement) => enhancement.list?.rowActions),
     batchActions: enhancements.flatMap((enhancement) => enhancement.list?.batchActions ?? []),
     ...(rowExpansion === undefined ? {} : { rowExpansion }),
     ...(actionColumnWidth === undefined ? {} : { actionColumnWidth }),
@@ -672,10 +756,28 @@ function composeDetailEnhancement(
   enhancements: readonly ModulePageEnhancement[],
 ): ModuleDetailEnhancement | undefined {
   const detail = {
-    actions: enhancements.flatMap((enhancement) => enhancement.detail?.actions ?? []),
+    actions: composeRecordActions(enhancements, (enhancement) => enhancement.detail?.actions),
     sections: enhancements.flatMap((enhancement) => enhancement.detail?.sections ?? []),
   };
   return detail.actions.length > 0 || detail.sections.length > 0 ? detail : undefined;
+}
+
+/**
+ * Root record actions and surface-local actions share the platform's established
+ * `before` / `after` semantics. Applying that merger while composing keeps the
+ * same declared root action order in the row menu and detail operation area.
+ */
+function composeRecordActions(
+  enhancements: readonly ModulePageEnhancement[],
+  surfaceActions: (
+    enhancement: ModulePageEnhancement,
+  ) => readonly ModulePageRecordActionContribution[] | undefined,
+): ModulePageRecordActionContribution[] {
+  const actions = enhancements.flatMap((enhancement) => [
+    ...(enhancement.recordActions ?? []),
+    ...(surfaceActions(enhancement) ?? []),
+  ]);
+  return mergeRecordActions([], actions) as ModulePageRecordActionContribution[];
 }
 
 function composeFormEnhancement(
@@ -691,9 +793,9 @@ function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
     enhancement.list?.actions ?? [],
     enhancement.list?.columns ?? [],
     enhancement.list?.cellComponents ?? [],
-    enhancement.list?.rowActions ?? [],
+    [...(enhancement.recordActions ?? []), ...(enhancement.list?.rowActions ?? [])],
     enhancement.list?.batchActions ?? [],
-    enhancement.detail?.actions ?? [],
+    [...(enhancement.recordActions ?? []), ...(enhancement.detail?.actions ?? [])],
     enhancement.detail?.sections ?? [],
     enhancement.form?.contributions ?? [],
   ];
@@ -709,7 +811,18 @@ function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
   if (new Set(fieldPolicies.map((policy) => policy.fieldName)).size !== fieldPolicies.length) {
     throw new Error(`模块页面增强 ${enhancement.id} 对同一表单字段重复声明展示策略`);
   }
+  const navigatorExtension = enhancement.navigator?.extension;
+  if (navigatorExtension && !navigatorExtension.key.trim()) {
+    throw new Error(`模块页面增强 ${enhancement.id} 的导航扩展 key 不能为空`);
+  }
   assertNoReservedActionKeys(enhancement.id, enhancement.list?.actions ?? [], ['create']);
+  assertNoReservedActionKeys(enhancement.id, enhancement.recordActions ?? [], [
+    'create',
+    'view',
+    'edit',
+    'update',
+    'delete',
+  ]);
   assertNoReservedActionKeys(enhancement.id, enhancement.list?.rowActions ?? [], ['view', 'edit', 'delete']);
   assertNoReservedActionKeys(enhancement.id, enhancement.list?.batchActions ?? [], ['create']);
   assertNoReservedActionKeys(enhancement.id, enhancement.detail?.actions ?? [], [

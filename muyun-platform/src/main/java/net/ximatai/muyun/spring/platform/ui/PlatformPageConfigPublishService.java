@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventType;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
@@ -33,6 +34,8 @@ import java.util.stream.Collectors;
 @Service
 public class PlatformPageConfigPublishService {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final FormulaEngine FORMULA_ENGINE = new FormulaEngine();
+    private static final Set<String> PAGE_TEXT_FIELDS = Set.of("selection.label", "selection.secondaryLabel");
 
     private final PlatformUiSetService uiSetService;
     private final PlatformUiConfigService uiConfigService;
@@ -385,6 +388,7 @@ public class PlatformPageConfigPublishService {
         }
         validatePageRootContract(root, uiConfigId);
         validateListDetailCardMember(root, "querySummaries", uiConfigId);
+        validateListHeader(root, uiConfigId);
         rejectDynamicPersistentQueries(root.get("persistentQueries"), uiConfigId);
         validateQuerySummaries(root.get("querySummaries"), uiConfigId);
         validateReferenceCandidate(root.get("referenceCandidate"), "referenceCandidate", uiConfigId);
@@ -392,6 +396,32 @@ public class PlatformPageConfigPublishService {
         validateChildSections(root.get("children"), "children", uiConfigId);
         validateChildSections(root.get("childSections"), "childSections", uiConfigId);
         validateKnownBlocks(moduleAlias, root.get("blocks"), uiConfigId);
+    }
+
+    private void validateListHeader(JsonNode root, String uiConfigId) {
+        JsonNode header = root.path("list").path("header");
+        if (header.isMissingNode() || header.isNull()) return;
+        validateListDetailCardMember(root, "list.header", uiConfigId);
+        if (!header.isObject()) throw layoutException(uiConfigId, "list.header must be object");
+        validatePageText(header.get("title"), "list.header.title", uiConfigId);
+        validatePageText(header.get("subtitle"), "list.header.subtitle", uiConfigId);
+    }
+
+    private void validatePageText(JsonNode value, String path, String uiConfigId) {
+        if (value == null || value.isNull()) return;
+        if (value.isTextual() && !value.asText().isBlank()) return;
+        if (!value.isObject() || value.size() != 1 || !value.path("expression").isTextual()
+                || value.path("expression").asText().isBlank()) {
+            throw layoutException(uiConfigId, path + " must be non-blank text or {expression}");
+        }
+        try {
+            if (!PAGE_TEXT_FIELDS.containsAll(FORMULA_ENGINE.compilePageTextProgram(value.path("expression").asText())
+                    .referencedFields())) {
+                throw layoutException(uiConfigId, path + " may reference only " + PAGE_TEXT_FIELDS);
+            }
+        } catch (IllegalArgumentException exception) {
+            throw layoutException(uiConfigId, path + " expression is invalid");
+        }
     }
 
     private void validatePageRootContract(JsonNode root, String uiConfigId) {

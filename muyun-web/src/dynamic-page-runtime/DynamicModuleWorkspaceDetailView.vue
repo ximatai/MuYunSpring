@@ -10,7 +10,6 @@ import {
   DrawerTitleActions,
   RecordDetailFields,
   RecordDetailPanel,
-  RecordFormFields,
   RecordMetaSection,
   RecordModeDrawer,
   RecordPanelState,
@@ -20,6 +19,7 @@ import {
   type RecordFormFieldPickerConfig,
   type RecordFormFieldValue,
 } from '@muyun/platform-components';
+import RecordFormSurface from './RecordFormSurface.vue';
 import { refreshModulePageList } from './modulePageListRefresh';
 import {
   resolveModulePageEnhancement,
@@ -64,6 +64,8 @@ const title = computed(() => {
 });
 const pageEnhancement = computed(() => resolveModulePageEnhancement(context.moduleAlias));
 const detailSections = computed(() => pageEnhancement.value?.detail?.sections ?? []);
+const formContributions = computed(() => pageEnhancement.value?.form?.contributions ?? []);
+const formFieldPolicies = computed(() => pageEnhancement.value?.form?.fieldPolicies ?? []);
 const showSystemInfo = ref(true);
 const detailActions = computed<ModulePageRecordActionContribution[]>(() => {
   const current = record.value;
@@ -325,14 +327,18 @@ async function toggleEnabled() {
           :exclude-field-names="['enabled']"
         />
         <div v-else class="dynamic-module-workspace-detail__form">
-          <RecordFormFields
+          <RecordFormSurface
             :record="draft"
             :fields="fields"
+            :mode="mode"
             :form-session-key="formSessionKey"
             :option-context="context"
+            :file-transfer-context="context"
             :picker-configs="referencePickerConfigs"
             :disabled="saving"
             :exclude-field-names="['enabled']"
+            :contributions="formContributions"
+            :field-policies="formFieldPolicies"
             @update:field="updateDraftField"
           />
         </div>

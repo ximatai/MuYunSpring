@@ -1069,6 +1069,29 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldPublishStaticSelectionBindingsWithoutADeclaredNavigator() {
+        ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.role")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("title")))
+                        .detail(detail -> detail.editor(editor -> editor.field("title")))))
+                .build();
+        PageContextBindingDefinition binding = PageContextBindingDefinition.resolvedSelection(
+                "roleScope", PageContextTarget.FORM_DEFAULT, "ownerScopeType");
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.role", "角色")
+                .entities(List.of(new EntityDefinition("role", "iam_role", "Role",
+                        List.of(FieldDefinition.string("title", "名称"),
+                                FieldDefinition.string("ownerScopeType", "归属范围")))))
+                .uiDefinition(uiDefinition)
+                .pageContextBindings(List.of(binding))
+                .build();
+
+        ResolvedPageNavigatorDescriptor navigator = ModuleUiDescriptorCompiler.compile(definition).page().navigator();
+
+        assertThat(navigator.levels()).isEmpty();
+        assertThat(navigator.contextBindings()).containsExactly(ResolvedPageContextBindingDescriptor.from(binding));
+    }
+
+    @Test
     void shouldPublishTreeNavigatorLevel() {
         ModuleUiDefinition uiDefinition = navigatorListPage("sales.order", "crm.customer", "customerId", "customerId",
                 "项目", "搜索项目", list -> list.field("customerId"));

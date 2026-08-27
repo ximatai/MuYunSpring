@@ -135,6 +135,20 @@ public class FormulaEngine {
     }
 
     /**
+     * Compiles a presentation-only page text expression. The browser receives the resulting
+     * program, not the authored text, and may evaluate it only against a page display context.
+     */
+    public FormulaProgram compilePageTextProgram(String expression) {
+        try {
+            return FormulaPageTextProfile.compile(parse("page-text", expression));
+        } catch (FormulaEvaluationException exception) {
+            if ("FORMULA_PAGE_TEXT_UNSUPPORTED".equals(exception.code())) throw exception;
+            throw new FormulaEvaluationException("FORMULA_PAGE_TEXT_UNSUPPORTED",
+                    "formula is not supported by PAGE_TEXT profile: " + expression);
+        }
+    }
+
+    /**
      * Compiles one deterministic main-record assignment for a browser-local form calculation.
      * This shares FormulaEngine parsing and AST semantics with server execution, but deliberately
      * does not authorize persistence, scheduling, or user-value overwrite policy.
