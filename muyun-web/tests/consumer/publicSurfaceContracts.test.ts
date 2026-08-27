@@ -11,6 +11,7 @@ function readSource(path: string) {
 it('consumer surface exposes the stable app-shell feedback and lifecycle facades', () => {
   const consumerSource = readSource('consumer/index.ts');
   const runtimeSource = readSource('platform-admin-runtime/index.ts');
+  const moduleClientSource = readSource('web-core/module/staticModuleClient.ts');
 
   assert.match(consumerSource, /import '\.\.\/vue-ui-antdv\/styles\.css';/);
   assert.match(consumerSource, /import '\.\.\/styles\.css';/);
@@ -27,6 +28,9 @@ it('consumer surface exposes the stable app-shell feedback and lifecycle facades
   assert.match(consumerSource, /AppWorkbenchShell/);
   assert.match(consumerSource, /LoginView/);
   assert.match(consumerSource, /AppWorkbenchNavigation/);
+  assert.match(consumerSource, /export \* from '\.\.\/web-core\/index';/);
+  assert.match(moduleClientSource, /export type StaticModuleCrudClient<TRecord> = ModuleCrudClient<TRecord>/);
+  assert.match(moduleClientSource, /export const createStaticModuleTreeClient = createModuleTreeClient/);
   assert.ok(!/workbenchRouteSync/.test(consumerSource));
   assert.ok(!/openDirectTab|openMenuTab|closeMenuTab/.test(consumerSource));
 });

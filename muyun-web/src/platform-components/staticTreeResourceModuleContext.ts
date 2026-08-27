@@ -1,8 +1,8 @@
 import type { QuerySchema, WebListResponse, WebPageResponse, WebTreeNode } from '@muyun/web-contracts';
-import type { ModuleContext, StaticModuleTreeClient } from '@muyun/web-core';
+import type { ModuleContext, ModuleTreeClient } from '@muyun/web-core';
 
 export interface StaticTreeResourceModuleContextOptions<TRecord> {
-  client?: StaticModuleTreeClient<TRecord>;
+  client?: ModuleTreeClient<TRecord>;
   emptyQueryScopeName?: string;
 }
 
@@ -26,9 +26,7 @@ export function createStaticTreeResourceModuleContext<TRecord, TContextRecord = 
   };
 }
 
-export function createEmptyStaticTreeClient<TRecord>(
-  scopeName = 'static.empty',
-): StaticModuleTreeClient<TRecord> {
+export function createEmptyStaticTreeClient<TRecord>(scopeName = 'static.empty'): ModuleTreeClient<TRecord> {
   return {
     querySchema: async () => emptyQuerySchema(scopeName),
     query: async () => emptyPage<TRecord>(),
