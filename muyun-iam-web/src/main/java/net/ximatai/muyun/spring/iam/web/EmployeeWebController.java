@@ -7,7 +7,6 @@ import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
-import net.ximatai.muyun.spring.platform.web.UiRule;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
@@ -102,14 +101,13 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
         return ModuleUiDefinition.builder(EmployeeService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page
                 .navigator(navigator -> navigator
-                        .level("tenant", level -> level
-                                .microList("iam.tenant", "租户", "搜索租户")
+                        .level("tenant", level -> level.microList("iam.tenant", "租户", "搜索租户")
                                 .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
                                 .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
-                        .level("organization", level -> level
-                                .tree(OrganizationService.MODULE_ALIAS, "机构树", "搜索机构"))
+                        .level("organization", level -> level.tree(OrganizationService.MODULE_ALIAS, "机构树", "搜索机构"))
                         .bindNavigatorToNavigator("tenant", "organization", "tenantId")
-                        .bindNavigatorToList("organization", "organizationId"))
+                        .filterListByNavigator("organization", "organizationId")
+                        .prefillFormFromNavigator("organization", "organizationId"))
                 .list(list -> list.fields(fields -> fields
                         .title("职员列表")
                         .field("employeeNo", field -> field.label("职员编号").width("150px"))
@@ -118,7 +116,7 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
                         .field("username", field -> field.label("账号").width("150px"))
                         .field("mobile", field -> field.label("手机号").width("150px"))
                         .field("email", field -> field.label("邮箱").width("180px"))
-                        .field("enabled", field -> field.label("状态").uiType("enabledStatus")
+                        .field("enabled", field -> field.label("状态").enabledStatus()
                                 .width("90px").align("center"))
                         // Declares the self-service avatar reference for the shared file-transfer runtime
                         // without exposing it to organization administrators in the employee management UI.
@@ -129,27 +127,33 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
                 .detail(detail -> detail.editor(form -> form
                         .title("职员档案")
                         .field("organizationId", field -> field.label("所属机构").required().readOnly())
-                        .field("departmentId", field -> field.label("所属部门").required().uiType("recordPicker"))
+                        .field("departmentId", field -> field.label("所属部门").required().recordPicker())
                         .field("employeeNo", field -> field.label("职员编号").required())
                         .field("title", field -> field.label("职员姓名").required())
                         .field("gender", field -> field.label("性别"))
                         .field("mobile", field -> field.label("手机号"))
                         .field("email", field -> field.label("邮箱"))
-                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
-                .traits(traits -> traits.standardCrud().enabledStatus().recycleBin().responsiveDetailSurface())))
+                        .field("enabled", field -> field.label("启用状态").enabledStatus())))
+                .traits(traits -> traits
+                        .operations(operations -> operations.standardCrud().enabledLifecycle().recycleBin())
+                        .presentation(presentation -> presentation.responsiveDetailSurface()))))
                 .editorContribution("positions", form -> form.title("任职")
                         .field("positions", "organizationId", field -> field.label("所属机构")
-                                .width("180px").uiType("recordPicker").required())
+                                .width("180px").recordPicker().required())
                         .field("positions", "departmentId", field -> field.label("所属部门")
-                                .width("180px").uiType("recordPicker").required())
+                                .width("180px").recordPicker().required())
                         .field("positions", "positionId", field -> field.label("岗位")
-                                .width("180px").uiType("recordPicker").required())
+                                .width("180px").recordPicker().required())
                         .field("positions", "primaryPosition", field -> field.label("主岗位")
                                 .width("100px"))
                         .field("positions", "enabled", field -> field.label("启用状态")
-                                .width("110px").uiType("enabledStatus")))
-                .aggregateChildRelation("positions", "任职", "positions", "employeeId",
-                        UiRule.constant(Boolean.TRUE), true, List.of(EmployeeFormulas.primaryPositionExclusive()))
+                                .width("110px").enabledStatus()))
+                .relation("positions", relation -> relation.aggregateChild(child -> child
+                        .title("任职")
+                        .targetEntity("positions")
+                        .parentBinding("employeeId")
+                        .recycleBin()
+                        .formCompute(EmployeeFormulas.primaryPositionExclusive())))
                 .build();
     }
 

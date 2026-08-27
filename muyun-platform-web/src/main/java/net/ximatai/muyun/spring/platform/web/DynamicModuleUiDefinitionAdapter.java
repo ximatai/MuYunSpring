@@ -1,7 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshot;
 import net.ximatai.muyun.spring.platform.ui.PlatformResolvedPageConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformResolvedUiField;
@@ -10,6 +9,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageLayout;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorLayout;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageNavigatorLevel;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageContextBinding;
@@ -30,7 +30,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public final class DynamicModuleUiDefinitionAdapter {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final FormulaEngine FORMULA_ENGINE = new FormulaEngine();
     private DynamicModuleUiDefinitionAdapter() {
     }
@@ -270,15 +269,7 @@ public final class DynamicModuleUiDefinitionAdapter {
         if (config.getLayoutJson() == null || config.getLayoutJson().isBlank()) {
             throw new IllegalArgumentException("dynamic list config must declare a page root layout: " + config.getId());
         }
-        try {
-            JsonNode root = OBJECT_MAPPER.readTree(config.getLayoutJson());
-            if (root == null || !root.isObject()) {
-                throw new IllegalArgumentException("dynamic page root layout must be an object: " + config.getId());
-            }
-            return root;
-        } catch (java.io.IOException exception) {
-            throw new IllegalArgumentException("dynamic page root layout cannot be decoded: " + config.getId(), exception);
-        }
+        return PlatformPageLayout.root(config);
     }
 
     private static PageTraitsDefinition traits(JsonNode root) {

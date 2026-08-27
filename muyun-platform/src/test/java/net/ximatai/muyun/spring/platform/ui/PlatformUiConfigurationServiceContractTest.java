@@ -409,7 +409,7 @@ class PlatformUiConfigurationServiceContractTest {
         uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
         assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("layout JSON");
+                .hasMessageContaining("layout violates the page contract");
 
         config = uiConfigService.select(uiConfigId);
         config.setLayoutJson("""

@@ -62,7 +62,7 @@ public class PasswordPolicyRuleWebController extends WebSupport<PasswordPolicyRu
                                 .showSystemInfo(false)
                                 .display(this::displayFields)
                                 .editor(form -> editorFields(form.title("密码规则"))))
-                        .traits(traits -> traits.standardCrud().enabledStatus())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()))))
                 .build();
     }
 

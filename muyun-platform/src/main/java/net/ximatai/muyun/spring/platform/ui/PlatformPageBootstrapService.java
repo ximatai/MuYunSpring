@@ -1,8 +1,6 @@
 package net.ximatai.muyun.spring.platform.ui;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionRefreshStrategy;
@@ -33,7 +31,6 @@ import java.util.stream.Collectors;
 
 @Service
 public class PlatformPageBootstrapService {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final MenuService menuService;
     private final PlatformPageConfigSnapshotService snapshotService;
@@ -257,12 +254,7 @@ public class PlatformPageBootstrapService {
         if (layoutJson == null || layoutJson.isBlank()) {
             return List.of();
         }
-        JsonNode root;
-        try {
-            root = OBJECT_MAPPER.readTree(layoutJson);
-        } catch (JsonProcessingException exception) {
-            throw new PlatformException("UI config layout JSON cannot be decoded: " + config.getId());
-        }
+        JsonNode root = PlatformPageLayout.root(config);
         JsonNode blocks = root.get("blocks");
         if (blocks == null || !blocks.isArray()) {
             return List.of();
@@ -365,12 +357,7 @@ public class PlatformPageBootstrapService {
         if (layoutJson == null || layoutJson.isBlank()) {
             return List.of();
         }
-        JsonNode root;
-        try {
-            root = OBJECT_MAPPER.readTree(layoutJson);
-        } catch (JsonProcessingException exception) {
-            throw new PlatformException("UI config layout JSON cannot be decoded: " + config.getId());
-        }
+        JsonNode root = PlatformPageLayout.root(config);
         JsonNode blocks = root.get("blocks");
         if (blocks == null || !blocks.isArray()) {
             return List.of();

@@ -26,9 +26,9 @@ class ModuleUiDslKeysTest {
         PageNavigatorDefinition navigator = new PageNavigatorDefinition.Builder()
                 .level(tenant, level -> level.microList("iam.tenant", "租户", "搜索租户"))
                 .level(category, level -> level.tree("iam.position_category", "分类", "搜索分类"))
-                .bindSessionToList(ModuleUiBindingKey.of("tenantId"), tenantId)
+                .filterListBySession(ModuleUiBindingKey.of("tenantId"), tenantId).prefillFormFromSession(ModuleUiBindingKey.of("tenantId"), tenantId).constrainMutationsFromSession(ModuleUiBindingKey.of("tenantId"), tenantId)
                 .bindNavigatorToNavigator(tenant, category, tenantId)
-                .bindNavigatorToList(category, categoryId)
+                .filterListByNavigator(category, categoryId).prefillFormFromNavigator(category, categoryId)
                 .build();
 
         assertThat(navigator.levels()).extracting(PageNavigatorLevelDefinition::key)
@@ -45,7 +45,7 @@ class ModuleUiDslKeysTest {
     void shouldAllowNavigatorListBindingToBeAnOptionalFilter() {
         PageNavigatorDefinition navigator = new PageNavigatorDefinition.Builder()
                 .level("project", level -> level.microList("mr.project", "项目", "搜索项目"))
-                .bindNavigatorToList("project", "projectId", NavigatorListQueryMode.OPTIONAL_FILTER)
+                .filterListByNavigator("project", "projectId", NavigatorListQueryMode.OPTIONAL_FILTER).prefillFormFromNavigator("project", "projectId")
                 .build();
 
         assertThat(navigator.contextBindings()).filteredOn(binding -> binding.target() == PageContextTarget.LIST_QUERY)
@@ -54,6 +54,23 @@ class ModuleUiDslKeysTest {
         assertThat(navigator.contextBindings()).filteredOn(binding -> binding.target() == PageContextTarget.FORM_DEFAULT)
                 .extracting(PageContextBindingDefinition::navigatorListQueryMode)
                 .containsExactly((NavigatorListQueryMode) null);
+    }
+
+    @Test
+    void shouldKeepNavigatorConsumersExplicitWhilePreservingTheirIndependentTargets() {
+        PageNavigatorDefinition navigator = new PageNavigatorDefinition.Builder()
+                .level("organization", level -> level.tree("iam.organization", "机构", "搜索机构"))
+                .filterListByNavigator("organization", "organizationId", NavigatorListQueryMode.REQUIRED_SCOPE)
+                .prefillFormFromNavigator("organization", "organizationId")
+                .filterListBySession("tenantId", "tenantId")
+                .prefillFormFromSession("tenantId", "tenantId")
+                .constrainMutationsFromSession("tenantId", "tenantId")
+                .build();
+
+        assertThat(navigator.contextBindings()).extracting(PageContextBindingDefinition::target)
+                .containsExactly(PageContextTarget.LIST_QUERY, PageContextTarget.FORM_DEFAULT,
+                        PageContextTarget.LIST_QUERY, PageContextTarget.FORM_DEFAULT,
+                        PageContextTarget.MUTATION_CONSTRAINT);
     }
 
     @Test

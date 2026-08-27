@@ -334,7 +334,7 @@ class ModuleUiDescriptorCompilerTest {
                                         .title("应用")
                                         .field("alias", field -> field.required())
                                         .field("title", field -> field.required())))
-                        .traits(traits -> traits.standardCrud().enabledStatus().recycleBin())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle().recycleBin()))))
                 .build();
 
         ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition).page();
@@ -363,7 +363,7 @@ class ModuleUiDescriptorCompilerTest {
                 .page(PageTemplates.treeManagement(page -> page
                         .navigator(navigator -> navigator
                                 .level("tenant", level -> level.microList("iam.tenant", "租户", "搜索租户"))
-                                .bindNavigatorToList("tenant", "tenantId"))
+                                .filterListByNavigator("tenant", "tenantId").prefillFormFromNavigator("tenant", "tenantId"))
                         .detail(detail -> detail
                                 .emptyDescription("请选择标签，或新建根标签")
                                 .editor(editor -> editor
@@ -371,7 +371,7 @@ class ModuleUiDescriptorCompilerTest {
                                         .field("title", field -> field.required())
                                         .field("parentId")
                                         .field("color")))
-                        .traits(traits -> traits.standardCrud())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
                 .build();
 
         ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition).page();
@@ -401,9 +401,9 @@ class ModuleUiDescriptorCompilerTest {
                 .page(PageTemplates.treeManagement(page -> page
                         .navigator(navigator -> navigator
                                 .level("application", level -> level.microList("platform.application", "应用", null))
-                                .bindNavigatorToList("application", "applicationAlias"))
+                                .filterListByNavigator("application", "applicationAlias").prefillFormFromNavigator("application", "applicationAlias"))
                         .detail(detail -> detail.editor(editor -> editor.field("applicationAlias").field("parentId")))
-                        .traits(traits -> traits.standardCrud())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
                 .build();
 
         ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition, null, null, Map.of(),
@@ -426,7 +426,7 @@ class ModuleUiDescriptorCompilerTest {
                 .page(ModulePageDefinition.listDetailCard(page -> page
                         .navigator(navigator -> navigator
                                 .level("organization", level -> level.tree("iam.organization", "所属组织", "搜索组织"))
-                                .bindNavigatorToList("organization", "organizationId"))
+                                .filterListByNavigator("organization", "organizationId").prefillFormFromNavigator("organization", "organizationId"))
                         .list(list -> list
                                 .searchPlaceholder("搜索客户")
                                 .fields(fields -> fields
@@ -437,7 +437,7 @@ class ModuleUiDescriptorCompilerTest {
                                 .title("客户")
                                 .field("code", field -> field.required())
                                 .field("title", field -> field.required())))
-                        .traits(traits -> traits.standardCrud().responsiveDetailSurface())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud()).presentation(presentation -> presentation.responsiveDetailSurface()))))
                 .build();
 
         ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition, null, null, Map.of(),
@@ -471,10 +471,10 @@ class ModuleUiDescriptorCompilerTest {
                 .page(PageTemplates.treeManagement(page -> page
                         .navigator(navigator -> navigator
                                 .level("organization", level -> level.tree("iam.organization", "机构", "搜索机构"))
-                                .bindNavigatorToList("organization", "organizationId")
+                                .filterListByNavigator("organization", "organizationId").prefillFormFromNavigator("organization", "organizationId")
                                 .bindNavigatorToPickerQuery("organization", "parentId", "organizationId"))
                         .detail(detail -> detail.editor(editor -> editor.field("organizationId").field("parentId")))
-                        .traits(traits -> traits.standardCrud())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
                 .build();
 
         ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition, null, null, Map.of(),
@@ -494,7 +494,7 @@ class ModuleUiDescriptorCompilerTest {
                                 .level("organization", level -> level.tree("iam.organization", "机构", "搜索机构"))
                                 .bindNavigatorToPickerQuery("organization", "parentId", "organizationId"))
                         .detail(detail -> detail.editor(editor -> editor.field("organizationId")))
-                        .traits(traits -> traits.standardCrud())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
                 .build();
 
         assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, null, null, Map.of(),
@@ -513,7 +513,7 @@ class ModuleUiDescriptorCompilerTest {
                                 .bindNavigatorToPickerQuery("organization", "parentId", "organizationId"))
                         .list(list -> list.fields(fields -> fields.field("title")))
                         .detail(detail -> detail.editor(editor -> editor.field("parentId")))
-                        .traits(traits -> traits.standardCrud())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
                 .build();
 
         assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, null, null, Map.of(),
@@ -531,7 +531,7 @@ class ModuleUiDescriptorCompilerTest {
                         .detail(detail -> detail
                                 .workspaceView("mr.device.detail")
                                 .editor(editor -> editor.title("设备").field("code")))
-                        .traits(traits -> traits.responsiveDetailSurface())))
+                        .traits(traits -> traits.presentation(presentation -> presentation.responsiveDetailSurface()))))
                 .build();
 
         ResolvedPageDetailWorkspaceViewDescriptor workspaceView = ModuleUiDescriptorCompiler.compile(definition)
@@ -546,7 +546,7 @@ class ModuleUiDescriptorCompilerTest {
                 .page(PageTemplates.listDetailCard(page -> page
                         .list(list -> list.fields(fields -> fields.field("title")))
                         .detail(detail -> detail.display(display -> display.field("title")))
-                        .traits(traits -> traits.responsiveDetailSurface())))
+                        .traits(traits -> traits.presentation(presentation -> presentation.responsiveDetailSurface()))))
                 .build();
 
         ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition).page();
@@ -564,7 +564,7 @@ class ModuleUiDescriptorCompilerTest {
                 .page(PageTemplates.listDetailCard(page -> page
                         .list(list -> list.fields(fields -> fields.field("title")))
                         .detail(detail -> { })
-                        .traits(traits -> traits.standardCrud())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
                 .build())
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("editorless list/detail card requires a detail display");
@@ -580,9 +580,9 @@ class ModuleUiDescriptorCompilerTest {
                                         .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE)
                                         .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
                                 .level("organization", level -> level.tree("iam.organization", "所属组织", "搜索组织"))
-                                .bindNavigatorToList("tenant", "tenantId")
+                                .filterListByNavigator("tenant", "tenantId").prefillFormFromNavigator("tenant", "tenantId")
                                 .bindNavigatorToNavigator("tenant", "organization", "tenantId")
-                                .bindNavigatorToList("organization", "organizationId"))
+                                .filterListByNavigator("organization", "organizationId").prefillFormFromNavigator("organization", "organizationId"))
                         .list(list -> list.fields(fields -> fields.field("title")))
                         .detail(detail -> detail.editor(editor -> editor.field("title")))
                         .traits(traits -> { })))
@@ -704,6 +704,9 @@ class ModuleUiDescriptorCompilerTest {
                 .hasMessage("uiType booleanStatus requires boolean status presentation");
         assertThatCode(() -> ViewFieldDefinition.field("online").booleanStatus("在线", "离线").build())
                 .doesNotThrowAnyException();
+        assertThat(ViewFieldDefinition.field("departmentId").recordPicker().build().uiType()).isEqualTo("recordPicker");
+        assertThat(ViewFieldDefinition.field("enabled").enabledStatus().build().uiType()).isEqualTo("enabledStatus");
+        assertThat(ViewFieldDefinition.field("type").select().build().uiType()).isEqualTo("select");
         assertThatThrownBy(() -> ViewFieldDefinition.field("description").maxDisplayLines(0).build())
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("maxDisplayLines must be at least 1");
@@ -956,7 +959,7 @@ class ModuleUiDescriptorCompilerTest {
                 .page(PageTemplates.treeManagement(page -> page
                         .detail(detail -> detail.editor(editor -> editor
                                 .field("parentId", field -> field.label("上级机构").uiType("recordPicker"))))
-                        .traits(traits -> traits.standardCrud())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
                 .build();
         StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.organization", "机构管理")
                 .capabilities(Set.of(EntityCapability.CRUD, EntityCapability.TREE))
@@ -1115,7 +1118,7 @@ class ModuleUiDescriptorCompilerTest {
                                 .manageable("quick_manage")))
                         .list(list -> list.fields(fields -> fields.field("title")))
                         .detail(detail -> detail.editor(editor -> editor.field("title")))
-                        .traits(traits -> traits.standardCrud())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
                 .build();
 
         ResolvedPageNavigatorManagementDescriptor management = ModuleUiDescriptorCompiler.compile(definition)
@@ -1312,12 +1315,18 @@ class ModuleUiDescriptorCompilerTest {
     void shouldResolveReadOnlyStaticDetailRelationWithoutInventingQueryOrMutationContract() {
         ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.position_category")
                 .page(emptyEditorPage())
-                .detailRelation("positions", "岗位", "position", "categoryId", true)
+                .relation("positions", relation -> relation.readOnly(readOnly -> readOnly
+                        .title("岗位")
+                        .targetEntity("position")
+                        .parentBinding("categoryId")))
                 .build();
 
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
                 staticDefinition(uiDefinition, positionEntities()));
 
+        assertThat(uiDefinition.detailRelations()).singleElement()
+                .extracting(PageDetailRelationDefinition::refreshOnDetailReload)
+                .isEqualTo(true);
         assertThat(descriptor.detailRelations()).singleElement().satisfies(relation -> {
             assertThat(relation.code()).isEqualTo("positions");
             assertThat(relation.sourceModuleAlias()).isEqualTo("iam.position_category");
@@ -1331,13 +1340,36 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldMakeManagedReadOnlyAndAggregateChildSemanticsExplicitInRelationDsl() {
+        ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.employee")
+                .page(emptyEditorPage())
+                .relation("positions", relation -> relation.managedReadOnly(readOnly -> readOnly
+                        .title("岗位")
+                        .targetEntity("position")
+                        .parentBinding("employeeId")
+                        .pagination(PageDetailRelationPaginationDefinition.unpaged())))
+                .relation("children", relation -> relation.aggregateChild(child -> child
+                        .title("子项")
+                        .targetEntity("employee_position")
+                        .parentBinding("employeeId")
+                        .recycleBin()))
+                .build();
+
+        assertThat(uiDefinition.detailRelations()).extracting(PageDetailRelationDefinition::managedQuery)
+                .containsExactly(true, false);
+        assertThat(uiDefinition.detailRelations()).extracting(PageDetailRelationDefinition::embedded)
+                .containsExactly(false, true);
+        assertThat(uiDefinition.detailRelations().get(1).editing().recycleBinEnabled()).isTrue();
+    }
+
+    @Test
     void shouldRequireAnExplicitMutationContractForManagedStaticDetailRelation() {
         ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.position_category")
                 .page(emptyEditorPage())
                 .editorContribution("position", form -> form.field("position", "title", field -> field.label("岗位")))
-                .managedDetailRelation("positions", "岗位", "position", "categoryId",
-                        PageDetailRelationMutationDefinition.standardCrud(),
-                        PageDetailRelationPaginationDefinition.unpaged())
+                .relation("positions", relation -> relation.managed(PageDetailRelationMutationDefinition.standardCrud(),
+                        managed -> managed.title("岗位").targetEntity("position").parentBinding("categoryId")
+                                .pagination(PageDetailRelationPaginationDefinition.unpaged())))
                 .build();
 
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
@@ -1365,7 +1397,8 @@ class ModuleUiDescriptorCompilerTest {
         ModuleUiDefinition uiDefinition = ModuleUiDefinition.builder("iam.position_category")
                 .page(emptyEditorPage())
                 .editorContribution("position", form -> form.field("position", "title", field -> field.label("岗位")))
-                .managedReadOnlyDetailRelation("positions", "岗位", "position", "categoryId", null)
+                .relation("positions", relation -> relation.managedReadOnly(readOnly -> readOnly
+                        .title("岗位").targetEntity("position").parentBinding("categoryId")))
                 .build();
 
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
@@ -1396,11 +1429,12 @@ class ModuleUiDescriptorCompilerTest {
                         .field("employee_position", "positionId", field -> { })
                         .field("employee_position", "primaryPosition", field -> { })
                         .field("employee_position", "enabled", field -> { }))
-                .aggregateChildRelation("positions", "任职", "employee_position", "employeeId",
-                        UiRule.constant(Boolean.TRUE), false, List.of(new net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition(
+                .relation("positions", relation -> relation.aggregateChild(child -> child
+                        .title("任职").targetEntity("employee_position").parentBinding("employeeId")
+                        .formCompute(new net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition(
                                 "positions", new net.ximatai.muyun.spring.common.formula.FormulaRule(
                                 "primaryPositionExclusive", "others({positions.primaryPosition}) = false WHEN {positions.primaryPosition}"),
-                                List.of("primaryPosition"))))
+                                List.of("primaryPosition")))))
                 .build();
 
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(staticDefinition(uiDefinition,
@@ -1442,11 +1476,12 @@ class ModuleUiDescriptorCompilerTest {
                         .traits(traits -> { })))
                 .editorContribution("employee_position", form -> form
                         .field("employee_position", "primaryPosition", field -> { }))
-                .aggregateChildRelation("positions", "任职", "employee_position", "employeeId",
-                        UiRule.constant(Boolean.TRUE), false, List.of(new net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition(
+                .relation("positions", relation -> relation.aggregateChild(child -> child
+                        .title("任职").targetEntity("employee_position").parentBinding("employeeId")
+                        .formCompute(new net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition(
                                 "delegations", new net.ximatai.muyun.spring.common.formula.FormulaRule(
                                 "primaryPositionExclusive", "others({delegations.primaryPosition}) = false WHEN {delegations.primaryPosition}"),
-                                List.of("primaryPosition"))))
+                                List.of("primaryPosition")))))
                 .build();
 
         assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(staticDefinition(uiDefinition,
@@ -1471,10 +1506,10 @@ class ModuleUiDescriptorCompilerTest {
                                 .expandRelation("delegations", expansion -> expansion.columns("delegateId")))
                         .detail(detail -> detail.editor(editor -> editor.field("employeeNo")))
                         .traits(traits -> { })))
-                .aggregateChildRelation("positions", "任职", "employee_position", "employeeId",
-                        UiRule.constant(Boolean.TRUE))
-                .aggregateChildRelation("delegations", "代理", "employee_delegation", "employeeId",
-                        UiRule.constant(Boolean.TRUE))
+                .relation("positions", relation -> relation.aggregateChild(child -> child
+                        .title("任职").targetEntity("employee_position").parentBinding("employeeId")))
+                .relation("delegations", relation -> relation.aggregateChild(child -> child
+                        .title("代理").targetEntity("employee_delegation").parentBinding("employeeId")))
                 .editorContribution("employee_position", form -> form
                         .field("employee_position", "positionId", field -> { }))
                 .editorContribution("employee_delegation", form -> form
@@ -1536,7 +1571,7 @@ class ModuleUiDescriptorCompilerTest {
                 .page(PageTemplates.listDetailCard(page -> page
                         .navigator(navigator -> navigator
                                 .level("scope", level -> level.tree(sourceModuleAlias, title, searchPlaceholder))
-                                .bindNavigatorToList("scope", bindingField))
+                                .filterListByNavigator("scope", bindingField).prefillFormFromNavigator("scope", bindingField))
                         .list(slot -> slot.fields(list))
                         .detail(detail -> detail.editor(editor -> { }))
                         .traits(traits -> { })))

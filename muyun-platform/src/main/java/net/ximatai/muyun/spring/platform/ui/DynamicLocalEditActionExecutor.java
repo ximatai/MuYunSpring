@@ -1,8 +1,6 @@
 package net.ximatai.muyun.spring.platform.ui;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionContext;
@@ -25,7 +23,6 @@ import java.util.stream.Collectors;
 @Service
 public class DynamicLocalEditActionExecutor implements DynamicActionExecutor {
     public static final String EXECUTOR_KEY = "muyun.localEdit";
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final PlatformPageConfigSnapshotService snapshotService;
     private final ModuleMetadataFieldService moduleFieldService;
@@ -141,12 +138,7 @@ public class DynamicLocalEditActionExecutor implements DynamicActionExecutor {
         if (layoutJson == null || layoutJson.isBlank()) {
             return false;
         }
-        JsonNode root;
-        try {
-            root = OBJECT_MAPPER.readTree(layoutJson);
-        } catch (JsonProcessingException exception) {
-            throw new PlatformException("Local edit UI config layout JSON cannot be decoded: " + uiConfig.getId());
-        }
+        JsonNode root = PlatformPageLayout.root(uiConfig);
         JsonNode blocks = root.get("blocks");
         if (blocks == null || !blocks.isArray()) {
             return false;

@@ -28,16 +28,16 @@ public class MenuSchemeWebController extends net.ximatai.muyun.spring.web.WebSup
                         .field("alias", field -> field.label("方案 alias").required()
                                 .enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
                         .field("title", field -> field.label("方案名称").required())
-                        .field("scopeType", field -> field.label("适用范围").required().uiType("select"))
+                        .field("scopeType", field -> field.label("适用范围").required().select())
                         .field("tenantId", field -> field.label("适用租户").required(
                                         UiRule.formula(UiFormula.booleanExpression("{scopeType} == 'tenant' || {scopeType} == 'organization'")))
                                 .visible(UiRule.formula(UiFormula.booleanExpression("{scopeType} == 'tenant' || {scopeType} == 'organization'")))
-                                .uiType("recordPicker"))
+                                .recordPicker())
                         .field("organizationId", field -> field.label("适用机构").required(
                                         UiRule.formula(UiFormula.booleanExpression("{scopeType} == 'organization'")))
                                 .visible(UiRule.formula(UiFormula.booleanExpression("{scopeType} == 'organization'")))
-                                .uiType("recordPicker"))
-                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
+                                .recordPicker())
+                        .field("enabled", field -> field.label("启用状态").enabledStatus())))
                 .build();
     }
 }

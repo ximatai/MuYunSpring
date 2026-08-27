@@ -147,8 +147,8 @@ class ModuleExecutionPlanCatalogTest {
                                 FieldDefinition.decimal("hiddenDecimal", "Hidden decimal")))))
                 .uiDefinition(ModuleUiDefinition.builder(moduleAlias)
                         .editorContribution("child", form -> form.field("child", "title", field -> { }))
-                        .managedDetailRelation("children", "Children", "child", "parentId",
-                                PageDetailRelationMutationDefinition.standardCrud())
+                        .relation("children", relation -> relation.managed(PageDetailRelationMutationDefinition.standardCrud(),
+                                managed -> managed.title("Children").targetEntity("child").parentBinding("parentId")))
                         .build())
                 .build();
 

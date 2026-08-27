@@ -37,19 +37,21 @@ public class MenuManagementWebController extends WebSupport<MenuService>
                                         .secondaryField("scopeTypeTitle")
                                         .manageable(SCHEME_EDITOR)
                                         .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
-                                .bindNavigatorToList(SCHEME_NAVIGATOR, "schemeId")
+                                .filterListByNavigator(SCHEME_NAVIGATOR, "schemeId",
+                                        NavigatorListQueryMode.REQUIRED_SCOPE)
+                                .prefillFormFromNavigator(SCHEME_NAVIGATOR, "schemeId")
                                 .bindNavigatorToPickerQuery(SCHEME_NAVIGATOR, "parentId", "schemeId"))
                         .detail(detail -> detail
                                 .emptyDescription("请选择菜单，或新建根菜单")
                                 .editor(form -> form
                                         .title("菜单")
                                         .field("title", field -> field.label("菜单名称").required())
-                                        .field("parentId", field -> field.label("上级菜单").uiType("recordPicker")
+                                        .field("parentId", field -> field.label("上级菜单").recordPicker()
                                                 .treeRootTitle("根菜单"))
-                                        .field("moduleAlias", field -> field.label("关联模块").uiType("recordPicker"))
-                                        .field("openMode", field -> field.label("打开方式").uiType("select"))
-                                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
-                        .traits(traits -> traits.standardCrud().enabledStatus())))
+                                        .field("moduleAlias", field -> field.label("关联模块").recordPicker())
+                                        .field("openMode", field -> field.label("打开方式").select())
+                                        .field("enabled", field -> field.label("启用状态").enabledStatus())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()))))
                 .build();
     }
 

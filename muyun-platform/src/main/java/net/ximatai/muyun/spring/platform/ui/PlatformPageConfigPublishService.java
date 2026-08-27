@@ -1,8 +1,6 @@
 package net.ximatai.muyun.spring.platform.ui;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.ability.event.RuntimeEvent;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher;
@@ -33,7 +31,6 @@ import java.util.stream.Collectors;
 
 @Service
 public class PlatformPageConfigPublishService {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final FormulaEngine FORMULA_ENGINE = new FormulaEngine();
     private static final Set<String> PAGE_TEXT_FIELDS = Set.of("selection.label", "selection.secondaryLabel");
 
@@ -369,16 +366,15 @@ public class PlatformPageConfigPublishService {
     }
 
     private JsonNode validateLayoutJson(String moduleAlias, PlatformUiConfig uiConfig) {
-        String layoutJson = uiConfig.getLayoutJson();
-        if (layoutJson == null || layoutJson.isBlank()) {
-            return null;
-        }
         try {
-            JsonNode root = OBJECT_MAPPER.readTree(layoutJson);
+            PlatformPageLayout layout = PlatformPageLayout.decode(uiConfig);
+            if (layout == null) return null;
+            layout.requireKnownPageRootMembers(uiConfig);
+            JsonNode root = layout.root();
             validateLayoutRoot(moduleAlias, root, uiConfig.getId());
             return root;
-        } catch (JsonProcessingException exception) {
-            throw new PlatformException("UI config layout JSON cannot be decoded: " + uiConfig.getId());
+        } catch (IllegalArgumentException exception) {
+            throw new PlatformException("UI config layout violates the page contract: " + uiConfig.getId(), exception);
         }
     }
 
@@ -793,12 +789,7 @@ public class PlatformPageConfigPublishService {
         if (layoutJson == null || layoutJson.isBlank()) {
             return false;
         }
-        JsonNode root;
-        try {
-            root = OBJECT_MAPPER.readTree(layoutJson);
-        } catch (JsonProcessingException exception) {
-            throw new PlatformException("UI config layout JSON cannot be decoded: " + uiConfig.getId());
-        }
+        JsonNode root = PlatformPageLayout.root(uiConfig);
         JsonNode blocks = root.get("blocks");
         if (blocks == null || !blocks.isArray()) {
             return false;

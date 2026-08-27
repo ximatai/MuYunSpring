@@ -62,24 +62,24 @@ public class DepartmentWebController extends WebSupport<DepartmentService> imple
         return ModuleUiDefinition.builder(DepartmentService.MODULE_ALIAS)
                 .page(PageTemplates.treeManagement(page -> page
                 .navigator(navigator -> navigator
-                        .level("tenant", level -> level
-                                .microList("iam.tenant", "租户", "搜索租户")
+                        .level("tenant", level -> level.microList("iam.tenant", "租户", "搜索租户")
                                 .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
                                 .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
                         .level("organization", level -> level.tree("iam.organization", "机构树", "搜索机构"))
                         .bindNavigatorToNavigator("tenant", "organization", "tenantId")
-                        .bindNavigatorToList("organization", "organizationId")
+                        .filterListByNavigator("organization", "organizationId")
+                        .prefillFormFromNavigator("organization", "organizationId")
                         .bindNavigatorToPickerQuery("organization", "parentId", "organizationId"))
                 .detail(detail -> detail
                         .emptyDescription("请选择部门，或新建根部门")
                         .editor(form -> form
                         .title("部门档案")
                         .field("organizationId", field -> field.label("所属机构").required().readOnly())
-                        .field("parentId", field -> field.label("上级部门").uiType("recordPicker"))
+                        .field("parentId", field -> field.label("上级部门").recordPicker())
                         .field("code", field -> field.label("部门编码").required())
                         .field("title", field -> field.label("部门名称").required())
-                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
-                .traits(traits -> traits.standardCrud().enabledStatus())))
+                        .field("enabled", field -> field.label("启用状态").enabledStatus())))
+                .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()))))
                 .build();
     }
 

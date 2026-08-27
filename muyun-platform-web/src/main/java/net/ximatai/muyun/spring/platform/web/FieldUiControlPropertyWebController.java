@@ -31,7 +31,7 @@ public class FieldUiControlPropertyWebController
                         .field("field_ui_control_property", "title", field -> field.label("属性名称")
                                 .width("220px").required())
                         .field("field_ui_control_property", "valueFieldSpecAlias", field -> field.label("值字段规格")
-                                .width("180px").uiType("recordPicker"))
+                                .width("180px").recordPicker())
                         .field("field_ui_control_property", "defaultValue", field -> field.label("默认值")
                                 .width("240px")))
                 .build();

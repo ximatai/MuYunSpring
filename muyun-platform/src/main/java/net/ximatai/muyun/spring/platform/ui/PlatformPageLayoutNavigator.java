@@ -1,9 +1,6 @@
 package net.ximatai.muyun.spring.platform.ui;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -12,8 +9,6 @@ import java.util.List;
  * It deliberately owns no rendering or query execution policy.
  */
 public final class PlatformPageLayoutNavigator {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
     private PlatformPageLayoutNavigator() {
     }
 
@@ -21,12 +16,8 @@ public final class PlatformPageLayoutNavigator {
         if (config == null || config.getLayoutJson() == null || config.getLayoutJson().isBlank()) {
             return null;
         }
-        try {
-            JsonNode root = OBJECT_MAPPER.readTree(config.getLayoutJson());
-            if (root == null || !root.isObject()) {
-                throw new IllegalArgumentException("page layout JSON root must be an object: " + config.getId());
-            }
-            JsonNode navigator = root.get("navigator");
+        JsonNode root = PlatformPageLayout.root(config);
+        JsonNode navigator = root.get("navigator");
             if (navigator == null || navigator.isNull()) return null;
             if (!navigator.isObject()) {
                 throw new IllegalArgumentException("page navigator must be an object: " + config.getId());
@@ -44,10 +35,7 @@ public final class PlatformPageLayoutNavigator {
                         optionalText(level, "singleResultPolicy", config),
                         optionalText(level, "initialSelectionPolicy", config), optionalText(level, "sourceScope", config)));
             }
-            return new PlatformPageNavigatorLayout(values, contextBindings(navigator.get("contextBindings"), config));
-        } catch (IOException exception) {
-            throw new IllegalArgumentException("page layout JSON cannot be decoded: " + config.getId(), exception);
-        }
+        return new PlatformPageNavigatorLayout(values, contextBindings(navigator.get("contextBindings"), config));
     }
 
     public static List<PlatformPageContextBinding> contextBindings(PlatformUiConfig config) {

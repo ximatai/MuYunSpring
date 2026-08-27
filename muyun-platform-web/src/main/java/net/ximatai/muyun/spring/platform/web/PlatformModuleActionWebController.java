@@ -62,7 +62,9 @@ public class PlatformModuleActionWebController
                         .navigator(navigator -> navigator
                                 .level(MODULE_NAVIGATOR, level -> level
                                         .microList(PlatformModuleService.MODULE_ALIAS, "模块", "搜索模块"))
-                                .bindNavigatorToList(MODULE_NAVIGATOR, MODULE_ALIAS))
+                                .filterListByNavigator(MODULE_NAVIGATOR, MODULE_ALIAS,
+                                        NavigatorListQueryMode.REQUIRED_SCOPE)
+                                .prefillFormFromNavigator(MODULE_NAVIGATOR, MODULE_ALIAS))
                         .explorer(explorer -> explorer.title("模块动作")
                                 .searchPlaceholder("搜索动作名称或编码")
                                 .emptyDescription("当前模块暂无动作")
@@ -136,9 +138,9 @@ public class PlatformModuleActionWebController
                                                 .overrideOf(DEFAULT_GRANT_POLICY)
                                                 .visible(UiRule.formula(PLATFORM_MANAGED_ACTION))
                                                 .enabledWhen(PLATFORM_MANAGED_ACTION))
-                                        .field(ENABLED, field -> field.label("启用状态").uiType("enabledStatus")
+                                        .field(ENABLED, field -> field.label("启用状态").enabledStatus()
                                                 .readOnly())))
-                        .traits(traits -> traits.standardCrud().enabledStatus())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()))))
                 .build();
     }
 

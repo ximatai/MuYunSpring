@@ -51,13 +51,13 @@ public class DictionaryCategoryWebController
                                 .editor(form -> form
                                         .title("字典类目")
                                         .field("applicationAlias", field -> field.label("所属应用").required().hidden())
-                                        .field("parentId", field -> field.label("上级类目").uiType("recordPicker")
+                                        .field("parentId", field -> field.label("上级类目").recordPicker()
                                                 .treeRootTitle("根类目"))
                                         .field("alias", field -> field.label("类目 alias").required())
-                                        .field("categoryKind", field -> field.label("类目类型").required().uiType("select"))
+                                        .field("categoryKind", field -> field.label("类目类型").required().select())
                                         .field("title", field -> field.label("类目名称").required())
-                                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
-                        .traits(traits -> traits.standardCrud().enabledStatus())))
+                                        .field("enabled", field -> field.label("启用状态").enabledStatus())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()))))
                 .build();
     }
 

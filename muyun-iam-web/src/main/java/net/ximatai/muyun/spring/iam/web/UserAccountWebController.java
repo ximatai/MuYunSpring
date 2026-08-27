@@ -140,12 +140,13 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
                                 .microList("iam.tenant", "租户", "搜索租户")
                                 .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
                                 .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
-                        .bindNavigatorToList("tenant", "tenantId", NavigatorListQueryMode.OPTIONAL_FILTER))
+                        .filterListByNavigator("tenant", "tenantId", NavigatorListQueryMode.OPTIONAL_FILTER)
+                        .prefillFormFromNavigator("tenant", "tenantId"))
                 .list(list -> list
                 .fields(fields -> fields
                         .title("用户列表")
                         .field("username", field -> field.label("账号").width("180px"))
-                        .field("enabled", field -> field.label("状态").uiType("enabledStatus")
+                        .field("enabled", field -> field.label("状态").enabledStatus()
                                 .width("90px").align("center"))
                         .field("passwordStatus", field -> field.label("密码状态").width("120px"))
                         .field("employeeNo", field -> field.label("职员工号").width("150px"))
@@ -162,12 +163,12 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
                         .title("用户账号")
                         .field("username", field -> field.label("账号").required())
                         .field("password", field -> field.label("初始密码").required().uiType("password"))
-                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))
+                        .field("enabled", field -> field.label("启用状态").enabledStatus())
                         .field("passwordStatus", field -> field.label("密码状态").readOnly())
                         .field("employeeNo", field -> field.label("职员工号").readOnly())
                         .field("employeeTitle", field -> field.label("职员姓名").readOnly())
                         .field("lastLoginAt", field -> field.label("最后登录时间").readOnly())))
-                .traits(traits -> traits.standardCrud().enabledStatus().responsiveDetailSurface())))
+                .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()).presentation(presentation -> presentation.responsiveDetailSurface()))))
                 .build();
     }
 

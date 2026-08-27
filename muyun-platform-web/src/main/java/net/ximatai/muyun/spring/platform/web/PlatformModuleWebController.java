@@ -82,7 +82,9 @@ public class PlatformModuleWebController extends StaticModuleWebControllerAdapte
                                         "应用", "搜索应用")
                                         .manageable()
                                         .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
-                                .bindNavigatorToList(APPLICATION_NAVIGATOR, APPLICATION_ALIAS)
+                                .filterListByNavigator(APPLICATION_NAVIGATOR, APPLICATION_ALIAS,
+                                        NavigatorListQueryMode.REQUIRED_SCOPE)
+                                .prefillFormFromNavigator(APPLICATION_NAVIGATOR, APPLICATION_ALIAS)
                                 .bindNavigatorToPickerQuery(APPLICATION_NAVIGATOR, PARENT_ID, APPLICATION_ALIAS))
                         .detail(detail -> detail
                                 .emptyDescription("请选择模块，或新建根模块")
@@ -105,17 +107,17 @@ public class PlatformModuleWebController extends StaticModuleWebControllerAdapte
                                                 .enabledWhen(UiFormula.booleanExpression("!(PRESENT({" + ID.name() + "}))")))
                                         .field(TITLE, field -> field.label("模块名称").required())
                                         .field(APPLICATION_ALIAS, field -> field.label("所属应用").required().hidden())
-                                        .field(PARENT_ID, field -> field.label("上级模块").uiType("recordPicker"))
-                                        .field(MODULE_KIND, field -> field.label("模块类型").required().uiType("select"))
-                                        .field(ENTRY_TYPE, field -> field.label("入口类型").required().uiType("select"))
+                                        .field(PARENT_ID, field -> field.label("上级模块").recordPicker())
+                                        .field(MODULE_KIND, field -> field.label("模块类型").required().select())
+                                        .field(ENTRY_TYPE, field -> field.label("入口类型").required().select())
                                         .field(ENTRY_ROUTE, field -> field.label("内部路由")
                                                 .visible(UiRule.formula(UiFormula.booleanExpression(
                                                         "{" + ENTRY_TYPE.name() + "} == 'route'"))))
                                         .field(ENTRY_EXTERNAL_URL, field -> field.label("外部链接")
                                                 .visible(UiRule.formula(UiFormula.booleanExpression(
                                                         "{" + ENTRY_TYPE.name() + "} == 'link'"))))
-                                        .field(ENABLED, field -> field.label("启用状态").uiType("enabledStatus"))))
-                        .traits(traits -> traits.standardCrud().enabledStatus())))
+                                        .field(ENABLED, field -> field.label("启用状态").enabledStatus())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()))))
                 .build();
     }
 

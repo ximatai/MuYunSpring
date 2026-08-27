@@ -99,7 +99,7 @@ class StaticPageCapabilityValidatorTest {
         return ModuleUiDefinition.builder("catalog.category")
                 .page(PageTemplates.treeManagement(page -> page
                         .detail(detail -> detail.editor(editor -> editor.field("title")))
-                        .traits(traits -> traits.standardCrud())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
                 .build();
     }
 
@@ -108,7 +108,7 @@ class StaticPageCapabilityValidatorTest {
                 .page(PageTemplates.listDetailCard(page -> page
                         .list(list -> list.fields(fields -> fields.field("title")))
                         .detail(detail -> detail.editor(editor -> editor.field("title")))
-                        .traits(traits -> traits.standardCrud().enabledStatus())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()))))
                 .build();
     }
 
@@ -139,7 +139,7 @@ class StaticPageCapabilityValidatorTest {
                                 .manageable(editorSurface)))
                         .list(list -> list.fields(fields -> fields.field("title")))
                         .detail(detail -> detail.editor(editor -> editor.field("title")))
-                        .traits(traits -> traits.standardCrud())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
                 .build();
     }
 }

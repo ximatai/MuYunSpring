@@ -48,7 +48,7 @@ class PlatformModuleRuntimeContextWebControllerTest {
                         .page(PageTemplates.listDetailCard(page -> page
                                 .list(list -> list.fields(fields -> fields.field("title", field -> field.label("组织名称"))))
                                 .detail(detail -> detail.editor(fields -> fields.field("title")))
-                                .traits(traits -> traits.standardCrud())))
+                                .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
                         .build()
         ));
         MockMvc mvc = mvc(service);
