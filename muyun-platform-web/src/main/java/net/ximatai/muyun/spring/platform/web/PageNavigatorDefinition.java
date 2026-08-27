@@ -74,6 +74,31 @@ public record PageNavigatorDefinition(List<PageNavigatorLevelDefinition> levels,
             return this;
         }
 
+        /** @deprecated Use explicit list-filter and form-prefill bindings. */
+        @Deprecated(forRemoval = false)
+        public Builder bindNavigatorToList(String sourceLevelKey, String field) {
+            return filterListByNavigator(sourceLevelKey, field).prefillFormFromNavigator(sourceLevelKey, field);
+        }
+
+        /** @deprecated Use explicit list-filter and form-prefill bindings. */
+        @Deprecated(forRemoval = false)
+        public Builder bindNavigatorToList(String sourceLevelKey, String field, NavigatorListQueryMode queryMode) {
+            return filterListByNavigator(sourceLevelKey, field, queryMode).prefillFormFromNavigator(sourceLevelKey, field);
+        }
+
+        /** @deprecated Use explicit list-filter and form-prefill bindings. */
+        @Deprecated(forRemoval = false)
+        public Builder bindNavigatorToList(ModuleUiNavigatorKey sourceLevelKey, ModuleUiField field) {
+            return bindNavigatorToList(value(sourceLevelKey), name(field));
+        }
+
+        /** @deprecated Use explicit list-filter and form-prefill bindings. */
+        @Deprecated(forRemoval = false)
+        public Builder bindNavigatorToList(ModuleUiNavigatorKey sourceLevelKey, ModuleUiField field,
+                                           NavigatorListQueryMode queryMode) {
+            return bindNavigatorToList(value(sourceLevelKey), name(field), queryMode);
+        }
+
         public Builder filterListByNavigator(ModuleUiNavigatorKey sourceLevelKey, ModuleUiField field,
                                              NavigatorListQueryMode queryMode) {
             return filterListByNavigator(value(sourceLevelKey), name(field), queryMode);
@@ -126,6 +151,20 @@ public record PageNavigatorDefinition(List<PageNavigatorLevelDefinition> levels,
             contextBindings.add(PageContextBindingDefinition.session(sessionKey,
                     PageContextTarget.MUTATION_CONSTRAINT, field));
             return this;
+        }
+
+        /** @deprecated Use explicit list-filter, form-prefill and mutation-constraint bindings. */
+        @Deprecated(forRemoval = false)
+        public Builder bindSessionToList(String sessionKey, String field) {
+            return filterListBySession(sessionKey, field)
+                    .prefillFormFromSession(sessionKey, field)
+                    .constrainMutationsFromSession(sessionKey, field);
+        }
+
+        /** @deprecated Use explicit list-filter, form-prefill and mutation-constraint bindings. */
+        @Deprecated(forRemoval = false)
+        public Builder bindSessionToList(ModuleUiBindingKey sessionKey, ModuleUiField field) {
+            return bindSessionToList(sessionKey == null ? null : sessionKey.value(), name(field));
         }
 
         public Builder filterListBySession(ModuleUiBindingKey sessionKey, ModuleUiField field) {

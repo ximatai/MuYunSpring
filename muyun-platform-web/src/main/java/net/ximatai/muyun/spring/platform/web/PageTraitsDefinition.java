@@ -28,6 +28,22 @@ public record PageTraitsDefinition(Set<PageTrait> values) {
             return this;
         }
 
+        /** @deprecated Use {@code operations(operations -> operations.standardCrud())}. */
+        @Deprecated(forRemoval = false)
+        public Builder standardCrud() { values.add(PageTrait.STANDARD_CRUD); return this; }
+
+        /** @deprecated Use {@code operations(operations -> operations.enabledLifecycle())}. */
+        @Deprecated(forRemoval = false)
+        public Builder enabledStatus() { values.add(PageTrait.ENABLED_STATUS); return this; }
+
+        /** @deprecated Use {@code operations(operations -> operations.recycleBin())}. */
+        @Deprecated(forRemoval = false)
+        public Builder recycleBin() { values.add(PageTrait.RECYCLE_BIN); return this; }
+
+        /** @deprecated Use {@code presentation(presentation -> presentation.responsiveDetailSurface())}. */
+        @Deprecated(forRemoval = false)
+        public Builder responsiveDetailSurface() { values.add(PageTrait.RESPONSIVE_DETAIL_SURFACE); return this; }
+
         PageTraitsDefinition build() { return new PageTraitsDefinition(values); }
     }
 

@@ -82,4 +82,34 @@ class ModuleUiDslKeysTest {
         assertThatThrownBy(() -> ModuleUiViewCode.of("BadView"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void shouldKeepPublishedDslEntryPointsSourceCompatible() {
+        PageDetailRelationMutationDefinition mutations = PageDetailRelationMutationDefinition.standardCrud();
+        ModuleUiDefinition.builder("test.module")
+                .detailRelation("read", "Read", "child", "parentId", true)
+                .managedDetailRelation("managed", "Managed", "child", "parentId", mutations)
+                .managedDetailRelation("managed_with_constraint", "Managed", "child", "parentId", mutations,
+                        PageDetailRelationParentConstraintDefinition.fieldEquals("parentId", "parent"))
+                .managedDetailRelation("managed_with_pagination", "Managed", "child", "parentId", mutations,
+                        PageDetailRelationPaginationDefinition.unpaged())
+                .managedReadOnlyDetailRelation("managed_read", "Managed read", "child", "parentId", null)
+                .aggregateChildRelation("children", "Children", "child", "parentId", UiRule.constant(Boolean.TRUE))
+                .aggregateChildRelation("children_with_recycle", "Children", "child", "parentId",
+                        UiRule.constant(Boolean.TRUE), true)
+                .aggregateChildRelation("children_with_formula", "Children", "child", "parentId",
+                        UiRule.constant(Boolean.TRUE), false, java.util.List.of());
+
+        PageNavigatorDefinition navigator = new PageNavigatorDefinition.Builder()
+                .level("scope", level -> level.microList("test.scope", "范围", "搜索范围"))
+                .bindNavigatorToList("scope", "scopeId")
+                .bindSessionToList("tenantId", "tenantId")
+                .build();
+        PageTraitsDefinition traits = PageTraitsDefinition.builder()
+                .standardCrud().enabledStatus().recycleBin().responsiveDetailSurface().build();
+
+        assertThat(navigator.contextBindings()).hasSize(5);
+        assertThat(traits.values()).containsExactlyInAnyOrder(PageTrait.values());
+    }
 }
