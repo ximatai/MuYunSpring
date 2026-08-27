@@ -158,6 +158,29 @@ private String moduleAlias;
 
 该请求头只表达当前页面工作范围，不授予数据权限。数据范围、租户隔离和字段保护仍由对应的后端能力独立校验。
 
+### 非导航的服务端选择上下文
+
+当页面入口携带的不是普通导航记录，而是“角色归属范围”“当前审批对象”等需要由服务端重新解析和授权的业务选择时，不要把解析后的字段交给浏览器，也不要为此复制一个专用表单页。静态 `CrudWeb` 可声明 `PageSelectionContextResolver` 与 `pageSelectionContextBindings()`；扫描器会把 binding 合并进静态模块 definition，并与 UI descriptor 一起编译为执行计划。
+
+```java
+@Override
+public PageSelectionContextResolverRegistry pageSelectionContextResolvers() {
+    return new PageSelectionContextResolverRegistry(List.of(roleScopeSelectionResolver));
+}
+
+@Override
+public List<PageContextBindingDefinition> pageSelectionContextBindings() {
+    return PageContextBindingDefinition.resolvedSelectionFields(
+            "roleScope",
+            PageContextTarget.FORM_DEFAULT,
+            "ownerScopeType", "ownerScopeId");
+}
+```
+
+浏览器只传递不透明的 selection key。每次读取默认值或执行创建、更新、删除时，平台都重新调用 resolver，并以当前 action、数据范围和模块权限校验该选择。`FORM_DEFAULT` 只用于新建表单预填；真正写入仍在 mutation 期间独立解析。需要把范围固定为写入不变量时，再额外绑定 `MUTATION_CONSTRAINT`；该目标只接受 `SESSION` 或 `RESOLVED_SELECTION` 来源，不能把浏览器 navigator 值误当成服务端事实。
+
+`PageContextBindingDefinition` 的目标含义应保持单一：`LIST_QUERY` 约束主列表，`NAVIGATOR_QUERY` 约束下游导航来源，`PICKER_QUERY` 约束某个引用选择器，`FORM_DEFAULT` 提供新建初值，`MUTATION_CONSTRAINT` 约束写入。普通组织、租户等页面工作范围仍优先使用 navigator binding；只有需要不透明、逐请求授权解析的业务选择才使用 resolver。
+
 若资源只适用于范围记录的某个稳定状态，可用 `availableWhenEquals` 声明字段和值；条件不满足时运行器不加载树也不开放新建，资源控制器仍须执行领域不变量。运行器把资源访问固定投影到模块的 `tree-resources/{resource}/{scopeId}` 路径，未选中范围时 fail-closed。页面模块仍拥有动作授权与 runtime descriptor，资源控制器只保留领域范围绑定、归属校验和不变量。该能力当前是静态 action contribution 的平台接入点；动态来源没有同等可执行资源注册时，应明确拒绝，而不是在前端拼业务 URL。
 
 ## 关系和子资源
