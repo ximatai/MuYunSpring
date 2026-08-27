@@ -283,6 +283,8 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(drawerSource, /<slot name="form" \/>/);
   assert.match(detailDrawerSource, /<RecordDetailLayout surface="drawer"[\s\S]*scrollable-content/);
   assert.match(detailDrawerSource, /subtitle\?: string/);
+  assert.match(detailDrawerSource, /const inlineWidth = computed\([\s\S]*min\(\$\{requestedWidth\}, calc\(100% - 32px\)\)/);
+  assert.match(detailDrawerSource, /v-else-if="renderMode === 'inline'"[\s\S]*:width="inlineWidth"/);
   assert.notMatch(detailDrawerSource, /RecordDetailPanel/);
   assert.match(detailDrawerSource, /<slot name="operation" \/>/);
   assert.notMatch(detailDrawerSource, /<slot name="actions" \/>/);
@@ -523,6 +525,7 @@ it('role management enters the standard runner while keeping IAM scope and actio
   const roleViewSource = readSource('src/views/RoleManagementView.vue');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
   const roleScopeTreeSource = readSource('src/platform-admin-runtime/role/RoleScopeTree.vue');
+  const roleEnumTitleCellSource = readSource('src/platform-admin-runtime/role/RoleEnumTitleCell.vue');
   const roleEnhancementSource = readSource('src/platform-admin-runtime/roleModulePageEnhancement.ts');
   const contractsSource = readSource('src/web-contracts/index.ts');
   const panelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
@@ -541,6 +544,11 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleEnhancementSource, /RoleAccountGrantDrawerSurface/);
   assert.match(roleEnhancementSource, /RoleEmploymentGrantDrawerSurface/);
   assert.match(roleEnhancementSource, /RoleAuthorizationDrawerSurface/);
+  assert.match(roleEnhancementSource, /title: '角色授权', width: 820/);
+  assert.match(roleEnhancementSource, /cellComponents:[\s\S]*assignmentType[\s\S]*roleKind[\s\S]*sharePolicy/);
+  assert.match(roleEnhancementSource, /recordActions: roleRecordActions/);
+  assert.match(roleEnumTitleCellSource, /account: '账号角色'/);
+  assert.match(roleEnumTitleCellSource, /standard: '标准角色'/);
   assert.match(roleViewSource, /tenantRootTreeNode/);
   assert.match(roleViewSource, /selectPlatformScope/);
   assert.match(roleViewSource, /title: '平台角色'/);
@@ -603,10 +611,18 @@ it('role management enters the standard runner while keeping IAM scope and actio
     /if \(action\.key === 'bind' && selectedRole\.value\)[\s\S]*selectedRole\.value\.assignmentType === 'employment'/,
   );
   const roleEmploymentGrantDrawerSource = readSource('src/views/RoleEmploymentGrantDrawer.vue');
+  const roleAuthorizationDrawerSurfaceForOperationSource = readSource(
+    'src/platform-admin-runtime/role/RoleAuthorizationDrawerSurface.vue',
+  );
+  const roleAuthorizationSource = readSource('src/views/RoleAuthorizationView.vue');
   const employeeEmploymentTableSource = readSource('src/views/EmployeeEmploymentTable.vue');
-  assert.match(roleEmploymentGrantDrawerSource, /展开职员后选择其具体任职/);
-  assert.match(roleEmploymentGrantDrawerSource, /当前页涉及 \{\{ selectedEmployeeCount \}\} 名职员/);
-  assert.match(roleEmploymentGrantDrawerSource, /<section class="role-employment-grant-selected">/);
+  assert.notMatch(roleEmploymentGrantDrawerSource, /角色将在所选任职/);
+  assert.match(roleEmploymentGrantDrawerSource, /:pagination="employmentTablePagination"/);
+  assert.match(roleEmploymentGrantDrawerSource, /fill-height/);
+  assert.match(
+    roleEmploymentGrantDrawerSource,
+    /<section v-if="selectedEmployments\.length > 0" class="role-employment-grant-selected">/,
+  );
   assert.match(roleEmploymentGrantDrawerSource, /<strong>已选任职<\/strong>/);
   assert.match(roleEmploymentGrantDrawerSource, /@click="removeSelectedEmployment\(employment\.id\)"/);
   assert.match(roleEmploymentGrantDrawerSource, /function selectedEmploymentTitle/);
@@ -625,6 +641,20 @@ it('role management enters the standard runner while keeping IAM scope and actio
   );
   assert.match(employeeEmploymentTableSource, /function updateEmployeeSelectedIds/);
   assert.match(employeeEmploymentTableSource, /<UiDataTable[\s\S]*horizontal-scroll/);
+  assert.match(employeeEmploymentTableSource, /:fill-height="fillHeight"/);
+  assert.match(roleAuthorizationDrawerSurfaceForOperationSource, /:drawer-context="props\.context"/);
+  assert.match(roleAuthorizationDrawerSurfaceForOperationSource, /role-authorization-drawer-surface/);
+  assert.match(roleAuthorizationDrawerSurfaceForOperationSource, /height: 100%;[\s\S]*overflow: hidden;/);
+  assert.match(roleAuthorizationSource, /const supportsDataScope = computed/);
+  assert.match(roleAuthorizationSource, /v-model:search-keyword="moduleKeyword"/);
+  assert.match(roleAuthorizationSource, /setOperation\(\{/);
+  assert.match(roleAuthorizationSource, /setSubtitle\(`\$\{roleTitle\.value\} · \$\{scopeTitle/);
+  assert.match(roleAuthorizationSource, /authorization-layout--compact-actions/);
+  assert.match(roleAuthorizationSource, /var\(--muyun-management-explorer-width, 280px\)/);
+  assert.match(roleAuthorizationSource, /\.action-panel :deep\(\.record-explorer-panel-content\) \{[\s\S]*overflow: hidden;/);
+  assert.match(roleAuthorizationSource, /\.action-panel :deep\(\.ui-data-table\) \{[\s\S]*flex: 1 1 auto;/);
+  assert.match(roleAuthorizationSource, /\.module-panel :deep\(\.ant-tree\) \{[\s\S]*overflow-y: auto;/);
+  assert.match(roleAuthorizationSource, /\.action-panel :deep\(\.ant-table-body\) \{[\s\S]*overscroll-behavior: contain;/);
   assert.notMatch(roleViewSource, /account-grants/);
   assert.notMatch(roleViewSource, /employment-grants/);
   assert.notMatch(roleViewSource, /permissionMatrix/);
@@ -1058,6 +1088,14 @@ it('consumer surface exposes basic adapter controls for business App composition
 it('data table keeps platform typography when embedded by a consumer App', () => {
   const tableSource = readSource('src/vue-ui-antdv/components/UiDataTable.vue');
 
+  assert.match(
+    tableSource,
+    /\.ui-data-table\.is-fill-height :deep\(\.ant-spin-container\),[\s\S]*?\.ui-data-table\.is-fill-height :deep\(\.ant-table\) \{[\s\S]*?display: flex;[\s\S]*?flex-direction: column;/,
+  );
+  assert.match(
+    tableSource,
+    /\.ui-data-table\.is-fill-height :deep\(\.ant-table\) \{[\s\S]*?flex: 1 1 auto;[\s\S]*?height: auto;/,
+  );
   assert.match(tableSource, /\.ui-data-table :deep\(\.ant-table\)[\s\S]*font-size: 13px/);
   assert.match(
     tableSource,

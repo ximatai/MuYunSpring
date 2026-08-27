@@ -359,6 +359,28 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         return grantAccountRoleResult(roleId, userId, managementScopeType, managementScopeId).grantId();
     }
 
+    /**
+     * Resolves the tenant in which an account-role binding is allowed to be created.
+     * Platform roles deliberately have no implicit target tenant: callers must select one
+     * before requesting candidates or creating a grant.
+     */
+    public String resolveAccountRoleBindingTenant(String roleId) {
+        Role role = requireBindableRole(roleId);
+        requireAccountRole(role);
+        if (role.getOwnerScopeType() == RoleOwnerScopeType.PLATFORM) {
+            if (role.getSharePolicy() != RoleSharePolicy.PLATFORM) {
+                throw BusinessExceptions.warning("iam.role.platform-private-not-bindable",
+                        "租户不能绑定平台私有角色");
+            }
+            throw BusinessExceptions.warning("iam.role.account-binding-target-tenant-required",
+                    "平台角色绑定用户前必须先选择目标租户");
+        }
+        String tenantId = Preconditions.requireText(role.getTenantId(),
+                "tenantId is required for tenant or organization account role binding");
+        verifyActiveTenant(tenantId);
+        return tenantId;
+    }
+
     public RoleGrantMutationResult grantAccountRoleResult(String roleId,
                                                           String userId,
                                                           ManagementScopeType managementScopeType,

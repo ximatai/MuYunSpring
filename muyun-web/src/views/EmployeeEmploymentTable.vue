@@ -6,6 +6,7 @@ import type {
   UiDataTableColumn,
   UiDataTableKey,
   UiDataTableRecord,
+  UiDataTablePagination,
   UiDataTableSelection,
 } from '@muyun/vue-ui-antdv';
 import type { EmploymentSelectorItem } from '@muyun/web-contracts';
@@ -26,8 +27,10 @@ const props = withDefaults(
     selectedIds?: Set<string>;
     selectable?: boolean;
     disabled?: boolean;
+    pagination?: false | UiDataTablePagination;
+    fillHeight?: boolean;
   }>(),
-  { selectedIds: () => new Set<string>(), selectable: false, disabled: false },
+  { selectedIds: () => new Set<string>(), selectable: false, disabled: false, pagination: false, fillHeight: false },
 );
 
 const emit = defineEmits<{ 'update:selectedIds': [value: Set<string>] }>();
@@ -126,10 +129,11 @@ function toggleEmployeeExpanded(record: UiDataTableRecord) {
     :columns="employeeColumns"
     :rows="employeeTableRows"
     row-key="employeeId"
-    :pagination="false"
+    :pagination="pagination"
     :expanded-row-keys="expandedEmployeeKeys"
     clickable-rows
     horizontal-scroll
+    :fill-height="fillHeight"
     @row-expand="handleEmployeeExpand"
     @row-dblclick="toggleEmployeeExpanded"
   >

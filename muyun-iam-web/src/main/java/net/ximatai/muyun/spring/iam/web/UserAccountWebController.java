@@ -379,6 +379,29 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
         });
     }
 
+    /** Candidate accounts for a role binding, evaluated in the role's authoritative tenant. */
+    @PostMapping("/account-role-candidates/query")
+    @CustomActionEndpoint(value = "accountRoleCandidates", title = "账号角色候选", level = PlatformActionLevel.LIST,
+            dataAuth = true)
+    public WebPageResponse<UserSelectorItem> accountRoleCandidates(
+            @RequestBody AccountRoleCandidateRequest request) {
+        if (roleService == null) {
+            throw new IllegalStateException("role service is not available");
+        }
+        AccountRoleCandidateRequest normalized = request == null
+                ? AccountRoleCandidateRequest.EMPTY : request;
+        String roleId = net.ximatai.muyun.spring.common.util.Preconditions.requireText(normalized.roleId(), "roleId");
+        String tenantId = roleService.resolveAccountRoleBindingTenant(roleId);
+        return MutationTenantScopeExecutor.forAuthoritativeTenantScope(tenantId, () -> webScope(() -> {
+            Criteria criteria = selectorCriteria(new UserSelectorRequest(null, normalized.keyword(), Boolean.TRUE,
+                    normalized.page()));
+            applyMenuEntryQueryCriteria(criteria);
+            WebPageRequest page = normalized.pageOrDefault();
+            return selectorProjectedPageQuery(criteria, PageRequest.of(page.pageNum(), page.pageSize()),
+                    Sort.asc("username"));
+        }));
+    }
+
     @GetMapping("/{id}/employee-binding")
     @CustomActionEndpoint(value = "employeeBinding", title = "绑定职员",
             level = PlatformActionLevel.RECORD, dataAuth = true)
@@ -418,6 +441,14 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
             WebPageRequest page
     ) {
         static final UserSelectorRequest EMPTY = new UserSelectorRequest(null, null, Boolean.TRUE, null);
+
+        WebPageRequest pageOrDefault() {
+            return page == null ? WebPageRequest.DEFAULT : page;
+        }
+    }
+
+    public record AccountRoleCandidateRequest(String roleId, String keyword, WebPageRequest page) {
+        static final AccountRoleCandidateRequest EMPTY = new AccountRoleCandidateRequest(null, null, null);
 
         WebPageRequest pageOrDefault() {
             return page == null ? WebPageRequest.DEFAULT : page;

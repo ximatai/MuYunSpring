@@ -176,6 +176,46 @@ class RoleServiceContractTest {
     }
 
     @Test
+    void shouldResolveOnlyTenantOwnedAccountRolesToAnImplicitBindingTenant() {
+        RoleDao roleDao = mock(RoleDao.class);
+        Role tenantRole = accountRole("tenant-account", RoleKind.STANDARD);
+        tenantRole.setTenantId("tenant_a");
+        when(roleDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(tenantRole));
+        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
+
+        assertThat(service.resolveAccountRoleBindingTenant("tenant-account")).isEqualTo("tenant_a");
+    }
+
+    @Test
+    void shouldRequireAnExplicitTargetTenantForPlatformAccountRoles() {
+        RoleDao roleDao = mock(RoleDao.class);
+        Role platformRole = platformRole("platform-account", RoleAssignmentType.ACCOUNT, RoleKind.STANDARD,
+                RoleSharePolicy.PLATFORM);
+        when(roleDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(platformRole));
+        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
+
+        assertThatThrownBy(() -> service.resolveAccountRoleBindingTenant("platform-account"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("平台角色绑定用户前必须先选择目标租户");
+    }
+
+    @Test
+    void shouldRejectCandidateResolutionForPlatformPrivateRoles() {
+        RoleDao roleDao = mock(RoleDao.class);
+        Role platformRole = platformRole("platform-private", RoleAssignmentType.ACCOUNT, RoleKind.STANDARD,
+                RoleSharePolicy.PRIVATE);
+        when(roleDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(platformRole));
+        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
+
+        assertThatThrownBy(() -> service.resolveAccountRoleBindingTenant("platform-private"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("租户不能绑定平台私有角色");
+    }
+
+    @Test
     void shouldRejectTenantBindingOfPlatformPrivateRole() {
         RoleDao roleDao = mock(RoleDao.class);
         Role privateRole = platformRole("platform-private", RoleAssignmentType.ACCOUNT, RoleKind.STANDARD,

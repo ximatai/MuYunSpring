@@ -15,6 +15,7 @@ import type {
   QueryListRecord,
 } from '@muyun/platform-components';
 import type { DrawerTitleAction } from '@muyun/platform-components';
+import { mergeRecordActions } from '@muyun/platform-components';
 
 /**
  * Frontend-owned, constrained composition for a descriptor-driven module page.
@@ -33,6 +34,13 @@ export interface ModulePageEnhancement {
    */
   activate?(context: ModulePageEnhancementActivationContext): void | (() => void);
   list?: ModuleListEnhancement;
+  /**
+   * Business record actions shown by default in both the list-row "more"
+   * menu and the standard detail drawer operation area. Use the surface-local
+   * `list.rowActions` or `detail.actions` only when an action is intentionally
+   * limited to one presentation.
+   */
+  recordActions?: ModulePageRecordActionContribution[];
   detail?: ModuleDetailEnhancement;
   /**
    * Frontend-owned editor content mounted at a typed standard-form boundary.
@@ -611,7 +619,6 @@ function composeModulePageEnhancements(
   enhancements: readonly ModulePageEnhancement[],
   target: ModulePageEnhancementTarget,
 ): ModulePageEnhancement {
-  if (enhancements.length === 1) return enhancements[0];
   const actionColumnWidths = enhancements
     .map((enhancement) => enhancement.list?.actionColumnWidth)
     .filter((width): width is string | number => width !== undefined);
@@ -731,7 +738,7 @@ function composeListEnhancement(
     actions: enhancements.flatMap((enhancement) => enhancement.list?.actions ?? []),
     columns: enhancements.flatMap((enhancement) => enhancement.list?.columns ?? []),
     cellComponents: enhancements.flatMap((enhancement) => enhancement.list?.cellComponents ?? []),
-    rowActions: enhancements.flatMap((enhancement) => enhancement.list?.rowActions ?? []),
+    rowActions: composeRecordActions(enhancements, (enhancement) => enhancement.list?.rowActions),
     batchActions: enhancements.flatMap((enhancement) => enhancement.list?.batchActions ?? []),
     ...(rowExpansion === undefined ? {} : { rowExpansion }),
     ...(actionColumnWidth === undefined ? {} : { actionColumnWidth }),
@@ -745,10 +752,28 @@ function composeDetailEnhancement(
   enhancements: readonly ModulePageEnhancement[],
 ): ModuleDetailEnhancement | undefined {
   const detail = {
-    actions: enhancements.flatMap((enhancement) => enhancement.detail?.actions ?? []),
+    actions: composeRecordActions(enhancements, (enhancement) => enhancement.detail?.actions),
     sections: enhancements.flatMap((enhancement) => enhancement.detail?.sections ?? []),
   };
   return detail.actions.length > 0 || detail.sections.length > 0 ? detail : undefined;
+}
+
+/**
+ * Root record actions and surface-local actions share the platform's established
+ * `before` / `after` semantics. Applying that merger while composing keeps the
+ * same declared root action order in the row menu and detail operation area.
+ */
+function composeRecordActions(
+  enhancements: readonly ModulePageEnhancement[],
+  surfaceActions: (
+    enhancement: ModulePageEnhancement,
+  ) => readonly ModulePageRecordActionContribution[] | undefined,
+): ModulePageRecordActionContribution[] {
+  const actions = enhancements.flatMap((enhancement) => [
+    ...(enhancement.recordActions ?? []),
+    ...(surfaceActions(enhancement) ?? []),
+  ]);
+  return mergeRecordActions([], actions) as ModulePageRecordActionContribution[];
 }
 
 function composeFormEnhancement(
@@ -764,9 +789,9 @@ function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
     enhancement.list?.actions ?? [],
     enhancement.list?.columns ?? [],
     enhancement.list?.cellComponents ?? [],
-    enhancement.list?.rowActions ?? [],
+    [...(enhancement.recordActions ?? []), ...(enhancement.list?.rowActions ?? [])],
     enhancement.list?.batchActions ?? [],
-    enhancement.detail?.actions ?? [],
+    [...(enhancement.recordActions ?? []), ...(enhancement.detail?.actions ?? [])],
     enhancement.detail?.sections ?? [],
     enhancement.form?.contributions ?? [],
   ];
@@ -787,6 +812,13 @@ function assertUniqueContributionKeys(enhancement: ModulePageEnhancement) {
     throw new Error(`模块页面增强 ${enhancement.id} 的导航扩展 key 不能为空`);
   }
   assertNoReservedActionKeys(enhancement.id, enhancement.list?.actions ?? [], ['create']);
+  assertNoReservedActionKeys(enhancement.id, enhancement.recordActions ?? [], [
+    'create',
+    'view',
+    'edit',
+    'update',
+    'delete',
+  ]);
   assertNoReservedActionKeys(enhancement.id, enhancement.list?.rowActions ?? [], ['view', 'edit', 'delete']);
   assertNoReservedActionKeys(enhancement.id, enhancement.list?.batchActions ?? [], ['create']);
   assertNoReservedActionKeys(enhancement.id, enhancement.detail?.actions ?? [], [

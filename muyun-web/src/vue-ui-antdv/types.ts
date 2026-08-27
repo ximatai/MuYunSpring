@@ -14,7 +14,11 @@ export interface UiDataTableColumn {
 
 export interface UiDataTablePagination {
   pageSize: number;
+  current?: number;
+  total?: number;
   showSizeChanger?: boolean;
+  showQuickJumper?: boolean;
+  onChange?: (page: number, pageSize: number) => void;
 }
 
 export interface UiDataTableSelection {

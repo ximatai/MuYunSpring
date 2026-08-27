@@ -6,6 +6,7 @@ import {
   presentPlatformError,
 } from '@muyun/platform-components';
 import { UiButton, UiError, UiInput, UiSpin, UiTable } from '@muyun/vue-ui-antdv';
+import type { UiDataTablePagination } from '@muyun/vue-ui-antdv';
 import type {
   AccountRoleGrant,
   ManagementScopeType,
@@ -112,9 +113,6 @@ const rows = computed<UserRow[]>(() =>
 const selectedUsers = computed(() =>
   [...checkedUserIds.value].map((userId) => usersById.value[userId] ?? userFallback(userId)),
 );
-const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
-const canGoPrevious = computed(() => pageNum.value > 1);
-const canGoNext = computed(() => pageNum.value < pages.value);
 const addedUserIds = computed(() =>
   [...checkedUserIds.value].filter((userId) => !originalUserIds.value.has(userId)),
 );
@@ -140,6 +138,14 @@ const rowSelection = computed(() => ({
   onChange: (keys: (string | number)[]) => {
     checkedUserIds.value = new Set(keys.map((key) => String(key)));
   },
+}));
+const userTablePagination = computed<UiDataTablePagination>(() => ({
+  current: pageNum.value,
+  total: total.value,
+  pageSize,
+  showSizeChanger: false,
+  showQuickJumper: false,
+  onChange: (page) => void loadUsersPage(page),
 }));
 
 watch(
@@ -240,9 +246,11 @@ async function load() {
 }
 
 async function loadUsersPage(nextPage: number) {
+  const id = roleId.value;
+  if (!id) return;
   loadingUsers.value = true;
   try {
-    const response = await client.value.userSelector({
+    const response = await client.value.accountRoleCandidates(id, {
       keyword: appliedKeyword.value,
       enabledOnly: true,
       page: { pageNum: Math.max(0, nextPage), pageSize },
@@ -373,7 +381,11 @@ function scopeTitle(role: Role | undefined) {
 </script>
 
 <template>
-  <component :is="contentContainer" v-bind="contentContainerProps">
+  <component
+    :is="contentContainer"
+    v-bind="contentContainerProps"
+    :class="{ 'role-account-grant-drawer-surface': embedded }"
+  >
     <template v-if="!embedded" #operation>
       <UiButton :disabled="saving || loading" @click="handleClose">取消</UiButton>
       <UiButton type="primary" :loading="saving" :disabled="loading || !changed" @click="save">
@@ -399,12 +411,23 @@ function scopeTitle(role: Role | undefined) {
         <UiButton icon-name="search" :disabled="saving" @click="submitSearch">查询</UiButton>
       </div>
 
+      <UiTable
+        class="role-account-grant-table"
+        size="middle"
+        :contract="userTableContract"
+        :rows="rows"
+        :loading="loadingUsers"
+        :pagination="userTablePagination"
+        :selection="rowSelection"
+        fill-height
+      />
+
       <section v-if="selectedUsers.length > 0" class="role-account-grant-selected">
         <div class="role-account-grant-selected-title">
           <strong>已选用户</strong>
           <span>{{ selectedUsers.length }} 个</span>
         </div>
-        <div v-if="selectedUsers.length > 0" class="role-account-grant-selected-list">
+        <div class="role-account-grant-selected-list">
           <button
             v-for="user in selectedUsers"
             :key="user.id"
@@ -417,36 +440,22 @@ function scopeTitle(role: Role | undefined) {
           </button>
         </div>
       </section>
-
-      <UiTable
-        class="role-account-grant-table"
-        size="middle"
-        :contract="userTableContract"
-        :rows="rows"
-        :loading="loadingUsers"
-        :pagination="false"
-        :selection="rowSelection"
-      />
-
-      <div class="role-account-grant-pagination">
-        <span>共 {{ total }} 个用户，第 {{ pageNum }} / {{ pages }} 页</span>
-        <div>
-          <UiButton :disabled="saving || loadingUsers || !canGoPrevious" @click="loadUsersPage(pageNum - 1)">
-            上一页
-          </UiButton>
-          <UiButton :disabled="saving || loadingUsers || !canGoNext" @click="loadUsersPage(pageNum + 1)">
-            下一页
-          </UiButton>
-        </div>
-      </div>
     </section>
   </component>
 </template>
 
 <style scoped>
+.role-account-grant-drawer-surface {
+  height: 100%;
+  min-height: 0;
+}
+
 .role-account-grant-drawer-body {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 12px;
+  height: 100%;
+  min-height: 0;
 }
 
 .role-account-grant-search {
@@ -458,6 +467,7 @@ function scopeTitle(role: Role | undefined) {
 .role-account-grant-selected {
   display: grid;
   gap: 8px;
+  max-block-size: 168px;
   padding: 10px;
   border: 1px solid var(--muyun-border-subtle);
   border-radius: 8px;
@@ -465,7 +475,7 @@ function scopeTitle(role: Role | undefined) {
 }
 
 .role-account-grant-selected-title,
-.role-account-grant-pagination {
+.role-account-grant-selected-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -477,8 +487,7 @@ function scopeTitle(role: Role | undefined) {
   font-size: 13px;
 }
 
-.role-account-grant-selected-title span,
-.role-account-grant-pagination {
+.role-account-grant-selected-title span {
   color: var(--muyun-text-muted);
   font-size: 12px;
 }
@@ -487,6 +496,7 @@ function scopeTitle(role: Role | undefined) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  overflow: auto;
 }
 
 .role-account-grant-selected-list button {
@@ -524,11 +534,6 @@ function scopeTitle(role: Role | undefined) {
 
 .role-account-grant-table :deep(.ant-table-cell) {
   overflow-wrap: anywhere;
-}
-
-.role-account-grant-pagination > div {
-  display: flex;
-  gap: 8px;
 }
 
 .role-account-grant-drawer-state {

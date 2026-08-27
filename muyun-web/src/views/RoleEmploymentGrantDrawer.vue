@@ -6,6 +6,7 @@ import {
   presentPlatformError,
 } from '@muyun/platform-components';
 import { UiButton, UiError, UiInput, UiSpin } from '@muyun/vue-ui-antdv';
+import type { UiDataTablePagination } from '@muyun/vue-ui-antdv';
 import type { EmploymentRoleGrant, EmploymentSelectorItem, Role } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
@@ -58,15 +59,19 @@ const grantByPosition = computed(
 const displayRows = computed(() =>
   rows.value.filter((row) => !keyword.value.trim() || rowText(row).includes(keyword.value.trim())),
 );
-const selectedEmployeeCount = computed(
-  () =>
-    new Set(displayRows.value.filter((row) => selected.value.has(row.id)).map((row) => row.employeeId)).size,
-);
 const selectedEmployments = computed(() =>
   [...selected.value].map(
     (employmentId) => employmentsById.value[employmentId] ?? employmentFallback(employmentId),
   ),
 );
+const employmentTablePagination = computed<UiDataTablePagination>(() => ({
+  current: pageNum.value,
+  total: total.value,
+  pageSize: 50,
+  showSizeChanger: false,
+  showQuickJumper: false,
+  onChange: (page) => void load(page),
+}));
 watch(
   () => [props.open, props.role?.id],
   ([open]) => {
@@ -223,7 +228,11 @@ function scopeTitle(role: Role | undefined) {
 }
 </script>
 <template>
-  <component :is="contentContainer" v-bind="contentContainerProps">
+  <component
+    :is="contentContainer"
+    v-bind="contentContainerProps"
+    :class="{ 'role-employment-grant-drawer-surface': embedded }"
+  >
     <template v-if="!embedded" #operation>
       <UiButton :disabled="saving" @click="emit('close')">取消</UiButton>
       <UiButton
@@ -240,18 +249,21 @@ function scopeTitle(role: Role | undefined) {
       <UiError title="任职加载失败" message="无法加载任职授权" /><UiButton @click="load()">重试</UiButton>
     </div>
     <section v-else class="role-employment-grant-body">
-      <p>角色将在所选任职的机构、部门和岗位上下文中生效。展开职员后选择其具体任职。</p>
       <UiInput v-model:value="keyword" allow-clear placeholder="筛选职员、工号、机构、部门或岗位" />
-      <div>
-        已选 {{ selected.size }} 个任职；当前页涉及 {{ selectedEmployeeCount }} 名职员；新增
-        {{ added.length }} 个，移除 {{ removed.length }} 个
-      </div>
-      <section class="role-employment-grant-selected">
+      <EmployeeEmploymentTable
+        v-model:selected-ids="selected"
+        :rows="displayRows"
+        selectable
+        :disabled="saving"
+        :pagination="employmentTablePagination"
+        fill-height
+      />
+      <section v-if="selectedEmployments.length > 0" class="role-employment-grant-selected">
         <div class="role-employment-grant-selected-title">
           <strong>已选任职</strong>
           <span>{{ selectedEmployments.length }} 个</span>
         </div>
-        <div v-if="selectedEmployments.length > 0" class="role-employment-grant-selected-list">
+        <div class="role-employment-grant-selected-list">
           <button
             v-for="employment in selectedEmployments"
             :key="employment.id"
@@ -263,41 +275,33 @@ function scopeTitle(role: Role | undefined) {
             <small>{{ selectedEmploymentDescription(employment) }}</small>
           </button>
         </div>
-        <span v-else class="role-employment-grant-selected-empty">暂无已选任职</span>
       </section>
-      <EmployeeEmploymentTable
-        v-model:selected-ids="selected"
-        :rows="displayRows"
-        selectable
-        :disabled="saving"
-      />
-      <div class="role-employment-grant-pagination">
-        <span>共 {{ total }} 个启用任职</span>
-        <UiButton :disabled="loading || pageNum <= 1" @click="load(pageNum - 1)">上一页</UiButton>
-        <UiButton :disabled="loading || pageNum * 50 >= total" @click="load(pageNum + 1)"> 下一页 </UiButton>
-      </div>
     </section>
   </component>
 </template>
 <style scoped>
+.role-employment-grant-drawer-surface {
+  height: 100%;
+  min-height: 0;
+}
+
 .role-employment-grant-body {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 12px;
-}
-.role-employment-grant-body p {
-  margin: 0;
-  color: var(--muyun-text-muted);
+  height: 100%;
+  min-height: 0;
 }
 .role-employment-grant-selected {
   display: grid;
   gap: 8px;
+  max-block-size: 168px;
   padding: 10px;
   border: 1px solid var(--muyun-border-subtle);
   border-radius: 8px;
   background: var(--muyun-hover-subtle);
 }
-.role-employment-grant-selected-title,
-.role-employment-grant-pagination {
+.role-employment-grant-selected-title {
   display: flex;
   gap: 8px;
   align-items: center;
@@ -319,6 +323,7 @@ function scopeTitle(role: Role | undefined) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  overflow: auto;
 }
 .role-employment-grant-selected-list button {
   display: inline-grid;

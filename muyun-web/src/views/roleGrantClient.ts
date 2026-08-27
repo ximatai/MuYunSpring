@@ -84,6 +84,13 @@ export function createRoleGrantClient(http: HttpClient) {
         body: request,
       });
     },
+    accountRoleCandidates(roleId: string, request: Omit<UserSelectorRequest, 'roleId'>) {
+      return http.request<WebPageResponse<UserSelectorItem>>({
+        method: 'POST',
+        path: '/iam.user/account-role-candidates/query',
+        body: { roleId, ...request },
+      });
+    },
     employmentRoleGrants(roleId: string) {
       return http.request<EmploymentRoleGrant[]>({
         path: `/iam.role/${encodeURIComponent(roleId)}/employment-grants`,

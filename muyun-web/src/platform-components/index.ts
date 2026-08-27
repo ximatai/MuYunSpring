@@ -126,7 +126,7 @@ export {
   defaultCrudRecordListSubtitle,
   defaultCrudRecordListTitle,
 } from './crudRecordListModel';
-export { resolveRecordActions } from './recordActionBarModel';
+export { mergeRecordActions, resolveRecordActions } from './recordActionBarModel';
 export { normalizeRecordDraft } from './recordDraftNormalizer';
 export {
   acceptedMediaTypes,
