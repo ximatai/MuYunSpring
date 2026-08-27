@@ -784,13 +784,15 @@ class IamWebMvcSliceTest {
         when(roleService.select(any())).thenAnswer(invocation -> readableRole((String) invocation.getArgument(0)));
         AccountRoleGrant accountGrant = accountRoleGrant("grant-1", "role-1", "user-2",
                 ManagementScopeType.TENANT, "tenant_a");
+        when(roleService.resolveAccountRoleBindingScope("role-1", "tenant_a"))
+                .thenReturn(new RoleService.AccountRoleBindingScope("tenant_a", ManagementScopeType.TENANT, "tenant_a"));
         EmploymentRoleGrant employmentGrant = employmentRoleGrant("grant-2", "role-2", "position-1");
-        when(roleService.grantAccountRoleResult("role-1", "user-2", ManagementScopeType.TENANT, "tenant_a"))
+        when(roleService.grantAccountRoleResult("role-1", "user-2", "tenant_a"))
                 .thenReturn(new RoleService.RoleGrantMutationResult("grant-1", true));
-        when(roleService.grantAccountRoleResult("role-1", "user-3", ManagementScopeType.TENANT, "tenant_a"))
+        when(roleService.grantAccountRoleResult("role-1", "user-3", "tenant_a"))
                 .thenReturn(new RoleService.RoleGrantMutationResult("grant-existing", false));
-        when(roleService.accountRoleGrants("role-1")).thenReturn(List.of(accountGrant));
-        when(roleService.deleteAccountRoleGrant("role-1", "grant-1")).thenReturn(1);
+        when(roleService.accountRoleGrants("role-1", "tenant_a")).thenReturn(List.of(accountGrant));
+        when(roleService.deleteAccountRoleGrant("role-1", "grant-1", "tenant_a")).thenReturn(1);
         when(roleService.grantEmploymentRoleResult("role-2", "position-1"))
                 .thenReturn(new RoleService.RoleGrantMutationResult("grant-2", true));
         when(roleService.employmentRoleGrants("role-2")).thenReturn(List.of(employmentGrant));
@@ -806,7 +808,7 @@ class IamWebMvcSliceTest {
         mvc.perform(post("/iam.role/{roleId}/account-grants", "role-1")
                         .contentType("application/json")
                         .content("""
-                                {"userId":"user-2","managementScopeType":"tenant","managementScopeId":"tenant_a"}
+                                {"userId":"user-2","targetTenantId":"tenant_a"}
                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").value("grant-1"))
@@ -818,20 +820,22 @@ class IamWebMvcSliceTest {
         mvc.perform(post("/iam.role/{roleId}/account-grants", "role-1")
                         .contentType("application/json")
                         .content("""
-                                {"userId":"user-3","managementScopeType":"tenant","managementScopeId":"tenant_a"}
+                                {"userId":"user-3","targetTenantId":"tenant_a"}
                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").value("grant-existing"))
                 .andExpect(jsonPath("$.message.code").value("iam.account-role-grant.granted"))
                 .andExpect(jsonPath("$.changes").isEmpty());
 
-        mvc.perform(get("/iam.role/{roleId}/account-grants", "role-1"))
+        mvc.perform(get("/iam.role/{roleId}/account-grants", "role-1")
+                        .param("targetTenantId", "tenant_a"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("grant-1"))
                 .andExpect(jsonPath("$[0].userId").value("user-2"))
                 .andExpect(jsonPath("$[0].managementScopeType").value("tenant"));
 
-        mvc.perform(post("/iam.role/{roleId}/account-grants/{grantId}/delete", "role-1", "grant-1"))
+        mvc.perform(post("/iam.role/{roleId}/account-grants/{grantId}/delete", "role-1", "grant-1")
+                        .param("targetTenantId", "tenant_a"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").value(1))
                 .andExpect(jsonPath("$.message.code").value("iam.account-role-grant.revoked"))

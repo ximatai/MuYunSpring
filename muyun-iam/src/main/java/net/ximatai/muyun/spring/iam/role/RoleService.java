@@ -352,19 +352,20 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         requireSystemManagedMutationAllowed(role, "delete");
     }
 
-    public String grantAccountRole(String roleId,
-                                   String userId,
-                                   ManagementScopeType managementScopeType,
-                                   String managementScopeId) {
+    /** Internal provisioning path for system-owned roles with a pre-established management scope. */
+    String grantAccountRole(String roleId,
+                            String userId,
+                            ManagementScopeType managementScopeType,
+                            String managementScopeId) {
         return grantAccountRoleResult(roleId, userId, managementScopeType, managementScopeId).grantId();
     }
 
     /**
-     * Resolves the tenant in which an account-role binding is allowed to be created.
-     * Platform roles deliberately have no implicit target tenant: callers must select one
-     * before requesting candidates or creating a grant.
+     * Resolves the authority scope used by account-role binding. Platform roles are shared
+     * definitions, so the target tenant is part of the binding command rather than an
+     * implicit platform-wide grant.
      */
-    public String resolveAccountRoleBindingTenant(String roleId) {
+    public AccountRoleBindingScope resolveAccountRoleBindingScope(String roleId, String targetTenantId) {
         Role role = requireBindableRole(roleId);
         requireAccountRole(role);
         if (role.getOwnerScopeType() == RoleOwnerScopeType.PLATFORM) {
@@ -372,20 +373,47 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                 throw BusinessExceptions.warning("iam.role.platform-private-not-bindable",
                         "租户不能绑定平台私有角色");
             }
-            throw BusinessExceptions.warning("iam.role.account-binding-target-tenant-required",
-                    "平台角色绑定用户前必须先选择目标租户");
+            if (targetTenantId == null || targetTenantId.isBlank()) {
+                throw BusinessExceptions.warning("iam.role.account-binding-target-tenant-required",
+                        "平台角色绑定用户前必须先选择目标租户");
+            }
+            String tenantId = targetTenantId.trim();
+            verifyActiveTenant(tenantId);
+            return new AccountRoleBindingScope(tenantId, ManagementScopeType.TENANT, tenantId);
         }
         String tenantId = Preconditions.requireText(role.getTenantId(),
                 "tenantId is required for tenant or organization account role binding");
         verifyActiveTenant(tenantId);
-        return tenantId;
+        if (role.getOwnerScopeType() == RoleOwnerScopeType.ORGANIZATION) {
+            return new AccountRoleBindingScope(tenantId, ManagementScopeType.ORGANIZATION,
+                    Preconditions.requireText(role.getOwnerScopeId(), "ownerScopeId"));
+        }
+        return new AccountRoleBindingScope(tenantId, ManagementScopeType.TENANT, tenantId);
     }
 
-    public RoleGrantMutationResult grantAccountRoleResult(String roleId,
-                                                          String userId,
-                                                          ManagementScopeType managementScopeType,
-                                                          String managementScopeId) {
+    /**
+     * Retained for candidate readers that only need the authoritative tenant. Platform
+     * roles must still provide an explicit target tenant through the overload below.
+     */
+    public String resolveAccountRoleBindingTenant(String roleId) {
+        return resolveAccountRoleBindingScope(roleId, null).tenantId();
+    }
+
+    public String resolveAccountRoleBindingTenant(String roleId, String targetTenantId) {
+        return resolveAccountRoleBindingScope(roleId, targetTenantId).tenantId();
+    }
+
+    RoleGrantMutationResult grantAccountRoleResult(String roleId,
+                                                   String userId,
+                                                   ManagementScopeType managementScopeType,
+                                                   String managementScopeId) {
         return grantAccountRoleIfAbsent(roleId, userId, managementScopeType, managementScopeId);
+    }
+
+    /** Creates an account-role grant from the role's authoritative binding scope. */
+    public RoleGrantMutationResult grantAccountRoleResult(String roleId, String userId, String targetTenantId) {
+        AccountRoleBindingScope scope = resolveAccountRoleBindingScope(roleId, targetTenantId);
+        return grantAccountRoleIfAbsent(roleId, userId, scope.managementScopeType(), scope.managementScopeId());
     }
 
     public int revokeAccountRole(String roleId,
@@ -399,7 +427,18 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         return grant == null ? 0 : accountRoleGrantDao.deleteById(grant.getId());
     }
 
-    public int deleteAccountRoleGrant(String roleId, String grantId) {
+    /** Deletes a grant from the role's authoritative binding scope. */
+    public int deleteAccountRoleGrant(String roleId, String grantId, String targetTenantId) {
+        AccountRoleBindingScope scope = resolveAccountRoleBindingScope(roleId, targetTenantId);
+        return deleteAccountRoleGrant(roleId, grantId, scope);
+    }
+
+    /** Internal lifecycle path for system provisioning that already owns the scope. */
+    int deleteAccountRoleGrant(String roleId, String grantId) {
+        return deleteAccountRoleGrant(roleId, grantId, (AccountRoleBindingScope) null);
+    }
+
+    private int deleteAccountRoleGrant(String roleId, String grantId, AccountRoleBindingScope scope) {
         Role role = requireEnabledRole(roleId);
         requireSystemManagedMutationAllowed(role, "delete account role grant");
         AccountRoleGrant grant = accountRoleGrantDao.query(activeCriteria(Criteria.of()
@@ -408,6 +447,11 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         if (grant == null || !SortAbility.sameValue(role.getId(), grant.getRoleId())) {
             throw BusinessExceptions.warning("iam.role.account-grant-role-mismatch",
                     "该账号角色绑定不属于当前角色");
+        }
+        if (scope != null && (grant.getManagementScopeType() != scope.managementScopeType()
+                || !SortAbility.sameValue(grant.getManagementScopeId(), scope.managementScopeId()))) {
+            throw BusinessExceptions.warning("iam.role.account-grant-scope-mismatch",
+                    "该账号角色绑定不属于当前管理范围");
         }
         return accountRoleGrantDao.deleteById(grant.getId());
     }
@@ -418,6 +462,23 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         return accountRoleGrantDao.query(activeCriteria(Criteria.of()
                         .eq("roleId", role.getId())
                         .eq("enabled", Boolean.TRUE)), ALL);
+    }
+
+    /** Lists grants in the scope currently being managed by the binding drawer. */
+    public List<AccountRoleGrant> accountRoleGrants(String roleId, String targetTenantId) {
+        Role role = requireEnabledRole(roleId);
+        requireAccountRole(role);
+        AccountRoleBindingScope scope = resolveAccountRoleBindingScope(roleId, targetTenantId);
+        Criteria criteria = activeCriteria(Criteria.of()
+                .eq("roleId", role.getId())
+                .eq("enabled", Boolean.TRUE)
+                .eq("managementScopeType", scope.managementScopeType()));
+        if (scope.managementScopeId() == null) {
+            criteria.isNull("managementScopeId");
+        } else {
+            criteria.eq("managementScopeId", scope.managementScopeId());
+        }
+        return accountRoleGrantDao.query(criteria, ALL);
     }
 
     public List<String> userIds(String roleId) {
@@ -1915,6 +1976,16 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     }
 
     public record DataGrantActionCommand(String actionCode, DataScopePolicy dataScopePolicy, boolean enabled) {
+    }
+
+    /**
+     * The tenant that owns the candidate-account query and the management scope persisted
+     * on the resulting grant. Keeping both values together prevents a caller-supplied
+     * scope from drifting away from the role being managed.
+     */
+    public record AccountRoleBindingScope(String tenantId,
+                                          ManagementScopeType managementScopeType,
+                                          String managementScopeId) {
     }
 
     public record RoleGrantMutationResult(String grantId, boolean changed) {

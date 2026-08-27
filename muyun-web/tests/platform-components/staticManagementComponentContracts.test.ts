@@ -1303,6 +1303,18 @@ it('public management and drawer contracts use business roles instead of layout 
   }
 });
 
+it('platform account-role binding selects a target tenant before loading or saving candidates', () => {
+  const drawerSource = readSource('src/views/RoleAccountGrantDrawer.vue');
+  const grantClientSource = readSource('src/views/roleGrantClient.ts');
+
+  assert.match(drawerSource, /const needsTargetTenant = computed\(\(\) => props\.role\?\.ownerScopeType === 'platform'\)/);
+  assert.match(drawerSource, /if \(!bindingReady\.value\) \{[\s\S]*clearBindingData\(\);/);
+  assert.match(drawerSource, /<RecordPicker[\s\S]*placeholder="请选择角色下发的目标租户"/);
+  assert.match(drawerSource, /targetTenantId: targetTenantId\.value/);
+  assert.match(grantClientSource, /\/iam\.role\/\$\{encodeURIComponent\(roleId\)\}\/account-role-candidates\/query/);
+  assert.notMatch(grantClientSource, /\/iam\.user\/account-role-candidates\/query/);
+});
+
 it('record lists reuse their existing region for recycle-bin data and lifecycle actions', () => {
   const panelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
   const explorerSource = readSource('src/platform-components/CrudRecordListExplorer.vue');

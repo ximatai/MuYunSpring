@@ -3,7 +3,6 @@ import type {
   DataScopePolicy,
   EmploymentRoleGrant,
   EmploymentSelectorItem,
-  ManagementScopeType,
   RoleAuthorizationModule,
   RoleDataGrantActionMatrix,
   RoleDataScopePolicyCatalog,
@@ -17,8 +16,8 @@ import type { HttpClient } from '@muyun/web-core';
 
 export interface AccountRoleGrantRequest {
   userId: string;
-  managementScopeType?: ManagementScopeType;
-  managementScopeId?: string;
+  /** Required only when granting a platform-shared account role. */
+  targetTenantId?: string;
 }
 
 export interface UserSelectorRequest {
@@ -59,9 +58,10 @@ export interface DataGrantActionRequest {
 
 export function createRoleGrantClient(http: HttpClient) {
   return {
-    accountRoleGrants(roleId: string) {
+    accountRoleGrants(roleId: string, targetTenantId?: string) {
       return http.request<AccountRoleGrant[]>({
         path: `/iam.role/${encodeURIComponent(roleId)}/account-grants`,
+        query: targetTenantId ? { targetTenantId } : undefined,
       });
     },
     grantAccountRole(roleId: string, request: AccountRoleGrantRequest) {
@@ -71,10 +71,11 @@ export function createRoleGrantClient(http: HttpClient) {
         body: request,
       });
     },
-    deleteAccountRoleGrant(roleId: string, grantId: string) {
+    deleteAccountRoleGrant(roleId: string, grantId: string, targetTenantId?: string) {
       return http.request<WebActionResultEnvelope<number> | number>({
         method: 'POST',
         path: `/iam.role/${encodeURIComponent(roleId)}/account-grants/${encodeURIComponent(grantId)}/delete`,
+        query: targetTenantId ? { targetTenantId } : undefined,
       });
     },
     userSelector(request: UserSelectorRequest) {
@@ -84,11 +85,14 @@ export function createRoleGrantClient(http: HttpClient) {
         body: request,
       });
     },
-    accountRoleCandidates(roleId: string, request: Omit<UserSelectorRequest, 'roleId'>) {
+    accountRoleCandidates(
+      roleId: string,
+      request: Omit<UserSelectorRequest, 'roleId'> & { targetTenantId?: string },
+    ) {
       return http.request<WebPageResponse<UserSelectorItem>>({
         method: 'POST',
-        path: '/iam.user/account-role-candidates/query',
-        body: { roleId, ...request },
+        path: `/iam.role/${encodeURIComponent(roleId)}/account-role-candidates/query`,
+        body: request,
       });
     },
     employmentRoleGrants(roleId: string) {

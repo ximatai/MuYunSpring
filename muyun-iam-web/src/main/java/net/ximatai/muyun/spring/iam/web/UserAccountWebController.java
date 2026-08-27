@@ -379,29 +379,6 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
         });
     }
 
-    /** Candidate accounts for a role binding, evaluated in the role's authoritative tenant. */
-    @PostMapping("/account-role-candidates/query")
-    @CustomActionEndpoint(value = "accountRoleCandidates", title = "账号角色候选", level = PlatformActionLevel.LIST,
-            dataAuth = true)
-    public WebPageResponse<UserSelectorItem> accountRoleCandidates(
-            @RequestBody AccountRoleCandidateRequest request) {
-        if (roleService == null) {
-            throw new IllegalStateException("role service is not available");
-        }
-        AccountRoleCandidateRequest normalized = request == null
-                ? AccountRoleCandidateRequest.EMPTY : request;
-        String roleId = net.ximatai.muyun.spring.common.util.Preconditions.requireText(normalized.roleId(), "roleId");
-        String tenantId = roleService.resolveAccountRoleBindingTenant(roleId);
-        return MutationTenantScopeExecutor.forAuthoritativeTenantScope(tenantId, () -> webScope(() -> {
-            Criteria criteria = selectorCriteria(new UserSelectorRequest(null, normalized.keyword(), Boolean.TRUE,
-                    normalized.page()));
-            applyMenuEntryQueryCriteria(criteria);
-            WebPageRequest page = normalized.pageOrDefault();
-            return selectorProjectedPageQuery(criteria, PageRequest.of(page.pageNum(), page.pageSize()),
-                    Sort.asc("username"));
-        }));
-    }
-
     @GetMapping("/{id}/employee-binding")
     @CustomActionEndpoint(value = "employeeBinding", title = "绑定职员",
             level = PlatformActionLevel.RECORD, dataAuth = true)
@@ -444,58 +421,6 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
 
         WebPageRequest pageOrDefault() {
             return page == null ? WebPageRequest.DEFAULT : page;
-        }
-    }
-
-    public record AccountRoleCandidateRequest(String roleId, String keyword, WebPageRequest page) {
-        static final AccountRoleCandidateRequest EMPTY = new AccountRoleCandidateRequest(null, null, null);
-
-        WebPageRequest pageOrDefault() {
-            return page == null ? WebPageRequest.DEFAULT : page;
-        }
-    }
-
-    public record UserSelectorItem(
-            String id,
-            String username,
-            String employeeId,
-            String employeeNo,
-            String employeeTitle,
-            String organizationId,
-            String organizationTitle,
-            String departmentId,
-            String departmentTitle
-    ) {
-        static UserSelectorItem from(UserAccount user) {
-            return new UserSelectorItem(
-                    user.getId(),
-                    user.getUsername(),
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-            );
-        }
-
-        static UserSelectorItem from(Map<String, Object> record) {
-            return new UserSelectorItem(
-                    text(record.get("id")),
-                    text(record.get("username")),
-                    text(record.get("employeeId")),
-                    text(record.get("employeeNo")),
-                    text(record.get("employeeTitle")),
-                    text(record.get("employeeOrganizationId")),
-                    text(record.get("organizationTitle")),
-                    text(record.get("employeeDepartmentId")),
-                    text(record.get("departmentTitle"))
-            );
-        }
-
-        private static String text(Object value) {
-            return value == null ? null : value.toString();
         }
     }
 

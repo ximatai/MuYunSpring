@@ -2,20 +2,22 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   RecordDetailDrawer,
+  RecordPicker,
   handlePlatformActionSuccess,
   presentPlatformError,
+  type RecordPickerRecord,
 } from '@muyun/platform-components';
 import { UiButton, UiError, UiInput, UiSpin, UiTable } from '@muyun/vue-ui-antdv';
 import type { UiDataTablePagination } from '@muyun/vue-ui-antdv';
 import type {
   AccountRoleGrant,
-  ManagementScopeType,
   RecordData,
   Role,
   TableContract,
+  Tenant,
   UserSelectorItem,
 } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+import { useModuleContext, type ModuleContext } from '@muyun/web-core';
 import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import { createRoleGrantClient } from './roleGrantClient';
 
@@ -60,8 +62,10 @@ const loading = ref(false);
 const loadingUsers = ref(false);
 const saving = ref(false);
 const loadFailed = ref(false);
+const selectedTargetTenant = ref<Tenant>();
 
 const client = computed(() => createRoleGrantClient(props.context.http));
+const tenantContext = useModuleContext<Tenant>({ moduleAlias: 'iam.tenant' });
 const roleId = computed(() => props.role?.id);
 const title = computed(() => (props.role ? `绑定用户 - ${roleTitle(props.role)}` : '绑定用户'));
 const contentContainer = computed(() => (props.embedded ? 'section' : RecordDetailDrawer));
@@ -76,18 +80,10 @@ const contentContainerProps = computed(() =>
         onClose: handleClose,
       },
 );
-const defaultManagementScopeType = computed<ManagementScopeType>(() => {
-  if (props.role?.ownerScopeType === 'platform') {
-    return 'platform';
-  }
-  if (props.role?.ownerScopeType === 'organization') {
-    return 'organization';
-  }
-  return 'tenant';
-});
-const defaultManagementScopeId = computed(() =>
-  defaultManagementScopeType.value === 'platform' ? undefined : props.role?.ownerScopeId,
-);
+const needsTargetTenant = computed(() => props.role?.ownerScopeType === 'platform');
+const targetTenantId = computed(() => selectedTargetTenant.value?.id);
+const bindingReady = computed(() => !needsTargetTenant.value || !!targetTenantId.value);
+const tenantPickerContext = computed(() => tenantContext as unknown as ModuleContext<RecordPickerRecord>);
 const grantByUserId = computed(() => {
   const next = new Map<string, AccountRoleGrant>();
   for (const grant of grants.value) {
@@ -166,6 +162,7 @@ watch(
     () => props.drawerContext,
     checkedUserIds,
     changed,
+    bindingReady,
     addedUserIds,
     removedUserIds,
     saving,
@@ -194,7 +191,7 @@ function configureDrawerPresentation() {
         key: 'save-account-role-grants',
         label: '确定',
         emphasis: 'primary',
-        disabled: loading.value || !changed.value,
+        disabled: loading.value || !bindingReady.value || !changed.value,
         loading: saving.value,
         run: () => void save(),
       },
@@ -203,6 +200,7 @@ function configureDrawerPresentation() {
 }
 
 function selectionSummary() {
+  if (!bindingReady.value) return '请选择目标租户';
   if (!changed.value) return `已选 ${checkedUserIds.value.size} 个用户`;
   return `已选 ${checkedUserIds.value.size} 个用户 · 新增 ${addedUserIds.value.length} · 移除 ${removedUserIds.value.length}`;
 }
@@ -213,17 +211,14 @@ async function load() {
     resetState();
     return;
   }
+  if (!bindingReady.value) {
+    clearBindingData();
+    return;
+  }
   loading.value = true;
   loadFailed.value = false;
   try {
-    const [nextGrants, boundUsers] = await Promise.all([
-      client.value.accountRoleGrants(id),
-      client.value.userSelector({
-        roleId: id,
-        enabledOnly: false,
-        page: { pageNum: 0, pageSize: 500 },
-      }),
-    ]);
+    const nextGrants = await client.value.accountRoleGrants(id, targetTenantId.value);
     grants.value = nextGrants;
     const boundIds = new Set(
       nextGrants.map((grant) => grant.userId).filter((userId): userId is string => !!userId),
@@ -234,7 +229,6 @@ async function load() {
       ...nextGrants
         .map((grant) => userFallback(grant.userId))
         .filter((user): user is UserSelectorItem => !!user),
-      ...boundUsers.records,
     ]);
     await loadUsersPage(1);
   } catch (cause) {
@@ -247,10 +241,11 @@ async function load() {
 
 async function loadUsersPage(nextPage: number) {
   const id = roleId.value;
-  if (!id) return;
+  if (!id || !bindingReady.value) return;
   loadingUsers.value = true;
   try {
     const response = await client.value.accountRoleCandidates(id, {
+      targetTenantId: targetTenantId.value,
       keyword: appliedKeyword.value,
       enabledOnly: true,
       page: { pageNum: Math.max(0, nextPage), pageSize },
@@ -283,7 +278,7 @@ function toggleUser(userId: string, checked: boolean) {
 
 async function save() {
   const id = roleId.value;
-  if (!id) {
+  if (!id || !bindingReady.value) {
     return;
   }
   if (!changed.value) {
@@ -295,14 +290,13 @@ async function save() {
     for (const userId of addedUserIds.value) {
       await client.value.grantAccountRole(id, {
         userId,
-        managementScopeType: defaultManagementScopeType.value,
-        managementScopeId: defaultManagementScopeId.value,
+        targetTenantId: targetTenantId.value,
       });
     }
     for (const userId of removedUserIds.value) {
       const grantId = grantByUserId.value.get(userId)?.id;
       if (grantId) {
-        await client.value.deleteAccountRoleGrant(id, grantId);
+        await client.value.deleteAccountRoleGrant(id, grantId, targetTenantId.value);
       }
     }
     await handlePlatformActionSuccess(
@@ -325,6 +319,11 @@ function handleClose() {
 }
 
 function resetState() {
+  selectedTargetTenant.value = undefined;
+  clearBindingData();
+}
+
+function clearBindingData() {
   grants.value = [];
   usersById.value = {};
   pageUsers.value = [];
@@ -338,6 +337,17 @@ function resetState() {
   loadingUsers.value = false;
   saving.value = false;
   loadFailed.value = false;
+}
+
+async function selectTargetTenant(tenantId: string | undefined) {
+  if (!tenantId) {
+    selectedTargetTenant.value = undefined;
+    clearBindingData();
+    return;
+  }
+  const tenant = await tenantContext.crud.view(tenantId);
+  selectedTargetTenant.value = tenant ?? ({ id: tenantId, title: tenantId } as Tenant);
+  await load();
 }
 
 function removeSelectedUser(userId: string) {
@@ -398,7 +408,28 @@ function scopeTitle(role: Role | undefined) {
       <UiError title="用户加载失败" message="无法加载当前角色的用户绑定" />
       <UiButton type="primary" icon-name="reload" @click="load">重试</UiButton>
     </div>
-    <section v-else class="role-account-grant-drawer-body">
+    <section
+      v-else
+      class="role-account-grant-drawer-body"
+      :class="{ 'role-account-grant-drawer-body--target-tenant': needsTargetTenant }"
+    >
+      <label v-if="needsTargetTenant" class="role-account-grant-target-tenant">
+        <span>目标租户</span>
+        <RecordPicker
+          :context="tenantPickerContext"
+          :value="targetTenantId"
+          mode="list"
+          placeholder="请选择角色下发的目标租户"
+          :disabled="saving || loading"
+          @update:value="selectTargetTenant"
+        />
+      </label>
+
+      <div v-if="!bindingReady" class="role-account-grant-target-hint">
+        平台共享角色需要先选择目标租户，再加载可绑定账号。
+      </div>
+
+      <template v-else>
       <div class="role-account-grant-search">
         <UiInput
           :value="keyword"
@@ -440,6 +471,7 @@ function scopeTitle(role: Role | undefined) {
           </button>
         </div>
       </section>
+      </template>
     </section>
   </component>
 </template>
@@ -458,6 +490,28 @@ function scopeTitle(role: Role | undefined) {
   min-height: 0;
 }
 
+.role-account-grant-drawer-body--target-tenant {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.role-account-grant-target-tenant {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 280px);
+  align-items: center;
+  gap: 8px;
+  color: var(--muyun-text-muted);
+  font-size: 13px;
+}
+
+.role-account-grant-target-hint {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  color: var(--muyun-text-muted);
+  border: 1px dashed var(--muyun-border-subtle);
+  border-radius: 8px;
+}
+
 .role-account-grant-search {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -474,7 +528,6 @@ function scopeTitle(role: Role | undefined) {
   background: var(--muyun-hover-subtle);
 }
 
-.role-account-grant-selected-title,
 .role-account-grant-selected-title {
   display: flex;
   align-items: center;

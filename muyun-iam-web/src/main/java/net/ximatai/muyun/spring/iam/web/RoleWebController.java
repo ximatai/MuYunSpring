@@ -90,6 +90,7 @@ public class RoleWebController extends WebSupport<RoleService> implements
     private final PlatformModuleService platformModuleService;
     private EmployeeEmploymentReadService employeeEmploymentReadService;
     private TenantApplicationService tenantApplicationService;
+    private RoleAccountCandidateQueryService roleAccountCandidateQueryService;
     private PageSelectionContextResolverRegistry roleScopeSelectionResolvers =
             new PageSelectionContextResolverRegistry(List.of());
 
@@ -128,6 +129,11 @@ public class RoleWebController extends WebSupport<RoleService> implements
     @Autowired(required = false)
     void setTenantApplicationService(TenantApplicationService tenantApplicationService) {
         this.tenantApplicationService = tenantApplicationService;
+    }
+
+    @Autowired(required = false)
+    void setRoleAccountCandidateQueryService(RoleAccountCandidateQueryService roleAccountCandidateQueryService) {
+        this.roleAccountCandidateQueryService = roleAccountCandidateQueryService;
     }
 
     @Autowired(required = false)
@@ -198,8 +204,33 @@ public class RoleWebController extends WebSupport<RoleService> implements
     @GetMapping("/{roleId}/account-grants")
     @CustomActionEndpoint(value = "accountRoleGrants", title = "账号角色授权",
             level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "roleId")
-    public List<AccountRoleGrant> accountRoleGrants(@PathVariable String roleId) {
-        return roleReadScope(roleId, () -> service().accountRoleGrants(roleId));
+    public List<AccountRoleGrant> accountRoleGrants(@PathVariable String roleId,
+                                                    @RequestParam(required = false) String targetTenantId) {
+        return roleReadScope(roleId, () -> {
+            RoleService.AccountRoleBindingScope scope = service().resolveAccountRoleBindingScope(
+                    roleId, targetTenantId);
+            return MutationTenantScopeExecutor.forAuthoritativeTenantScope(scope.tenantId(),
+                    () -> service().accountRoleGrants(roleId, targetTenantId));
+        });
+    }
+
+    @PostMapping("/{roleId}/account-role-candidates/query")
+    @CustomActionEndpoint(value = "accountRoleGrants", title = "账号角色授权",
+            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "roleId")
+    public WebPageResponse<UserSelectorItem> accountRoleCandidates(
+            @PathVariable String roleId,
+            @RequestBody(required = false) AccountRoleCandidateRequest request) {
+        return roleReadScope(roleId, () -> {
+            if (roleAccountCandidateQueryService == null) {
+                throw new IllegalStateException("user account selector is not available");
+            }
+            AccountRoleCandidateRequest normalized = request == null
+                    ? AccountRoleCandidateRequest.EMPTY : request;
+            RoleService.AccountRoleBindingScope scope = service().resolveAccountRoleBindingScope(
+                    roleId, normalized.targetTenantId());
+            return MutationTenantScopeExecutor.forAuthoritativeTenantScope(scope.tenantId(),
+                    () -> roleAccountCandidateQueryService.query(normalized.keyword(), normalized.pageOrDefault()));
+        });
     }
 
     @PostMapping("/{roleId}/account-grants")
@@ -209,11 +240,11 @@ public class RoleWebController extends WebSupport<RoleService> implements
     public String grantAccountRole(@PathVariable String roleId,
                                    @RequestBody AccountRoleGrantRequest request) {
         return roleRecordScope(roleId, () -> {
-            RoleService.RoleGrantMutationResult result = service().grantAccountRoleResult(
-                    roleId,
-                    request.userId(),
-                    request.managementScopeType(),
-                    request.managementScopeId());
+            RoleService.AccountRoleBindingScope scope = service().resolveAccountRoleBindingScope(
+                    roleId, request.targetTenantId());
+            RoleService.RoleGrantMutationResult result = MutationTenantScopeExecutor.forAuthoritativeTenantScope(
+                    scope.tenantId(), () -> service().grantAccountRoleResult(
+                            roleId, request.userId(), request.targetTenantId()));
             reportAccountRoleGranted(result.changed());
             return result.grantId();
         });
@@ -224,9 +255,13 @@ public class RoleWebController extends WebSupport<RoleService> implements
             level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "roleId")
     @BusinessMutation
     public int deleteAccountRoleGrant(@PathVariable String roleId,
-                                                   @PathVariable String grantId) {
+                                      @PathVariable String grantId,
+                                      @RequestParam(required = false) String targetTenantId) {
         return roleRecordScope(roleId, () -> {
-            int count = service().deleteAccountRoleGrant(roleId, grantId);
+            RoleService.AccountRoleBindingScope scope = service().resolveAccountRoleBindingScope(
+                    roleId, targetTenantId);
+            int count = MutationTenantScopeExecutor.forAuthoritativeTenantScope(scope.tenantId(),
+                    () -> service().deleteAccountRoleGrant(roleId, grantId, targetTenantId));
             reportAccountRoleRevoked(count > 0);
             return count;
         });
@@ -474,9 +509,16 @@ public class RoleWebController extends WebSupport<RoleService> implements
 
     public record AccountRoleGrantRequest(
             String userId,
-            ManagementScopeType managementScopeType,
-            String managementScopeId
+            String targetTenantId
     ) {
+    }
+
+    public record AccountRoleCandidateRequest(String targetTenantId, String keyword, WebPageRequest page) {
+        static final AccountRoleCandidateRequest EMPTY = new AccountRoleCandidateRequest(null, null, null);
+
+        WebPageRequest pageOrDefault() {
+            return page == null ? WebPageRequest.DEFAULT : page;
+        }
     }
 
     public record EmploymentRoleGrantRequest(
