@@ -27,16 +27,6 @@ public class DefaultTenantRoleProvisioner implements TenantCreationProvisioner {
         this.roleService = Objects.requireNonNull(roleService, "roleService must not be null");
     }
 
-    /**
-     * @deprecated Tenant-admin access is interpreted from its platform role purpose at runtime;
-     * the action template is intentionally ignored. Kept for source compatibility with embedders.
-     */
-    @Deprecated(forRemoval = false)
-    public DefaultTenantRoleProvisioner(RoleService roleService,
-                                        BuiltInRolePermissionTemplateService ignoredRolePermissionTemplateService) {
-        this(roleService);
-    }
-
     @Override
     public void afterTenantCreated(String tenantId) {
         ensureTenantAdminRole(tenantId);

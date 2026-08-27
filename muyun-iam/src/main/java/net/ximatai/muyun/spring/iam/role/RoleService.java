@@ -28,7 +28,6 @@ import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeCandidat
 import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeCatalogResolver;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
-import net.ximatai.muyun.spring.common.util.PlatformAliasRules;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.util.Preconditions;
 import net.ximatai.muyun.spring.iam.employee.Employee;
@@ -1888,7 +1887,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     private String requireModuleAlias(String moduleAlias) {
         String valid = Preconditions.requireText(moduleAlias, "moduleAlias");
         try {
-            PlatformAliasRules.requireModuleAlias(valid);
+            PlatformNameRules.requireModuleAlias(valid);
         } catch (IllegalArgumentException ex) {
             throw new PlatformException("invalid moduleAlias: " + valid);
         }

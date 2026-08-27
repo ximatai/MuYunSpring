@@ -14,12 +14,7 @@ import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 public interface ReferenceDeletionGuard {
     ReferenceDeletionGuard NONE = (ability, entity) -> { };
 
-    @Deprecated(since = "0.1", forRemoval = false)
-    void beforeSoftDelete(CrudAbility<?> ability, EntityContract entity);
-
-    default void validateTargetUnavailable(CrudAbility<?> ability, EntityContract entity) {
-        beforeSoftDelete(ability, entity);
-    }
+    void validateTargetUnavailable(CrudAbility<?> ability, EntityContract entity);
 
     default void beforeTargetUnavailable(CrudAbility<?> ability, EntityContract entity) {
         validateTargetUnavailable(ability, entity);

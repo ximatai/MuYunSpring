@@ -26,14 +26,6 @@ public final class CompositeReferenceDeletionGuard implements ReferenceDeletionG
     }
 
     @Override
-    @Deprecated(since = "0.1", forRemoval = false)
-    public void beforeSoftDelete(CrudAbility<?> ability, EntityContract entity) {
-        for (ReferenceDeletionGuard guard : guards) {
-            guard.beforeSoftDelete(ability, entity);
-        }
-    }
-
-    @Override
     public void cascadeTargetUnavailable(CrudAbility<?> ability, EntityContract entity, DeletionContext context,
                                          DeletionNode node, DeletionMode mode) {
         for (ReferenceDeletionGuard guard : guards) {

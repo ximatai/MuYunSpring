@@ -14,7 +14,4 @@ import java.lang.annotation.Target;
 public @interface ReferenceIntegrity {
     ReferenceTargetUnavailablePolicy onTargetUnavailable() default ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY;
 
-    /** @deprecated Use {@link #onTargetUnavailable()}. */
-    @Deprecated(since = "0.1", forRemoval = false)
-    ReferenceTargetDeletionPolicy onTargetSoftDelete() default ReferenceTargetDeletionPolicy.PRESERVE_HISTORY;
 }

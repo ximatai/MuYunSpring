@@ -17,11 +17,6 @@ public record ReferenceIntegrityPolicy(
         if (integrity == null) {
             return DEFAULT;
         }
-        ReferenceTargetUnavailablePolicy unavailable = integrity.onTargetUnavailable();
-        if (unavailable == ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY
-                && integrity.onTargetSoftDelete() == ReferenceTargetDeletionPolicy.RESTRICT) {
-            unavailable = ReferenceTargetUnavailablePolicy.RESTRICT;
-        }
-        return new ReferenceIntegrityPolicy(unavailable);
+        return new ReferenceIntegrityPolicy(integrity.onTargetUnavailable());
     }
 }

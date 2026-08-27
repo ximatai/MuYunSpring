@@ -94,7 +94,7 @@ class DemoBootstrapTaskTest {
     private final BuiltInRolePermissionTemplateService rolePermissionTemplateService =
             new BuiltInRolePermissionTemplateService(roleService, grantableActionResolver);
     private final DefaultTenantRoleProvisioner tenantRoleProvisioner =
-            new DefaultTenantRoleProvisioner(roleService, rolePermissionTemplateService);
+            new DefaultTenantRoleProvisioner(roleService);
     private final DefaultOrganizationRoleProvisioner organizationRoleProvisioner =
             new DefaultOrganizationRoleProvisioner(roleService, rolePermissionTemplateService);
 

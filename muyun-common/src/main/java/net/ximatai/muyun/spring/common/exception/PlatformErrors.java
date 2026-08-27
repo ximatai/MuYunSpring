@@ -34,14 +34,6 @@ public final class PlatformErrors {
         return new PlatformException(code, 409, message, cause, scope, List.of(), details);
     }
 
-    /**
-     * @deprecated Business-rule failures should use the action-layer BusinessException contract.
-     */
-    @Deprecated(since = "0.1", forRemoval = true)
-    public static PlatformException business(String code, String message, Map<String, Object> details) {
-        return new PlatformException(code, 422, message, ErrorScope.empty(), List.of(), details);
-    }
-
     public static PlatformException config(String code, String message, ErrorScope scope) {
         return new PlatformConfigurationException(code, message, scope);
     }

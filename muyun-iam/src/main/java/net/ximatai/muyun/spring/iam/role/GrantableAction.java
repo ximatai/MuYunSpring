@@ -1,7 +1,7 @@
 package net.ximatai.muyun.spring.iam.role;
 
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
-import net.ximatai.muyun.spring.common.util.PlatformAliasRules;
+import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.util.Preconditions;
 
 public record GrantableAction(
@@ -14,7 +14,7 @@ public record GrantableAction(
         boolean dataAuth
 ) {
     public GrantableAction {
-        moduleAlias = PlatformAliasRules.requireModuleAlias(moduleAlias);
+        moduleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         actionCode = Preconditions.requireText(actionCode, "actionCode");
         permissionActionCode = permissionActionCode == null || permissionActionCode.isBlank()
                 ? actionCode

@@ -1,7 +1,6 @@
 package net.ximatai.muyun.spring.iam.role;
 
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
-import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeService;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
 import net.ximatai.muyun.spring.iam.role.DataScopePolicy;
@@ -17,21 +16,7 @@ import java.util.Set;
 
 @Service
 public class BuiltInRolePermissionTemplateService {
-    public static final String TENANT_ADMIN_TEMPLATE_ALIAS = "tenant.admin";
     public static final String ORGANIZATION_ADMIN_TEMPLATE_ALIAS = "organization.admin";
-    /**
-     * @deprecated Tenant-admin access is no longer materialized as role-action rows. Retained
-     * only as a source-compatible catalog for callers migrating to the platform role purpose.
-     */
-    @Deprecated(forRemoval = false)
-    public static final List<String> TENANT_ADMIN_MODULE_ALIASES = List.of(
-            OrganizationService.MODULE_ALIAS,
-            DepartmentService.MODULE_ALIAS,
-            EmployeeService.MODULE_ALIAS,
-            EmployeeAccountService.MODULE_ALIAS,
-            UserAccountService.MODULE_ALIAS,
-            RoleService.MODULE_ALIAS
-    );
     public static final List<String> ORGANIZATION_ADMIN_MODULE_ALIASES = List.of(
             OrganizationService.MODULE_ALIAS,
             DepartmentService.MODULE_ALIAS,
@@ -50,15 +35,6 @@ public class BuiltInRolePermissionTemplateService {
         this.roleService = Objects.requireNonNull(roleService, "roleService must not be null");
         this.grantableActionResolver = Objects.requireNonNull(grantableActionResolver,
                 "grantableActionResolver must not be null");
-    }
-
-    /**
-     * @deprecated Tenant-admin access is interpreted at runtime from {@link RoleSystemPurpose}.
-     * This method does not participate in authorization correctness.
-     */
-    @Deprecated(forRemoval = false)
-    public int applyTenantAdminTemplate(String roleId) {
-        return applyTemplate(roleId, TENANT_ADMIN_MODULE_ALIASES, DataScopePolicy.NONE, Set.of());
     }
 
     public int applyOrganizationAdminTemplate(String roleId) {
