@@ -176,7 +176,7 @@ class RoleServiceContractTest {
     }
 
     @Test
-    void shouldResolveOnlyTenantOwnedAccountRolesToAnImplicitBindingTenant() {
+    void shouldResolveTenantOwnedAccountRoleToItsAuthoritativeBindingScope() {
         RoleDao roleDao = mock(RoleDao.class);
         Role tenantRole = accountRole("tenant-account", RoleKind.STANDARD);
         tenantRole.setTenantId("tenant_a");
@@ -184,7 +184,9 @@ class RoleServiceContractTest {
         RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
                 mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
 
-        assertThat(service.resolveAccountRoleBindingTenant("tenant-account")).isEqualTo("tenant_a");
+        assertThat(service.resolveAccountRoleBindingScope("tenant-account", null))
+                .isEqualTo(new RoleService.AccountRoleBindingScope(
+                        "tenant_a", ManagementScopeType.TENANT, "tenant_a"));
     }
 
     @Test
@@ -196,7 +198,7 @@ class RoleServiceContractTest {
         RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
                 mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
 
-        assertThatThrownBy(() -> service.resolveAccountRoleBindingTenant("platform-account"))
+        assertThatThrownBy(() -> service.resolveAccountRoleBindingScope("platform-account", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("平台角色绑定用户前必须先选择目标租户");
     }
@@ -241,7 +243,7 @@ class RoleServiceContractTest {
         RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
                 mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
 
-        assertThatThrownBy(() -> service.resolveAccountRoleBindingTenant("platform-private"))
+        assertThatThrownBy(() -> service.resolveAccountRoleBindingScope("platform-private", "tenant_a"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("租户不能绑定平台私有角色");
     }

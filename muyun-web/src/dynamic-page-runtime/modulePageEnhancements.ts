@@ -4,7 +4,9 @@ import type {
   PageDescriptor,
   PageLayoutMode,
   RouteQueryValue,
+  WebPageResponse,
   WebQueryCondition,
+  WebQueryRequest,
 } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import type {
@@ -240,6 +242,8 @@ export interface ModulePageFormContributionContext {
   fields: readonly Readonly<RecordFormFieldState>[];
   /** The field at a field-boundary location, otherwise undefined. */
   field?: Readonly<RecordFormFieldState>;
+  /** Read-only query through the host-owned module context and page scope. */
+  queryRecords(request?: WebQueryRequest): Promise<WebPageResponse<QueryListRecord>>;
   setField(fieldName: string, value: RecordFormFieldValue): void;
   formSessionKey: number;
   /** Reports only this contribution's validation fact to the standard save boundary. */

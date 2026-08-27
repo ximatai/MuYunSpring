@@ -391,18 +391,6 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         return new AccountRoleBindingScope(tenantId, ManagementScopeType.TENANT, tenantId);
     }
 
-    /**
-     * Retained for candidate readers that only need the authoritative tenant. Platform
-     * roles must still provide an explicit target tenant through the overload below.
-     */
-    public String resolveAccountRoleBindingTenant(String roleId) {
-        return resolveAccountRoleBindingScope(roleId, null).tenantId();
-    }
-
-    public String resolveAccountRoleBindingTenant(String roleId, String targetTenantId) {
-        return resolveAccountRoleBindingScope(roleId, targetTenantId).tenantId();
-    }
-
     RoleGrantMutationResult grantAccountRoleResult(String roleId,
                                                    String userId,
                                                    ManagementScopeType managementScopeType,

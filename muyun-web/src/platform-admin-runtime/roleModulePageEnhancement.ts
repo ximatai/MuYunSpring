@@ -4,6 +4,7 @@ import RoleEnumTitleCell from './role/RoleEnumTitleCell.vue';
 import RoleAccountGrantDrawerSurface from './role/RoleAccountGrantDrawerSurface.vue';
 import RoleEmploymentGrantDrawerSurface from './role/RoleEmploymentGrantDrawerSurface.vue';
 import RoleAuthorizationDrawerSurface from './role/RoleAuthorizationDrawerSurface.vue';
+import RoleGroupMemberFormField from './role/RoleGroupMemberFormField.vue';
 
 const roleRecordActions: ModulePageRecordActionContribution[] = [
   {
@@ -79,6 +80,21 @@ export const roleModulePageEnhancement: ModulePageEnhancement = {
       { key: 'assignmentType', cell: RoleEnumTitleCell },
       { key: 'roleKind', cell: RoleEnumTitleCell },
       { key: 'sharePolicy', cell: RoleEnumTitleCell },
+    ],
+  },
+  form: {
+    contributions: [
+      {
+        key: 'role-group-members',
+        component: RoleGroupMemberFormField,
+        location: { surface: 'record-card', fieldName: 'memberRoleIds', placement: 'after' },
+      },
+    ],
+    fieldPolicies: [
+      {
+        fieldName: 'memberRoleIds',
+        visible: () => false,
+      },
     ],
   },
   recordActions: roleRecordActions,
