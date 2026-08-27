@@ -30,7 +30,13 @@ const props = withDefaults(
     pagination?: false | UiDataTablePagination;
     fillHeight?: boolean;
   }>(),
-  { selectedIds: () => new Set<string>(), selectable: false, disabled: false, pagination: false, fillHeight: false },
+  {
+    selectedIds: () => new Set<string>(),
+    selectable: false,
+    disabled: false,
+    pagination: false,
+    fillHeight: false,
+  },
 );
 
 const emit = defineEmits<{ 'update:selectedIds': [value: Set<string>] }>();

@@ -12,20 +12,26 @@ const loading = ref(false);
 const groupRole = computed(() => props.context.draft.roleKind === 'group');
 const selectedRoleIds = computed(() => parseRoleIds(props.context.draft.memberRoleIds));
 const currentRoleId = computed(() => String(props.context.draft.id ?? '') || undefined);
-const selectedDataGrantRoleIds = computed(() => new Set(
+const selectedDataGrantRoleIds = computed(
+  () =>
+    new Set(
+      candidates.value
+        .filter((role) => role.roleKind === 'dataGrant' && role.id && selectedRoleIds.value.includes(role.id))
+        .map((role) => role.id!),
+    ),
+);
+const options = computed(() =>
   candidates.value
-    .filter((role) => role.roleKind === 'dataGrant' && role.id && selectedRoleIds.value.includes(role.id))
-    .map((role) => role.id!),
-));
-const options = computed(() => candidates.value
-  .filter((role) => role.id && role.id !== currentRoleId.value)
-  .map((role) => ({
-    label: `${role.title ?? role.id} / ${role.roleKind === 'dataGrant' ? '数据授权角色' : '标准角色'}`,
-    value: role.id!,
-    disabled: role.roleKind === 'dataGrant'
-      && selectedDataGrantRoleIds.value.size > 0
-      && !selectedRoleIds.value.includes(role.id!),
-  })));
+    .filter((role) => role.id && role.id !== currentRoleId.value)
+    .map((role) => ({
+      label: `${role.title ?? role.id} / ${role.roleKind === 'dataGrant' ? '数据授权角色' : '标准角色'}`,
+      value: role.id!,
+      disabled:
+        role.roleKind === 'dataGrant' &&
+        selectedDataGrantRoleIds.value.size > 0 &&
+        !selectedRoleIds.value.includes(role.id!),
+    })),
+);
 
 watch([groupRole, () => props.context.formSessionKey], () => void loadCandidates(), { immediate: true });
 
@@ -44,7 +50,13 @@ async function loadCandidates() {
         { fieldName: 'enabled', operator: 'EQ', values: [true] },
         { fieldName: 'ownerScopeType', operator: 'EQ', values: [props.context.draft.ownerScopeType] },
         ...(props.context.draft.ownerScopeId
-          ? [{ fieldName: 'ownerScopeId', operator: 'EQ' as const, values: [props.context.draft.ownerScopeId] }]
+          ? [
+              {
+                fieldName: 'ownerScopeId',
+                operator: 'EQ' as const,
+                values: [props.context.draft.ownerScopeId],
+              },
+            ]
           : []),
       ],
       sorts: [{ field: 'sortOrder' }, { field: 'title' }],
@@ -61,7 +73,12 @@ function updateValue(value: OptionValue | OptionValueList | null) {
 }
 
 function parseRoleIds(value: unknown) {
-  return typeof value === 'string' ? value.split(',').map((item) => item.trim()).filter(Boolean) : [];
+  return typeof value === 'string'
+    ? value
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
 }
 </script>
 
@@ -82,5 +99,10 @@ function parseRoleIds(value: unknown) {
 </template>
 
 <style scoped>
-.role-group-member-form-field { display: grid; gap: 6px; color: var(--muyun-text-muted); font-size: 13px; }
+.role-group-member-form-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muyun-text-muted);
+  font-size: 13px;
+}
 </style>

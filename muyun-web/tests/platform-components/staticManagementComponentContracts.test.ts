@@ -283,7 +283,10 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(drawerSource, /<slot name="form" \/>/);
   assert.match(detailDrawerSource, /<RecordDetailLayout surface="drawer"[\s\S]*scrollable-content/);
   assert.match(detailDrawerSource, /subtitle\?: string/);
-  assert.match(detailDrawerSource, /const inlineWidth = computed\([\s\S]*min\(\$\{requestedWidth\}, calc\(100% - 32px\)\)/);
+  assert.match(
+    detailDrawerSource,
+    /const inlineWidth = computed\([\s\S]*min\(\$\{requestedWidth\}, calc\(100% - 32px\)\)/,
+  );
   assert.match(detailDrawerSource, /v-else-if="renderMode === 'inline'"[\s\S]*:width="inlineWidth"/);
   assert.notMatch(detailDrawerSource, /RecordDetailPanel/);
   assert.match(detailDrawerSource, /<slot name="operation" \/>/);
@@ -545,7 +548,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleEnhancementSource, /RoleEmploymentGrantDrawerSurface/);
   assert.match(roleEnhancementSource, /RoleAuthorizationDrawerSurface/);
   assert.match(roleEnhancementSource, /title: '角色授权', width: 820/);
-  assert.match(roleEnhancementSource, /cellComponents:[\s\S]*assignmentType[\s\S]*roleKind[\s\S]*sharePolicy/);
+  assert.match(
+    roleEnhancementSource,
+    /cellComponents:[\s\S]*assignmentType[\s\S]*roleKind[\s\S]*sharePolicy/,
+  );
   assert.match(roleEnhancementSource, /recordActions: roleRecordActions/);
   assert.match(roleEnumTitleCellSource, /account: '账号角色'/);
   assert.match(roleEnumTitleCellSource, /standard: '标准角色'/);
@@ -651,10 +657,16 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleAuthorizationSource, /setSubtitle\(`\$\{roleTitle\.value\} · \$\{scopeTitle/);
   assert.match(roleAuthorizationSource, /authorization-layout--compact-actions/);
   assert.match(roleAuthorizationSource, /var\(--muyun-management-explorer-width, 280px\)/);
-  assert.match(roleAuthorizationSource, /\.action-panel :deep\(\.record-explorer-panel-content\) \{[\s\S]*overflow: hidden;/);
+  assert.match(
+    roleAuthorizationSource,
+    /\.action-panel :deep\(\.record-explorer-panel-content\) \{[\s\S]*overflow: hidden;/,
+  );
   assert.match(roleAuthorizationSource, /\.action-panel :deep\(\.ui-data-table\) \{[\s\S]*flex: 1 1 auto;/);
   assert.match(roleAuthorizationSource, /\.module-panel :deep\(\.ant-tree\) \{[\s\S]*overflow-y: auto;/);
-  assert.match(roleAuthorizationSource, /\.action-panel :deep\(\.ant-table-body\) \{[\s\S]*overscroll-behavior: contain;/);
+  assert.match(
+    roleAuthorizationSource,
+    /\.action-panel :deep\(\.ant-table-body\) \{[\s\S]*overscroll-behavior: contain;/,
+  );
   assert.notMatch(roleViewSource, /account-grants/);
   assert.notMatch(roleViewSource, /employment-grants/);
   assert.notMatch(roleViewSource, /permissionMatrix/);
@@ -1307,11 +1319,17 @@ it('platform account-role binding selects a target tenant before loading or savi
   const drawerSource = readSource('src/views/RoleAccountGrantDrawer.vue');
   const grantClientSource = readSource('src/views/roleGrantClient.ts');
 
-  assert.match(drawerSource, /const needsTargetTenant = computed\(\(\) => props\.role\?\.ownerScopeType === 'platform'\)/);
+  assert.match(
+    drawerSource,
+    /const needsTargetTenant = computed\(\(\) => props\.role\?\.ownerScopeType === 'platform'\)/,
+  );
   assert.match(drawerSource, /if \(!bindingReady\.value\) \{[\s\S]*clearBindingData\(\);/);
   assert.match(drawerSource, /<RecordPicker[\s\S]*placeholder="请选择角色下发的目标租户"/);
   assert.match(drawerSource, /targetTenantId: targetTenantId\.value/);
-  assert.match(grantClientSource, /\/iam\.role\/\$\{encodeURIComponent\(roleId\)\}\/account-role-candidates\/query/);
+  assert.match(
+    grantClientSource,
+    /\/iam\.role\/\$\{encodeURIComponent\(roleId\)\}\/account-role-candidates\/query/,
+  );
   assert.notMatch(grantClientSource, /\/iam\.user\/account-role-candidates\/query/);
 });
 

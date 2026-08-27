@@ -115,12 +115,14 @@ const moduleTreeRecords = computed(() => {
       parentId = byAlias.get(parentId)?.parentId;
     }
   }
-  return modules.value.filter((module) => visibleAliases.has(module.moduleAlias)).map((module) => ({
-    id: module.moduleAlias,
-    parentId: module.parentId,
-    title: module.title,
-    secondary: module.applicationAlias,
-  }));
+  return modules.value
+    .filter((module) => visibleAliases.has(module.moduleAlias))
+    .map((module) => ({
+      id: module.moduleAlias,
+      parentId: module.parentId,
+      title: module.title,
+      secondary: module.applicationAlias,
+    }));
 });
 const scopeOptions = computed(() =>
   (dataScopeCatalog.value?.options ?? []).map((option) => ({ value: option.code, label: option.title })),
@@ -276,7 +278,11 @@ function configureActionDrawerPresentation() {
     return;
   }
   drawer.setOperation({
-    summary: isDataGrant.value ? (authorizationDirty.value ? '有未确认修改' : '未修改') : actionOperationSummary.value,
+    summary: isDataGrant.value
+      ? authorizationDirty.value
+        ? '有未确认修改'
+        : '未修改'
+      : actionOperationSummary.value,
     actions: [
       {
         key: 'confirm-role-authorization',
@@ -622,9 +628,9 @@ function scopeTitle(value: Role | undefined) {
       >
         <RecordExplorerPanel
           class="module-panel"
+          v-model:search-keyword="moduleKeyword"
           title="模块树"
           refresh-title="刷新模块目录"
-          v-model:search-keyword="moduleKeyword"
           search-placeholder="搜索模块名称或别名"
           @refresh="load"
         >

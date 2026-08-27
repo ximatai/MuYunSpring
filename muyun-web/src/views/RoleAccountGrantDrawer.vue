@@ -430,47 +430,47 @@ function scopeTitle(role: Role | undefined) {
       </div>
 
       <template v-else>
-      <div class="role-account-grant-search">
-        <UiInput
-          :value="keyword"
-          allow-clear
-          :disabled="saving"
-          placeholder="搜索用户账号"
-          @update:value="keyword = $event"
-          @keydown.enter="submitSearch"
-        />
-        <UiButton icon-name="search" :disabled="saving" @click="submitSearch">查询</UiButton>
-      </div>
-
-      <UiTable
-        class="role-account-grant-table"
-        size="middle"
-        :contract="userTableContract"
-        :rows="rows"
-        :loading="loadingUsers"
-        :pagination="userTablePagination"
-        :selection="rowSelection"
-        fill-height
-      />
-
-      <section v-if="selectedUsers.length > 0" class="role-account-grant-selected">
-        <div class="role-account-grant-selected-title">
-          <strong>已选用户</strong>
-          <span>{{ selectedUsers.length }} 个</span>
-        </div>
-        <div class="role-account-grant-selected-list">
-          <button
-            v-for="user in selectedUsers"
-            :key="user.id"
-            type="button"
+        <div class="role-account-grant-search">
+          <UiInput
+            :value="keyword"
+            allow-clear
             :disabled="saving"
-            @click="removeSelectedUser(user.id)"
-          >
-            <span>{{ userTitle(user) }}</span>
-            <small>{{ selectedUserDescription(user) }}</small>
-          </button>
+            placeholder="搜索用户账号"
+            @update:value="keyword = $event"
+            @keydown.enter="submitSearch"
+          />
+          <UiButton icon-name="search" :disabled="saving" @click="submitSearch">查询</UiButton>
         </div>
-      </section>
+
+        <UiTable
+          class="role-account-grant-table"
+          size="middle"
+          :contract="userTableContract"
+          :rows="rows"
+          :loading="loadingUsers"
+          :pagination="userTablePagination"
+          :selection="rowSelection"
+          fill-height
+        />
+
+        <section v-if="selectedUsers.length > 0" class="role-account-grant-selected">
+          <div class="role-account-grant-selected-title">
+            <strong>已选用户</strong>
+            <span>{{ selectedUsers.length }} 个</span>
+          </div>
+          <div class="role-account-grant-selected-list">
+            <button
+              v-for="user in selectedUsers"
+              :key="user.id"
+              type="button"
+              :disabled="saving"
+              @click="removeSelectedUser(user.id)"
+            >
+              <span>{{ userTitle(user) }}</span>
+              <small>{{ selectedUserDescription(user) }}</small>
+            </button>
+          </div>
+        </section>
       </template>
     </section>
   </component>
