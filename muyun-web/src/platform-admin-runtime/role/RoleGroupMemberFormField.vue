@@ -42,6 +42,10 @@ async function loadCandidates() {
         { fieldName: 'assignmentType', operator: 'EQ', values: ['employment'] },
         { fieldName: 'roleKind', operator: 'IN', values: ['standard', 'dataGrant'] },
         { fieldName: 'enabled', operator: 'EQ', values: [true] },
+        { fieldName: 'ownerScopeType', operator: 'EQ', values: [props.context.draft.ownerScopeType] },
+        ...(props.context.draft.ownerScopeId
+          ? [{ fieldName: 'ownerScopeId', operator: 'EQ' as const, values: [props.context.draft.ownerScopeId] }]
+          : []),
       ],
       sorts: [{ field: 'sortOrder' }, { field: 'title' }],
     });
