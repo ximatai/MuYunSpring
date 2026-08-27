@@ -180,7 +180,7 @@ class DynamicSchemaServiceIT {
     private ReferenceDeletionGuard dynamicReferenceGuard(DynamicRecordRuntime runtime) {
         return new ReferenceDeletionGuard() {
             @Override
-            public void beforeSoftDelete(CrudAbility<?> targetAbility, EntityContract target) {
+            public void validateTargetUnavailable(CrudAbility<?> targetAbility, EntityContract target) {
                 runtime.validateReferenceTargetDeletion(ReferenceTargets.of(targetAbility), target.getId());
             }
 

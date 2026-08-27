@@ -149,7 +149,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         ApplicationDeclaration application = application(module);
         validateModuleAlias(module, application);
         validateScopeAlias(bean, beanClass, module);
-        List<RelationProjectionJoinDefinition> projectionJoins = projectionJoins(bean);
+        List<RelationProjectionJoinDefinition> projectionJoins = List.of();
         java.util.Set<EntityCapability> capabilities = capabilities(bean, module);
         Class<?> modelClass = modelClass(bean);
         List<EntityDefinition> entities = entities(bean, module, projectionJoins);
@@ -299,18 +299,6 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                         "declared read projection source is not a static reference: "
                                 + moduleAlias + "." + plan.sourceField()));
         return referenceCode + "." + output.targetField();
-    }
-
-    private List<RelationProjectionJoinDefinition> projectionJoins(Object bean) {
-        @SuppressWarnings("deprecation")
-        boolean legacyProjectionJoinContributor = bean instanceof RelationProjectionJoinContributor;
-        if (!legacyProjectionJoinContributor) {
-            return List.of();
-        }
-        @SuppressWarnings("deprecation")
-        RelationProjectionJoinContributor contributor = (RelationProjectionJoinContributor) bean;
-        List<RelationProjectionJoinDefinition> joins = contributor.projectionJoins();
-        return joins == null ? List.of() : List.copyOf(joins);
     }
 
     private ModuleUiDefinition uiDefinition(Object bean, PlatformStaticModule module) {

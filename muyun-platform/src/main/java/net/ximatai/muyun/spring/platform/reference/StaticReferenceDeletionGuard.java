@@ -46,12 +46,6 @@ public final class StaticReferenceDeletionGuard implements ReferenceDeletionGuar
     }
 
     @Override
-    @Deprecated(since = "0.1", forRemoval = false)
-    public void beforeSoftDelete(CrudAbility<?> targetAbility, EntityContract target) {
-        validateTargetUnavailable(targetAbility, target);
-    }
-
-    @Override
     public void cascadeTargetUnavailable(CrudAbility<?> targetAbility,
                                          EntityContract target,
                                          DeletionContext context,

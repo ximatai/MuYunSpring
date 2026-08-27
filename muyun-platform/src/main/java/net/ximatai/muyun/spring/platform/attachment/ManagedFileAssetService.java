@@ -81,12 +81,6 @@ public class ManagedFileAssetService extends AbstractAbilityService<ManagedFileA
         return asset;
     }
 
-    /** Compatibility facade; callers must no longer infer replacement or deletion from this method. */
-    @Deprecated(forRemoval = false)
-    public ManagedFileAsset replaceInline(String tenantId, String ignoredExistingAssetId, String dataUrl) {
-        return createInline(tenantId, dataUrl);
-    }
-
     public String readInlineContent(String tenantId, String assetId) {
         ManagedFileAsset asset = requireOwned(tenantId, assetId);
         if (asset.getStorageKind() != ManagedFileStorageKind.DATABASE_INLINE || asset.getContentBase64() == null) {
