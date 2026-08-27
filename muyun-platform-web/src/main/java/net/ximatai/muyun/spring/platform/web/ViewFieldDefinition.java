@@ -164,6 +164,21 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
             return this;
         }
 
+        /** Uses the standard reference-selection control. */
+        public Builder recordPicker() {
+            return uiType("recordPicker");
+        }
+
+        /** Uses the standard option-selection control for an already declared field domain. */
+        public Builder select() {
+            return uiType("select");
+        }
+
+        /** Uses the lifecycle-aware enabled-state presentation and editor. */
+        public Builder enabledStatus() {
+            return uiType("enabledStatus");
+        }
+
         /** Displays a raw byte count using the platform's standard binary-unit formatter. */
         public Builder fileSize() {
             this.valuePresentation = FieldValuePresentation.FILE_SIZE;

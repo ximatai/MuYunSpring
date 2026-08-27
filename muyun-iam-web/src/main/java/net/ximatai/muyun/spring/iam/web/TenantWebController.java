@@ -43,7 +43,7 @@ public class TenantWebController extends StaticModuleWebControllerAdapter<Tenant
                                 .field("workbenchSubtitle", field -> field.label("副标题（可选）"))
                                 .field("lightLogoAssetId", field -> field.label("展示 Logo（默认）"))
                                 .field("darkLogoAssetId", field -> field.label("展示 Logo（暗色模式）")))))
-                        .traits(traits -> traits.standardCrud().recycleBin())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud().recycleBin()))))
                 .build();
     }
 

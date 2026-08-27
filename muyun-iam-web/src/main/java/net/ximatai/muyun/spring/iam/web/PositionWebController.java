@@ -96,13 +96,14 @@ public class PositionWebController extends StaticModuleWebControllerAdapter<Posi
                                         .manageable()
                                         .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
                                 .bindNavigatorToNavigator(TENANT_NAVIGATOR, CATEGORY_NAVIGATOR, TENANT_ID)
-                                .bindNavigatorToList(CATEGORY_NAVIGATOR, CATEGORY_ID))
+                                .filterListByNavigator(CATEGORY_NAVIGATOR, CATEGORY_ID)
+                                .prefillFormFromNavigator(CATEGORY_NAVIGATOR, CATEGORY_ID))
                         .list(list -> list.fields(fields -> fields
                                 .title("岗位列表")
                                 .field(CODE, field -> field.label("岗位编码").width("160px"))
                                 .field(TITLE, field -> field.label("岗位名称").width("180px"))
                                 .field(DESCRIPTION, field -> field.label("说明"))
-                                .field(ENABLED, field -> field.label("状态").uiType("enabledStatus")
+                                .field(ENABLED, field -> field.label("状态").enabledStatus()
                                         .width("90px").align("center"))))
                         .detail(detail -> detail.editor(form -> form
                                 .title("岗位档案")
@@ -110,8 +111,8 @@ public class PositionWebController extends StaticModuleWebControllerAdapter<Posi
                                 .field(CODE, field -> field.label("岗位编码").required())
                                 .field(TITLE, field -> field.label("岗位名称").required())
                                 .field(DESCRIPTION, field -> field.label("说明"))
-                                .field(ENABLED, field -> field.label("启用状态").uiType("enabledStatus"))))
-                        .traits(traits -> traits.standardCrud().enabledStatus().responsiveDetailSurface())))
+                                .field(ENABLED, field -> field.label("启用状态").enabledStatus())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()).presentation(presentation -> presentation.responsiveDetailSurface()))))
                 .build();
     }
 }

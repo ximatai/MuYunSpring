@@ -74,39 +74,56 @@ public record ModuleUiDefinition(String moduleAlias,
             return this;
         }
 
-        /** Declares a static child/detail relation without guessing its list endpoint or projection. */
-        public Builder detailRelation(String code, String title, String targetEntityAlias, String parentBinding,
-                                      boolean readOnly) {
-            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
-                    readOnly, true));
+        /** Declares a relation by its persistence semantics instead of selecting a positional overload. */
+        public Builder relation(String code, Consumer<RelationSelectionBuilder> customizer) {
+            RelationSelectionBuilder builder = new RelationSelectionBuilder(code);
+            if (customizer != null) customizer.accept(builder);
+            detailRelations.add(builder.build());
             return this;
         }
 
-        /** Declares a directly managed relation; relation reads alone never imply this capability. */
-        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
-                                             String parentBinding,
+        /** @deprecated Use {@link #relation(String, Consumer)} with {@code readOnly(...)}. */
+        @Deprecated(forRemoval = false)
+        public Builder detailRelation(String code, String title, String targetEntityAlias, String parentBinding,
+                                      boolean readOnly) {
+            if (readOnly) {
+                return relation(code, relation -> relation.readOnly(value -> value
+                        .title(title).targetEntity(targetEntityAlias).parentBinding(parentBinding)));
+            }
+            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
+                    false, true));
+            return this;
+        }
+
+        /** @deprecated Use {@link #relation(String, Consumer)} with {@code managed(...)}. */
+        @Deprecated(forRemoval = false)
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias, String parentBinding,
                                              PageDetailRelationMutationDefinition mutations) {
             return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, null,
                     PageDetailRelationPaginationDefinition.DEFAULT, PageDetailRelationEditingDefinition.DEFAULT);
         }
 
-        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
-                                             String parentBinding,
+        /** @deprecated Use {@link #relation(String, Consumer)} with {@code managed(...)}. */
+        @Deprecated(forRemoval = false)
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias, String parentBinding,
                                              PageDetailRelationMutationDefinition mutations,
                                              PageDetailRelationParentConstraintDefinition parentConstraint) {
             return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, parentConstraint,
                     PageDetailRelationPaginationDefinition.DEFAULT, PageDetailRelationEditingDefinition.DEFAULT);
         }
 
-        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
-                                             String parentBinding,
+        /** @deprecated Use {@link #relation(String, Consumer)} with {@code managed(...)}. */
+        @Deprecated(forRemoval = false)
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias, String parentBinding,
                                              PageDetailRelationMutationDefinition mutations,
                                              PageDetailRelationPaginationDefinition pagination) {
-            return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, null, pagination);
+            return managedDetailRelation(code, title, targetEntityAlias, parentBinding, mutations, null, pagination,
+                    PageDetailRelationEditingDefinition.DEFAULT);
         }
 
-        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
-                                             String parentBinding,
+        /** @deprecated Use {@link #relation(String, Consumer)} with {@code managed(...)}. */
+        @Deprecated(forRemoval = false)
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias, String parentBinding,
                                              PageDetailRelationMutationDefinition mutations,
                                              PageDetailRelationParentConstraintDefinition parentConstraint,
                                              PageDetailRelationPaginationDefinition pagination) {
@@ -114,8 +131,9 @@ public record ModuleUiDefinition(String moduleAlias,
                     pagination, PageDetailRelationEditingDefinition.DEFAULT);
         }
 
-        public Builder managedDetailRelation(String code, String title, String targetEntityAlias,
-                                             String parentBinding,
+        /** @deprecated Use {@link #relation(String, Consumer)} with {@code managed(...)}. */
+        @Deprecated(forRemoval = false)
+        public Builder managedDetailRelation(String code, String title, String targetEntityAlias, String parentBinding,
                                              PageDetailRelationMutationDefinition mutations,
                                              PageDetailRelationParentConstraintDefinition parentConstraint,
                                              PageDetailRelationPaginationDefinition pagination,
@@ -126,22 +144,25 @@ public record ModuleUiDefinition(String moduleAlias,
             return this;
         }
 
-        /** Declares a gateway-backed query while deliberately exposing no mutation capability. */
+        /** @deprecated Use {@link #relation(String, Consumer)} with {@code managedReadOnly(...)}. */
+        @Deprecated(forRemoval = false)
         public Builder managedReadOnlyDetailRelation(String code, String title, String targetEntityAlias,
                                                      String parentBinding,
                                                      PageDetailRelationParentConstraintDefinition parentConstraint) {
-            detailRelations.add(new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding,
-                    true, true, null, parentConstraint, PageDetailRelationPaginationDefinition.DEFAULT,
-                    PageDetailRelationEditingDefinition.DEFAULT, true, false, List.of(), UiRule.constant(Boolean.TRUE)));
-            return this;
+            return relation(code, relation -> relation.managedReadOnly(value -> value
+                    .title(title).targetEntity(targetEntityAlias).parentBinding(parentBinding)
+                    .parentConstraint(parentConstraint)));
         }
 
-        /** Declares a child collection carried by the parent entity and persisted by ChildrenAbility. */
+        /** @deprecated Use {@link #relation(String, Consumer)} with {@code aggregateChild(...)}. */
+        @Deprecated(forRemoval = false)
         public Builder aggregateChildRelation(String code, String title, String targetEntityAlias,
                                               String parentBinding, UiRule<Boolean> visible) {
             return aggregateChildRelation(code, title, targetEntityAlias, parentBinding, visible, false);
         }
 
+        /** @deprecated Use {@link #relation(String, Consumer)} with {@code aggregateChild(...)}. */
+        @Deprecated(forRemoval = false)
         public Builder aggregateChildRelation(String code, String title, String targetEntityAlias,
                                               String parentBinding, UiRule<Boolean> visible,
                                               boolean recycleBinEnabled) {
@@ -149,7 +170,8 @@ public record ModuleUiDefinition(String moduleAlias,
                     List.of());
         }
 
-        /** Declares an embedded child collection and its immediate, browser-local row calculations. */
+        /** @deprecated Use {@link #relation(String, Consumer)} with {@code aggregateChild(...)}. */
+        @Deprecated(forRemoval = false)
         public Builder aggregateChildRelation(String code, String title, String targetEntityAlias,
                                               String parentBinding, UiRule<Boolean> visible,
                                               boolean recycleBinEnabled,
@@ -203,6 +225,173 @@ public record ModuleUiDefinition(String moduleAlias,
             if (customizer != null) customizer.accept(builder);
             editorSurfaces.add(new EditorSurfaceDefinition(key, builder.build()));
             return this;
+        }
+    }
+
+    /**
+     * Chooses exactly one persistence semantic for a detail relation.
+     *
+     * <p>Each branch exposes only the options that can reach its resolved descriptor. This keeps
+     * the declaration honest: unsupported relation facts cannot be accepted and later discarded.</p>
+     */
+    public static final class RelationSelectionBuilder {
+        private final String code;
+        private PageDetailRelationDefinition definition;
+
+        private RelationSelectionBuilder(String code) {
+            this.code = code;
+        }
+
+        /** Declares a passive read-only relation; no relation gateway contract is invented. */
+        public RelationSelectionBuilder readOnly(Consumer<ReadOnlyRelationBuilder> customizer) {
+            ReadOnlyRelationBuilder builder = new ReadOnlyRelationBuilder(code);
+            if (customizer != null) customizer.accept(builder);
+            return select(builder.build());
+        }
+
+        /** Declares a gateway-backed relation query while deliberately exposing no mutations. */
+        public RelationSelectionBuilder managedReadOnly(Consumer<ManagedReadOnlyRelationBuilder> customizer) {
+            ManagedReadOnlyRelationBuilder builder = new ManagedReadOnlyRelationBuilder(code);
+            if (customizer != null) customizer.accept(builder);
+            return select(builder.build());
+        }
+
+        /** Declares a gateway-backed relation with an explicit mutation contract. */
+        public RelationSelectionBuilder managed(PageDetailRelationMutationDefinition mutations,
+                                                Consumer<ManagedRelationBuilder> customizer) {
+            ManagedRelationBuilder builder = new ManagedRelationBuilder(code, mutations);
+            if (customizer != null) customizer.accept(builder);
+            return select(builder.build());
+        }
+
+        /** Declares an embedded child collection persisted by the parent aggregate. */
+        public RelationSelectionBuilder aggregateChild(Consumer<AggregateChildRelationBuilder> customizer) {
+            AggregateChildRelationBuilder builder = new AggregateChildRelationBuilder(code);
+            if (customizer != null) customizer.accept(builder);
+            return select(builder.build());
+        }
+
+        private RelationSelectionBuilder select(PageDetailRelationDefinition value) {
+            if (definition != null) throw new IllegalStateException("detail relation save semantics are already declared");
+            definition = value;
+            return this;
+        }
+
+        private PageDetailRelationDefinition build() {
+            if (definition == null) {
+                throw new IllegalArgumentException("detail relation must declare readOnly, managedReadOnly, managed or aggregateChild");
+            }
+            return definition;
+        }
+    }
+
+    public static final class ReadOnlyRelationBuilder extends RelationDetails<ReadOnlyRelationBuilder> {
+        private ReadOnlyRelationBuilder(String code) { super(code); }
+
+        private PageDetailRelationDefinition build() {
+            return definition(true, false, null, null, PageDetailRelationPaginationDefinition.DEFAULT,
+                    PageDetailRelationEditingDefinition.DEFAULT, true, false, List.of());
+        }
+    }
+
+    public static final class ManagedReadOnlyRelationBuilder extends ManagedRelationDetails<ManagedReadOnlyRelationBuilder> {
+        private ManagedReadOnlyRelationBuilder(String code) { super(code); }
+
+        private PageDetailRelationDefinition build() {
+            return definition(true, null);
+        }
+    }
+
+    public static final class ManagedRelationBuilder extends ManagedRelationDetails<ManagedRelationBuilder> {
+        private final PageDetailRelationMutationDefinition mutations;
+
+        private ManagedRelationBuilder(String code, PageDetailRelationMutationDefinition mutations) {
+            super(code);
+            if (mutations == null) throw new IllegalArgumentException("managed detail relation requires mutations");
+            this.mutations = mutations;
+        }
+
+        private PageDetailRelationDefinition build() {
+            return definition(false, mutations);
+        }
+    }
+
+    public static final class AggregateChildRelationBuilder extends RelationDetails<AggregateChildRelationBuilder> {
+        private boolean recycleBinEnabled;
+        private final List<AggregateChildFormulaDefinition> formComputeRules = new java.util.ArrayList<>();
+
+        private AggregateChildRelationBuilder(String code) { super(code); }
+
+        public AggregateChildRelationBuilder recycleBin() { recycleBinEnabled = true; return this; }
+
+        public AggregateChildRelationBuilder formCompute(AggregateChildFormulaDefinition value) {
+            if (value != null) formComputeRules.add(value);
+            return this;
+        }
+
+        private PageDetailRelationDefinition build() {
+            return definition(false, false, null, null, PageDetailRelationPaginationDefinition.unpaged(),
+                    PageDetailRelationEditingDefinition.aggregateInline(recycleBinEnabled), true, true,
+                    formComputeRules);
+        }
+    }
+
+    public abstract static class RelationDetails<T extends RelationDetails<T>> {
+        private final String code;
+        private String title;
+        private String targetEntityAlias;
+        private String parentBinding;
+        private UiRule<Boolean> visible = UiRule.constant(Boolean.TRUE);
+
+        private RelationDetails(String code) { this.code = code; }
+
+        @SuppressWarnings("unchecked")
+        public T title(String value) { title = value; return (T) this; }
+
+        @SuppressWarnings("unchecked")
+        public T targetEntity(String value) { targetEntityAlias = value; return (T) this; }
+
+        @SuppressWarnings("unchecked")
+        public T parentBinding(String value) { parentBinding = value; return (T) this; }
+
+        @SuppressWarnings("unchecked")
+        public T visible(UiRule<Boolean> value) { visible = value; return (T) this; }
+
+        protected final PageDetailRelationDefinition definition(boolean readOnly, boolean managedQuery,
+                                                                 PageDetailRelationMutationDefinition mutations,
+                                                                 PageDetailRelationParentConstraintDefinition parentConstraint,
+                                                                 PageDetailRelationPaginationDefinition pagination,
+                                                                 PageDetailRelationEditingDefinition editing,
+                                                                 boolean refreshOnDetailReload, boolean aggregateChild,
+                                                                 List<AggregateChildFormulaDefinition> formComputeRules) {
+            return new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding, readOnly, managedQuery,
+                    mutations, parentConstraint, pagination, editing, refreshOnDetailReload, aggregateChild,
+                    formComputeRules, visible);
+        }
+    }
+
+    public abstract static class ManagedRelationDetails<T extends ManagedRelationDetails<T>> extends RelationDetails<T> {
+        private PageDetailRelationParentConstraintDefinition parentConstraint;
+        private PageDetailRelationPaginationDefinition pagination = PageDetailRelationPaginationDefinition.DEFAULT;
+
+        private ManagedRelationDetails(String code) { super(code); }
+
+        @SuppressWarnings("unchecked")
+        public T parentConstraint(PageDetailRelationParentConstraintDefinition value) {
+            parentConstraint = value;
+            return (T) this;
+        }
+
+        @SuppressWarnings("unchecked")
+        public T pagination(PageDetailRelationPaginationDefinition value) {
+            pagination = value;
+            return (T) this;
+        }
+
+        protected final PageDetailRelationDefinition definition(boolean readOnly,
+                                                                 PageDetailRelationMutationDefinition mutations) {
+            return definition(readOnly, true, mutations, parentConstraint, pagination,
+                    PageDetailRelationEditingDefinition.DEFAULT, true, false, List.of());
         }
     }
 }

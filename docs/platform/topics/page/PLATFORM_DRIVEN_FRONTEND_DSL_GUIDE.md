@@ -13,7 +13,7 @@
 | 标准 CRUD、字段展示、启停、回收站、引用选择    | 页面 DSL + traits                                               | 平台已经拥有保存、权限、租户、审计、校验和交互闭环。 |
 | 按组织、租户、分类等范围筛选的标准列表         | 页面 DSL 的 navigator 和 context binding                        | 范围、查询和新建预填仍走标准链路。                   |
 | 树形资源、列表详情、平铺管理页                 | `PageTemplates` 选择页面骨架                                    | 避免业务自行拼三栏布局、抽屉和列表状态。             |
-| 子资源或标准关联明细                           | `detailRelation`、`managedDetailRelation`、`editorContribution` | 关系身份、父子约束、权限和保存语义由平台治理。       |
+| 子资源或标准关联明细                           | `relation(...)`、`editorContribution` | 关系身份、父子约束、权限和保存语义由平台治理。       |
 | 额外状态列、只读会话明细、密码管理等领域特性   | `ModulePageEnhancement` 受控扩展                                | 标准页面保留所有权，业务只在命名边界注入内容。       |
 | 复杂工作台、跨多个聚合的编排、非标准交互主流程 | 独立业务页面                                                    | 此时页面本身就是业务能力，不应伪装成通用 CRUD。      |
 
@@ -47,15 +47,16 @@ public ModuleUiDefinition moduleUiDefinition() {
                             .field("customerNo", field -> field.label("客户编号").width("140px"))
                             .field("title", field -> field.label("客户名称"))
                             .field("enabled", field -> field.label("状态")
-                                    .uiType("enabledStatus").width("90px").align("center"))))
+                                    .enabledStatus().width("90px").align("center"))))
                     .detail(detail -> detail.editor(form -> form
                             .title("客户档案")
                             .field("customerNo", field -> field.label("客户编号").required())
                             .field("title", field -> field.label("客户名称").required())
                             .field("enabled", field -> field.label("启用状态")
-                                    .uiType("enabledStatus"))))
-                    .traits(traits -> traits.standardCrud().enabledStatus().recycleBin()
-                            .responsiveDetailSurface())))
+                                    .enabledStatus()))))
+                    .traits(traits -> traits
+                            .operations(operations -> operations.standardCrud().enabledLifecycle().recycleBin())
+                            .presentation(presentation -> presentation.responsiveDetailSurface()))))
             .build();
 }
 ```
@@ -75,8 +76,8 @@ public ModuleUiDefinition moduleUiDefinition() {
 字段声明使用模型中已存在的字段事实。DSL 适合设置标签、顺序、必填、只读、隐藏，以及少量平台已收口的展示提示；不适合重复声明字段类型、数据库列、权限或 SQL。
 
 ```java
-.field("departmentId", field -> field.label("所属部门").required().uiType("recordPicker"))
-.field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))
+.field("departmentId", field -> field.label("所属部门").required().recordPicker())
+.field("enabled", field -> field.label("启用状态").enabledStatus())
 .field("passwordStatus", field -> field.label("密码状态").readOnly())
 .field("internalRemark", field -> field.hidden())
 ```
@@ -122,7 +123,8 @@ private String moduleAlias;
         .level("organization", level -> level
                 .tree("iam.organization", "机构树", "搜索机构"))
         .bindNavigatorToNavigator("tenant", "organization", "tenantId")
-        .bindNavigatorToList("organization", "organizationId"))
+        .filterListByNavigator("organization", "organizationId")
+        .prefillFormFromNavigator("organization", "organizationId"))
 ```
 
 常用选择：
@@ -133,6 +135,8 @@ private String moduleAlias;
 - 默认导航是只读选择。只有明确需要在当前页维护导航来源时才调用 `.manageable()` 或 `.manageable("editorKey")`。
 
 `manageable` 是二元开关：声明后才启用该来源的标准新建、编辑、删除；未声明时不出现编辑态。它不配置动作子集，也不绕过来源模块的 `create`、`update`、`delete` 权限、数据范围、乐观锁或编辑器校验。可选的 `editorKey` 只选择来源模块已声明的编辑 surface，不能在使用方复制一套来源字段。
+
+导航值的每个去向都应在声明处可见：`filterListByNavigator(...)` 只影响列表查询，`prefillFormFromNavigator(...)` 只提供新建表单初值；会话值分别使用 `filterListBySession(...)`、`prefillFormFromSession(...)` 和 `constrainMutationsFromSession(...)`。后者才是服务端写入不变量。
 
 ### 导航范围内的贡献树资源
 
@@ -150,13 +154,36 @@ private String moduleAlias;
         .createTitle("新建字典项"))
 ```
 
-`resource` 必须有同名 `editorContribution`，其表单必须声明 `scopeField`，并由静态 action contribution 提供标准树 CRUD；`scopeNavigatorKey` 只能指向同页已声明的导航层级。`resource` 不能等于页面主实体：若页面维护的本来就是该树（如“菜单管理”维护 `Menu`），应使用 `bindNavigatorToList` 将导航选择绑定到主树查询，而不是声明 `treeResource`。
+`resource` 必须有同名 `editorContribution`，其表单必须声明 `scopeField`，并由静态 action contribution 提供标准树 CRUD；`scopeNavigatorKey` 只能指向同页已声明的导航层级。`resource` 不能等于页面主实体：若页面维护的本来就是该树（如“菜单管理”维护 `Menu`），应使用 `filterListByNavigator` 将导航选择绑定到主树查询，而不是声明 `treeResource`。
 
 ### 必选导航范围的服务端契约
 
 `REQUIRED_SCOPE` 不是仅用于禁用前端按钮的提示。查询和树加载通过 `externalQueryValues` 传入导航选中值；查看、删除等没有请求体的记录操作则携带 `X-MuYun-Page-Context` JSON 请求头，键为导航层级 `key`，值为选中记录 ID。平台页面运行时会随导航切换自动更新它；直接调用 API 时缺失、空值或与记录不一致都会被服务端拒绝。
 
 该请求头只表达当前页面工作范围，不授予数据权限。数据范围、租户隔离和字段保护仍由对应的后端能力独立校验。
+
+### 非导航的服务端选择上下文
+
+当页面入口携带的不是普通导航记录，而是“角色归属范围”“当前审批对象”等需要由服务端重新解析和授权的业务选择时，不要把解析后的字段交给浏览器，也不要为此复制一个专用表单页。静态 `CrudWeb` 可声明 `PageSelectionContextResolver` 与 `pageSelectionContextBindings()`；扫描器会把 binding 合并进静态模块 definition，并与 UI descriptor 一起编译为执行计划。
+
+```java
+@Override
+public PageSelectionContextResolverRegistry pageSelectionContextResolvers() {
+    return new PageSelectionContextResolverRegistry(List.of(roleScopeSelectionResolver));
+}
+
+@Override
+public List<PageContextBindingDefinition> pageSelectionContextBindings() {
+    return PageContextBindingDefinition.resolvedSelectionFields(
+            "roleScope",
+            PageContextTarget.FORM_DEFAULT,
+            "ownerScopeType", "ownerScopeId");
+}
+```
+
+浏览器只传递不透明的 selection key。每次读取默认值或执行创建、更新、删除时，平台都重新调用 resolver，并以当前 action、数据范围和模块权限校验该选择。`FORM_DEFAULT` 只用于新建表单预填；真正写入仍在 mutation 期间独立解析。需要把范围固定为写入不变量时，再额外绑定 `MUTATION_CONSTRAINT`；该目标只接受 `SESSION` 或 `RESOLVED_SELECTION` 来源，不能把浏览器 navigator 值误当成服务端事实。
+
+`PageContextBindingDefinition` 的目标含义应保持单一：`LIST_QUERY` 约束主列表，`NAVIGATOR_QUERY` 约束下游导航来源，`PICKER_QUERY` 约束某个引用选择器，`FORM_DEFAULT` 提供新建初值，`MUTATION_CONSTRAINT` 约束写入。普通组织、租户等页面工作范围仍优先使用 navigator binding；只有需要不透明、逐请求授权解析的业务选择才使用 resolver。
 
 若资源只适用于范围记录的某个稳定状态，可用 `availableWhenEquals` 声明字段和值；条件不满足时运行器不加载树也不开放新建，资源控制器仍须执行领域不变量。运行器把资源访问固定投影到模块的 `tree-resources/{resource}/{scopeId}` 路径，未选中范围时 fail-closed。页面模块仍拥有动作授权与 runtime descriptor，资源控制器只保留领域范围绑定、归属校验和不变量。该能力当前是静态 action contribution 的平台接入点；动态来源没有同等可执行资源注册时，应明确拒绝，而不是在前端拼业务 URL。
 
@@ -166,14 +193,16 @@ private String moduleAlias;
 
 | 关系事实                               | 使用方式                             |
 | -------------------------------------- | ------------------------------------ |
-| 只读关联明细                           | `detailRelation(...)`                |
-| 由目标模块标准 CRUD 维护的关联         | `managedDetailRelation(...)`         |
-| 可查询但刻意不开放变更的关联           | `managedReadOnlyDetailRelation(...)` |
-| 随父记录 `children` 一起保存的聚合子表 | `aggregateChildRelation(...)`        |
+| 只读关联明细，不产生查询 endpoint     | `relation(... readOnly(...))`        |
+| 由目标模块标准 CRUD 维护的关联         | `relation(... managed(...))`         |
+| 可查询但刻意不开放变更的关联           | `relation(... managedReadOnly(...))` |
+| 随父记录 `children` 一起保存的聚合子表 | `relation(... aggregateChild(...))`  |
 | 子资源独立编辑表单                     | `editorContribution(resource, ...)`  |
 | 只需在列表行查看标准关系摘要           | `list(...).expandRelation(...)`      |
 
 关系读取不自动等于可编辑。尤其不要因为能查询到子表就给它开放新增、修改或删除；变更能力必须由 relation 的保存模型、父子约束、动作权限和回收策略共同证明。
+
+`relation` 分支只暴露能够进入该类 relation descriptor 的属性：`managed` / `managedReadOnly` 可声明父级约束和分页；`aggregateChild` 才可声明 `recycleBin()` 与 `formCompute(...)`；普通 `readOnly` 不会猜测网关查询契约。这样声明的每个事实都有明确运行时去向。
 
 ## 列表常驻查询与查询摘要
 

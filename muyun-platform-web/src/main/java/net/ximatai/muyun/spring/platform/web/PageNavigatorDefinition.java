@@ -58,27 +58,58 @@ public record PageNavigatorDefinition(List<PageNavigatorLevelDefinition> levels,
             return level(key == null ? null : key.value(), customizer);
         }
 
-        public Builder bindNavigatorToList(String sourceLevelKey, String field) {
-            return bindNavigatorToList(sourceLevelKey, field, NavigatorListQueryMode.REQUIRED_SCOPE);
+        /** Makes a navigator selection a required or optional list-query criterion. */
+        public Builder filterListByNavigator(String sourceLevelKey, String field, NavigatorListQueryMode queryMode) {
+            contextBindings.add(PageContextBindingDefinition.navigatorList(sourceLevelKey, field, queryMode));
+            return this;
         }
 
-        /**
-         * Binds a navigator selection to the list query and form default. The query mode affects
-         * only the list: form defaults remain a convenience value when a selection exists.
-         */
-        public Builder bindNavigatorToList(String sourceLevelKey, String field, NavigatorListQueryMode queryMode) {
-            contextBindings.add(PageContextBindingDefinition.navigatorList(sourceLevelKey, field, queryMode));
+        public Builder filterListByNavigator(String sourceLevelKey, String field) {
+            return filterListByNavigator(sourceLevelKey, field, NavigatorListQueryMode.REQUIRED_SCOPE);
+        }
+
+        /** Makes a navigator selection available as the default value of a newly opened form. */
+        public Builder prefillFormFromNavigator(String sourceLevelKey, String field) {
             contextBindings.add(PageContextBindingDefinition.navigator(sourceLevelKey, PageContextTarget.FORM_DEFAULT, field));
             return this;
         }
 
+        /** @deprecated Use explicit list-filter and form-prefill bindings. */
+        @Deprecated(forRemoval = false)
+        public Builder bindNavigatorToList(String sourceLevelKey, String field) {
+            return filterListByNavigator(sourceLevelKey, field).prefillFormFromNavigator(sourceLevelKey, field);
+        }
+
+        /** @deprecated Use explicit list-filter and form-prefill bindings. */
+        @Deprecated(forRemoval = false)
+        public Builder bindNavigatorToList(String sourceLevelKey, String field, NavigatorListQueryMode queryMode) {
+            return filterListByNavigator(sourceLevelKey, field, queryMode).prefillFormFromNavigator(sourceLevelKey, field);
+        }
+
+        /** @deprecated Use explicit list-filter and form-prefill bindings. */
+        @Deprecated(forRemoval = false)
         public Builder bindNavigatorToList(ModuleUiNavigatorKey sourceLevelKey, ModuleUiField field) {
             return bindNavigatorToList(value(sourceLevelKey), name(field));
         }
 
+        /** @deprecated Use explicit list-filter and form-prefill bindings. */
+        @Deprecated(forRemoval = false)
         public Builder bindNavigatorToList(ModuleUiNavigatorKey sourceLevelKey, ModuleUiField field,
                                            NavigatorListQueryMode queryMode) {
             return bindNavigatorToList(value(sourceLevelKey), name(field), queryMode);
+        }
+
+        public Builder filterListByNavigator(ModuleUiNavigatorKey sourceLevelKey, ModuleUiField field,
+                                             NavigatorListQueryMode queryMode) {
+            return filterListByNavigator(value(sourceLevelKey), name(field), queryMode);
+        }
+
+        public Builder filterListByNavigator(ModuleUiNavigatorKey sourceLevelKey, ModuleUiField field) {
+            return filterListByNavigator(value(sourceLevelKey), name(field));
+        }
+
+        public Builder prefillFormFromNavigator(ModuleUiNavigatorKey sourceLevelKey, ModuleUiField field) {
+            return prefillFormFromNavigator(value(sourceLevelKey), name(field));
         }
 
         public Builder bindNavigatorToNavigator(String sourceLevelKey, String targetLevelKey, String field) {
@@ -103,21 +134,49 @@ public record PageNavigatorDefinition(List<PageNavigatorLevelDefinition> levels,
             return bindNavigatorToPickerQuery(value(sourceLevelKey), name(pickerField), name(queryField));
         }
 
-        /**
-         * Binds a value from the authenticated current-user context. The server remains the
-         * authority for list filtering and mutation constraints; the form-default entry is only
-         * a UI convenience.
-         */
-        public Builder bindSessionToList(String sessionKey, String field) {
+        /** Uses a server-authoritative session value to constrain list reads. */
+        public Builder filterListBySession(String sessionKey, String field) {
             contextBindings.add(PageContextBindingDefinition.session(sessionKey, PageContextTarget.LIST_QUERY, field));
+            return this;
+        }
+
+        /** Uses a session value as a form convenience default; it does not enforce writes. */
+        public Builder prefillFormFromSession(String sessionKey, String field) {
             contextBindings.add(PageContextBindingDefinition.session(sessionKey, PageContextTarget.FORM_DEFAULT, field));
+            return this;
+        }
+
+        /** Uses a server-authoritative session value as a mutation invariant. */
+        public Builder constrainMutationsFromSession(String sessionKey, String field) {
             contextBindings.add(PageContextBindingDefinition.session(sessionKey,
                     PageContextTarget.MUTATION_CONSTRAINT, field));
             return this;
         }
 
+        /** @deprecated Use explicit list-filter, form-prefill and mutation-constraint bindings. */
+        @Deprecated(forRemoval = false)
+        public Builder bindSessionToList(String sessionKey, String field) {
+            return filterListBySession(sessionKey, field)
+                    .prefillFormFromSession(sessionKey, field)
+                    .constrainMutationsFromSession(sessionKey, field);
+        }
+
+        /** @deprecated Use explicit list-filter, form-prefill and mutation-constraint bindings. */
+        @Deprecated(forRemoval = false)
         public Builder bindSessionToList(ModuleUiBindingKey sessionKey, ModuleUiField field) {
             return bindSessionToList(sessionKey == null ? null : sessionKey.value(), name(field));
+        }
+
+        public Builder filterListBySession(ModuleUiBindingKey sessionKey, ModuleUiField field) {
+            return filterListBySession(sessionKey == null ? null : sessionKey.value(), name(field));
+        }
+
+        public Builder prefillFormFromSession(ModuleUiBindingKey sessionKey, ModuleUiField field) {
+            return prefillFormFromSession(sessionKey == null ? null : sessionKey.value(), name(field));
+        }
+
+        public Builder constrainMutationsFromSession(ModuleUiBindingKey sessionKey, ModuleUiField field) {
+            return constrainMutationsFromSession(sessionKey == null ? null : sessionKey.value(), name(field));
         }
 
         public Builder bind(PageContextBindingDefinition binding) {

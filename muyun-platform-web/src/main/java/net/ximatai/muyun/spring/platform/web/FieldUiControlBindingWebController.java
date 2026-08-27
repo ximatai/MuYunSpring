@@ -29,7 +29,7 @@ public class FieldUiControlBindingWebController
                                 .width("220px")
                                 .required().enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
                         .field("field_ui_control_binding", "valueFieldSpecAlias", field -> field.label("值字段规格")
-                                .width("220px").uiType("recordPicker").required())
+                                .width("220px").recordPicker().required())
                         .field("field_ui_control_binding", "title", field -> field.label("标题")
                                 .width("360px").required()))
                 .build();

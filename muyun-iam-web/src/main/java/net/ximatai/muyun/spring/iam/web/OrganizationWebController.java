@@ -50,16 +50,17 @@ public class OrganizationWebController extends WebSupport<OrganizationService> i
                                         .microList("iam.tenant", "租户", "搜索租户")
                                         .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
                                         .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
-                                .bindNavigatorToList("tenant", "tenantId"))
+                                .filterListByNavigator("tenant", "tenantId")
+                                .prefillFormFromNavigator("tenant", "tenantId"))
                         .detail(detail -> detail
                                 .emptyDescription("请选择机构，或新建根机构")
                                 .editor(form -> form
                                         .title("机构档案")
                                         .field("title", field -> field.label("机构名称").required())
                                         .field("code", field -> field.label("机构编码").required())
-                                        .field("parentId", field -> field.label("上级机构").uiType("recordPicker"))
-                                        .field("enabled", field -> field.label("启用状态").uiType("enabledStatus"))))
-                        .traits(traits -> traits.standardCrud().enabledStatus())))
+                                        .field("parentId", field -> field.label("上级机构").recordPicker())
+                                        .field("enabled", field -> field.label("启用状态").enabledStatus())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()))))
                 .build();
     }
 

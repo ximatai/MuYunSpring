@@ -40,8 +40,8 @@ public class ApplicationWebController extends StaticModuleWebControllerAdapter<A
                                         .field(ALIAS, field -> field.label("应用 alias").required()
                                                 .enabledWhen(UiFormula.booleanExpression("!(PRESENT({" + ID.name() + "}))")))
                                         .field(TITLE, field -> field.label("应用名称").required())
-                                        .field(ENABLED, field -> field.label("启用状态").uiType("enabledStatus"))))
-                        .traits(traits -> traits.standardCrud().enabledStatus().recycleBin())))
+                                        .field(ENABLED, field -> field.label("启用状态").enabledStatus())))
+                        .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle().recycleBin()))))
                 .build();
     }
 }

@@ -31,7 +31,7 @@ public class FieldUiControlWebController extends StaticModuleWebControllerAdapte
                     .field("alias", field -> field.label("控件 alias")
                             .enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
                     .field("title", field -> field.label("控件名称"))
-                    .field("defaultFieldSpecAlias", field -> field.label("默认字段规格").uiType("recordPicker"))
+                    .field("defaultFieldSpecAlias", field -> field.label("默认字段规格").recordPicker())
                     .field("rendererType", field -> field.label("内置渲染类型"))
                     .field("valueShape", field -> field.label("值形态").required())
                     .field("primaryValueKey", field -> field.label("主分量键")
@@ -39,14 +39,20 @@ public class FieldUiControlWebController extends StaticModuleWebControllerAdapte
                             .required(UiRule.formula(UiFormula.booleanExpression("{valueShape} == 'COMPOSITE'"))))
                     .field("queryMode", field -> field.label("查询语义").required())
                     .field("icon", field -> field.label("图标"))));
-            page.traits(traits -> traits.standardCrud().enabledStatus().recycleBin());
+            page.traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle().recycleBin()));
         }));
         return definition
-                .aggregateChildRelation("properties", "控件属性", "field_ui_control_property",
-                        "fieldUiControlAlias", UiRule.constant(Boolean.TRUE), true)
-                .aggregateChildRelation("bindings", "字段绑定", "field_ui_control_binding",
-                        "fieldUiControlAlias", UiRule.formula(
-                                UiFormula.booleanExpression("{valueShape} == 'COMPOSITE'")), true)
+                .relation("properties", relation -> relation.aggregateChild(child -> child
+                        .title("控件属性")
+                        .targetEntity("field_ui_control_property")
+                        .parentBinding("fieldUiControlAlias")
+                        .recycleBin()))
+                .relation("bindings", relation -> relation.aggregateChild(child -> child
+                        .title("字段绑定")
+                        .targetEntity("field_ui_control_binding")
+                        .parentBinding("fieldUiControlAlias")
+                        .visible(UiRule.formula(UiFormula.booleanExpression("{valueShape} == 'COMPOSITE'")))
+                        .recycleBin()))
                 .build();
     }
 }

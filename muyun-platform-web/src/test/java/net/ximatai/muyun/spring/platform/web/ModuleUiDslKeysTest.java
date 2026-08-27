@@ -26,9 +26,9 @@ class ModuleUiDslKeysTest {
         PageNavigatorDefinition navigator = new PageNavigatorDefinition.Builder()
                 .level(tenant, level -> level.microList("iam.tenant", "租户", "搜索租户"))
                 .level(category, level -> level.tree("iam.position_category", "分类", "搜索分类"))
-                .bindSessionToList(ModuleUiBindingKey.of("tenantId"), tenantId)
+                .filterListBySession(ModuleUiBindingKey.of("tenantId"), tenantId).prefillFormFromSession(ModuleUiBindingKey.of("tenantId"), tenantId).constrainMutationsFromSession(ModuleUiBindingKey.of("tenantId"), tenantId)
                 .bindNavigatorToNavigator(tenant, category, tenantId)
-                .bindNavigatorToList(category, categoryId)
+                .filterListByNavigator(category, categoryId).prefillFormFromNavigator(category, categoryId)
                 .build();
 
         assertThat(navigator.levels()).extracting(PageNavigatorLevelDefinition::key)
@@ -45,7 +45,7 @@ class ModuleUiDslKeysTest {
     void shouldAllowNavigatorListBindingToBeAnOptionalFilter() {
         PageNavigatorDefinition navigator = new PageNavigatorDefinition.Builder()
                 .level("project", level -> level.microList("mr.project", "项目", "搜索项目"))
-                .bindNavigatorToList("project", "projectId", NavigatorListQueryMode.OPTIONAL_FILTER)
+                .filterListByNavigator("project", "projectId", NavigatorListQueryMode.OPTIONAL_FILTER).prefillFormFromNavigator("project", "projectId")
                 .build();
 
         assertThat(navigator.contextBindings()).filteredOn(binding -> binding.target() == PageContextTarget.LIST_QUERY)
@@ -57,6 +57,23 @@ class ModuleUiDslKeysTest {
     }
 
     @Test
+    void shouldKeepNavigatorConsumersExplicitWhilePreservingTheirIndependentTargets() {
+        PageNavigatorDefinition navigator = new PageNavigatorDefinition.Builder()
+                .level("organization", level -> level.tree("iam.organization", "机构", "搜索机构"))
+                .filterListByNavigator("organization", "organizationId", NavigatorListQueryMode.REQUIRED_SCOPE)
+                .prefillFormFromNavigator("organization", "organizationId")
+                .filterListBySession("tenantId", "tenantId")
+                .prefillFormFromSession("tenantId", "tenantId")
+                .constrainMutationsFromSession("tenantId", "tenantId")
+                .build();
+
+        assertThat(navigator.contextBindings()).extracting(PageContextBindingDefinition::target)
+                .containsExactly(PageContextTarget.LIST_QUERY, PageContextTarget.FORM_DEFAULT,
+                        PageContextTarget.LIST_QUERY, PageContextTarget.FORM_DEFAULT,
+                        PageContextTarget.MUTATION_CONSTRAINT);
+    }
+
+    @Test
     void shouldRejectInvalidTypedDslKeysAtDeclarationTime() {
         assertThatThrownBy(() -> ModuleUiField.of("bad-field"))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -64,5 +81,35 @@ class ModuleUiDslKeysTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ModuleUiViewCode.of("BadView"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void shouldKeepPublishedDslEntryPointsSourceCompatible() {
+        PageDetailRelationMutationDefinition mutations = PageDetailRelationMutationDefinition.standardCrud();
+        ModuleUiDefinition.builder("test.module")
+                .detailRelation("read", "Read", "child", "parentId", true)
+                .managedDetailRelation("managed", "Managed", "child", "parentId", mutations)
+                .managedDetailRelation("managed_with_constraint", "Managed", "child", "parentId", mutations,
+                        PageDetailRelationParentConstraintDefinition.fieldEquals("parentId", "parent"))
+                .managedDetailRelation("managed_with_pagination", "Managed", "child", "parentId", mutations,
+                        PageDetailRelationPaginationDefinition.unpaged())
+                .managedReadOnlyDetailRelation("managed_read", "Managed read", "child", "parentId", null)
+                .aggregateChildRelation("children", "Children", "child", "parentId", UiRule.constant(Boolean.TRUE))
+                .aggregateChildRelation("children_with_recycle", "Children", "child", "parentId",
+                        UiRule.constant(Boolean.TRUE), true)
+                .aggregateChildRelation("children_with_formula", "Children", "child", "parentId",
+                        UiRule.constant(Boolean.TRUE), false, java.util.List.of());
+
+        PageNavigatorDefinition navigator = new PageNavigatorDefinition.Builder()
+                .level("scope", level -> level.microList("test.scope", "范围", "搜索范围"))
+                .bindNavigatorToList("scope", "scopeId")
+                .bindSessionToList("tenantId", "tenantId")
+                .build();
+        PageTraitsDefinition traits = PageTraitsDefinition.builder()
+                .standardCrud().enabledStatus().recycleBin().responsiveDetailSurface().build();
+
+        assertThat(navigator.contextBindings()).hasSize(5);
+        assertThat(traits.values()).containsExactlyInAnyOrder(PageTrait.values());
     }
 }
