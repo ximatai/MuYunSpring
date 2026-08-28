@@ -42,6 +42,11 @@ const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => ({
   tabPolicy: { identity: 'by-params', closable: true, cacheable: true },
 }));
 const workspaceView = computed(() => resolveWorkspaceView(workspaceDescriptor.value));
+// Route components such as ModulePageHost capture their transport identity in
+// setup. If a parent briefly reuses this host while navigation commits, the
+// inner runtime must still be rebuilt instead of receiving a cross-module prop
+// update with stale request clients.
+const pageContentKey = computed(() => `${props.route.fullPath}:${props.refreshRevision ?? 0}`);
 
 syncModulePageWorkspaceViewContributions();
 provideModulePageNavigation(
@@ -70,9 +75,9 @@ function workspaceViewDefinitionForModulePage(view: ModulePageWorkspaceView) {
 
 <template>
   <ModuleContextProvider v-if="moduleAlias" :module-alias="moduleAlias">
-    <WorkspaceViewOutlet v-if="workspaceView" :key="refreshRevision" :descriptor="workspaceDescriptor" />
-    <component :is="component" v-else :key="refreshRevision" />
+    <WorkspaceViewOutlet v-if="workspaceView" :key="pageContentKey" :descriptor="workspaceDescriptor" />
+    <component :is="component" v-else :key="pageContentKey" />
   </ModuleContextProvider>
-  <WorkspaceViewOutlet v-else-if="workspaceView" :key="refreshRevision" :descriptor="workspaceDescriptor" />
-  <component :is="component" v-else :key="refreshRevision" />
+  <WorkspaceViewOutlet v-else-if="workspaceView" :key="pageContentKey" :descriptor="workspaceDescriptor" />
+  <component :is="component" v-else :key="pageContentKey" />
 </template>

@@ -119,11 +119,16 @@ configureUserPreferenceBackend({
 
 const startup = ref<WorkbenchStartupState>();
 const pageRefreshRevisions = ref<Record<string, number>>({});
+const pageCacheGenerations = ref<Record<string, number>>({});
+const pageCacheMax = computed(() => Math.max(startup.value?.tabs?.length ?? 0, 1));
 const currentUser = computed(() => startup.value?.session.currentUser);
 const currentTimeZone = computed(() => currentUser.value?.timeZone);
 const loading = ref(true);
 const error = ref<string>();
 const activeTabKey = ref<string>();
+// A tab click updates activeTabKey before Vue Router commits the new route.
+// Keep the rendered host bound to the committed route's tab during that gap.
+const renderedTabKey = ref<string>();
 const loginRequired = ref(false);
 const loginLoading = ref(false);
 const logoutLoading = ref(false);
@@ -209,7 +214,10 @@ onUnmounted(() => {
 
 watch(
   () => router.currentRoute.value.fullPath,
-  (url) => restoreWorkbenchFromRoute(url),
+  (url) => {
+    restoreWorkbenchFromRoute(url);
+    renderedTabKey.value = activeTabKey.value;
+  },
 );
 
 async function loadWorkbench() {
@@ -233,6 +241,7 @@ async function loadWorkbench() {
     startup.value = arrangedState;
     await ensureMenuRoutes(arrangedState.menus);
     activeTabKey.value = arrangedState.activeTabKey;
+    renderedTabKey.value = arrangedState.activeTabKey;
     loginRequired.value = false;
     void restoreThemeSkinFromBackend();
     reconnectRealtime();
@@ -711,6 +720,7 @@ function handleCloseCurrentTab(fallbackPath: string) {
   const currentTabKey = activeTabKey.value ?? current?.activeTabKey;
   if (!current || !currentTabKey) return { created: false };
   const result = closeMenuTab(current.tabs ?? [], currentTabKey, currentTabKey);
+  discardTabPageState([currentTabKey]);
   if (lockedTabs.value.some((tab) => tab.key === currentTabKey)) {
     updateLockedTabs(removeLockedMenuTabs(lockedTabs.value, [currentTabKey]));
   }
@@ -889,7 +899,7 @@ function handleCloseTab(key: string) {
     activeTabKey: result.activeTabKey,
   };
   activeTabKey.value = result.activeTabKey;
-  discardPageRefreshRevisions([key]);
+  discardTabPageState([key]);
   if (lockedTabs.value.some((tab) => tab.key === key))
     updateLockedTabs(removeLockedMenuTabs(lockedTabs.value, [key]));
   syncBrowserUrl(startup.value, 'replace');
@@ -907,7 +917,7 @@ function handleCloseTabs(keys: string[]) {
     activeTabKey: result.activeTabKey,
   };
   activeTabKey.value = result.activeTabKey;
-  discardPageRefreshRevisions(keys);
+  discardTabPageState(keys);
   const nextLockedTabs = removeLockedMenuTabs(lockedTabs.value, keys);
   if (nextLockedTabs.length !== lockedTabs.value.length) updateLockedTabs(nextLockedTabs);
   syncBrowserUrl(startup.value, 'replace');
@@ -999,8 +1009,13 @@ function refreshPage(tabKey: string) {
 }
 
 /** Refresh revisions are page-instance state and must leave with their closed tabs. */
-function discardPageRefreshRevisions(keys: readonly string[]) {
+function discardTabPageState(keys: readonly string[]) {
   if (keys.length === 0) return;
+  const nextCacheGenerations = { ...pageCacheGenerations.value };
+  keys.forEach((key) => {
+    nextCacheGenerations[key] = (nextCacheGenerations[key] ?? 0) + 1;
+  });
+  pageCacheGenerations.value = nextCacheGenerations;
   const discarded = new Set(keys);
   const retained = Object.fromEntries(
     Object.entries(pageRefreshRevisions.value).filter(([key]) => !discarded.has(key)),
@@ -1008,6 +1023,20 @@ function discardPageRefreshRevisions(keys: readonly string[]) {
   if (Object.keys(retained).length !== Object.keys(pageRefreshRevisions.value).length) {
     pageRefreshRevisions.value = retained;
   }
+}
+
+/**
+ * Vue KeepAlive does not expose per-entry eviction. Closing a tab advances only
+ * its generation, so a later reopen creates a fresh page while sibling cache
+ * entries retain their identity. `pageCacheMax` bounds retained inactive page
+ * entries without relying on Vue internals.
+ */
+function pageRuntimeCacheKey(
+  route: import('vue-router').RouteLocationNormalizedLoaded,
+  tabKey: string | undefined,
+) {
+  const generation = tabKey ? (pageCacheGenerations.value[tabKey] ?? 0) : 0;
+  return `${pageCacheKey(route, tabKey)}:${generation}`;
 }
 </script>
 
@@ -1041,23 +1070,23 @@ function discardPageRefreshRevisions(keys: readonly string[]) {
     >
       <template #default>
         <RouterView v-slot="{ Component, route }">
-          <KeepAlive>
+          <KeepAlive :max="pageCacheMax">
             <StaticRoutePageHost
               v-if="route.meta.cacheable !== false"
-              :key="pageCacheKey(route, activeTabKey)"
+              :key="pageRuntimeCacheKey(route, renderedTabKey)"
               :component="Component"
               :route="route"
               :page-descriptor="pageDescriptorForRoute()"
-              :refresh-revision="pageRefreshRevisionFor(activeTabKey)"
+              :refresh-revision="pageRefreshRevisionFor(renderedTabKey)"
             />
           </KeepAlive>
           <StaticRoutePageHost
             v-if="route.meta.cacheable === false"
-            :key="pageCacheKey(route, activeTabKey)"
+            :key="pageRuntimeCacheKey(route, renderedTabKey)"
             :component="Component"
             :route="route"
             :page-descriptor="pageDescriptorForRoute()"
-            :refresh-revision="pageRefreshRevisionFor(activeTabKey)"
+            :refresh-revision="pageRefreshRevisionFor(renderedTabKey)"
           />
         </RouterView>
       </template>

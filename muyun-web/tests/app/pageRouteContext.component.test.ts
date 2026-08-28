@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { KeepAlive, defineComponent, nextTick, ref, watch } from 'vue';
+import { KeepAlive, computed, defineComponent, nextTick, ref, watch } from 'vue';
 import { RouterView, createMemoryHistory, createRouter, useRouter } from 'vue-router';
 import { expect, it } from 'vitest';
 import StaticRoutePageHost from '@/app/StaticRoutePageHost.vue';
@@ -41,7 +41,17 @@ const RouteCacheHarness = defineComponent({
       activeTabKey: 'page:tab-a',
     });
     const activeTabKey = ref('page:tab-a');
+    const renderedTabKey = ref('page:tab-a');
     const pageRefreshRevisions = ref<Record<string, number>>({});
+    const pageCacheGenerations = ref<Record<string, number>>({});
+    const pageCacheMax = computed(() => Math.max(startup.value.tabs?.length ?? 0, 1));
+
+    watch(
+      () => router.currentRoute.value.fullPath,
+      () => {
+        renderedTabKey.value = activeTabKey.value;
+      },
+    );
 
     async function changeTab(key: string) {
       const tab = startup.value.tabs?.find((item) => item.key === key);
@@ -62,7 +72,48 @@ const RouteCacheHarness = defineComponent({
       };
     }
 
-    return { activeTabKey, changeTab, pageCacheKey, pageRefreshRevisionFor, refreshPage, startup };
+    function pageRuntimeCacheKey(route: Parameters<typeof pageCacheKey>[0], tabKey: string) {
+      return `${pageCacheKey(route, tabKey)}:${pageCacheGenerations.value[tabKey] ?? 0}`;
+    }
+
+    async function closeTab(key: string) {
+      pageCacheGenerations.value = {
+        ...pageCacheGenerations.value,
+        [key]: (pageCacheGenerations.value[key] ?? 0) + 1,
+      };
+      const tabs = (startup.value.tabs ?? []).filter((tab) => tab.key !== key);
+      const nextActiveKey = key === activeTabKey.value ? (tabs[0]?.key ?? '') : activeTabKey.value;
+      activeTabKey.value = nextActiveKey;
+      startup.value = { ...startup.value, tabs, activeTabKey: nextActiveKey };
+      const nextTab = tabs.find((tab) => tab.key === nextActiveKey);
+      if (nextTab?.fullPath) await router.push(nextTab.fullPath);
+    }
+
+    async function reopenTab(key: string) {
+      const tab = {
+        key,
+        title: key,
+        fullPath: `/page?InstanceKey=${key.replace('page:', '')}`,
+        closable: true,
+      };
+      startup.value = { ...startup.value, tabs: [...(startup.value.tabs ?? []), tab], activeTabKey: key };
+      activeTabKey.value = key;
+      await router.push(tab.fullPath);
+    }
+
+    return {
+      activeTabKey,
+      changeTab,
+      closeTab,
+      pageCacheKey,
+      pageCacheMax,
+      pageRefreshRevisionFor,
+      pageRuntimeCacheKey,
+      refreshPage,
+      renderedTabKey,
+      reopenTab,
+      startup,
+    };
   },
   template: `
     <Workbench
@@ -73,12 +124,12 @@ const RouteCacheHarness = defineComponent({
     >
       <template #default>
         <RouterView v-slot="{ Component, route }">
-          <KeepAlive>
+          <KeepAlive :max="pageCacheMax">
             <StaticRoutePageHost
-              :key="pageCacheKey(route, String(route.query.InstanceKey ?? 'default'))"
+              :key="pageRuntimeCacheKey(route, renderedTabKey)"
               :component="Component"
               :route="route"
-              :refresh-revision="pageRefreshRevisionFor(activeTabKey)"
+              :refresh-revision="pageRefreshRevisionFor(renderedTabKey)"
             />
           </KeepAlive>
         </RouterView>
@@ -116,5 +167,30 @@ it('keeps tab drafts isolated and refreshes only the current page instance', asy
   await flushPromises();
 
   expect(wrapper.get<HTMLInputElement>('[data-testid="draft"]').element.value).toBe('draft-b');
+  wrapper.unmount();
+});
+
+it('discards only the closed tab page state so reopening it starts fresh', async () => {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/page', component: StatefulPage, meta: { cacheable: true } }],
+  });
+  await router.push('/page?InstanceKey=tab-a');
+  await router.isReady();
+  const wrapper = mount(RouteCacheHarness, { global: { plugins: [router] } });
+  await nextTick();
+
+  await wrapper.get('[data-testid="draft"]').setValue('draft-a');
+  await wrapper.vm.changeTab('page:tab-b');
+  await flushPromises();
+  await wrapper.get('[data-testid="draft"]').setValue('draft-b');
+
+  await wrapper.vm.closeTab('page:tab-a');
+  await flushPromises();
+  expect(wrapper.get<HTMLInputElement>('[data-testid="draft"]').element.value).toBe('draft-b');
+
+  await wrapper.vm.reopenTab('page:tab-a');
+  await flushPromises();
+  expect(wrapper.get<HTMLInputElement>('[data-testid="draft"]').element.value).toBe('initial:tab-a');
   wrapper.unmount();
 });

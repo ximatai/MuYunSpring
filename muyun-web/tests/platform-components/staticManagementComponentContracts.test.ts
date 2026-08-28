@@ -1203,6 +1203,7 @@ it('platform error feedback respects global error presentation slots', () => {
 it('production workbench delegates page lifetime to the Vue Router outlet', () => {
   const appSource = readSource('src/App.vue');
   const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
+  const dynamicModuleRouteSource = readSource('src/views/DynamicModuleRouteView.vue');
 
   assert.match(workbenchSource, /const openedTabs = computed\(\(\) => props\.startup\?\.tabs \?\? \[\]\)/);
   assert.notMatch(workbenchSource, /UiSidePanelHost/);
@@ -1211,12 +1212,14 @@ it('production workbench delegates page lifetime to the Vue Router outlet', () =
   assert.match(workbenchSource, /<div v-else-if="activeTab" class="tab-panel-host">[\s\S]*?<slot/);
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
   assert.match(appSource, /<RouterView v-slot="\{ Component, route \}">/);
-  assert.match(appSource, /<KeepAlive>[\s\S]*<StaticRoutePageHost/);
-  assert.match(appSource, /:key="pageCacheKey\(route, activeTabKey\)"/);
-  assert.match(appSource, /:refresh-revision="pageRefreshRevisionFor\(activeTabKey\)"/);
+  assert.match(appSource, /<KeepAlive :max="pageCacheMax">[\s\S]*<StaticRoutePageHost/);
+  assert.match(appSource, /:key="pageRuntimeCacheKey\(route, renderedTabKey\)"/);
+  assert.match(appSource, /:refresh-revision="pageRefreshRevisionFor\(renderedTabKey\)"/);
   assert.match(workbenchSource, /emit\('refreshPage', activeTabKey\.value\)/);
   assert.notMatch(workbenchSource, /activePageContentKey|pageRefreshRevision/);
   assert.notMatch(appSource, /PlatformAdminRouteOutlet|WorkbenchOutlet/);
+  assert.match(dynamicModuleRouteSource, /const moduleRuntimeKey = computed/);
+  assert.match(dynamicModuleRouteSource, /<ModulePageHost :key="moduleRuntimeKey" :descriptor="descriptor"/);
 });
 
 it('pages own their drawer containers and fixed drawer action regions', () => {
