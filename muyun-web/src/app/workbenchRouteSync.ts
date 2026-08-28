@@ -8,6 +8,14 @@ export interface WorkbenchRouteWrite {
   mode: WorkbenchRouteWriteMode;
 }
 
+/** A route write belongs to an explicit workbench intent, not merely a URL. */
+export interface WorkbenchNavigationIntent {
+  url: string;
+  revision: number;
+}
+
+export type WorkbenchRouteCommit = 'commit' | 'reconcile' | 'restore';
+
 /**
  * Keeps browser history decisions at the workbench boundary: user navigation is
  * navigable history, while state normalization only replaces the current entry.
@@ -24,7 +32,24 @@ export function workbenchRouteWriteFor(
 /** A route written from the workbench already has matching in-memory tab state. */
 export function shouldRestoreWorkbenchFromRoute(
   url: string,
-  pendingWorkbenchNavigation: string | undefined,
+  pendingWorkbenchNavigation: WorkbenchNavigationIntent | undefined,
 ): boolean {
-  return pendingWorkbenchNavigation !== url;
+  return pendingWorkbenchNavigation?.url !== url;
+}
+
+export function isCurrentWorkbenchNavigation(
+  navigation: WorkbenchNavigationIntent,
+  current: WorkbenchNavigationIntent,
+): boolean {
+  return navigation.revision === current.revision;
+}
+
+/** Classifies a committed route without confusing URL equality for tab identity. */
+export function workbenchRouteCommitFor(
+  url: string,
+  pending: WorkbenchNavigationIntent | undefined,
+  latest: WorkbenchNavigationIntent | undefined,
+): WorkbenchRouteCommit {
+  if (pending?.url !== url) return 'restore';
+  return latest && !isCurrentWorkbenchNavigation(pending, latest) ? 'reconcile' : 'commit';
 }

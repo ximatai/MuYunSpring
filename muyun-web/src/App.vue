@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import {
+  computed,
+  defineComponent,
+  h,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+  type Component as VueComponent,
+} from 'vue';
 import { RouterView } from 'vue-router';
 import { Workbench, pageDescriptorToUrl, type WorkbenchRealtimeStatus } from '@muyun/platform-workbench';
 import {
@@ -67,6 +76,7 @@ import ThemeSkinPreferencesDialog from './app/ThemeSkinPreferencesDialog.vue';
 import {
   closeMenuTab,
   closeMenuTabs,
+  activeTabUrlOf,
   arrangeLockedMenuTabs,
   menuTargetUrl,
   openDirectTab,
@@ -88,7 +98,11 @@ import { syncModulePageWorkspaceViewContributions } from './platform-workbench/m
 import { pageCacheKey } from './platform-workbench/pageCacheKey';
 import StaticRoutePageHost from './app/StaticRoutePageHost.vue';
 import { ensureMenuRoutes, resetMenuRoutes, router } from './app/router';
-import { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from './app/workbenchRouteSync';
+import {
+  workbenchRouteCommitFor,
+  workbenchRouteWriteFor,
+  type WorkbenchNavigationIntent,
+} from './app/workbenchRouteSync';
 import {
   restoreThemeSkinPreference,
   saveThemeSkinPreference,
@@ -119,11 +133,22 @@ configureUserPreferenceBackend({
 
 const startup = ref<WorkbenchStartupState>();
 const pageRefreshRevisions = ref<Record<string, number>>({});
+const pageCacheGenerations = ref<Record<string, number>>({});
+const pendingTabPageStateDiscards = new Set<string>();
+const pageCacheMax = computed(() => Math.max(startup.value?.tabs?.length ?? 0, 1));
+const pageCacheHosts = new Map<string, VueComponent>();
+const pageCacheHostNames = new Map<string, string>();
+const cachedTabPageHostNames = computed(() =>
+  (startup.value?.tabs ?? []).map((tab) => pageCacheHostNameFor(tab.key)),
+);
 const currentUser = computed(() => startup.value?.session.currentUser);
 const currentTimeZone = computed(() => currentUser.value?.timeZone);
 const loading = ref(true);
 const error = ref<string>();
 const activeTabKey = ref<string>();
+// A tab click updates activeTabKey before Vue Router commits the new route.
+// Keep the rendered host bound to the committed route's tab during that gap.
+const renderedTabKey = ref<string>();
 const loginRequired = ref(false);
 const loginLoading = ref(false);
 const logoutLoading = ref(false);
@@ -157,7 +182,9 @@ const platformAdminRouteResolveOptions = {
 };
 let realtimeConnection: ReturnType<typeof connectAppRealtime> | undefined;
 let securityLogoutTimer: number | undefined;
-let pendingWorkbenchNavigation: string | undefined;
+let workbenchNavigationRevision = 0;
+let latestWorkbenchNavigation: WorkbenchNavigationIntent | undefined;
+let pendingWorkbenchNavigation: WorkbenchNavigationIntent | undefined;
 let themeSkinPreferenceRevision = 0;
 let lockedTabPreferenceRevision = 0;
 let lockedTabPreferenceWrite = Promise.resolve();
@@ -209,7 +236,11 @@ onUnmounted(() => {
 
 watch(
   () => router.currentRoute.value.fullPath,
-  (url) => restoreWorkbenchFromRoute(url),
+  (url) => {
+    if (restoreWorkbenchFromRoute(url)) {
+      commitRenderedTab(activeTabKey.value);
+    }
+  },
 );
 
 async function loadWorkbench() {
@@ -233,6 +264,7 @@ async function loadWorkbench() {
     startup.value = arrangedState;
     await ensureMenuRoutes(arrangedState.menus);
     activeTabKey.value = arrangedState.activeTabKey;
+    renderedTabKey.value = arrangedState.activeTabKey;
     loginRequired.value = false;
     void restoreThemeSkinFromBackend();
     reconnectRealtime();
@@ -711,6 +743,7 @@ function handleCloseCurrentTab(fallbackPath: string) {
   const currentTabKey = activeTabKey.value ?? current?.activeTabKey;
   if (!current || !currentTabKey) return { created: false };
   const result = closeMenuTab(current.tabs ?? [], currentTabKey, currentTabKey);
+  scheduleTabPageStateDiscard([currentTabKey]);
   if (lockedTabs.value.some((tab) => tab.key === currentTabKey)) {
     updateLockedTabs(removeLockedMenuTabs(lockedTabs.value, [currentTabKey]));
   }
@@ -889,7 +922,7 @@ function handleCloseTab(key: string) {
     activeTabKey: result.activeTabKey,
   };
   activeTabKey.value = result.activeTabKey;
-  discardPageRefreshRevisions([key]);
+  scheduleTabPageStateDiscard([key]);
   if (lockedTabs.value.some((tab) => tab.key === key))
     updateLockedTabs(removeLockedMenuTabs(lockedTabs.value, [key]));
   syncBrowserUrl(startup.value, 'replace');
@@ -907,7 +940,7 @@ function handleCloseTabs(keys: string[]) {
     activeTabKey: result.activeTabKey,
   };
   activeTabKey.value = result.activeTabKey;
-  discardPageRefreshRevisions(keys);
+  scheduleTabPageStateDiscard(keys);
   const nextLockedTabs = removeLockedMenuTabs(lockedTabs.value, keys);
   if (nextLockedTabs.length !== lockedTabs.value.length) updateLockedTabs(nextLockedTabs);
   syncBrowserUrl(startup.value, 'replace');
@@ -943,40 +976,76 @@ function currentBrowserPath() {
   return router.currentRoute.value.fullPath;
 }
 
-function pageDescriptorForRoute() {
+function pageDescriptorForTab(tabKey: string | undefined) {
   const current = startup.value;
-  if (!current) return undefined;
-  return (current.tabs ?? []).find((tab) => tab.key === current.activeTabKey)?.pageDescriptor;
+  if (!current || !tabKey) return undefined;
+  return (current.tabs ?? []).find((tab) => tab.key === tabKey)?.pageDescriptor;
 }
 
 function syncBrowserUrl(state: WorkbenchStartupState, mode: 'push' | 'replace') {
+  const intent: WorkbenchNavigationIntent = {
+    url: activeTabUrlOf(state) ?? '/',
+    revision: ++workbenchNavigationRevision,
+  };
+  latestWorkbenchNavigation = intent;
   const navigation = workbenchRouteWriteFor(state, currentBrowserPath(), mode);
   if (!navigation) {
+    // Different workbench tabs may intentionally share one public URL. There
+    // is no router update in that case, so commit the tab runtime explicitly.
+    commitRenderedTab(state.activeTabKey);
     return;
   }
 
-  pendingWorkbenchNavigation = navigation.url;
+  pendingWorkbenchNavigation = intent;
   void router[navigation.mode](navigation.url).finally(() => {
-    if (pendingWorkbenchNavigation === navigation.url) {
+    if (pendingWorkbenchNavigation === intent) {
       pendingWorkbenchNavigation = undefined;
     }
   });
 }
 
-function restoreWorkbenchFromRoute(url: string) {
-  if (!shouldRestoreWorkbenchFromRoute(url, pendingWorkbenchNavigation)) {
+/**
+ * The rendered tab is the single owner of a page runtime's cache key,
+ * descriptor, and refresh revision. It moves only when its route is committed,
+ * except when two tabs intentionally share the same public URL.
+ */
+function commitRenderedTab(tabKey: string | undefined) {
+  renderedTabKey.value = tabKey;
+  flushPendingTabPageStateDiscards();
+}
+
+/** Returns false while a stale route is being reconciled to the latest tab intent. */
+function restoreWorkbenchFromRoute(url: string): boolean {
+  const pending = pendingWorkbenchNavigation;
+  if (
+    workbenchRouteCommitFor(url, pending, latestWorkbenchNavigation) === 'reconcile' &&
+    latestWorkbenchNavigation
+  ) {
+    // A previous router transition committed after a newer tab intent (which
+    // may intentionally have the current URL). Never restore that stale tab
+    // into the current runtime; return the router to the latest intent first.
+    pendingWorkbenchNavigation = latestWorkbenchNavigation;
+    void router.replace(latestWorkbenchNavigation.url).finally(() => {
+      if (pendingWorkbenchNavigation === latestWorkbenchNavigation) {
+        pendingWorkbenchNavigation = undefined;
+      }
+    });
+    return false;
+  }
+  if (workbenchRouteCommitFor(url, pending, latestWorkbenchNavigation) === 'commit') {
     pendingWorkbenchNavigation = undefined;
-    return;
+    return true;
   }
 
   const current = startup.value;
   if (!current) {
-    return;
+    return true;
   }
 
   const restored = restoreWorkbenchStartupStateFromUrl(current, url, platformAdminRouteResolveOptions);
   startup.value = restored;
   activeTabKey.value = restored.activeTabKey;
+  return true;
 }
 
 function requiresLogin(cause: unknown) {
@@ -998,9 +1067,36 @@ function refreshPage(tabKey: string) {
   };
 }
 
+/**
+ * Closing the active tab must not mutate its key while its route is still on
+ * screen: doing so would mount a new instance of a page that is being closed.
+ */
+function scheduleTabPageStateDiscard(keys: readonly string[]) {
+  const deferred = keys.filter((key) => key === renderedTabKey.value);
+  const immediate = keys.filter((key) => key !== renderedTabKey.value);
+  if (immediate.length > 0) discardTabPageState(immediate);
+  deferred.forEach((key) => pendingTabPageStateDiscards.add(key));
+}
+
+function flushPendingTabPageStateDiscards() {
+  const ready = [...pendingTabPageStateDiscards].filter((key) => key !== renderedTabKey.value);
+  ready.forEach((key) => pendingTabPageStateDiscards.delete(key));
+  if (ready.length > 0) discardTabPageState(ready);
+}
+
 /** Refresh revisions are page-instance state and must leave with their closed tabs. */
-function discardPageRefreshRevisions(keys: readonly string[]) {
+function discardTabPageState(keys: readonly string[]) {
   if (keys.length === 0) return;
+  const nextCacheGenerations = { ...pageCacheGenerations.value };
+  keys.forEach((key) => {
+    nextCacheGenerations[key] = (nextCacheGenerations[key] ?? 0) + 1;
+    // The tab has left KeepAlive's include set. Forget its wrapper metadata
+    // after active-tab deferral completes so closed/reopened instances do not
+    // accumulate component definitions for the lifetime of the workbench.
+    pageCacheHosts.delete(key);
+    pageCacheHostNames.delete(key);
+  });
+  pageCacheGenerations.value = nextCacheGenerations;
   const discarded = new Set(keys);
   const retained = Object.fromEntries(
     Object.entries(pageRefreshRevisions.value).filter(([key]) => !discarded.has(key)),
@@ -1008,6 +1104,47 @@ function discardPageRefreshRevisions(keys: readonly string[]) {
   if (Object.keys(retained).length !== Object.keys(pageRefreshRevisions.value).length) {
     pageRefreshRevisions.value = retained;
   }
+}
+
+/**
+ * Vue KeepAlive does not expose per-entry eviction. Closing a tab advances only
+ * its generation, so a later reopen creates a fresh page while sibling cache
+ * entries retain their identity. `pageCacheMax` bounds retained inactive page
+ * entries without relying on Vue internals.
+ */
+function pageRuntimeCacheKey(
+  route: import('vue-router').RouteLocationNormalizedLoaded,
+  tabKey: string | undefined,
+) {
+  const generation = tabKey ? (pageCacheGenerations.value[tabKey] ?? 0) : 0;
+  return `${pageCacheKey(route, tabKey)}:${generation}`;
+}
+
+/**
+ * KeepAlive can prune by component name but not by cache key. Give each tab a
+ * stable host type, then remove that name from `include` when the tab closes.
+ * This evicts only the closed tab and leaves sibling drafts cached.
+ */
+function pageCacheHostFor(tabKey: string | undefined): VueComponent {
+  const identity = tabKey ?? 'unbound';
+  const existing = pageCacheHosts.get(identity);
+  if (existing) return existing;
+  const name = `WorkbenchTabPageHost${pageCacheHosts.size + 1}`;
+  const host = defineComponent({
+    name,
+    setup(_, { attrs }) {
+      return () => h(StaticRoutePageHost as VueComponent, attrs);
+    },
+  });
+  pageCacheHosts.set(identity, host);
+  pageCacheHostNames.set(identity, name);
+  return host;
+}
+
+function pageCacheHostNameFor(tabKey: string | undefined): string {
+  const identity = tabKey ?? 'unbound';
+  pageCacheHostFor(tabKey);
+  return pageCacheHostNames.get(identity)!;
 }
 </script>
 
@@ -1041,23 +1178,24 @@ function discardPageRefreshRevisions(keys: readonly string[]) {
     >
       <template #default>
         <RouterView v-slot="{ Component, route }">
-          <KeepAlive>
-            <StaticRoutePageHost
+          <KeepAlive :include="cachedTabPageHostNames" :max="pageCacheMax">
+            <component
+              :is="pageCacheHostFor(renderedTabKey)"
               v-if="route.meta.cacheable !== false"
-              :key="pageCacheKey(route, activeTabKey)"
+              :key="pageRuntimeCacheKey(route, renderedTabKey)"
               :component="Component"
               :route="route"
-              :page-descriptor="pageDescriptorForRoute()"
-              :refresh-revision="pageRefreshRevisionFor(activeTabKey)"
+              :page-descriptor="pageDescriptorForTab(renderedTabKey)"
+              :refresh-revision="pageRefreshRevisionFor(renderedTabKey)"
             />
           </KeepAlive>
           <StaticRoutePageHost
             v-if="route.meta.cacheable === false"
-            :key="pageCacheKey(route, activeTabKey)"
+            :key="pageRuntimeCacheKey(route, renderedTabKey)"
             :component="Component"
             :route="route"
-            :page-descriptor="pageDescriptorForRoute()"
-            :refresh-revision="pageRefreshRevisionFor(activeTabKey)"
+            :page-descriptor="pageDescriptorForTab(renderedTabKey)"
+            :refresh-revision="pageRefreshRevisionFor(renderedTabKey)"
           />
         </RouterView>
       </template>

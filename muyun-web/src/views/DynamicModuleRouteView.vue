@@ -46,8 +46,15 @@ const descriptor = computed<ModulePageDescriptor>(() => {
     tabPolicy: { identity: 'by-menu', closable: true, cacheable: true },
   };
 });
+// ModulePageHost creates module-scoped transport clients in setup. Route
+// transitions can update this descriptor before an outer cached page host has
+// deactivated, so its identity must include the resolved module and route.
+const moduleRuntimeKey = computed(
+  () =>
+    `${descriptor.value.target.moduleAlias}:${descriptor.value.menuId ?? ''}:${route.value.path}:${JSON.stringify(route.value.query)}`,
+);
 </script>
 
 <template>
-  <ModulePageHost :descriptor="descriptor" />
+  <ModulePageHost :key="moduleRuntimeKey" :descriptor="descriptor" />
 </template>

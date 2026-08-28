@@ -1,5 +1,10 @@
 import { assert, it } from 'vitest';
-import { shouldRestoreWorkbenchFromRoute, workbenchRouteWriteFor } from '@/app/workbenchRouteSync.ts';
+import {
+  isCurrentWorkbenchNavigation,
+  shouldRestoreWorkbenchFromRoute,
+  workbenchRouteCommitFor,
+  workbenchRouteWriteFor,
+} from '@/app/workbenchRouteSync.ts';
 import { openDirectTab } from '@/app/workbenchStartup.ts';
 
 const descriptor = {
@@ -32,6 +37,21 @@ it('does not create a duplicate history entry for the active tab URL', () => {
 
 it('restores workbench state for browser navigation but not self-written routes', () => {
   assert.equal(shouldRestoreWorkbenchFromRoute('/crm/customers', undefined), true);
-  assert.equal(shouldRestoreWorkbenchFromRoute('/crm/customers', '/crm/customers'), false);
+  assert.equal(
+    shouldRestoreWorkbenchFromRoute('/crm/customers', { url: '/crm/customers', revision: 1 }),
+    false,
+  );
   assert.equal(shouldRestoreWorkbenchFromRoute('/openapi', undefined), true);
+});
+
+it('recognizes a newer same-url intent as distinct from an in-flight route write', () => {
+  // A starts at /a, B begins an asynchronous /b push, then the user returns
+  // to A before that push commits. The eventual /b commit must be reconciled,
+  // not allowed to render B's route with A's runtime state.
+  const inFlight = { url: '/b', revision: 4 };
+  const latest = { url: '/a', revision: 5 };
+
+  assert.equal(isCurrentWorkbenchNavigation(inFlight, latest), false);
+  assert.equal(workbenchRouteCommitFor('/b', inFlight, latest), 'reconcile');
+  assert.equal(workbenchRouteCommitFor('/a', latest, latest), 'commit');
 });

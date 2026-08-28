@@ -42,6 +42,10 @@ const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => ({
   tabPolicy: { identity: 'by-params', closable: true, cacheable: true },
 }));
 const workspaceView = computed(() => resolveWorkspaceView(workspaceDescriptor.value));
+// Route changes are handled by the workbench cache key. This inner key is only
+// for an explicit page refresh, so ordinary static pages retain reactive route
+// updates and their local state contract.
+const pageContentKey = computed(() => props.refreshRevision ?? 0);
 
 syncModulePageWorkspaceViewContributions();
 provideModulePageNavigation(
@@ -70,9 +74,9 @@ function workspaceViewDefinitionForModulePage(view: ModulePageWorkspaceView) {
 
 <template>
   <ModuleContextProvider v-if="moduleAlias" :module-alias="moduleAlias">
-    <WorkspaceViewOutlet v-if="workspaceView" :key="refreshRevision" :descriptor="workspaceDescriptor" />
-    <component :is="component" v-else :key="refreshRevision" />
+    <WorkspaceViewOutlet v-if="workspaceView" :key="pageContentKey" :descriptor="workspaceDescriptor" />
+    <component :is="component" v-else :key="pageContentKey" />
   </ModuleContextProvider>
-  <WorkspaceViewOutlet v-else-if="workspaceView" :key="refreshRevision" :descriptor="workspaceDescriptor" />
-  <component :is="component" v-else :key="refreshRevision" />
+  <WorkspaceViewOutlet v-else-if="workspaceView" :key="pageContentKey" :descriptor="workspaceDescriptor" />
+  <component :is="component" v-else :key="pageContentKey" />
 </template>

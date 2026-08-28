@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { defineComponent } from 'vue';
+import { defineComponent, nextTick } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { expect, it } from 'vitest';
 import StaticRoutePageHost from '@/app/StaticRoutePageHost.vue';
@@ -18,6 +18,7 @@ it('provides static route module context before rendering the route component', 
   });
   await router.push('/config/applications');
   await router.isReady();
+  // eslint-disable-next-line vue/one-component-per-file -- local route-host contract component.
   const page = defineComponent({ template: '<p data-testid="static-page">page</p>' });
   const wrapper = mount(StaticRoutePageHost, {
     props: { component: page, route: router.currentRoute.value },
@@ -25,4 +26,30 @@ it('provides static route module context before rendering the route component', 
 
   expect(wrapper.findComponent(ModuleContextProvider).props('moduleAlias')).toBe('platform.application');
   expect(wrapper.get('[data-testid="static-page"]').text()).toBe('page');
+});
+
+it('rebuilds a route runtime only for an explicit refresh', async () => {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/iam/users', component: { template: '<div />' }, meta: { moduleAlias: 'iam.user' } }],
+  });
+  await router.push('/iam/users');
+  await router.isReady();
+  let instances = 0;
+  // eslint-disable-next-line vue/one-component-per-file -- local route-runtime contract component.
+  const page = defineComponent({
+    setup() {
+      return { instance: ++instances };
+    },
+    template: '<p data-testid="page-instance">{{ instance }}</p>',
+  });
+  const wrapper = mount(StaticRoutePageHost, {
+    props: { component: page, route: router.currentRoute.value },
+  });
+  expect(wrapper.get('[data-testid="page-instance"]').text()).toBe('1');
+
+  await wrapper.setProps({ refreshRevision: 1 });
+  await nextTick();
+
+  expect(wrapper.get('[data-testid="page-instance"]').text()).toBe('2');
 });
