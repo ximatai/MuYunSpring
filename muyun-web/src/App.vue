@@ -84,11 +84,17 @@ import {
   reorderMenuTabs,
   removeLockedMenuTabs,
   restoreLockedWorkbenchTabs,
+  restoreSessionWorkbenchTabs,
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
 } from './app/workbenchStartup';
 import { withPageInstanceKey } from './platform-workbench/menuNavigation';
 import { restoreLockedTabPreference, saveLockedTabPreference } from './app/lockedTabPreference';
+import {
+  clearWorkbenchSessionTabs,
+  restoreWorkbenchSessionTabs,
+  saveWorkbenchSessionTabs,
+} from './app/workbenchSessionTabs';
 import {
   provideWorkbenchNavigation,
   routeUrlWithOpenOptions,
@@ -243,14 +249,41 @@ watch(
   },
 );
 
+watch(
+  () => {
+    const state = startup.value;
+    if (!state) return undefined;
+    return {
+      userId: state.session.currentUser.userId,
+      tabs: state.tabs ?? [],
+      activeTabKey: state.activeTabKey,
+    };
+  },
+  (snapshot) => {
+    if (snapshot) saveWorkbenchSessionTabs(snapshot);
+  },
+  { deep: true },
+);
+
 async function loadWorkbench() {
   loading.value = true;
   error.value = undefined;
   try {
     const startupState = await loadAppWorkbenchStartupState();
     syncModulePageWorkspaceViewContributions();
+    const sessionTabs = restoreWorkbenchSessionTabs(startupState.session.currentUser.userId);
+    const restoredSessionTabs = sessionTabs
+      ? restoreSessionWorkbenchTabs(sessionTabs.tabs, startupState.menus, platformAdminRouteResolveOptions)
+      : [];
+    const sessionState = {
+      ...startupState,
+      tabs: restoredSessionTabs.length > 0 ? restoredSessionTabs : startupState.tabs,
+      activeTabKey: restoredSessionTabs.some((tab) => tab.key === sessionTabs?.activeTabKey)
+        ? sessionTabs?.activeTabKey
+        : startupState.activeTabKey,
+    };
     const state = restoreWorkbenchStartupStateFromUrl(
-      startupState,
+      sessionState,
       currentBrowserPath(),
       platformAdminRouteResolveOptions,
     );
@@ -510,6 +543,7 @@ async function handleLogout() {
     // Local logout should still be possible if the token is already expired or the backend is unavailable.
   } finally {
     clearAuthToken();
+    clearWorkbenchSessionTabs();
     resetMenuRoutes();
     businessNotifications.value = [];
     startup.value = undefined;
@@ -666,6 +700,7 @@ function forceLocalLogout() {
   }
   clearSecurityLogoutTimer();
   clearAuthToken();
+  clearWorkbenchSessionTabs();
   resetMenuRoutes();
   businessNotifications.value = [];
   startup.value = undefined;
