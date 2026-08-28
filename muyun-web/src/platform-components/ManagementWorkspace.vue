@@ -199,4 +199,23 @@ const pageLayout = usePageLayout();
     minmax(var(--muyun-management-list-min-width), 1fr)
     minmax(var(--muyun-management-detail-min-width), var(--muyun-management-detail-preferred-width));
 }
+
+/* Keep an explorer and its list usable inside a narrow workbench pane.  The
+   desktop minimum widths are intentionally generous, but must not force the
+   host to horizontally clip its primary navigation at tablet widths. */
+@media (max-width: 980px) {
+  .management-workspace--list-surface .management-workspace__grid {
+    grid-template-columns:
+      repeat(var(--muyun-management-explorer-count), minmax(0, 1fr))
+      minmax(0, 1.5fr);
+    gap: 8px;
+  }
+}
+
+@media (max-width: 760px) {
+  .management-workspace--list-surface .management-workspace__grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(200px, 0.7fr) minmax(320px, 1fr);
+  }
+}
 </style>

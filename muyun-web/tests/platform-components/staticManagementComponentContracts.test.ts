@@ -441,7 +441,16 @@ it('management workspace consumes the page layout contract for constrained deskt
   assert.match(workspaceSource, /width: 100%/);
   assert.notMatch(workspaceSource, /width: max-content/);
   assert.notMatch(workspaceSource, /100vh - 116px/);
-  assert.notMatch(workspaceSource, /@media \(max-width: 980px\)/);
+  assert.match(workspaceSource, /@media \(max-width: 980px\)[\s\S]*?management-workspace--list-surface/);
+  assert.match(
+    workspaceSource,
+    /@media \(max-width: 980px\)[\s\S]*?repeat\(var\(--muyun-management-explorer-count\), minmax\(0, 1fr\)\)[\s\S]*?minmax\(0, 1\.5fr\)/,
+  );
+  assert.notMatch(
+    workspaceSource,
+    /@media \(max-width: 980px\)[\s\S]*?grid-template-columns:\s*var\(--muyun-management-collapsed-rail-width/,
+  );
+  assert.match(workspaceSource, /@media \(max-width: 760px\)[\s\S]*?grid-template-columns: 1fr/);
   assert.match(workspaceSource, /min-width: 0/);
   assert.match(indexSource, /export \{ default as ManagementWorkspace \}/);
   assert.match(indexSource, /export \{ default as ManagementExplorerColumn \}/);
