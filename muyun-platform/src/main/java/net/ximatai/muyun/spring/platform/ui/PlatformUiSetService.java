@@ -13,10 +13,13 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
 import java.util.List;
+import java.util.function.Supplier;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -31,11 +34,26 @@ public class PlatformUiSetService extends AbstractAbilityService<PlatformUiSet> 
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
     private final PlatformModuleService moduleService;
+    private final Supplier<PlatformUiConfigService> uiConfigServiceProvider;
 
     public PlatformUiSetService(BaseDao<PlatformUiSet, String> uiSetDao,
                                 PlatformModuleService moduleService) {
+        this(uiSetDao, moduleService, () -> null);
+    }
+
+    @Autowired
+    public PlatformUiSetService(BaseDao<PlatformUiSet, String> uiSetDao,
+                                PlatformModuleService moduleService,
+                                ObjectProvider<PlatformUiConfigService> uiConfigServiceProvider) {
+        this(uiSetDao, moduleService, uiConfigServiceProvider::getIfAvailable);
+    }
+
+    PlatformUiSetService(BaseDao<PlatformUiSet, String> uiSetDao,
+                         PlatformModuleService moduleService,
+                         Supplier<PlatformUiConfigService> uiConfigServiceProvider) {
         super(MODULE_ALIAS, PlatformUiSet.class, uiSetDao);
         this.moduleService = moduleService;
+        this.uiConfigServiceProvider = uiConfigServiceProvider;
     }
 
     @Override
@@ -52,10 +70,20 @@ public class PlatformUiSetService extends AbstractAbilityService<PlatformUiSet> 
 
     @Override
     public void beforeUpdate(PlatformUiSet uiSet) {
+        rejectMutationWhenPublishedConfigExists(uiSet.getId());
         normalizeAndValidate(uiSet);
         PlatformUiSet existing = selectIncludingDeleted(uiSet.getId());
         rejectChanged(existing, uiSet, "UI set moduleAlias", PlatformUiSet::getModuleAlias);
         rejectChanged(existing, uiSet, "UI set alias", PlatformUiSet::getAlias);
+    }
+
+    @Override
+    public void beforeDelete(String id) {
+        PlatformUiConfigService uiConfigService = uiConfigServiceProvider.get();
+        if (uiConfigService != null && uiConfigService.hasActiveConfigForUiSet(id)) {
+            throw BusinessExceptions.warning("platform.ui-set.configs-exist",
+                    "UI set cannot be deleted while UI configs exist: " + id);
+        }
     }
 
     public PlatformUiSet requireUiSet(String id) {
@@ -106,6 +134,14 @@ public class PlatformUiSetService extends AbstractAbilityService<PlatformUiSet> 
                             .eq("defaultSet", Boolean.TRUE),
                     "Only one default UI set is allowed for module and type: "
                             + moduleAlias + "." + uiSet.getSetType());
+        }
+    }
+
+    private void rejectMutationWhenPublishedConfigExists(String uiSetId) {
+        PlatformUiConfigService uiConfigService = uiConfigServiceProvider.get();
+        if (uiConfigService != null && uiConfigService.hasPublishedConfigForUiSet(uiSetId)) {
+            throw BusinessExceptions.warning("platform.ui-set.published-config-mutation-denied",
+                    "UI set with published UI config cannot be changed; unpublish first: " + uiSetId);
         }
     }
 }

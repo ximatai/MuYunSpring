@@ -7,6 +7,7 @@ import net.ximatai.muyun.database.core.orm.CriteriaOperator;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -66,7 +67,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -1385,6 +1388,87 @@ class PlatformUiConfigurationServiceContractTest {
     }
 
     @Test
+    void shouldFreezeUiSetMutationsWhenItOwnsPublishedUiConfig() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
+        GuardedUiServices services = guardedUiServices();
+        String uiSetId = services.uiSetService().insert(uiSet("crm.customer", "list", PlatformUiSetType.LIST, true));
+        String uiConfigId = services.uiConfigService().insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        services.uiConfigFieldService().insert(uiField(uiConfigId, customerNameField, "text"));
+        services.publishService().publishUiConfig(uiConfigId);
+
+        PlatformUiSet changed = uiSetUpdate(services.uiSetService().select(uiSetId));
+        changed.setTitle("Changed");
+        assertPublishedUiSetMutationDenied(() -> services.uiSetService().update(changed));
+        assertPublishedUiSetMutationDenied(() -> services.uiSetService().disable(uiSetId));
+        assertPublishedUiSetMutationDenied(() -> services.uiSetService().enable(uiSetId));
+        assertThatThrownBy(() -> services.uiSetService().delete(uiSetId))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.actionMessage().code()).isEqualTo("platform.ui-set.configs-exist"));
+    }
+
+    @Test
+    void shouldRejectParentDeletesUntilDraftChildrenAreSoftDeleted() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
+        GuardedUiServices services = guardedUiServices();
+        String uiSetId = services.uiSetService().insert(uiSet("crm.customer", "list", PlatformUiSetType.LIST, true));
+        String uiConfigId = services.uiConfigService().insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        String fieldId = services.uiConfigFieldService().insert(uiField(uiConfigId, customerNameField, "text"));
+
+        assertThatThrownBy(() -> services.uiSetService().delete(uiSetId))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.actionMessage().code()).isEqualTo("platform.ui-set.configs-exist"));
+        assertThatThrownBy(() -> services.uiConfigService().delete(uiConfigId))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.actionMessage().code()).isEqualTo("platform.ui-config.fields-exist"));
+
+        services.uiConfigFieldService().delete(fieldId);
+        assertThatCode(() -> services.uiConfigService().delete(uiConfigId)).doesNotThrowAnyException();
+        assertThatCode(() -> services.uiSetService().delete(uiSetId)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void shouldHonorExpectedVersionWhenPublishingOrUnpublishingUiConfig() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
+        TestMemoryDao<PlatformUiConfig> versionedConfigDao = new TestMemoryDao<>() {
+            @Override
+            public int updateByIdAndCondition(PlatformUiConfig entity, Map<String, Object> conditions) {
+                PlatformUiConfig current = findById(entity.getId());
+                if (!Objects.equals(current == null ? null : current.getVersion(), conditions.get("version"))) {
+                    return 0;
+                }
+                return super.updateByIdAndCondition(entity, conditions);
+            }
+        };
+        AtomicReference<PlatformUiConfigService> configService = new AtomicReference<>();
+        PlatformUiSetService guardedUiSetService = new PlatformUiSetService(uiSetDao, moduleService, configService::get);
+        PlatformUiConfigService guardedUiConfigService = new PlatformUiConfigService(
+                versionedConfigDao, guardedUiSetService, () -> null);
+        PlatformUiConfigFieldService guardedUiConfigFieldService = new PlatformUiConfigFieldService(
+                uiConfigFieldDao, guardedUiConfigService, guardedUiSetService, moduleFieldService, fieldTypeService,
+                fieldUiTypeService, fieldService);
+        configService.set(guardedUiConfigService);
+        PlatformPageConfigPublishService guardedPublishService = new PlatformPageConfigPublishService(
+                guardedUiSetService, guardedUiConfigService, guardedUiConfigFieldService, queryTemplateService,
+                queryItemService);
+        String uiSetId = guardedUiSetService.insert(uiSet("crm.customer", "list", PlatformUiSetType.LIST, true));
+        String uiConfigId = guardedUiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        guardedUiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
+        int draftVersion = guardedUiConfigService.select(uiConfigId).getVersion();
+
+        guardedPublishService.publishUiConfig(uiConfigId, draftVersion);
+
+        assertThatThrownBy(() -> guardedPublishService.unpublishUiConfig(uiConfigId, draftVersion))
+                .isInstanceOf(OptimisticLockException.class)
+                .hasMessageContaining("record version conflict");
+    }
+
+    @Test
     void shouldRejectDirectUiConfigPublishOutsidePublishService() {
         seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
         seedUiType("text", "string");
@@ -1928,6 +2012,50 @@ class PlatformUiConfigurationServiceContractTest {
         uiSet.setSetType(setType);
         uiSet.setDefaultSet(defaultSet);
         return uiSet;
+    }
+
+    private PlatformUiSet uiSetUpdate(PlatformUiSet source) {
+        PlatformUiSet target = new PlatformUiSet();
+        target.setId(source.getId());
+        target.setTenantId(source.getTenantId());
+        target.setVersion(source.getVersion());
+        target.setModuleAlias(source.getModuleAlias());
+        target.setAlias(source.getAlias());
+        target.setSetType(source.getSetType());
+        target.setDefaultSet(source.getDefaultSet());
+        target.setTitle(source.getTitle());
+        target.setEnabled(source.getEnabled());
+        target.setSortOrder(source.getSortOrder());
+        return target;
+    }
+
+    private GuardedUiServices guardedUiServices() {
+        AtomicReference<PlatformUiConfigService> configService = new AtomicReference<>();
+        PlatformUiSetService guardedUiSetService = new PlatformUiSetService(uiSetDao, moduleService, configService::get);
+        AtomicReference<PlatformUiConfigFieldService> fieldService = new AtomicReference<>();
+        PlatformUiConfigService guardedUiConfigService = new PlatformUiConfigService(
+                uiConfigDao, guardedUiSetService, fieldService::get);
+        PlatformUiConfigFieldService guardedUiConfigFieldService = new PlatformUiConfigFieldService(
+                uiConfigFieldDao, guardedUiConfigService, guardedUiSetService, moduleFieldService, fieldTypeService,
+                fieldUiTypeService, this.fieldService);
+        configService.set(guardedUiConfigService);
+        fieldService.set(guardedUiConfigFieldService);
+        return new GuardedUiServices(guardedUiSetService, guardedUiConfigService, guardedUiConfigFieldService,
+                new PlatformPageConfigPublishService(guardedUiSetService, guardedUiConfigService,
+                        guardedUiConfigFieldService, queryTemplateService, queryItemService));
+    }
+
+    private void assertPublishedUiSetMutationDenied(org.assertj.core.api.ThrowableAssert.ThrowingCallable action) {
+        assertThatThrownBy(action)
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.actionMessage().code())
+                                .isEqualTo("platform.ui-set.published-config-mutation-denied"));
+    }
+
+    private record GuardedUiServices(PlatformUiSetService uiSetService,
+                                     PlatformUiConfigService uiConfigService,
+                                     PlatformUiConfigFieldService uiConfigFieldService,
+                                     PlatformPageConfigPublishService publishService) {
     }
 
     private PlatformUiConfig uiConfig(String uiSetId, PlatformUiClientType clientType, boolean published) {

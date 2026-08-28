@@ -10,10 +10,13 @@ import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -28,11 +31,26 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
     private final PlatformUiSetService uiSetService;
+    private final Supplier<PlatformUiConfigFieldService> uiConfigFieldServiceProvider;
 
     public PlatformUiConfigService(BaseDao<PlatformUiConfig, String> uiConfigDao,
                                    PlatformUiSetService uiSetService) {
+        this(uiConfigDao, uiSetService, () -> null);
+    }
+
+    @Autowired
+    public PlatformUiConfigService(BaseDao<PlatformUiConfig, String> uiConfigDao,
+                                   PlatformUiSetService uiSetService,
+                                   ObjectProvider<PlatformUiConfigFieldService> uiConfigFieldServiceProvider) {
+        this(uiConfigDao, uiSetService, uiConfigFieldServiceProvider::getIfAvailable);
+    }
+
+    PlatformUiConfigService(BaseDao<PlatformUiConfig, String> uiConfigDao,
+                            PlatformUiSetService uiSetService,
+                            Supplier<PlatformUiConfigFieldService> uiConfigFieldServiceProvider) {
         super(MODULE_ALIAS, PlatformUiConfig.class, uiConfigDao);
         this.uiSetService = uiSetService;
+        this.uiConfigFieldServiceProvider = uiConfigFieldServiceProvider;
     }
 
     @Override
@@ -64,6 +82,11 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
         if (existing != null && Boolean.TRUE.equals(existing.getPublished())) {
             throw BusinessExceptions.warning("platform.ui-config.published-delete-denied",
                     "Published UI config cannot be deleted; unpublish first: " + id);
+        }
+        PlatformUiConfigFieldService uiConfigFieldService = uiConfigFieldServiceProvider.get();
+        if (uiConfigFieldService != null && uiConfigFieldService.hasActiveFieldForUiConfig(id)) {
+            throw BusinessExceptions.warning("platform.ui-config.fields-exist",
+                    "UI config cannot be deleted while UI fields exist: " + id);
         }
     }
 
@@ -100,6 +123,15 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
                         .in("uiSetId", uiSetIds)
                         .eq("published", Boolean.TRUE)),
                 ALL, Sort.asc(PlatformAbilityFields.SORT_FIELD));
+    }
+
+    boolean hasActiveConfigForUiSet(String uiSetId) {
+        return uiSetId != null && !uiSetId.isBlank() && count(Criteria.of().eq("uiSetId", uiSetId)) > 0;
+    }
+
+    boolean hasPublishedConfigForUiSet(String uiSetId) {
+        return uiSetId != null && !uiSetId.isBlank()
+                && count(Criteria.of().eq("uiSetId", uiSetId).eq("published", Boolean.TRUE)) > 0;
     }
 
     private void normalizeAndValidate(PlatformUiConfig uiConfig) {

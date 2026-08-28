@@ -105,6 +105,10 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
                 ALL, Sort.asc(PlatformAbilityFields.SORT_FIELD));
     }
 
+    boolean hasActiveFieldForUiConfig(String uiConfigId) {
+        return uiConfigId != null && !uiConfigId.isBlank() && count(Criteria.of().eq("uiConfigId", uiConfigId)) > 0;
+    }
+
     public void validateUiConfigFields(String uiConfigId) {
         PlatformUiConfig uiConfig = uiConfigService.requireUiConfig(uiConfigId);
         for (PlatformUiConfigField field : listByUiConfigIds(List.of(uiConfig.getId()))) {

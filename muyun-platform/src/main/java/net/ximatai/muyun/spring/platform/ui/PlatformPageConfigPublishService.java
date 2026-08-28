@@ -129,18 +129,34 @@ public class PlatformPageConfigPublishService {
 
     @Transactional
     public void publishUiConfig(String uiConfigId) {
+        publishUiConfig(uiConfigId, null);
+    }
+
+    /**
+     * Publishes a UI config using the caller's known version when supplied.
+     * The legacy overload remains for existing internal callers until the Web
+     * contract requires a version.
+     */
+    @Transactional
+    public void publishUiConfig(String uiConfigId, Integer expectedVersion) {
         PlatformUiConfig uiConfig = validateUiConfigPublishable(uiConfigId);
         try (PlatformPageConfigPublishContext.Scope ignored = PlatformPageConfigPublishContext.open()) {
-            uiConfigService.update(copyForPublish(uiConfig, Boolean.TRUE));
+            uiConfigService.update(copyForPublish(uiConfig, Boolean.TRUE, expectedVersion));
         }
         publishedConfigurationChanged(uiSetService.requireUiSet(uiConfig.getUiSetId()).getModuleAlias());
     }
 
     @Transactional
     public void unpublishUiConfig(String uiConfigId) {
+        unpublishUiConfig(uiConfigId, null);
+    }
+
+    /** See {@link #publishUiConfig(String, Integer)} for the compatibility policy. */
+    @Transactional
+    public void unpublishUiConfig(String uiConfigId, Integer expectedVersion) {
         PlatformUiConfig uiConfig = uiConfigService.requireUiConfig(uiConfigId);
         try (PlatformPageConfigPublishContext.Scope ignored = PlatformPageConfigPublishContext.open()) {
-            uiConfigService.update(copyForPublish(uiConfig, Boolean.FALSE));
+            uiConfigService.update(copyForPublish(uiConfig, Boolean.FALSE, expectedVersion));
         }
         publishedConfigurationChanged(uiSetService.requireUiSet(uiConfig.getUiSetId()).getModuleAlias());
     }
@@ -877,10 +893,14 @@ public class PlatformPageConfigPublishService {
     }
 
     private PlatformUiConfig copyForPublish(PlatformUiConfig source, boolean published) {
+        return copyForPublish(source, published, null);
+    }
+
+    private PlatformUiConfig copyForPublish(PlatformUiConfig source, boolean published, Integer expectedVersion) {
         PlatformUiConfig target = new PlatformUiConfig();
         target.setId(source.getId());
         target.setTenantId(source.getTenantId());
-        target.setVersion(source.getVersion());
+        target.setVersion(expectedVersion == null ? source.getVersion() : expectedVersion);
         target.setUiSetId(source.getUiSetId());
         target.setClientType(source.getClientType());
         target.setLayoutJson(source.getLayoutJson());
