@@ -251,7 +251,7 @@ export function createMenuTab(
 /** Adds a page-instance key once and preserves it on address replacement or restoration. */
 export function withPageInstanceKey(
   descriptor: PageDescriptor,
-  instanceKey: string = crypto.randomUUID(),
+  instanceKey: string = createPageInstanceKey(),
 ): PageDescriptor {
   if (pageInstanceKeyOf(descriptor)) return descriptor;
   if (descriptor.pageType === 'platform-route' || descriptor.pageType === 'business-route') {
@@ -259,6 +259,12 @@ export function withPageInstanceKey(
     return { ...descriptor, target: { ...descriptor.target, query }, params: query };
   }
   return { ...descriptor, params: { ...descriptor.params, InstanceKey: instanceKey } };
+}
+
+/** LAN HTTP is useful for local device testing, but it is not a secure context and may not expose randomUUID. */
+function createPageInstanceKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `page-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function findFirstNavigationMenu(nodes: MenuTreeNode[]): MenuRecord | undefined {

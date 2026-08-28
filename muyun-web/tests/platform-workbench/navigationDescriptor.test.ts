@@ -1,4 +1,4 @@
-import { assert, it } from 'vitest';
+import { afterEach, assert, it, vi } from 'vitest';
 import {
   canonicalDynamicModulePath,
   createMenuTab,
@@ -11,9 +11,26 @@ import {
   resolvePageDescriptor,
   tabKeyOf,
   tryPageDescriptorFromUrl,
+  withPageInstanceKey,
 } from '@/platform-workbench/menuNavigation.ts';
 import type { PageDescriptor } from '@/web-contracts/index.ts';
 import { platformAdminRoutes } from '@/platform-admin-runtime/platformAdminRoutes.ts';
+
+afterEach(() => vi.unstubAllGlobals());
+
+it('creates a page instance key without randomUUID on an HTTP-style runtime', () => {
+  vi.stubGlobal('crypto', {});
+
+  const descriptor = withPageInstanceKey({
+    pageType: 'business-route',
+    openMode: 'workbench-route',
+    hostType: 'business-route-host',
+    target: { route: '/mr/device' },
+    tabPolicy: { identity: 'by-params', closable: true, cacheable: true },
+  });
+
+  assert.match(String(descriptor.params?.InstanceKey), /^page-[a-z0-9]+-[a-z0-9]+$/);
+});
 
 function assertPageType<T extends PageDescriptor['pageType']>(
   descriptor: PageDescriptor,
