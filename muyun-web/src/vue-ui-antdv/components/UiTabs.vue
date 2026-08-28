@@ -536,17 +536,32 @@ onUnmounted(() => {
 }
 
 .ui-tabs :deep(.ant-tabs-tab .ant-tabs-tab-remove) {
+  display: inline-grid;
+  flex: 0 0 0;
+  box-sizing: border-box;
   width: 0;
+  height: 16px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  align-items: center;
+  justify-items: end;
   margin: 0;
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
+  transition:
+    flex-basis 120ms ease,
+    opacity 120ms ease;
 }
 
 .ui-tabs :deep(.ant-tabs-tab:hover .ant-tabs-tab-remove),
 .ui-tabs :deep(.ant-tabs-tab:focus-within .ant-tabs-tab-remove) {
-  width: auto;
-  margin-left: 4px;
+  flex: 0 0 16px;
+  width: 16px;
+  min-width: 16px;
   opacity: 1;
   pointer-events: auto;
 }
