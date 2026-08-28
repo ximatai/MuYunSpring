@@ -1,6 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { MANAGEMENT_WORKSPACE_LAYOUT } from './managementWorkspaceLayout';
+import { computed, provide, reactive } from 'vue';
+import {
+  collapsedExplorerTabHeight,
+  MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT,
+  MANAGEMENT_WORKSPACE_LAYOUT,
+} from './managementWorkspaceLayout';
+import {
+  MANAGEMENT_WORKSPACE_CONTEXT,
+  type ManagementWorkspaceExplorerRegistration,
+} from './managementWorkspaceContext';
 import { usePageLayout } from './pageLayoutContext';
 
 defineOptions({ name: 'ManagementWorkspace' });
@@ -22,7 +30,62 @@ const props = withDefaults(
 );
 
 const explorerCount = computed(() => Math.max(0, Math.trunc(props.explorerCount)));
-const hasExplorer = computed(() => explorerCount.value > 0);
+type ExplorerState = ManagementWorkspaceExplorerRegistration & { collapsed: boolean; order: number };
+
+const explorers = reactive<Record<string, ExplorerState>>({});
+let nextExplorerOrder = 0;
+const collapsedExplorers = computed(() =>
+  Object.values(explorers)
+    .filter((explorer) => explorer.collapsed)
+    .sort((left, right) => left.order - right.order),
+);
+const collapsedExplorerCount = computed(() => collapsedExplorers.value.length);
+const hasCollapsedExplorers = computed(() => collapsedExplorerCount.value > 0);
+const expandedExplorerCount = computed(() => Math.max(0, explorerCount.value - collapsedExplorerCount.value));
+const hasExplorer = computed(() => expandedExplorerCount.value > 0);
+const effectiveExplorerCount = computed(() => expandedExplorerCount.value);
+
+function registerExplorer(registration: ManagementWorkspaceExplorerRegistration) {
+  const current = explorers[registration.id];
+  if (current) {
+    current.title = registration.title;
+    current.hasSelection = registration.hasSelection;
+    return;
+  }
+  explorers[registration.id] = { ...registration, collapsed: false, order: nextExplorerOrder++ };
+}
+
+function unregisterExplorer(id: string) {
+  delete explorers[id];
+}
+
+function isExplorerCollapsed(id: string) {
+  return explorers[id]?.collapsed === true;
+}
+
+function toggleExplorer(id: string) {
+  const explorer = explorers[id];
+  if (explorer) explorer.collapsed = !explorer.collapsed;
+}
+
+function collapsedExplorerOffset(id: string) {
+  let offset = 0;
+  for (const explorer of collapsedExplorers.value) {
+    if (explorer.id === id) return offset;
+    offset += collapsedExplorerTabHeight(explorer.title) + MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.tabStackGap;
+  }
+  return 0;
+}
+
+provide(MANAGEMENT_WORKSPACE_CONTEXT, {
+  registerExplorer,
+  unregisterExplorer,
+  isExplorerCollapsed,
+  toggleExplorer,
+  collapsedExplorerOffset,
+  hasCollapsedExplorers,
+});
+
 const pageLayout = usePageLayout();
 </script>
 
@@ -34,12 +97,26 @@ const pageLayout = usePageLayout();
       'management-workspace--detail-surface': detailSurface,
       'management-workspace--list-surface': listSurface,
       'management-workspace--without-explorer': !hasExplorer,
+      'management-workspace--with-collapsed-explorer': hasCollapsedExplorers,
     }"
   >
     <div
       class="management-workspace__grid"
       :style="{
-        '--muyun-management-explorer-count': String(explorerCount),
+        '--muyun-management-explorer-count': String(effectiveExplorerCount),
+        '--muyun-management-collapsed-rail-width': hasCollapsedExplorers
+          ? `${MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.railWidth}px`
+          : '0px',
+        '--muyun-management-collapsed-rail-offset': hasCollapsedExplorers
+          ? `calc(${MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.railWidth}px + ${MANAGEMENT_WORKSPACE_LAYOUT.columnGap}px)`
+          : '0px',
+        '--muyun-management-collapsed-tab-padding-block-start': `${MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.tabPaddingBlockStart}px`,
+        '--muyun-management-collapsed-tab-padding-block-end': `${MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.tabPaddingBlockEnd}px`,
+        '--muyun-management-collapsed-tab-title-font-size': `${MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.titleFontSize}px`,
+        '--muyun-management-collapsed-tab-title-line-height': `${MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.titleLineHeight}px`,
+        '--muyun-management-collapsed-tab-icon-size': `${MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.iconSize}px`,
+        '--muyun-management-collapsed-tab-icon-hit-area': `${MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.iconHitArea}px`,
+        '--muyun-management-collapsed-tab-content-gap': `${MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.tabContentGap}px`,
         '--muyun-management-explorer-width': `${MANAGEMENT_WORKSPACE_LAYOUT.explorerWidth}px`,
         '--muyun-management-list-min-width': `${MANAGEMENT_WORKSPACE_LAYOUT.listMinWidth}px`,
         '--muyun-management-detail-min-width': `${MANAGEMENT_WORKSPACE_LAYOUT.detailMinWidth}px`,
@@ -78,6 +155,7 @@ const pageLayout = usePageLayout();
 }
 
 .management-workspace__grid {
+  position: relative;
   display: grid;
   grid-template-columns:
     repeat(var(--muyun-management-explorer-count), var(--muyun-management-explorer-width))
@@ -89,6 +167,8 @@ const pageLayout = usePageLayout();
   width: 100%;
   min-width: 100%;
   min-height: 100%;
+  box-sizing: border-box;
+  padding-left: var(--muyun-management-collapsed-rail-offset, 0px);
 }
 
 .management-workspace--constrained .management-workspace__grid {
