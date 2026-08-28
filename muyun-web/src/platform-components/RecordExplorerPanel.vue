@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, inject, nextTick, ref, watch } from 'vue';
 import { UiButton, UiInput } from '@muyun/vue-ui-antdv';
+import { MANAGEMENT_EXPLORER_COLUMN_CONTEXT } from './managementExplorerContext';
 import ManagementPanelHeader from './ManagementPanelHeader.vue';
 
 defineOptions({ name: 'RecordExplorerPanel' });
@@ -31,6 +32,7 @@ const emit = defineEmits<{
 const searchExpanded = ref(props.searchKeyword.trim().length > 0);
 const searchRoot = ref<HTMLElement>();
 const searchVisible = computed(() => props.searchable && searchExpanded.value);
+const explorerColumn = inject(MANAGEMENT_EXPLORER_COLUMN_CONTEXT, undefined);
 
 watch(
   () => props.searchKeyword,
@@ -77,10 +79,24 @@ async function focusSearchInput() {
         <div class="record-explorer-panel-actions">
           <UiButton
             v-if="searchable"
+            class="record-explorer-panel-action"
             icon-name="search"
+            icon-only
+            size="small"
             type="text"
             :title="`搜索${title}`"
             @click="toggleSearch"
+          />
+          <UiButton
+            v-if="explorerColumn?.collapsible.value && !explorerColumn.collapsed.value"
+            class="record-explorer-panel-action"
+            icon-name="menu-collapse"
+            icon-only
+            size="small"
+            type="text"
+            :title="`收起${title}`"
+            :aria-label="`收起${title}`"
+            @click="explorerColumn.collapse"
           />
           <slot name="actions" />
         </div>
@@ -137,6 +153,24 @@ async function focusSearchInput() {
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
+}
+
+/* Header utilities share one compact hit area and one hover treatment. */
+:deep(.record-explorer-panel-action.ant-btn) {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muyun-text-muted);
+}
+
+:deep(.record-explorer-panel-action.ant-btn-text:not(:disabled):hover),
+:deep(.record-explorer-panel-action.ant-btn-text:not(:disabled):focus-visible) {
+  border-color: var(--muyun-border-subtle);
+  background: var(--muyun-hover);
+  color: var(--muyun-text);
 }
 
 .record-explorer-search {

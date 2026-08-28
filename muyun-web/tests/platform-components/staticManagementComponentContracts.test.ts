@@ -1002,6 +1002,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.equal(/max-width: 719px/.test(hostSource), false);
   assert.match(hostSource, /:navigator-count="navigatorExplorerCount"/);
   assert.match(hostSource, /<ManagementWorkspace[\s\S]*v-else-if="treeManagementPage \|\| treeModule"/);
+  assert.match(hostSource, /<ManagementExplorerColumn[\s\S]*collapsible[\s\S]*:has-selection=/);
   assert.match(hostSource, /<CrudRecordListExplorer/);
   assert.match(hostSource, /<PageNavigatorExplorer/);
   assert.match(hostSource, /const primaryNavigatorContext = computed/);

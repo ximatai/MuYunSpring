@@ -2763,7 +2763,13 @@ function recordTitle(record: QueryListRecord | undefined) {
       <ManagementExplorerColumn v-if="navigatorExtension" :key="navigatorExtension.key">
         <component :is="navigatorExtension.component" :context="navigatorExtensionContext" />
       </ManagementExplorerColumn>
-      <ManagementExplorerColumn v-for="level in visibleNavigatorLevels" :key="level.descriptor.key">
+      <ManagementExplorerColumn
+        v-for="level in visibleNavigatorLevels"
+        :key="level.descriptor.key"
+        collapsible
+        :title="level.descriptor.title"
+        :has-selection="selectedNavigatorRecords[level.descriptor.key]?.id != null"
+      >
         <RecordExplorerPanel
           :title="level.descriptor.title"
           :refresh-title="`刷新${level.descriptor.title}${level.tree ? '树' : '列表'}`"
@@ -3022,7 +3028,13 @@ function recordTitle(record: QueryListRecord | undefined) {
       <ManagementExplorerColumn v-if="navigatorExtension" :key="navigatorExtension.key">
         <component :is="navigatorExtension.component" :context="navigatorExtensionContext" />
       </ManagementExplorerColumn>
-      <ManagementExplorerColumn v-for="level in visibleNavigatorLevels" :key="level.descriptor.key">
+      <ManagementExplorerColumn
+        v-for="level in visibleNavigatorLevels"
+        :key="level.descriptor.key"
+        collapsible
+        :title="level.descriptor.title"
+        :has-selection="selectedNavigatorRecords[level.descriptor.key]?.id != null"
+      >
         <PageNavigatorExplorer
           :level="level"
           :selected-id="
