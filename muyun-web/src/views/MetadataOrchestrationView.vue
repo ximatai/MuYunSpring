@@ -5,6 +5,7 @@ import {
   ManagementExplorerColumn,
   ManagementWorkspace,
   RecordDetailPanel,
+  RecordExplorerCreateButton,
   RecordExplorerPanel,
   RecordListExplorer,
   RecordMetaSection,
@@ -19,7 +20,6 @@ import type { Metadata, MetadataField, ModuleMetadataRelation, WebPageResponse }
 import { createStaticResourceCrudClient, useModuleContext } from '@muyun/web-core';
 import {
   UiActionButton,
-  UiButton,
   UiCheckbox,
   UiDataTable,
   UiEmpty,
@@ -283,11 +283,8 @@ function fieldCellValue(column: UiDataTableColumn, record: UiDataTableRecord) {
         @refresh="loadWorkspace"
       >
         <template #actions>
-          <UiButton
+          <RecordExplorerCreateButton
             v-if="!state.hasMainMetadata.value"
-            class="record-panel-create-button"
-            type="primary"
-            icon-name="plus"
             title="新建主实体"
             :disabled="loading || saving"
             @click="state.startCreateMain"
@@ -491,13 +488,6 @@ function fieldCellValue(column: UiDataTableColumn, record: UiDataTableRecord) {
 </template>
 
 <style scoped>
-.record-panel-create-button {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border-radius: 999px;
-}
-
 .entity-overview {
   display: grid;
   gap: 10px;

@@ -356,11 +356,11 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
   >
     <template #explorer-actions>
       <ModuleActionButton
-        class="record-panel-create-button"
         :context="actionContext"
         action-code="create"
         title="新建动作"
         icon-only
+        presentation="record-explorer-create"
         :disabled="!canCreateManualAction || saving"
         @click="startCreate"
       />

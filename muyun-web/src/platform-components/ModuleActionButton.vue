@@ -19,6 +19,8 @@ const props = withDefaults(
     title?: string;
     iconName?: UiIconName;
     iconOnly?: boolean;
+    /** Surface-owned presentation for a standard module action. */
+    presentation?: 'default' | 'record-explorer-create';
   }>(),
   {
     type: 'button',
@@ -29,6 +31,7 @@ const props = withDefaults(
     title: undefined,
     iconName: undefined,
     iconOnly: false,
+    presentation: 'default',
     recordId: undefined,
   },
 );
@@ -77,6 +80,8 @@ const buttonTitle = computed(() => {
   return props.title ?? action.value?.title;
 });
 
+const explorerCreateAction = computed(() => props.presentation === 'record-explorer-create');
+
 function handleClick(event: MouseEvent) {
   if (buttonDisabled.value) {
     event.preventDefault();
@@ -114,7 +119,10 @@ function defaultIconName(actionCode: string): UiIconName | undefined {
         :intent="danger ? 'danger' : 'normal'"
         :icon-name="iconName ?? defaultIconName(actionCode)"
         :title="buttonTitle"
-        :class="{ 'module-action-button--icon-only': iconOnly }"
+        :class="{
+          'module-action-button--icon-only': iconOnly,
+          'record-explorer-panel-create-action': explorerCreateAction,
+        }"
         @click="handleClick"
       >
         <template v-if="!iconOnly">
