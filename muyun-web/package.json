@@ -23,7 +23,8 @@
     "preview": "vite preview --host 127.0.0.1",
     "test:watch": "vitest",
     "test:unit": "vitest run --project unit",
-    "test:component": "vitest run --project component"
+    "test:component": "vitest run --project component",
+    "test:browser": "MUYUN_BROWSER_TEST=true vitest run --project browser"
   },
   "dependencies": {
     "@ant-design/icons-vue": "^7.0.1",
@@ -40,11 +41,13 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.13.3",
     "@vitejs/plugin-vue": "^6.0.7",
+    "@vitest/browser-playwright": "^4.1.11",
     "@vue/test-utils": "^2.4.11",
     "eslint": "^10.5.0",
     "eslint-plugin-vue": "^10.9.2",
     "globals": "^17.6.0",
     "jsdom": "^30.0.1",
+    "playwright": "^1.62.1",
     "prettier": "^3.8.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1",

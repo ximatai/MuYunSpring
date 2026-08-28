@@ -109,13 +109,6 @@ const emit = defineEmits<{
   align-items: center;
 }
 
-.static-management-sidebar :deep(.record-panel-create-button) {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border-radius: 999px;
-}
-
 .message {
   padding: 9px 10px;
   border-radius: 6px;
