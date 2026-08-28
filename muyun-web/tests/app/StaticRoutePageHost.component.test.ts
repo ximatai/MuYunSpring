@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { expect, it } from 'vitest';
 import StaticRoutePageHost from '@/app/StaticRoutePageHost.vue';
 import { ModuleContextProvider } from '@/web-core/module/moduleContext.ts';
+import { usePageLayout } from '@/platform-components/pageLayoutContext.ts';
 
 it('provides static route module context before rendering the route component', async () => {
   const router = createRouter({
@@ -12,20 +13,36 @@ it('provides static route module context before rendering the route component', 
       {
         path: '/config/applications',
         component: { template: '<div />' },
-        meta: { entryType: 'route', moduleAlias: 'platform.application', layout: 'workspace' },
+        meta: { entryType: 'route', moduleAlias: 'platform.application' },
       },
     ],
   });
   await router.push('/config/applications');
   await router.isReady();
   // eslint-disable-next-line vue/one-component-per-file -- local route-host contract component.
-  const page = defineComponent({ template: '<p data-testid="static-page">page</p>' });
+  const page = defineComponent({
+    setup() {
+      return { pageLayout: usePageLayout() };
+    },
+    template: '<p data-testid="static-page">{{ pageLayout }}</p>',
+  });
   const wrapper = mount(StaticRoutePageHost, {
-    props: { component: page, route: router.currentRoute.value },
+    props: {
+      component: page,
+      route: router.currentRoute.value,
+      pageDescriptor: {
+        pageType: 'business-route',
+        openMode: 'workbench-route',
+        hostType: 'business-route-host',
+        layout: 'workspace',
+        target: { route: '/config/applications', query: {} },
+        tabPolicy: { identity: 'by-params' },
+      },
+    },
   });
 
   expect(wrapper.findComponent(ModuleContextProvider).props('moduleAlias')).toBe('platform.application');
-  expect(wrapper.get('[data-testid="static-page"]').text()).toBe('page');
+  expect(wrapper.get('[data-testid="static-page"]').text()).toBe('workspace');
 });
 
 it('rebuilds a route runtime only for an explicit refresh', async () => {

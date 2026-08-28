@@ -9,6 +9,7 @@ import type { PageDescriptor } from '@muyun/web-contracts';
 import { createModuleOpenApiPageDescriptor, loadOpenApiCatalog } from './moduleOpenApi';
 import { moduleActionManagementWorkspaceView } from '../views/moduleActionManagementWorkspaceView';
 import { metadataOrchestrationWorkspaceView } from '../views/metadataOrchestrationWorkspaceView';
+import { uiOrchestrationWorkspaceView } from '../views/uiOrchestrationWorkspaceView';
 
 const openApiModuleAliases = ref<ReadonlySet<string>>(new Set());
 let openApiCatalogRevision = 0;
@@ -17,6 +18,7 @@ let openApiCatalogRevision = 0;
 // contract, so adapt them once at this composition edge.
 const moduleActionWorkspaceView = moduleActionManagementWorkspaceView as unknown as ModulePageWorkspaceView;
 const metadataWorkspaceView = metadataOrchestrationWorkspaceView as unknown as ModulePageWorkspaceView;
+const uiOrchestrationWorkspace = uiOrchestrationWorkspaceView as unknown as ModulePageWorkspaceView;
 
 /**
  * Frontend composition for the platform-module descriptor page.
@@ -49,7 +51,7 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
   },
   // The hand-authored workspace remains an explicit extension for dynamic executor binding;
   // it has no menu identity and is not the general action-management entry.
-  workspaceViews: [moduleActionWorkspaceView, metadataWorkspaceView],
+  workspaceViews: [moduleActionWorkspaceView, metadataWorkspaceView, uiOrchestrationWorkspace],
   detail: {
     actions: [
       {
@@ -90,6 +92,21 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
             moduleAlias,
             moduleTitle: titleOf(record),
             moduleKind: 'dynamic',
+          });
+        },
+      },
+      {
+        key: 'module-ui-orchestration-workspace',
+        title: 'UI 编排',
+        state: (record) => ({
+          visible: moduleAliasOf(record) !== undefined && moduleKindOf(record) === 'dynamic',
+        }),
+        run({ record, openWorkspaceTab }) {
+          const moduleAlias = moduleAliasOf(record);
+          if (!moduleAlias || moduleKindOf(record) !== 'dynamic') return;
+          openWorkspaceTab(uiOrchestrationWorkspace, {
+            moduleAlias,
+            moduleTitle: titleOf(record),
           });
         },
       },
