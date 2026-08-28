@@ -36,7 +36,9 @@ const RouteCacheHarness = defineComponent({
       menus: [],
       tabs: [
         { key: 'page:tab-a', title: 'A', fullPath: '/page?InstanceKey=tab-a', closable: true },
-        { key: 'page:tab-b', title: 'B', fullPath: '/page?InstanceKey=tab-b', closable: true },
+        // Workbench identity is allowed to differ even when the public address
+        // is identical (for example two menu entries targeting one module).
+        { key: 'page:tab-b', title: 'B', fullPath: '/page?InstanceKey=tab-a', closable: true },
       ],
       activeTabKey: 'page:tab-a',
     });
@@ -49,15 +51,23 @@ const RouteCacheHarness = defineComponent({
     watch(
       () => router.currentRoute.value.fullPath,
       () => {
-        renderedTabKey.value = activeTabKey.value;
+        commitRenderedTab(activeTabKey.value);
       },
     );
+
+    function commitRenderedTab(key: string) {
+      renderedTabKey.value = key;
+    }
 
     async function changeTab(key: string) {
       const tab = startup.value.tabs?.find((item) => item.key === key);
       if (!tab?.fullPath) return;
       activeTabKey.value = key;
       startup.value = { ...startup.value, activeTabKey: key };
+      if (tab.fullPath === router.currentRoute.value.fullPath) {
+        commitRenderedTab(key);
+        return;
+      }
       await router.push(tab.fullPath);
     }
 
@@ -98,6 +108,10 @@ const RouteCacheHarness = defineComponent({
       };
       startup.value = { ...startup.value, tabs: [...(startup.value.tabs ?? []), tab], activeTabKey: key };
       activeTabKey.value = key;
+      if (tab.fullPath === router.currentRoute.value.fullPath) {
+        commitRenderedTab(key);
+        return;
+      }
       await router.push(tab.fullPath);
     }
 

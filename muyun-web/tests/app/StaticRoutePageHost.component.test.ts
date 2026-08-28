@@ -28,12 +28,11 @@ it('provides static route module context before rendering the route component', 
   expect(wrapper.get('[data-testid="static-page"]').text()).toBe('page');
 });
 
-it('rebuilds a route runtime when its route identity changes', async () => {
+it('rebuilds a route runtime only for an explicit refresh', async () => {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: '/iam/users', component: { template: '<div />' }, meta: { moduleAlias: 'iam.user' } },
-      { path: '/iam/employees', component: { template: '<div />' }, meta: { moduleAlias: 'iam.employee' } },
     ],
   });
   await router.push('/iam/users');
@@ -51,8 +50,7 @@ it('rebuilds a route runtime when its route identity changes', async () => {
   });
   expect(wrapper.get('[data-testid="page-instance"]').text()).toBe('1');
 
-  await router.push('/iam/employees');
-  await wrapper.setProps({ route: router.currentRoute.value });
+  await wrapper.setProps({ refreshRevision: 1 });
   await nextTick();
 
   expect(wrapper.get('[data-testid="page-instance"]').text()).toBe('2');

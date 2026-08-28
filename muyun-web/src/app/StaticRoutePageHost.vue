@@ -42,11 +42,10 @@ const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => ({
   tabPolicy: { identity: 'by-params', closable: true, cacheable: true },
 }));
 const workspaceView = computed(() => resolveWorkspaceView(workspaceDescriptor.value));
-// Route components such as ModulePageHost capture their transport identity in
-// setup. If a parent briefly reuses this host while navigation commits, the
-// inner runtime must still be rebuilt instead of receiving a cross-module prop
-// update with stale request clients.
-const pageContentKey = computed(() => `${props.route.fullPath}:${props.refreshRevision ?? 0}`);
+// Route changes are handled by the workbench cache key. This inner key is only
+// for an explicit page refresh, so ordinary static pages retain reactive route
+// updates and their local state contract.
+const pageContentKey = computed(() => props.refreshRevision ?? 0);
 
 syncModulePageWorkspaceViewContributions();
 provideModulePageNavigation(
