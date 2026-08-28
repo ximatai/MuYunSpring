@@ -1212,7 +1212,9 @@ it('production workbench delegates page lifetime to the Vue Router outlet', () =
   assert.match(workbenchSource, /<div v-else-if="activeTab" class="tab-panel-host">[\s\S]*?<slot/);
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
   assert.match(appSource, /<RouterView v-slot="\{ Component, route \}">/);
-  assert.match(appSource, /<KeepAlive :max="pageCacheMax">[\s\S]*<StaticRoutePageHost/);
+  assert.match(appSource, /<KeepAlive :include="cachedTabPageHostNames" :max="pageCacheMax">/);
+  assert.match(appSource, /:is="pageCacheHostFor\(renderedTabKey\)"/);
+  assert.match(appSource, /pageCacheHostNames\.delete\(key\)/);
   assert.match(appSource, /:key="pageRuntimeCacheKey\(route, renderedTabKey\)"/);
   assert.match(appSource, /:refresh-revision="pageRefreshRevisionFor\(renderedTabKey\)"/);
   assert.match(workbenchSource, /emit\('refreshPage', activeTabKey\.value\)/);
