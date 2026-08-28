@@ -1734,7 +1734,7 @@ function navigatorManagementScopeDisabledReason(level: NavigatorLevelRuntime): s
 }
 
 function navigatorManagementAvailable(level: NavigatorLevelRuntime) {
-  return level.descriptor.management !== undefined;
+  return level.descriptor.management != null;
 }
 
 function navigatorInlineActions(level: NavigatorLevelRuntime, record: NavigatorRecord): RecordInlineAction[] {

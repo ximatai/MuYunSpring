@@ -50,7 +50,7 @@ function itemOf(record: NavigatorItemRecord) {
   return navigatorItemOf(
     record,
     props.level.descriptor.secondaryField,
-    props.level.descriptor.management !== undefined,
+    props.level.descriptor.management != null,
     props.actionsOf,
   );
 }

@@ -1134,7 +1134,7 @@ export interface ResolvedPageNavigatorLevelDescriptor {
    */
   sourceScope?: 'NONE' | 'CURRENT_TENANT';
   /** When present, the navigator source exposes its own standard CRUD affordances in place. */
-  management?: ResolvedPageNavigatorManagementDescriptor;
+  management?: ResolvedPageNavigatorManagementDescriptor | null;
 }
 
 export interface ResolvedPageContextBindingDescriptor {
