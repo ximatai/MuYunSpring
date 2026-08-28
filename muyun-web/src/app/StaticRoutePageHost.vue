@@ -23,8 +23,11 @@ const props = defineProps<{
 }>();
 
 const moduleAlias = computed(() => String(props.route.meta.moduleAlias ?? ''));
-const layout = computed<PageLayoutMode>(() =>
-  props.route.meta.layout === 'workspace' ? 'workspace' : 'flow',
+// Workbench tabs restore their page layout from the descriptor. The router only
+// knows the generic workspace route, so route metadata alone would downgrade a
+// descriptor-owned workbench to flow layout.
+const layout = computed<PageLayoutMode>(
+  () => props.pageDescriptor?.layout ?? (props.route.meta.layout === 'workspace' ? 'workspace' : 'flow'),
 );
 const navigation = useWorkbenchNavigation();
 const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => ({

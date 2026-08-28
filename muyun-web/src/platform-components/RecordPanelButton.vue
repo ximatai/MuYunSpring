@@ -13,6 +13,8 @@ withDefaults(
     title?: string;
     ariaLabel?: string;
     iconName?: UiIconName;
+    /** Fixed square hit area for a compact icon-only panel action. */
+    iconOnly?: boolean;
   }>(),
   {
     type: 'default',
@@ -23,6 +25,7 @@ withDefaults(
     title: undefined,
     ariaLabel: undefined,
     iconName: undefined,
+    iconOnly: false,
   },
 );
 
@@ -39,6 +42,7 @@ const emit = defineEmits<{ click: [event: MouseEvent] }>();
     :title="title"
     :aria-label="ariaLabel"
     :icon-name="iconName"
+    :icon-only="iconOnly"
     @click="emit('click', $event)"
   >
     <slot />

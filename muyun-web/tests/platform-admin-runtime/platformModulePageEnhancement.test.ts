@@ -42,6 +42,9 @@ describe('platform module page enhancement', () => {
     actions
       .find((action) => action.key === 'module-manual-action-binding-workspace')
       ?.run({ record, openWorkspaceTab } as never);
+    actions
+      .find((action) => action.key === 'module-ui-orchestration-workspace')
+      ?.run({ record, openWorkspaceTab } as never);
 
     expect(openPage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -62,6 +65,12 @@ describe('platform module page enhancement', () => {
       expect.objectContaining({ type: 'platform.module.actions' }),
       { moduleAlias: 'crm.customer', moduleTitle: '客户', moduleKind: 'dynamic' },
     );
+    expect(openWorkspaceTab).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ type: 'platform.module.ui-orchestration' }),
+      { moduleAlias: 'crm.customer', moduleTitle: '客户' },
+    );
+
     const [view, input] = openWorkspaceTab.mock.calls[0];
     const descriptor = createWorkspaceViewDescriptor(
       {
@@ -89,6 +98,11 @@ describe('platform module page enhancement', () => {
           id: 'iam.role',
           moduleKind: 'static',
         }),
+    ).toEqual({ visible: false });
+    expect(
+      actions
+        .find((action) => action.key === 'module-ui-orchestration-workspace')
+        ?.state?.({ id: 'iam.role', moduleKind: 'static' }),
     ).toEqual({ visible: false });
   });
 
