@@ -324,6 +324,38 @@ export function restoreLockedWorkbenchTabs(
   });
 }
 
+/**
+ * Restores the browser-session tab shell after the server has refreshed menus
+ * and permissions. Menu tabs are rebuilt from current menu facts; direct
+ * in-app descriptors retain their explicit page identity. External targets are
+ * intentionally excluded from automatic browser-session revival.
+ */
+export function restoreSessionWorkbenchTabs(
+  tabs: MenuTab[],
+  menus: MenuTreeNode[],
+  options: PageDescriptorResolveOptions = {},
+): MenuTab[] {
+  const restoredKeys = new Set<string>();
+  return tabs.flatMap((tab) => {
+    const lockedRestored = restoreLockedWorkbenchTabs([tab], menus, options)[0];
+    if (lockedRestored) {
+      if (restoredKeys.has(lockedRestored.key)) return [];
+      restoredKeys.add(lockedRestored.key);
+      return [lockedRestored];
+    }
+    const menuId = tab.pageDescriptor?.menuId ?? tab.target?.menuId ?? menuIdFromTabKey(tab.key);
+    if (menuId) return [];
+    const descriptor = tab.pageDescriptor;
+    if (!descriptor || descriptor.pageType === 'remote-url' || descriptor.pageType === 'external-link') {
+      return [];
+    }
+    const restored = createDirectTab({ ...descriptor, title: tab.title }, options);
+    if (restoredKeys.has(restored.key)) return [];
+    restoredKeys.add(restored.key);
+    return [restored];
+  });
+}
+
 function menuIdFromTabKey(key: string): string | undefined {
   return key.startsWith('menu:') ? key.slice('menu:'.length) || undefined : undefined;
 }

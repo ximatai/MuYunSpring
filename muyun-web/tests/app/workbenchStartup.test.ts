@@ -11,6 +11,7 @@ import {
   removeLockedMenuTabs,
   reorderMenuTabs,
   restoreLockedWorkbenchTabs,
+  restoreSessionWorkbenchTabs,
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
 } from '@/app/workbenchStartup.ts';
@@ -623,6 +624,44 @@ it('restores locked tabs only when their tab menu remains visible to the current
     available.map((tab) => [tab.key, tab.title, tab.target?.menuId]),
     [['menu:metadata', 'Metadata', 'metadata']],
   );
+});
+
+it('restores a direct in-app tab from the browser session while excluding external targets', () => {
+  const restored = restoreSessionWorkbenchTabs(
+    [
+      {
+        key: 'dynamic-module:iam.user:recordId=user-1',
+        title: '用户详情',
+        pageDescriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          target: { moduleAlias: 'iam.user', pageMode: 'DETAIL' },
+          params: { recordId: 'user-1' },
+          tabPolicy: { identity: 'by-params', closable: true, cacheable: true },
+        },
+      },
+      {
+        key: 'external',
+        title: '外部页面',
+        pageDescriptor: {
+          pageType: 'remote-url',
+          openMode: 'iframe',
+          hostType: 'external-page-host',
+          target: { url: 'https://example.com' },
+          params: {},
+          tabPolicy: { identity: 'by-target', closable: true, cacheable: false },
+        },
+      },
+    ],
+    menus,
+  );
+
+  assert.deepEqual(
+    restored.map((tab) => tab.title),
+    ['用户详情'],
+  );
+  assert.equal(restored[0]?.pageDescriptor?.target.moduleAlias, 'iam.user');
 });
 
 it('restores a locked registered workspace view without trusting its stale title', () => {
