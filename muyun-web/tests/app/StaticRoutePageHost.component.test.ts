@@ -31,9 +31,7 @@ it('provides static route module context before rendering the route component', 
 it('rebuilds a route runtime only for an explicit refresh', async () => {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [
-      { path: '/iam/users', component: { template: '<div />' }, meta: { moduleAlias: 'iam.user' } },
-    ],
+    routes: [{ path: '/iam/users', component: { template: '<div />' }, meta: { moduleAlias: 'iam.user' } }],
   });
   await router.push('/iam/users');
   await router.isReady();
