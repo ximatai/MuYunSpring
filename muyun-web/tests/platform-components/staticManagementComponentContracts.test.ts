@@ -425,6 +425,8 @@ it('management workspace consumes the page layout contract for constrained deskt
   const indexSource = readSource('src/platform-components/index.ts');
 
   assert.match(workspaceSource, /explorerCount\?: number/);
+  assert.match(workspaceSource, /layout\?: 'default' \| 'composer'/);
+  assert.match(workspaceSource, /'management-workspace--composer': layout === 'composer'/);
   assert.match(workspaceSource, /--muyun-management-explorer-width: 280px/);
   assert.match(workspaceSource, /--muyun-management-list-min-width: 720px/);
   assert.match(workspaceSource, /--muyun-management-detail-min-width: 560px/);
@@ -451,6 +453,14 @@ it('management workspace consumes the page layout contract for constrained deskt
     /@media \(max-width: 980px\)[\s\S]*?grid-template-columns:\s*var\(--muyun-management-collapsed-rail-width/,
   );
   assert.match(workspaceSource, /@media \(max-width: 760px\)[\s\S]*?grid-template-columns: 1fr/);
+  assert.match(
+    workspaceSource,
+    /management-workspace--composer[\s\S]*?grid-template-columns: minmax\(180px, 0\.8fr\) minmax\(220px, 1fr\) minmax\(0, 2fr\)/,
+  );
+  assert.match(
+    workspaceSource,
+    /@media \(max-width: 1180px\)[\s\S]*?management-workspace--composer[\s\S]*?grid-column: 1 \/ -1/,
+  );
   assert.match(workspaceSource, /min-width: 0/);
   assert.match(indexSource, /export \{ default as ManagementWorkspace \}/);
   assert.match(indexSource, /export \{ default as ManagementExplorerColumn \}/);

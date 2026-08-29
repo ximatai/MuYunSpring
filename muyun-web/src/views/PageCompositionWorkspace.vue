@@ -52,6 +52,7 @@ const metadataFields = ref<PageComposerField[]>([]);
 const page = ref<PageDefinition>();
 const variant = ref<PresentationVariant>();
 const revision = ref<PresentationRevision>();
+const publishedRevision = ref<PresentationRevision>();
 const selectedSlot = ref<PageComposerSlot>('list');
 const fieldKeyword = ref('');
 const selectedMetadataTreeKey = ref<string>();
@@ -86,6 +87,10 @@ const currentUiTreeJson = computed(() => JSON.stringify(state.toManagementUiTree
 const hasUnsavedChanges = computed(() =>
   Boolean(revision.value?.id && savedUiTreeJson.value !== currentUiTreeJson.value),
 );
+const isMutating = computed(() => saving.value || publishing.value);
+const unsavedChangeSummary = computed(() =>
+  hasUnsavedChanges.value ? summarizeUiTreeChanges(savedUiTreeJson.value, currentUiTreeJson.value) : [],
+);
 const propertyValidationMessage = computed(() => {
   if (state.selectedNode.value?.slot !== 'list') return undefined;
   const width = propertyDraft.value.width?.trim();
@@ -102,13 +107,33 @@ const mainEntityTitle = computed(() => relation.value?.relationAlias ?? '主实�
 const compositionSubtitle = computed(() => {
   if (!page.value) return '尚未初始化页面定义';
   if (!revision.value) return '尚无可编辑草稿';
-  return `草稿 v${revision.value.revisionNo} · Web 全局 · management v1`;
+  return `草稿 v${revision.value.revisionNo} · 最近发布 ${publishedRevision.value ? `v${publishedRevision.value.revisionNo}` : '无'}`;
 });
 const compositionHint = computed(() => {
   if (!page.value) return '初始化后即可从左侧字段投放到页面结构。';
   if (!revision.value) return '当前页面尚无草稿，初始化后即可开始编排。';
   return '调整页面结构与组件属性；保存草稿后，再发布到 Web 管理页。';
 });
+const pageContextItems = computed(() => [
+  {
+    label: '页面',
+    value: page.value ? (page.value.title ?? '管理页') : '未初始化',
+    detail: page.value?.alias ?? 'management',
+  },
+  { label: '呈现目标', value: 'Web · 全局', detail: variant.value?.title ?? '等待初始化' },
+  {
+    label: '模板',
+    value: revision.value?.templateAlias
+      ? `${revision.value.templateAlias} v${revision.value.templateVersion ?? 1}`
+      : 'management v1',
+    detail: '受模板契约约束',
+  },
+  {
+    label: '修订',
+    value: revision.value ? `草稿 v${revision.value.revisionNo}` : '尚无草稿',
+    detail: publishedRevision.value ? `最近发布 v${publishedRevision.value.revisionNo}` : '尚未发布',
+  },
+]);
 const metadataTreeNodes = computed<UiTreeNode[]>(() => [
   {
     key: 'metadata:root',
@@ -243,6 +268,7 @@ async function loadComposition() {
   page.value = undefined;
   variant.value = undefined;
   revision.value = undefined;
+  publishedRevision.value = undefined;
   state.replaceFields({ list: [], form: [] });
   savedUiTreeJson.value = undefined;
   try {
@@ -257,10 +283,16 @@ async function loadComposition() {
     ]);
     variant.value = variants[0];
     if (!variant.value?.id) return;
-    const revisions = await loadAllFromClient(revisionClient(variant.value.id), [
-      { fieldName: 'status', operator: 'EQ', values: [pageCompositionTransport.draftRevision] },
+    const [drafts, published] = await Promise.all([
+      loadAllFromClient(revisionClient(variant.value.id), [
+        { fieldName: 'status', operator: 'EQ', values: [pageCompositionTransport.draftRevision] },
+      ]),
+      loadAllFromClient(revisionClient(variant.value.id), [
+        { fieldName: 'status', operator: 'EQ', values: [pageCompositionTransport.publishedRevision] },
+      ]),
     ]);
-    revision.value = revisions.sort((left, right) => (right.revisionNo ?? 0) - (left.revisionNo ?? 0))[0];
+    revision.value = latestRevision(drafts);
+    publishedRevision.value = latestRevision(published);
     hydrateDraft(revision.value);
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
@@ -311,7 +343,7 @@ function hydrateDraft(current: PresentationRevision | undefined) {
 }
 
 async function initializeComposition() {
-  if (!relation.value?.id) return;
+  if (isMutating.value || !relation.value?.id) return;
   saving.value = true;
   try {
     if (!page.value) {
@@ -357,8 +389,9 @@ async function initializeComposition() {
   }
 }
 
-async function saveDraft(): Promise<boolean> {
-  if (!revision.value?.id || !variant.value?.id) return false;
+async function saveDraft(allowDuringPublish = false): Promise<boolean> {
+  if (saving.value || (!allowDuringPublish && publishing.value) || !revision.value?.id || !variant.value?.id)
+    return false;
   saving.value = true;
   try {
     revision.value = (
@@ -378,16 +411,16 @@ async function saveDraft(): Promise<boolean> {
 }
 
 async function publishDraft() {
-  if (!revision.value?.id) return;
+  if (isMutating.value || !revision.value?.id) return;
   const confirmed = await confirmAction({
     title: '发布页面修订',
-    content: '发布将校验 UI Tree，并将该修订确认为当前 Web 全局呈现。是否继续？',
+    content: `将发布“${page.value?.title ?? '管理页'}”的草稿 v${revision.value.revisionNo}，目标为 Web · 全局，模板为 ${revision.value.templateAlias ?? 'management'} v${revision.value.templateVersion ?? 1}。发布会先保存并校验页面结构，随后替换该目标当前的已发布修订。是否继续？`,
     okText: '确认发布',
   });
   if (!confirmed) return;
   publishing.value = true;
   try {
-    if (!(await saveDraft())) return;
+    if (!(await saveDraft(true))) return;
     const publishedTreeJson = JSON.stringify(state.toManagementUiTree());
     const publishedRevision = revision.value;
     await moduleContext.http.request<number>({
@@ -403,6 +436,18 @@ async function publishDraft() {
   }
 }
 
+async function discardUnsavedChanges() {
+  if (!revision.value || !hasUnsavedChanges.value || isMutating.value) return;
+  const confirmed = await confirmAction({
+    title: '放弃本次更改',
+    content: `将撤销当前草稿 v${revision.value.revisionNo} 尚未保存的本地调整，已保存的草稿内容不会受影响。是否继续？`,
+    okText: '放弃更改',
+  });
+  if (!confirmed || isMutating.value) return;
+  hydrateDraft(revision.value);
+  propertyDrawerOpen.value = false;
+}
+
 /** Keeps a stable editable working copy after an immutable revision becomes published. */
 async function createFollowUpDraft(publishedRevision: PresentationRevision, uiTreeJson: string) {
   if (!variant.value?.id) return;
@@ -416,6 +461,71 @@ async function createFollowUpDraft(publishedRevision: PresentationRevision, uiTr
     title: `基于 v${publishedRevision.revisionNo ?? 1} 的草稿`,
     enabled: true,
   });
+}
+
+function latestRevision(revisions: PresentationRevision[]) {
+  return [...revisions].sort((left, right) => (right.revisionNo ?? 0) - (left.revisionNo ?? 0))[0];
+}
+
+type PersistedUiField = { field: string; props?: PageComposerFieldProperties };
+type PersistedUiTree = {
+  nodes?: Array<{ slot?: PageComposerSlot; fields?: Array<string | PersistedUiField> }>;
+};
+
+function summarizeUiTreeChanges(savedTreeJson: string | undefined, currentTreeJson: string) {
+  const saved = parsePersistedUiTree(savedTreeJson);
+  const current = parsePersistedUiTree(currentTreeJson);
+  const changes: string[] = [];
+  let added = 0;
+  let removed = 0;
+  let propertiesChanged = 0;
+  let reordered = false;
+  for (const slot of ['list', 'form'] as PageComposerSlot[]) {
+    const savedFields = saved.get(slot) ?? [];
+    const currentFields = current.get(slot) ?? [];
+    const savedByName = new Map(savedFields.map((field) => [field.field, field]));
+    const currentByName = new Map(currentFields.map((field) => [field.field, field]));
+    added += currentFields.filter((field) => !savedByName.has(field.field)).length;
+    removed += savedFields.filter((field) => !currentByName.has(field.field)).length;
+    propertiesChanged += currentFields.filter(
+      (field) =>
+        savedByName.has(field.field) &&
+        JSON.stringify(savedByName.get(field.field)?.props ?? {}) !== JSON.stringify(field.props ?? {}),
+    ).length;
+    if (
+      savedFields.length === currentFields.length &&
+      savedFields.map((field) => field.field).join('|') !==
+        currentFields.map((field) => field.field).join('|')
+    ) {
+      reordered = true;
+    }
+  }
+  if (added) changes.push(`新增 ${added} 个字段`);
+  if (removed) changes.push(`移除 ${removed} 个字段`);
+  if (reordered) changes.push('调整字段顺序');
+  if (propertiesChanged) changes.push(`修改 ${propertiesChanged} 项展示属性`);
+  return changes.length ? changes : ['调整页面结构'];
+}
+
+function parsePersistedUiTree(treeJson: string | undefined) {
+  const fieldsBySlot = new Map<PageComposerSlot, PersistedUiField[]>();
+  if (!treeJson) return fieldsBySlot;
+  try {
+    const tree = JSON.parse(treeJson) as PersistedUiTree;
+    for (const slot of ['list', 'form'] as PageComposerSlot[]) {
+      const fields = tree.nodes?.find((node) => node.slot === slot)?.fields ?? [];
+      fieldsBySlot.set(
+        slot,
+        fields.flatMap((entry) => {
+          const field = typeof entry === 'string' ? entry : entry.field;
+          return field ? [{ field, props: typeof entry === 'string' ? undefined : entry.props }] : [];
+        }),
+      );
+    }
+  } catch {
+    // A malformed persisted draft is still recoverable through the editor's empty local state.
+  }
+  return fieldsBySlot;
 }
 
 async function loadAll<T>(path: string): Promise<T[]> {
@@ -618,7 +728,7 @@ function applyPropertyDraft() {
 </script>
 
 <template>
-  <ManagementWorkspace class="page-composition-workspace" :explorer-count="2">
+  <ManagementWorkspace class="page-composition-workspace" layout="composer" :explorer-count="2">
     <ManagementExplorerColumn>
       <RecordExplorerPanel
         v-model:search-keyword="fieldKeyword"
@@ -697,18 +807,36 @@ function applyPropertyDraft() {
           <UiButton
             v-if="!revision"
             :loading="saving"
+            :disabled="isMutating || !relation"
             type="primary"
-            :disabled="!relation"
             @click="initializeComposition"
           >
             初始化页面
           </UiButton>
           <template v-else>
-            <UiButton :loading="saving" @click="saveDraft">保存草稿</UiButton>
-            <UiButton type="primary" :loading="publishing" @click="publishDraft">发布</UiButton>
+            <UiButton
+              :loading="saving"
+              :disabled="isMutating || !hasUnsavedChanges"
+              @click="() => void saveDraft()"
+            >
+              保存草稿
+            </UiButton>
+            <UiButton v-if="hasUnsavedChanges" :disabled="isMutating" @click="discardUnsavedChanges">
+              放弃本次更改
+            </UiButton>
+            <UiButton type="primary" :loading="publishing" :disabled="isMutating" @click="publishDraft">
+              发布草稿
+            </UiButton>
           </template>
         </div>
       </template>
+      <section class="page-composition-context" aria-label="当前页面编排上下文">
+        <div v-for="item in pageContextItems" :key="item.label" class="page-composition-context__item">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+          <small>{{ item.detail }}</small>
+        </div>
+      </section>
       <div
         v-if="revision"
         class="page-composition-status"
@@ -716,6 +844,9 @@ function applyPropertyDraft() {
       >
         {{ hasUnsavedChanges ? '未保存更改' : '草稿已保存' }}
       </div>
+      <p v-if="hasUnsavedChanges" class="page-composition-change-summary">
+        本次更改：{{ unsavedChangeSummary.join(' · ') }}
+      </p>
       <p class="page-composition-notice">{{ compositionHint }}</p>
       <UiTabs v-model:active-key="state.previewMode.value" :tabs="previewTabs" />
       <section
@@ -953,6 +1084,35 @@ function applyPropertyDraft() {
   justify-content: flex-end;
   gap: 8px;
 }
+.page-composition-context {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.page-composition-context__item {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--muyun-border-subtle);
+  border-radius: 6px;
+  background: var(--muyun-surface-muted);
+}
+.page-composition-context__item > span,
+.page-composition-context__item > small {
+  overflow: hidden;
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-composition-context__item > strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .page-composition-notice {
   margin-bottom: 12px;
 }
@@ -971,6 +1131,12 @@ function applyPropertyDraft() {
 .page-composition-status--dirty {
   background: var(--muyun-warning-surface, var(--muyun-surface-muted));
   color: var(--muyun-warning-text, var(--muyun-text));
+}
+.page-composition-change-summary {
+  margin: 0 0 6px;
+  color: var(--muyun-warning-text, var(--muyun-text-muted));
+  font-size: 12px;
+  line-height: 1.5;
 }
 .preview-surface {
   margin-top: 12px;
@@ -1131,17 +1297,8 @@ function applyPropertyDraft() {
 }
 
 @media (max-width: 1180px) {
-  .page-composition-workspace :deep(.management-workspace__grid) {
-    grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(0, 2fr);
-    gap: 8px;
-  }
-
-  .page-composition-workspace :deep(.management-panel-header) {
-    align-items: flex-start;
-  }
-
-  .page-composition-workspace :deep(.management-panel-header-actions) {
-    flex-wrap: wrap;
+  .page-composition-context {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

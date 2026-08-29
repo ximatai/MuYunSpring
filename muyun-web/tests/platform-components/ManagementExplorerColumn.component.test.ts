@@ -28,6 +28,18 @@ const WorkspaceHarness = defineComponent({
 describe('ManagementExplorerColumn', () => {
   afterEach(() => vi.useRealTimers());
 
+  it('exposes the composer layout preset without changing its explorer registration contract', () => {
+    const wrapper = mount(ManagementWorkspace, {
+      props: { layout: 'composer', explorerCount: 2 },
+      slots: { default: '<aside>元数据</aside><aside>UI Tree</aside><main>预览</main>' },
+    });
+
+    expect(wrapper.classes()).toContain('management-workspace--composer');
+    expect(wrapper.find('.management-workspace__grid').attributes('style')).toContain(
+      '--muyun-management-explorer-count: 2',
+    );
+  });
+
   it('releases a collapsed micro list into the left rail and restores it from its dedicated expand action', async () => {
     vi.useFakeTimers();
     const wrapper = mount(WorkspaceHarness);

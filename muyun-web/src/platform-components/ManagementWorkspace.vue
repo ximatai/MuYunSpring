@@ -15,6 +15,8 @@ defineOptions({ name: 'ManagementWorkspace' });
 
 const props = withDefaults(
   defineProps<{
+    /** Stable workspace geometry for specialized platform workbenches. */
+    layout?: 'default' | 'composer';
     /** Number of explorer columns shown before the detail workspace. */
     explorerCount?: number;
     /** Whether the final workspace is a list plus an independently sized detail surface. */
@@ -23,6 +25,7 @@ const props = withDefaults(
     listSurface?: boolean;
   }>(),
   {
+    layout: 'default',
     explorerCount: 1,
     detailSurface: false,
     listSurface: false,
@@ -94,6 +97,7 @@ const pageLayout = usePageLayout();
     class="management-workspace"
     :class="{
       'management-workspace--constrained': pageLayout === 'workspace',
+      'management-workspace--composer': layout === 'composer',
       'management-workspace--detail-surface': detailSurface,
       'management-workspace--list-surface': listSurface,
       'management-workspace--without-explorer': !hasExplorer,
@@ -198,6 +202,40 @@ const pageLayout = usePageLayout();
   grid-template-columns:
     minmax(var(--muyun-management-list-min-width), 1fr)
     minmax(var(--muyun-management-detail-min-width), var(--muyun-management-detail-preferred-width));
+}
+
+/* Page composers are three coordinated work areas rather than the standard
+   explorer/list/detail relationship. Keep the content canvas flexible: it is
+   the primary editing surface and must never be forced outside a workbench. */
+.management-workspace--composer .management-workspace__grid {
+  grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(0, 2fr);
+}
+
+.management-workspace--composer .management-workspace__grid > :nth-child(3) {
+  min-width: 0;
+}
+
+@media (max-width: 1180px) {
+  .management-workspace--composer .management-workspace__grid {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    grid-template-rows: minmax(160px, 0.75fr) minmax(0, 1.25fr);
+    gap: 8px;
+  }
+
+  .management-workspace--composer .management-workspace__grid > :nth-child(3) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .management-workspace--composer .management-workspace__grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(120px, 0.45fr) minmax(120px, 0.55fr) minmax(0, 1.2fr);
+  }
+
+  .management-workspace--composer .management-workspace__grid > :nth-child(3) {
+    grid-column: auto;
+  }
 }
 
 /* Keep an explorer and its list usable inside a narrow workbench pane.  The

@@ -4,4 +4,5 @@ export const pageCompositionTransport = {
   webClient: 'web',
   globalScope: 'global',
   draftRevision: 'draft',
+  publishedRevision: 'published',
 } as const;
