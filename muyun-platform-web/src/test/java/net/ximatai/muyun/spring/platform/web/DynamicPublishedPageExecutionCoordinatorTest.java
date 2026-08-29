@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.List;
 import java.util.Optional;
@@ -8,9 +9,22 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class DynamicPublishedPageExecutionCoordinatorTest {
+    @Test
+    void shouldDeferRuntimeContextResolutionUntilPublicationChanges() {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<PlatformModuleRuntimeContextService> runtimeContexts = mock(ObjectProvider.class);
+        ModuleExecutionPlanCatalog planCatalog = new ModuleExecutionPlanCatalog(
+                new StaticModuleDefinitionCatalog(List.of()), new ListQuerySummaryContributorCatalog(List.of()));
+
+        new DynamicPublishedPageExecutionCoordinator(runtimeContexts, planCatalog);
+
+        verifyNoInteractions(runtimeContexts);
+    }
+
     @Test
     void shouldRemoveInstalledPlanWhenTheEffectivePublishedPageNoLongerResolves() {
         String moduleAlias = "iam.user";
