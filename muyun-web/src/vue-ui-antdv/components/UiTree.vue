@@ -311,7 +311,9 @@ function handleExternalDragOver(nativeEvent: DragEvent) {
   const target = externalDropTarget(nativeEvent);
   if (target && (props.allowExternalDrop?.(target) ?? false)) {
     nativeEvent.preventDefault();
-    nativeEvent.dataTransfer && (nativeEvent.dataTransfer.dropEffect = 'copy');
+    if (nativeEvent.dataTransfer) {
+      nativeEvent.dataTransfer.dropEffect = 'copy';
+    }
   }
 }
 
