@@ -30,6 +30,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionAvailability;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
@@ -76,6 +77,26 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PlatformModuleRuntimeContextServiceTest {
+    @Test
+    void shouldExcludePlatformDynamicModulesWithoutAnInstalledRuntimeFromStartupPlans() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
+        when(moduleService.listVisibleModules()).thenReturn(List.of(
+                module("education.exam", "考试管理", ModuleKind.DYNAMIC),
+                module("sales.contract", "合同", ModuleKind.DYNAMIC),
+                module("iam.organization", "组织管理", ModuleKind.STATIC)
+        ));
+        when(dynamicRecordService.describe("education.exam"))
+                .thenThrow(new ModuleDefinitionException("unknown module alias: education.exam"));
+        when(dynamicRecordService.describe("sales.contract")).thenReturn(new DynamicModuleDescriptor(
+                "sales.contract", "合同", "contract", List.of(), List.of(), List.of(), List.of(), List.of()));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, mock(PlatformModuleActionService.class), new StaticModuleDefinitionCatalog(List.of()),
+                dynamicRecordService, null, null, allowAllPolicy());
+
+        assertThat(service.dynamicModuleAliases()).containsExactly("sales.contract");
+    }
+
     @Test
     void shouldCompilePublishedPageRevisionIntoDynamicExecutionPlanBeforeLegacyUiSnapshot() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);

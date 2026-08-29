@@ -32,6 +32,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
@@ -478,7 +479,22 @@ public class PlatformModuleRuntimeContextService {
         return moduleService.listVisibleModules().stream()
                 .filter(module -> module.getModuleKind() == ModuleKind.DYNAMIC)
                 .map(PlatformModule::getAlias)
+                .filter(this::hasInstalledDynamicRuntime)
                 .toList();
+    }
+
+    /** Keeps a stale platform-module row from preventing the whole runtime from starting. */
+    private boolean hasInstalledDynamicRuntime(String moduleAlias) {
+        if (dynamicRecordService == null) return false;
+        try {
+            dynamicRecordService.describe(moduleAlias);
+            return true;
+        } catch (ModuleDefinitionException exception) {
+            if (exception.getMessage() != null && exception.getMessage().startsWith("unknown module alias:")) {
+                return false;
+            }
+            throw exception;
+        }
     }
 
     private static int uiSnapshotVersion(PlatformPageConfigSnapshot snapshot) {
