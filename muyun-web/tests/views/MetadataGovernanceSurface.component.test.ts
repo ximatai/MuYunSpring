@@ -82,7 +82,32 @@ it('keeps child capabilities non-interactive and exposes the backend restriction
   expect(wrapper.text()).toContain('子实体不能启用该模块保留能力。');
 });
 
-function responseFor(options: HttpRequestOptions, relationRole: 'MAIN' | 'CHILD' = 'MAIN') {
+it('treats the runtime lower-case main role as editable', async () => {
+  configureModuleContext({ http: fakeHttp('main') });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  const editButton = wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((item) => item.text().includes('编辑数据模型'));
+  await editButton?.trigger('click');
+  await flushPromises();
+
+  const checkbox = wrapper
+    .findAll('[data-testid="capability-checkbox"]')
+    .find((item) => item.text().includes('树结构'));
+  expect(checkbox?.attributes('data-disabled')).toBe('false');
+});
+
+function responseFor(
+  options: HttpRequestOptions,
+  relationRole: 'main' | 'child' | 'MAIN' | 'CHILD' = 'MAIN',
+) {
   if (options.path === '/platform.module/platform.module/context') {
     return { moduleAlias: 'platform.module', capabilities: [], actions: [] };
   }
@@ -113,7 +138,10 @@ function responseFor(options: HttpRequestOptions, relationRole: 'MAIN' | 'CHILD'
           capability: 'TREE',
           enabled: false,
           configurable: true,
-          reason: relationRole === 'CHILD' ? '子实体不能启用该模块保留能力。' : '能力由已保存字段事实推导。',
+          reason:
+            relationRole === 'CHILD' || relationRole === 'child'
+              ? '子实体不能启用该模块保留能力。'
+              : '能力由已保存字段事实推导。',
           fieldContributions: ['parentId'],
           defaultKind: 'RUNTIME',
           defaultDescription: '运行态写入根节点。',
@@ -146,7 +174,7 @@ function governanceStubs() {
   };
 }
 
-function fakeHttp(relationRole: 'MAIN' | 'CHILD' = 'MAIN'): HttpClient {
+function fakeHttp(relationRole: 'main' | 'child' | 'MAIN' | 'CHILD' = 'MAIN'): HttpClient {
   return {
     request: <T>(options: HttpRequestOptions) => Promise.resolve(responseFor(options, relationRole) as T),
   };
