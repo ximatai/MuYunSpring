@@ -467,7 +467,12 @@ class PlatformPageCompositionDomainContractTest {
     }
 
     private String validManagementTree() {
-        return "{\"template\":\"management\",\"templateVersion\":1,\"nodes\":[]}";
+        return """
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":[]},
+                  {"slot":"form","title":"详情 / 表单","fields":[]}
+                ]}
+                """;
     }
 
     private PlatformPresentationRevision revisionUpdate(PlatformPresentationRevision source) {

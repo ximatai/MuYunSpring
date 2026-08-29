@@ -61,6 +61,30 @@ class PageRevisionModuleUiDefinitionAdapterTest {
     }
 
     @Test
+    void shouldCompilePersistedPageNodePropertiesWithoutChangingMetadataFields() {
+        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"考试","fields":[
+                    {"field":"title","props":{"label":"考试名称","width":"180px","align":"center"}}
+                  ]},
+                  {"slot":"form","title":"编辑考试","fields":[
+                    {"field":"title","props":{"label":"名称","columnSpan":2,"readOnly":true}}
+                  ]}
+                ]}
+                """), List.of("title"));
+
+        ListDetailCardPageDefinition page = (ListDetailCardPageDefinition) definition.page();
+        ViewFieldDefinition list = page.list().list().fields().getFirst();
+        assertThat(list.label()).isEqualTo("考试名称");
+        assertThat(list.width()).isEqualTo("180px");
+        assertThat(list.align()).isEqualTo("center");
+        ViewFieldDefinition form = page.detail().editor().fields().getFirst();
+        assertThat(form.label()).isEqualTo("名称");
+        assertThat(form.columnSpan()).isEqualTo(2);
+        assertThat(form.readOnly().constant()).isTrue();
+    }
+
+    @Test
     void shouldRejectMissingRequiredSlotsAndUnpublishedRevisions() {
         assertThatThrownBy(() -> PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
                 {"template":"management","templateVersion":1,"nodes":[

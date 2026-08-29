@@ -4,6 +4,7 @@ import { RecordDetailPanel, RecordRelationTabs } from '@muyun/platform-component
 import { UiEmpty } from '@muyun/vue-ui-antdv';
 import MetadataOrchestrationView from './MetadataOrchestrationView.vue';
 import PageCompositionWorkspace from './PageCompositionWorkspace.vue';
+import PageCompositionRuntimeDiagnostics from './PageCompositionRuntimeDiagnostics.vue';
 import { moduleGovernanceTabs, type ModuleGovernanceTab } from './moduleGovernanceWorkspaceView';
 
 defineOptions({ name: 'ModuleGovernanceView' });
@@ -59,6 +60,12 @@ function selectTab(key: string) {
     />
     <PageCompositionWorkspace
       v-else-if="activeTab === 'ui'"
+      class="module-governance__surface"
+      :module-alias="moduleAlias"
+      :module-title="moduleTitle"
+    />
+    <PageCompositionRuntimeDiagnostics
+      v-else-if="activeTab === 'diagnostics'"
       class="module-governance__surface"
       :module-alias="moduleAlias"
       :module-title="moduleTitle"

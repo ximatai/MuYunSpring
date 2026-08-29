@@ -9,6 +9,16 @@ export interface PageComposerField {
   fieldName: string;
   fieldSpecAlias?: string;
   required?: boolean;
+  /** Page-node presentation only; metadata field facts are never copied or edited here. */
+  properties?: PageComposerFieldProperties;
+}
+
+export interface PageComposerFieldProperties {
+  label?: string;
+  width?: string;
+  align?: 'left' | 'center' | 'right';
+  columnSpan?: 1 | 2;
+  readOnly?: boolean;
 }
 
 export interface PageComposerNode {
@@ -25,7 +35,7 @@ export interface ManagementUiTree {
   nodes: Array<{
     slot: PageComposerSlot;
     title: string;
-    fields: string[];
+    fields: Array<string | { field: string; props: PageComposerFieldProperties }>;
   }>;
 }
 
@@ -68,7 +78,7 @@ export function createPageCompositionDraftState() {
     const target = slot === 'list' ? listFields : formFields;
     if (!target.value.some((candidate) => candidate.id === field.id)) {
       const next = [...target.value];
-      next.splice(Math.max(0, Math.min(targetIndex ?? next.length, next.length)), 0, field);
+      next.splice(Math.max(0, Math.min(targetIndex ?? next.length, next.length)), 0, placedField(field));
       target.value = next;
     }
     selectedNodeId.value = `${slot}:${field.id}`;
@@ -124,6 +134,18 @@ export function createPageCompositionDraftState() {
     previewMode.value = node.slot === 'list' ? 'list' : 'detail';
   }
 
+  /** Updates only the selected page-node properties; source metadata remains immutable in this workspace. */
+  function updateSelectedFieldProperties(properties: PageComposerFieldProperties) {
+    const node = selectedNode.value;
+    if (!node?.field) return;
+    const target = node.slot === 'list' ? listFields : formFields;
+    const index = target.value.findIndex((field) => field.id === node.field?.id);
+    if (index < 0) return;
+    const next = [...target.value];
+    next[index] = { ...next[index], properties: compactProperties(properties) };
+    target.value = next;
+  }
+
   /** Rehydrates the editor from the persisted template contract, not the legacy UI-set aggregate. */
   function replaceFields(next: { list: PageComposerField[]; form: PageComposerField[] }) {
     listFields.value = [...next.list];
@@ -139,12 +161,12 @@ export function createPageCompositionDraftState() {
         {
           slot: 'list',
           title: titles?.list ?? '列表',
-          fields: listFields.value.map((field) => field.fieldName),
+          fields: listFields.value.map(toPersistedField),
         },
         {
           slot: 'form',
           title: titles?.form ?? '详情 / 表单',
-          fields: formFields.value.map((field) => field.fieldName),
+          fields: formFields.value.map(toPersistedField),
         },
       ],
     };
@@ -163,7 +185,26 @@ export function createPageCompositionDraftState() {
     moveSelectedField,
     moveField,
     selectNode,
+    updateSelectedFieldProperties,
     replaceFields,
     toManagementUiTree,
   };
+}
+
+function placedField(field: PageComposerField): PageComposerField {
+  return { ...field, properties: field.properties ? { ...field.properties } : undefined };
+}
+
+function compactProperties(properties: PageComposerFieldProperties): PageComposerFieldProperties | undefined {
+  const compact = Object.fromEntries(
+    Object.entries(properties).filter(([, value]) => value !== undefined && value !== '' && value !== false),
+  ) as PageComposerFieldProperties;
+  return Object.keys(compact).length ? compact : undefined;
+}
+
+function toPersistedField(
+  field: PageComposerField,
+): string | { field: string; props: PageComposerFieldProperties } {
+  const properties = compactProperties(field.properties ?? {});
+  return properties ? { field: field.fieldName, props: properties } : field.fieldName;
 }
