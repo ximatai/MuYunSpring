@@ -60,6 +60,22 @@ class DynamicModuleRuntimeRefresherTest {
     }
 
     @Test
+    void shouldActivateAlreadyEnsuredModuleWithoutDdlOrRefreshEvent() {
+        RecordingSchemaService schemaService = new RecordingSchemaService(false);
+        CollectingRuntimeEventPublisher events = new CollectingRuntimeEventPublisher();
+        DynamicRecordRuntime runtime = runtime(events);
+        DynamicModuleRuntimeRefresher refresher = new DynamicModuleRuntimeRefresher(schemaService, runtime);
+
+        DynamicModuleRefreshResult result = refresher.activateNow(contractModule());
+
+        assertThat(result.migrations()).isEmpty();
+        assertThat(schemaService.ensuredEntities).isEmpty();
+        assertThat(events.events()).isEmpty();
+        assertThat(runtime.registry().requireEntity("sales.contract", "contract").tableName())
+                .isEqualTo("app_contract");
+    }
+
+    @Test
     void shouldEmitModuleRefreshEventAfterRuntimeRefresh() {
         RecordingSchemaService schemaService = new RecordingSchemaService(false);
         CollectingRuntimeEventPublisher events = new CollectingRuntimeEventPublisher();

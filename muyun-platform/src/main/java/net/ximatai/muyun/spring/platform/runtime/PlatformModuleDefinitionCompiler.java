@@ -26,6 +26,8 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceFilterDefinition
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionValidator;
 import net.ximatai.muyun.spring.platform.metadata.Metadata;
+import net.ximatai.muyun.spring.platform.metadata.MetadataCapabilityCatalog;
+import net.ximatai.muyun.spring.platform.metadata.MetadataCapabilityResolution;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldDefinitionCompiler;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfig;
@@ -236,16 +238,17 @@ public class PlatformModuleDefinitionCompiler {
     private EntityDefinition entity(ModuleMetadataRelation relation,
                                     Metadata metadata,
                                     List<ModuleMetadataRelation> relations) {
-        List<FieldDefinition> fields = fields(metadata.getId(), relation.getId());
+        List<MetadataField> metadataFields = metadataFields(metadata.getId());
+        MetadataCapabilityResolution capabilityResolution = MetadataCapabilityCatalog.resolve(metadata,
+                relation.getRelationRole(), metadataFields);
+        List<FieldDefinition> fields = MetadataCapabilityCatalog.mergeDeclaredMetadataFields(capabilityResolution,
+                fields(metadataFields, relation.getId()));
         if (relation.getRelationRole() == RelationRole.CHILD) {
             ModuleMetadataCapabilityPolicy.validateChildDefinition(metadata, fields);
         }
-        EnumSet<EntityCapability> capabilities = capabilities(relation, fields);
+        EnumSet<EntityCapability> capabilities = capabilities(metadata, capabilityResolution, fields);
         if (relations.stream().anyMatch(child -> metadata.getId().equals(child.getParentMetadataId()))) {
             capabilities.add(EntityCapability.CHILD_RELATION);
-        }
-        if (relation.getRelationRole() == RelationRole.MAIN && Boolean.TRUE.equals(metadata.getDataScopeEnabled())) {
-            capabilities.add(EntityCapability.DATA_SCOPE);
         }
         return new EntityDefinition(metadata.getAlias(),
                 metadata.getSchemaName(),
@@ -264,8 +267,7 @@ public class PlatformModuleDefinitionCompiler {
                 .toList();
     }
 
-    private List<FieldDefinition> fields(String metadataId, String relationId) {
-        List<MetadataField> metadataFields = metadataFields(metadataId);
+    private List<FieldDefinition> fields(List<MetadataField> metadataFields, String relationId) {
         if (moduleFieldService != null) {
             List<ModuleMetadataField> moduleFields = moduleFieldService.listByRelationId(relationId);
             if (!moduleFields.isEmpty()) {
@@ -304,27 +306,20 @@ public class PlatformModuleDefinitionCompiler {
                 );
     }
 
-    private EnumSet<EntityCapability> capabilities(ModuleMetadataRelation relation, List<FieldDefinition> fields) {
+    private EnumSet<EntityCapability> capabilities(Metadata metadata, MetadataCapabilityResolution capabilityResolution,
+                                                    List<FieldDefinition> fields) {
         EnumSet<EntityCapability> capabilities = EnumSet.noneOf(EntityCapability.class);
         capabilities.add(EntityCapability.CRUD);
         for (FieldDefinition field : fields) {
-            if (PlatformAbilityFields.TREE_PARENT_FIELD.equals(field.fieldName())) {
-                capabilities.add(EntityCapability.TREE);
-            }
-            if (field.isSortable()) {
-                capabilities.add(EntityCapability.SORT);
-            }
             if (field.isTitle()) {
                 capabilities.add(EntityCapability.REFERENCE);
-            }
-            if (PlatformAbilityFields.ENABLED_FIELD.equals(field.fieldName())
-                    || PlatformAbilityFields.ENABLED_COLUMN.equals(field.columnName())) {
-                capabilities.add(EntityCapability.ENABLE);
             }
             if (isApprovalField(field)) {
                 capabilities.add(EntityCapability.APPROVAL);
             }
         }
+        capabilities.addAll(capabilityResolution.capabilities());
+        if (Boolean.TRUE.equals(metadata.getDataScopeEnabled())) capabilities.add(EntityCapability.DATA_SCOPE);
         return capabilities;
     }
 

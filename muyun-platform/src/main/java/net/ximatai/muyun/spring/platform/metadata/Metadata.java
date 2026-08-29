@@ -35,4 +35,12 @@ public class Metadata extends StandardEnabledSortableEntity {
 
     @Column(name = "sort_partition_fields", type = ColumnType.JSON_SET, comment = "Sort partition fields")
     private Set<String> sortPartitionFields;
+
+    /**
+     * Explicit dynamic capability declarations. A null value deliberately means a legacy metadata
+     * record whose capabilities are still inferred from its saved fields.
+     */
+    @Column(name = "capability_declarations", type = ColumnType.JSON_SET,
+            comment = "Explicit dynamic capability declarations")
+    private Set<String> capabilityDeclarations;
 }

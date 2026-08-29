@@ -4,6 +4,9 @@ import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunReposito
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.schema.DynamicSchemaService;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,15 +15,19 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(classes = FieldSpecRepositoryIT.TestApplication.class)
 class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
@@ -31,10 +38,17 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
     }
 
     private final FieldSpecService fieldTypeService;
+    private final MetadataService metadataService;
+    private final DataSource dataSource;
+    private final MetadataSchemaTransactionProbe transactionProbe;
 
     @Autowired
-    FieldSpecRepositoryIT(FieldSpecService fieldTypeService) {
+    FieldSpecRepositoryIT(FieldSpecService fieldTypeService, MetadataService metadataService, DataSource dataSource,
+                          MetadataSchemaTransactionProbe transactionProbe) {
         this.fieldTypeService = fieldTypeService;
+        this.metadataService = metadataService;
+        this.dataSource = dataSource;
+        this.transactionProbe = transactionProbe;
     }
 
     @Test
@@ -97,6 +111,29 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
                 .containsExactlyInAnyOrder(stringType.getAlias(), dateType.getAlias());
     }
 
+    @Test
+    void shouldRollbackMetadataDaoAndDynamicDdlInOneSpringTransaction() throws Exception {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String alias = "tx_" + suffix;
+        String tableName = "app_metadata_tx_" + suffix;
+        assertThatThrownBy(() -> transactionProbe.insertMetadataEnsureTableThenFail(metadataService,
+                new EntityDefinition(alias, tableName, "Tx", List.of(FieldDefinition.string("code", "Code")))))
+                .isInstanceOf(RuntimeException.class).hasMessageContaining("rollback metadata schema transaction");
+
+        assertThat(metadataService.count(Criteria.of().eq("alias", alias))).isZero();
+        try (Connection connection = dataSource.getConnection();
+             java.sql.PreparedStatement statement = connection.prepareStatement("""
+                     select count(*) from information_schema.tables
+                     where table_schema = 'public' and table_name = ?
+                     """)) {
+            statement.setString(1, tableName);
+            try (java.sql.ResultSet result = statement.executeQuery()) {
+                result.next();
+                assertThat(result.getInt(1)).isZero();
+            }
+        }
+    }
+
     private FieldSpec fieldType(String alias,
                                         FieldType fieldType,
                                         Set<String> queryOperators,
@@ -113,7 +150,8 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    @EnableMuYunRepositories(basePackageClasses = FieldSpecDao.class)
+    @EnableTransactionManagement
+    @EnableMuYunRepositories(basePackageClasses = {FieldSpecDao.class, MetadataDao.class})
     static class TestApplication {
         @Bean
         DataSource dataSource() {
@@ -128,6 +166,42 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
         @Bean
         FieldSpecService fieldTypeService(FieldSpecDao fieldTypeDao) {
             return new FieldSpecService(fieldTypeDao);
+        }
+
+        @Bean
+        MetadataService metadataService(MetadataDao metadataDao) {
+            return new MetadataService(metadataDao);
+        }
+
+        @Bean
+        DynamicSchemaService dynamicSchemaService(net.ximatai.muyun.database.core.IDatabaseOperations<?> operations) {
+            return new DynamicSchemaService(operations);
+        }
+
+        @Bean
+        MetadataSchemaTransactionProbe metadataSchemaTransactionProbe(DynamicSchemaService schemaService) {
+            return new MetadataSchemaTransactionProbe(schemaService);
+        }
+    }
+
+    static class MetadataSchemaTransactionProbe {
+        private final DynamicSchemaService schemaService;
+
+        MetadataSchemaTransactionProbe(DynamicSchemaService schemaService) {
+            this.schemaService = schemaService;
+        }
+
+        @Transactional
+        public void insertMetadataEnsureTableThenFail(MetadataService metadataService, EntityDefinition entity) {
+            Metadata metadata = new Metadata();
+            metadata.setApplicationAlias("crm");
+            metadata.setAlias(entity.alias());
+            metadata.setTitle(entity.name());
+            metadata.setSchemaName(entity.schemaName());
+            metadata.setTableName(entity.tableName());
+            metadataService.insert(metadata);
+            schemaService.ensureTable(entity);
+            throw new RuntimeException("rollback metadata schema transaction");
         }
     }
 }

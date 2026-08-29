@@ -43,54 +43,45 @@ public class PlatformMetadataEntityDefinitionCompiler {
         if (metadata == null || metadata.getId() == null || metadata.getId().isBlank()) {
             throw new PlatformException("Metadata schema ensure requires persisted metadata");
         }
-        List<FieldDefinition> fields = fields(metadata.getId());
+        List<MetadataField> metadataFields = metadataFields(metadata.getId());
+        List<FieldDefinition> compiledFields = metadataFields.stream().map(fieldDefinitionCompiler::compile).toList();
+        MetadataCapabilityResolution capabilityResolution = MetadataCapabilityCatalog.resolve(metadata, RelationRole.MAIN,
+                metadataFields);
+        List<FieldDefinition> fields = MetadataCapabilityCatalog.mergeDeclaredMetadataFields(capabilityResolution, compiledFields);
         return new EntityDefinition(
                 metadata.getAlias(),
                 metadata.getSchemaName(),
                 metadata.getTableName(),
                 metadata.getTitle(),
                 fields,
-                capabilities(metadata, fields),
+                capabilities(metadata, capabilityResolution, fields),
                 List.of(),
                 List.of(),
                 metadata.getSortPartitionFields() == null ? List.of() : List.copyOf(metadata.getSortPartitionFields())
         );
     }
 
-    private List<FieldDefinition> fields(String metadataId) {
+    private List<MetadataField> metadataFields(String metadataId) {
         return fieldService.list(
                         Criteria.of().eq("metadataId", metadataId),
                         ALL,
                         Sort.asc(PlatformAbilityFields.SORT_FIELD)
-                )
-                .stream()
-                .map(fieldDefinitionCompiler::compile)
-                .toList();
+                );
     }
 
-    private EnumSet<EntityCapability> capabilities(Metadata metadata, List<FieldDefinition> fields) {
+    private EnumSet<EntityCapability> capabilities(Metadata metadata, MetadataCapabilityResolution capabilityResolution,
+                                                    List<FieldDefinition> fields) {
         EnumSet<EntityCapability> capabilities = EnumSet.of(EntityCapability.CRUD);
         for (FieldDefinition field : fields) {
-            if (PlatformAbilityFields.TREE_PARENT_FIELD.equals(field.fieldName())) {
-                capabilities.add(EntityCapability.TREE);
-            }
-            if (field.isSortable()) {
-                capabilities.add(EntityCapability.SORT);
-            }
             if (field.isTitle()) {
                 capabilities.add(EntityCapability.REFERENCE);
-            }
-            if (PlatformAbilityFields.ENABLED_FIELD.equals(field.fieldName())
-                    || PlatformAbilityFields.ENABLED_COLUMN.equals(field.columnName())) {
-                capabilities.add(EntityCapability.ENABLE);
             }
             if (isApprovalField(field)) {
                 capabilities.add(EntityCapability.APPROVAL);
             }
         }
-        if (Boolean.TRUE.equals(metadata.getDataScopeEnabled())) {
-            capabilities.add(EntityCapability.DATA_SCOPE);
-        }
+        capabilities.addAll(capabilityResolution.capabilities());
+        if (Boolean.TRUE.equals(metadata.getDataScopeEnabled())) capabilities.add(EntityCapability.DATA_SCOPE);
         return capabilities;
     }
 

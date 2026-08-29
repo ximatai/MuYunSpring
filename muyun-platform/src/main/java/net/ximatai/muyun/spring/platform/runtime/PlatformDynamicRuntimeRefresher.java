@@ -29,6 +29,11 @@ public class PlatformDynamicRuntimeRefresher {
         return refresh(moduleAlias, MigrationOptions.dryRun());
     }
 
+    /** Activates a module after its schema was ensured by an enclosing configuration release. */
+    public DynamicModuleRefreshResult activateNow(String moduleAlias) {
+        return refresher.activateNow(compiler.compile(moduleAlias));
+    }
+
     public DynamicModuleRefreshResult refresh(String moduleAlias, MigrationOptions options) {
         ModuleDefinition definition = compiler.compile(moduleAlias);
         return refresher.refresh(definition, options);

@@ -61,6 +61,9 @@ public final class ModuleMetadataCapabilityPolicy {
     }
 
     public static void validateChildMetadataConfiguration(Metadata metadata) {
+        if (metadata.getCapabilityDeclarations() != null && !metadata.getCapabilityDeclarations().isEmpty()) {
+            throw new PlatformException("Child metadata cannot declare module capability: " + metadata.getAlias());
+        }
         if (Boolean.TRUE.equals(metadata.getDataScopeEnabled())) {
             throw new PlatformException("Child metadata cannot enable module data scope: " + metadata.getAlias());
         }
