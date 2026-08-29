@@ -12,6 +12,21 @@ import static org.mockito.Mockito.when;
 
 class DynamicPublishedPageExecutionCoordinatorTest {
     @Test
+    void shouldRemoveInstalledPlanWhenTheEffectivePublishedPageNoLongerResolves() {
+        String moduleAlias = "iam.user";
+        ModuleExecutionPlanCatalog planCatalog = new ModuleExecutionPlanCatalog(
+                new StaticModuleDefinitionCatalog(List.of()), new ListQuerySummaryContributorCatalog(List.of()));
+        planCatalog.replaceDynamicPlan(moduleAlias, Optional.of(plan(moduleAlias, "dynamic-runtime-1-page-r1", false)));
+        PlatformModuleRuntimeContextService runtimeContextService = mock(PlatformModuleRuntimeContextService.class);
+        when(runtimeContextService.dynamicExecutionPlan(moduleAlias)).thenReturn(Optional.empty());
+
+        new DynamicPublishedPageExecutionCoordinator(runtimeContextService, planCatalog)
+                .prepareAfterPublishedConfigurationChange(moduleAlias);
+
+        assertThat(planCatalog.find(moduleAlias)).isEmpty();
+    }
+
+    @Test
     void shouldKeepInstalledPlanWhenPublicationCandidateReferencesMissingSummaryContributor() {
         String moduleAlias = "iam.user";
         ModuleExecutionPlanCatalog planCatalog = new ModuleExecutionPlanCatalog(

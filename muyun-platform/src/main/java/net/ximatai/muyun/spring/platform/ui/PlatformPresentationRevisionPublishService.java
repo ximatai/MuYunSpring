@@ -69,13 +69,26 @@ public class PlatformPresentationRevisionPublishService {
                 candidate.getTemplateVersion(), variant.getClientType(), page.getContractType());
         templateCatalog.validateUiTree(candidate, template);
 
+        // The variant is the aggregate root for a revision stream.  Touch it through the normal
+        // optimistic-lock path before changing any revision state: two publishers that observed
+        // the same stream cannot both make a different revision current.  The losing transaction
+        // fails before it archives or publishes a revision and is retried from the fresh draft.
         try (PlatformPresentationRevisionPublishContext.Scope ignored = PlatformPresentationRevisionPublishContext.open()) {
+            variantService.update(copyForPublicationLease(variant));
+            PlatformPresentationRevision publicationCandidate = requireRevision(revisionId);
+            if (!Boolean.TRUE.equals(publicationCandidate.getEnabled())) {
+                throw BusinessExceptions.warning("platform.presentation-revision.publish-disabled",
+                        "Presentation revision must be enabled before publishing: " + revisionId);
+            }
+            template = templateCatalog.require(publicationCandidate.getTemplateAlias(), publicationCandidate.getTemplateVersion(),
+                    variant.getClientType(), page.getContractType());
+            templateCatalog.validateUiTree(publicationCandidate, template);
             publishedRevision(variant.getId()).stream()
-                    .filter(revision -> !revision.getId().equals(candidate.getId()))
+                    .filter(revision -> !revision.getId().equals(publicationCandidate.getId()))
                     .forEach(revision -> revisionService.update(copyWithStatus(revision,
                             PlatformPresentationRevisionStatus.ARCHIVED)));
-            if (candidate.getStatus() != PlatformPresentationRevisionStatus.PUBLISHED) {
-                revisionService.update(copyWithStatus(candidate, PlatformPresentationRevisionStatus.PUBLISHED));
+            if (publicationCandidate.getStatus() != PlatformPresentationRevisionStatus.PUBLISHED) {
+                revisionService.update(copyWithStatus(publicationCandidate, PlatformPresentationRevisionStatus.PUBLISHED));
             }
         }
         // Compile the candidate while this transaction still exposes its published state. The
@@ -83,6 +96,21 @@ public class PlatformPresentationRevisionPublishService {
         // preserves both the prior revision and the prior executable page.
         pageExecutionCoordinator.prepareAfterPublishedConfigurationChange(page.getModuleAlias());
         return requireRevision(revisionId);
+    }
+
+    private PlatformPresentationVariant copyForPublicationLease(PlatformPresentationVariant source) {
+        PlatformPresentationVariant target = new PlatformPresentationVariant();
+        target.setId(source.getId());
+        target.setTenantId(source.getTenantId());
+        target.setVersion(source.getVersion());
+        target.setPageId(source.getPageId());
+        target.setClientType(source.getClientType());
+        target.setScopeType(source.getScopeType());
+        target.setOrganizationId(source.getOrganizationId());
+        target.setTitle(source.getTitle());
+        target.setEnabled(source.getEnabled());
+        target.setSortOrder(source.getSortOrder());
+        return target;
     }
 
     private PlatformPresentationRevision requireRevision(String revisionId) {

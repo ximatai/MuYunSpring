@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -25,11 +26,28 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
     public static final String MODULE_ALIAS = "platform.presentation_revision";
 
     private final PlatformPresentationVariantService variantService;
+    private final PublishedPageExecutionCoordinator pageExecutionCoordinator;
 
     public PlatformPresentationRevisionService(BaseDao<PlatformPresentationRevision, String> revisionDao,
                                                PlatformPresentationVariantService variantService) {
+        this(revisionDao, variantService, PublishedPageExecutionCoordinator.noop());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PlatformPresentationRevisionService(BaseDao<PlatformPresentationRevision, String> revisionDao,
+                                               PlatformPresentationVariantService variantService,
+                                               ObjectProvider<PublishedPageExecutionCoordinator> pageExecutionCoordinator) {
+        this(revisionDao, variantService, pageExecutionCoordinator == null ? PublishedPageExecutionCoordinator.noop()
+                : pageExecutionCoordinator.getIfAvailable(PublishedPageExecutionCoordinator::noop));
+    }
+
+    PlatformPresentationRevisionService(BaseDao<PlatformPresentationRevision, String> revisionDao,
+                                        PlatformPresentationVariantService variantService,
+                                        PublishedPageExecutionCoordinator pageExecutionCoordinator) {
         super(MODULE_ALIAS, PlatformPresentationRevision.class, revisionDao);
         this.variantService = variantService;
+        this.pageExecutionCoordinator = pageExecutionCoordinator == null
+                ? PublishedPageExecutionCoordinator.noop() : pageExecutionCoordinator;
     }
 
     @Override
@@ -54,6 +72,16 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
         rejectDirectStatusTransition(existing, revision);
         rejectChanged(existing, revision, "Presentation revision variant", PlatformPresentationRevision::getVariantId);
         rejectChanged(existing, revision, "Presentation revision number", PlatformPresentationRevision::getRevisionNo);
+    }
+
+    @Override
+    public void afterUpdate(PlatformPresentationRevision revision, int updated) {
+        refreshPublishedPageExecution(revision);
+    }
+
+    @Override
+    public void afterDelete(String id, PlatformPresentationRevision revision, int deleted) {
+        refreshPublishedPageExecution(revision);
     }
 
     private void normalizeAndValidate(PlatformPresentationRevision revision) {
@@ -112,5 +140,14 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
         throw BusinessExceptions.warning("platform.presentation-revision.direct-publish-denied",
                 "Presentation revision can only be published through presentation revision publish service: "
                         + incoming.getId());
+    }
+
+    private void refreshPublishedPageExecution(PlatformPresentationRevision revision) {
+        if (revision == null || revision.getStatus() != PlatformPresentationRevisionStatus.PUBLISHED
+                || PlatformPresentationRevisionPublishContext.active()) {
+            return;
+        }
+        pageExecutionCoordinator.prepareAfterPublishedConfigurationChange(
+                variantService.moduleAliasForVariant(revision.getVariantId()));
     }
 }

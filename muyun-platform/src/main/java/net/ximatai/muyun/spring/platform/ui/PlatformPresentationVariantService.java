@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 /** Owns the scope invariant of a client-specific page composition. */
@@ -24,11 +25,28 @@ public class PlatformPresentationVariantService extends AbstractAbilityService<P
     public static final String MODULE_ALIAS = "platform.presentation_variant";
 
     private final PlatformPageDefinitionService pageService;
+    private final PublishedPageExecutionCoordinator pageExecutionCoordinator;
 
     public PlatformPresentationVariantService(BaseDao<PlatformPresentationVariant, String> variantDao,
                                               PlatformPageDefinitionService pageService) {
+        this(variantDao, pageService, PublishedPageExecutionCoordinator.noop());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PlatformPresentationVariantService(BaseDao<PlatformPresentationVariant, String> variantDao,
+                                              PlatformPageDefinitionService pageService,
+                                              ObjectProvider<PublishedPageExecutionCoordinator> pageExecutionCoordinator) {
+        this(variantDao, pageService, pageExecutionCoordinator == null ? PublishedPageExecutionCoordinator.noop()
+                : pageExecutionCoordinator.getIfAvailable(PublishedPageExecutionCoordinator::noop));
+    }
+
+    PlatformPresentationVariantService(BaseDao<PlatformPresentationVariant, String> variantDao,
+                                       PlatformPageDefinitionService pageService,
+                                       PublishedPageExecutionCoordinator pageExecutionCoordinator) {
         super(MODULE_ALIAS, PlatformPresentationVariant.class, variantDao);
         this.pageService = pageService;
+        this.pageExecutionCoordinator = pageExecutionCoordinator == null
+                ? PublishedPageExecutionCoordinator.noop() : pageExecutionCoordinator;
     }
 
     @Override
@@ -53,6 +71,16 @@ public class PlatformPresentationVariantService extends AbstractAbilityService<P
         rejectChanged(existing, variant, "Presentation variant scope", PlatformPresentationVariant::getScopeType);
         rejectChanged(existing, variant, "Presentation variant tenant", PlatformPresentationVariant::getTenantId);
         rejectChanged(existing, variant, "Presentation variant organization", PlatformPresentationVariant::getOrganizationId);
+    }
+
+    @Override
+    public void afterUpdate(PlatformPresentationVariant variant, int updated) {
+        refreshPublishedPageExecution(variant);
+    }
+
+    @Override
+    public void afterDelete(String id, PlatformPresentationVariant variant, int deleted) {
+        refreshPublishedPageExecution(variant);
     }
 
     private void normalizeAndValidate(PlatformPresentationVariant variant) {
@@ -91,6 +119,11 @@ public class PlatformPresentationVariantService extends AbstractAbilityService<P
         return variant;
     }
 
+    String moduleAliasForVariant(String variantId) {
+        PlatformPresentationVariant variant = requireVisibleVariant(variantId);
+        return pageService.requireVisiblePage(variant.getPageId()).getModuleAlias();
+    }
+
     private void normalizeScope(PlatformPresentationVariant variant) {
         switch (variant.getScopeType()) {
             case GLOBAL -> {
@@ -122,5 +155,12 @@ public class PlatformPresentationVariantService extends AbstractAbilityService<P
                 variant.setOrganizationId(variant.getOrganizationId().trim());
             }
         }
+    }
+
+    private void refreshPublishedPageExecution(PlatformPresentationVariant variant) {
+        if (PlatformPresentationRevisionPublishContext.active()
+                || variant == null || variant.getPageId() == null || variant.getPageId().isBlank()) return;
+        PlatformPageDefinition page = pageService.requireVisiblePage(variant.getPageId());
+        pageExecutionCoordinator.prepareAfterPublishedConfigurationChange(page.getModuleAlias());
     }
 }

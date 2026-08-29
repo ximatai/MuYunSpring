@@ -10,12 +10,14 @@ import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
+import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -30,13 +32,33 @@ public class PlatformPageDefinitionService extends AbstractAbilityService<Platfo
 
     private final PlatformModuleService moduleService;
     private final ModuleMetadataRelationService relationService;
+    private final PublishedPageExecutionCoordinator pageExecutionCoordinator;
 
     public PlatformPageDefinitionService(BaseDao<PlatformPageDefinition, String> pageDao,
                                          PlatformModuleService moduleService,
                                          ModuleMetadataRelationService relationService) {
+        this(pageDao, moduleService, relationService, PublishedPageExecutionCoordinator.noop());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PlatformPageDefinitionService(BaseDao<PlatformPageDefinition, String> pageDao,
+                                         PlatformModuleService moduleService,
+                                         ModuleMetadataRelationService relationService,
+                                         ObjectProvider<PublishedPageExecutionCoordinator> pageExecutionCoordinator) {
+        this(pageDao, moduleService, relationService,
+                pageExecutionCoordinator == null ? PublishedPageExecutionCoordinator.noop()
+                        : pageExecutionCoordinator.getIfAvailable(PublishedPageExecutionCoordinator::noop));
+    }
+
+    PlatformPageDefinitionService(BaseDao<PlatformPageDefinition, String> pageDao,
+                                  PlatformModuleService moduleService,
+                                  ModuleMetadataRelationService relationService,
+                                  PublishedPageExecutionCoordinator pageExecutionCoordinator) {
         super(MODULE_ALIAS, PlatformPageDefinition.class, pageDao);
         this.moduleService = moduleService;
         this.relationService = relationService;
+        this.pageExecutionCoordinator = pageExecutionCoordinator == null
+                ? PublishedPageExecutionCoordinator.noop() : pageExecutionCoordinator;
     }
 
     @Override
@@ -61,6 +83,16 @@ public class PlatformPageDefinitionService extends AbstractAbilityService<Platfo
         rejectChanged(existing, page, "Page alias", PlatformPageDefinition::getAlias);
         rejectChanged(existing, page, "Page contract type", PlatformPageDefinition::getContractType);
         rejectChanged(existing, page, "Page main relation", PlatformPageDefinition::getMainRelationId);
+    }
+
+    @Override
+    public void afterUpdate(PlatformPageDefinition page, int updated) {
+        refreshPublishedPageExecution(page);
+    }
+
+    @Override
+    public void afterDelete(String id, PlatformPageDefinition page, int deleted) {
+        refreshPublishedPageExecution(page);
     }
 
     public PlatformPageDefinition requireVisiblePage(String id) {
@@ -95,16 +127,19 @@ public class PlatformPageDefinitionService extends AbstractAbilityService<Platfo
     public Optional<PlatformPageDefinition> resolveGlobalPage(String moduleAlias, String alias) {
         String normalizedModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         String normalizedAlias = PlatformNameRules.requireIdentifier(alias, "pageAlias");
-        Criteria criteria = Criteria.of().eq("moduleAlias", normalizedModuleAlias).eq("alias", normalizedAlias);
-        if (TenantContext.currentTenantId().isEmpty()) {
-            return Optional.ofNullable(list(enabledCriteria(criteria)).stream().findFirst().orElse(null));
-        }
+        Criteria criteria = Criteria.of().eq("moduleAlias", normalizedModuleAlias)
+                .eq("alias", normalizedAlias)
+                .isNull(StandardEntitySchema.TENANT_ID_FIELD);
         try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("resolve global page definition")) {
             return Optional.ofNullable(list(enabledCriteria(criteria)).stream().findFirst().orElse(null));
         }
     }
 
     private void normalizeAndValidate(PlatformPageDefinition page) {
+        if (!TenantContext.isSystem()) {
+            throw BusinessExceptions.warning("platform.page-definition.global-system-context-required",
+                    "Stable page definition requires system context; tenant and organization differences belong to variants");
+        }
         String moduleAlias = PlatformNameRules.requireModuleAlias(page.getModuleAlias());
         if (moduleService.resolveVisibleModule(moduleAlias) == null) {
             throw BusinessExceptions.warning("platform.page-definition.module-not-found",
@@ -123,6 +158,7 @@ public class PlatformPageDefinitionService extends AbstractAbilityService<Platfo
         page.setModuleAlias(moduleAlias);
         page.setAlias(alias);
         page.setMainRelationId(mainRelation.getId());
+        page.setTenantId(null);
         if (page.getTitle() == null || page.getTitle().isBlank()) {
             page.setTitle(alias);
         }
@@ -146,5 +182,11 @@ public class PlatformPageDefinitionService extends AbstractAbilityService<Platfo
                     "Page definition requires existing main relation: " + relationId);
         }
         return relation;
+    }
+
+    private void refreshPublishedPageExecution(PlatformPageDefinition page) {
+        if (page != null && page.getModuleAlias() != null && !page.getModuleAlias().isBlank()) {
+            pageExecutionCoordinator.prepareAfterPublishedConfigurationChange(page.getModuleAlias());
+        }
     }
 }

@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 class PlatformPageCompositionDomainContractTest {
@@ -28,17 +30,19 @@ class PlatformPageCompositionDomainContractTest {
     private final TestMemoryDao<PlatformPageDefinition> pageDao = new TestMemoryDao<>();
     private final TestMemoryDao<PlatformPresentationVariant> variantDao = new TestMemoryDao<>();
     private final TestMemoryDao<PlatformPresentationRevision> revisionDao = new TestMemoryDao<>();
+    private final List<String> preparedModuleAliases = new ArrayList<>();
+    private final PublishedPageExecutionCoordinator pageExecutionCoordinator = preparedModuleAliases::add;
 
     private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
     private final MetadataService metadataService = new MetadataService(metadataDao);
     private final ModuleMetadataRelationService relationService =
             new ModuleMetadataRelationService(relationDao, moduleService, metadataService);
     private final PlatformPageDefinitionService pageService =
-            new PlatformPageDefinitionService(pageDao, moduleService, relationService);
+            new PlatformPageDefinitionService(pageDao, moduleService, relationService, pageExecutionCoordinator);
     private final PlatformPresentationVariantService variantService =
-            new PlatformPresentationVariantService(variantDao, pageService);
+            new PlatformPresentationVariantService(variantDao, pageService, pageExecutionCoordinator);
     private final PlatformPresentationRevisionService revisionService =
-            new PlatformPresentationRevisionService(revisionDao, variantService);
+            new PlatformPresentationRevisionService(revisionDao, variantService, pageExecutionCoordinator);
     private final PlatformPresentationRevisionResolver revisionResolver =
             new PlatformPresentationRevisionResolver(variantService, revisionService);
     private final PlatformPresentationRevisionPublishService revisionPublishService =
@@ -60,6 +64,37 @@ class PlatformPageCompositionDomainContractTest {
             assertThatThrownBy(() -> pageService.insert(page("crm.customer", "management", mainRelationId)))
                     .isInstanceOf(PlatformException.class)
                     .hasMessageContaining("unique");
+        }
+    }
+
+    @Test
+    void shouldRequireSystemContextForStablePageIdentity() {
+        String mainRelationId = seedMainRelation("crm.customer", "customer");
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThatThrownBy(() -> pageService.insert(page("crm.customer", "management", mainRelationId)))
+                    .isInstanceOfSatisfying(BusinessException.class, exception ->
+                            assertThat(exception.actionMessage().code())
+                                    .isEqualTo("platform.page-definition.global-system-context-required"));
+        }
+    }
+
+    @Test
+    void shouldResolveOnlyGlobalPageIdentityWhenLegacyTenantRowExists() {
+        PlatformPageDefinition tenantPage = page("crm.customer", "management", "tenant-main-relation");
+        tenantPage.setId("tenant-page");
+        tenantPage.setTenantId("tenant-a");
+        tenantPage.setEnabled(Boolean.TRUE);
+        pageDao.insert(tenantPage);
+        PlatformPageDefinition globalPage = page("crm.customer", "management", "global-main-relation");
+        globalPage.setId("global-page");
+        globalPage.setEnabled(Boolean.TRUE);
+        pageDao.insert(globalPage);
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThat(pageService.resolveGlobalPage("crm.customer", "management"))
+                    .map(PlatformPageDefinition::getId)
+                    .contains("global-page");
         }
     }
 
@@ -261,6 +296,23 @@ class PlatformPageCompositionDomainContractTest {
     }
 
     @Test
+    void shouldAcquireTheVariantOptimisticPublicationLeaseBeforePublishing() {
+        String pageId = seedPage();
+        try (TenantContext.Scope ignored = TenantContext.system("publish with variant lease")) {
+            String variantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.GLOBAL, null));
+            int versionBeforePublish = variantService.select(variantId).getVersion();
+            String revisionId = revisionService.insert(revision(variantId, 1,
+                    PlatformPresentationRevisionStatus.DRAFT, validManagementTree()));
+
+            revisionPublishService.publish(revisionId);
+
+            assertThat(variantService.select(variantId).getVersion()).isEqualTo(versionBeforePublish + 1);
+            assertThat(revisionService.select(revisionId).getStatus())
+                    .isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
+        }
+    }
+
+    @Test
     void shouldPrepareTheDynamicPageExecutionPlanBeforeThePublicationTransactionCommits() {
         String pageId = seedPage();
         AtomicReference<String> preparedModuleAlias = new AtomicReference<>();
@@ -278,6 +330,60 @@ class PlatformPageCompositionDomainContractTest {
         }
     }
 
+    @Test
+    void shouldRefreshPublishedPageRuntimeWhenAnEffectiveRevisionIsDisabledOrDeleted() {
+        String pageId = seedPage();
+        try (TenantContext.Scope ignored = TenantContext.system("invalidate effective revision runtime")) {
+            String variantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.GLOBAL, null));
+            String revisionId = seedPublishedRevisionForVariant(variantId, 1);
+
+            preparedModuleAliases.clear();
+            revisionService.disable(revisionId);
+            assertThat(preparedModuleAliases).containsExactly("crm.customer");
+
+            revisionService.enable(revisionId);
+            preparedModuleAliases.clear();
+            revisionService.delete(revisionId);
+            assertThat(preparedModuleAliases).containsExactly("crm.customer");
+        }
+    }
+
+    @Test
+    void shouldRefreshPublishedPageRuntimeWhenItsVariantIsDisabledOrDeleted() {
+        String pageId = seedPage();
+        try (TenantContext.Scope ignored = TenantContext.system("invalidate effective variant runtime")) {
+            String variantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.GLOBAL, null));
+            seedPublishedRevisionForVariant(variantId, 1);
+
+            preparedModuleAliases.clear();
+            variantService.disable(variantId);
+            assertThat(preparedModuleAliases).containsExactly("crm.customer");
+
+            variantService.enable(variantId);
+            preparedModuleAliases.clear();
+            variantService.delete(variantId);
+            assertThat(preparedModuleAliases).containsExactly("crm.customer");
+        }
+    }
+
+    @Test
+    void shouldRefreshPublishedPageRuntimeWhenItsPageIsDisabledOrDeleted() {
+        String pageId = seedPage();
+        try (TenantContext.Scope ignored = TenantContext.system("invalidate effective page runtime")) {
+            String variantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.GLOBAL, null));
+            seedPublishedRevisionForVariant(variantId, 1);
+
+            preparedModuleAliases.clear();
+            pageService.disable(pageId);
+            assertThat(preparedModuleAliases).containsExactly("crm.customer");
+
+            pageService.enable(pageId);
+            preparedModuleAliases.clear();
+            pageService.delete(pageId);
+            assertThat(preparedModuleAliases).containsExactly("crm.customer");
+        }
+    }
+
     private String seedPage() {
         return seedPage("crm.customer", "customer");
     }
@@ -292,6 +398,10 @@ class PlatformPageCompositionDomainContractTest {
     private String seedPublishedRevision(String pageId, PlatformPresentationScopeType scopeType,
                                          String organizationId, int revisionNo) {
         String variantId = variantService.insert(variant(pageId, scopeType, organizationId));
+        return seedPublishedRevisionForVariant(variantId, revisionNo);
+    }
+
+    private String seedPublishedRevisionForVariant(String variantId, int revisionNo) {
         try (PlatformPresentationRevisionPublishContext.Scope publish =
                      PlatformPresentationRevisionPublishContext.open()) {
             return revisionService.insert(revision(variantId, revisionNo,
