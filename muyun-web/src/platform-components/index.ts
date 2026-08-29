@@ -47,6 +47,7 @@ export {
   userSessionTerminalTitle,
 } from './userSessionPresentation';
 export { default as RecordExplorerPanel } from './RecordExplorerPanel.vue';
+export { default as RecordExplorerCreateButton } from './RecordExplorerCreateButton.vue';
 export type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
 export { default as RecordFormFields } from './RecordFormFields.vue';
 export { default as RecordFileReferenceTransfer } from './RecordFileReferenceTransfer.vue';
