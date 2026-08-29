@@ -676,14 +676,16 @@ function applyPropertyDraft() {
                 v-for="field in state.listFields.value"
                 :key="field.id"
                 :style="{ textAlign: field.properties?.align }"
-              >{{ fieldDisplayTitle(field) }}</span>
+                >{{ fieldDisplayTitle(field) }}</span
+              >
             </div>
             <div class="preview-table__row" :style="listPreviewGridStyle">
               <span
                 v-for="field in state.listFields.value"
                 :key="field.id"
                 :style="{ textAlign: field.properties?.align }"
-              >{{ field.fieldSpecAlias ?? '文本' }}</span>
+                >{{ field.fieldSpecAlias ?? '文本' }}</span
+              >
             </div>
           </template>
         </div>
