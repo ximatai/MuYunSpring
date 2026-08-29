@@ -43,17 +43,19 @@ it('normalizes adapter drag events before exposing them to page composers', () =
   });
 
   expect(wrapper.emitted('drag-start')).toEqual([[{ node: field, nativeEvent: undefined }]]);
-  expect(wrapper.emitted('drop')).toEqual([[
-    { dragNode: field, dropNode: slot, dropPosition: 0, dropToGap: false, nativeEvent: undefined },
-  ]]);
+  expect(wrapper.emitted('drop')).toEqual([
+    [{ dragNode: field, dropNode: slot, dropPosition: 0, dropToGap: false, nativeEvent: undefined }],
+  ]);
   expect(tree.props('draggable')).toBe(true);
   const allowDrop = tree.props('allowDrop') as (event: unknown) => boolean;
-  expect(allowDrop({
-    dragNode: { key: field.key, dataRef: field },
-    node: { key: slot.key, dataRef: slot, pos: '0-1' },
-    dropPosition: 1,
-    dropToGap: false,
-  })).toBe(true);
+  expect(
+    allowDrop({
+      dragNode: { key: field.key, dataRef: field },
+      node: { key: slot.key, dataRef: slot, pos: '0-1' },
+      dropPosition: 1,
+      dropToGap: false,
+    }),
+  ).toBe(true);
 });
 
 it('accepts a native payload dropped from another tree without relying on Ant Tree drag state', () => {
@@ -85,11 +87,10 @@ it('accepts a native payload dropped from another tree without relying on Ant Tr
   target.dispatchEvent(nativeEvent);
 
   expect(nativeEvent.defaultPrevented).toBe(true);
-  expect(wrapper.emitted('external-drop')).toEqual([[
-    { dropNode: slot, dropPosition: 0, dropToGap: false, nativeEvent },
-  ]]);
+  expect(wrapper.emitted('external-drop')).toEqual([
+    [{ dropNode: slot, dropPosition: 0, dropToGap: false, nativeEvent }],
+  ]);
 });
-
 
 it('delegates lazy children loading to Ant Tree so its switcher shows the built-in loading spinner', async () => {
   const loadChildren = vi.fn().mockResolvedValue(undefined);

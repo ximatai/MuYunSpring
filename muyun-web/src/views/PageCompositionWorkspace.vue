@@ -21,7 +21,12 @@ import {
   type UiTreeExternalDropEvent,
   type UiTreeNode,
 } from '@muyun/vue-ui-antdv';
-import type { MetadataField, ModuleMetadataRelation, WebPageResponse, WebQueryCondition } from '@muyun/web-contracts';
+import type {
+  MetadataField,
+  ModuleMetadataRelation,
+  WebPageResponse,
+  WebQueryCondition,
+} from '@muyun/web-contracts';
 import {
   createPageCompositionDraftState,
   type PageComposerField,
@@ -180,7 +185,9 @@ async function loadMetadataTree() {
     const main = relations.find((item) => item.relationRole === 'main' || item.relationRole === 'MAIN');
     relation.value = main;
     if (!main?.metadataId) return;
-    const fields = await loadAll<MetadataField>(`/platform.metadata/${encodeURIComponent(main.metadataId)}/fields/query`);
+    const fields = await loadAll<MetadataField>(
+      `/platform.metadata/${encodeURIComponent(main.metadataId)}/fields/query`,
+    );
     metadataFields.value = fields
       .filter((field) => field.enabled !== false)
       .map(toComposerField)
@@ -198,7 +205,9 @@ async function loadComposition() {
   revision.value = undefined;
   state.replaceFields({ list: [], form: [] });
   try {
-    const pages = await loadAllFromClient(pageClient(), [{ fieldName: 'alias', operator: 'EQ', values: ['management'] }]);
+    const pages = await loadAllFromClient(pageClient(), [
+      { fieldName: 'alias', operator: 'EQ', values: ['management'] },
+    ]);
     page.value = pages[0];
     if (!page.value?.id) return;
     const variants = await loadAllFromClient(variantClient(page.value.id), [
@@ -217,7 +226,10 @@ async function loadComposition() {
   }
 }
 
-async function loadAllFromClient<T>(client: ModuleCrudClient<T>, conditions: WebQueryCondition[] = []): Promise<T[]> {
+async function loadAllFromClient<T>(
+  client: ModuleCrudClient<T>,
+  conditions: WebQueryCondition[] = [],
+): Promise<T[]> {
   const response = await client.query({ unpaged: true, conditions });
   return response.records;
 }
@@ -225,12 +237,18 @@ async function loadAllFromClient<T>(client: ModuleCrudClient<T>, conditions: Web
 function hydrateDraft(current: PresentationRevision | undefined) {
   if (!current?.uiTreeJson) return;
   try {
-    const tree = JSON.parse(current.uiTreeJson) as { nodes?: Array<{ slot?: PageComposerSlot; fields?: string[] }> };
+    const tree = JSON.parse(current.uiTreeJson) as {
+      nodes?: Array<{ slot?: PageComposerSlot; fields?: string[] }>;
+    };
     const resolve = (slot: PageComposerSlot) => tree.nodes?.find((node) => node.slot === slot)?.fields ?? [];
     const fieldsByName = new Map(metadataFields.value.map((field) => [field.fieldName, field]));
     state.replaceFields({
-      list: resolve('list').map((name) => fieldsByName.get(name)).filter((field): field is PageComposerField => Boolean(field)),
-      form: resolve('form').map((name) => fieldsByName.get(name)).filter((field): field is PageComposerField => Boolean(field)),
+      list: resolve('list')
+        .map((name) => fieldsByName.get(name))
+        .filter((field): field is PageComposerField => Boolean(field)),
+      form: resolve('form')
+        .map((name) => fieldsByName.get(name))
+        .filter((field): field is PageComposerField => Boolean(field)),
     });
   } catch {
     // Publication validates the persisted tree. A malformed draft should remain editable as an empty local tree.
@@ -242,26 +260,40 @@ async function initializeComposition() {
   saving.value = true;
   try {
     if (!page.value) {
-      page.value = (await pageClient().insert({
-        alias: 'management', contractType: pageCompositionTransport.managementContract, mainRelationId: relation.value.id,
-        title: `${props.moduleTitle ?? props.moduleAlias}管理页`, enabled: true,
-      })).record;
+      page.value = (
+        await pageClient().insert({
+          alias: 'management',
+          contractType: pageCompositionTransport.managementContract,
+          mainRelationId: relation.value.id,
+          title: `${props.moduleTitle ?? props.moduleAlias}管理页`,
+          enabled: true,
+        })
+      ).record;
     }
     if (!page.value.id) return;
     if (!variant.value) {
-      variant.value = (await variantClient(page.value.id).insert({
-        clientType: pageCompositionTransport.webClient, scopeType: pageCompositionTransport.globalScope,
-        title: 'Web 全局呈现', enabled: true,
-      })).record;
+      variant.value = (
+        await variantClient(page.value.id).insert({
+          clientType: pageCompositionTransport.webClient,
+          scopeType: pageCompositionTransport.globalScope,
+          title: 'Web 全局呈现',
+          enabled: true,
+        })
+      ).record;
     }
     if (!variant.value.id || revision.value) return;
     const revisions = await loadAllFromClient(revisionClient(variant.value.id));
-    revision.value = (await revisionClient(variant.value.id).insert({
-      revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
-      templateAlias: 'management', templateVersion: 1,
-      uiTreeJson: JSON.stringify(state.toManagementUiTree()),
-      status: pageCompositionTransport.draftRevision, title: '初始草稿', enabled: true,
-    })).record;
+    revision.value = (
+      await revisionClient(variant.value.id).insert({
+        revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
+        templateAlias: 'management',
+        templateVersion: 1,
+        uiTreeJson: JSON.stringify(state.toManagementUiTree()),
+        status: pageCompositionTransport.draftRevision,
+        title: '初始草稿',
+        enabled: true,
+      })
+    ).record;
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
   } finally {
@@ -273,10 +305,12 @@ async function saveDraft(): Promise<boolean> {
   if (!revision.value?.id || !variant.value?.id) return false;
   saving.value = true;
   try {
-    revision.value = (await revisionClient(variant.value.id).update(revision.value.id, {
-      ...revision.value,
-      uiTreeJson: JSON.stringify(state.toManagementUiTree()),
-    })).record;
+    revision.value = (
+      await revisionClient(variant.value.id).update(revision.value.id, {
+        ...revision.value,
+        uiTreeJson: JSON.stringify(state.toManagementUiTree()),
+      })
+    ).record;
     return true;
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
@@ -300,7 +334,8 @@ async function publishDraft() {
     const publishedTreeJson = JSON.stringify(state.toManagementUiTree());
     const publishedRevision = revision.value;
     await moduleContext.http.request<number>({
-      method: 'POST', path: `/platform.presentation_publish/revisions/${encodeURIComponent(revision.value.id)}/publish`,
+      method: 'POST',
+      path: `/platform.presentation_publish/revisions/${encodeURIComponent(revision.value.id)}/publish`,
     });
     await createFollowUpDraft(publishedRevision, publishedTreeJson);
     await loadComposition();
@@ -380,7 +415,14 @@ function selectUiTreeNode(node: UiTreeNode) {
   }
   if (parsed.kind !== 'field') return;
   const field = fieldsInSlot(parsed.slot).find((candidate) => candidate.id === parsed.fieldId);
-  if (field) selectNode({ id: `${parsed.slot}:${field.id}`, kind: 'field', title: field.title, slot: parsed.slot, field });
+  if (field)
+    selectNode({
+      id: `${parsed.slot}:${field.id}`,
+      kind: 'field',
+      title: field.title,
+      slot: parsed.slot,
+      field,
+    });
 }
 
 function handleMetadataDragStart(event: UiTreeDragEvent) {
@@ -407,17 +449,20 @@ function handleUiTreeDoubleClick(event: UiTreeDragEvent) {
   selectUiTreeNode(event.node);
 }
 
-function handleUiTreeDrop(event: Pick<UiTreeDropEvent, 'dropNode' | 'dropPosition' | 'dropToGap' | 'nativeEvent'>) {
+function handleUiTreeDrop(
+  event: Pick<UiTreeDropEvent, 'dropNode' | 'dropPosition' | 'dropToGap' | 'nativeEvent'>,
+) {
   const target = parseUiNode(event.dropNode.key);
   if (!target || target.kind === 'root') return;
   const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
   const fieldId = dataTransfer?.getData('text/page-composer-field');
   if (fieldId) {
     const field = metadataFields.value.find((candidate) => candidate.id === fieldId);
-    const targetIndex = target.kind === 'field'
-      ? fieldsInSlot(target.slot).findIndex((candidate) => candidate.id === target.fieldId)
-        + (event.dropPosition > 0 ? 1 : 0)
-      : undefined;
+    const targetIndex =
+      target.kind === 'field'
+        ? fieldsInSlot(target.slot).findIndex((candidate) => candidate.id === target.fieldId) +
+          (event.dropPosition > 0 ? 1 : 0)
+        : undefined;
     if (field) state.addField(field, target.slot, targetIndex);
     return;
   }
@@ -426,9 +471,11 @@ function handleUiTreeDrop(event: Pick<UiTreeDropEvent, 'dropNode' | 'dropPositio
   try {
     const source = JSON.parse(raw) as { kind?: string; slot?: PageComposerSlot; fieldId?: string };
     if (source.kind !== 'field' || !source.slot || !source.fieldId) return;
-    const targetIndex = target.kind === 'field'
-      ? fieldsInSlot(target.slot).findIndex((field) => field.id === target.fieldId) + (event.dropPosition > 0 ? 1 : 0)
-      : undefined;
+    const targetIndex =
+      target.kind === 'field'
+        ? fieldsInSlot(target.slot).findIndex((field) => field.id === target.fieldId) +
+          (event.dropPosition > 0 ? 1 : 0)
+        : undefined;
     state.moveField(source.fieldId, source.slot, target.slot, targetIndex);
   } catch {
     // Ignore payloads not owned by the page composer.
@@ -451,7 +498,9 @@ function fieldOfMetadataNode(node: UiTreeNode) {
   return metadataFields.value.find((field) => field.id === node.key.slice(prefix.length));
 }
 
-function parseUiNode(key: string):
+function parseUiNode(
+  key: string,
+):
   | { kind: 'root' }
   | { kind: 'slot'; slot: PageComposerSlot }
   | { kind: 'field'; slot: PageComposerSlot; fieldId: string }
@@ -468,7 +517,6 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
   state.selectNode(node);
   selectedSlot.value = node.slot;
 }
-
 </script>
 
 <template>
@@ -484,7 +532,9 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
         <UiSpin v-if="loading" tip="加载主实体字段" />
         <UiEmpty v-else-if="!relation" description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体" />
         <div v-else class="metadata-tree" data-testid="page-composer-metadata-tree">
-          <p class="metadata-tree__hint">拖入中间 UI Tree 的模板槽位；引用字段递归展开将在关联治理接入后提供。</p>
+          <p class="metadata-tree__hint">
+            拖入中间 UI Tree 的模板槽位；引用字段递归展开将在关联治理接入后提供。
+          </p>
           <UiTree
             v-model:expanded-keys="metadataExpandedKeys"
             :nodes="metadataTreeNodes"
@@ -520,9 +570,15 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
         </div>
         <template #footer>
           <div class="ui-tree__operations">
-            <UiButton size="small" :disabled="!selectedField" @click="state.moveSelectedField(-1)">上移</UiButton>
-            <UiButton size="small" :disabled="!selectedField" @click="state.moveSelectedField(1)">下移</UiButton>
-            <UiButton size="small" danger :disabled="!selectedField" @click="state.removeSelectedField">移除</UiButton>
+            <UiButton size="small" :disabled="!selectedField" @click="state.moveSelectedField(-1)"
+              >上移</UiButton
+            >
+            <UiButton size="small" :disabled="!selectedField" @click="state.moveSelectedField(1)"
+              >下移</UiButton
+            >
+            <UiButton size="small" danger :disabled="!selectedField" @click="state.removeSelectedField"
+              >移除</UiButton
+            >
           </div>
         </template>
       </RecordExplorerPanel>
@@ -530,50 +586,82 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
 
     <RecordDetailPanel :title="composerTitle" :subtitle="compositionSubtitle">
       <template #actions>
-        <UiButton v-if="!revision" :loading="saving" type="primary" :disabled="!relation" @click="initializeComposition">初始化页面</UiButton>
+        <UiButton
+          v-if="!revision"
+          :loading="saving"
+          type="primary"
+          :disabled="!relation"
+          @click="initializeComposition"
+          >初始化页面</UiButton
+        >
         <template v-else>
           <UiButton :loading="saving" @click="saveDraft">保存草稿</UiButton>
           <UiButton type="primary" :loading="publishing" @click="publishDraft">发布</UiButton>
         </template>
       </template>
       <p class="page-composition-notice">
-        <template v-if="!page">初始化会创建管理页、Web 全局呈现与首个草稿；不会调用旧 UI 配置集接口。</template>
+        <template v-if="!page"
+          >初始化会创建管理页、Web 全局呈现与首个草稿；不会调用旧 UI 配置集接口。</template
+        >
         <template v-else-if="!revision">当前页面尚无草稿，点击“初始化页面”创建首个可编辑修订。</template>
         <template v-else>草稿保存后不会覆盖已发布呈现；通过发布校验后才会更新当前 Web 全局呈现。</template>
       </p>
       <UiTabs v-model:active-key="state.previewMode.value" :tabs="previewTabs" />
-      <section v-if="state.previewMode.value === 'list'" class="preview-surface" data-testid="page-composer-list-preview">
-        <header class="preview-surface__toolbar"><span>快速查询</span><UiButton size="small">查询</UiButton></header>
+      <section
+        v-if="state.previewMode.value === 'list'"
+        class="preview-surface"
+        data-testid="page-composer-list-preview"
+      >
+        <header class="preview-surface__toolbar">
+          <span>快速查询</span><UiButton size="small">查询</UiButton>
+        </header>
         <div class="preview-table">
-          <div v-if="!state.listFields.value.length" class="preview-empty">从元数据拖入字段，开始配置列表</div>
+          <div v-if="!state.listFields.value.length" class="preview-empty">
+            从元数据拖入字段，开始配置列表
+          </div>
           <template v-else>
             <div class="preview-table__header">
               <span v-for="field in state.listFields.value" :key="field.id">{{ field.title }}</span>
             </div>
             <div class="preview-table__row">
-              <span v-for="field in state.listFields.value" :key="field.id">{{ field.fieldSpecAlias ?? '文本' }}</span>
+              <span v-for="field in state.listFields.value" :key="field.id">{{
+                field.fieldSpecAlias ?? '文本'
+              }}</span>
             </div>
           </template>
         </div>
       </section>
-      <section v-else-if="state.previewMode.value === 'card'" class="preview-surface" data-testid="page-composer-card-preview">
-        <div v-if="!state.cardFields.value.length" class="preview-empty">从元数据拖入列表字段，开始配置卡片</div>
+      <section
+        v-else-if="state.previewMode.value === 'card'"
+        class="preview-surface"
+        data-testid="page-composer-card-preview"
+      >
+        <div v-if="!state.cardFields.value.length" class="preview-empty">
+          从元数据拖入列表字段，开始配置卡片
+        </div>
         <div v-else class="preview-cards">
           <article v-for="sample in ['示例记录 A', '示例记录 B']" :key="sample" class="preview-card">
-            <header><strong>{{ sample }}</strong><span>卡片</span></header>
+            <header>
+              <strong>{{ sample }}</strong
+              ><span>卡片</span>
+            </header>
             <dl>
               <template v-for="field in state.cardFields.value" :key="field.id">
-                <dt>{{ field.title }}</dt><dd>{{ field.fieldSpecAlias ?? '文本' }}</dd>
+                <dt>{{ field.title }}</dt>
+                <dd>{{ field.fieldSpecAlias ?? '文本' }}</dd>
               </template>
             </dl>
           </article>
         </div>
       </section>
       <section v-else class="preview-surface" data-testid="page-composer-detail-preview">
-        <div v-if="!state.formFields.value.length" class="preview-empty">从元数据拖入字段，开始配置详情 / 表单</div>
+        <div v-if="!state.formFields.value.length" class="preview-empty">
+          从元数据拖入字段，开始配置详情 / 表单
+        </div>
         <dl v-else class="preview-form">
           <template v-for="field in state.formFields.value" :key="field.id">
-            <dt>{{ field.title }}<em v-if="field.required">*</em></dt><dd>{{ field.fieldSpecAlias ?? '输入控件' }}</dd>
+            <dt>{{ field.title }}<em v-if="field.required">*</em></dt>
+            <dd>{{ field.fieldSpecAlias ?? '输入控件' }}</dd>
           </template>
         </dl>
       </section>
@@ -582,23 +670,126 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
 </template>
 
 <style scoped>
-.page-composition-workspace { min-height: 0; height: 100%; }
-.metadata-tree, .ui-tree { display: grid; gap: 4px; min-height: 0; overflow: auto; }
-.metadata-tree__hint, .page-composition-notice { margin: 0; color: var(--muyun-text-muted); font-size: 13px; line-height: 1.55; }
-.metadata-tree :deep(.ant-tree), .ui-tree :deep(.ant-tree) { min-height: 0; overflow: auto; }
-.ui-tree__operations { display: flex; gap: 8px; justify-content: flex-end; }
-.page-composition-notice { margin-bottom: 12px; }
-.preview-surface { margin-top: 12px; border: 1px solid var(--muyun-border); border-radius: 8px; min-height: 280px; padding: 16px; }
-.preview-surface__toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
-.preview-table { border: 1px solid var(--muyun-border-subtle); border-radius: 6px; overflow: hidden; }
-.preview-table__header, .preview-table__row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
-.preview-table__header { background: var(--muyun-surface-muted); font-weight: 600; }
-.preview-table span { padding: 10px; border-right: 1px solid var(--muyun-border-subtle); }
-.preview-empty { display: grid; min-height: 180px; place-items: center; color: var(--muyun-text-muted); }
-.preview-form { display: grid; grid-template-columns: 140px 1fr; gap: 12px 16px; align-items: center; max-width: 660px; }
-.preview-form dt { color: var(--muyun-text-muted); }.preview-form dd { margin: 0; padding: 8px 10px; border: 1px solid var(--muyun-border); border-radius: 4px; }.preview-form em { color: var(--muyun-danger); margin-left: 4px; }
-.preview-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-.preview-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--muyun-border-subtle); border-radius: 8px; background: var(--muyun-surface); }
-.preview-card header { display: flex; align-items: center; justify-content: space-between; }.preview-card header span { color: var(--muyun-text-muted); font-size: 12px; }
-.preview-card dl { display: grid; grid-template-columns: minmax(76px, auto) 1fr; gap: 8px 12px; margin: 0; }.preview-card dt { color: var(--muyun-text-muted); }.preview-card dd { margin: 0; }
+.page-composition-workspace {
+  min-height: 0;
+  height: 100%;
+}
+.metadata-tree,
+.ui-tree {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  overflow: auto;
+}
+.metadata-tree__hint,
+.page-composition-notice {
+  margin: 0;
+  color: var(--muyun-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.metadata-tree :deep(.ant-tree),
+.ui-tree :deep(.ant-tree) {
+  min-height: 0;
+  overflow: auto;
+}
+.ui-tree__operations {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.page-composition-notice {
+  margin-bottom: 12px;
+}
+.preview-surface {
+  margin-top: 12px;
+  border: 1px solid var(--muyun-border);
+  border-radius: 8px;
+  min-height: 280px;
+  padding: 16px;
+}
+.preview-surface__toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.preview-table {
+  border: 1px solid var(--muyun-border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.preview-table__header,
+.preview-table__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+.preview-table__header {
+  background: var(--muyun-surface-muted);
+  font-weight: 600;
+}
+.preview-table span {
+  padding: 10px;
+  border-right: 1px solid var(--muyun-border-subtle);
+}
+.preview-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  color: var(--muyun-text-muted);
+}
+.preview-form {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px 16px;
+  align-items: center;
+  max-width: 660px;
+}
+.preview-form dt {
+  color: var(--muyun-text-muted);
+}
+.preview-form dd {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--muyun-border);
+  border-radius: 4px;
+}
+.preview-form em {
+  color: var(--muyun-danger);
+  margin-left: 4px;
+}
+.preview-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+.preview-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--muyun-border-subtle);
+  border-radius: 8px;
+  background: var(--muyun-surface);
+}
+.preview-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.preview-card header span {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+.preview-card dl {
+  display: grid;
+  grid-template-columns: minmax(76px, auto) 1fr;
+  gap: 8px 12px;
+  margin: 0;
+}
+.preview-card dt {
+  color: var(--muyun-text-muted);
+}
+.preview-card dd {
+  margin: 0;
+}
 </style>

@@ -34,7 +34,9 @@ const props = withDefaults(
     /** Restricts which nodes can begin a drag without exposing adapter data nodes. */
     canDrag?: (node: UiTreeNode) => boolean;
     /** Restricts built-in drop targets before a page editor applies its own domain rules. */
-    allowDrop?: (event: Pick<UiTreeDropEvent, 'dragNode' | 'dropNode' | 'dropPosition' | 'dropToGap'>) => boolean;
+    allowDrop?: (
+      event: Pick<UiTreeDropEvent, 'dragNode' | 'dropNode' | 'dropPosition' | 'dropToGap'>,
+    ) => boolean;
     /** Controls externally-originated payloads, for example a metadata tree dropped onto a UI tree. */
     allowExternalDrop?: (event: Omit<UiTreeExternalDropEvent, 'nativeEvent'>) => boolean;
   }>(),
@@ -236,20 +238,26 @@ function unwrapNode(node: AntTreeNode): UiTreeNode | undefined {
 }
 
 function isUiTreeNode(value: unknown): value is UiTreeNode {
-  return typeof value === 'object' && value !== null
-    && typeof (value as { key?: unknown }).key === 'string'
-    && typeof (value as { title?: unknown }).title === 'string';
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { key?: unknown }).key === 'string' &&
+    typeof (value as { title?: unknown }).title === 'string'
+  );
 }
 
 function normalizedDropEvent(event: AntTreeDropEvent): UiTreeDropEvent | undefined {
   const dragNode = event.dragNode ? unwrapNode(event.dragNode) : undefined;
   const dropNode = event.node ? unwrapNode(event.node) : undefined;
   if (!dragNode || !dropNode) return undefined;
-  const nodePosition = Number(String(event.node?.pos ?? '').split('-').at(-1));
+  const nodePosition = Number(
+    String(event.node?.pos ?? '')
+      .split('-')
+      .at(-1),
+  );
   const rawPosition = Number(event.dropPosition);
-  const relativePosition = Number.isFinite(nodePosition) && Number.isFinite(rawPosition)
-    ? rawPosition - nodePosition
-    : 0;
+  const relativePosition =
+    Number.isFinite(nodePosition) && Number.isFinite(rawPosition) ? rawPosition - nodePosition : 0;
   return {
     dragNode,
     dropNode,
@@ -289,11 +297,12 @@ function allowsDrop(event: AntTreeDropEvent) {
   return normalized ? (props.allowDrop?.(normalized) ?? true) : false;
 }
 
-function externalDropTarget(nativeEvent: DragEvent): Omit<UiTreeExternalDropEvent, 'nativeEvent'> | undefined {
+function externalDropTarget(
+  nativeEvent: DragEvent,
+): Omit<UiTreeExternalDropEvent, 'nativeEvent'> | undefined {
   const origin = nativeEvent.target as Element | null;
-  const target = typeof origin?.closest === 'function'
-    ? origin.closest<HTMLElement>('[data-ui-tree-key]')
-    : null;
+  const target =
+    typeof origin?.closest === 'function' ? origin.closest<HTMLElement>('[data-ui-tree-key]') : null;
   const key = target?.dataset.uiTreeKey;
   const dropNode = key ? findNode(props.nodes, key) : undefined;
   if (!target || !dropNode) return undefined;

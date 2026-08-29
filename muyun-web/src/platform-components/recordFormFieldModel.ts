@@ -85,13 +85,7 @@ export function applyReferenceDependencyClears(
  * semantics all the way to the HTTP request.
  */
 export type RecordFormFieldValue =
-  | string
-  | number
-  | boolean
-  | OptionValueList
-  | string[]
-  | JsonValue
-  | undefined;
+  string | number | boolean | OptionValueList | string[] | JsonValue | undefined;
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 /** A business boolean does not inherit the lifecycle field's implicit enabled default. */
 export type RecordBooleanStatusValue = boolean | undefined;

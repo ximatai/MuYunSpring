@@ -78,7 +78,8 @@ export function createPageCompositionDraftState() {
   function removeSelectedField() {
     const node = selectedNode.value;
     if (!node?.field) return;
-    if (node.slot === 'list') listFields.value = listFields.value.filter((field) => field.id !== node.field?.id);
+    if (node.slot === 'list')
+      listFields.value = listFields.value.filter((field) => field.id !== node.field?.id);
     else formFields.value = formFields.value.filter((field) => field.id !== node.field?.id);
     selectedNodeId.value = `slot:${node.slot}`;
   }
@@ -135,8 +136,16 @@ export function createPageCompositionDraftState() {
       template: 'management',
       templateVersion: 1,
       nodes: [
-        { slot: 'list', title: titles?.list ?? '列表', fields: listFields.value.map((field) => field.fieldName) },
-        { slot: 'form', title: titles?.form ?? '详情 / 表单', fields: formFields.value.map((field) => field.fieldName) },
+        {
+          slot: 'list',
+          title: titles?.list ?? '列表',
+          fields: listFields.value.map((field) => field.fieldName),
+        },
+        {
+          slot: 'form',
+          title: titles?.form ?? '详情 / 表单',
+          fields: formFields.value.map((field) => field.fieldName),
+        },
       ],
     };
   }
