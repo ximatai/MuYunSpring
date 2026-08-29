@@ -7,8 +7,9 @@ import {
   RecordExplorerPanel,
   presentPlatformError,
 } from '@muyun/platform-components';
-import { useModuleContext } from '@muyun/web-core';
+import { createStaticResourceCrudClient, useModuleContext, type ModuleCrudClient } from '@muyun/web-core';
 import {
+  confirmAction,
   UiButton,
   UiEmpty,
   UiInput,
@@ -17,7 +18,7 @@ import {
   UiTabs,
   type UiTabItem,
 } from '@muyun/vue-ui-antdv';
-import type { MetadataField, ModuleMetadataRelation, WebPageResponse } from '@muyun/web-contracts';
+import type { MetadataField, ModuleMetadataRelation, WebPageResponse, WebQueryCondition } from '@muyun/web-contracts';
 import {
   createPageCompositionDraftState,
   type PageComposerField,
@@ -30,8 +31,13 @@ const props = defineProps<{ moduleAlias: string; moduleTitle?: string }>();
 const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
 const state = createPageCompositionDraftState();
 const loading = ref(false);
+const saving = ref(false);
+const publishing = ref(false);
 const relation = ref<ModuleMetadataRelation>();
 const metadataFields = ref<PageComposerField[]>([]);
+const page = ref<PageDefinition>();
+const variant = ref<PresentationVariant>();
+const revision = ref<PresentationRevision>();
 const selectedSlot = ref<PageComposerSlot>('list');
 const editorOpen = ref(false);
 const componentTitle = ref('');
@@ -51,12 +57,75 @@ const visibleFields = computed(() => {
 const selectedField = computed(() => state.selectedNode.value?.field);
 const composerTitle = computed(() => `${props.moduleTitle ?? props.moduleAlias} · Web 管理页`);
 const mainEntityTitle = computed(() => relation.value?.relationAlias ?? '主实体');
+const compositionSubtitle = computed(() => {
+  if (!page.value) return '尚未初始化页面定义';
+  if (!revision.value) return '尚无可编辑草稿';
+  return `草稿 v${revision.value.revisionNo} · management v1`;
+});
 
 watch(
   () => props.moduleAlias,
-  () => void loadMetadataTree(),
+  () => void loadWorkspace(),
   { immediate: true },
 );
+
+type PageDefinition = {
+  id?: string;
+  version?: number;
+  title?: string;
+  alias?: string;
+  moduleAlias?: string;
+  contractType?: 'MANAGEMENT' | 'FORM' | 'DETAIL' | 'REFERENCE';
+  mainRelationId?: string;
+  enabled?: boolean;
+};
+type PresentationVariant = {
+  id?: string;
+  version?: number;
+  title?: string;
+  pageId?: string;
+  clientType?: 'WEB' | 'MOBILE';
+  scopeType?: 'GLOBAL' | 'TENANT' | 'ORGANIZATION';
+  enabled?: boolean;
+};
+type PresentationRevision = {
+  id?: string;
+  version?: number;
+  title?: string;
+  variantId?: string;
+  revisionNo?: number;
+  templateAlias?: string;
+  templateVersion?: number;
+  uiTreeJson?: string;
+  status?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+  enabled?: boolean;
+};
+
+function pageClient() {
+  return createStaticResourceCrudClient<PageDefinition>(
+    moduleContext.http,
+    `/platform.module/${encodeURIComponent(props.moduleAlias)}/pages`,
+  );
+}
+
+function variantClient(pageId: string) {
+  return createStaticResourceCrudClient<PresentationVariant>(
+    moduleContext.http,
+    `/platform.module/${encodeURIComponent(props.moduleAlias)}/pages/${encodeURIComponent(pageId)}/presentation-variants`,
+  );
+}
+
+function revisionClient(variantId: string) {
+  return createStaticResourceCrudClient<PresentationRevision>(
+    moduleContext.http,
+    `/platform.presentation-variant/${encodeURIComponent(variantId)}/revisions`,
+  );
+}
+
+async function loadWorkspace() {
+  await loadMetadataTree();
+  await loadComposition();
+}
 
 async function loadMetadataTree() {
   loading.value = true;
@@ -78,6 +147,119 @@ async function loadMetadataTree() {
     presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadComposition() {
+  page.value = undefined;
+  variant.value = undefined;
+  revision.value = undefined;
+  state.replaceFields({ list: [], form: [] });
+  try {
+    const pages = await loadAllFromClient(pageClient(), [{ fieldName: 'alias', operator: 'EQ', values: ['management'] }]);
+    page.value = pages[0];
+    if (!page.value?.id) return;
+    const variants = await loadAllFromClient(variantClient(page.value.id), [
+      { fieldName: 'clientType', operator: 'EQ', values: ['WEB'] },
+      { fieldName: 'scopeType', operator: 'EQ', values: ['GLOBAL'] },
+    ]);
+    variant.value = variants[0];
+    if (!variant.value?.id) return;
+    const revisions = await loadAllFromClient(revisionClient(variant.value.id), [
+      { fieldName: 'status', operator: 'EQ', values: ['DRAFT'] },
+    ]);
+    revision.value = revisions.sort((left, right) => (right.revisionNo ?? 0) - (left.revisionNo ?? 0))[0];
+    hydrateDraft(revision.value);
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+  }
+}
+
+async function loadAllFromClient<T>(client: ModuleCrudClient<T>, conditions: WebQueryCondition[] = []): Promise<T[]> {
+  const response = await client.query({ unpaged: true, conditions });
+  return response.records;
+}
+
+function hydrateDraft(current: PresentationRevision | undefined) {
+  if (!current?.uiTreeJson) return;
+  try {
+    const tree = JSON.parse(current.uiTreeJson) as { nodes?: Array<{ slot?: PageComposerSlot; fields?: string[] }> };
+    const resolve = (slot: PageComposerSlot) => tree.nodes?.find((node) => node.slot === slot)?.fields ?? [];
+    const fieldsByName = new Map(metadataFields.value.map((field) => [field.fieldName, field]));
+    state.replaceFields({
+      list: resolve('list').map((name) => fieldsByName.get(name)).filter((field): field is PageComposerField => Boolean(field)),
+      form: resolve('form').map((name) => fieldsByName.get(name)).filter((field): field is PageComposerField => Boolean(field)),
+    });
+  } catch {
+    // Publication validates the persisted tree. A malformed draft should remain editable as an empty local tree.
+  }
+}
+
+async function initializeComposition() {
+  if (!relation.value?.id) return;
+  saving.value = true;
+  try {
+    if (!page.value) {
+      page.value = (await pageClient().insert({
+        alias: 'management', contractType: 'MANAGEMENT', mainRelationId: relation.value.id,
+        title: `${props.moduleTitle ?? props.moduleAlias}管理页`, enabled: true,
+      })).record;
+    }
+    if (!page.value.id) return;
+    if (!variant.value) {
+      variant.value = (await variantClient(page.value.id).insert({
+        clientType: 'WEB', scopeType: 'GLOBAL', title: 'Web 全局呈现', enabled: true,
+      })).record;
+    }
+    if (!variant.value.id || revision.value) return;
+    const revisions = await loadAllFromClient(revisionClient(variant.value.id));
+    revision.value = (await revisionClient(variant.value.id).insert({
+      revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
+      templateAlias: 'management', templateVersion: 1,
+      uiTreeJson: JSON.stringify(state.toManagementUiTree()),
+      status: 'DRAFT', title: '初始草稿', enabled: true,
+    })).record;
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function saveDraft() {
+  if (!revision.value?.id || !variant.value?.id) return;
+  saving.value = true;
+  try {
+    revision.value = (await revisionClient(variant.value.id).update(revision.value.id, {
+      ...revision.value,
+      uiTreeJson: JSON.stringify(state.toManagementUiTree()),
+    })).record;
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function publishDraft() {
+  if (!revision.value?.id) return;
+  const confirmed = await confirmAction({
+    title: '发布页面修订',
+    content: '发布将校验 UI Tree，并将该修订确认为当前 Web 全局呈现。是否继续？',
+    okText: '确认发布',
+  });
+  if (!confirmed) return;
+  publishing.value = true;
+  try {
+    await saveDraft();
+    await moduleContext.http.request<number>({
+      method: 'POST', path: `/platform.presentation_publish/revisions/${encodeURIComponent(revision.value.id)}/publish`,
+    });
+    await loadComposition();
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
+  } finally {
+    publishing.value = false;
   }
 }
 
@@ -204,11 +386,19 @@ function dropField(event: DragEvent, slot: PageComposerSlot) {
       </RecordExplorerPanel>
     </ManagementExplorerColumn>
 
-    <RecordDetailPanel :title="composerTitle" subtitle="本地草稿 · 发布接口接入中">
+    <RecordDetailPanel :title="composerTitle" :subtitle="compositionSubtitle">
       <template #actions>
-        <UiButton type="primary" disabled title="等待页面修订发布接口">保存草稿</UiButton>
+        <UiButton v-if="!revision" :loading="saving" type="primary" :disabled="!relation" @click="initializeComposition">初始化页面</UiButton>
+        <template v-else>
+          <UiButton :loading="saving" @click="saveDraft">保存草稿</UiButton>
+          <UiButton type="primary" :loading="publishing" @click="publishDraft">发布</UiButton>
+        </template>
       </template>
-      <p class="page-composition-notice">当前可完成模板选槽、字段编排与预览；草稿保存、发布确认会接入新的页面修订 API，不会调用旧 UI 配置集接口。</p>
+      <p class="page-composition-notice">
+        <template v-if="!page">初始化会创建管理页、Web 全局呈现与首个草稿；不会调用旧 UI 配置集接口。</template>
+        <template v-else-if="!revision">当前页面尚无草稿，点击“初始化页面”创建首个可编辑修订。</template>
+        <template v-else>草稿保存后不会覆盖已发布呈现；通过发布校验后才会更新当前 Web 全局呈现。</template>
+      </p>
       <UiTabs v-model:active-key="state.previewMode.value" :tabs="previewTabs" />
       <section v-if="state.previewMode.value === 'list'" class="preview-surface" data-testid="page-composer-list-preview">
         <header class="preview-surface__toolbar"><span>快速查询</span><UiButton size="small">查询</UiButton></header>

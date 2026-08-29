@@ -28,4 +28,20 @@ describe('pageCompositionDraftState', () => {
     expect(state.listFields.value.map((field) => field.id)).toEqual(['title']);
     expect(state.selectedNodeId.value).toBe('slot:list');
   });
+
+  it('serializes the management v1 tree with independent list and form field order', () => {
+    const state = createPageCompositionDraftState();
+    state.addField(date, 'list');
+    state.addField(title, 'form');
+    state.addField(date, 'form');
+
+    expect(state.toManagementUiTree()).toEqual({
+      template: 'management',
+      templateVersion: 1,
+      nodes: [
+        { slot: 'list', title: '列表', fields: ['examDate'] },
+        { slot: 'form', title: '详情 / 表单', fields: ['title', 'examDate'] },
+      ],
+    });
+  });
 });

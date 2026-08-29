@@ -18,6 +18,16 @@ export interface PageComposerNode {
   field?: PageComposerField;
 }
 
+export interface ManagementUiTree {
+  template: 'management';
+  templateVersion: 1;
+  nodes: Array<{
+    slot: PageComposerSlot;
+    title: string;
+    fields: string[];
+  }>;
+}
+
 /**
  * The editor deliberately owns a small, serialisable draft.  It does not
  * project the legacy UiSet / UiConfig aggregate, so replacing the transport
@@ -83,6 +93,24 @@ export function createPageCompositionDraftState() {
     previewMode.value = node.slot === 'list' ? 'list' : 'detail';
   }
 
+  /** Rehydrates the editor from the persisted template contract, not the legacy UI-set aggregate. */
+  function replaceFields(next: { list: PageComposerField[]; form: PageComposerField[] }) {
+    listFields.value = [...next.list];
+    formFields.value = [...next.form];
+    selectedNodeId.value = undefined;
+  }
+
+  function toManagementUiTree(titles?: Partial<Record<PageComposerSlot, string>>): ManagementUiTree {
+    return {
+      template: 'management',
+      templateVersion: 1,
+      nodes: [
+        { slot: 'list', title: titles?.list ?? '列表', fields: listFields.value.map((field) => field.fieldName) },
+        { slot: 'form', title: titles?.form ?? '详情 / 表单', fields: formFields.value.map((field) => field.fieldName) },
+      ],
+    };
+  }
+
   return {
     listFields,
     formFields,
@@ -94,5 +122,7 @@ export function createPageCompositionDraftState() {
     removeSelectedField,
     moveSelectedField,
     selectNode,
+    replaceFields,
+    toManagementUiTree,
   };
 }
