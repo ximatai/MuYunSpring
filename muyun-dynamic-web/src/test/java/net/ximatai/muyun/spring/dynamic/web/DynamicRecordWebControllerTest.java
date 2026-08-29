@@ -1584,6 +1584,32 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldExecutePublishedPageCompositionQueryWithoutLegacyUiConfigId() throws Exception {
+        PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedPageCompositionPlan()));
+        MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .query(snapshotService, null, null).executionPlans(catalog).build())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+        DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");
+        record.setId("contract-1");
+        when(mainEntity.queryCriteria(any())).thenReturn(Criteria.of().eq("code", "C-001"));
+        when(mainEntity.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(record), 1, PageRequest.of(1, 20)));
+
+        plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
+                        .content("{\"quickSearch\":\"C-001\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].values.code").value("C-001"));
+
+        verifyNoInteractions(snapshotService);
+    }
+
+    @Test
     void shouldApplyPresentNavigatorValuesFromInstalledPlanRegardlessOfQueryMode() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
         ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
@@ -3690,6 +3716,16 @@ class DynamicRecordWebControllerTest {
 
     private ModuleExecutionPlan installedDynamicPlan() {
         return installedDynamicPlan(null, List.of());
+    }
+
+    private ModuleExecutionPlan installedPageCompositionPlan() {
+        ModuleExecutionPlan legacyPlan = installedDynamicPlan();
+        return new ModuleExecutionPlan(legacyPlan.moduleAlias(), "dynamic-runtime-1-page-1-r1",
+                legacyPlan.uiDescriptor(), legacyPlan.readModel(), legacyPlan.pageContextBindings(),
+                legacyPlan.queryDescriptor(), legacyPlan.querySchema(), legacyPlan.queryTemplateIds(),
+                legacyPlan.queryTemplates(), null, null, legacyPlan.queryFormFields(),
+                legacyPlan.mutationConstraints(), legacyPlan.mutationFieldValidations(), legacyPlan.actions(),
+                legacyPlan.dataScopeEnabled());
     }
 
     private ModuleExecutionPlan installedDynamicPlan(
