@@ -120,7 +120,7 @@ type PageDefinition = {
   title?: string;
   alias?: string;
   moduleAlias?: string;
-  contractType?: 'MANAGEMENT' | 'FORM' | 'DETAIL' | 'REFERENCE';
+  contractType?: 'management' | 'form' | 'detail' | 'reference';
   mainRelationId?: string;
   enabled?: boolean;
 };
@@ -129,8 +129,8 @@ type PresentationVariant = {
   version?: number;
   title?: string;
   pageId?: string;
-  clientType?: 'WEB' | 'MOBILE';
-  scopeType?: 'GLOBAL' | 'TENANT' | 'ORGANIZATION';
+  clientType?: 'web' | 'mobile';
+  scopeType?: 'global' | 'tenant' | 'organization';
   enabled?: boolean;
 };
 type PresentationRevision = {
@@ -142,7 +142,7 @@ type PresentationRevision = {
   templateAlias?: string;
   templateVersion?: number;
   uiTreeJson?: string;
-  status?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+  status?: 'draft' | 'published' | 'archived';
   enabled?: boolean;
 };
 
@@ -205,13 +205,13 @@ async function loadComposition() {
     page.value = pages[0];
     if (!page.value?.id) return;
     const variants = await loadAllFromClient(variantClient(page.value.id), [
-      { fieldName: 'clientType', operator: 'EQ', values: ['WEB'] },
-      { fieldName: 'scopeType', operator: 'EQ', values: ['GLOBAL'] },
+      { fieldName: 'clientType', operator: 'EQ', values: ['web'] },
+      { fieldName: 'scopeType', operator: 'EQ', values: ['global'] },
     ]);
     variant.value = variants[0];
     if (!variant.value?.id) return;
     const revisions = await loadAllFromClient(revisionClient(variant.value.id), [
-      { fieldName: 'status', operator: 'EQ', values: ['DRAFT'] },
+      { fieldName: 'status', operator: 'EQ', values: ['draft'] },
     ]);
     revision.value = revisions.sort((left, right) => (right.revisionNo ?? 0) - (left.revisionNo ?? 0))[0];
     hydrateDraft(revision.value);
@@ -246,14 +246,14 @@ async function initializeComposition() {
   try {
     if (!page.value) {
       page.value = (await pageClient().insert({
-        alias: 'management', contractType: 'MANAGEMENT', mainRelationId: relation.value.id,
+        alias: 'management', contractType: 'management', mainRelationId: relation.value.id,
         title: `${props.moduleTitle ?? props.moduleAlias}管理页`, enabled: true,
       })).record;
     }
     if (!page.value.id) return;
     if (!variant.value) {
       variant.value = (await variantClient(page.value.id).insert({
-        clientType: 'WEB', scopeType: 'GLOBAL', title: 'Web 全局呈现', enabled: true,
+        clientType: 'web', scopeType: 'global', title: 'Web 全局呈现', enabled: true,
       })).record;
     }
     if (!variant.value.id || revision.value) return;
@@ -262,7 +262,7 @@ async function initializeComposition() {
       revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
       templateAlias: 'management', templateVersion: 1,
       uiTreeJson: JSON.stringify(state.toManagementUiTree()),
-      status: 'DRAFT', title: '初始草稿', enabled: true,
+      status: 'draft', title: '初始草稿', enabled: true,
     })).record;
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
@@ -320,7 +320,7 @@ async function createFollowUpDraft(publishedRevision: PresentationRevision, uiTr
     templateAlias: publishedRevision.templateAlias ?? 'management',
     templateVersion: publishedRevision.templateVersion ?? 1,
     uiTreeJson,
-    status: 'DRAFT',
+    status: 'draft',
     title: `基于 v${publishedRevision.revisionNo ?? 1} 的草稿`,
     enabled: true,
   });
