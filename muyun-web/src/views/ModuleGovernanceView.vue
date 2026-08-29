@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { RecordDetailPanel, RecordRelationTabs } from '@muyun/platform-components';
 import { UiEmpty } from '@muyun/vue-ui-antdv';
 import MetadataOrchestrationView from './MetadataOrchestrationView.vue';
+import PageCompositionWorkspace from './PageCompositionWorkspace.vue';
 import { moduleGovernanceTabs, type ModuleGovernanceTab } from './moduleGovernanceWorkspaceView';
 
 defineOptions({ name: 'ModuleGovernanceView' });
@@ -34,7 +35,7 @@ const activeTabTitle = computed(() => tabs.find((tab) => tab.key === activeTab.v
 const placeholderDescription = computed(() => {
   if (activeTab.value === 'capabilities') return '能力范围、依赖关系与字段贡献将在此治理。';
   if (activeTab.value === 'actions') return '模块动作治理将在迁移后接入此处。';
-  if (activeTab.value === 'ui') return 'UI 配置集、页面配置与发布状态将在迁移后接入此处。';
+  if (activeTab.value === 'ui') return '页面编排器正在接入新的页面修订发布链路。';
   if (activeTab.value === 'diagnostics') return '已发布配置的解析结果与运行诊断将在此展示。';
   return '模块配置完成度与关键阻塞项将在此汇总。';
 });
@@ -52,6 +53,12 @@ function selectTab(key: string) {
 
     <MetadataOrchestrationView
       v-if="activeTab === 'metadata'"
+      class="module-governance__surface"
+      :module-alias="moduleAlias"
+      :module-title="moduleTitle"
+    />
+    <PageCompositionWorkspace
+      v-else-if="activeTab === 'ui'"
       class="module-governance__surface"
       :module-alias="moduleAlias"
       :module-title="moduleTitle"
