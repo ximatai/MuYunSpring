@@ -80,12 +80,27 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         string.setFieldType(FieldType.STRING);
         string.setDefaultLength(128);
         fieldSpecService.insert(string);
+        if (fieldSpecService.list(Criteria.of().eq("alias", "string")).isEmpty()) {
+            FieldSpec standardString = new FieldSpec();
+            standardString.setAlias("string");
+            standardString.setTitle("String");
+            standardString.setFieldType(FieldType.STRING);
+            standardString.setDefaultLength(256);
+            fieldSpecService.insert(standardString);
+        }
         if (fieldSpecService.list(Criteria.of().eq("alias", "boolean")).isEmpty()) {
             FieldSpec bool = new FieldSpec();
             bool.setAlias("boolean");
             bool.setTitle("Boolean");
             bool.setFieldType(FieldType.BOOLEAN);
             fieldSpecService.insert(bool);
+        }
+        if (fieldSpecService.list(Criteria.of().eq("alias", "integer")).isEmpty()) {
+            FieldSpec integer = new FieldSpec();
+            integer.setAlias("integer");
+            integer.setTitle("Integer");
+            integer.setFieldType(FieldType.INTEGER);
+            fieldSpecService.insert(integer);
         }
 
         metadata = new Metadata();
