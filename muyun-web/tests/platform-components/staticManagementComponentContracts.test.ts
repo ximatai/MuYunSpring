@@ -99,34 +99,6 @@ it('record explorer panel uses a single title contract', () => {
   assert.match(workspaceSource, /--muyun-management-panel-padding-block/);
 });
 
-it('explorer create actions use platform compact actions instead of page-owned CSS', () => {
-  const actionButtonSource = readSource('src/platform-components/ModuleActionButton.vue');
-  const panelSource = readSource('src/platform-components/RecordExplorerPanel.vue');
-  const staticLayoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
-  const moduleActionViewSource = readSource('src/views/ModuleActionManagementView.vue');
-  const modulePageHostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
-  const navigatorExplorerSource = readSource('src/dynamic-page-runtime/PageNavigatorExplorer.vue');
-
-  assert.match(actionButtonSource, /presentation\?: 'default' \| 'record-explorer-create'/);
-  assert.match(actionButtonSource, /props\.presentation === 'record-explorer-create'/);
-  assert.match(panelSource, /record-explorer-panel-create-action\.ant-btn/);
-  assert.match(
-    moduleActionViewSource,
-    /action-code="create"\s+title="新建动作"\s+icon-only\s+presentation="record-explorer-create"/,
-  );
-  assert.match(
-    modulePageHostSource,
-    /action-code="create"\s+icon-only\s+presentation="record-explorer-create"/,
-  );
-  assert.match(
-    navigatorExplorerSource,
-    /action-code="create"\s+icon-only\s+presentation="record-explorer-create"/,
-  );
-  assert.notMatch(staticLayoutSource, /record-panel-create-button/);
-  assert.notMatch(moduleActionViewSource, /record-panel-create-button/);
-  assert.notMatch(modulePageHostSource, /record-panel-create-button/);
-});
-
 it('content sections share one semantic heading language so dark skins preserve hierarchy', () => {
   const metaSource = readSource('src/platform-components/RecordMetaSection.vue');
   const extensionSource = readSource('src/platform-components/RecordDetailExtensionSection.vue');

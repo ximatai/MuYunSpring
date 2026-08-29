@@ -63,7 +63,6 @@ public final class MetadataCapabilityCatalog {
     public static MetadataCapabilityPlan plan(Set<EntityCapability> capabilities) {
         Set<EntityCapability> normalized = normalize(capabilities);
         LinkedHashSet<ModuleMetadataCapabilityFieldContribution> metadataFields = new LinkedHashSet<>();
-        LinkedHashSet<FieldDefinition> implicitFields = new LinkedHashSet<>();
         for (EntityCapability capability : normalized.stream().sorted().toList()) {
             switch (capability) {
                 case TREE -> metadataFields.add(field(PlatformAbilityFields.TREE_PARENT_FIELD,
@@ -75,7 +74,7 @@ public final class MetadataCapabilityCatalog {
                 default -> { }
             }
         }
-        return new MetadataCapabilityPlan(normalized, List.copyOf(metadataFields), List.copyOf(implicitFields));
+        return new MetadataCapabilityPlan(normalized, List.copyOf(metadataFields));
     }
 
     /**

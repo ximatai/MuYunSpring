@@ -72,7 +72,6 @@ function itemOf(record: NavigatorItemRecord) {
         :context="level.context"
         action-code="create"
         icon-only
-        presentation="record-explorer-create"
         :disabled="createDisabled"
         :title="createDisabled ? createDisabledReason : `新建${level.descriptor.title}`"
         @click="emit('create')"

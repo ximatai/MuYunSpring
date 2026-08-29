@@ -37,7 +37,6 @@ class MetadataCapabilityCatalogTest {
         assertThat(plan.capabilities()).contains(EntityCapability.TREE, EntityCapability.SORT);
         assertThat(plan.metadataFields()).extracting(ModuleMetadataCapabilityFieldContribution::fieldName)
                 .containsExactly("parentId", "sortOrder");
-        assertThat(plan.implicitRuntimeFields()).isEmpty();
         assertThatThrownBy(() -> MetadataCapabilityCatalog.requireDeclaration("DATA_SCOPE"))
                 .isInstanceOf(PlatformException.class).hasMessageContaining("not declarable");
     }

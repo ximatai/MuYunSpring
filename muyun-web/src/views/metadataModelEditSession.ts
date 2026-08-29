@@ -4,7 +4,7 @@ import type { MetadataField, ModuleMetadataRelation } from '@muyun/web-contracts
 /**
  * A local edit session for one metadata relation.
  *
- * It intentionally owns no transport: future change-set preview/apply APIs are
+ * It intentionally owns no transport: change-set preview/apply APIs are
  * the only place that may persist this draft. This prevents field CRUD and
  * capability choices from escaping as unrelated immediate mutations.
  */

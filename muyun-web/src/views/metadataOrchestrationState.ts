@@ -197,19 +197,6 @@ export function isOrchestratableField(field: MetadataField): boolean {
   );
 }
 
-/** @deprecated Kept for hot-reload compatibility while field sources moved into the unified table. */
-export function metadataFieldGroupsOf(fields: MetadataField[]) {
-  return {
-    business: orchestratableFields(fields),
-    platform: fields.filter(
-      (field) =>
-        field.fieldForm === 'PHYSICAL' &&
-        (field.fieldOwnership !== 'BUSINESS' || field.systemManaged === true),
-    ),
-    derived: fields.filter((field) => field.fieldForm && field.fieldForm !== 'PHYSICAL'),
-  };
-}
-
 export function fieldSpecOptionListOf(specs: FieldSpec[]): FieldSpecOption[] {
   return specs
     .filter((item) => item.enabled !== false)

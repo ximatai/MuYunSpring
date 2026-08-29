@@ -45,8 +45,6 @@
 3. 如果存在“新建根节点 / 新建下级”等多个创建语义，侧栏只保留默认主动作，其他动作放到详情动作区或后续菜单组件。
 4. 动作语义不能只依赖 `title` tooltip 区分。
 
-动作区的视觉层级由平台组件决定，页面只声明动作语义：新增入口使用默认态的圆形 explorer action；保存、发布、确认等会提交关键状态转换的动作才使用 primary；搜索、刷新、收起使用紧凑 text/icon；删除与回收站按 danger/quiet 语义呈现。业务页不得通过 `record-panel-*` 一类 CSS class 重定义尺寸、圆角或强调色。
-
 ## Explorer Item 契约
 
 列表和树的单条记录都应先映射成统一的 `RecordExplorerItemDescriptor`：

@@ -2540,7 +2540,6 @@ function recordTitle(record: QueryListRecord | undefined) {
               :context="navigatorLevelAt(index)!.context"
               action-code="create"
               icon-only
-              presentation="record-explorer-create"
               :disabled="!navigatorManagementScopeReady(navigatorLevelAt(index)!)"
               :title="
                 navigatorManagementScopeDisabledReason(navigatorLevelAt(index)!) ??
@@ -2625,10 +2624,10 @@ function recordTitle(record: QueryListRecord | undefined) {
       </template>
       <template v-if="!flatManagementRecycleBin.active.value" #explorer-actions>
         <ModuleActionButton
+          class="record-panel-create-button"
           :context="context"
           action-code="create"
           icon-only
-          presentation="record-explorer-create"
           :title="flatManagementContent?.createTitle"
           @click="createRootRecord"
         />
@@ -2784,7 +2783,6 @@ function recordTitle(record: QueryListRecord | undefined) {
               :context="level.context"
               action-code="create"
               icon-only
-              presentation="record-explorer-create"
               :disabled="!navigatorManagementScopeReady(level)"
               :title="navigatorManagementScopeDisabledReason(level) ?? `新建${level.descriptor.title}`"
               @click="createNavigatorRecord(level)"
@@ -3107,10 +3105,10 @@ function recordTitle(record: QueryListRecord | undefined) {
           <template #actions>
             <ModuleActionButton
               v-if="mainTreeScopeReady"
+              class="record-panel-create-button"
               :context="context"
               action-code="create"
               icon-only
-              presentation="record-explorer-create"
               :title="runtimePage?.treeResource?.createTitle ?? `新建${treeRootTitle}`"
               @click="createRootRecord"
             />
@@ -3582,6 +3580,13 @@ function recordTitle(record: QueryListRecord | undefined) {
 
 .module-tree-card {
   min-width: 0;
+}
+
+.module-tree-workspace :deep(.record-panel-create-button) {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
 }
 
 .module-scope-editor-panel {
