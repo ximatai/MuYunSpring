@@ -32,6 +32,12 @@ public class DynamicModuleRuntimeRefresher {
         return refresh(module, MigrationOptions.dryRun());
     }
 
+    /** Activates an already schema-ensured module without DDL, transaction deferral, or refresh events. */
+    public DynamicModuleRefreshResult activateNow(ModuleDefinition module) {
+        runtime.refresh(module);
+        return new DynamicModuleRefreshResult(module, Map.of(), false);
+    }
+
     public DynamicModuleRefreshResult refresh(ModuleDefinition module, MigrationOptions options) {
         ModuleDefinition previousModule = runtime.registry().findModule(module.moduleAlias()).orElse(null);
         Map<String, MigrationResult> migrations = schemaService.ensureModule(module, previousModule, options);

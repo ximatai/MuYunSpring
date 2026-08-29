@@ -10,6 +10,9 @@ import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
+import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.module.PlatformModule;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -35,11 +38,12 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
     private final ObjectProvider<PlatformMetadataSchemaEnsureService> schemaEnsureServiceProvider;
     private final ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider;
     private final ObjectProvider<ModuleMetadataRelationService> relationServiceProvider;
+    private final ObjectProvider<PlatformModuleService> moduleServiceProvider;
 
     public MetadataFieldService(BaseDao<MetadataField, String> fieldDao,
                                 MetadataService metadataService,
                                 FieldSpecService fieldTypeService) {
-        this(fieldDao, metadataService, fieldTypeService, provider(null), provider(null), provider(null), provider(null));
+        this(fieldDao, metadataService, fieldTypeService, provider(null), provider(null), provider(null), provider(null), provider(null));
     }
 
     public MetadataFieldService(BaseDao<MetadataField, String> fieldDao,
@@ -48,7 +52,7 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
                                 Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
         this(fieldDao, metadataService, fieldTypeService, provider(runtimeRefreshCoordinator == null
                 ? null
-                : runtimeRefreshCoordinator.orElse(null)), provider(null), provider(null), provider(null));
+                : runtimeRefreshCoordinator.orElse(null)), provider(null), provider(null), provider(null), provider(null));
     }
 
     public MetadataFieldService(BaseDao<MetadataField, String> fieldDao,
@@ -58,7 +62,7 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
                                 Optional<PlatformMetadataSchemaEnsureService> schemaEnsureService) {
         this(fieldDao, metadataService, fieldTypeService,
                 provider(runtimeRefreshCoordinator == null ? null : runtimeRefreshCoordinator.orElse(null)),
-                provider(schemaEnsureService == null ? null : schemaEnsureService.orElse(null)), provider(null), provider(null));
+                provider(schemaEnsureService == null ? null : schemaEnsureService.orElse(null)), provider(null), provider(null), provider(null));
     }
 
     @Autowired
@@ -68,7 +72,8 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
                                 ObjectProvider<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinatorProvider,
                                 ObjectProvider<PlatformMetadataSchemaEnsureService> schemaEnsureServiceProvider,
                                 ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider,
-                                ObjectProvider<ModuleMetadataRelationService> relationServiceProvider) {
+                                ObjectProvider<ModuleMetadataRelationService> relationServiceProvider,
+                                ObjectProvider<PlatformModuleService> moduleServiceProvider) {
         super(MODULE_ALIAS, MetadataField.class, fieldDao);
         this.metadataService = metadataService;
         this.fieldTypeService = fieldTypeService;
@@ -80,10 +85,14 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
                 "referenceGuardProvider must not be null");
         this.relationServiceProvider = Objects.requireNonNull(relationServiceProvider,
                 "relationServiceProvider must not be null");
+        this.moduleServiceProvider = Objects.requireNonNull(moduleServiceProvider,
+                "moduleServiceProvider must not be null");
     }
 
     @Override
     public void beforeDelete(String id) {
+        MetadataField field = id == null ? null : select(id);
+        assertGovernedMainMetadataWrite(field == null ? null : field.getMetadataId());
         assertNotChildForeignKey(id);
         ConfigurationReferenceDeletionGuard guard = referenceGuardProvider.getIfAvailable();
         if (guard != null) guard.assertCanDelete(ConfigurationReferenceTarget.METADATA_FIELD, id);
@@ -97,11 +106,13 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
 
     @Override
     public void beforeInsert(MetadataField field) {
+        assertGovernedMainMetadataWrite(field == null ? null : field.getMetadataId());
         normalizeAndValidate(field);
     }
 
     @Override
     public void beforeUpdate(MetadataField field) {
+        assertGovernedMainMetadataWrite(field == null ? null : field.getMetadataId());
         normalizeAndValidate(field);
     }
 
@@ -115,7 +126,7 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
     @Override
     public void afterInsert(String id, MetadataField field) {
         PlatformMetadataSchemaEnsureService schemaEnsureService = schemaEnsureService();
-        if (schemaEnsureService != null) {
+        if (schemaEnsureService != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             schemaEnsureService.ensure(field.getMetadataId());
         }
     }
@@ -123,7 +134,7 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
     @Override
     public void afterUpdate(MetadataField field, int updated) {
         PlatformMetadataSchemaEnsureService schemaEnsureService = schemaEnsureService();
-        if (updated > 0 && schemaEnsureService != null) {
+        if (updated > 0 && schemaEnsureService != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             schemaEnsureService.ensure(field.getMetadataId());
         }
     }
@@ -131,7 +142,7 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
     @Override
     public void afterChanged(MetadataField field) {
         PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator = runtimeRefreshCoordinator();
-        if (runtimeRefreshCoordinator != null) {
+        if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             runtimeRefreshCoordinator.refreshByMetadataField(field);
         }
     }
@@ -194,6 +205,21 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
         if (childRelations(field.getMetadataId(), relationService).stream()
                 .anyMatch(relation -> field.getFieldName().equals(relation.getForeignKey()))) {
             throw new PlatformException("Child relation foreign key cannot be deleted: " + field.getFieldName());
+        }
+    }
+
+    private void assertGovernedMainMetadataWrite(String metadataId) {
+        if (MetadataCapabilityGovernanceMutationContext.isActive() || metadataId == null || metadataId.isBlank()) return;
+        ModuleMetadataRelationService relationService = relationServiceProvider.getIfAvailable();
+        PlatformModuleService moduleService = moduleServiceProvider.getIfAvailable();
+        if (relationService == null || moduleService == null) return;
+        for (ModuleMetadataRelation relation : relationService.list(Criteria.of().eq("metadataId", metadataId)
+                .eq("relationRole", RelationRole.MAIN), new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE))) {
+            PlatformModule module = moduleService.select(relation.getModuleAlias());
+            if (module != null && module.getModuleKind() == ModuleKind.DYNAMIC) {
+                throw new PlatformException("Dynamic MAIN metadata fields must be changed through the relation change-set publisher: "
+                        + metadataId);
+            }
         }
     }
 
