@@ -37,6 +37,11 @@ class PlatformPageCompositionDomainContractTest {
             new PlatformPresentationVariantService(variantDao, pageService);
     private final PlatformPresentationRevisionService revisionService =
             new PlatformPresentationRevisionService(revisionDao, variantService);
+    private final PlatformPresentationRevisionResolver revisionResolver =
+            new PlatformPresentationRevisionResolver(variantService, revisionService);
+    private final PlatformPresentationRevisionPublishService revisionPublishService =
+            new PlatformPresentationRevisionPublishService(revisionService, variantService, pageService,
+                    new PlatformPresentationTemplateCatalog());
 
     @AfterEach
     void tearDown() {
@@ -165,10 +170,112 @@ class PlatformPageCompositionDomainContractTest {
         }
     }
 
+    @Test
+    void shouldResolveEnabledPublishedRevisionByOrganizationTenantThenGlobal() {
+        String pageId = seedPage();
+        String globalRevisionId;
+        String tenantRevisionId;
+        String organizationRevisionId;
+        try (TenantContext.Scope ignored = TenantContext.system("seed global presentation revision")) {
+            globalRevisionId = seedPublishedRevision(pageId, PlatformPresentationScopeType.GLOBAL, null, 1);
+        }
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            tenantRevisionId = seedPublishedRevision(pageId, PlatformPresentationScopeType.TENANT, null, 1);
+            organizationRevisionId = seedPublishedRevision(
+                    pageId, PlatformPresentationScopeType.ORGANIZATION, "organization-a", 1);
+        }
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThat(revisionResolver.resolve(pageId, PlatformPresentationClientType.WEB,
+                    "tenant-a", "organization-a"))
+                    .map(PlatformPresentationRevision::getId)
+                    .contains(organizationRevisionId);
+            assertThat(revisionResolver.resolve(pageId, PlatformPresentationClientType.WEB,
+                    "tenant-a", "organization-b"))
+                    .map(PlatformPresentationRevision::getId)
+                    .contains(tenantRevisionId);
+            assertThat(revisionResolver.resolve(pageId, PlatformPresentationClientType.WEB,
+                    "tenant-b", "organization-a"))
+                    .map(PlatformPresentationRevision::getId)
+                    .contains(globalRevisionId);
+        }
+    }
+
+    @Test
+    void shouldIgnoreDisabledPublishedRevisionAndReturnEmptyWithoutPublishedRevision() {
+        String pageId = seedPage();
+        String globalRevisionId;
+        try (TenantContext.Scope ignored = TenantContext.system("seed global presentation revision")) {
+            globalRevisionId = seedPublishedRevision(pageId, PlatformPresentationScopeType.GLOBAL, null, 1);
+        }
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            String tenantVariantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.TENANT, null));
+            String tenantRevisionId;
+            try (PlatformPresentationRevisionPublishContext.Scope publish =
+                         PlatformPresentationRevisionPublishContext.open()) {
+                tenantRevisionId = revisionService.insert(revision(tenantVariantId, 1,
+                        PlatformPresentationRevisionStatus.PUBLISHED, "{\"kind\":\"list\"}"));
+            }
+            revisionService.disable(tenantRevisionId);
+
+            assertThat(revisionResolver.resolve(pageId, PlatformPresentationClientType.WEB,
+                    "tenant-a", null))
+                    .map(PlatformPresentationRevision::getId)
+                    .contains(globalRevisionId);
+        }
+
+        String pageWithoutPublishedRevision = seedPage("crm.order", "order");
+        try (TenantContext.Scope ignored = TenantContext.system("seed draft presentation revision")) {
+            String variantId = variantService.insert(
+                    variant(pageWithoutPublishedRevision, PlatformPresentationScopeType.GLOBAL, null));
+            revisionService.insert(revision(variantId, 1,
+                    PlatformPresentationRevisionStatus.DRAFT, "{\"kind\":\"list\"}"));
+        }
+        assertThat(revisionResolver.resolve(pageWithoutPublishedRevision, PlatformPresentationClientType.WEB,
+                null, null)).isEmpty();
+    }
+
+    @Test
+    void shouldPublishValidatedRevisionAndArchiveThePreviousRevisionInTheSameVariant() {
+        String pageId = seedPage();
+        try (TenantContext.Scope ignored = TenantContext.system("publish presentation revision")) {
+            String variantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.GLOBAL, null));
+            String firstRevisionId = revisionService.insert(revision(variantId, 1,
+                    PlatformPresentationRevisionStatus.DRAFT, validManagementTree()));
+
+            revisionPublishService.publish(firstRevisionId);
+            assertThat(revisionService.select(firstRevisionId).getStatus())
+                    .isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
+
+            String replacementRevisionId = revisionService.insert(revision(variantId, 2,
+                    PlatformPresentationRevisionStatus.DRAFT, validManagementTree()));
+            revisionPublishService.publish(replacementRevisionId);
+
+            assertThat(revisionService.select(firstRevisionId).getStatus())
+                    .isEqualTo(PlatformPresentationRevisionStatus.ARCHIVED);
+            assertThat(revisionService.select(replacementRevisionId).getStatus())
+                    .isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
+        }
+    }
+
     private String seedPage() {
-        String mainRelationId = seedMainRelation("crm.customer", "customer");
+        return seedPage("crm.customer", "customer");
+    }
+
+    private String seedPage(String moduleAlias, String metadataAlias) {
+        String mainRelationId = seedMainRelation(moduleAlias, metadataAlias);
         try (TenantContext.Scope ignored = TenantContext.system("create global page definition")) {
-            return pageService.insert(page("crm.customer", "management", mainRelationId));
+            return pageService.insert(page(moduleAlias, "management", mainRelationId));
+        }
+    }
+
+    private String seedPublishedRevision(String pageId, PlatformPresentationScopeType scopeType,
+                                         String organizationId, int revisionNo) {
+        String variantId = variantService.insert(variant(pageId, scopeType, organizationId));
+        try (PlatformPresentationRevisionPublishContext.Scope publish =
+                     PlatformPresentationRevisionPublishContext.open()) {
+            return revisionService.insert(revision(variantId, revisionNo,
+                    PlatformPresentationRevisionStatus.PUBLISHED, "{\"kind\":\"list\"}"));
         }
     }
 
@@ -222,11 +329,15 @@ class PlatformPageCompositionDomainContractTest {
         PlatformPresentationRevision revision = new PlatformPresentationRevision();
         revision.setVariantId(variantId);
         revision.setRevisionNo(revisionNo);
-        revision.setTemplateAlias("list_card");
+        revision.setTemplateAlias("management");
         revision.setTemplateVersion(1);
         revision.setUiTreeJson(uiTreeJson);
         revision.setStatus(status);
         return revision;
+    }
+
+    private String validManagementTree() {
+        return "{\"template\":\"management\",\"templateVersion\":1,\"nodes\":[]}";
     }
 
     private PlatformPresentationRevision revisionUpdate(PlatformPresentationRevision source) {
