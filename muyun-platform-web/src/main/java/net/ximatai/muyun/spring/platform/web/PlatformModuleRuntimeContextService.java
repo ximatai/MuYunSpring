@@ -81,6 +81,7 @@ public class PlatformModuleRuntimeContextService {
     private final FieldUiControlPropertyService fieldUiControlPropertyService;
     private final FieldUiControlBindingService fieldUiControlBindingService;
     private final ModuleMetadataFieldService moduleMetadataFieldService;
+    private final DynamicPublishedPageDefinitionResolver publishedPageDefinitionResolver;
 
     @Autowired
     public PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -96,7 +97,8 @@ public class PlatformModuleRuntimeContextService {
                                                ObjectProvider<FieldUiControlService> fieldUiControlService,
                                                ObjectProvider<FieldUiControlPropertyService> fieldUiControlPropertyService,
                                                ObjectProvider<FieldUiControlBindingService> fieldUiControlBindingService,
-                                               ObjectProvider<ModuleMetadataFieldService> moduleMetadataFieldService) {
+                                               ObjectProvider<ModuleMetadataFieldService> moduleMetadataFieldService,
+                                               ObjectProvider<DynamicPublishedPageDefinitionResolver> publishedPageDefinitionResolver) {
         this(moduleService, actionService, staticModuleCatalog,
                 dynamicRecordService == null ? null : dynamicRecordService.getIfAvailable(),
                 pageConfigSnapshotService == null ? null : pageConfigSnapshotService.getIfAvailable(),
@@ -111,7 +113,8 @@ public class PlatformModuleRuntimeContextService {
                 fieldUiControlService == null ? null : fieldUiControlService.getIfAvailable(),
                 fieldUiControlPropertyService == null ? null : fieldUiControlPropertyService.getIfAvailable(),
                 fieldUiControlBindingService == null ? null : fieldUiControlBindingService.getIfAvailable(),
-                moduleMetadataFieldService == null ? null : moduleMetadataFieldService.getIfAvailable());
+                moduleMetadataFieldService == null ? null : moduleMetadataFieldService.getIfAvailable(),
+                publishedPageDefinitionResolver == null ? null : publishedPageDefinitionResolver.getIfAvailable());
     }
 
     PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -199,6 +202,27 @@ public class PlatformModuleRuntimeContextService {
                                         FieldUiControlPropertyService fieldUiControlPropertyService,
                                         FieldUiControlBindingService fieldUiControlBindingService,
                                         ModuleMetadataFieldService moduleMetadataFieldService) {
+        this(moduleService, actionService, staticModuleCatalog, dynamicRecordService, pageConfigSnapshotService,
+                pageBootstrapService, actionExecutionPolicyService, fileReferenceFieldPolicies, pageNavigatorResolver,
+                navigatorSourceCapabilityResolver, fieldUiControlService, fieldUiControlPropertyService,
+                fieldUiControlBindingService, moduleMetadataFieldService, null);
+    }
+
+    PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
+                                        PlatformModuleActionService actionService,
+                                        StaticModuleDefinitionCatalog staticModuleCatalog,
+                                        DynamicRecordService dynamicRecordService,
+                                        PlatformPageConfigSnapshotService pageConfigSnapshotService,
+                                        PlatformPageBootstrapService pageBootstrapService,
+                                        ActionExecutionPolicyService actionExecutionPolicyService,
+                                        List<FileReferenceFieldPolicy> fileReferenceFieldPolicies,
+                                        PageNavigatorResolver pageNavigatorResolver,
+                                        PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver,
+                                        FieldUiControlService fieldUiControlService,
+                                        FieldUiControlPropertyService fieldUiControlPropertyService,
+                                        FieldUiControlBindingService fieldUiControlBindingService,
+                                        ModuleMetadataFieldService moduleMetadataFieldService,
+                                        DynamicPublishedPageDefinitionResolver publishedPageDefinitionResolver) {
         this.moduleService = moduleService;
         this.actionService = actionService;
         this.staticModuleCatalog = staticModuleCatalog;
@@ -217,6 +241,7 @@ public class PlatformModuleRuntimeContextService {
         this.fieldUiControlPropertyService = fieldUiControlPropertyService;
         this.fieldUiControlBindingService = fieldUiControlBindingService;
         this.moduleMetadataFieldService = moduleMetadataFieldService;
+        this.publishedPageDefinitionResolver = publishedPageDefinitionResolver;
     }
 
     public PlatformModuleRuntimeContext context(String moduleAlias) {
@@ -259,10 +284,25 @@ public class PlatformModuleRuntimeContextService {
      * server execution facts.  The plan intentionally carries no request or SQL state.
      */
     public Optional<ModuleExecutionPlan> dynamicExecutionPlan(String moduleAlias) {
-        if (dynamicRecordService == null || pageConfigSnapshotService == null || pageBootstrapService == null) {
+        if (dynamicRecordService == null) {
             return Optional.empty();
         }
         String validAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        DynamicModuleDescriptor dynamicDescriptor = dynamicRecordService.describe(validAlias);
+        Optional<DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage> publishedPage =
+                publishedPageDefinitionResolver == null ? Optional.empty()
+                        : publishedPageDefinitionResolver.resolveWebGlobal(dynamicDescriptor);
+        if (publishedPage.isPresent()) {
+            PlatformModuleRuntimeContext runtimeContext = context(validAlias);
+            if (runtimeContext.moduleKind() != ModuleKind.DYNAMIC || runtimeContext.uiDescriptor() == null) {
+                return Optional.empty();
+            }
+            return Optional.of(compiledPublishedPageExecutionPlan(validAlias, dynamicDescriptor, runtimeContext,
+                    publishedPage.get()));
+        }
+        if (pageConfigSnapshotService == null || pageBootstrapService == null) {
+            return Optional.empty();
+        }
         PlatformPageConfigSnapshot snapshot = pageConfigSnapshotService.snapshot(validAlias);
         PlatformPublishedPageComposition composition = PlatformPublishedPageComposition.resolve(snapshot,
                 PlatformUiClientType.WEB);
@@ -285,7 +325,6 @@ public class PlatformModuleRuntimeContextService {
                         binding.targetKey(), binding.targetNavigatorLevelKey(), binding.targetPickerFieldKey(),
                         binding.navigatorListQueryMode()))
                 .toList();
-        DynamicModuleDescriptor dynamicDescriptor = dynamicRecordService.describe(validAlias);
         DynamicEntityDescriptor mainEntity = dynamicDescriptor.entities().stream()
                 .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias()))
                 .findFirst().orElseThrow(() -> new IllegalStateException(
@@ -321,6 +360,55 @@ public class PlatformModuleRuntimeContextService {
                 bindings.stream().filter(binding -> binding.target() == PageContextTarget.MUTATION_CONSTRAINT).toList(),
                 compiledMutationFieldValidations(formFields, mainEntity), List.of(),
                 runtimeContext.capabilities().contains(EntityCapability.DATA_SCOPE)));
+    }
+
+    private ModuleExecutionPlan compiledPublishedPageExecutionPlan(
+            String moduleAlias,
+            DynamicModuleDescriptor dynamicDescriptor,
+            PlatformModuleRuntimeContext runtimeContext,
+            DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage publishedPage) {
+        DynamicEntityDescriptor mainEntity = dynamicDescriptor.entities().stream()
+                .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias()))
+                .findFirst().orElseThrow(() -> new IllegalStateException(
+                        "dynamic runtime has no main entity: " + moduleAlias));
+        ResolvedModuleUiDescriptor descriptor = runtimeContext.uiDescriptor();
+        List<ResolvedViewFieldDescriptor> listViewFields = descriptor.page() == null || descriptor.page().list() == null
+                || descriptor.page().list().fields() == null ? List.of() : descriptor.page().list().fields().fields();
+        List<ResolvedViewFieldDescriptor> formViewFields = descriptor.page() == null || descriptor.page().detail() == null
+                || descriptor.page().detail().editor() == null ? List.of() : descriptor.page().detail().editor().fields();
+        List<String> listFields = listViewFields.stream()
+                .filter(field -> field.fieldRef().relationCode() == null)
+                .filter(field -> !Boolean.FALSE.equals(field.visible().constant()))
+                .map(field -> field.fieldRef().fieldName()).distinct().toList();
+        List<String> quickSearchFields = listFields.stream().filter(field -> isSearchableText(mainEntity, field)).toList();
+        List<PageContextBindingDefinition> bindings = descriptor.page() == null || descriptor.page().navigator() == null
+                ? List.of() : descriptor.page().navigator().contextBindings().stream()
+                .map(binding -> new PageContextBindingDefinition(binding.source(), binding.sourceKey(), binding.target(),
+                        binding.targetKey(), binding.targetNavigatorLevelKey(), binding.targetPickerFieldKey(),
+                        binding.navigatorListQueryMode()))
+                .toList();
+        List<String> externalCriteriaKeys = bindings.stream()
+                .filter(binding -> binding.target() == PageContextTarget.LIST_QUERY)
+                .filter(binding -> binding.source() != PageContextSource.SESSION)
+                .map(PageContextBindingDefinition::targetKey).distinct().toList();
+        QuerySchema querySchema = DynamicQuerySchemas.from(moduleAlias, mainEntity, quickSearchFields, externalCriteriaKeys);
+        List<ModuleMutationFieldValidation> validations = formViewFields.stream()
+                .filter(field -> field.fieldRef().relationCode() == null)
+                .map(field -> new ModuleMutationFieldValidation(null, field.fieldRef().fieldName(),
+                        Boolean.TRUE.equals(field.readOnly().constant()),
+                        Boolean.TRUE.equals(field.required().constant()) || isRequired(mainEntity, field.fieldRef().fieldName())))
+                .toList();
+        String versionKey = "dynamic-runtime-" + dynamicRecordService.runtimeRevision(moduleAlias)
+                + "-page-" + publishedPage.revision().getId()
+                + "-r" + publishedPage.revision().getRevisionNo();
+        return new ModuleExecutionPlan(moduleAlias, versionKey, descriptor,
+                new ResolvedModuleReadModel(moduleAlias, runtimeContext.mainEntityAlias(), listFields.stream()
+                        .map(field -> new ResolvedModuleReadField(runtimeContext.mainEntityAlias(), null, field, false))
+                        .toList()),
+                bindings, QueryDescriptor.builder(moduleAlias).build(), querySchema, List.of(), List.of(), null, null,
+                List.of(), bindings.stream().filter(binding -> binding.target() == PageContextTarget.MUTATION_CONSTRAINT)
+                        .toList(), validations, List.of(),
+                runtimeContext.capabilities().contains(EntityCapability.DATA_SCOPE));
     }
 
     private static boolean isSearchableText(DynamicEntityDescriptor entity, String fieldName) {
@@ -446,6 +534,16 @@ public class PlatformModuleRuntimeContextService {
     private ResolvedModuleUiDescriptor dynamicUiDescriptor(String moduleAlias,
                                                            String title,
                                                            DynamicModuleDescriptor dynamicDescriptor) {
+        Optional<ModuleUiDefinition> publishedDefinition = publishedPageDefinitionResolver == null ? Optional.empty()
+                : publishedPageDefinitionResolver.resolveWebGlobal(dynamicDescriptor)
+                        .map(DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage::definition);
+        if (publishedDefinition.isPresent()) {
+            java.util.Map<ViewFieldRef, FieldValueType> fieldTypes = dynamicMainFieldTypes(dynamicDescriptor);
+            ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(publishedDefinition.get(),
+                    ModuleKind.DYNAMIC, title, dynamicOptionFields(dynamicDescriptor), dynamicReferenceFields(dynamicDescriptor),
+                    dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard());
+            return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()));
+        }
         if (pageConfigSnapshotService == null || pageBootstrapService == null) {
             return null;
         }
@@ -606,6 +704,15 @@ public class PlatformModuleRuntimeContextService {
             resolved.putIfAbsent(fieldRef, type);
         }
         return java.util.Map.copyOf(resolved);
+    }
+
+    private java.util.Map<ViewFieldRef, FieldValueType> dynamicMainFieldTypes(DynamicModuleDescriptor dynamicDescriptor) {
+        if (dynamicDescriptor == null) return java.util.Map.of();
+        return dynamicDescriptor.entities().stream()
+                .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias()))
+                .findFirst().map(entity -> entity.fields().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        field -> ViewFieldRef.main(field.fieldName()), field -> FieldValueType.from(field.type()),
+                        (left, right) -> left))).orElseGet(java.util.Map::of);
     }
 
     private java.util.Map<String, ResolvedOptionFieldDescriptor> dynamicOptionFields(

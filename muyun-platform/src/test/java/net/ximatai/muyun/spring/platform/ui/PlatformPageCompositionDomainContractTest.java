@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.concurrent.atomic.AtomicReference;
+
 class PlatformPageCompositionDomainContractTest {
     private final TestMemoryDao<PlatformModule> moduleDao = new TestMemoryDao<>();
     private final TestMemoryDao<Metadata> metadataDao = new TestMemoryDao<>();
@@ -255,6 +257,24 @@ class PlatformPageCompositionDomainContractTest {
                     .isEqualTo(PlatformPresentationRevisionStatus.ARCHIVED);
             assertThat(revisionService.select(replacementRevisionId).getStatus())
                     .isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
+        }
+    }
+
+    @Test
+    void shouldPrepareTheDynamicPageExecutionPlanBeforeThePublicationTransactionCommits() {
+        String pageId = seedPage();
+        AtomicReference<String> preparedModuleAlias = new AtomicReference<>();
+        PlatformPresentationRevisionPublishService service = new PlatformPresentationRevisionPublishService(
+                revisionService, variantService, pageService, new PlatformPresentationTemplateCatalog(),
+                preparedModuleAlias::set);
+        try (TenantContext.Scope ignored = TenantContext.system("publish presentation revision with runtime preparation")) {
+            String variantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.GLOBAL, null));
+            String revisionId = revisionService.insert(revision(variantId, 1,
+                    PlatformPresentationRevisionStatus.DRAFT, validManagementTree()));
+
+            service.publish(revisionId);
+
+            assertThat(preparedModuleAlias.get()).isEqualTo("crm.customer");
         }
     }
 

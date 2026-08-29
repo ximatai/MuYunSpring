@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Publishes one validated immutable revision atomically inside a presentation variant. */
@@ -14,15 +15,37 @@ public class PlatformPresentationRevisionPublishService {
     private final PlatformPresentationVariantService variantService;
     private final PlatformPageDefinitionService pageService;
     private final PlatformPresentationTemplateCatalog templateCatalog;
+    private final PublishedPageExecutionCoordinator pageExecutionCoordinator;
 
     public PlatformPresentationRevisionPublishService(PlatformPresentationRevisionService revisionService,
                                                       PlatformPresentationVariantService variantService,
                                                       PlatformPageDefinitionService pageService,
                                                       PlatformPresentationTemplateCatalog templateCatalog) {
+        this(revisionService, variantService, pageService, templateCatalog, PublishedPageExecutionCoordinator.noop());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PlatformPresentationRevisionPublishService(PlatformPresentationRevisionService revisionService,
+                                                      PlatformPresentationVariantService variantService,
+                                                      PlatformPageDefinitionService pageService,
+                                                      PlatformPresentationTemplateCatalog templateCatalog,
+                                                      ObjectProvider<PublishedPageExecutionCoordinator> pageExecutionCoordinator) {
+        this(revisionService, variantService, pageService, templateCatalog,
+                pageExecutionCoordinator == null ? PublishedPageExecutionCoordinator.noop()
+                        : pageExecutionCoordinator.getIfAvailable(PublishedPageExecutionCoordinator::noop));
+    }
+
+    PlatformPresentationRevisionPublishService(PlatformPresentationRevisionService revisionService,
+                                               PlatformPresentationVariantService variantService,
+                                               PlatformPageDefinitionService pageService,
+                                               PlatformPresentationTemplateCatalog templateCatalog,
+                                               PublishedPageExecutionCoordinator pageExecutionCoordinator) {
         this.revisionService = revisionService;
         this.variantService = variantService;
         this.pageService = pageService;
         this.templateCatalog = templateCatalog;
+        this.pageExecutionCoordinator = pageExecutionCoordinator == null
+                ? PublishedPageExecutionCoordinator.noop() : pageExecutionCoordinator;
     }
 
     @Transactional
@@ -55,6 +78,10 @@ public class PlatformPresentationRevisionPublishService {
                 revisionService.update(copyWithStatus(candidate, PlatformPresentationRevisionStatus.PUBLISHED));
             }
         }
+        // Compile the candidate while this transaction still exposes its published state. The
+        // delivery adapter installs its immutable plan only after commit, so a compile failure
+        // preserves both the prior revision and the prior executable page.
+        pageExecutionCoordinator.prepareAfterPublishedConfigurationChange(page.getModuleAlias());
         return requireRevision(revisionId);
     }
 

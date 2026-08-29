@@ -18,6 +18,8 @@ import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import org.springframework.stereotype.Service;
 
+import java.util.Optional;
+
 @Service
 public class PlatformPageDefinitionService extends AbstractAbilityService<PlatformPageDefinition> implements
         SoftDeleteAbility<PlatformPageDefinition>,
@@ -73,6 +75,33 @@ public class PlatformPageDefinitionService extends AbstractAbilityService<Platfo
                     "Page definition requires existing page: " + id);
         }
         return page;
+    }
+
+    /** Resolves the stable page identity before client/scope-specific presentation resolution. */
+    public Optional<PlatformPageDefinition> resolveVisiblePage(String moduleAlias, String alias) {
+        String normalizedModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        String normalizedAlias = PlatformNameRules.requireIdentifier(alias, "pageAlias");
+        Criteria criteria = Criteria.of().eq("moduleAlias", normalizedModuleAlias).eq("alias", normalizedAlias);
+        PlatformPageDefinition page = list(enabledCriteria(criteria)).stream().findFirst().orElse(null);
+        if (page == null && TenantContext.currentTenantId().isPresent()) {
+            try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("resolve global page definition")) {
+                page = list(enabledCriteria(criteria)).stream().findFirst().orElse(null);
+            }
+        }
+        return Optional.ofNullable(page);
+    }
+
+    /** Resolves the global page identity for a source that is explicitly global by contract. */
+    public Optional<PlatformPageDefinition> resolveGlobalPage(String moduleAlias, String alias) {
+        String normalizedModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        String normalizedAlias = PlatformNameRules.requireIdentifier(alias, "pageAlias");
+        Criteria criteria = Criteria.of().eq("moduleAlias", normalizedModuleAlias).eq("alias", normalizedAlias);
+        if (TenantContext.currentTenantId().isEmpty()) {
+            return Optional.ofNullable(list(enabledCriteria(criteria)).stream().findFirst().orElse(null));
+        }
+        try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("resolve global page definition")) {
+            return Optional.ofNullable(list(enabledCriteria(criteria)).stream().findFirst().orElse(null));
+        }
     }
 
     private void normalizeAndValidate(PlatformPageDefinition page) {
