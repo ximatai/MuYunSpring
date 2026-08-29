@@ -15,6 +15,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigService;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -27,9 +28,10 @@ public class PlatformPageConfigPublishWebController extends WebSupport<PlatformP
     @BusinessMutationResult(code = "platform.ui-config.published", message = "UI 配置已发布",
             change = BusinessMutationChange.UPDATED, module = PlatformUiConfigService.class,
             recordIdSource = BusinessMutationRecordIdSource.PATH_VARIABLE, recordId = "id")
-    public int publishUiConfig(@PathVariable String id) {
+    public int publishUiConfig(@PathVariable String id,
+                               @RequestParam(name = "version", required = false) Integer expectedVersion) {
         return webScope(() -> {
-            service().publishUiConfig(id);
+            service().publishUiConfig(id, expectedVersion);
             return 1;
         });
     }
@@ -39,9 +41,10 @@ public class PlatformPageConfigPublishWebController extends WebSupport<PlatformP
     @BusinessMutationResult(code = "platform.ui-config.unpublished", message = "UI 配置已取消发布",
             change = BusinessMutationChange.UPDATED, module = PlatformUiConfigService.class,
             recordIdSource = BusinessMutationRecordIdSource.PATH_VARIABLE, recordId = "id")
-    public int unpublishUiConfig(@PathVariable String id) {
+    public int unpublishUiConfig(@PathVariable String id,
+                                 @RequestParam(name = "version", required = false) Integer expectedVersion) {
         return webScope(() -> {
-            service().unpublishUiConfig(id);
+            service().unpublishUiConfig(id, expectedVersion);
             return 1;
         });
     }

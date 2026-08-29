@@ -259,6 +259,7 @@ describe('module page enhancements', () => {
       expect.arrayContaining([
         'module-actions-workspace',
         'module-governance-workspace',
+        'module-ui-orchestration-workspace',
         'module-openapi-page',
         'consumer-inspection',
       ]),
@@ -267,6 +268,7 @@ describe('module page enhancements', () => {
       expect.arrayContaining([
         'platform.module.actions',
         'platform.module.governance',
+        'platform.module.ui-orchestration',
         'platform.module.consumer-inspection',
       ]),
     );
@@ -278,6 +280,7 @@ describe('module page enhancements', () => {
       'module-governance-workspace',
       'module-actions-workspace',
       'module-manual-action-binding-workspace',
+      'module-ui-orchestration-workspace',
       'module-openapi-page',
     ]);
   });
