@@ -8,7 +8,7 @@ import {
 import type { PageDescriptor } from '@muyun/web-contracts';
 import { createModuleOpenApiPageDescriptor, loadOpenApiCatalog } from './moduleOpenApi';
 import { moduleActionManagementWorkspaceView } from '../views/moduleActionManagementWorkspaceView';
-import { metadataOrchestrationWorkspaceView } from '../views/metadataOrchestrationWorkspaceView';
+import { moduleGovernanceWorkspaceView } from '../views/moduleGovernanceWorkspaceView';
 
 const openApiModuleAliases = ref<ReadonlySet<string>>(new Set());
 let openApiCatalogRevision = 0;
@@ -16,7 +16,7 @@ let openApiCatalogRevision = 0;
 // contract. The enhancement boundary exposes the equivalent dynamic-runtime
 // contract, so adapt them once at this composition edge.
 const moduleActionWorkspaceView = moduleActionManagementWorkspaceView as unknown as ModulePageWorkspaceView;
-const metadataWorkspaceView = metadataOrchestrationWorkspaceView as unknown as ModulePageWorkspaceView;
+const moduleGovernanceWorkspace = moduleGovernanceWorkspaceView as unknown as ModulePageWorkspaceView;
 
 /**
  * Frontend composition for the platform-module descriptor page.
@@ -49,9 +49,25 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
   },
   // The hand-authored workspace remains an explicit extension for dynamic executor binding;
   // it has no menu identity and is not the general action-management entry.
-  workspaceViews: [moduleActionWorkspaceView, metadataWorkspaceView],
+  workspaceViews: [moduleGovernanceWorkspace, moduleActionWorkspaceView],
   detail: {
     actions: [
+      {
+        key: 'module-governance-workspace',
+        title: '模块治理',
+        state: (record) => ({
+          visible: moduleAliasOf(record) !== undefined && moduleKindOf(record) === 'dynamic',
+        }),
+        run({ record, openWorkspaceTab }) {
+          const moduleAlias = moduleAliasOf(record);
+          if (!moduleAlias || moduleKindOf(record) !== 'dynamic') return;
+          openWorkspaceTab(moduleGovernanceWorkspace, {
+            moduleAlias,
+            moduleTitle: titleOf(record),
+            governanceTab: 'metadata',
+          });
+        },
+      },
       {
         key: 'module-actions-workspace',
         title: '动作',
@@ -60,21 +76,6 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
           const moduleAlias = moduleAliasOf(record);
           if (!moduleAlias) return;
           openPage(createModuleActionPageDescriptor(moduleAlias, titleOf(record)));
-        },
-      },
-      {
-        key: 'module-metadata-orchestration-workspace',
-        title: '元数据编排',
-        state: (record) => ({
-          visible: moduleAliasOf(record) !== undefined && moduleKindOf(record) === 'dynamic',
-        }),
-        run({ record, openWorkspaceTab }) {
-          const moduleAlias = moduleAliasOf(record);
-          if (!moduleAlias || moduleKindOf(record) !== 'dynamic') return;
-          openWorkspaceTab(metadataWorkspaceView, {
-            moduleAlias,
-            moduleTitle: titleOf(record),
-          });
         },
       },
       {

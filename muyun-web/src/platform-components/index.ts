@@ -21,6 +21,7 @@ export { default as EnabledSelect } from './EnabledSelect.vue';
 export { default as ModuleActionButton } from './ModuleActionButton.vue';
 export { default as ManagementWorkspace } from './ManagementWorkspace.vue';
 export { default as ManagementExplorerColumn } from './ManagementExplorerColumn.vue';
+export { default as ManagementPanelHeader } from './ManagementPanelHeader.vue';
 export { MANAGEMENT_WORKSPACE_LAYOUT, listDetailWorkspaceMinWidth } from './managementWorkspaceLayout';
 export { providePageLayout, usePageLayout } from './pageLayoutContext';
 export { default as RecordActionBar } from './RecordActionBar.vue';
@@ -46,6 +47,7 @@ export {
   userSessionTerminalTitle,
 } from './userSessionPresentation';
 export { default as RecordExplorerPanel } from './RecordExplorerPanel.vue';
+export { default as RecordExplorerCreateButton } from './RecordExplorerCreateButton.vue';
 export type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
 export { default as RecordFormFields } from './RecordFormFields.vue';
 export { default as RecordFileReferenceTransfer } from './RecordFileReferenceTransfer.vue';

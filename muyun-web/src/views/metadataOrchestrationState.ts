@@ -25,6 +25,7 @@ export function createMetadataOrchestrationState() {
   const metadataById = ref<Record<string, Metadata>>({});
   const selectedRelationId = ref<string>();
   const fields = ref<MetadataField[]>([]);
+  const allFields = ref<MetadataField[]>([]);
   const fieldSpecs = ref<FieldSpec[]>([]);
   const mode = ref<MetadataOrchestrationMode>('view');
   const mainMetadataDraft = ref<MainMetadataDraft>(emptyMainMetadataDraft());
@@ -36,7 +37,7 @@ export function createMetadataOrchestrationState() {
   const selectedMetadata = computed(() =>
     selectedRelation.value?.metadataId ? metadataById.value[selectedRelation.value.metadataId] : undefined,
   );
-  const hasMainMetadata = computed(() => relations.value.some((item) => item.relationRole === 'MAIN'));
+  const hasMainMetadata = computed(() => relations.value.some((item) => isMainRelation(item.relationRole)));
   const mainEditorOpen = computed(() => mode.value === 'create-main');
   const fieldEditorOpen = computed(() => mode.value === 'create-field' || mode.value === 'edit-field');
   const fieldSpecOptions = computed(() => fieldSpecOptionListOf(fieldSpecs.value));
@@ -55,6 +56,7 @@ export function createMetadataOrchestrationState() {
   }
 
   function handleFieldsLoaded(loaded: MetadataField[]) {
+    allFields.value = loaded;
     fields.value = orchestratableFields(loaded);
   }
 
@@ -105,6 +107,7 @@ export function createMetadataOrchestrationState() {
     metadataById,
     selectedRelationId,
     fields,
+    allFields,
     fieldSpecs,
     mode,
     mainMetadataDraft,
@@ -184,9 +187,13 @@ export function normalizeFieldDraft(draft: MetadataFieldDraft): MetadataFieldDra
 
 /** Only business-owned physical fields are orchestrated; platform-managed fields stay hidden. */
 export function orchestratableFields(fields: MetadataField[]): MetadataField[] {
-  return fields.filter(
-    (field) =>
-      field.fieldOwnership === 'BUSINESS' && field.fieldForm === 'PHYSICAL' && field.systemManaged !== true,
+  return fields.filter(isOrchestratableField);
+}
+
+/** Only these field facts may be changed through the metadata field editor. */
+export function isOrchestratableField(field: MetadataField): boolean {
+  return (
+    field.fieldOwnership === 'BUSINESS' && field.fieldForm === 'PHYSICAL' && field.systemManaged !== true
   );
 }
 
@@ -205,9 +212,14 @@ export function entityTitleOf(relation: ModuleMetadataRelation, metadata: Metada
 }
 
 export function relationRoleTag(role: ModuleMetadataRelation['relationRole']): string | undefined {
-  if (role === 'MAIN') return '主实体';
-  if (role === 'CHILD') return '子实体';
+  if (isMainRelation(role)) return '主实体';
+  if (role === 'CHILD' || role === 'child') return '子实体';
   return undefined;
+}
+
+/** Java code enums are serialized by their stable lower-case code in runtime responses. */
+export function isMainRelation(role: ModuleMetadataRelation['relationRole'] | undefined): boolean {
+  return role === 'MAIN' || role === 'main';
 }
 
 export function entityExplorerItem(

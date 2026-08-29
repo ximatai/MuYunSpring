@@ -154,6 +154,21 @@ public class PlatformDynamicRuntimeRefreshCoordinator {
         return refreshModules(moduleAliases);
     }
 
+    /** Synchronously activates affected module snapshots; callers must already be after commit. */
+    public List<DynamicModuleRefreshResult> activateByMetadataIdNow(String metadataId) {
+        if (metadataId == null || metadataId.isBlank()) return List.of();
+        Set<String> moduleAliases = new LinkedHashSet<>();
+        for (ModuleMetadataRelation relation : relationService().list(Criteria.of().eq("metadataId", metadataId),
+                ALL, Sort.asc(PlatformAbilityFields.SORT_FIELD))) {
+            if (relation.getModuleAlias() != null && !relation.getModuleAlias().isBlank()) {
+                moduleAliases.add(PlatformNameRules.requireModuleAlias(relation.getModuleAlias()));
+            }
+        }
+        List<DynamicModuleRefreshResult> results = new ArrayList<>();
+        for (String moduleAlias : moduleAliases) results.add(refreshService().activateNow(moduleAlias));
+        return results;
+    }
+
     public List<DynamicModuleRefreshResult> refreshByRelationId(String relationId) {
         ModuleMetadataRelation relation = requireRelation(relationId);
         return refreshByRelation(relation);

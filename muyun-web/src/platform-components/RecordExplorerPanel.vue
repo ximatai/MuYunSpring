@@ -173,6 +173,15 @@ async function focusSearchInput() {
   color: var(--muyun-text);
 }
 
+/* Creation in an explorer header is navigation, not the page primary action. */
+:deep(.record-explorer-panel-create-action.ant-btn) {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+}
+
 .record-explorer-search {
   display: flex;
   flex: 0 0 auto;

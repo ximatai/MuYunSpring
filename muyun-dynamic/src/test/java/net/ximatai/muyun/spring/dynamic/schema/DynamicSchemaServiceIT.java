@@ -129,6 +129,29 @@ class DynamicSchemaServiceIT {
     }
 
     @Test
+    void shouldRollbackSchemaEnsureInsideSpringTransaction() throws Exception {
+        String tableName = "app_schema_tx_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        EntityDefinition entity = new EntityDefinition("schema_tx", tableName, "Schema Tx",
+                List.of(FieldDefinition.string("code", "Code")));
+
+        assertThatThrownBy(() -> transactionProbe.ensureTableThenFail(schemaService, entity))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("rollback schema ensure");
+
+        try (Connection connection = dataSource.getConnection();
+             java.sql.PreparedStatement statement = connection.prepareStatement("""
+                     select count(*) from information_schema.tables
+                     where table_schema = 'public' and table_name = ?
+                     """)) {
+            statement.setString(1, tableName);
+            try (java.sql.ResultSet result = statement.executeQuery()) {
+                result.next();
+                assertThat(result.getInt(1)).isZero();
+            }
+        }
+    }
+
+    @Test
     void shouldApplyChildReferenceDeletionPoliciesThroughDynamicRecordServiceOnRealDatabase() {
         assertChildReferenceDeletionPolicy(ReferenceTargetUnavailablePolicy.CASCADE_DELETE);
         assertChildReferenceDeletionPolicy(ReferenceTargetUnavailablePolicy.RESTRICT);
@@ -1010,6 +1033,12 @@ class DynamicSchemaServiceIT {
     }
 
     static class DynamicTransactionProbe {
+
+        @Transactional
+        public void ensureTableThenFail(DynamicSchemaService schemaService, EntityDefinition entity) {
+            schemaService.ensureTable(entity);
+            throw new RuntimeException("rollback schema ensure");
+        }
 
         @Transactional
         public void insertInvoiceWithLineThenFail(DynamicEntityService invoiceService,

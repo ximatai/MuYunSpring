@@ -440,6 +440,62 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
+    void shouldExposeFieldDrivenMainMetadataCapabilityFactsWithoutCreatingToggleState() {
+        moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
+        Metadata metadata = metadata("crm", "customer");
+        metadata.setDataScopeEnabled(Boolean.TRUE);
+        String metadataId = metadataService.insert(metadata);
+        MetadataField title = titleField(metadataId);
+        MetadataField tree = field(metadataId, "parentId", "parent_id", FieldType.STRING);
+        MetadataField enabled = field(metadataId, "enabled", "enabled", FieldType.BOOLEAN);
+        MetadataField sort = field(metadataId, "rank", "rank", FieldType.INTEGER);
+        sort.setSortableField(Boolean.TRUE);
+        fieldService.insert(title);
+        fieldService.insert(tree);
+        fieldService.insert(enabled);
+        fieldService.insert(sort);
+        String relationId = relationService.insert(mainRelation("crm.customer", metadataId));
+
+        ModuleMetadataCapabilitySnapshot snapshot = new ModuleMetadataCapabilitySnapshotService(
+                relationService, metadataService, fieldService).snapshot("crm.customer", relationId);
+
+        assertThat(snapshot.systemFields()).extracting(ModuleMetadataSystemFieldFact::fieldName)
+                .containsExactly("id", "tenantId", "version", "deleted", "deletedAt", "deletedBy",
+                        "createdBy", "createdAt", "updatedBy", "updatedAt");
+        assertThat(snapshot.capabilities()).anySatisfy(fact -> {
+            assertThat(fact.capability().name()).isEqualTo("TREE");
+            assertThat(fact.enabled()).isTrue();
+            assertThat(fact.defaultKind()).isEqualTo("RUNTIME");
+        });
+        assertThat(snapshot.capabilities()).anySatisfy(fact -> {
+            assertThat(fact.capability().name()).isEqualTo("ENABLE");
+            assertThat(fact.enabled()).isTrue();
+            assertThat(fact.defaultKind()).isEqualTo("STATIC");
+        });
+        assertThat(snapshot.capabilities()).anySatisfy(fact -> {
+            assertThat(fact.capability().name()).isEqualTo("DATA_SCOPE");
+            assertThat(fact.enabled()).isTrue();
+            assertThat(fact.defaultKind()).isEqualTo("CONTEXT");
+        });
+    }
+
+    @Test
+    void shouldRejectOrdinaryMetadataCrudCapabilityDeclarationMutation() {
+        Metadata create = metadata("crm", "governed_customer");
+        create.setCapabilityDeclarations(java.util.Set.of("ENABLE"));
+        assertThatThrownBy(() -> metadataService.insert(create))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("governed mutation");
+
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        Metadata update = metadataService.select(metadataId);
+        update.setCapabilityDeclarations(java.util.Set.of("ENABLE"));
+        assertThatThrownBy(() -> metadataService.update(update))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("governed mutation");
+    }
+
+    @Test
     void shouldCompileFieldProtectionFromIndependentMetadataConfig() {
         String metadataId = metadataService.insert(metadata("crm", "customer"));
         MetadataField field = field(metadataId, "mobile", "mobile", FieldType.STRING);
@@ -1292,9 +1348,11 @@ class PlatformMetadataServiceContractTest {
         assertThat(result.metadata().getAlias()).isEqualTo("customer");
         assertThat(result.metadata().getTableName()).isEqualTo("crm_customer");
         assertThat(result.metadata().getDataScopeEnabled()).isTrue();
+        assertThat(result.metadata().getCapabilityDeclarations()).isEmpty();
         assertThat(result.relation().getModuleAlias()).isEqualTo("crm.customer");
         assertThat(result.relation().getMetadataId()).isEqualTo(result.metadata().getId());
         assertThat(result.relation().getRelationRole()).isEqualTo(RelationRole.MAIN);
+        assertThat(result.relation().getTitle()).isEqualTo("客户");
     }
 
     @Test

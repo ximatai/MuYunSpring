@@ -24,4 +24,8 @@ public class PlatformDynamicRuntimeRefreshService {
     public DynamicModuleRefreshResult previewRefresh(String moduleAlias) {
         return refresher.previewRefresh(moduleAlias);
     }
+
+    public DynamicModuleRefreshResult activateNow(String moduleAlias) {
+        return refresher.activateNow(moduleAlias);
+    }
 }

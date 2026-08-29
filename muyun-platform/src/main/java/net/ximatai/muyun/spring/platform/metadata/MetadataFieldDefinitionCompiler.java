@@ -100,7 +100,8 @@ public class MetadataFieldDefinitionCompiler {
         if (isJsonSetFieldType(fieldType)) {
             definition = definition.jsonSet();
         }
-        return definition;
+        FieldDefinition managedDefinition = MetadataCapabilityCatalog.managedDefinition(field);
+        return managedDefinition == null ? definition : managedDefinition;
     }
 
     public FieldQueryDefinition compileQueryDefinition(String metadataFieldId, String relationId) {

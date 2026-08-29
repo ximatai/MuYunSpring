@@ -100,11 +100,13 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
 
     @Override
     public void beforeInsert(Metadata metadata) {
+        assertCapabilityDeclarationsAreGoverned(metadata, null);
         normalizeAndValidate(metadata);
     }
 
     @Override
     public void beforeUpdate(Metadata metadata) {
+        assertCapabilityDeclarationsAreGoverned(metadata, metadata == null ? null : select(metadata.getId()));
         normalizeAndValidate(metadata);
     }
 
@@ -119,7 +121,7 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
     @Override
     public void afterUpdate(Metadata metadata, int updated) {
         PlatformMetadataSchemaEnsureService schemaEnsureService = schemaEnsureService();
-        if (updated > 0 && schemaEnsureService != null) {
+        if (updated > 0 && schemaEnsureService != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             schemaEnsureService.ensure(metadata.getId());
         }
     }
@@ -127,7 +129,7 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
     @Override
     public void afterChanged(Metadata metadata) {
         PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator = runtimeRefreshCoordinator();
-        if (runtimeRefreshCoordinator != null) {
+        if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             runtimeRefreshCoordinator.refreshByMetadataId(metadata.getId());
         }
     }
@@ -166,8 +168,26 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
             }
             metadata.setSortPartitionFields(fields);
         }
+        if (metadata.getCapabilityDeclarations() != null) {
+            LinkedHashSet<String> declarations = new LinkedHashSet<>();
+            for (String declaration : metadata.getCapabilityDeclarations()) {
+                declarations.add(DynamicMetadataCapabilityPolicy.requireSupportedDeclaration(declaration));
+            }
+            metadata.setCapabilityDeclarations(declarations);
+        }
         rejectDuplicateMetadataAlias(metadata);
         rejectDuplicatePhysicalTable(metadata);
+    }
+
+    private void assertCapabilityDeclarationsAreGoverned(Metadata metadata, Metadata existing) {
+        if (MetadataCapabilityGovernanceMutationContext.isActive()) return;
+        if (metadata != null && metadata.getCapabilityDeclarations() != null) {
+            throw new PlatformException("Metadata capability declarations require governed mutation");
+        }
+        if (existing != null && existing.getCapabilityDeclarations() != null
+                && !Objects.equals(existing.getDataScopeEnabled(), metadata.getDataScopeEnabled())) {
+            throw new PlatformException("Metadata dataScopeEnabled requires governed capability migration");
+        }
     }
 
     private boolean isChildMetadata(String metadataId) {
