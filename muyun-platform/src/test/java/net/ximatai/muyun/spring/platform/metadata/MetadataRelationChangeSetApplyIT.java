@@ -53,6 +53,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @Autowired private FieldSpecService fieldSpecService;
     @Autowired private PlatformModuleService moduleService;
     @Autowired private TestSchemaEnsureService schemaEnsureService;
+    @Autowired private PlatformMetadataEntityDefinitionCompiler entityCompiler;
     @Autowired private PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator;
     @Autowired private DataSource dataSource;
 
@@ -122,6 +123,26 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void shouldMaterializeTreeWithCanonicalParentFieldShapeBeforeActivation() {
+        MetadataRelationChangeSetPreviewCommand proposal = new MetadataRelationChangeSetPreviewCommand(
+                metadata.getVersion(), Map.of(EntityCapability.TREE, true), List.of());
+        MetadataRelationChangeSetPreview preview = previewService.preview(moduleAlias, relationId, proposal);
+        assertThat(preview.errors()).isEmpty();
+
+        applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(proposal, preview.proposalFingerprint()));
+
+        assertThat(metadataService.select(metadata.getId()).getCapabilityDeclarations()).contains("TREE", "SORT");
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId())))
+                .extracting(MetadataField::getFieldName).contains("parentId", "sortOrder");
+        assertThat(columnLength(metadata.getTableName(), "parent_id")).isEqualTo(32);
+        assertThat(entityCompiler.compile(metadata.getId()).fields())
+                .filteredOn(field -> field.fieldName().equals("parentId"))
+                .singleElement().extracting(field -> field.length()).isEqualTo(32);
+        verify(refreshCoordinator).activateByMetadataIdNow(metadata.getId());
+    }
+
+    @Test
     void shouldRollbackMetadataFieldsAndDdlWhenEnsureFails() {
         MetadataRelationChangeSetPreviewCommand proposal = proposal("rollbackTitle", "rollback_title", fieldSpecAlias(), false);
         MetadataRelationChangeSetPreview preview = previewService.preview(moduleAlias, relationId, proposal);
@@ -174,6 +195,23 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         }
     }
 
+    private Integer columnLength(String table, String column) {
+        try (Connection connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("""
+                     select character_maximum_length from information_schema.columns
+                     where table_schema = 'public' and table_name = ? and column_name = ?
+                     """)) {
+            statement.setString(1, table);
+            statement.setString(2, column);
+            try (var result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                return result.getObject(1, Integer.class);
+            }
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
     @SpringBootConfiguration
     @EnableAutoConfiguration
     @EnableTransactionManagement
@@ -207,8 +245,9 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         }
         @Bean MetadataRelationChangeSetPreviewService previewService(PlatformModuleService modules,
                                                                       ModuleMetadataRelationService relations,
-                                                                      MetadataService metadata, MetadataFieldService fields) {
-            return new MetadataRelationChangeSetPreviewService(modules, relations, metadata, fields);
+                                                                      MetadataService metadata, MetadataFieldService fields,
+                                                                      FieldSpecService specs) {
+            return new MetadataRelationChangeSetPreviewService(modules, relations, metadata, fields, specs);
         }
         @Bean ModuleMetadataCapabilitySnapshotService snapshotService(ModuleMetadataRelationService relations,
                                                                        MetadataService metadata, MetadataFieldService fields) {

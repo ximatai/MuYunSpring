@@ -74,6 +74,10 @@ class MetadataCapabilityCatalogTest {
                         .column("parent_id"))))
                 .extracting(field -> field.fieldName())
                 .containsExactly("parentId", "sortOrder", "enabled");
+        assertThat(MetadataCapabilityCatalog.mergeDeclaredMetadataFields(governedResolution,
+                List.of(net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition.string("parentId", "Parent")
+                        .column("parent_id")))
+                .get(0).length()).isEqualTo(32);
 
         Metadata legacy = metadata();
         MetadataCapabilityResolution legacyResolution = MetadataCapabilityCatalog.resolve(legacy, RelationRole.MAIN,

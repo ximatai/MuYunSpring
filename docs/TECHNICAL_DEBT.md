@@ -31,7 +31,7 @@
 | TD-038 | 动态选项投影尚未进入配置持久化与发布链路 | `FieldDefinition.optionLoad` 已能表达字典选项字段到只读虚拟字段的属性投影，并已接入运行态读取、descriptor 与页面 schema；但配置管理侧尚无对应的字段事实、保存校验和 metadata compiler 输入，因此不能视为动态表单可配置能力 | 出现真实动态模块需要在配置界面声明字典标题或其他稳定 `OptionItem` 属性投影时，成套建设配置定义、来源/输出字段校验、compiler、运行态 refresh、发布快照与页面交付；保持输出字段只读、虚拟，且不参与查询、排序或写入 |
 | TD-041 | 动态文件引用尚未进入配置持久化与发布链路 | `EntityDefinition.fileReferences` 已能表达单文件或多文件字段的约束，并由动态运行态、保存生命周期和 descriptor 使用；但平台 metadata 配置尚无对应的持久化事实、compiler 输入和发布治理，不能将它视为低代码可配置能力 | 出现真实动态模块需要配置文件字段时，成套建设文件字段配置、保存校验、metadata compiler、运行态 refresh、发布快照和标准页面交付；继续复用同一份 `FileReferenceDefinition`，不在页面侧推断字段语义 |
 | TD-048 | 动态 Action/Relation 协作者仍回持完整记录门面 | `DynamicRecordService` 已拆出 Query、Mutation、Action 和 Relation 协作者，但 `DynamicRecordActionRuntime`、`DynamicRecordRelationRuntime` 仍依赖完整 `DynamicRecordService`，使动作或关系能力继续增长时容易穿透门面边界并形成隐式递归协作 | 下一次扩展动态动作、关系或安全/数据范围运行时前，按实际所需查询与变更能力收窄为类型化 gateway；保留 `DynamicRecordService` 作为按模块、实体定位的外部门面，并为 Action/Relation 协作者补独立权限、事务和失败契约 |
-| TD-050 | 动态元数据能力的后续治理范围 | 首期已交付动态主元数据的整页编辑会话、变更预检确认、字段与能力原子发布、Schema ensure 和运行态刷新；`Metadata.capabilityDeclarations` 是树、排序、启停的唯一声明来源，`null` 仅保留给存量字段推导迁移。当前不支持禁用已启用能力、子元数据结构能力，以及数据权限、审批、引用的声明式发布 | 出现能力关闭/迁移、子实体结构调整，或数据权限、审批、引用需要进入声明式元数据治理时，分别设计兼容迁移、影响分析和运行态回退契约；不要在现有首期发布入口上直接放开 |
+| TD-050 | 动态元数据能力的后续治理范围 | 首期已交付动态主元数据的整页编辑会话、变更预检确认、字段与能力原子发布、Schema ensure 和运行态刷新；`Metadata.capabilityDeclarations` 是树、排序、启停的唯一声明来源，`null` 仅保留给存量字段推导迁移。当前不支持禁用已启用能力、子元数据结构能力，以及数据权限、审批、引用的声明式发布；发布提交后的运行态激活失败也尚无持久状态、诊断和重试 | 出现能力关闭/迁移、子实体结构调整，或数据权限、审批、引用需要进入声明式元数据治理时，分别设计兼容迁移、影响分析和运行态回退契约；需要提高发布恢复性时，补齐发布状态、失败诊断和重试机制，不在现有首期入口内隐式补偿 |
 
 ### 待决策
 

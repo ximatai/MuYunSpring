@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -31,15 +32,19 @@ public class MetadataRelationChangeSetPreviewService {
     private final ModuleMetadataRelationService relationService;
     private final MetadataService metadataService;
     private final MetadataFieldService fieldService;
+    private final FieldSpecService fieldSpecService;
 
+    @Autowired
     public MetadataRelationChangeSetPreviewService(PlatformModuleService moduleService,
                                                    ModuleMetadataRelationService relationService,
                                                    MetadataService metadataService,
-                                                   MetadataFieldService fieldService) {
+                                                   MetadataFieldService fieldService,
+                                                   FieldSpecService fieldSpecService) {
         this.moduleService = moduleService;
         this.relationService = relationService;
         this.metadataService = metadataService;
         this.fieldService = fieldService;
+        this.fieldSpecService = fieldSpecService;
     }
 
     public MetadataRelationChangeSetPreview preview(String moduleAlias, String relationId,
@@ -261,6 +266,7 @@ public class MetadataRelationChangeSetPreviewService {
             PlatformNameRules.requireFieldName(field.getFieldName(), "fieldName");
             PlatformNameRules.requireDatabaseName(field.getColumnName(), "columnName");
             PlatformNameRules.requireIdentifier(field.getFieldSpecAlias(), "fieldSpecAlias");
+            fieldSpecService.requireFieldType(field.getFieldSpecAlias());
             return true;
         } catch (RuntimeException exception) {
             error(errors, "INVALID_FIELD_DRAFT", subject, exception.getMessage());

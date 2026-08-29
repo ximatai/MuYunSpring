@@ -92,10 +92,36 @@ public final class MetadataCapabilityCatalog {
         }
         if (!resolution.legacyFieldInference()) {
             for (ModuleMetadataCapabilityFieldContribution contribution : resolution.plan().metadataFields()) {
-                fields.putIfAbsent(contribution.fieldName(), managedField(contribution));
+                // Catalog-owned fields are a runtime contract, not merely missing-field defaults.
+                // Replace the compiled shape as well: for example TREE.parentId is string(32),
+                // whereas a generic string field would inherit the FieldSpec default length.
+                fields.put(contribution.fieldName(), managedField(contribution));
             }
         }
         return List.copyOf(fields.values());
+    }
+
+    /**
+     * Returns the canonical runtime definition for a persisted platform-managed field.
+     *
+     * <p>The capability catalog owns this shape so DDL compilation and runtime activation
+     * cannot drift from one another. Business fields with the same names are deliberately
+     * not claimed by this method.</p>
+     */
+    static FieldDefinition managedDefinition(MetadataField field) {
+        if (field == null || field.getFieldOwnership() != MetadataFieldOwnership.STANDARD
+                || !Boolean.TRUE.equals(field.getSystemManaged())) {
+            return null;
+        }
+        return switch (field.getFieldName()) {
+            case PlatformAbilityFields.TREE_PARENT_FIELD -> matches(field,
+                    PlatformAbilityFields.TREE_PARENT_COLUMN, "string") ? FieldDefinition.parentId() : null;
+            case PlatformAbilityFields.SORT_FIELD -> matches(field,
+                    PlatformAbilityFields.SORT_COLUMN, "integer") ? FieldDefinition.sortOrder() : null;
+            case PlatformAbilityFields.ENABLED_FIELD -> matches(field,
+                    PlatformAbilityFields.ENABLED_COLUMN, "boolean") ? FieldDefinition.enabled() : null;
+            default -> null;
+        };
     }
 
     private static Set<EntityCapability> legacyCapabilities(Metadata metadata, List<MetadataField> fields) {
@@ -144,13 +170,16 @@ public final class MetadataCapabilityCatalog {
     }
 
     private static FieldDefinition managedField(ModuleMetadataCapabilityFieldContribution contribution) {
-        FieldDefinition field = (switch (contribution.fieldSpecAlias()) {
-            case "string" -> FieldDefinition.string(contribution.fieldName(), contribution.fieldName());
-            case "integer" -> FieldDefinition.integer(contribution.fieldName(), contribution.fieldName());
-            case "boolean" -> FieldDefinition.bool(contribution.fieldName(), contribution.fieldName());
-            default -> throw new IllegalArgumentException("Unsupported platform capability field type: "
-                    + contribution.fieldSpecAlias());
-        }).column(contribution.columnName());
-        return PlatformAbilityFields.SORT_FIELD.equals(contribution.fieldName()) ? field.sortable() : field;
+        return switch (contribution.fieldName()) {
+            case PlatformAbilityFields.TREE_PARENT_FIELD -> FieldDefinition.parentId();
+            case PlatformAbilityFields.SORT_FIELD -> FieldDefinition.sortOrder();
+            case PlatformAbilityFields.ENABLED_FIELD -> FieldDefinition.enabled();
+            default -> throw new IllegalArgumentException("Unsupported platform capability field: "
+                    + contribution.fieldName());
+        };
+    }
+
+    private static boolean matches(MetadataField field, String columnName, String fieldSpecAlias) {
+        return columnName.equals(field.getColumnName()) && fieldSpecAlias.equals(field.getFieldSpecAlias());
     }
 }

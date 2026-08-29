@@ -258,7 +258,7 @@ describe('module page enhancements', () => {
     ).toEqual(
       expect.arrayContaining([
         'module-actions-workspace',
-        'module-metadata-orchestration-workspace',
+        'module-governance-workspace',
         'module-openapi-page',
         'consumer-inspection',
       ]),
@@ -266,7 +266,7 @@ describe('module page enhancements', () => {
     expect(modulePageWorkspaceViews().map((view) => view.type)).toEqual(
       expect.arrayContaining([
         'platform.module.actions',
-        'platform.module.metadata-orchestration',
+        'platform.module.governance',
         'platform.module.consumer-inspection',
       ]),
     );
@@ -275,8 +275,8 @@ describe('module page enhancements', () => {
     expect(
       resolveModulePageEnhancement('platform.module')?.detail?.actions?.map((action) => action.key),
     ).toEqual([
+      'module-governance-workspace',
       'module-actions-workspace',
-      'module-metadata-orchestration-workspace',
       'module-manual-action-binding-workspace',
       'module-ui-orchestration-workspace',
       'module-openapi-page',

@@ -70,6 +70,20 @@ class MetadataRelationChangeSetPreviewServiceTest {
                 .contains("STALE_METADATA_VERSION", "CHILD_CAPABILITY_UNSUPPORTED");
     }
 
+    @Test
+    void shouldRejectUnknownFieldSpecDuringPreview() {
+        Fixture fixture = fixture(RelationRole.MAIN, List.of());
+        MetadataField field = businessField("subject", "subject", "missing_spec");
+        when(fixture.fieldSpecService.requireFieldType("missing_spec"))
+                .thenThrow(new net.ximatai.muyun.spring.common.exception.PlatformException("Field spec requires existing type: missing_spec"));
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, field))));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIELD_DRAFT");
+    }
+
     private MetadataRelationChangeSetPreviewCommand command(Integer version, Map<EntityCapability, Boolean> capabilities,
                                                              List<MetadataFieldChangeSetDraft> fields) {
         return new MetadataRelationChangeSetPreviewCommand(version, capabilities, fields);
@@ -80,6 +94,7 @@ class MetadataRelationChangeSetPreviewServiceTest {
         ModuleMetadataRelationService relationService = mock(ModuleMetadataRelationService.class);
         MetadataService metadataService = mock(MetadataService.class);
         MetadataFieldService fieldService = mock(MetadataFieldService.class);
+        FieldSpecService fieldSpecService = mock(FieldSpecService.class);
         PlatformModule module = new PlatformModule();
         module.setAlias("crm.customer");
         module.setModuleKind(ModuleKind.DYNAMIC);
@@ -102,8 +117,9 @@ class MetadataRelationChangeSetPreviewServiceTest {
         when(metadataService.select("metadata-1")).thenReturn(metadata);
         when(relationService.count(any(Criteria.class))).thenReturn(0L);
         when(fieldService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(fields);
-        return new Fixture(new MetadataRelationChangeSetPreviewService(moduleService, relationService, metadataService, fieldService),
-                metadataService, fieldService);
+        when(fieldSpecService.requireFieldType(anyString())).thenReturn(new FieldSpec());
+        return new Fixture(new MetadataRelationChangeSetPreviewService(moduleService, relationService, metadataService, fieldService,
+                fieldSpecService), metadataService, fieldService, fieldSpecService);
     }
 
     private MetadataField businessField(String name, String column, String spec) {
@@ -117,6 +133,7 @@ class MetadataRelationChangeSetPreviewServiceTest {
     }
 
     private record Fixture(MetadataRelationChangeSetPreviewService service,
-                           MetadataService metadataService, MetadataFieldService fieldService) {
+                           MetadataService metadataService, MetadataFieldService fieldService,
+                           FieldSpecService fieldSpecService) {
     }
 }

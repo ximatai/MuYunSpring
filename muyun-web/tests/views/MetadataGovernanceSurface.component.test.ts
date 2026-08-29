@@ -3,6 +3,11 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
 import MetadataGovernanceSurface from '@/views/MetadataGovernanceSurface.vue';
 
+vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@muyun/vue-ui-antdv')>()),
+  confirmAction: vi.fn().mockResolvedValue(true),
+}));
+
 const mounted = new Set<ReturnType<typeof shallowMount>>();
 
 afterEach(() => {
@@ -104,6 +109,48 @@ it('treats the runtime lower-case main role as editable', async () => {
   expect(checkbox?.attributes('data-disabled')).toBe('false');
 });
 
+it('previews then confirms and publishes the same fingerprinted proposal', async () => {
+  const http = fakeHttp();
+  const request = vi.spyOn(http, 'request');
+  configureModuleContext({ http });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  const editButton = wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((item) => item.text().includes('编辑数据模型'));
+  await editButton?.trigger('click');
+  const tree = wrapper
+    .findAll('[data-testid="capability-checkbox"]')
+    .find((item) => item.text().includes('树结构'));
+  await tree?.trigger('click');
+  await flushPromises();
+
+  const publishButton = wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((item) => item.text().includes('预检并发布'));
+  await publishButton?.trigger('click');
+  await flushPromises();
+  await flushPromises();
+
+  const previewRequest = request.mock.calls
+    .map(([options]) => options)
+    .find((options) => options.path.endsWith('/change-set-preview'));
+  const applyRequest = request.mock.calls
+    .map(([options]) => options)
+    .find((options) => options.path.endsWith('/change-set-apply'));
+  expect(previewRequest?.method).toBe('POST');
+  expect(applyRequest).toMatchObject({
+    method: 'POST',
+    body: { proposal: previewRequest?.body, proposalFingerprint: 'preview-fingerprint' },
+  });
+});
+
 function responseFor(
   options: HttpRequestOptions,
   relationRole: 'main' | 'child' | 'MAIN' | 'CHILD' = 'MAIN',
@@ -150,6 +197,10 @@ function responseFor(
       systemFields: [],
     };
   }
+  if (options.path.endsWith('/change-set-preview')) {
+    return { errors: [], fieldImpacts: [], schemaImpacts: [], proposalFingerprint: 'preview-fingerprint' };
+  }
+  if (options.path.endsWith('/change-set-apply')) return {};
   throw new Error(`Unexpected request: ${options.path}`);
 }
 

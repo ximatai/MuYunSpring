@@ -40,12 +40,6 @@ describe('platform module page enhancement', () => {
       .find((action) => action.key === 'module-governance-workspace')
       ?.run({ record, openWorkspaceTab } as never);
     actions
-      .find((action) => action.key === 'module-metadata-orchestration-workspace')
-      ?.run({
-        record,
-        openWorkspaceTab,
-      } as never);
-    actions
       .find((action) => action.key === 'module-manual-action-binding-workspace')
       ?.run({ record, openWorkspaceTab } as never);
 
@@ -65,12 +59,6 @@ describe('platform module page enhancement', () => {
     );
     expect(openWorkspaceTab).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ type: 'platform.module.metadata-orchestration' }),
-      { moduleAlias: 'crm.customer', moduleTitle: '客户' },
-    );
-
-    expect(openWorkspaceTab).toHaveBeenNthCalledWith(
-      3,
       expect.objectContaining({ type: 'platform.module.actions' }),
       { moduleAlias: 'crm.customer', moduleTitle: '客户', moduleKind: 'dynamic' },
     );
@@ -114,11 +102,9 @@ describe('platform module page enhancement', () => {
       moduleKind: 'dynamic',
     };
     const undocumentedRecord = { id: 'crm.private', alias: 'crm.private', moduleKind: 'dynamic' };
-    const metadata = actions.find((action) => action.key === 'module-metadata-orchestration-workspace');
     const governance = actions.find((action) => action.key === 'module-governance-workspace');
     const openApi = actions.find((action) => action.key === 'module-openapi-page');
 
-    expect(metadata?.state?.(staticRecord)).toEqual({ visible: false });
     expect(governance?.state?.(staticRecord)).toEqual({ visible: false });
     expect(openApi?.state?.(documentedRecord)).toEqual({ visible: false });
 
