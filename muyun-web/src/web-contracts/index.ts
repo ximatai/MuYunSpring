@@ -1654,7 +1654,8 @@ export interface ModuleMetadataRelation extends StandardSortableEntity {
   moduleAlias?: string;
   metadataId?: string;
   relationAlias?: string;
-  relationRole?: 'MAIN' | 'CHILD';
+  /** Runtime APIs serialize Java code enums using their lower-case code; upper-case remains accepted for fixtures. */
+  relationRole?: 'main' | 'child' | 'MAIN' | 'CHILD';
   parentMetadataId?: string;
   foreignKey?: string;
   autoPopulate?: boolean;

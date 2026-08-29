@@ -165,7 +165,7 @@ async function loadModuleFieldOptions() {
     const relations = await loadAllRecords<ModuleMetadataRelation>(
       `/platform.module/${encodeURIComponent(props.moduleAlias)}/metadata-relations/query`,
     );
-    const relation = relations.find((item) => item.relationRole === 'MAIN');
+    const relation = relations.find((item) => item.relationRole === 'MAIN' || item.relationRole === 'main');
     mainRelation.value = relation;
     if (!relation?.id || !relation.metadataId) {
       moduleFieldOptions.value = [];

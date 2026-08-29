@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
+import java.util.LinkedHashSet;
 
 /**
  * Module-scoped metadata authoring operations.
@@ -58,13 +59,17 @@ public class ModuleMetadataOrchestrationService {
         metadata.setSchemaName(command.schemaName());
         metadata.setTableName(command.tableName());
         metadata.setDataScopeEnabled(command.dataScopeEnabled());
-        String metadataId = metadataService.insert(metadata);
+        // A newly created dynamic model is governed from its first save. Null is
+        // reserved for legacy metadata whose capability state still needs migration.
+        metadata.setCapabilityDeclarations(new LinkedHashSet<>());
+        String metadataId = MetadataCapabilityGovernanceMutationContext.run(() -> metadataService.insert(metadata));
 
         ModuleMetadataRelation relation = new ModuleMetadataRelation();
         relation.setModuleAlias(validModuleAlias);
         relation.setMetadataId(metadataId);
         relation.setRelationRole(RelationRole.MAIN);
         relation.setRelationAlias(metadata.getAlias());
+        relation.setTitle(metadata.getTitle());
         String relationId = relationService.insert(relation);
         return new ModuleMainMetadataCreationResult(metadataService.select(metadataId), relationService.select(relationId));
     }

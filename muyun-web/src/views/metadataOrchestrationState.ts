@@ -37,7 +37,7 @@ export function createMetadataOrchestrationState() {
   const selectedMetadata = computed(() =>
     selectedRelation.value?.metadataId ? metadataById.value[selectedRelation.value.metadataId] : undefined,
   );
-  const hasMainMetadata = computed(() => relations.value.some((item) => item.relationRole === 'MAIN'));
+  const hasMainMetadata = computed(() => relations.value.some((item) => isMainRelation(item.relationRole)));
   const mainEditorOpen = computed(() => mode.value === 'create-main');
   const fieldEditorOpen = computed(() => mode.value === 'create-field' || mode.value === 'edit-field');
   const fieldSpecOptions = computed(() => fieldSpecOptionListOf(fieldSpecs.value));
@@ -225,9 +225,14 @@ export function entityTitleOf(relation: ModuleMetadataRelation, metadata: Metada
 }
 
 export function relationRoleTag(role: ModuleMetadataRelation['relationRole']): string | undefined {
-  if (role === 'MAIN') return '主实体';
-  if (role === 'CHILD') return '子实体';
+  if (isMainRelation(role)) return '主实体';
+  if (role === 'CHILD' || role === 'child') return '子实体';
   return undefined;
+}
+
+/** Java code enums are serialized by their stable lower-case code in runtime responses. */
+export function isMainRelation(role: ModuleMetadataRelation['relationRole'] | undefined): boolean {
+  return role === 'MAIN' || role === 'main';
 }
 
 export function entityExplorerItem(

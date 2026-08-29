@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, type ComponentPublicInstance, watch } from 'vue';
 import {
   DrawerOperationBar,
   RecordDetailPanel,
@@ -30,6 +30,7 @@ import {
   entityTitleOf,
   isValidFieldDraft,
   isValidMainMetadataDraft,
+  isMainRelation,
   normalizeFieldDraft,
   normalizeMainMetadataDraft,
 } from './metadataOrchestrationState';
@@ -52,8 +53,12 @@ const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
 const metadataClient = createStaticResourceCrudClient<Metadata>(moduleContext.http, '/platform.metadata');
 const state = createMetadataOrchestrationState();
 const editSession = createMetadataModelEditSession();
+const mainMetadataDraft = state.mainMetadataDraft;
+const fieldDraft = state.fieldDraft;
 const loading = ref(false);
 const saving = ref(false);
+const pageHost = ref<ComponentPublicInstance | null>(null);
+const pageRoot = computed(() => (pageHost.value?.$el instanceof HTMLElement ? pageHost.value.$el : null));
 const capabilitySnapshot = ref<ModuleMetadataCapabilitySnapshot>();
 
 type ModuleMetadataCapabilityFact = {
@@ -137,7 +142,7 @@ const capabilityItems = computed(() =>
     title: capabilityTitleOf(fact.capability),
   })),
 );
-const selectedRelationIsMain = computed(() => state.selectedRelation.value?.relationRole === 'MAIN');
+const selectedRelationIsMain = computed(() => isMainRelation(state.selectedRelation.value?.relationRole));
 
 const fieldColumns: UiDataTableColumn[] = [
   { key: 'title', title: '字段' },
@@ -232,7 +237,18 @@ function startEditSession() {
 }
 
 function capabilitySelectable(fact: ModuleMetadataCapabilityFact): boolean {
-  return selectedRelationIsMain.value && fact.configurable && !fact.enabled;
+  return (
+    selectedRelationIsMain.value &&
+    firstReleaseDeclaredCapabilities.has(fact.capability) &&
+    fact.configurable &&
+    !fact.enabled
+  );
+}
+
+function capabilityReason(fact: ModuleMetadataCapabilityFact): string {
+  return firstReleaseDeclaredCapabilities.has(fact.capability)
+    ? fact.reason
+    : '首期仅支持树结构、排序和启停能力的声明发布。';
 }
 
 function capabilityChecked(fact: ModuleMetadataCapabilityFact): boolean {
@@ -422,6 +438,7 @@ function capabilityTitleOf(capability: string): string {
 <template>
   <RecordDetailPanel
     v-if="state.selectedMetadata.value && state.selectedRelation.value"
+    ref="pageHost"
     title="数据模型"
     :show-header="false"
   >
@@ -472,13 +489,13 @@ function capabilityTitleOf(capability: string): string {
           <UiCheckbox
             :checked="capabilityChecked(fact)"
             :disabled="!editSession.editing.value || !capabilitySelectable(fact)"
-            :aria-label="`${fact.title}：${capabilityChecked(fact) ? '已启用' : '未启用'}。${fact.reason}`"
+            :aria-label="`${fact.title}：${capabilityChecked(fact) ? '已启用' : '未启用'}。${capabilityReason(fact)}`"
             @change="editSession.stageCapability(fact.capability, $event, capabilitySelectable(fact))"
           >
             {{ fact.title }}
           </UiCheckbox>
           <span v-if="!capabilitySelectable(fact)" class="capability-option__reason">
-            {{ fact.reason }}
+            {{ capabilityReason(fact) }}
           </span>
         </div>
       </div>
@@ -514,7 +531,7 @@ function capabilityTitleOf(capability: string): string {
       </UiDataTable>
     </section>
   </RecordDetailPanel>
-  <RecordDetailPanel v-else title="数据模型">
+  <RecordDetailPanel v-else ref="pageHost" title="数据模型">
     <template #actions>
       <RecordExplorerCreateButton
         v-if="!state.hasMainMetadata.value"
@@ -528,6 +545,7 @@ function capabilityTitleOf(capability: string): string {
 
   <RecordModeDrawer
     :open="state.mainEditorOpen.value"
+    :container="pageRoot"
     title="新建主实体"
     :subtitle="moduleTitle ?? moduleAlias"
     mode="create"
@@ -537,26 +555,21 @@ function capabilityTitleOf(capability: string): string {
       <form class="orchestration-form" @submit.prevent="createMainMetadata">
         <label>
           <span>实体 alias</span>
-          <UiInput v-model:value="state.mainMetadataDraft.value.alias" placeholder="例如 customer" />
+          <UiInput v-model:value="mainMetadataDraft.alias" placeholder="例如 customer" />
         </label>
         <label>
           <span>实体名称</span>
-          <UiInput v-model:value="state.mainMetadataDraft.value.title" placeholder="例如 客户" />
+          <UiInput v-model:value="mainMetadataDraft.title" placeholder="例如 客户" />
         </label>
         <label>
           <span>Schema（可选）</span>
-          <UiInput v-model:value="state.mainMetadataDraft.value.schemaName" placeholder="默认 public" />
+          <UiInput v-model:value="mainMetadataDraft.schemaName" placeholder="默认 public" />
         </label>
         <label>
           <span>物理表名（可选）</span>
-          <UiInput
-            v-model:value="state.mainMetadataDraft.value.tableName"
-            placeholder="默认按应用和 alias 生成"
-          />
+          <UiInput v-model:value="mainMetadataDraft.tableName" placeholder="默认按应用和 alias 生成" />
         </label>
-        <UiCheckbox v-model:checked="state.mainMetadataDraft.value.dataScopeEnabled">
-          启用数据权限范围
-        </UiCheckbox>
+        <UiCheckbox v-model:checked="mainMetadataDraft.dataScopeEnabled"> 启用数据权限范围 </UiCheckbox>
       </form>
     </template>
     <template #operation>
@@ -571,6 +584,7 @@ function capabilityTitleOf(capability: string): string {
 
   <RecordModeDrawer
     :open="state.fieldEditorOpen.value"
+    :container="pageRoot"
     :title="state.mode.value === 'edit-field' ? '编辑字段' : '新增字段'"
     :subtitle="state.selectedMetadata.value?.title"
     mode="create"
@@ -581,43 +595,39 @@ function capabilityTitleOf(capability: string): string {
         <label>
           <span>字段名称</span>
           <UiInput
-            v-model:value="state.fieldDraft.value.fieldName"
-            :disabled="Boolean(state.fieldDraft.value.id)"
+            v-model:value="fieldDraft.fieldName"
+            :disabled="Boolean(fieldDraft.id)"
             placeholder="例如 customerName"
           />
         </label>
         <label>
           <span>物理列名</span>
           <UiInput
-            v-model:value="state.fieldDraft.value.columnName"
-            :disabled="Boolean(state.fieldDraft.value.id)"
+            v-model:value="fieldDraft.columnName"
+            :disabled="Boolean(fieldDraft.id)"
             placeholder="例如 customer_name"
           />
         </label>
         <label>
           <span>显示名称</span>
-          <UiInput v-model:value="state.fieldDraft.value.title" placeholder="例如 客户名称" />
+          <UiInput v-model:value="fieldDraft.title" placeholder="例如 客户名称" />
         </label>
         <label>
           <span>字段规格</span>
           <UiSelect
-            v-model:value="state.fieldDraft.value.fieldSpecAlias"
+            v-model:value="fieldDraft.fieldSpecAlias"
             :options="state.fieldSpecOptions.value"
             placeholder="选择字段规格"
             style="width: 100%"
           />
         </label>
         <div class="orchestration-form-flags">
-          <UiCheckbox v-model:checked="state.fieldDraft.value.required">必填</UiCheckbox>
-          <UiCheckbox v-model:checked="state.fieldDraft.value.uniqueField">唯一</UiCheckbox>
-          <UiCheckbox v-model:checked="state.fieldDraft.value.indexed">建立索引</UiCheckbox>
-          <UiCheckbox v-model:checked="state.fieldDraft.value.sortableField">排序字段</UiCheckbox>
-          <UiCheckbox v-model:checked="state.fieldDraft.value.titleField">标题字段</UiCheckbox>
-          <UiSwitch
-            v-model:checked="state.fieldDraft.value.enabled"
-            checked-children="启用"
-            un-checked-children="停用"
-          />
+          <UiCheckbox v-model:checked="fieldDraft.required">必填</UiCheckbox>
+          <UiCheckbox v-model:checked="fieldDraft.uniqueField">唯一</UiCheckbox>
+          <UiCheckbox v-model:checked="fieldDraft.indexed">建立索引</UiCheckbox>
+          <UiCheckbox v-model:checked="fieldDraft.sortableField">排序字段</UiCheckbox>
+          <UiCheckbox v-model:checked="fieldDraft.titleField">标题字段</UiCheckbox>
+          <UiSwitch v-model:checked="fieldDraft.enabled" checked-children="启用" un-checked-children="停用" />
         </div>
       </form>
     </template>
