@@ -12,8 +12,6 @@ import {
   confirmAction,
   UiButton,
   UiEmpty,
-  UiInput,
-  UiSidePanel,
   UiSpin,
   UiTabs,
   UiTree,
@@ -45,8 +43,6 @@ const page = ref<PageDefinition>();
 const variant = ref<PresentationVariant>();
 const revision = ref<PresentationRevision>();
 const selectedSlot = ref<PageComposerSlot>('list');
-const editorOpen = ref(false);
-const componentTitle = ref('');
 const fieldKeyword = ref('');
 const selectedMetadataTreeKey = ref<string>();
 const metadataExpandedKeys = ref<string[]>(['metadata:root']);
@@ -273,16 +269,18 @@ async function initializeComposition() {
   }
 }
 
-async function saveDraft() {
-  if (!revision.value?.id || !variant.value?.id) return;
+async function saveDraft(): Promise<boolean> {
+  if (!revision.value?.id || !variant.value?.id) return false;
   saving.value = true;
   try {
     revision.value = (await revisionClient(variant.value.id).update(revision.value.id, {
       ...revision.value,
       uiTreeJson: JSON.stringify(state.toManagementUiTree()),
     })).record;
+    return true;
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
+    return false;
   } finally {
     saving.value = false;
   }
@@ -298,9 +296,9 @@ async function publishDraft() {
   if (!confirmed) return;
   publishing.value = true;
   try {
+    if (!(await saveDraft())) return;
     const publishedTreeJson = JSON.stringify(state.toManagementUiTree());
     const publishedRevision = revision.value;
-    await saveDraft();
     await moduleContext.http.request<number>({
       method: 'POST', path: `/platform.presentation_publish/revisions/${encodeURIComponent(revision.value.id)}/publish`,
     });
@@ -407,7 +405,6 @@ function handleUiTreeDragStart(event: UiTreeDragEvent) {
 
 function handleUiTreeDoubleClick(event: UiTreeDragEvent) {
   selectUiTreeNode(event.node);
-  if (parseUiNode(event.node.key)?.kind === 'field') openComponentEditor();
 }
 
 function handleUiTreeDrop(event: Pick<UiTreeDropEvent, 'dropNode' | 'dropPosition' | 'dropToGap' | 'nativeEvent'>) {
@@ -472,17 +469,6 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
   selectedSlot.value = node.slot;
 }
 
-function openComponentEditor() {
-  const selected = state.selectedNode.value;
-  componentTitle.value = selected?.field?.title ?? selected?.title ?? '';
-  editorOpen.value = true;
-}
-
-function saveComponentEditor() {
-  // Component option persistence is intentionally local until Revision Draft APIs are exposed.
-  editorOpen.value = false;
-}
-
 </script>
 
 <template>
@@ -517,9 +503,6 @@ function saveComponentEditor() {
 
     <ManagementExplorerColumn>
       <RecordExplorerPanel title="UI Tree" subtitle="management v1" :searchable="false">
-        <template #actions>
-          <UiButton size="small" type="text" title="配置选中组件" @click="openComponentEditor">配置</UiButton>
-        </template>
         <div class="ui-tree" data-testid="page-composer-ui-tree">
           <UiTree
             v-model:expanded-keys="uiExpandedKeys"
@@ -596,15 +579,6 @@ function saveComponentEditor() {
       </section>
     </RecordDetailPanel>
   </ManagementWorkspace>
-
-  <UiSidePanel :open="editorOpen" width="420" @close="editorOpen = false">
-    <section class="component-drawer" data-testid="page-composer-component-drawer">
-      <header><h2>组件配置</h2><UiButton type="text" icon-name="close" icon-only title="关闭" @click="editorOpen = false" /></header>
-      <p>配置会随页面修订草稿保存；当前为本地预览。</p>
-      <label><span>显示标题</span><UiInput v-model:value="componentTitle" /></label>
-      <div class="component-drawer__actions"><UiButton @click="editorOpen = false">取消</UiButton><UiButton type="primary" @click="saveComponentEditor">应用</UiButton></div>
-    </section>
-  </UiSidePanel>
 </template>
 
 <style scoped>
@@ -612,7 +586,7 @@ function saveComponentEditor() {
 .metadata-tree, .ui-tree { display: grid; gap: 4px; min-height: 0; overflow: auto; }
 .metadata-tree__hint, .page-composition-notice { margin: 0; color: var(--muyun-text-muted); font-size: 13px; line-height: 1.55; }
 .metadata-tree :deep(.ant-tree), .ui-tree :deep(.ant-tree) { min-height: 0; overflow: auto; }
-.ui-tree__operations, .component-drawer__actions { display: flex; gap: 8px; justify-content: flex-end; }
+.ui-tree__operations { display: flex; gap: 8px; justify-content: flex-end; }
 .page-composition-notice { margin-bottom: 12px; }
 .preview-surface { margin-top: 12px; border: 1px solid var(--muyun-border); border-radius: 8px; min-height: 280px; padding: 16px; }
 .preview-surface__toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
@@ -627,5 +601,4 @@ function saveComponentEditor() {
 .preview-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--muyun-border-subtle); border-radius: 8px; background: var(--muyun-surface); }
 .preview-card header { display: flex; align-items: center; justify-content: space-between; }.preview-card header span { color: var(--muyun-text-muted); font-size: 12px; }
 .preview-card dl { display: grid; grid-template-columns: minmax(76px, auto) 1fr; gap: 8px 12px; margin: 0; }.preview-card dt { color: var(--muyun-text-muted); }.preview-card dd { margin: 0; }
-.component-drawer { display: grid; align-content: start; gap: 18px; height: 100%; padding: 20px; background: var(--muyun-surface); }.component-drawer header { display: flex; align-items: center; justify-content: space-between; }.component-drawer h2, .component-drawer p { margin: 0; }.component-drawer p { color: var(--muyun-text-muted); }.component-drawer label { display: grid; gap: 6px; }.component-drawer__actions { margin-top: auto; }
 </style>
