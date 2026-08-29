@@ -67,6 +67,7 @@ export type {
   UiRecordInlineAction,
   UiTabItem,
   UiTreeDragEvent,
+  UiTreeExternalDropEvent,
   UiTreeNode,
   UiTreeNodeAction,
   UiTreeDropEvent,

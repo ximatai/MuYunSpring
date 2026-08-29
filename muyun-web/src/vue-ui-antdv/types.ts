@@ -82,6 +82,14 @@ export interface UiTreeDropEvent {
   nativeEvent?: Event;
 }
 
+/** A native payload dropped from outside the current tree instance. */
+export interface UiTreeExternalDropEvent {
+  dropNode: UiTreeNode;
+  dropPosition: -1 | 0 | 1;
+  dropToGap: boolean;
+  nativeEvent: DragEvent;
+}
+
 export interface UiConfirmOptions {
   title: string;
   content?: string;

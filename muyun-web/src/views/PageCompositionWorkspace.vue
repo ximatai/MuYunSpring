@@ -20,6 +20,7 @@ import {
   type UiTabItem,
   type UiTreeDragEvent,
   type UiTreeDropEvent,
+  type UiTreeExternalDropEvent,
   type UiTreeNode,
 } from '@muyun/vue-ui-antdv';
 import type { MetadataField, ModuleMetadataRelation, WebPageResponse, WebQueryCondition } from '@muyun/web-contracts';
@@ -371,6 +372,10 @@ function handleMetadataDragStart(event: UiTreeDragEvent) {
   dataTransfer.setData('text/page-composer-field', field.id);
 }
 
+function canDragMetadataNode(node: UiTreeNode) {
+  return fieldOfMetadataNode(node) != null;
+}
+
 function handleUiTreeDragStart(event: UiTreeDragEvent) {
   const parsed = parseUiNode(event.node.key);
   const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
@@ -384,14 +389,18 @@ function handleUiTreeDoubleClick(event: UiTreeDragEvent) {
   if (parseUiNode(event.node.key)?.kind === 'field') openComponentEditor();
 }
 
-function handleUiTreeDrop(event: UiTreeDropEvent) {
+function handleUiTreeDrop(event: Pick<UiTreeDropEvent, 'dropNode' | 'dropPosition' | 'dropToGap' | 'nativeEvent'>) {
   const target = parseUiNode(event.dropNode.key);
   if (!target || target.kind === 'root') return;
   const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
   const fieldId = dataTransfer?.getData('text/page-composer-field');
   if (fieldId) {
     const field = metadataFields.value.find((candidate) => candidate.id === fieldId);
-    if (field) state.addField(field, target.slot);
+    const targetIndex = target.kind === 'field'
+      ? fieldsInSlot(target.slot).findIndex((candidate) => candidate.id === target.fieldId)
+        + (event.dropPosition > 0 ? 1 : 0)
+      : undefined;
+    if (field) state.addField(field, target.slot, targetIndex);
     return;
   }
   const raw = dataTransfer?.getData('text/page-composer-ui-field');
@@ -408,8 +417,14 @@ function handleUiTreeDrop(event: UiTreeDropEvent) {
   }
 }
 
-function allowUiTreeDrop(event: Pick<UiTreeDropEvent, 'dropNode'>) {
-  return event.dropNode.key !== 'ui:root';
+function handleUiTreeExternalDrop(event: UiTreeExternalDropEvent) {
+  handleUiTreeDrop(event);
+}
+
+function allowUiTreeDrop(event: Pick<UiTreeDropEvent, 'dropNode' | 'dropToGap'>) {
+  const target = parseUiNode(event.dropNode.key);
+  if (!target || target.kind === 'root') return false;
+  return target.kind === 'slot' ? !event.dropToGap : event.dropToGap;
 }
 
 function fieldOfMetadataNode(node: UiTreeNode) {
@@ -468,6 +483,8 @@ function saveComponentEditor() {
             :nodes="metadataTreeNodes"
             :selected-key="selectedMetadataTreeKey"
             draggable
+            :can-drag="canDragMetadataNode"
+            :allow-drop="() => false"
             @select="selectMetadataNode"
             @drag-start="handleMetadataDragStart"
             @double-click="handleMetadataDoubleClick"
@@ -489,10 +506,12 @@ function saveComponentEditor() {
             :selected-key="selectedUiTreeKey"
             draggable
             :allow-drop="allowUiTreeDrop"
+            :allow-external-drop="allowUiTreeDrop"
             @select="selectUiTreeNode"
             @drag-start="handleUiTreeDragStart"
             @double-click="handleUiTreeDoubleClick"
             @drop="handleUiTreeDrop"
+            @external-drop="handleUiTreeExternalDrop"
           />
         </div>
         <template #footer>

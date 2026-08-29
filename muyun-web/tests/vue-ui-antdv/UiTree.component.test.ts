@@ -56,6 +56,7 @@ it('normalizes adapter drag events before exposing them to page composers', () =
   })).toBe(true);
 });
 
+
 it('delegates lazy children loading to Ant Tree so its switcher shows the built-in loading spinner', async () => {
   const loadChildren = vi.fn().mockResolvedValue(undefined);
   const wrapper = mount(UiTree, {

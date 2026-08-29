@@ -61,9 +61,13 @@ export function createPageCompositionDraftState() {
 
   const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value));
 
-  function addField(field: PageComposerField, slot: PageComposerSlot = 'list') {
+  function addField(field: PageComposerField, slot: PageComposerSlot = 'list', targetIndex?: number) {
     const target = slot === 'list' ? listFields : formFields;
-    if (!target.value.some((candidate) => candidate.id === field.id)) target.value = [...target.value, field];
+    if (!target.value.some((candidate) => candidate.id === field.id)) {
+      const next = [...target.value];
+      next.splice(Math.max(0, Math.min(targetIndex ?? next.length, next.length)), 0, field);
+      target.value = next;
+    }
     selectedNodeId.value = `${slot}:${field.id}`;
     previewMode.value = slot === 'list' ? 'list' : 'detail';
   }

@@ -56,4 +56,12 @@ describe('pageCompositionDraftState', () => {
     expect(state.formFields.value).toEqual([date]);
     expect(state.selectedNodeId.value).toBe('form:date');
   });
+
+  it('inserts an external metadata field at the explicit UI tree drop position', () => {
+    const state = createPageCompositionDraftState();
+    state.addField(title, 'list');
+    state.addField(date, 'list', 0);
+
+    expect(state.listFields.value).toEqual([date, title]);
+  });
 });
