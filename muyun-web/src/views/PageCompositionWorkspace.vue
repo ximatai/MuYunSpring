@@ -86,12 +86,17 @@ const selectedUiTreeKey = computed(() => {
   if (!node) return undefined;
   return node.kind === 'slot' ? `ui:slot:${node.slot}` : `ui:field:${node.slot}:${node.field?.id}`;
 });
-const composerTitle = computed(() => `${props.moduleTitle ?? props.moduleAlias} · Web 管理页`);
+const composerTitle = computed(() => '页面预览');
 const mainEntityTitle = computed(() => relation.value?.relationAlias ?? '主实体');
 const compositionSubtitle = computed(() => {
   if (!page.value) return '尚未初始化页面定义';
   if (!revision.value) return '尚无可编辑草稿';
-  return `草稿 v${revision.value.revisionNo} · management v1`;
+  return `草稿 v${revision.value.revisionNo} · Web 全局 · management v1`;
+});
+const compositionHint = computed(() => {
+  if (!page.value) return '初始化后即可从左侧字段投放到页面结构。';
+  if (!revision.value) return '当前页面尚无草稿，初始化后即可开始编排。';
+  return '调整页面结构与组件属性；保存草稿后，再发布到 Web 管理页。';
 });
 const metadataTreeNodes = computed<UiTreeNode[]>(() => [
   {
@@ -573,17 +578,15 @@ function applyPropertyDraft() {
     <ManagementExplorerColumn>
       <RecordExplorerPanel
         v-model:search-keyword="fieldKeyword"
-        title="元数据"
-        :subtitle="mainEntityTitle"
+        title="可用字段"
+        :subtitle="`${mainEntityTitle} · 主实体`"
         search-placeholder="搜索字段"
         @refresh="loadMetadataTree"
       >
         <UiSpin v-if="loading" tip="加载主实体字段" />
         <UiEmpty v-else-if="!relation" description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体" />
         <div v-else class="metadata-tree" data-testid="page-composer-metadata-tree">
-          <p class="metadata-tree__hint">
-            拖入中间 UI Tree 的模板槽位；引用字段递归展开将在关联治理接入后提供。
-          </p>
+          <p class="metadata-tree__hint">拖动字段到“页面结构”；引用字段展开将在关联治理接入后提供。</p>
           <UiTree
             v-model:expanded-keys="metadataExpandedKeys"
             :nodes="metadataTreeNodes"
@@ -601,7 +604,16 @@ function applyPropertyDraft() {
     </ManagementExplorerColumn>
 
     <ManagementExplorerColumn>
-      <RecordExplorerPanel title="UI Tree" subtitle="management v1" :searchable="false">
+      <RecordExplorerPanel title="页面结构" subtitle="management v1" :searchable="false">
+        <div v-if="selectedField" class="ui-tree__contextbar">
+          <span>已选：{{ selectedFieldLabel }}</span>
+          <div class="ui-tree__operations">
+            <UiButton size="small" @click="openPropertyDrawer">配置</UiButton>
+            <UiButton size="small" @click="state.moveSelectedField(-1)">上移</UiButton>
+            <UiButton size="small" @click="state.moveSelectedField(1)">下移</UiButton>
+            <UiButton size="small" danger @click="state.removeSelectedField">移除</UiButton>
+          </div>
+        </div>
         <div class="ui-tree" data-testid="page-composer-ui-tree">
           <UiTree
             v-model:expanded-keys="uiExpandedKeys"
@@ -617,46 +629,28 @@ function applyPropertyDraft() {
             @external-drop="handleUiTreeExternalDrop"
           />
         </div>
-        <template #footer>
-          <div class="ui-tree__operations">
-            <UiButton size="small" :disabled="!selectedField" @click="openPropertyDrawer">配置</UiButton>
-            <UiButton size="small" :disabled="!selectedField" @click="state.moveSelectedField(-1)">
-              上移
-            </UiButton>
-            <UiButton size="small" :disabled="!selectedField" @click="state.moveSelectedField(1)">
-              下移
-            </UiButton>
-            <UiButton size="small" danger :disabled="!selectedField" @click="state.removeSelectedField">
-              移除
-            </UiButton>
-          </div>
-        </template>
       </RecordExplorerPanel>
     </ManagementExplorerColumn>
 
     <RecordDetailPanel :title="composerTitle" :subtitle="compositionSubtitle">
       <template #actions>
-        <UiButton
-          v-if="!revision"
-          :loading="saving"
-          type="primary"
-          :disabled="!relation"
-          @click="initializeComposition"
-        >
-          初始化页面
-        </UiButton>
-        <template v-else>
-          <UiButton :loading="saving" @click="saveDraft">保存草稿</UiButton>
-          <UiButton type="primary" :loading="publishing" @click="publishDraft">发布</UiButton>
-        </template>
+        <div class="page-composition-actions">
+          <UiButton
+            v-if="!revision"
+            :loading="saving"
+            type="primary"
+            :disabled="!relation"
+            @click="initializeComposition"
+          >
+            初始化页面
+          </UiButton>
+          <template v-else>
+            <UiButton :loading="saving" @click="saveDraft">保存草稿</UiButton>
+            <UiButton type="primary" :loading="publishing" @click="publishDraft">发布</UiButton>
+          </template>
+        </div>
       </template>
-      <p class="page-composition-notice">
-        <template v-if="!page">
-          初始化会创建管理页、Web 全局呈现与首个草稿；不会调用旧 UI 配置集接口。
-        </template>
-        <template v-else-if="!revision">当前页面尚无草稿，点击“初始化页面”创建首个可编辑修订。</template>
-        <template v-else>草稿保存后不会覆盖已发布呈现；通过发布校验后才会更新当前 Web 全局呈现。</template>
-      </p>
+      <p class="page-composition-notice">{{ compositionHint }}</p>
       <UiTabs v-model:active-key="state.previewMode.value" :tabs="previewTabs" />
       <section
         v-if="state.previewMode.value === 'list'"
@@ -664,7 +658,7 @@ function applyPropertyDraft() {
         data-testid="page-composer-list-preview"
       >
         <header class="preview-surface__toolbar">
-          <span>快速查询</span><UiButton size="small">查询</UiButton>
+          <strong>列表布局</strong><span>字段来自页面结构</span>
         </header>
         <div class="preview-table">
           <div v-if="!state.listFields.value.length" class="preview-empty">
@@ -799,27 +793,56 @@ function applyPropertyDraft() {
 }
 .metadata-tree,
 .ui-tree {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
   min-height: 0;
   overflow: auto;
 }
 .metadata-tree__hint,
 .page-composition-notice {
+  flex: 0 0 auto;
   margin: 0;
   color: var(--muyun-text-muted);
   font-size: 13px;
   line-height: 1.55;
 }
+.metadata-tree > :deep(.ui-tree) {
+  flex: 1 1 auto;
+}
 .metadata-tree :deep(.ant-tree),
 .ui-tree :deep(.ant-tree) {
+  flex: 0 0 auto;
   min-height: 0;
   overflow: auto;
+}
+.ui-tree__contextbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--muyun-border-subtle);
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+.ui-tree__contextbar > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ui-tree__operations {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+.page-composition-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .page-composition-notice {
   margin-bottom: 12px;
@@ -836,6 +859,10 @@ function applyPropertyDraft() {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 18px;
+}
+.preview-surface__toolbar span {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
 }
 .preview-table {
   border: 1px solid var(--muyun-border-subtle);
@@ -946,5 +973,20 @@ function applyPropertyDraft() {
   color: var(--muyun-text-muted);
   font-size: 13px;
   line-height: 1.55;
+}
+
+@media (max-width: 1180px) {
+  .page-composition-workspace :deep(.management-workspace__grid) {
+    grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(0, 2fr);
+    gap: 8px;
+  }
+
+  .page-composition-workspace :deep(.management-panel-header) {
+    align-items: flex-start;
+  }
+
+  .page-composition-workspace :deep(.management-panel-header-actions) {
+    flex-wrap: wrap;
+  }
 }
 </style>
