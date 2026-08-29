@@ -22,7 +22,12 @@ class PlatformPresentationTemplateCatalogTest {
     void shouldValidateTheVersionedTemplateRootBeforePublication() {
         PlatformPresentationTemplate template = catalog.require("management", 1,
                 PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT);
-        PlatformPresentationRevision revision = revision("{\"template\":\"management\",\"templateVersion\":1,\"nodes\":[]}");
+        PlatformPresentationRevision revision = revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":[]},
+                  {"slot":"form","title":"详情","fields":[]}
+                ]}
+                """);
 
         catalog.validateUiTree(revision, template);
 
@@ -40,6 +45,35 @@ class PlatformPresentationTemplateCatalogTest {
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.actionMessage().code())
                                 .isEqualTo("platform.presentation-template.client-unsupported"));
+    }
+
+    @Test
+    void shouldValidateManagementComponentPropertySchemaAtPublicationBoundary() {
+        PlatformPresentationTemplate template = catalog.require("management", 1,
+                PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT);
+        PlatformPresentationRevision revision = revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":[
+                    {"field":"title","props":{"label":"名称","width":"160px","align":"left"}}
+                  ]},
+                  {"slot":"form","title":"详情","fields":[
+                    {"field":"title","props":{"columnSpan":2,"readOnly":true}}
+                  ]}
+                ]}
+                """);
+
+        catalog.validateUiTree(revision, template);
+
+        revision.setUiTreeJson("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":[{"field":"title","props":{"columnSpan":2}}]},
+                  {"slot":"form","title":"详情","fields":["title"]}
+                ]}
+                """);
+        assertThatThrownBy(() -> catalog.validateUiTree(revision, template))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.actionMessage().code())
+                                .isEqualTo("platform.presentation-revision.ui-tree-management-invalid"));
     }
 
     private PlatformPresentationRevision revision(String uiTreeJson) {

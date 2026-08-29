@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import {
   ManagementExplorerColumn,
   ManagementWorkspace,
+  RecordDetailDrawer,
   RecordDetailPanel,
   RecordExplorerPanel,
   presentPlatformError,
@@ -12,7 +13,10 @@ import {
   confirmAction,
   UiButton,
   UiEmpty,
+  UiInput,
+  UiSelect,
   UiSpin,
+  UiSwitch,
   UiTabs,
   UiTree,
   type UiTabItem,
@@ -30,6 +34,7 @@ import type {
 import {
   createPageCompositionDraftState,
   type PageComposerField,
+  type PageComposerFieldProperties,
   type PageComposerSlot,
 } from './pageCompositionDraftState';
 import { pageCompositionTransport } from './pageCompositionTransport';
@@ -52,6 +57,8 @@ const fieldKeyword = ref('');
 const selectedMetadataTreeKey = ref<string>();
 const metadataExpandedKeys = ref<string[]>(['metadata:root']);
 const uiExpandedKeys = ref<string[]>(['ui:root', 'ui:slot:list', 'ui:slot:form']);
+const propertyDrawerOpen = ref(false);
+const propertyDraft = ref<PageComposerFieldProperties>({});
 
 const previewTabs: UiTabItem[] = [
   { key: 'list', title: '列表预览' },
@@ -66,6 +73,9 @@ const visibleFields = computed(() => {
   );
 });
 const selectedField = computed(() => state.selectedNode.value?.field);
+const selectedFieldLabel = computed(() =>
+  selectedField.value ? fieldDisplayTitle(selectedField.value) : '组件',
+);
 const selectedUiTreeKey = computed(() => {
   const node = state.selectedNode.value;
   if (!node) return undefined;
@@ -102,13 +112,17 @@ const uiTreeNodes = computed<UiTreeNode[]>(() => [
       secondary: slot === 'list' ? '列表展示字段' : '详情 / 表单字段',
       children: fieldsInSlot(slot).map((field) => ({
         key: `ui:field:${slot}:${field.id}`,
-        title: field.title,
+        title: fieldDisplayTitle(field),
         secondary: field.fieldName,
         isLeaf: true,
       })),
     })),
   },
 ]);
+
+watch(selectedField, (field) => {
+  propertyDraft.value = { ...(field?.properties ?? {}) };
+});
 
 watch(
   () => props.moduleAlias,
@@ -238,16 +252,29 @@ function hydrateDraft(current: PresentationRevision | undefined) {
   if (!current?.uiTreeJson) return;
   try {
     const tree = JSON.parse(current.uiTreeJson) as {
-      nodes?: Array<{ slot?: PageComposerSlot; fields?: string[] }>;
+      nodes?: Array<{
+        slot?: PageComposerSlot;
+        fields?: Array<string | { field?: string; props?: PageComposerFieldProperties }>;
+      }>;
     };
     const resolve = (slot: PageComposerSlot) => tree.nodes?.find((node) => node.slot === slot)?.fields ?? [];
     const fieldsByName = new Map(metadataFields.value.map((field) => [field.fieldName, field]));
+    const resolveField = (
+      entry: string | { field?: string; props?: PageComposerFieldProperties },
+    ): PageComposerField | undefined => {
+      const fieldName = typeof entry === 'string' ? entry : entry.field;
+      const source = fieldName ? fieldsByName.get(fieldName) : undefined;
+      if (!source) return undefined;
+      return typeof entry === 'string' || !entry.props
+        ? { ...source }
+        : { ...source, properties: entry.props };
+    };
     state.replaceFields({
       list: resolve('list')
-        .map((name) => fieldsByName.get(name))
+        .map(resolveField)
         .filter((field): field is PageComposerField => Boolean(field)),
       form: resolve('form')
-        .map((name) => fieldsByName.get(name))
+        .map(resolveField)
         .filter((field): field is PageComposerField => Boolean(field)),
     });
   } catch {
@@ -447,6 +474,7 @@ function handleUiTreeDragStart(event: UiTreeDragEvent) {
 
 function handleUiTreeDoubleClick(event: UiTreeDragEvent) {
   selectUiTreeNode(event.node);
+  if (parseUiNode(event.node.key)?.kind === 'field') openPropertyDrawer();
 }
 
 function handleUiTreeDrop(
@@ -517,6 +545,22 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
   state.selectNode(node);
   selectedSlot.value = node.slot;
 }
+
+function fieldDisplayTitle(field: PageComposerField) {
+  return field.properties?.label ?? field.title;
+}
+
+function openPropertyDrawer() {
+  if (!selectedField.value) return;
+  propertyDraft.value = { ...(selectedField.value.properties ?? {}) };
+  propertyDrawerOpen.value = true;
+}
+
+function applyPropertyDraft() {
+  if (!selectedField.value) return;
+  state.updateSelectedFieldProperties(propertyDraft.value);
+  propertyDrawerOpen.value = false;
+}
 </script>
 
 <template>
@@ -570,6 +614,7 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
         </div>
         <template #footer>
           <div class="ui-tree__operations">
+            <UiButton size="small" :disabled="!selectedField" @click="openPropertyDrawer">配置</UiButton>
             <UiButton size="small" :disabled="!selectedField" @click="state.moveSelectedField(-1)">
               上移
             </UiButton>
@@ -622,7 +667,9 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
           </div>
           <template v-else>
             <div class="preview-table__header">
-              <span v-for="field in state.listFields.value" :key="field.id">{{ field.title }}</span>
+              <span v-for="field in state.listFields.value" :key="field.id">{{
+                fieldDisplayTitle(field)
+              }}</span>
             </div>
             <div class="preview-table__row">
               <span v-for="field in state.listFields.value" :key="field.id">{{
@@ -648,7 +695,7 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
             </header>
             <dl>
               <template v-for="field in state.cardFields.value" :key="field.id">
-                <dt>{{ field.title }}</dt>
+                <dt>{{ fieldDisplayTitle(field) }}</dt>
                 <dd>{{ field.fieldSpecAlias ?? '文本' }}</dd>
               </template>
             </dl>
@@ -661,12 +708,68 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
         </div>
         <dl v-else class="preview-form">
           <template v-for="field in state.formFields.value" :key="field.id">
-            <dt>{{ field.title }}<em v-if="field.required">*</em></dt>
+            <dt>{{ fieldDisplayTitle(field) }}<em v-if="field.required">*</em></dt>
             <dd>{{ field.fieldSpecAlias ?? '输入控件' }}</dd>
           </template>
         </dl>
       </section>
     </RecordDetailPanel>
+
+    <RecordDetailDrawer
+      :open="propertyDrawerOpen"
+      render-mode="inline"
+      :title="`配置：${selectedFieldLabel}`"
+      subtitle="页面组件属性仅作用于当前草稿；元数据字段事实不在此处修改。"
+      :width="420"
+      @close="propertyDrawerOpen = false"
+    >
+      <div v-if="selectedField" class="component-property-drawer">
+        <label>
+          <span>展示标题</span>
+          <UiInput v-model:value="propertyDraft.label" :placeholder="selectedField.title" />
+        </label>
+        <template v-if="state.selectedNode.value?.slot === 'list'">
+          <label>
+            <span>列宽</span>
+            <UiInput v-model:value="propertyDraft.width" placeholder="例如 160px 或 25%" />
+          </label>
+          <label>
+            <span>对齐</span>
+            <UiSelect
+              v-model:value="propertyDraft.align"
+              :options="[
+                { label: '左对齐', value: 'left' },
+                { label: '居中', value: 'center' },
+                { label: '右对齐', value: 'right' },
+              ]"
+              placeholder="遵循平台默认"
+            />
+          </label>
+        </template>
+        <template v-else>
+          <label>
+            <span>表单列宽度</span>
+            <UiSelect
+              v-model:value="propertyDraft.columnSpan"
+              :options="[
+                { label: '半行（1 列）', value: 1 },
+                { label: '整行（2 列）', value: 2 },
+              ]"
+              placeholder="遵循平台默认"
+            />
+          </label>
+          <label class="component-property-drawer__switch">
+            <span>只读展示</span>
+            <UiSwitch v-model:checked="propertyDraft.readOnly" />
+          </label>
+        </template>
+        <p>保存草稿后属性才会持久化；发布时由模板 schema 校验后写入运行态。</p>
+      </div>
+      <template #operation>
+        <UiButton @click="propertyDrawerOpen = false">取消</UiButton>
+        <UiButton type="primary" @click="applyPropertyDraft">应用到草稿</UiButton>
+      </template>
+    </RecordDetailDrawer>
   </ManagementWorkspace>
 </template>
 
@@ -792,5 +895,25 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
 }
 .preview-card dd {
   margin: 0;
+}
+.component-property-drawer {
+  display: grid;
+  gap: 16px;
+}
+.component-property-drawer label {
+  display: grid;
+  gap: 6px;
+  color: var(--muyun-text-muted);
+  font-size: 13px;
+}
+.component-property-drawer__switch {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+.component-property-drawer p {
+  margin: 0;
+  color: var(--muyun-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
 }
 </style>

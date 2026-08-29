@@ -88,16 +88,35 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 null, List.of(), List.of());
     }
 
-    private static ViewFieldDefinition field(String field, String slot, Set<String> knownFields) {
-        if (field == null || field.isBlank()) {
+    private static ViewFieldDefinition field(FieldNode field, String slot, Set<String> knownFields) {
+        if (field.name() == null || field.name().isBlank()) {
             throw new IllegalArgumentException("management " + slot + " slot contains a blank field");
         }
-        String normalized = field.trim();
+        String normalized = field.name().trim();
         if (!knownFields.contains(normalized)) {
             throw new IllegalArgumentException("management " + slot + " slot references an unknown main entity field: "
                     + normalized);
         }
-        return ViewFieldDefinition.field(normalized).build();
+        ViewFieldDefinition.Builder builder = ViewFieldDefinition.field(normalized);
+        if (field.label() != null) {
+            builder.label(field.label());
+        }
+        if ("list".equals(slot)) {
+            if (field.width() != null) {
+                builder.width(field.width());
+            }
+            if (field.align() != null) {
+                builder.align(field.align());
+            }
+        } else {
+            if (field.columnSpan() != null) {
+                builder.columnSpan(field.columnSpan());
+            }
+            if (Boolean.TRUE.equals(field.readOnly())) {
+                builder.readOnly();
+            }
+        }
+        return builder.build();
     }
 
     private static Set<String> knownMainFields(Collection<String> fields) {
@@ -143,9 +162,9 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             if (!fieldNodes.isArray()) {
                 throw new IllegalArgumentException("management " + slot + " slot requires a fields array");
             }
-            List<String> fields = new java.util.ArrayList<>();
-            fieldNodes.forEach(field -> fields.add(field.isTextual() ? field.asText() : null));
-            if (new LinkedHashSet<>(fields).size() != fields.size()) {
+            List<FieldNode> fields = new java.util.ArrayList<>();
+            fieldNodes.forEach(field -> fields.add(fieldNode(field, slot)));
+            if (fields.stream().map(FieldNode::name).collect(java.util.stream.Collectors.toSet()).size() != fields.size()) {
                 throw new IllegalArgumentException("management " + slot + " slot contains duplicate fields");
             }
             if (slots.put(slot, new Slot(slot, title.trim(), List.copyOf(fields))) != null) {
@@ -163,6 +182,24 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         return value;
     }
 
-    private record Slot(String slot, String title, List<String> fields) {
+    private static FieldNode fieldNode(JsonNode node, String slot) {
+        if (node.isTextual()) {
+            return new FieldNode(node.asText(), null, null, null, null, null);
+        }
+        if (!node.isObject()) {
+            return new FieldNode(null, null, null, null, null, null);
+        }
+        JsonNode properties = node.path("props");
+        return new FieldNode(node.path("field").asText(null), properties.path("label").asText(null),
+                properties.path("width").asText(null), properties.path("align").asText(null),
+                properties.has("columnSpan") ? properties.path("columnSpan").asInt() : null,
+                properties.has("readOnly") ? properties.path("readOnly").asBoolean() : null);
+    }
+
+    private record Slot(String slot, String title, List<FieldNode> fields) {
+    }
+
+    private record FieldNode(String name, String label, String width, String align, Integer columnSpan,
+                             Boolean readOnly) {
     }
 }

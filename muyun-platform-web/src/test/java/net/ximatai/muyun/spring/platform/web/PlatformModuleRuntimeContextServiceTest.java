@@ -114,8 +114,10 @@ class PlatformModuleRuntimeContextServiceTest {
         revision.setRevisionNo(3);
         ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.contract")
                 .page(PageTemplates.listDetailCard(pageDefinition -> pageDefinition
-                        .list(list -> list.fields(fields -> fields.field("title")))
-                        .detail(detail -> detail.editor(fields -> fields.field("title")))))
+                        .list(list -> list.fields(fields -> fields.field("title",
+                                field -> field.label("合同名称").width("180px").align("center"))))
+                        .detail(detail -> detail.editor(fields -> fields.field("title",
+                                field -> field.label("合同主题").columnSpan(2).readOnly())))))
                 .build();
         when(moduleService.resolveVisibleModule("sales.contract"))
                 .thenReturn(module("sales.contract", "合同", ModuleKind.DYNAMIC));
@@ -139,6 +141,14 @@ class PlatformModuleRuntimeContextServiceTest {
                 .containsExactly("title");
         assertThat(plan.mutationFieldValidations()).singleElement()
                 .satisfies(field -> assertThat(field.fieldName()).isEqualTo("title"));
+        ResolvedViewFieldDescriptor listField = plan.uiDescriptor().page().list().fields().fields().getFirst();
+        assertThat(listField.label()).isEqualTo("合同名称");
+        assertThat(listField.width()).isEqualTo("180px");
+        assertThat(listField.align()).isEqualTo("center");
+        ResolvedViewFieldDescriptor formField = plan.uiDescriptor().page().detail().editor().fields().getFirst();
+        assertThat(formField.label()).isEqualTo("合同主题");
+        assertThat(formField.columnSpan()).isEqualTo(2);
+        assertThat(formField.readOnly().constant()).isTrue();
     }
 
     @Test
