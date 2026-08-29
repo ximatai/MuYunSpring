@@ -2,6 +2,7 @@ import { assert, it } from 'vitest';
 import { createWorkspaceViewDescriptor } from '@/platform-admin-runtime/workspaceViews.ts';
 import { metadataOrchestrationWorkspaceView } from '@/views/metadataOrchestrationWorkspaceView.ts';
 import { uiOrchestrationWorkspaceView } from '@/views/uiOrchestrationWorkspaceView.ts';
+import { moduleGovernanceWorkspaceView } from '@/views/moduleGovernanceWorkspaceView.ts';
 
 it('uses an independent restorable workspace URL instead of the module-management page route', () => {
   const descriptor = createWorkspaceViewDescriptor(metadataOrchestrationWorkspaceView, {
@@ -31,5 +32,22 @@ it('uses a separate restorable workspace URL for module UI orchestration', () =>
     workspacePresentation: 'tab',
     moduleAlias: 'crm.customer',
     moduleTitle: '客户',
+  });
+});
+
+it('restores module governance at its requested initial tab', () => {
+  const descriptor = createWorkspaceViewDescriptor(moduleGovernanceWorkspaceView, {
+    moduleAlias: 'crm.customer',
+    moduleTitle: '客户',
+    governanceTab: 'metadata',
+  });
+
+  assert.equal(descriptor.target.route, '/_platform/workspace/platform.module.governance');
+  assert.deepEqual(descriptor.target.query, {
+    workspaceView: 'platform.module.governance',
+    workspacePresentation: 'tab',
+    moduleAlias: 'crm.customer',
+    moduleTitle: '客户',
+    governanceTab: 'metadata',
   });
 });

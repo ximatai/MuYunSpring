@@ -11,12 +11,15 @@ withDefaults(
     subtitle?: string;
     /** Keeps the title and operation regions fixed while detail content scrolls. */
     scrollableContent?: boolean;
+    /** Tab-first workspaces may use the standard surface without a second heading. */
+    showHeader?: boolean;
     /** Internal composition surface selected by the hosting platform component. */
     surface?: 'workspace' | 'drawer';
   }>(),
   {
     subtitle: undefined,
     scrollableContent: false,
+    showHeader: true,
     surface: 'workspace',
   },
 );
@@ -33,7 +36,7 @@ withDefaults(
       },
     ]"
   >
-    <slot name="header">
+    <slot v-if="showHeader" name="header">
       <header class="record-detail-layout-header">
         <div class="record-detail-layout-title-group">
           <slot name="title-prefix" />

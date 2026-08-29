@@ -9,8 +9,9 @@ withDefaults(
   defineProps<{
     title: string;
     subtitle?: string;
+    showHeader?: boolean;
   }>(),
-  { subtitle: undefined },
+  { subtitle: undefined, showHeader: true },
 );
 const pageLayout = usePageLayout();
 </script>
@@ -25,8 +26,9 @@ const pageLayout = usePageLayout();
       :title="title"
       :subtitle="subtitle"
       :scrollable-content="pageLayout === 'workspace'"
+      :show-header="showHeader"
     >
-      <template #header>
+      <template v-if="showHeader" #header>
         <ManagementPanelHeader :title="title" :subtitle="subtitle">
           <template v-if="$slots['title-prefix']" #title-prefix>
             <slot name="title-prefix" />
