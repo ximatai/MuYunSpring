@@ -493,7 +493,7 @@ function saveComponentEditor() {
         @refresh="loadMetadataTree"
       >
         <UiSpin v-if="loading" tip="加载主实体字段" />
-        <UiEmpty v-else-if="!relation" description="动态模块尚无主实体，请先完成数据模型编排" />
+        <UiEmpty v-else-if="!relation" description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体" />
         <div v-else class="metadata-tree" data-testid="page-composer-metadata-tree">
           <p class="metadata-tree__hint">拖入中间 UI Tree 的模板槽位；引用字段递归展开将在关联治理接入后提供。</p>
           <UiTree
