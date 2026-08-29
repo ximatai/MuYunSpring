@@ -30,6 +30,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionAvailability;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
@@ -49,6 +50,8 @@ import net.ximatai.muyun.spring.platform.ui.PlatformUiClientType;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
@@ -60,6 +63,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -73,6 +77,70 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PlatformModuleRuntimeContextServiceTest {
+    @Test
+    void shouldExcludePlatformDynamicModulesWithoutAnInstalledRuntimeFromStartupPlans() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
+        when(moduleService.listVisibleModules()).thenReturn(List.of(
+                module("education.exam", "考试管理", ModuleKind.DYNAMIC),
+                module("sales.contract", "合同", ModuleKind.DYNAMIC),
+                module("iam.organization", "组织管理", ModuleKind.STATIC)
+        ));
+        when(dynamicRecordService.describe("education.exam"))
+                .thenThrow(new ModuleDefinitionException("unknown module alias: education.exam"));
+        when(dynamicRecordService.describe("sales.contract")).thenReturn(new DynamicModuleDescriptor(
+                "sales.contract", "合同", "contract", List.of(), List.of(), List.of(), List.of(), List.of()));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, mock(PlatformModuleActionService.class), new StaticModuleDefinitionCatalog(List.of()),
+                dynamicRecordService, null, null, allowAllPolicy());
+
+        assertThat(service.dynamicModuleAliases()).containsExactly("sales.contract");
+    }
+
+    @Test
+    void shouldCompilePublishedPageRevisionIntoDynamicExecutionPlanBeforeLegacyUiSnapshot() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
+        DynamicPublishedPageDefinitionResolver resolver = mock(DynamicPublishedPageDefinitionResolver.class);
+        DynamicModuleDescriptor descriptor = new DynamicModuleDescriptor(
+                "sales.contract", "合同", "contract", List.of(),
+                List.of(DynamicEntityDescriptor.from(entity("contract", Set.of(EntityCapability.CRUD)))),
+                List.of(), List.of(), List.of());
+        PlatformPageDefinition page = new PlatformPageDefinition();
+        page.setId("page-contract");
+        PlatformPresentationRevision revision = new PlatformPresentationRevision();
+        revision.setId("revision-contract");
+        revision.setRevisionNo(3);
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.contract")
+                .page(PageTemplates.listDetailCard(pageDefinition -> pageDefinition
+                        .list(list -> list.fields(fields -> fields.field("title")))
+                        .detail(detail -> detail.editor(fields -> fields.field("title")))))
+                .build();
+        when(moduleService.resolveVisibleModule("sales.contract"))
+                .thenReturn(module("sales.contract", "合同", ModuleKind.DYNAMIC));
+        when(actionService.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+        when(dynamicRecordService.describe("sales.contract")).thenReturn(descriptor);
+        when(dynamicRecordService.actions("sales.contract")).thenReturn(List.of());
+        when(dynamicRecordService.runtimeRevision("sales.contract")).thenReturn(8L);
+        when(resolver.resolveWebGlobal(descriptor)).thenReturn(Optional.of(
+                new DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage(page, revision, definition)));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, new StaticModuleDefinitionCatalog(List.of()), dynamicRecordService,
+                null, null, allowAllPolicy(), List.of(), new DeclaredPageNavigatorResolver(), null,
+                null, null, null, null, resolver);
+
+        ModuleExecutionPlan plan = service.dynamicExecutionPlan("sales.contract").orElseThrow();
+
+        assertThat(plan.versionKey()).isEqualTo("dynamic-runtime-8-page-revision-contract-r3");
+        assertThat(plan.listUiConfigId()).isNull();
+        assertThat(plan.formUiConfigId()).isNull();
+        assertThat(plan.readModel().fields()).extracting(ResolvedModuleReadField::fieldName)
+                .containsExactly("title");
+        assertThat(plan.mutationFieldValidations()).singleElement()
+                .satisfies(field -> assertThat(field.fieldName()).isEqualTo("title"));
+    }
+
     @Test
     void shouldResolveStaticPageNavigatorWithCurrentRequestFacts() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);

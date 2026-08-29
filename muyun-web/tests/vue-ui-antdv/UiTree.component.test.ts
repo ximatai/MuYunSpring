@@ -21,6 +21,77 @@ it('emits deselect when Ant Tree clears the selected keys after a second click',
   expect(wrapper.emitted('deselect')).toEqual([[]]);
 });
 
+it('normalizes adapter drag events before exposing them to page composers', () => {
+  const field = { key: 'field:title', title: '考试名称' };
+  const slot = { key: 'slot:list', title: '列表' };
+  const wrapper = mount(UiTree, {
+    props: { nodes: [field, slot], draggable: true },
+    global: {
+      stubs: {
+        ATree: { name: 'ATree', props: ['draggable', 'allowDrop'], template: '<div />' },
+        UiRecordExplorerItem: true,
+      },
+    },
+  });
+  const tree = wrapper.findComponent({ name: 'ATree' });
+  tree.vm.$emit('dragstart', { node: { key: field.key, dataRef: field } });
+  tree.vm.$emit('drop', {
+    dragNode: { key: field.key, dataRef: field },
+    node: { key: slot.key, dataRef: slot, pos: '0-1' },
+    dropPosition: 1,
+    dropToGap: false,
+  });
+
+  expect(wrapper.emitted('drag-start')).toEqual([[{ node: field, nativeEvent: undefined }]]);
+  expect(wrapper.emitted('drop')).toEqual([
+    [{ dragNode: field, dropNode: slot, dropPosition: 0, dropToGap: false, nativeEvent: undefined }],
+  ]);
+  expect(tree.props('draggable')).toBe(true);
+  const allowDrop = tree.props('allowDrop') as (event: unknown) => boolean;
+  expect(
+    allowDrop({
+      dragNode: { key: field.key, dataRef: field },
+      node: { key: slot.key, dataRef: slot, pos: '0-1' },
+      dropPosition: 1,
+      dropToGap: false,
+    }),
+  ).toBe(true);
+});
+
+it('accepts a native payload dropped from another tree without relying on Ant Tree drag state', () => {
+  const slot = { key: 'slot:list', title: '列表' };
+  const wrapper = mount(UiTree, {
+    props: {
+      nodes: [slot],
+      allowExternalDrop: () => true,
+    },
+    global: {
+      stubs: {
+        ATree: {
+          name: 'ATree',
+          props: ['treeData'],
+          template: '<div><slot name="title" v-for="node in treeData" :key="node.key" v-bind="node" /></div>',
+        },
+        UiRecordExplorerItem: true,
+      },
+    },
+  });
+
+  const target = wrapper.get('[data-ui-tree-key="slot:list"]').element;
+  Object.defineProperty(target, 'getBoundingClientRect', {
+    value: () => ({ top: 0, height: 100 }),
+  });
+  const dataTransfer = { dropEffect: 'none' } as unknown as DataTransfer;
+  const nativeEvent = new Event('drop', { bubbles: true, cancelable: true }) as DragEvent;
+  Object.assign(nativeEvent, { clientY: 50, dataTransfer });
+  target.dispatchEvent(nativeEvent);
+
+  expect(nativeEvent.defaultPrevented).toBe(true);
+  expect(wrapper.emitted('external-drop')).toEqual([
+    [{ dropNode: slot, dropPosition: 0, dropToGap: false, nativeEvent }],
+  ]);
+});
+
 it('delegates lazy children loading to Ant Tree so its switcher shows the built-in loading spinner', async () => {
   const loadChildren = vi.fn().mockResolvedValue(undefined);
   const wrapper = mount(UiTree, {

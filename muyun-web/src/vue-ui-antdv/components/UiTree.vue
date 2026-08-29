@@ -2,7 +2,13 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Tree as ATree } from 'ant-design-vue';
 import UiRecordExplorerItem from './UiRecordExplorerItem.vue';
-import type { UiRecordInlineAction, UiTreeNode } from '../types';
+import type {
+  UiRecordInlineAction,
+  UiTreeDragEvent,
+  UiTreeDropEvent,
+  UiTreeExternalDropEvent,
+  UiTreeNode,
+} from '../types';
 
 defineOptions({ name: 'UiTree', inheritAttrs: false });
 
@@ -23,6 +29,16 @@ const props = withDefaults(
     minLoadingDurationMs?: number;
     /** Replaces the current lazy snapshot, including Ant Tree's loaded-node bookkeeping. */
     reloadKey?: number;
+    /** Enables platform-normalized node dragging while keeping adapter events private. */
+    draggable?: boolean;
+    /** Restricts which nodes can begin a drag without exposing adapter data nodes. */
+    canDrag?: (node: UiTreeNode) => boolean;
+    /** Restricts built-in drop targets before a page editor applies its own domain rules. */
+    allowDrop?: (
+      event: Pick<UiTreeDropEvent, 'dragNode' | 'dropNode' | 'dropPosition' | 'dropToGap'>,
+    ) => boolean;
+    /** Controls externally-originated payloads, for example a metadata tree dropped onto a UI tree. */
+    allowExternalDrop?: (event: Omit<UiTreeExternalDropEvent, 'nativeEvent'>) => boolean;
   }>(),
   {
     selectedKey: undefined,
@@ -31,6 +47,10 @@ const props = withDefaults(
     collapseEmptyLazyBranch: true,
     minLoadingDurationMs: DEFAULT_MIN_LOADING_DURATION_MS,
     reloadKey: 0,
+    draggable: false,
+    canDrag: undefined,
+    allowDrop: undefined,
+    allowExternalDrop: undefined,
   },
 );
 
@@ -40,6 +60,10 @@ const emit = defineEmits<{
   action: [action: UiRecordInlineAction, node: UiTreeNode];
   'unload-children': [node: UiTreeNode];
   'update:expandedKeys': [keys: string[]];
+  'drag-start': [event: UiTreeDragEvent];
+  'double-click': [event: UiTreeDragEvent];
+  drop: [event: UiTreeDropEvent];
+  'external-drop': [event: UiTreeExternalDropEvent];
 }>();
 
 const selectedKeys = computed(() => (props.selectedKey ? [props.selectedKey] : []));
@@ -48,6 +72,7 @@ const loadedKeys = ref<string[]>([]);
 const pendingBranchReleases = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingEmptyBranchCollapses = new Map<string, ReturnType<typeof setTimeout>>();
 const branchLoadGenerations = new Map<string, number>();
+const internalDragging = ref(false);
 
 watch(
   () => props.reloadKey,
@@ -198,6 +223,117 @@ function handleAction(action: UiRecordInlineAction, nodeKey: string) {
   }
 }
 
+type AntTreeNode = { key?: unknown; dataRef?: unknown; pos?: unknown };
+type AntTreeDropEvent = {
+  dragNode?: AntTreeNode;
+  node?: AntTreeNode;
+  dropPosition?: unknown;
+  dropToGap?: unknown;
+  event?: unknown;
+};
+
+function unwrapNode(node: AntTreeNode): UiTreeNode | undefined {
+  if (isUiTreeNode(node.dataRef)) return node.dataRef;
+  return typeof node.key === 'string' ? findNode(props.nodes, node.key) : undefined;
+}
+
+function isUiTreeNode(value: unknown): value is UiTreeNode {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { key?: unknown }).key === 'string' &&
+    typeof (value as { title?: unknown }).title === 'string'
+  );
+}
+
+function normalizedDropEvent(event: AntTreeDropEvent): UiTreeDropEvent | undefined {
+  const dragNode = event.dragNode ? unwrapNode(event.dragNode) : undefined;
+  const dropNode = event.node ? unwrapNode(event.node) : undefined;
+  if (!dragNode || !dropNode) return undefined;
+  const nodePosition = Number(
+    String(event.node?.pos ?? '')
+      .split('-')
+      .at(-1),
+  );
+  const rawPosition = Number(event.dropPosition);
+  const relativePosition =
+    Number.isFinite(nodePosition) && Number.isFinite(rawPosition) ? rawPosition - nodePosition : 0;
+  return {
+    dragNode,
+    dropNode,
+    dropPosition: relativePosition < 0 ? -1 : relativePosition > 0 ? 1 : 0,
+    dropToGap: event.dropToGap === true,
+    nativeEvent: event.event as Event | undefined,
+  };
+}
+
+function handleDragStart(event: { node?: AntTreeNode; event?: unknown }) {
+  const node = event.node ? unwrapNode(event.node) : undefined;
+  if (node && (!props.canDrag || props.canDrag(node))) {
+    internalDragging.value = true;
+    emit('drag-start', { node, nativeEvent: event.event as Event | undefined });
+  } else {
+    (event.event as DragEvent | undefined)?.preventDefault();
+  }
+}
+
+function handleDragEnd() {
+  internalDragging.value = false;
+}
+
+function handleTitleDoubleClick(key: unknown, event: MouseEvent) {
+  if (typeof key !== 'string') return;
+  const node = findNode(props.nodes, key);
+  if (node) emit('double-click', { node, nativeEvent: event });
+}
+
+function handleDrop(event: AntTreeDropEvent) {
+  const normalized = normalizedDropEvent(event);
+  if (normalized) emit('drop', normalized);
+}
+
+function allowsDrop(event: AntTreeDropEvent) {
+  const normalized = normalizedDropEvent(event);
+  return normalized ? (props.allowDrop?.(normalized) ?? true) : false;
+}
+
+function externalDropTarget(
+  nativeEvent: DragEvent,
+): Omit<UiTreeExternalDropEvent, 'nativeEvent'> | undefined {
+  const origin = nativeEvent.target as Element | null;
+  const target =
+    typeof origin?.closest === 'function' ? origin.closest<HTMLElement>('[data-ui-tree-key]') : null;
+  const key = target?.dataset.uiTreeKey;
+  const dropNode = key ? findNode(props.nodes, key) : undefined;
+  if (!target || !dropNode) return undefined;
+  const rect = target.getBoundingClientRect();
+  const position = rect.height === 0 ? 0 : (nativeEvent.clientY - rect.top) / rect.height;
+  return {
+    dropNode,
+    dropPosition: position < 0.25 ? -1 : position > 0.75 ? 1 : 0,
+    dropToGap: position < 0.25 || position > 0.75,
+  };
+}
+
+function handleExternalDragOver(nativeEvent: DragEvent) {
+  if (internalDragging.value) return;
+  const target = externalDropTarget(nativeEvent);
+  if (target && (props.allowExternalDrop?.(target) ?? false)) {
+    nativeEvent.preventDefault();
+    if (nativeEvent.dataTransfer) {
+      nativeEvent.dataTransfer.dropEffect = 'copy';
+    }
+  }
+}
+
+function handleExternalDrop(nativeEvent: DragEvent) {
+  if (internalDragging.value) return;
+  const target = externalDropTarget(nativeEvent);
+  if (!target || !(props.allowExternalDrop?.(target) ?? false)) return;
+  nativeEvent.preventDefault();
+  emit('external-drop', { ...target, nativeEvent });
+}
+
 function findNode(nodes: UiTreeNode[], key: string): UiTreeNode | undefined {
   for (const node of nodes) {
     if (node.key === key) {
@@ -213,28 +349,41 @@ function findNode(nodes: UiTreeNode[], key: string): UiTreeNode | undefined {
 </script>
 
 <template>
-  <ATree
-    block-node
-    :tree-data="nodes"
-    :selected-keys="selectedKeys"
-    :expanded-keys="expandedKeys"
-    :loaded-keys="managesLoadedKeys ? loadedKeys : undefined"
-    :load-data="loadChildren ? handleLoad : undefined"
+  <div
+    class="ui-tree"
     :class="$attrs.class"
     :style="$attrs.style"
-    @select="handleSelect"
-    @expand="handleExpand"
+    @dragover="handleExternalDragOver"
+    @drop="handleExternalDrop"
   >
-    <template #title="{ key, title, secondary, tag, muted, actions }">
-      <UiRecordExplorerItem
-        :title="title"
-        :secondary="secondary"
-        :tag="tag"
-        :muted="muted"
-        :selected="selectedKeys.includes(key)"
-        :actions="actions"
-        @action="handleAction($event, key)"
-      />
-    </template>
-  </ATree>
+    <ATree
+      block-node
+      :tree-data="nodes"
+      :selected-keys="selectedKeys"
+      :expanded-keys="expandedKeys"
+      :loaded-keys="managesLoadedKeys ? loadedKeys : undefined"
+      :load-data="loadChildren ? handleLoad : undefined"
+      :draggable="draggable"
+      :allow-drop="draggable ? allowsDrop : undefined"
+      @select="handleSelect"
+      @expand="handleExpand"
+      @dragstart="handleDragStart"
+      @dragend="handleDragEnd"
+      @drop="handleDrop"
+    >
+      <template #title="{ key, title, secondary, tag, muted, actions }">
+        <div :data-ui-tree-key="key" @dblclick.stop="handleTitleDoubleClick(key, $event)">
+          <UiRecordExplorerItem
+            :title="title"
+            :secondary="secondary"
+            :tag="tag"
+            :muted="muted"
+            :selected="selectedKeys.includes(key)"
+            :actions="actions"
+            @action="handleAction($event, key)"
+          />
+        </div>
+      </template>
+    </ATree>
+  </div>
 </template>

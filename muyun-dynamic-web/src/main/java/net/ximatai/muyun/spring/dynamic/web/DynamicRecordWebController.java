@@ -633,7 +633,7 @@ public class DynamicRecordWebController implements
 
     @Override
     public PageResult<DynamicRecord> queryRecords(WebQueryRequest request) {
-        if (request == null || !hasText(request.uiConfigId())) {
+        if (request == null || (!hasText(request.uiConfigId()) && executionPlanCatalog == null)) {
             return CrudWeb.super.queryRecords(request);
         }
         WebPageRequest webPage = request.pageOrDefault();
@@ -709,7 +709,7 @@ public class DynamicRecordWebController implements
     @Override
     public List<DynamicRecord> queryListRecords(WebQueryRequest request) {
         List<DynamicRecord> records = CrudWeb.super.queryListRecords(request);
-        if (request == null || !hasText(request.uiConfigId())) {
+        if (request == null || (!hasText(request.uiConfigId()) && executionPlanCatalog == null)) {
             return records;
         }
         Set<String> projectionFields = projectionFields(DynamicWebRequest.moduleAlias(), request);
@@ -1042,8 +1042,8 @@ public class DynamicRecordWebController implements
         if (request == null || !hasText(request.quickSearch())) {
             return Criteria.of();
         }
-        if (!hasText(request.uiConfigId())) {
-            throw new PlatformException("Quick search requires published LIST uiConfigId");
+        if (!hasText(request.uiConfigId()) && executionPlanCatalog == null) {
+            throw new PlatformException("Legacy quick search requires published LIST uiConfigId");
         }
         String keyword = request.quickSearch().trim();
         List<String> fields = quickSearchFields(moduleAlias, request);

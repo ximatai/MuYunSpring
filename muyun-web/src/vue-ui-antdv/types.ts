@@ -67,6 +67,29 @@ export interface UiTreeNode {
   children?: UiTreeNode[];
 }
 
+/** Adapter-neutral tree drag event. The node remains a UI contract, not an Ant Tree node. */
+export interface UiTreeDragEvent {
+  node: UiTreeNode;
+  nativeEvent?: Event;
+}
+
+/** A normalized drop target and relative position for tree editors. */
+export interface UiTreeDropEvent {
+  dragNode: UiTreeNode;
+  dropNode: UiTreeNode;
+  dropPosition: -1 | 0 | 1;
+  dropToGap: boolean;
+  nativeEvent?: Event;
+}
+
+/** A native payload dropped from outside the current tree instance. */
+export interface UiTreeExternalDropEvent {
+  dropNode: UiTreeNode;
+  dropPosition: -1 | 0 | 1;
+  dropToGap: boolean;
+  nativeEvent: DragEvent;
+}
+
 export interface UiConfirmOptions {
   title: string;
   content?: string;
