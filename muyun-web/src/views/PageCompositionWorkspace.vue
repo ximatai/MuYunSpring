@@ -570,15 +570,15 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
         </div>
         <template #footer>
           <div class="ui-tree__operations">
-            <UiButton size="small" :disabled="!selectedField" @click="state.moveSelectedField(-1)"
-              >上移</UiButton
-            >
-            <UiButton size="small" :disabled="!selectedField" @click="state.moveSelectedField(1)"
-              >下移</UiButton
-            >
-            <UiButton size="small" danger :disabled="!selectedField" @click="state.removeSelectedField"
-              >移除</UiButton
-            >
+            <UiButton size="small" :disabled="!selectedField" @click="state.moveSelectedField(-1)">
+              上移
+            </UiButton>
+            <UiButton size="small" :disabled="!selectedField" @click="state.moveSelectedField(1)">
+              下移
+            </UiButton>
+            <UiButton size="small" danger :disabled="!selectedField" @click="state.removeSelectedField">
+              移除
+            </UiButton>
           </div>
         </template>
       </RecordExplorerPanel>
@@ -592,17 +592,18 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
           type="primary"
           :disabled="!relation"
           @click="initializeComposition"
-          >初始化页面</UiButton
         >
+          初始化页面
+        </UiButton>
         <template v-else>
           <UiButton :loading="saving" @click="saveDraft">保存草稿</UiButton>
           <UiButton type="primary" :loading="publishing" @click="publishDraft">发布</UiButton>
         </template>
       </template>
       <p class="page-composition-notice">
-        <template v-if="!page"
-          >初始化会创建管理页、Web 全局呈现与首个草稿；不会调用旧 UI 配置集接口。</template
-        >
+        <template v-if="!page">
+          初始化会创建管理页、Web 全局呈现与首个草稿；不会调用旧 UI 配置集接口。
+        </template>
         <template v-else-if="!revision">当前页面尚无草稿，点击“初始化页面”创建首个可编辑修订。</template>
         <template v-else>草稿保存后不会覆盖已发布呈现；通过发布校验后才会更新当前 Web 全局呈现。</template>
       </p>
