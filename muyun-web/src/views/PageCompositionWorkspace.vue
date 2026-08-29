@@ -65,6 +65,11 @@ const previewTabs: UiTabItem[] = [
   { key: 'card', title: '卡片预览' },
   { key: 'detail', title: '详情预览' },
 ];
+const listPreviewGridStyle = computed(() => ({
+  gridTemplateColumns: state.listFields.value
+    .map((field) => field.properties?.width ?? 'minmax(120px, 1fr)')
+    .join(' '),
+}));
 const visibleFields = computed(() => {
   const keyword = fieldKeyword.value.trim().toLowerCase();
   if (!keyword) return metadataFields.value;
@@ -564,7 +569,7 @@ function applyPropertyDraft() {
 </script>
 
 <template>
-  <ManagementWorkspace class="page-composition-workspace" :explorer-count="2" detail-surface>
+  <ManagementWorkspace class="page-composition-workspace" :explorer-count="2">
     <ManagementExplorerColumn>
       <RecordExplorerPanel
         v-model:search-keyword="fieldKeyword"
@@ -666,15 +671,19 @@ function applyPropertyDraft() {
             从元数据拖入字段，开始配置列表
           </div>
           <template v-else>
-            <div class="preview-table__header">
-              <span v-for="field in state.listFields.value" :key="field.id">{{
-                fieldDisplayTitle(field)
-              }}</span>
+            <div class="preview-table__header" :style="listPreviewGridStyle">
+              <span
+                v-for="field in state.listFields.value"
+                :key="field.id"
+                :style="{ textAlign: field.properties?.align }"
+              >{{ fieldDisplayTitle(field) }}</span>
             </div>
-            <div class="preview-table__row">
-              <span v-for="field in state.listFields.value" :key="field.id">{{
-                field.fieldSpecAlias ?? '文本'
-              }}</span>
+            <div class="preview-table__row" :style="listPreviewGridStyle">
+              <span
+                v-for="field in state.listFields.value"
+                :key="field.id"
+                :style="{ textAlign: field.properties?.align }"
+              >{{ field.fieldSpecAlias ?? '文本' }}</span>
             </div>
           </template>
         </div>
@@ -707,10 +716,18 @@ function applyPropertyDraft() {
           从元数据拖入字段，开始配置详情 / 表单
         </div>
         <dl v-else class="preview-form">
-          <template v-for="field in state.formFields.value" :key="field.id">
+          <div
+            v-for="field in state.formFields.value"
+            :key="field.id"
+            class="preview-form__field"
+            :style="{ gridColumn: `span ${field.properties?.columnSpan ?? 1}` }"
+          >
             <dt>{{ fieldDisplayTitle(field) }}<em v-if="field.required">*</em></dt>
-            <dd>{{ field.fieldSpecAlias ?? '输入控件' }}</dd>
-          </template>
+            <dd>
+              <span>{{ field.fieldSpecAlias ?? '输入控件' }}</span>
+              <small v-if="field.properties?.readOnly">只读</small>
+            </dd>
+          </div>
         </dl>
       </section>
     </RecordDetailPanel>
@@ -826,7 +843,6 @@ function applyPropertyDraft() {
 .preview-table__header,
 .preview-table__row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 .preview-table__header {
   background: var(--muyun-surface-muted);
@@ -844,19 +860,32 @@ function applyPropertyDraft() {
 }
 .preview-form {
   display: grid;
-  grid-template-columns: 140px 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 16px;
+  max-width: 760px;
+}
+.preview-form__field {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 12px;
   align-items: center;
-  max-width: 660px;
 }
 .preview-form dt {
   color: var(--muyun-text-muted);
 }
 .preview-form dd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0;
   padding: 8px 10px;
   border: 1px solid var(--muyun-border);
   border-radius: 4px;
+}
+.preview-form small {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
 }
 .preview-form em {
   color: var(--muyun-danger);
