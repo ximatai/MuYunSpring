@@ -59,10 +59,11 @@ const metadataExpandedKeys = ref<string[]>(['metadata:root']);
 const uiExpandedKeys = ref<string[]>(['ui:root', 'ui:slot:list', 'ui:slot:form']);
 const propertyDrawerOpen = ref(false);
 const propertyDraft = ref<PageComposerFieldProperties>({});
+const savedUiTreeJson = ref<string>();
 
 const previewTabs: UiTabItem[] = [
   { key: 'list', title: '列表预览' },
-  { key: 'card', title: '卡片预览' },
+  { key: 'card', title: '列表卡片' },
   { key: 'detail', title: '详情预览' },
 ];
 const listPreviewGridStyle = computed(() => ({
@@ -81,6 +82,16 @@ const selectedField = computed(() => state.selectedNode.value?.field);
 const selectedFieldLabel = computed(() =>
   selectedField.value ? fieldDisplayTitle(selectedField.value) : '组件',
 );
+const currentUiTreeJson = computed(() => JSON.stringify(state.toManagementUiTree()));
+const hasUnsavedChanges = computed(() =>
+  Boolean(revision.value?.id && savedUiTreeJson.value !== currentUiTreeJson.value),
+);
+const propertyValidationMessage = computed(() => {
+  if (state.selectedNode.value?.slot !== 'list') return undefined;
+  const width = propertyDraft.value.width?.trim();
+  if (!width || /^\d+(px|%)$/.test(width)) return undefined;
+  return '列宽需使用数字加 px 或 %，例如 160px、25%。';
+});
 const selectedUiTreeKey = computed(() => {
   const node = state.selectedNode.value;
   if (!node) return undefined;
@@ -119,7 +130,12 @@ const uiTreeNodes = computed<UiTreeNode[]>(() => [
     children: (['list', 'form'] as PageComposerSlot[]).map((slot) => ({
       key: `ui:slot:${slot}`,
       title: slotTitle(slot),
-      secondary: slot === 'list' ? '列表展示字段' : '详情 / 表单字段',
+      secondary:
+        fieldsInSlot(slot).length > 0
+          ? slot === 'list'
+            ? '列表展示字段'
+            : '详情 / 表单字段'
+          : '拖动字段到此处',
       children: fieldsInSlot(slot).map((field) => ({
         key: `ui:field:${slot}:${field.id}`,
         title: fieldDisplayTitle(field),
@@ -228,6 +244,7 @@ async function loadComposition() {
   variant.value = undefined;
   revision.value = undefined;
   state.replaceFields({ list: [], form: [] });
+  savedUiTreeJson.value = undefined;
   try {
     const pages = await loadAllFromClient(pageClient(), [
       { fieldName: 'alias', operator: 'EQ', values: ['management'] },
@@ -287,6 +304,7 @@ function hydrateDraft(current: PresentationRevision | undefined) {
         .map(resolveField)
         .filter((field): field is PageComposerField => Boolean(field)),
     });
+    savedUiTreeJson.value = currentUiTreeJson.value;
   } catch {
     // Publication validates the persisted tree. A malformed draft should remain editable as an empty local tree.
   }
@@ -331,6 +349,7 @@ async function initializeComposition() {
         enabled: true,
       })
     ).record;
+    savedUiTreeJson.value = currentUiTreeJson.value;
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
   } finally {
@@ -348,6 +367,7 @@ async function saveDraft(): Promise<boolean> {
         uiTreeJson: JSON.stringify(state.toManagementUiTree()),
       })
     ).record;
+    savedUiTreeJson.value = currentUiTreeJson.value;
     return true;
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
@@ -482,6 +502,10 @@ function handleUiTreeDragStart(event: UiTreeDragEvent) {
   dataTransfer.setData('text/page-composer-ui-field', JSON.stringify(parsed));
 }
 
+function canDragUiTreeNode(node: UiTreeNode) {
+  return parseUiNode(node.key)?.kind === 'field';
+}
+
 function handleUiTreeDoubleClick(event: UiTreeDragEvent) {
   selectUiTreeNode(event.node);
   if (parseUiNode(event.node.key)?.kind === 'field') openPropertyDrawer();
@@ -556,6 +580,26 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
   selectedSlot.value = node.slot;
 }
 
+function selectPreviewField(slot: PageComposerSlot, field: PageComposerField) {
+  selectNode({ id: `${slot}:${field.id}`, kind: 'field', title: field.title, slot, field });
+}
+
+function openPreviewFieldProperties(slot: PageComposerSlot, field: PageComposerField) {
+  selectPreviewField(slot, field);
+  openPropertyDrawer();
+}
+
+function isPreviewFieldSelected(slot: PageComposerSlot, field: PageComposerField) {
+  return state.selectedNodeId.value === `${slot}:${field.id}`;
+}
+
+function canMoveSelectedField(offset: -1 | 1) {
+  const node = state.selectedNode.value;
+  if (!node?.field) return false;
+  const index = fieldsInSlot(node.slot).findIndex((field) => field.id === node.field?.id);
+  return index >= 0 && index + offset >= 0 && index + offset < fieldsInSlot(node.slot).length;
+}
+
 function fieldDisplayTitle(field: PageComposerField) {
   return field.properties?.label ?? field.title;
 }
@@ -609,8 +653,22 @@ function applyPropertyDraft() {
           <span>已选：{{ selectedFieldLabel }}</span>
           <div class="ui-tree__operations">
             <UiButton size="small" @click="openPropertyDrawer">配置</UiButton>
-            <UiButton size="small" @click="state.moveSelectedField(-1)">上移</UiButton>
-            <UiButton size="small" @click="state.moveSelectedField(1)">下移</UiButton>
+            <UiButton
+              size="small"
+              :disabled="!canMoveSelectedField(-1)"
+              title="已在首位"
+              @click="state.moveSelectedField(-1)"
+            >
+              上移
+            </UiButton>
+            <UiButton
+              size="small"
+              :disabled="!canMoveSelectedField(1)"
+              title="已在末位"
+              @click="state.moveSelectedField(1)"
+            >
+              下移
+            </UiButton>
             <UiButton size="small" danger @click="state.removeSelectedField">移除</UiButton>
           </div>
         </div>
@@ -620,6 +678,7 @@ function applyPropertyDraft() {
             :nodes="uiTreeNodes"
             :selected-key="selectedUiTreeKey"
             draggable
+            :can-drag="canDragUiTreeNode"
             :allow-drop="allowUiTreeDrop"
             :allow-external-drop="allowUiTreeDrop"
             @select="selectUiTreeNode"
@@ -650,6 +709,13 @@ function applyPropertyDraft() {
           </template>
         </div>
       </template>
+      <div
+        v-if="revision"
+        class="page-composition-status"
+        :class="{ 'page-composition-status--dirty': hasUnsavedChanges }"
+      >
+        {{ hasUnsavedChanges ? '未保存更改' : '草稿已保存' }}
+      </div>
       <p class="page-composition-notice">{{ compositionHint }}</p>
       <UiTabs v-model:active-key="state.previewMode.value" :tabs="previewTabs" />
       <section
@@ -669,7 +735,15 @@ function applyPropertyDraft() {
               <span
                 v-for="field in state.listFields.value"
                 :key="field.id"
+                class="preview-field"
+                :class="{ 'preview-field--selected': isPreviewFieldSelected('list', field) }"
                 :style="{ textAlign: field.properties?.align }"
+                role="button"
+                tabindex="0"
+                :title="`配置${fieldDisplayTitle(field)}`"
+                @click="selectPreviewField('list', field)"
+                @dblclick="openPreviewFieldProperties('list', field)"
+                @keydown.enter="openPreviewFieldProperties('list', field)"
                 >{{ fieldDisplayTitle(field) }}</span
               >
             </div>
@@ -677,7 +751,15 @@ function applyPropertyDraft() {
               <span
                 v-for="field in state.listFields.value"
                 :key="field.id"
+                class="preview-field"
+                :class="{ 'preview-field--selected': isPreviewFieldSelected('list', field) }"
                 :style="{ textAlign: field.properties?.align }"
+                role="button"
+                tabindex="0"
+                :title="`配置${fieldDisplayTitle(field)}`"
+                @click="selectPreviewField('list', field)"
+                @dblclick="openPreviewFieldProperties('list', field)"
+                @keydown.enter="openPreviewFieldProperties('list', field)"
                 >{{ field.fieldSpecAlias ?? '文本' }}</span
               >
             </div>
@@ -689,8 +771,11 @@ function applyPropertyDraft() {
         class="preview-surface"
         data-testid="page-composer-card-preview"
       >
+        <header class="preview-surface__toolbar">
+          <strong>列表卡片</strong><span>继承列表字段，不单独编排</span>
+        </header>
         <div v-if="!state.cardFields.value.length" class="preview-empty">
-          从元数据拖入列表字段，开始配置卡片
+          先配置列表字段，即可查看卡片呈现
         </div>
         <div v-else class="preview-cards">
           <article v-for="sample in ['示例记录 A', '示例记录 B']" :key="sample" class="preview-card">
@@ -699,10 +784,21 @@ function applyPropertyDraft() {
               ><span>卡片</span>
             </header>
             <dl>
-              <template v-for="field in state.cardFields.value" :key="field.id">
+              <div
+                v-for="field in state.cardFields.value"
+                :key="field.id"
+                class="preview-card__field preview-field"
+                :class="{ 'preview-field--selected': isPreviewFieldSelected('list', field) }"
+                role="button"
+                tabindex="0"
+                :title="`配置${fieldDisplayTitle(field)}`"
+                @click="selectPreviewField('list', field)"
+                @dblclick="openPreviewFieldProperties('list', field)"
+                @keydown.enter="openPreviewFieldProperties('list', field)"
+              >
                 <dt>{{ fieldDisplayTitle(field) }}</dt>
                 <dd>{{ field.fieldSpecAlias ?? '文本' }}</dd>
-              </template>
+              </div>
             </dl>
           </article>
         </div>
@@ -715,8 +811,15 @@ function applyPropertyDraft() {
           <div
             v-for="field in state.formFields.value"
             :key="field.id"
-            class="preview-form__field"
+            class="preview-form__field preview-field"
+            :class="{ 'preview-field--selected': isPreviewFieldSelected('form', field) }"
             :style="{ gridColumn: `span ${field.properties?.columnSpan ?? 1}` }"
+            role="button"
+            tabindex="0"
+            :title="`配置${fieldDisplayTitle(field)}`"
+            @click="selectPreviewField('form', field)"
+            @dblclick="openPreviewFieldProperties('form', field)"
+            @keydown.enter="openPreviewFieldProperties('form', field)"
           >
             <dt>{{ fieldDisplayTitle(field) }}<em v-if="field.required">*</em></dt>
             <dd>
@@ -745,6 +848,9 @@ function applyPropertyDraft() {
           <label>
             <span>列宽</span>
             <UiInput v-model:value="propertyDraft.width" placeholder="例如 160px 或 25%" />
+            <small v-if="propertyValidationMessage" class="component-property-drawer__error">
+              {{ propertyValidationMessage }}
+            </small>
           </label>
           <label>
             <span>对齐</span>
@@ -780,7 +886,9 @@ function applyPropertyDraft() {
       </div>
       <template #operation>
         <UiButton @click="propertyDrawerOpen = false">取消</UiButton>
-        <UiButton type="primary" @click="applyPropertyDraft">应用到草稿</UiButton>
+        <UiButton type="primary" :disabled="Boolean(propertyValidationMessage)" @click="applyPropertyDraft">
+          应用到草稿
+        </UiButton>
       </template>
     </RecordDetailDrawer>
   </ManagementWorkspace>
@@ -835,6 +943,7 @@ function applyPropertyDraft() {
 }
 .ui-tree__operations {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
 }
@@ -846,6 +955,22 @@ function applyPropertyDraft() {
 }
 .page-composition-notice {
   margin-bottom: 12px;
+}
+.page-composition-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--muyun-surface-muted);
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+  line-height: 20px;
+}
+.page-composition-status--dirty {
+  background: var(--muyun-warning-surface, var(--muyun-surface-muted));
+  color: var(--muyun-warning-text, var(--muyun-text));
 }
 .preview-surface {
   margin-top: 12px;
@@ -880,6 +1005,22 @@ function applyPropertyDraft() {
 .preview-table span {
   padding: 10px;
   border-right: 1px solid var(--muyun-border-subtle);
+}
+.preview-field {
+  cursor: pointer;
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+  transition:
+    outline-color 120ms ease,
+    background 120ms ease;
+}
+.preview-field:hover,
+.preview-field:focus-visible {
+  outline-color: var(--muyun-primary);
+}
+.preview-field--selected {
+  outline: 2px solid var(--muyun-primary);
+  background: var(--muyun-primary-surface, var(--muyun-hover));
 }
 .preview-empty {
   display: grid;
@@ -954,6 +1095,15 @@ function applyPropertyDraft() {
 .preview-card dd {
   margin: 0;
 }
+.preview-card__field {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(76px, auto) 1fr;
+  gap: 8px 12px;
+  margin: -2px;
+  padding: 2px;
+  border-radius: 4px;
+}
 .component-property-drawer {
   display: grid;
   gap: 16px;
@@ -973,6 +1123,11 @@ function applyPropertyDraft() {
   color: var(--muyun-text-muted);
   font-size: 13px;
   line-height: 1.55;
+}
+.component-property-drawer__error {
+  color: var(--muyun-danger);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 @media (max-width: 1180px) {
