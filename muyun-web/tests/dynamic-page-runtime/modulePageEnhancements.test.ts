@@ -278,7 +278,6 @@ describe('module page enhancements', () => {
       'module-governance-workspace',
       'module-actions-workspace',
       'module-manual-action-binding-workspace',
-      'module-ui-orchestration-workspace',
       'module-openapi-page',
     ]);
   });
