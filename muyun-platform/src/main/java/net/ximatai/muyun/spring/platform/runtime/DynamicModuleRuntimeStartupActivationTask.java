@@ -1,4 +1,4 @@
-package net.ximatai.muyun.spring.platform.web;
+package net.ximatai.muyun.spring.platform.runtime;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -7,39 +7,44 @@ import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
-import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
-import org.springframework.core.annotation.Order;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
 /**
- * Restores dynamic runtime registrations after a process restart.
+ * Restores published dynamic module registrations after a process restart.
  *
- * <p>The runtime registry is intentionally in-memory. A dynamic module only becomes runnable
- * once its MAIN metadata relation has been published, so startup reactivates those released
- * modules without performing schema migration. Incomplete dynamic modules remain governable but
- * are not exposed as runnable record modules.</p>
+ * <p>The dynamic runtime registry is intentionally in-memory. Only a dynamic module with a
+ * persisted MAIN metadata relation has completed metadata publication and is eligible for
+ * activation; incomplete modules remain governable without becoming record-runtime modules.</p>
  */
-@Component
-@Order(0)
-public class DynamicModuleRuntimeStartupActivator implements ApplicationRunner {
+@Service
+public class DynamicModuleRuntimeStartupActivationTask implements PlatformBootstrapTask {
     private static final PageRequest ONE = new PageRequest(0, 1);
 
     private final PlatformModuleService moduleService;
     private final ModuleMetadataRelationService relationService;
     private final PlatformDynamicRuntimeRefreshService runtimeRefreshService;
 
-    public DynamicModuleRuntimeStartupActivator(PlatformModuleService moduleService,
-                                                ModuleMetadataRelationService relationService,
-                                                PlatformDynamicRuntimeRefreshService runtimeRefreshService) {
+    public DynamicModuleRuntimeStartupActivationTask(PlatformModuleService moduleService,
+                                                     ModuleMetadataRelationService relationService,
+                                                     PlatformDynamicRuntimeRefreshService runtimeRefreshService) {
         this.moduleService = moduleService;
         this.relationService = relationService;
         this.runtimeRefreshService = runtimeRefreshService;
     }
 
     @Override
-    public void run(ApplicationArguments args) {
+    public String name() {
+        return "platform.dynamic-runtime-startup-activation";
+    }
+
+    @Override
+    public int order() {
+        // Initial data may publish metadata in the same startup cycle; restore only after it settles.
+        return 110;
+    }
+
+    @Override
+    public void run() {
         moduleService.listVisibleModules().stream()
                 .filter(module -> module.getModuleKind() == ModuleKind.DYNAMIC)
                 .filter(this::hasPublishedMainMetadata)
