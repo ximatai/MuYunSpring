@@ -29,6 +29,7 @@ import {
   type PageComposerField,
   type PageComposerSlot,
 } from './pageCompositionDraftState';
+import { pageCompositionTransport } from './pageCompositionTransport';
 
 defineOptions({ name: 'PageCompositionWorkspace' });
 
@@ -205,13 +206,13 @@ async function loadComposition() {
     page.value = pages[0];
     if (!page.value?.id) return;
     const variants = await loadAllFromClient(variantClient(page.value.id), [
-      { fieldName: 'clientType', operator: 'EQ', values: ['web'] },
-      { fieldName: 'scopeType', operator: 'EQ', values: ['global'] },
+      { fieldName: 'clientType', operator: 'EQ', values: [pageCompositionTransport.webClient] },
+      { fieldName: 'scopeType', operator: 'EQ', values: [pageCompositionTransport.globalScope] },
     ]);
     variant.value = variants[0];
     if (!variant.value?.id) return;
     const revisions = await loadAllFromClient(revisionClient(variant.value.id), [
-      { fieldName: 'status', operator: 'EQ', values: ['draft'] },
+      { fieldName: 'status', operator: 'EQ', values: [pageCompositionTransport.draftRevision] },
     ]);
     revision.value = revisions.sort((left, right) => (right.revisionNo ?? 0) - (left.revisionNo ?? 0))[0];
     hydrateDraft(revision.value);
@@ -246,14 +247,15 @@ async function initializeComposition() {
   try {
     if (!page.value) {
       page.value = (await pageClient().insert({
-        alias: 'management', contractType: 'management', mainRelationId: relation.value.id,
+        alias: 'management', contractType: pageCompositionTransport.managementContract, mainRelationId: relation.value.id,
         title: `${props.moduleTitle ?? props.moduleAlias}管理页`, enabled: true,
       })).record;
     }
     if (!page.value.id) return;
     if (!variant.value) {
       variant.value = (await variantClient(page.value.id).insert({
-        clientType: 'web', scopeType: 'global', title: 'Web 全局呈现', enabled: true,
+        clientType: pageCompositionTransport.webClient, scopeType: pageCompositionTransport.globalScope,
+        title: 'Web 全局呈现', enabled: true,
       })).record;
     }
     if (!variant.value.id || revision.value) return;
@@ -262,7 +264,7 @@ async function initializeComposition() {
       revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
       templateAlias: 'management', templateVersion: 1,
       uiTreeJson: JSON.stringify(state.toManagementUiTree()),
-      status: 'draft', title: '初始草稿', enabled: true,
+      status: pageCompositionTransport.draftRevision, title: '初始草稿', enabled: true,
     })).record;
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
@@ -320,7 +322,7 @@ async function createFollowUpDraft(publishedRevision: PresentationRevision, uiTr
     templateAlias: publishedRevision.templateAlias ?? 'management',
     templateVersion: publishedRevision.templateVersion ?? 1,
     uiTreeJson,
-    status: 'draft',
+    status: pageCompositionTransport.draftRevision,
     title: `基于 v${publishedRevision.revisionNo ?? 1} 的草稿`,
     enabled: true,
   });
