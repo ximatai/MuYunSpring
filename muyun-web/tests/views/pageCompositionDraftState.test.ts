@@ -44,4 +44,16 @@ describe('pageCompositionDraftState', () => {
       ],
     });
   });
+
+  it('moves a UI tree component between slots or to a precise sibling position', () => {
+    const state = createPageCompositionDraftState();
+    state.addField(title, 'list');
+    state.addField(date, 'list');
+    state.moveField('date', 'list', 'list', 0);
+    state.moveField('date', 'list', 'form');
+
+    expect(state.listFields.value).toEqual([title]);
+    expect(state.formFields.value).toEqual([date]);
+    expect(state.selectedNodeId.value).toBe('form:date');
+  });
 });

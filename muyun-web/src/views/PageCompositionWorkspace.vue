@@ -16,7 +16,11 @@ import {
   UiSidePanel,
   UiSpin,
   UiTabs,
+  UiTree,
   type UiTabItem,
+  type UiTreeDragEvent,
+  type UiTreeDropEvent,
+  type UiTreeNode,
 } from '@muyun/vue-ui-antdv';
 import type { MetadataField, ModuleMetadataRelation, WebPageResponse, WebQueryCondition } from '@muyun/web-contracts';
 import {
@@ -42,6 +46,9 @@ const selectedSlot = ref<PageComposerSlot>('list');
 const editorOpen = ref(false);
 const componentTitle = ref('');
 const fieldKeyword = ref('');
+const selectedMetadataTreeKey = ref<string>();
+const metadataExpandedKeys = ref<string[]>(['metadata:root']);
+const uiExpandedKeys = ref<string[]>(['ui:root', 'ui:slot:list', 'ui:slot:form']);
 
 const previewTabs: UiTabItem[] = [
   { key: 'list', title: '列表预览' },
@@ -55,6 +62,11 @@ const visibleFields = computed(() => {
   );
 });
 const selectedField = computed(() => state.selectedNode.value?.field);
+const selectedUiTreeKey = computed(() => {
+  const node = state.selectedNode.value;
+  if (!node) return undefined;
+  return node.kind === 'slot' ? `ui:slot:${node.slot}` : `ui:field:${node.slot}:${node.field?.id}`;
+});
 const composerTitle = computed(() => `${props.moduleTitle ?? props.moduleAlias} · Web 管理页`);
 const mainEntityTitle = computed(() => relation.value?.relationAlias ?? '主实体');
 const compositionSubtitle = computed(() => {
@@ -62,6 +74,37 @@ const compositionSubtitle = computed(() => {
   if (!revision.value) return '尚无可编辑草稿';
   return `草稿 v${revision.value.revisionNo} · management v1`;
 });
+const metadataTreeNodes = computed<UiTreeNode[]>(() => [
+  {
+    key: 'metadata:root',
+    title: mainEntityTitle.value,
+    secondary: '主元数据',
+    children: visibleFields.value.map((field) => ({
+      key: `metadata:field:${field.id}`,
+      title: field.title,
+      secondary: field.fieldName,
+      isLeaf: true,
+    })),
+  },
+]);
+const uiTreeNodes = computed<UiTreeNode[]>(() => [
+  {
+    key: 'ui:root',
+    title: '管理页模板',
+    secondary: 'management v1',
+    children: (['list', 'form'] as PageComposerSlot[]).map((slot) => ({
+      key: `ui:slot:${slot}`,
+      title: slotTitle(slot),
+      secondary: slot === 'list' ? '列表展示字段' : '详情 / 表单字段',
+      children: fieldsInSlot(slot).map((field) => ({
+        key: `ui:field:${slot}:${field.id}`,
+        title: field.title,
+        secondary: field.fieldName,
+        isLeaf: true,
+      })),
+    })),
+  },
+]);
 
 watch(
   () => props.moduleAlias,
@@ -291,6 +334,103 @@ function addToSelectedSlot(field: PageComposerField) {
   state.addField(field, selectedSlot.value);
 }
 
+function slotTitle(slot: PageComposerSlot) {
+  return slot === 'list' ? '列表' : '详情 / 表单';
+}
+
+function fieldsInSlot(slot: PageComposerSlot) {
+  return slot === 'list' ? state.listFields.value : state.formFields.value;
+}
+
+function selectMetadataNode(node: UiTreeNode) {
+  selectedMetadataTreeKey.value = node.key;
+}
+
+function handleMetadataDoubleClick(event: UiTreeDragEvent) {
+  const field = fieldOfMetadataNode(event.node);
+  if (field) addToSelectedSlot(field);
+}
+
+function selectUiTreeNode(node: UiTreeNode) {
+  const parsed = parseUiNode(node.key);
+  if (!parsed) return;
+  if (parsed.kind === 'slot') {
+    selectNode({ id: `slot:${parsed.slot}`, kind: 'slot', title: slotTitle(parsed.slot), slot: parsed.slot });
+    return;
+  }
+  if (parsed.kind !== 'field') return;
+  const field = fieldsInSlot(parsed.slot).find((candidate) => candidate.id === parsed.fieldId);
+  if (field) selectNode({ id: `${parsed.slot}:${field.id}`, kind: 'field', title: field.title, slot: parsed.slot, field });
+}
+
+function handleMetadataDragStart(event: UiTreeDragEvent) {
+  const field = fieldOfMetadataNode(event.node);
+  const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
+  if (!field || !dataTransfer) return;
+  dataTransfer.effectAllowed = 'copy';
+  dataTransfer.setData('text/page-composer-field', field.id);
+}
+
+function handleUiTreeDragStart(event: UiTreeDragEvent) {
+  const parsed = parseUiNode(event.node.key);
+  const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
+  if (!parsed || parsed.kind !== 'field' || !dataTransfer) return;
+  dataTransfer.effectAllowed = 'move';
+  dataTransfer.setData('text/page-composer-ui-field', JSON.stringify(parsed));
+}
+
+function handleUiTreeDoubleClick(event: UiTreeDragEvent) {
+  selectUiTreeNode(event.node);
+  if (parseUiNode(event.node.key)?.kind === 'field') openComponentEditor();
+}
+
+function handleUiTreeDrop(event: UiTreeDropEvent) {
+  const target = parseUiNode(event.dropNode.key);
+  if (!target || target.kind === 'root') return;
+  const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
+  const fieldId = dataTransfer?.getData('text/page-composer-field');
+  if (fieldId) {
+    const field = metadataFields.value.find((candidate) => candidate.id === fieldId);
+    if (field) state.addField(field, target.slot);
+    return;
+  }
+  const raw = dataTransfer?.getData('text/page-composer-ui-field');
+  if (!raw) return;
+  try {
+    const source = JSON.parse(raw) as { kind?: string; slot?: PageComposerSlot; fieldId?: string };
+    if (source.kind !== 'field' || !source.slot || !source.fieldId) return;
+    const targetIndex = target.kind === 'field'
+      ? fieldsInSlot(target.slot).findIndex((field) => field.id === target.fieldId) + (event.dropPosition > 0 ? 1 : 0)
+      : undefined;
+    state.moveField(source.fieldId, source.slot, target.slot, targetIndex);
+  } catch {
+    // Ignore payloads not owned by the page composer.
+  }
+}
+
+function allowUiTreeDrop(event: Pick<UiTreeDropEvent, 'dropNode'>) {
+  return event.dropNode.key !== 'ui:root';
+}
+
+function fieldOfMetadataNode(node: UiTreeNode) {
+  const prefix = 'metadata:field:';
+  if (!node.key.startsWith(prefix)) return undefined;
+  return metadataFields.value.find((field) => field.id === node.key.slice(prefix.length));
+}
+
+function parseUiNode(key: string):
+  | { kind: 'root' }
+  | { kind: 'slot'; slot: PageComposerSlot }
+  | { kind: 'field'; slot: PageComposerSlot; fieldId: string }
+  | undefined {
+  if (key === 'ui:root') return { kind: 'root' };
+  const slotMatch = /^ui:slot:(list|form)$/.exec(key);
+  if (slotMatch) return { kind: 'slot', slot: slotMatch[1] as PageComposerSlot };
+  const fieldMatch = /^ui:field:(list|form):(.+)$/.exec(key);
+  if (fieldMatch) return { kind: 'field', slot: fieldMatch[1] as PageComposerSlot, fieldId: fieldMatch[2] };
+  return undefined;
+}
+
 function selectNode(node: (typeof state.nodes.value)[number]) {
   state.selectNode(node);
   selectedSlot.value = node.slot;
@@ -307,11 +447,6 @@ function saveComponentEditor() {
   editorOpen.value = false;
 }
 
-function dropField(event: DragEvent, slot: PageComposerSlot) {
-  const fieldId = event.dataTransfer?.getData('text/page-composer-field');
-  const field = metadataFields.value.find((candidate) => candidate.id === fieldId);
-  if (field) state.addField(field, slot);
-}
 </script>
 
 <template>
@@ -327,19 +462,16 @@ function dropField(event: DragEvent, slot: PageComposerSlot) {
         <UiSpin v-if="loading" tip="加载主实体字段" />
         <UiEmpty v-else-if="!relation" description="动态模块尚无主实体，请先完成数据模型编排" />
         <div v-else class="metadata-tree" data-testid="page-composer-metadata-tree">
-          <div class="metadata-tree__root">{{ mainEntityTitle }}</div>
-          <p class="metadata-tree__hint">拖入右侧模板槽位；引用字段的递归展开将在关联治理接入后提供。</p>
-          <button
-            v-for="field in visibleFields"
-            :key="field.id"
-            class="metadata-tree__field"
-            draggable="true"
-            type="button"
-            @dragstart="$event.dataTransfer?.setData('text/page-composer-field', field.id)"
-            @dblclick="addToSelectedSlot(field)"
-          >
-            <span>{{ field.title }}</span><small>{{ field.fieldName }}</small>
-          </button>
+          <p class="metadata-tree__hint">拖入中间 UI Tree 的模板槽位；引用字段递归展开将在关联治理接入后提供。</p>
+          <UiTree
+            v-model:expanded-keys="metadataExpandedKeys"
+            :nodes="metadataTreeNodes"
+            :selected-key="selectedMetadataTreeKey"
+            draggable
+            @select="selectMetadataNode"
+            @drag-start="handleMetadataDragStart"
+            @double-click="handleMetadataDoubleClick"
+          />
           <UiEmpty v-if="!visibleFields.length" description="暂无可编排字段" />
         </div>
       </RecordExplorerPanel>
@@ -351,30 +483,17 @@ function dropField(event: DragEvent, slot: PageComposerSlot) {
           <UiButton size="small" type="text" title="配置选中组件" @click="openComponentEditor">配置</UiButton>
         </template>
         <div class="ui-tree" data-testid="page-composer-ui-tree">
-          <section v-for="slot in (['list', 'form'] as PageComposerSlot[])" :key="slot" class="ui-tree__slot">
-            <button
-              class="ui-tree__slot-title"
-              :class="{ 'is-selected': state.selectedNodeId.value === `slot:${slot}` }"
-              type="button"
-              @click="selectNode({ id: `slot:${slot}`, kind: 'slot', title: slot === 'list' ? '列表' : '详情 / 表单', slot })"
-              @dragover.prevent
-              @drop="dropField($event, slot)"
-            >
-              {{ slot === 'list' ? '列表' : '详情 / 表单' }}
-              <small>拖入字段</small>
-            </button>
-            <button
-              v-for="field in slot === 'list' ? state.listFields.value : state.formFields.value"
-              :key="`${slot}:${field.id}`"
-              class="ui-tree__field"
-              :class="{ 'is-selected': state.selectedNodeId.value === `${slot}:${field.id}` }"
-              type="button"
-              @click="selectNode({ id: `${slot}:${field.id}`, kind: 'field', title: field.title, slot, field })"
-              @dblclick="openComponentEditor"
-            >
-              <span>{{ field.title }}</span><small>{{ field.fieldName }}</small>
-            </button>
-          </section>
+          <UiTree
+            v-model:expanded-keys="uiExpandedKeys"
+            :nodes="uiTreeNodes"
+            :selected-key="selectedUiTreeKey"
+            draggable
+            :allow-drop="allowUiTreeDrop"
+            @select="selectUiTreeNode"
+            @drag-start="handleUiTreeDragStart"
+            @double-click="handleUiTreeDoubleClick"
+            @drop="handleUiTreeDrop"
+          />
         </div>
         <template #footer>
           <div class="ui-tree__operations">
@@ -438,15 +557,8 @@ function dropField(event: DragEvent, slot: PageComposerSlot) {
 <style scoped>
 .page-composition-workspace { min-height: 0; height: 100%; }
 .metadata-tree, .ui-tree { display: grid; gap: 4px; min-height: 0; overflow: auto; }
-.metadata-tree__root { font-weight: 650; padding: 4px 8px; }
 .metadata-tree__hint, .page-composition-notice { margin: 0; color: var(--muyun-text-muted); font-size: 13px; line-height: 1.55; }
-.metadata-tree__field, .ui-tree__field, .ui-tree__slot-title { display: flex; align-items: baseline; justify-content: space-between; width: 100%; border: 0; border-radius: 4px; background: transparent; padding: 7px 8px; color: var(--muyun-text); text-align: left; cursor: pointer; }
-.metadata-tree__field { padding-left: 20px; }
-.metadata-tree__field:hover, .ui-tree__field:hover, .ui-tree__slot-title:hover, .is-selected { background: var(--muyun-hover); }
-.metadata-tree small, .ui-tree small { color: var(--muyun-text-muted); }
-.ui-tree__slot { display: grid; gap: 2px; margin-bottom: 8px; }
-.ui-tree__slot-title { font-weight: 650; border-bottom: 1px solid var(--muyun-border-subtle); }
-.ui-tree__field { padding-left: 20px; }
+.metadata-tree :deep(.ant-tree), .ui-tree :deep(.ant-tree) { min-height: 0; overflow: auto; }
 .ui-tree__operations, .component-drawer__actions { display: flex; gap: 8px; justify-content: flex-end; }
 .page-composition-notice { margin-bottom: 12px; }
 .preview-surface { margin-top: 12px; border: 1px solid var(--muyun-border); border-radius: 8px; min-height: 280px; padding: 16px; }

@@ -66,6 +66,8 @@ export type {
   UiMenuItem,
   UiRecordInlineAction,
   UiTabItem,
+  UiTreeDragEvent,
   UiTreeNode,
   UiTreeNodeAction,
+  UiTreeDropEvent,
 } from './types';
