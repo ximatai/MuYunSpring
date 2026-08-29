@@ -45,6 +45,16 @@ describe('pageCompositionDraftState', () => {
     });
   });
 
+  it('uses the list field placement as the single source for card preview', () => {
+    const state = createPageCompositionDraftState();
+    state.addField(title, 'list');
+    state.addField(date, 'form');
+
+    expect(state.cardFields.value).toEqual([title]);
+    state.moveField('title', 'list', 'form');
+    expect(state.cardFields.value).toEqual([]);
+  });
+
   it('moves a UI tree component between slots or to a precise sibling position', () => {
     const state = createPageCompositionDraftState();
     state.addField(title, 'list');

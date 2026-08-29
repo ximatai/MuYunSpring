@@ -53,6 +53,7 @@ const uiExpandedKeys = ref<string[]>(['ui:root', 'ui:slot:list', 'ui:slot:form']
 
 const previewTabs: UiTabItem[] = [
   { key: 'list', title: '列表预览' },
+  { key: 'card', title: '卡片预览' },
   { key: 'detail', title: '详情预览' },
 ];
 const visibleFields = computed(() => {
@@ -570,6 +571,19 @@ function saveComponentEditor() {
           </template>
         </div>
       </section>
+      <section v-else-if="state.previewMode.value === 'card'" class="preview-surface" data-testid="page-composer-card-preview">
+        <div v-if="!state.cardFields.value.length" class="preview-empty">从元数据拖入列表字段，开始配置卡片</div>
+        <div v-else class="preview-cards">
+          <article v-for="sample in ['示例记录 A', '示例记录 B']" :key="sample" class="preview-card">
+            <header><strong>{{ sample }}</strong><span>卡片</span></header>
+            <dl>
+              <template v-for="field in state.cardFields.value" :key="field.id">
+                <dt>{{ field.title }}</dt><dd>{{ field.fieldSpecAlias ?? '文本' }}</dd>
+              </template>
+            </dl>
+          </article>
+        </div>
+      </section>
       <section v-else class="preview-surface" data-testid="page-composer-detail-preview">
         <div v-if="!state.formFields.value.length" class="preview-empty">从元数据拖入字段，开始配置详情 / 表单</div>
         <dl v-else class="preview-form">
@@ -607,5 +621,9 @@ function saveComponentEditor() {
 .preview-empty { display: grid; min-height: 180px; place-items: center; color: var(--muyun-text-muted); }
 .preview-form { display: grid; grid-template-columns: 140px 1fr; gap: 12px 16px; align-items: center; max-width: 660px; }
 .preview-form dt { color: var(--muyun-text-muted); }.preview-form dd { margin: 0; padding: 8px 10px; border: 1px solid var(--muyun-border); border-radius: 4px; }.preview-form em { color: var(--muyun-danger); margin-left: 4px; }
+.preview-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.preview-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--muyun-border-subtle); border-radius: 8px; background: var(--muyun-surface); }
+.preview-card header { display: flex; align-items: center; justify-content: space-between; }.preview-card header span { color: var(--muyun-text-muted); font-size: 12px; }
+.preview-card dl { display: grid; grid-template-columns: minmax(76px, auto) 1fr; gap: 8px 12px; margin: 0; }.preview-card dt { color: var(--muyun-text-muted); }.preview-card dd { margin: 0; }
 .component-drawer { display: grid; align-content: start; gap: 18px; height: 100%; padding: 20px; background: var(--muyun-surface); }.component-drawer header { display: flex; align-items: center; justify-content: space-between; }.component-drawer h2, .component-drawer p { margin: 0; }.component-drawer p { color: var(--muyun-text-muted); }.component-drawer label { display: grid; gap: 6px; }.component-drawer__actions { margin-top: auto; }
 </style>

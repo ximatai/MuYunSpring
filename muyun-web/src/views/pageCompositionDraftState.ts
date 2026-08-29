@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 
 export type PageComposerSlot = 'list' | 'form';
+export type PageComposerPreviewMode = 'list' | 'detail' | 'card';
 
 export interface PageComposerField {
   id: string;
@@ -38,7 +39,9 @@ export function createPageCompositionDraftState() {
   const listFields = ref<PageComposerField[]>([]);
   const formFields = ref<PageComposerField[]>([]);
   const selectedNodeId = ref<string>();
-  const previewMode = ref<'list' | 'detail'>('list');
+  const previewMode = ref<PageComposerPreviewMode>('list');
+  // 卡片是列表数据的另一种呈现，不建立第三份字段配置。
+  const cardFields = computed(() => listFields.value);
 
   const nodes = computed<PageComposerNode[]>(() => [
     { id: 'slot:list', kind: 'slot', title: '列表', slot: 'list' },
@@ -141,6 +144,7 @@ export function createPageCompositionDraftState() {
   return {
     listFields,
     formFields,
+    cardFields,
     nodes,
     selectedNodeId,
     selectedNode,
