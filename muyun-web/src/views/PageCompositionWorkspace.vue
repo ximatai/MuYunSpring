@@ -295,16 +295,34 @@ async function publishDraft() {
   if (!confirmed) return;
   publishing.value = true;
   try {
+    const publishedTreeJson = JSON.stringify(state.toManagementUiTree());
+    const publishedRevision = revision.value;
     await saveDraft();
     await moduleContext.http.request<number>({
       method: 'POST', path: `/platform.presentation_publish/revisions/${encodeURIComponent(revision.value.id)}/publish`,
     });
+    await createFollowUpDraft(publishedRevision, publishedTreeJson);
     await loadComposition();
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
   } finally {
     publishing.value = false;
   }
+}
+
+/** Keeps a stable editable working copy after an immutable revision becomes published. */
+async function createFollowUpDraft(publishedRevision: PresentationRevision, uiTreeJson: string) {
+  if (!variant.value?.id) return;
+  const revisions = await loadAllFromClient(revisionClient(variant.value.id));
+  await revisionClient(variant.value.id).insert({
+    revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
+    templateAlias: publishedRevision.templateAlias ?? 'management',
+    templateVersion: publishedRevision.templateVersion ?? 1,
+    uiTreeJson,
+    status: 'DRAFT',
+    title: `基于 v${publishedRevision.revisionNo ?? 1} 的草稿`,
+    enabled: true,
+  });
 }
 
 async function loadAll<T>(path: string): Promise<T[]> {
