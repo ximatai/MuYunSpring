@@ -25,6 +25,7 @@ export function createMetadataOrchestrationState() {
   const metadataById = ref<Record<string, Metadata>>({});
   const selectedRelationId = ref<string>();
   const fields = ref<MetadataField[]>([]);
+  const allFields = ref<MetadataField[]>([]);
   const fieldSpecs = ref<FieldSpec[]>([]);
   const mode = ref<MetadataOrchestrationMode>('view');
   const mainMetadataDraft = ref<MainMetadataDraft>(emptyMainMetadataDraft());
@@ -55,6 +56,7 @@ export function createMetadataOrchestrationState() {
   }
 
   function handleFieldsLoaded(loaded: MetadataField[]) {
+    allFields.value = loaded;
     fields.value = orchestratableFields(loaded);
   }
 
@@ -105,6 +107,7 @@ export function createMetadataOrchestrationState() {
     metadataById,
     selectedRelationId,
     fields,
+    allFields,
     fieldSpecs,
     mode,
     mainMetadataDraft,
@@ -184,10 +187,27 @@ export function normalizeFieldDraft(draft: MetadataFieldDraft): MetadataFieldDra
 
 /** Only business-owned physical fields are orchestrated; platform-managed fields stay hidden. */
 export function orchestratableFields(fields: MetadataField[]): MetadataField[] {
-  return fields.filter(
-    (field) =>
-      field.fieldOwnership === 'BUSINESS' && field.fieldForm === 'PHYSICAL' && field.systemManaged !== true,
+  return fields.filter(isOrchestratableField);
+}
+
+/** Only these field facts may be changed through the metadata field editor. */
+export function isOrchestratableField(field: MetadataField): boolean {
+  return (
+    field.fieldOwnership === 'BUSINESS' && field.fieldForm === 'PHYSICAL' && field.systemManaged !== true
   );
+}
+
+/** @deprecated Kept for hot-reload compatibility while field sources moved into the unified table. */
+export function metadataFieldGroupsOf(fields: MetadataField[]) {
+  return {
+    business: orchestratableFields(fields),
+    platform: fields.filter(
+      (field) =>
+        field.fieldForm === 'PHYSICAL' &&
+        (field.fieldOwnership !== 'BUSINESS' || field.systemManaged === true),
+    ),
+    derived: fields.filter((field) => field.fieldForm && field.fieldForm !== 'PHYSICAL'),
+  };
 }
 
 export function fieldSpecOptionListOf(specs: FieldSpec[]): FieldSpecOption[] {
