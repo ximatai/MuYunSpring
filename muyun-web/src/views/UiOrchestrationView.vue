@@ -389,6 +389,7 @@ async function publish() {
     await moduleContext.http.request({
       method: 'POST',
       path: `/platform.page_config_publish/ui-configs/${encodeURIComponent(config.id!)}/publish`,
+      query: versionRequest(config),
     });
     await loadWorkspace();
     await handlePlatformActionSuccess(
@@ -405,6 +406,7 @@ async function unpublish() {
     await moduleContext.http.request({
       method: 'POST',
       path: `/platform.page_config_publish/ui-configs/${encodeURIComponent(config.id!)}/unpublish`,
+      query: versionRequest(config),
     });
     await loadWorkspace();
     await handlePlatformActionSuccess(

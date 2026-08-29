@@ -1292,11 +1292,11 @@ class PlatformConfigurationWebControllerTest {
         ReflectionTestUtils.setField(controller, "service", service);
 
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
-        mvc.perform(post("/platform.page_config_publish/ui-configs/ui-config-1/publish"))
+        mvc.perform(post("/platform.page_config_publish/ui-configs/ui-config-1/publish").param("version", "7"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(1));
 
-        verify(service).publishUiConfig("ui-config-1");
+        verify(service).publishUiConfig("ui-config-1", 7);
     }
 
     @Test
@@ -1324,8 +1324,8 @@ class PlatformConfigurationWebControllerTest {
                 "platform.query-template.unpublished", "查询模板已取消发布",
                 "platform.query_template", "query-template-1");
 
-        verify(service).publishUiConfig("ui-config-1");
-        verify(service).unpublishUiConfig("ui-config-1");
+        verify(service).publishUiConfig("ui-config-1", null);
+        verify(service).unpublishUiConfig("ui-config-1", null);
         verify(service).publishQueryTemplate("query-template-1");
         verify(service).unpublishQueryTemplate("query-template-1");
     }
@@ -1337,7 +1337,7 @@ class PlatformConfigurationWebControllerTest {
         ReflectionTestUtils.setField(controller, "service", service);
         doThrow(new BusinessException("platform.ui-config.publish-no-visible-field",
                 "UI config publish requires at least one visible field: ui-config-1"))
-                .when(service).publishUiConfig("ui-config-1");
+                .when(service).publishUiConfig("ui-config-1", null);
 
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new PlatformWebExceptionHandler())
