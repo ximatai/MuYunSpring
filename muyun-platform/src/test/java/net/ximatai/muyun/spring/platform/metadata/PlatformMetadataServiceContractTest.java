@@ -1348,9 +1348,11 @@ class PlatformMetadataServiceContractTest {
         assertThat(result.metadata().getAlias()).isEqualTo("customer");
         assertThat(result.metadata().getTableName()).isEqualTo("crm_customer");
         assertThat(result.metadata().getDataScopeEnabled()).isTrue();
+        assertThat(result.metadata().getCapabilityDeclarations()).isEmpty();
         assertThat(result.relation().getModuleAlias()).isEqualTo("crm.customer");
         assertThat(result.relation().getMetadataId()).isEqualTo(result.metadata().getId());
         assertThat(result.relation().getRelationRole()).isEqualTo(RelationRole.MAIN);
+        assertThat(result.relation().getTitle()).isEqualTo("客户");
     }
 
     @Test
