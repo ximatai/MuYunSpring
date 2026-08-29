@@ -24,7 +24,10 @@ export interface MetadataModelEditDraft {
 }
 
 export type MetadataFieldGovernanceKind =
-  'BUSINESS' | 'CAPABILITY_DERIVED' | 'PLATFORM_SYSTEM' | 'RELATION_FOREIGN_KEY';
+  | 'BUSINESS'
+  | 'CAPABILITY_DERIVED'
+  | 'PLATFORM_SYSTEM'
+  | 'RELATION_FOREIGN_KEY';
 
 export function createMetadataModelEditSession() {
   const draft = ref<MetadataModelEditDraft>();

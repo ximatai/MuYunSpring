@@ -2,7 +2,10 @@ import type { PageHostType } from '@muyun/web-contracts';
 import { isLegacyModulePageHostType } from './legacyPageHostTypeCompatibility';
 
 export type PageHostComponentName =
-  'PlatformRouteHost' | 'BusinessRouteHost' | 'ModulePageHost' | 'ExternalPageHost';
+  | 'PlatformRouteHost'
+  | 'BusinessRouteHost'
+  | 'ModulePageHost'
+  | 'ExternalPageHost';
 
 export function resolvePageHostComponentName(hostType: PageHostType): PageHostComponentName {
   switch (hostType) {

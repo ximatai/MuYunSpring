@@ -114,16 +114,18 @@ const displayedFields = computed(() => {
   const configuredNames = new Set(sessionFields.value.map((field) => field.fieldName));
   const systemFields = (capabilitySnapshot.value?.systemFields ?? [])
     .filter((field) => !configuredNames.has(field.fieldName))
-    .map((field): MetadataField => ({
-      id: `system:${field.fieldName}`,
-      fieldName: field.fieldName,
-      title: field.title,
-      fieldSpecAlias: field.fieldSpecAlias,
-      fieldOwnership: 'PLATFORM',
-      fieldForm: 'PHYSICAL',
-      systemManaged: true,
-      enabled: true,
-    }));
+    .map(
+      (field): MetadataField => ({
+        id: `system:${field.fieldName}`,
+        fieldName: field.fieldName,
+        title: field.title,
+        fieldSpecAlias: field.fieldSpecAlias,
+        fieldOwnership: 'PLATFORM',
+        fieldForm: 'PHYSICAL',
+        systemManaged: true,
+        enabled: true,
+      }),
+    );
   return [...sessionFields.value, ...systemFields];
 });
 const metadataTabs = computed(() =>

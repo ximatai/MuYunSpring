@@ -45,7 +45,13 @@ export interface UiModuleFieldOption {
 }
 
 export type UiOrchestrationMode =
-  'view' | 'create-set' | 'edit-set' | 'create-config' | 'edit-config' | 'create-field' | 'edit-field';
+  | 'view'
+  | 'create-set'
+  | 'edit-set'
+  | 'create-config'
+  | 'edit-config'
+  | 'create-field'
+  | 'edit-field';
 
 /** Selection and editor lifecycle for a module's nested UI configuration workspace. */
 export function createUiOrchestrationState() {

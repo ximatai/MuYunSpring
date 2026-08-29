@@ -108,7 +108,8 @@ export interface WebBusinessNotification {
 }
 
 export type WebBusinessNotificationAction =
-  WebBusinessNotificationNavigateAction | WebBusinessNotificationRecordAction;
+  | WebBusinessNotificationNavigateAction
+  | WebBusinessNotificationRecordAction;
 
 export interface WebBusinessNotificationNavigateAction {
   kind: 'navigate';
@@ -556,7 +557,11 @@ export type MenuNavigationTarget = ModuleMenuTarget | RouteMenuTarget | External
 export type MenuNavigationType = MenuNavigationTarget['menuType'];
 
 export type PageType =
-  'platform-route' | 'business-route' | 'dynamic-module' | 'remote-url' | 'external-link';
+  | 'platform-route'
+  | 'business-route'
+  | 'dynamic-module'
+  | 'remote-url'
+  | 'external-link';
 
 export type OpenMode = 'workbench-route' | 'dynamic-runner' | 'iframe' | 'new-window';
 
@@ -801,7 +806,15 @@ export interface WebReferenceResolveResponse {
 }
 
 export type QueryValueType =
-  'STRING' | 'TEXT' | 'BOOLEAN' | 'INTEGER' | 'LONG' | 'DECIMAL' | 'INSTANT' | 'DATE' | 'JSON';
+  | 'STRING'
+  | 'TEXT'
+  | 'BOOLEAN'
+  | 'INTEGER'
+  | 'LONG'
+  | 'DECIMAL'
+  | 'INSTANT'
+  | 'DATE'
+  | 'JSON';
 
 export type QueryOperator =
   | 'EQ'

@@ -21,7 +21,9 @@ export interface ScopedTreeModuleContextOptions {
  */
 export interface QueryScopedTreeModuleContextOptions {
   queryValues:
-    Record<string, RouteQueryValue> | undefined | (() => Record<string, RouteQueryValue> | undefined);
+    | Record<string, RouteQueryValue>
+    | undefined
+    | (() => Record<string, RouteQueryValue> | undefined);
   treePath: string;
   sortPath?: string;
 }
