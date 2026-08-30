@@ -48,7 +48,15 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                                                            PlatformPresentationRevision revision,
                                                            Collection<String> mainEntityFieldNames) {
         return fromRevision(page, revision, revision == null ? null : revision.getUiTreeJson(),
-                mainEntityFieldNames, true);
+                fieldTitles(mainEntityFieldNames), true);
+    }
+
+    /** Dynamic sources supply their metadata titles here; an explicit tree label still wins. */
+    public static ModuleUiDefinition fromPublishedRevision(PlatformPageDefinition page,
+                                                           PlatformPresentationRevision revision,
+                                                           Map<String, String> mainEntityFieldTitles) {
+        return fromRevision(page, revision, revision == null ? null : revision.getUiTreeJson(),
+                mainEntityFieldTitles, true);
     }
 
     /**
@@ -60,13 +68,20 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                                                          PlatformPresentationRevision revision,
                                                          String uiTreeJson,
                                                          Collection<String> mainEntityFieldNames) {
-        return fromRevision(page, revision, uiTreeJson, mainEntityFieldNames, false);
+        return fromRevision(page, revision, uiTreeJson, fieldTitles(mainEntityFieldNames), false);
+    }
+
+    public static ModuleUiDefinition fromPreviewRevision(PlatformPageDefinition page,
+                                                         PlatformPresentationRevision revision,
+                                                         String uiTreeJson,
+                                                         Map<String, String> mainEntityFieldTitles) {
+        return fromRevision(page, revision, uiTreeJson, mainEntityFieldTitles, false);
     }
 
     private static ModuleUiDefinition fromRevision(PlatformPageDefinition page,
                                                    PlatformPresentationRevision revision,
                                                    String uiTreeJson,
-                                                   Collection<String> mainEntityFieldNames,
+                                                   Map<String, String> mainEntityFieldTitles,
                                                    boolean requirePublished) {
         if (page == null) {
             throw new IllegalArgumentException("page definition must not be null");
@@ -87,29 +102,32 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 || revision.getTemplateVersion() != PlatformPresentationTemplateCatalog.MANAGEMENT_VERSION) {
             throw new IllegalArgumentException("page revision requires management v1 template: " + revision.getId());
         }
-        Set<String> knownFields = knownMainFields(mainEntityFieldNames);
+        Map<String, String> fieldTitles = fieldTitles(mainEntityFieldTitles);
+        Set<String> knownFields = knownMainFields(fieldTitles.keySet());
         Map<String, Slot> slots = slots(revision.getId(), uiTreeJson);
         Slot list = requireSlot(slots, "list", revision.getId());
         Slot form = requireSlot(slots, "form", revision.getId());
         return new ModuleUiDefinition(page.getModuleAlias(), List.of(),
                 new ListDetailCardPageDefinition(null,
                         new PageListDefinition(list.title(), view(ModuleUiViewCodes.DEFAULT_LIST, ModuleViewKind.LIST,
-                                list, knownFields)),
+                                list, knownFields, fieldTitles)),
                         new PageDetailDefinition(null, form.title(), null,
-                                view(ModuleUiViewCodes.DEFAULT_FORM, ModuleViewKind.FORM, form, knownFields)),
+                                view(ModuleUiViewCodes.DEFAULT_FORM, ModuleViewKind.FORM, form, knownFields, fieldTitles)),
                         new PageTraitsDefinition(null)),
                 null, List.of(), List.of());
     }
 
-    private static ViewDefinition view(String viewCode, ModuleViewKind viewKind, Slot slot, Set<String> knownFields) {
+    private static ViewDefinition view(String viewCode, ModuleViewKind viewKind, Slot slot, Set<String> knownFields,
+                                       Map<String, String> fieldTitles) {
         List<ViewFieldDefinition> fields = slot.fields().stream()
-                .map(field -> field(field, slot.slot(), knownFields))
+                .map(field -> field(field, slot.slot(), knownFields, fieldTitles))
                 .toList();
         return new ViewDefinition(viewCode, viewKind, ModuleUiClientType.WEB, slot.title(), fields,
                 null, List.of(), List.of());
     }
 
-    private static ViewFieldDefinition field(FieldNode field, String slot, Set<String> knownFields) {
+    private static ViewFieldDefinition field(FieldNode field, String slot, Set<String> knownFields,
+                                             Map<String, String> fieldTitles) {
         if (field.name() == null || field.name().isBlank()) {
             throw new IllegalArgumentException("management " + slot + " slot contains a blank field");
         }
@@ -119,8 +137,9 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                     + normalized);
         }
         ViewFieldDefinition.Builder builder = ViewFieldDefinition.field(normalized);
-        if (field.label() != null) {
-            builder.label(field.label());
+        String label = field.label() == null ? fieldTitles.get(normalized) : field.label();
+        if (label != null) {
+            builder.label(label);
         }
         if ("list".equals(slot)) {
             if (field.width() != null) {
@@ -152,6 +171,33 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             normalized.add(field.trim());
         }
         return Set.copyOf(normalized);
+    }
+
+    private static Map<String, String> fieldTitles(Collection<String> fields) {
+        if (fields == null) {
+            throw new IllegalArgumentException("main entity field names must not be null");
+        }
+        LinkedHashMap<String, String> titles = new LinkedHashMap<>();
+        for (String field : fields) {
+            titles.put(field, null);
+        }
+        return fieldTitles(titles);
+    }
+
+    private static Map<String, String> fieldTitles(Map<String, String> fields) {
+        if (fields == null) {
+            throw new IllegalArgumentException("main entity field titles must not be null");
+        }
+        LinkedHashMap<String, String> normalized = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : fields.entrySet()) {
+            String field = entry.getKey();
+            if (field == null || field.isBlank()) {
+                throw new IllegalArgumentException("main entity field names must not contain blank values");
+            }
+            String title = entry.getValue();
+            normalized.put(field.trim(), title == null || title.isBlank() ? null : title.trim());
+        }
+        return java.util.Collections.unmodifiableMap(normalized);
     }
 
     private static Map<String, Slot> slots(String revisionId, String uiTreeJson) {

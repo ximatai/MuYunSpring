@@ -5,4 +5,7 @@ export const pageCompositionTransport = {
   globalScope: 'global',
   draftRevision: 'draft',
   publishedRevision: 'published',
+  previewRevisionPath(variantId: string, revisionId: string) {
+    return `/platform.presentation-variant/${encodeURIComponent(variantId)}/revisions/${encodeURIComponent(revisionId)}/preview`;
+  },
 } as const;

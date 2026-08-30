@@ -37,7 +37,8 @@ class PresentationRevisionPreviewServiceTest {
         when(variantService.requireVisibleVariant("variant-1")).thenReturn(variant);
         when(revisionService.requireVisibleRevision("variant-1", "revision-2")).thenReturn(revision);
         when(pageService.requireVisiblePage("page-1")).thenReturn(page);
-        when(runtimeContexts.dynamicMainFieldNames("education.exam")).thenReturn(List.of("title", "examDate"));
+        when(runtimeContexts.dynamicMainFieldTitles("education.exam"))
+                .thenReturn(java.util.Map.of("title", "考试名称", "examDate", "考试日期"));
         when(runtimeContexts.previewDynamicPageDescriptor(any(), any())).thenReturn(descriptor);
         PresentationRevisionPreviewService service = new PresentationRevisionPreviewService(variantService, revisionService,
                 pageService, new PlatformPresentationTemplateCatalog(), runtimeContexts);

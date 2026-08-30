@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   ManagementExplorerColumn,
   ManagementWorkspace,
@@ -28,6 +28,7 @@ import {
 import type {
   MetadataField,
   ModuleMetadataRelation,
+  ResolvedModuleUiDescriptor,
   WebPageResponse,
   WebQueryCondition,
 } from '@muyun/web-contracts';
@@ -38,6 +39,7 @@ import {
   type PageComposerSlot,
 } from './pageCompositionDraftState';
 import { pageCompositionTransport } from './pageCompositionTransport';
+import PageCompositionDescriptorPreview from './PageCompositionDescriptorPreview.vue';
 
 defineOptions({ name: 'PageCompositionWorkspace' });
 
@@ -61,17 +63,17 @@ const uiExpandedKeys = ref<string[]>(['ui:root', 'ui:slot:list', 'ui:slot:form']
 const propertyDrawerOpen = ref(false);
 const propertyDraft = ref<PageComposerFieldProperties>({});
 const savedUiTreeJson = ref<string>();
+const previewDescriptor = ref<ResolvedModuleUiDescriptor>();
+const previewLoading = ref(false);
+const previewError = ref<string>();
+let previewRequestSequence = 0;
+let previewDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 const previewTabs: UiTabItem[] = [
   { key: 'list', title: '列表预览' },
   { key: 'card', title: '列表卡片' },
   { key: 'detail', title: '详情预览' },
 ];
-const listPreviewGridStyle = computed(() => ({
-  gridTemplateColumns: state.listFields.value
-    .map((field) => field.properties?.width ?? 'minmax(120px, 1fr)')
-    .join(' '),
-}));
 const visibleFields = computed(() => {
   const keyword = fieldKeyword.value.trim().toLowerCase();
   if (!keyword) return metadataFields.value;
@@ -83,6 +85,10 @@ const selectedField = computed(() => state.selectedNode.value?.field);
 const selectedFieldLabel = computed(() =>
   selectedField.value ? fieldDisplayTitle(selectedField.value) : '组件',
 );
+const selectedPreviewFieldName = computed(() => {
+  const node = state.selectedNode.value;
+  return node?.field ? `${node.slot}:${node.field.fieldName}` : undefined;
+});
 const currentUiTreeJson = computed(() => JSON.stringify(state.toManagementUiTree()));
 const hasUnsavedChanges = computed(() =>
   Boolean(revision.value?.id && savedUiTreeJson.value !== currentUiTreeJson.value),
@@ -179,9 +185,18 @@ watch(selectedField, (field) => {
 
 watch(
   () => props.moduleAlias,
-  () => void loadWorkspace(),
+  () => {
+    resetPreviewDescriptor();
+    void loadWorkspace();
+  },
   { immediate: true },
 );
+
+watch([currentUiTreeJson, () => variant.value?.id, () => revision.value?.id], () =>
+  schedulePreviewDescriptor(),
+);
+
+onBeforeUnmount(() => resetPreviewDescriptor());
 
 type PageDefinition = {
   id?: string;
@@ -213,6 +228,12 @@ type PresentationRevision = {
   uiTreeJson?: string;
   status?: 'draft' | 'published' | 'archived';
   enabled?: boolean;
+};
+type PresentationRevisionPreview = {
+  pageId: string;
+  variantId: string;
+  revisionId: string;
+  uiDescriptor: ResolvedModuleUiDescriptor;
 };
 
 function pageClient() {
@@ -267,6 +288,7 @@ async function loadMetadataTree() {
 }
 
 async function loadComposition() {
+  resetPreviewDescriptor();
   page.value = undefined;
   variant.value = undefined;
   revision.value = undefined;
@@ -298,6 +320,58 @@ async function loadComposition() {
     hydrateDraft(revision.value);
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+  }
+}
+
+function resetPreviewDescriptor() {
+  previewRequestSequence += 1;
+  if (previewDebounceTimer) {
+    clearTimeout(previewDebounceTimer);
+    previewDebounceTimer = undefined;
+  }
+  previewDescriptor.value = undefined;
+  previewLoading.value = false;
+  previewError.value = undefined;
+}
+
+function schedulePreviewDescriptor() {
+  const variantId = variant.value?.id;
+  const revisionId = revision.value?.id;
+  if (!variantId || !revisionId) {
+    resetPreviewDescriptor();
+    return;
+  }
+  const requestSequence = ++previewRequestSequence;
+  if (previewDebounceTimer) clearTimeout(previewDebounceTimer);
+  previewLoading.value = true;
+  previewError.value = undefined;
+  const uiTreeJson = currentUiTreeJson.value;
+  previewDebounceTimer = setTimeout(() => {
+    previewDebounceTimer = undefined;
+    void requestPreviewDescriptor(requestSequence, variantId, revisionId, uiTreeJson);
+  }, 250);
+}
+
+async function requestPreviewDescriptor(
+  requestSequence: number,
+  variantId: string,
+  revisionId: string,
+  uiTreeJson: string,
+) {
+  try {
+    const preview = await moduleContext.http.request<PresentationRevisionPreview>({
+      method: 'POST',
+      path: pageCompositionTransport.previewRevisionPath(variantId, revisionId),
+      body: { uiTreeJson },
+    });
+    if (requestSequence !== previewRequestSequence) return;
+    previewDescriptor.value = preview.uiDescriptor;
+    previewError.value = undefined;
+  } catch (cause) {
+    if (requestSequence !== previewRequestSequence) return;
+    previewError.value = cause instanceof Error ? cause.message : '服务端未能解析当前草稿。';
+  } finally {
+    if (requestSequence === previewRequestSequence) previewLoading.value = false;
   }
 }
 
@@ -723,18 +797,16 @@ function selectPreviewField(slot: PageComposerSlot, field: PageComposerField) {
   selectNode({ id: `${slot}:${field.id}`, kind: 'field', title: field.title, slot, field });
 }
 
+function selectDescriptorPreviewField(slot: PageComposerSlot, fieldName: string, configure = false) {
+  const field = fieldsInSlot(slot).find((candidate) => candidate.fieldName === fieldName);
+  if (!field) return;
+  selectPreviewField(slot, field);
+  if (configure) openPropertyDrawer();
+}
+
 function selectPreviewMode(key: string) {
   if (isMutating.value || (key !== 'list' && key !== 'card' && key !== 'detail')) return;
   state.previewMode.value = key;
-}
-
-function openPreviewFieldProperties(slot: PageComposerSlot, field: PageComposerField) {
-  selectPreviewField(slot, field);
-  openPropertyDrawer();
-}
-
-function isPreviewFieldSelected(slot: PageComposerSlot, field: PageComposerField) {
-  return state.selectedNodeId.value === `${slot}:${field.id}`;
 }
 
 function canMoveSelectedField(offset: -1 | 1) {
@@ -898,121 +970,36 @@ function applyPropertyDraft() {
         :tabs="previewTabs"
         @update:active-key="selectPreviewMode"
       />
-      <section
-        v-if="state.previewMode.value === 'list'"
-        class="preview-surface"
-        data-testid="page-composer-list-preview"
+      <p v-if="previewLoading" class="page-composition-preview-status" aria-live="polite">
+        草稿解析中{{ previewDescriptor ? '；当前仍展示上一次成功解析的结果。' : '。' }}
+      </p>
+      <p
+        v-else-if="previewError"
+        class="page-composition-preview-status page-composition-preview-status--error"
+        aria-live="polite"
       >
-        <header class="preview-surface__toolbar">
-          <strong>列表布局</strong><span>字段来自页面结构</span>
-        </header>
-        <div class="preview-table">
-          <div v-if="!state.listFields.value.length" class="preview-empty">
-            从元数据拖入字段，开始配置列表
-          </div>
-          <template v-else>
-            <div class="preview-table__header" :style="listPreviewGridStyle">
-              <span
-                v-for="field in state.listFields.value"
-                :key="field.id"
-                class="preview-field"
-                :class="{ 'preview-field--selected': isPreviewFieldSelected('list', field) }"
-                :style="{ textAlign: field.properties?.align }"
-                role="button"
-                tabindex="0"
-                :title="`配置${fieldDisplayTitle(field)}`"
-                @click="selectPreviewField('list', field)"
-                @dblclick="openPreviewFieldProperties('list', field)"
-                @keydown.enter="openPreviewFieldProperties('list', field)"
-                @keydown.space.prevent="openPreviewFieldProperties('list', field)"
-                >{{ fieldDisplayTitle(field) }}</span
-              >
-            </div>
-            <div class="preview-table__row" :style="listPreviewGridStyle">
-              <span
-                v-for="field in state.listFields.value"
-                :key="field.id"
-                class="preview-field"
-                :class="{ 'preview-field--selected': isPreviewFieldSelected('list', field) }"
-                :style="{ textAlign: field.properties?.align }"
-                role="button"
-                tabindex="0"
-                :title="`配置${fieldDisplayTitle(field)}`"
-                @click="selectPreviewField('list', field)"
-                @dblclick="openPreviewFieldProperties('list', field)"
-                @keydown.enter="openPreviewFieldProperties('list', field)"
-                @keydown.space.prevent="openPreviewFieldProperties('list', field)"
-                >{{ field.fieldSpecAlias ?? '文本' }}</span
-              >
-            </div>
-          </template>
-        </div>
-      </section>
-      <section
-        v-else-if="state.previewMode.value === 'card'"
-        class="preview-surface"
-        data-testid="page-composer-card-preview"
-      >
-        <header class="preview-surface__toolbar">
-          <strong>列表卡片</strong><span>继承列表字段，不单独编排</span>
-        </header>
-        <div v-if="!state.cardFields.value.length" class="preview-empty">
-          先配置列表字段，即可查看卡片呈现
-        </div>
-        <div v-else class="preview-cards">
-          <article v-for="sample in ['示例记录 A', '示例记录 B']" :key="sample" class="preview-card">
-            <header>
-              <strong>{{ sample }}</strong
-              ><span>卡片</span>
-            </header>
-            <dl>
-              <div
-                v-for="field in state.cardFields.value"
-                :key="field.id"
-                class="preview-card__field preview-field"
-                :class="{ 'preview-field--selected': isPreviewFieldSelected('list', field) }"
-                role="button"
-                tabindex="0"
-                :title="`配置${fieldDisplayTitle(field)}`"
-                @click="selectPreviewField('list', field)"
-                @dblclick="openPreviewFieldProperties('list', field)"
-                @keydown.enter="openPreviewFieldProperties('list', field)"
-                @keydown.space.prevent="openPreviewFieldProperties('list', field)"
-              >
-                <dt>{{ fieldDisplayTitle(field) }}</dt>
-                <dd>{{ field.fieldSpecAlias ?? '文本' }}</dd>
-              </div>
-            </dl>
-          </article>
-        </div>
-      </section>
-      <section v-else class="preview-surface" data-testid="page-composer-detail-preview">
-        <div v-if="!state.formFields.value.length" class="preview-empty">
-          从元数据拖入字段，开始配置详情 / 表单
-        </div>
-        <dl v-else class="preview-form">
-          <div
-            v-for="field in state.formFields.value"
-            :key="field.id"
-            class="preview-form__field preview-field"
-            :class="{ 'preview-field--selected': isPreviewFieldSelected('form', field) }"
-            :style="{ gridColumn: `span ${field.properties?.columnSpan ?? 1}` }"
-            role="button"
-            tabindex="0"
-            :title="`配置${fieldDisplayTitle(field)}`"
-            @click="selectPreviewField('form', field)"
-            @dblclick="openPreviewFieldProperties('form', field)"
-            @keydown.enter="openPreviewFieldProperties('form', field)"
-            @keydown.space.prevent="openPreviewFieldProperties('form', field)"
-          >
-            <dt>{{ fieldDisplayTitle(field) }}<em v-if="field.required">*</em></dt>
-            <dd>
-              <span>{{ field.fieldSpecAlias ?? '输入控件' }}</span>
-              <small v-if="field.properties?.readOnly">只读</small>
-            </dd>
-          </div>
-        </dl>
-      </section>
+        草稿解析失败：{{ previewError }}
+      </p>
+      <PageCompositionDescriptorPreview
+        v-if="previewDescriptor"
+        :descriptor="previewDescriptor"
+        :mode="state.previewMode.value"
+        :selected-field-name="selectedPreviewFieldName"
+        @select-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName)"
+        @configure-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName, true)"
+      />
+      <UiEmpty
+        v-else-if="revision && !previewLoading"
+        class="page-composition-preview-empty"
+        :description="
+          previewError ? '保留当前草稿；修正页面结构后将自动重新解析。' : '正在等待草稿解析结果。'
+        "
+      />
+      <UiEmpty
+        v-else-if="!revision"
+        class="page-composition-preview-empty"
+        description="初始化页面草稿后，即可查看服务端解析的页面预览。"
+      />
     </RecordDetailPanel>
 
     <RecordDetailDrawer
@@ -1195,137 +1182,20 @@ function applyPropertyDraft() {
   font-size: 12px;
   line-height: 1.5;
 }
-.preview-surface {
+.page-composition-preview-status {
+  margin: 10px 0 0;
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.page-composition-preview-status--error {
+  color: var(--muyun-danger);
+}
+.page-composition-preview-empty {
+  min-height: 280px;
   margin-top: 12px;
   border: 1px solid var(--muyun-border);
   border-radius: 8px;
-  min-height: 280px;
-  padding: 16px;
-}
-.preview-surface__toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 18px;
-}
-.preview-surface__toolbar span {
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-}
-.preview-table {
-  border: 1px solid var(--muyun-border-subtle);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.preview-table__header,
-.preview-table__row {
-  display: grid;
-}
-.preview-table__header {
-  background: var(--muyun-surface-muted);
-  font-weight: 600;
-}
-.preview-table span {
-  padding: 10px;
-  border-right: 1px solid var(--muyun-border-subtle);
-}
-.preview-field {
-  cursor: pointer;
-  outline: 1px solid transparent;
-  outline-offset: -1px;
-  transition:
-    outline-color 120ms ease,
-    background 120ms ease;
-}
-.preview-field:hover,
-.preview-field:focus-visible {
-  outline-color: var(--muyun-primary);
-}
-.preview-field--selected {
-  outline: 2px solid var(--muyun-primary);
-  background: var(--muyun-primary-surface, var(--muyun-hover));
-}
-.preview-empty {
-  display: grid;
-  min-height: 180px;
-  place-items: center;
-  color: var(--muyun-text-muted);
-}
-.preview-form {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 16px;
-  max-width: 760px;
-}
-.preview-form__field {
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-}
-.preview-form dt {
-  color: var(--muyun-text-muted);
-}
-.preview-form dd {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--muyun-border);
-  border-radius: 4px;
-}
-.preview-form small {
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-}
-.preview-form em {
-  color: var(--muyun-danger);
-  margin-left: 4px;
-}
-.preview-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 14px;
-}
-.preview-card {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid var(--muyun-border-subtle);
-  border-radius: 8px;
-  background: var(--muyun-surface);
-}
-.preview-card header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.preview-card header span {
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-}
-.preview-card dl {
-  display: grid;
-  grid-template-columns: minmax(76px, auto) 1fr;
-  gap: 8px 12px;
-  margin: 0;
-}
-.preview-card dt {
-  color: var(--muyun-text-muted);
-}
-.preview-card dd {
-  margin: 0;
-}
-.preview-card__field {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: minmax(76px, auto) 1fr;
-  gap: 8px 12px;
-  margin: -2px;
-  padding: 2px;
-  border-radius: 4px;
 }
 .component-property-drawer {
   display: grid;

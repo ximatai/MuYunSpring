@@ -301,8 +301,8 @@ public class PlatformModuleRuntimeContextService {
                 validModuleAlias), dynamicDescriptor, definition);
     }
 
-    /** Returns the installed main-entity namespace used to validate a transient page tree. */
-    public List<String> dynamicMainFieldNames(String moduleAlias) {
+    /** Returns installed dynamic main-field facts used by page-tree validation and descriptor labels. */
+    public java.util.Map<String, String> dynamicMainFieldTitles(String moduleAlias) {
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         PlatformModule module = moduleService.resolveVisibleModule(validModuleAlias);
         DynamicModuleDescriptor dynamicDescriptor = dynamicDescriptor(module, validModuleAlias);
@@ -312,8 +312,10 @@ public class PlatformModuleRuntimeContextService {
         }
         return dynamicDescriptor.entities().stream()
                 .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias()))
-                .findFirst().map(entity -> entity.fields().stream()
-                        .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::fieldName).toList())
+                .findFirst().map(entity -> entity.fields().stream().collect(java.util.stream.Collectors.toMap(
+                        net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::fieldName,
+                        net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::title,
+                        (left, right) -> left, LinkedHashMap::new)))
                 .orElseThrow(() -> new IllegalStateException("dynamic runtime has no main entity: " + validModuleAlias));
     }
 

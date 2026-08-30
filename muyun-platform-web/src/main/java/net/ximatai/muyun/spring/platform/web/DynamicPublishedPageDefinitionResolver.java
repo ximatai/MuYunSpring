@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionResolver;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
 import java.util.Optional;
 
 /** Resolves the first executable page-composition source for dynamic modules.
@@ -42,8 +43,11 @@ public class DynamicPublishedPageDefinitionResolver {
         return PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page, revision,
                 module.entities().stream().filter(entity -> module.mainEntityAlias().equals(entity.entityAlias()))
                         .findFirst().map(entity -> entity.fields().stream()
-                                .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::fieldName)
-                                .toList()).orElseThrow(() -> new IllegalStateException(
+                                .collect(java.util.stream.Collectors.toMap(
+                                        net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::fieldName,
+                                        net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::title,
+                                        (left, right) -> left, LinkedHashMap::new)))
+                        .orElseThrow(() -> new IllegalStateException(
                                 "dynamic runtime has no main entity: " + module.moduleAlias())));
     }
 

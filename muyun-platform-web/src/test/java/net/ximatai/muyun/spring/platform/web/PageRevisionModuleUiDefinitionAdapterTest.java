@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPresentationTemplateCatalog;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -124,6 +125,36 @@ class PageRevisionModuleUiDefinitionAdapterTest {
 
         assertThat(((ListDetailCardPageDefinition) definition.page()).list().list().title()).isEqualTo("草稿考试");
         assertThat(draft.getUiTreeJson()).doesNotContain("草稿考试");
+    }
+
+    @Test
+    void shouldUseDynamicMetadataTitleByDefaultAndPreserveExplicitTreeLabelForPublishedAndPreview() {
+        String tree = """
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"考试","fields":["acceptanceNote",
+                    {"field":"title","props":{"label":"页面标题"}}]},
+                  {"slot":"form","title":"编辑考试","fields":["acceptanceNote","title"]}
+                ]}
+                """;
+        Map<String, String> titles = Map.of("acceptanceNote", "验收说明（发布验证）", "title", "元数据标题");
+        PlatformPresentationRevision published = revision(tree);
+        PlatformPresentationRevision draft = revision(tree);
+        draft.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+
+        ModuleUiDefinition publishedDefinition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(),
+                published, titles);
+        ModuleUiDefinition previewDefinition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page(), draft,
+                tree, titles);
+
+        assertThat(labels(publishedDefinition)).containsExactly("验收说明（发布验证）", "页面标题",
+                "验收说明（发布验证）", "元数据标题");
+        assertThat(labels(previewDefinition)).containsExactlyElementsOf(labels(publishedDefinition));
+    }
+
+    private List<String> labels(ModuleUiDefinition definition) {
+        ListDetailCardPageDefinition page = (ListDetailCardPageDefinition) definition.page();
+        return java.util.stream.Stream.concat(page.list().list().fields().stream(), page.detail().editor().fields().stream())
+                .map(ViewFieldDefinition::label).toList();
     }
 
     private PlatformPageDefinition page() {
