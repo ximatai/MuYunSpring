@@ -62,6 +62,7 @@ const metadataExpandedKeys = ref<string[]>(['metadata:root']);
 const uiExpandedKeys = ref<string[]>(['ui:root', 'ui:slot:list', 'ui:slot:list:fields', 'ui:slot:form']);
 const propertyDrawerOpen = ref(false);
 const propertyDraft = ref<PageComposerFieldProperties>({});
+const quickSearchPlaceholderDraft = ref('');
 const savedUiTreeJson = ref<string>();
 const previewDescriptor = ref<ResolvedModuleUiDescriptor>();
 const previewLoading = ref(false);
@@ -82,8 +83,13 @@ const visibleFields = computed(() => {
   );
 });
 const selectedField = computed(() => state.selectedNode.value?.field);
+const selectedQuickSearch = computed(() => state.selectedNode.value?.id === 'template:list:quick-search');
 const selectedFieldLabel = computed(() =>
-  selectedField.value ? fieldDisplayTitle(selectedField.value) : '组件',
+  selectedQuickSearch.value
+    ? '快速查询'
+    : selectedField.value
+      ? fieldDisplayTitle(selectedField.value)
+      : '组件',
 );
 const selectedPreviewFieldName = computed(() => {
   const node = state.selectedNode.value;
@@ -106,6 +112,7 @@ const propertyValidationMessage = computed(() => {
 const selectedUiTreeKey = computed(() => {
   const node = state.selectedNode.value;
   if (!node) return undefined;
+  if (node.kind === 'template') return 'ui:template:list:quick-search';
   return node.kind === 'slot'
     ? node.slot === 'list'
       ? 'ui:slot:list:fields'
@@ -173,8 +180,7 @@ const uiTreeNodes = computed<UiTreeNode[]>(() => [
           {
             key: 'ui:template:list:quick-search',
             title: '快速查询',
-            secondary: '模板内置 · 只读',
-            disabled: true,
+            secondary: state.quickSearchPlaceholder.value ? '模板内置 · 已配置' : '模板内置 · 可配置',
             isLeaf: true,
           },
           {
@@ -207,6 +213,10 @@ const uiTreeNodes = computed<UiTreeNode[]>(() => [
 
 watch(selectedField, (field) => {
   propertyDraft.value = { ...(field?.properties ?? {}) };
+});
+
+watch(selectedQuickSearch, (selected) => {
+  if (selected) quickSearchPlaceholderDraft.value = state.quickSearchPlaceholder.value ?? '';
 });
 
 watch(
@@ -320,6 +330,7 @@ async function loadComposition() {
   revision.value = undefined;
   publishedRevision.value = undefined;
   state.replaceFields({ list: [], form: [] });
+  state.updateQuickSearchPlaceholder(undefined);
   savedUiTreeJson.value = undefined;
   try {
     const pages = await loadAllFromClient(pageClient(), [
@@ -413,6 +424,7 @@ function hydrateDraft(current: PresentationRevision | undefined) {
   if (!current?.uiTreeJson) return;
   try {
     const tree = JSON.parse(current.uiTreeJson) as {
+      props?: { list?: { searchPlaceholder?: unknown } };
       nodes?: Array<{
         slot?: PageComposerSlot;
         fields?: Array<string | { field?: string; props?: PageComposerFieldProperties }>;
@@ -438,6 +450,9 @@ function hydrateDraft(current: PresentationRevision | undefined) {
         .map(resolveField)
         .filter((field): field is PageComposerField => Boolean(field)),
     });
+    state.updateQuickSearchPlaceholder(
+      typeof tree.props?.list?.searchPlaceholder === 'string' ? tree.props.list.searchPlaceholder : undefined,
+    );
     savedUiTreeJson.value = currentUiTreeJson.value;
   } catch {
     // Publication validates the persisted tree. A malformed draft should remain editable as an empty local tree.
@@ -590,6 +605,7 @@ function latestRevision(revisions: PresentationRevision[]) {
 
 type PersistedUiField = { field: string; props?: PageComposerFieldProperties };
 type PersistedUiTree = {
+  props?: { list?: { searchPlaceholder?: unknown } };
   nodes?: Array<{ slot?: PageComposerSlot; fields?: Array<string | PersistedUiField> }>;
 };
 
@@ -602,8 +618,8 @@ function summarizeUiTreeChanges(savedTreeJson: string | undefined, currentTreeJs
   let propertiesChanged = 0;
   let reordered = false;
   for (const slot of ['list', 'form'] as PageComposerSlot[]) {
-    const savedFields = saved.get(slot) ?? [];
-    const currentFields = current.get(slot) ?? [];
+    const savedFields = saved.fieldsBySlot.get(slot) ?? [];
+    const currentFields = current.fieldsBySlot.get(slot) ?? [];
     const savedByName = new Map(savedFields.map((field) => [field.field, field]));
     const currentByName = new Map(currentFields.map((field) => [field.field, field]));
     added += currentFields.filter((field) => !savedByName.has(field.field)).length;
@@ -625,14 +641,20 @@ function summarizeUiTreeChanges(savedTreeJson: string | undefined, currentTreeJs
   if (removed) changes.push(`移除 ${removed} 个字段`);
   if (reordered) changes.push('调整字段顺序');
   if (propertiesChanged) changes.push(`修改 ${propertiesChanged} 项展示属性`);
+  if (saved.quickSearchPlaceholder !== current.quickSearchPlaceholder) {
+    changes.push('修改快速查询占位提示');
+  }
   return changes.length ? changes : ['调整页面结构'];
 }
 
 function parsePersistedUiTree(treeJson: string | undefined) {
   const fieldsBySlot = new Map<PageComposerSlot, PersistedUiField[]>();
-  if (!treeJson) return fieldsBySlot;
+  let quickSearchPlaceholder: string | undefined;
+  if (!treeJson) return { fieldsBySlot, quickSearchPlaceholder };
   try {
     const tree = JSON.parse(treeJson) as PersistedUiTree;
+    quickSearchPlaceholder =
+      typeof tree.props?.list?.searchPlaceholder === 'string' ? tree.props.list.searchPlaceholder : undefined;
     for (const slot of ['list', 'form'] as PageComposerSlot[]) {
       const fields = tree.nodes?.find((node) => node.slot === slot)?.fields ?? [];
       fieldsBySlot.set(
@@ -646,7 +668,7 @@ function parsePersistedUiTree(treeJson: string | undefined) {
   } catch {
     // A malformed persisted draft is still recoverable through the editor's empty local state.
   }
-  return fieldsBySlot;
+  return { fieldsBySlot, quickSearchPlaceholder };
 }
 
 async function loadAll<T>(path: string): Promise<T[]> {
@@ -703,6 +725,10 @@ function selectUiTreeNode(node: UiTreeNode) {
     selectNode({ id: `slot:${parsed.slot}`, kind: 'slot', title: slotTitle(parsed.slot), slot: parsed.slot });
     return;
   }
+  if (parsed.kind === 'template') {
+    selectNode({ id: 'template:list:quick-search', kind: 'template', title: '快速查询', slot: 'list' });
+    return;
+  }
   if (parsed.kind !== 'field') return;
   const field = fieldsInSlot(parsed.slot).find((candidate) => candidate.id === parsed.fieldId);
   if (field)
@@ -743,7 +769,7 @@ function canDragUiTreeNode(node: UiTreeNode) {
 
 function handleUiTreeDoubleClick(event: UiTreeDragEvent) {
   selectUiTreeNode(event.node);
-  if (parseUiNode(event.node.key)?.kind === 'field') openPropertyDrawer();
+  if (['field', 'template'].includes(parseUiNode(event.node.key)?.kind ?? '')) openPropertyDrawer();
 }
 
 function handleUiTreeDrop(
@@ -862,14 +888,17 @@ function fieldDisplayTitle(field: PageComposerField) {
 }
 
 function openPropertyDrawer() {
-  if (isMutating.value || !selectedField.value) return;
-  propertyDraft.value = { ...(selectedField.value.properties ?? {}) };
+  if (isMutating.value || (!selectedField.value && !selectedQuickSearch.value)) return;
+  if (selectedQuickSearch.value) quickSearchPlaceholderDraft.value = state.quickSearchPlaceholder.value ?? '';
+  else if (selectedField.value) propertyDraft.value = { ...(selectedField.value.properties ?? {}) };
   propertyDrawerOpen.value = true;
 }
 
 function applyPropertyDraft() {
-  if (isMutating.value || !selectedField.value) return;
-  state.updateSelectedFieldProperties(propertyDraft.value);
+  if (isMutating.value) return;
+  if (selectedQuickSearch.value) state.updateQuickSearchPlaceholder(quickSearchPlaceholderDraft.value);
+  else if (selectedField.value) state.updateSelectedFieldProperties(propertyDraft.value);
+  else return;
   propertyDrawerOpen.value = false;
 }
 </script>
@@ -906,27 +935,31 @@ function applyPropertyDraft() {
 
     <ManagementExplorerColumn>
       <RecordExplorerPanel title="页面结构" subtitle="management v1" :searchable="false">
-        <div v-if="selectedField" class="ui-tree__contextbar">
+        <div v-if="state.selectedNode.value" class="ui-tree__contextbar">
           <span>已选：{{ selectedFieldLabel }}</span>
           <div class="ui-tree__operations">
             <UiButton size="small" :disabled="isMutating" @click="openPropertyDrawer">配置</UiButton>
-            <UiButton
-              size="small"
-              :disabled="isMutating || !canMoveSelectedField(-1)"
-              title="已在首位"
-              @click="moveSelectedField(-1)"
-            >
-              上移
-            </UiButton>
-            <UiButton
-              size="small"
-              :disabled="isMutating || !canMoveSelectedField(1)"
-              title="已在末位"
-              @click="moveSelectedField(1)"
-            >
-              下移
-            </UiButton>
-            <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">移除</UiButton>
+            <template v-if="selectedField">
+              <UiButton
+                size="small"
+                :disabled="isMutating || !canMoveSelectedField(-1)"
+                title="已在首位"
+                @click="moveSelectedField(-1)"
+              >
+                上移
+              </UiButton>
+              <UiButton
+                size="small"
+                :disabled="isMutating || !canMoveSelectedField(1)"
+                title="已在末位"
+                @click="moveSelectedField(1)"
+              >
+                下移
+              </UiButton>
+              <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
+                移除
+              </UiButton>
+            </template>
           </div>
         </div>
         <div class="ui-tree" data-testid="page-composer-ui-tree">
@@ -1041,7 +1074,14 @@ function applyPropertyDraft() {
       :width="420"
       @close="propertyDrawerOpen = false"
     >
-      <div v-if="selectedField" class="component-property-drawer">
+      <div v-if="selectedQuickSearch" class="component-property-drawer">
+        <label>
+          <span>搜索占位提示</span>
+          <UiInput v-model:value="quickSearchPlaceholderDraft" placeholder="例如：搜索名称、编码或 ID" />
+        </label>
+        <p>该组件是 management v1 的模板内置快速查询；仅可调整占位提示。</p>
+      </div>
+      <div v-else-if="selectedField" class="component-property-drawer">
         <label>
           <span>展示标题</span>
           <UiInput v-model:value="propertyDraft.label" :placeholder="selectedField.title" />
@@ -1090,7 +1130,7 @@ function applyPropertyDraft() {
         <UiButton @click="propertyDrawerOpen = false">取消</UiButton>
         <UiButton
           type="primary"
-          :disabled="isMutating || Boolean(propertyValidationMessage)"
+          :disabled="isMutating || (!selectedQuickSearch && Boolean(propertyValidationMessage))"
           @click="applyPropertyDraft"
         >
           应用到草稿

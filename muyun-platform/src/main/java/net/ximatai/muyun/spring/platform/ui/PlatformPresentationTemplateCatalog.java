@@ -89,6 +89,7 @@ public class PlatformPresentationTemplateCatalog {
      * these properties describe a field component after it is placed in a page slot.
      */
     private static void validateManagementTree(JsonNode root) {
+        validateManagementRootProperties(root);
         Set<String> slots = new java.util.LinkedHashSet<>();
         for (JsonNode node : root.path("nodes")) {
             String slot = node.path("slot").asText();
@@ -109,6 +110,42 @@ public class PlatformPresentationTemplateCatalog {
             }
         }
         if (!slots.equals(Set.of("list", "form"))) {
+            throw invalidManagementTree();
+        }
+    }
+
+    /**
+     * management v1 has one intentionally narrow root property surface.  Keeping it at the
+     * template boundary prevents a revision from becoming an untyped JSON property bag while
+     * still letting the list's already-supported query prompt be governed with the composition.
+     */
+    private static void validateManagementRootProperties(JsonNode root) {
+        java.util.Iterator<String> rootNames = root.fieldNames();
+        while (rootNames.hasNext()) {
+            if (!Set.of("template", "templateVersion", "nodes", "props").contains(rootNames.next())) {
+                throw invalidManagementTree();
+            }
+        }
+        JsonNode properties = root.path("props");
+        if (properties.isMissingNode()) {
+            return;
+        }
+        if (!properties.isObject()) {
+            throw invalidManagementTree();
+        }
+        java.util.Iterator<String> propertyNames = properties.fieldNames();
+        while (propertyNames.hasNext()) {
+            if (!"list".equals(propertyNames.next())) {
+                throw invalidManagementTree();
+            }
+        }
+        JsonNode list = properties.path("list");
+        if (list.isMissingNode()) {
+            return;
+        }
+        if (!list.isObject() || list.size() != 1 || !list.has("searchPlaceholder")
+                || !list.path("searchPlaceholder").isTextual()
+                || list.path("searchPlaceholder").asText().isBlank()) {
             throw invalidManagementTree();
         }
     }

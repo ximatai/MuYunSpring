@@ -23,7 +23,7 @@ export interface PageComposerFieldProperties {
 
 export interface PageComposerNode {
   id: string;
-  kind: 'slot' | 'field';
+  kind: 'slot' | 'template' | 'field';
   title: string;
   slot: PageComposerSlot;
   field?: PageComposerField;
@@ -32,6 +32,11 @@ export interface PageComposerNode {
 export interface ManagementUiTree {
   template: 'management';
   templateVersion: 1;
+  props?: {
+    list?: {
+      searchPlaceholder: string;
+    };
+  };
   nodes: Array<{
     slot: PageComposerSlot;
     title: string;
@@ -48,6 +53,8 @@ export interface ManagementUiTree {
 export function createPageCompositionDraftState() {
   const listFields = ref<PageComposerField[]>([]);
   const formFields = ref<PageComposerField[]>([]);
+  /** management v1 only: a template-owned quick-search prompt, not a generic JSON node. */
+  const quickSearchPlaceholder = ref<string>();
   const selectedNodeId = ref<string>();
   const previewMode = ref<PageComposerPreviewMode>('list');
   // 卡片是列表数据的另一种呈现，不建立第三份字段配置。
@@ -55,6 +62,7 @@ export function createPageCompositionDraftState() {
 
   const nodes = computed<PageComposerNode[]>(() => [
     { id: 'slot:list', kind: 'slot', title: '列表', slot: 'list' },
+    { id: 'template:list:quick-search', kind: 'template', title: '快速查询', slot: 'list' },
     ...listFields.value.map((field) => ({
       id: `list:${field.id}`,
       kind: 'field' as const,
@@ -146,6 +154,10 @@ export function createPageCompositionDraftState() {
     target.value = next;
   }
 
+  function updateQuickSearchPlaceholder(value: string | undefined) {
+    quickSearchPlaceholder.value = value?.trim() || undefined;
+  }
+
   /** Rehydrates the editor from the persisted template contract, not the legacy UI-set aggregate. */
   function replaceFields(next: { list: PageComposerField[]; form: PageComposerField[] }) {
     listFields.value = [...next.list];
@@ -154,9 +166,13 @@ export function createPageCompositionDraftState() {
   }
 
   function toManagementUiTree(titles?: Partial<Record<PageComposerSlot, string>>): ManagementUiTree {
+    const props = quickSearchPlaceholder.value
+      ? { list: { searchPlaceholder: quickSearchPlaceholder.value } }
+      : undefined;
     return {
       template: 'management',
       templateVersion: 1,
+      ...(props ? { props } : {}),
       nodes: [
         {
           slot: 'list',
@@ -175,6 +191,7 @@ export function createPageCompositionDraftState() {
   return {
     listFields,
     formFields,
+    quickSearchPlaceholder,
     cardFields,
     nodes,
     selectedNodeId,
@@ -186,6 +203,7 @@ export function createPageCompositionDraftState() {
     moveField,
     selectNode,
     updateSelectedFieldProperties,
+    updateQuickSearchPlaceholder,
     replaceFields,
     toManagementUiTree,
   };

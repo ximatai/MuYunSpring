@@ -104,12 +104,14 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         }
         Map<String, String> fieldTitles = fieldTitles(mainEntityFieldTitles);
         Set<String> knownFields = knownMainFields(fieldTitles.keySet());
-        Map<String, Slot> slots = slots(revision.getId(), uiTreeJson);
-        Slot list = requireSlot(slots, "list", revision.getId());
-        Slot form = requireSlot(slots, "form", revision.getId());
+        Composition composition = composition(revision.getId(), uiTreeJson);
+        Slot list = requireSlot(composition.slots(), "list", revision.getId());
+        Slot form = requireSlot(composition.slots(), "form", revision.getId());
         return new ModuleUiDefinition(page.getModuleAlias(), List.of(),
                 new ListDetailCardPageDefinition(null,
-                        new PageListDefinition(list.title(), view(ModuleUiViewCodes.DEFAULT_LIST, ModuleViewKind.LIST,
+                        new PageListDefinition(composition.listSearchPlaceholder() == null ? list.title()
+                                : composition.listSearchPlaceholder(),
+                                view(ModuleUiViewCodes.DEFAULT_LIST, ModuleViewKind.LIST,
                                 list, knownFields, fieldTitles)),
                         new PageDetailDefinition(null, form.title(), null,
                                 view(ModuleUiViewCodes.DEFAULT_FORM, ModuleViewKind.FORM, form, knownFields, fieldTitles)),
@@ -200,7 +202,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         return java.util.Collections.unmodifiableMap(normalized);
     }
 
-    private static Map<String, Slot> slots(String revisionId, String uiTreeJson) {
+    private static Composition composition(String revisionId, String uiTreeJson) {
         JsonNode root;
         try {
             root = OBJECT_MAPPER.readTree(uiTreeJson);
@@ -238,7 +240,15 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 throw new IllegalArgumentException("management page revision declares duplicate " + slot + " slot");
             }
         }
-        return Map.copyOf(slots);
+        JsonNode listProperties = root.path("props").path("list");
+        String searchPlaceholder = listProperties.path("searchPlaceholder").asText(null);
+        if (searchPlaceholder != null) {
+            searchPlaceholder = searchPlaceholder.trim();
+            if (searchPlaceholder.isEmpty()) {
+                searchPlaceholder = null;
+            }
+        }
+        return new Composition(Map.copyOf(slots), searchPlaceholder);
     }
 
     private static Slot requireSlot(Map<String, Slot> slots, String slot, String revisionId) {
@@ -264,6 +274,9 @@ public final class PageRevisionModuleUiDefinitionAdapter {
     }
 
     private record Slot(String slot, String title, List<FieldNode> fields) {
+    }
+
+    private record Composition(Map<String, Slot> slots, String listSearchPlaceholder) {
     }
 
     private record FieldNode(String name, String label, String width, String align, Integer columnSpan,

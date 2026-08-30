@@ -34,6 +34,11 @@ it('uses the standard list cell semantic component for descriptor list and card 
   });
 
   expect(list.findAllComponents({ name: 'RecordQueryListCell' })).toHaveLength(2);
+  expect(list.findComponent({ name: 'UiInput' }).props()).toMatchObject({
+    value: '',
+    placeholder: '搜索验收记录',
+    disabled: true,
+  });
 });
 
 it('keeps list and card keyboard actions aligned with detail inspection', async () => {

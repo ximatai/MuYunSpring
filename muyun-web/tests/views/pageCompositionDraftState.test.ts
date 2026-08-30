@@ -45,6 +45,32 @@ describe('pageCompositionDraftState', () => {
     });
   });
 
+  it('serializes only the dedicated quick-search placeholder in root props and supports discard restoration', () => {
+    const state = createPageCompositionDraftState();
+    state.updateQuickSearchPlaceholder('搜索考试名称');
+    const savedTree = JSON.stringify(state.toManagementUiTree());
+
+    expect(state.toManagementUiTree().props).toEqual({ list: { searchPlaceholder: '搜索考试名称' } });
+    state.updateQuickSearchPlaceholder('搜索考试名称、科目');
+    expect(JSON.stringify(state.toManagementUiTree())).not.toBe(savedTree);
+
+    state.updateQuickSearchPlaceholder('搜索考试名称');
+    expect(JSON.stringify(state.toManagementUiTree())).toBe(savedTree);
+    state.updateQuickSearchPlaceholder('');
+    expect(state.toManagementUiTree().props).toBeUndefined();
+  });
+
+  it('selects the template-owned quick-search component without treating it as a field', () => {
+    const state = createPageCompositionDraftState();
+    const quickSearch = state.nodes.value.find((node) => node.id === 'template:list:quick-search');
+
+    expect(quickSearch).toMatchObject({ kind: 'template', slot: 'list' });
+    expect(quickSearch?.field).toBeUndefined();
+    state.selectNode(quickSearch!);
+    expect(state.selectedNodeId.value).toBe('template:list:quick-search');
+    expect(state.previewMode.value).toBe('list');
+  });
+
   it('uses the list field placement as the single source for card preview', () => {
     const state = createPageCompositionDraftState();
     state.addField(title, 'list');

@@ -32,6 +32,30 @@ class PageRevisionModuleUiDefinitionAdapterTest {
         assertThat(page.detail().editor().title()).isEqualTo("编辑考试");
         assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
                 .containsExactly("title", "subject", "examDate");
+        assertThat(page.list().searchPlaceholder()).isEqualTo("考试列表");
+    }
+
+    @Test
+    void shouldCompileManagementListSearchPlaceholderForPublishedAndPreviewTrees() {
+        String tree = """
+                {"template":"management","templateVersion":1,
+                 "props":{"list":{"searchPlaceholder":"搜索考试名称或日期"}},
+                 "nodes":[
+                   {"slot":"list","title":"考试列表","fields":["title"]},
+                   {"slot":"form","title":"编辑考试","fields":["title"]}
+                 ]}
+                """;
+        PlatformPresentationRevision published = revision(tree);
+        PlatformPresentationRevision draft = revision(tree);
+        draft.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+
+        ModuleUiDefinition publishedDefinition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(),
+                published, List.of("title"));
+        ModuleUiDefinition previewDefinition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page(), draft,
+                tree, List.of("title"));
+
+        assertThat(listSearchPlaceholder(publishedDefinition)).isEqualTo("搜索考试名称或日期");
+        assertThat(listSearchPlaceholder(previewDefinition)).isEqualTo("搜索考试名称或日期");
     }
 
     @Test
@@ -155,6 +179,10 @@ class PageRevisionModuleUiDefinitionAdapterTest {
         ListDetailCardPageDefinition page = (ListDetailCardPageDefinition) definition.page();
         return java.util.stream.Stream.concat(page.list().list().fields().stream(), page.detail().editor().fields().stream())
                 .map(ViewFieldDefinition::label).toList();
+    }
+
+    private String listSearchPlaceholder(ModuleUiDefinition definition) {
+        return ((ListDetailCardPageDefinition) definition.page()).list().searchPlaceholder();
     }
 
     private PlatformPageDefinition page() {

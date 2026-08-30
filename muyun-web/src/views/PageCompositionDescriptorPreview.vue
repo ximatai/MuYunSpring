@@ -101,6 +101,7 @@ function isSelected(slot: PreviewSlot, fieldName: string) {
       <span>快速查询</span>
       <UiInput
         type="search"
+        :value="''"
         :placeholder="listSearchPlaceholder"
         disabled
         aria-label="快速查询（模板内置）"
