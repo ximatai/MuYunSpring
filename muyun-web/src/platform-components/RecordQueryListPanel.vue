@@ -1,5 +1,15 @@
+<script lang="ts">
+export type {
+  QueryListRecord,
+  RecordQueryListCellComponent,
+  RecordQueryListColumn,
+  RecordQueryListMode,
+  StandardCrudRowActionKey,
+} from './recordQueryListColumnModel';
+</script>
+
 <script setup lang="ts">
-import { computed, onMounted, ref, type Component, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import {
   confirmAction,
   UiButton,
@@ -27,7 +37,6 @@ import type {
   QuerySchemaField,
   ResolvedPageListPersistentQueryControlDescriptor,
   ResolvedViewDescriptor,
-  ResolvedViewFieldDescriptor,
   WebQueryCondition,
   WebQueryRequest,
   WebSort,
@@ -57,30 +66,16 @@ import {
   type ResolvedRecordActionItem,
 } from './recordActionBarModel';
 import { recycleBinRestoreUnavailableReason, useRecycleBinState } from './recycleBinState';
+import {
+  resolveRecordQueryListColumns,
+  type QueryListRecord,
+  type RecordQueryListCellComponent,
+  type RecordQueryListColumn,
+  type RecordQueryListMode,
+  type StandardCrudRowActionKey,
+} from './recordQueryListColumnModel';
 
 defineOptions({ name: 'RecordQueryListPanel' });
-
-export type QueryListRecord = Record<string, unknown> & { id?: string; enabled?: boolean };
-export type RecordQueryListMode = 'normal' | 'recycleBin';
-export type StandardCrudRowActionKey = 'view' | 'edit' | 'delete';
-
-export interface RecordQueryListColumn {
-  key: string;
-  title: string;
-  type?: 'text' | 'enabledStatus' | 'booleanStatus' | 'tagList' | 'datetime' | 'fileSize' | 'colorPicker';
-  booleanStatus?: ResolvedViewFieldDescriptor['booleanStatus'];
-  width?: string;
-  align?: 'left' | 'center' | 'right';
-  titleField?: string;
-  /** Maximum visible lines for text cells. Defaults to one line. */
-  maxDisplayLines?: number;
-  render?: (record: QueryListRecord) => string;
-}
-
-export interface RecordQueryListCellComponent {
-  key: string;
-  component: Component;
-}
 
 interface ConditionDraft {
   key: number;
@@ -344,7 +339,7 @@ const tableColumns = computed<RecordQueryListColumn[]>(() => {
   const base =
     props.columns && props.columns.length > 0
       ? recycleBinColumns(props.columns)
-      : recycleBinColumns(columnsFromRuntimeListView(runtimeListView.value));
+      : recycleBinColumns(resolveRecordQueryListColumns(runtimeListView.value, queryFields.value));
   return mergeColumns(base, props.additionalColumns);
 });
 const dataTableColumns = computed<UiDataTableColumn[]>(() =>
@@ -1115,48 +1110,6 @@ function statusCellValue(record: QueryListRecord, column: RecordQueryListColumn 
     return resolveRecordBooleanStatusValue(record[column.key]);
   }
   return record[column?.key ?? ''] !== false;
-}
-
-function columnsFromRuntimeListView(view: ResolvedViewDescriptor | undefined): RecordQueryListColumn[] {
-  if (!view) {
-    return [];
-  }
-  return view.fields
-    .filter((field) => field.visible?.constant !== false)
-    .map((field) => {
-      const queryField = fieldByName(field.fieldRef.fieldName);
-      return {
-        key: field.fieldRef.fieldName,
-        title: field.label ?? field.fieldRef.fieldName,
-        type:
-          field.uiType === 'enabledStatus'
-            ? 'enabledStatus'
-            : field.uiType === 'booleanStatus' && field.booleanStatus
-              ? 'booleanStatus'
-              : field.uiType === 'tagList'
-                ? 'tagList'
-                : field.fieldControl?.rendererType === 'COLOR_PICKER' || field.uiType === 'colorPicker'
-                  ? 'colorPicker'
-                  : field.valuePresentation === 'FILE_SIZE'
-                    ? 'fileSize'
-                    : isDateTimeValueType(field.valueType ?? queryField?.valueType)
-                      ? 'datetime'
-                      : 'text',
-        width: field.width,
-        align: columnAlign(field.align),
-        titleField: field.option?.titleField ?? queryField?.optionTitleField,
-        booleanStatus: field.booleanStatus,
-        maxDisplayLines: field.maxDisplayLines,
-      };
-    });
-}
-
-function isDateTimeValueType(valueType: string | undefined) {
-  return valueType === 'TIMESTAMP' || valueType === 'ZONED_TIMESTAMP' || valueType === 'INSTANT';
-}
-
-function columnAlign(align: string | undefined): RecordQueryListColumn['align'] {
-  return align === 'center' || align === 'right' ? align : 'left';
 }
 
 function goPage(nextPage: number) {

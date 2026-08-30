@@ -281,6 +281,43 @@ public class PlatformModuleRuntimeContextService {
     }
 
     /**
+     * Compiles a validated, transient dynamic page definition without installing it into the
+     * runtime. This is deliberately separate from {@link #context(String)} so preview cannot
+     * affect published-page selection, cached execution plans, or descriptor visibility.
+     */
+    public ResolvedModuleUiDescriptor previewDynamicPageDescriptor(String moduleAlias,
+                                                                    ModuleUiDefinition definition) {
+        String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        PlatformModule module = moduleService.resolveVisibleModule(validModuleAlias);
+        DynamicModuleDescriptor dynamicDescriptor = dynamicDescriptor(module, validModuleAlias);
+        if (module == null || module.getModuleKind() != ModuleKind.DYNAMIC || dynamicDescriptor == null) {
+            throw new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
+                    "dynamic module runtime context not found: " + validModuleAlias);
+        }
+        if (definition == null || !validModuleAlias.equals(definition.moduleAlias())) {
+            throw new IllegalArgumentException("preview page definition must belong to dynamic module: " + validModuleAlias);
+        }
+        return compileDynamicPageDescriptor(validModuleAlias, title(module, Optional.empty(), dynamicDescriptor,
+                validModuleAlias), dynamicDescriptor, definition);
+    }
+
+    /** Returns the installed main-entity namespace used to validate a transient page tree. */
+    public List<String> dynamicMainFieldNames(String moduleAlias) {
+        String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        PlatformModule module = moduleService.resolveVisibleModule(validModuleAlias);
+        DynamicModuleDescriptor dynamicDescriptor = dynamicDescriptor(module, validModuleAlias);
+        if (module == null || module.getModuleKind() != ModuleKind.DYNAMIC || dynamicDescriptor == null) {
+            throw new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
+                    "dynamic module runtime context not found: " + validModuleAlias);
+        }
+        return dynamicDescriptor.entities().stream()
+                .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias()))
+                .findFirst().map(entity -> entity.fields().stream()
+                        .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::fieldName).toList())
+                .orElseThrow(() -> new IllegalStateException("dynamic runtime has no main entity: " + validModuleAlias));
+    }
+
+    /**
      * Compiles the installed dynamic runtime and the published WEB UI snapshot into immutable
      * server execution facts.  The plan intentionally carries no request or SQL state.
      */
@@ -554,11 +591,7 @@ public class PlatformModuleRuntimeContextService {
                 : publishedPageDefinitionResolver.resolveWebGlobal(dynamicDescriptor)
                         .map(DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage::definition);
         if (publishedDefinition.isPresent()) {
-            java.util.Map<ViewFieldRef, FieldValueType> fieldTypes = dynamicMainFieldTypes(dynamicDescriptor);
-            ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(publishedDefinition.get(),
-                    ModuleKind.DYNAMIC, title, dynamicOptionFields(dynamicDescriptor), dynamicReferenceFields(dynamicDescriptor),
-                    dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard());
-            return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()));
+            return compileDynamicPageDescriptor(moduleAlias, title, dynamicDescriptor, publishedDefinition.get());
         }
         if (pageConfigSnapshotService == null || pageBootstrapService == null) {
             return null;
@@ -579,6 +612,17 @@ public class PlatformModuleRuntimeContextService {
                 .withFileReferences(dynamicFileReferences(dynamicDescriptor, resolvedConfig).stream()
                         .map(reference -> withFieldAccess(moduleAlias, reference))
                         .toList());
+        return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()));
+    }
+
+    private ResolvedModuleUiDescriptor compileDynamicPageDescriptor(String moduleAlias,
+                                                                     String title,
+                                                                     DynamicModuleDescriptor dynamicDescriptor,
+                                                                     ModuleUiDefinition definition) {
+        java.util.Map<ViewFieldRef, FieldValueType> fieldTypes = dynamicMainFieldTypes(dynamicDescriptor);
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, title,
+                dynamicOptionFields(dynamicDescriptor), dynamicReferenceFields(dynamicDescriptor),
+                dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard());
         return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()));
     }
 

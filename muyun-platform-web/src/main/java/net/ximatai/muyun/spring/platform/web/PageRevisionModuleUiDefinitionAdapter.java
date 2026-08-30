@@ -47,6 +47,27 @@ public final class PageRevisionModuleUiDefinitionAdapter {
     public static ModuleUiDefinition fromPublishedRevision(PlatformPageDefinition page,
                                                            PlatformPresentationRevision revision,
                                                            Collection<String> mainEntityFieldNames) {
+        return fromRevision(page, revision, revision == null ? null : revision.getUiTreeJson(),
+                mainEntityFieldNames, true);
+    }
+
+    /**
+     * Compiles a transient tree against an existing, visible revision identity. The caller owns
+     * template-catalog validation and revision visibility; this adapter owns only the source-neutral
+     * management DSL conversion and dynamic main-field namespace check.
+     */
+    public static ModuleUiDefinition fromPreviewRevision(PlatformPageDefinition page,
+                                                         PlatformPresentationRevision revision,
+                                                         String uiTreeJson,
+                                                         Collection<String> mainEntityFieldNames) {
+        return fromRevision(page, revision, uiTreeJson, mainEntityFieldNames, false);
+    }
+
+    private static ModuleUiDefinition fromRevision(PlatformPageDefinition page,
+                                                   PlatformPresentationRevision revision,
+                                                   String uiTreeJson,
+                                                   Collection<String> mainEntityFieldNames,
+                                                   boolean requirePublished) {
         if (page == null) {
             throw new IllegalArgumentException("page definition must not be null");
         }
@@ -57,7 +78,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         if (revision == null) {
             throw new IllegalArgumentException("presentation revision must not be null");
         }
-        if (revision.getStatus() != PlatformPresentationRevisionStatus.PUBLISHED) {
+        if (requirePublished && revision.getStatus() != PlatformPresentationRevisionStatus.PUBLISHED) {
             throw new IllegalArgumentException("page revision must be published before runtime compilation: "
                     + revision.getId());
         }
@@ -67,7 +88,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             throw new IllegalArgumentException("page revision requires management v1 template: " + revision.getId());
         }
         Set<String> knownFields = knownMainFields(mainEntityFieldNames);
-        Map<String, Slot> slots = slots(revision);
+        Map<String, Slot> slots = slots(revision.getId(), uiTreeJson);
         Slot list = requireSlot(slots, "list", revision.getId());
         Slot form = requireSlot(slots, "form", revision.getId());
         return new ModuleUiDefinition(page.getModuleAlias(), List.of(),
@@ -133,12 +154,12 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         return Set.copyOf(normalized);
     }
 
-    private static Map<String, Slot> slots(PlatformPresentationRevision revision) {
+    private static Map<String, Slot> slots(String revisionId, String uiTreeJson) {
         JsonNode root;
         try {
-            root = OBJECT_MAPPER.readTree(revision.getUiTreeJson());
+            root = OBJECT_MAPPER.readTree(uiTreeJson);
         } catch (JsonProcessingException exception) {
-            throw new IllegalArgumentException("management page revision UI tree must be valid JSON: " + revision.getId(),
+            throw new IllegalArgumentException("management page revision UI tree must be valid JSON: " + revisionId,
                     exception);
         }
         if (root == null || !root.isObject()
@@ -146,7 +167,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 || root.path("templateVersion").asInt(-1) != PlatformPresentationTemplateCatalog.MANAGEMENT_VERSION
                 || !root.path("nodes").isArray()) {
             throw new IllegalArgumentException("management page revision UI tree does not match management v1: "
-                    + revision.getId());
+                    + revisionId);
         }
         LinkedHashMap<String, Slot> slots = new LinkedHashMap<>();
         for (JsonNode node : root.path("nodes")) {

@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
@@ -56,6 +57,27 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
                 java.util.List.of("id", "variantId", "revisionNo", "templateAlias", "templateVersion", "status",
                         "title", "enabled", "sortOrder", "createdAt", "updatedAt"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("revisionNo"));
+    }
+
+    /**
+     * Resolves one revision through the same visibility boundary as its parent variant.
+     * Callers that address a revision below a variant must use this method instead of treating
+     * a revision id as a globally visible resource.
+     */
+    public PlatformPresentationRevision requireVisibleRevision(String variantId, String revisionId) {
+        PlatformPresentationVariant variant = variantService.requireVisibleVariant(variantId);
+        PlatformPresentationRevision revision = revisionId == null || revisionId.isBlank() ? null : select(revisionId);
+        if (revision == null && revisionId != null && !revisionId.isBlank()
+                && TenantContext.currentTenantId().isPresent()) {
+            try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("resolve global presentation revision")) {
+                revision = select(revisionId);
+            }
+        }
+        if (revision == null || !Objects.equals(variant.getId(), revision.getVariantId())) {
+            throw BusinessExceptions.warning("platform.presentation-revision.not-found",
+                    "Presentation revision does not belong to variant: " + variantId + "." + revisionId);
+        }
+        return revision;
     }
 
     @Override

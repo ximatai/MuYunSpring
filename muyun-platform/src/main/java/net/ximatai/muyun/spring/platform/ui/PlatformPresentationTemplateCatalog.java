@@ -56,13 +56,18 @@ public class PlatformPresentationTemplateCatalog {
 
     public void validateUiTree(PlatformPresentationRevision revision,
                                PlatformPresentationTemplate template) {
-        if (revision.getUiTreeJson() == null || revision.getUiTreeJson().isBlank()) {
+        validateUiTree(revision == null ? null : revision.getUiTreeJson(), template);
+    }
+
+    /** Validates an unsaved tree against the same template schema used by publication. */
+    public void validateUiTree(String uiTreeJson, PlatformPresentationTemplate template) {
+        if (uiTreeJson == null || uiTreeJson.isBlank()) {
             throw BusinessExceptions.warning("platform.presentation-revision.ui-tree-required",
                     "Presentation revision UI tree is required");
         }
         JsonNode root;
         try {
-            root = OBJECT_MAPPER.readTree(revision.getUiTreeJson());
+            root = OBJECT_MAPPER.readTree(uiTreeJson);
         } catch (JsonProcessingException exception) {
             throw BusinessExceptions.warning("platform.presentation-revision.ui-tree-invalid",
                     "Presentation revision UI tree must be valid JSON");

@@ -105,6 +105,27 @@ class PageRevisionModuleUiDefinitionAdapterTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("must be published");
     }
 
+    @Test
+    void shouldCompileTransientTreeForDraftWithoutChangingPublishedCompilationRule() {
+        PlatformPresentationRevision draft = revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"考试","fields":["title"]},
+                  {"slot":"form","title":"编辑考试","fields":["title"]}
+                ]}
+                """);
+        draft.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+
+        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page(), draft, """
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"草稿考试","fields":["title"]},
+                  {"slot":"form","title":"草稿编辑","fields":["title"]}
+                ]}
+                """, List.of("title"));
+
+        assertThat(((ListDetailCardPageDefinition) definition.page()).list().list().title()).isEqualTo("草稿考试");
+        assertThat(draft.getUiTreeJson()).doesNotContain("草稿考试");
+    }
+
     private PlatformPageDefinition page() {
         PlatformPageDefinition page = new PlatformPageDefinition();
         page.setId("page-exam");

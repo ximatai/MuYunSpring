@@ -113,6 +113,7 @@ export type {
   RecordQueryListMode,
   StandardCrudRowActionKey,
 } from './RecordQueryListPanel.vue';
+export { resolveRecordQueryListColumns } from './recordQueryListColumnModel';
 export type {
   RecordFormFieldDescriptor,
   RecordFormFieldFallback,
