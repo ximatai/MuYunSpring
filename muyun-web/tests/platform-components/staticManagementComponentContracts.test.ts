@@ -425,6 +425,9 @@ it('management workspace consumes the page layout contract for constrained deskt
   const indexSource = readSource('src/platform-components/index.ts');
 
   assert.match(workspaceSource, /explorerCount\?: number/);
+  assert.match(workspaceSource, /layout\?: 'default' \| 'composer'/);
+  assert.match(workspaceSource, /exactly two explorer children must[\s\S]*?precede the primary canvas child/);
+  assert.match(workspaceSource, /'management-workspace--composer': layout === 'composer'/);
   assert.match(workspaceSource, /--muyun-management-explorer-width: 280px/);
   assert.match(workspaceSource, /--muyun-management-list-min-width: 720px/);
   assert.match(workspaceSource, /--muyun-management-detail-min-width: 560px/);
@@ -451,6 +454,15 @@ it('management workspace consumes the page layout contract for constrained deskt
     /@media \(max-width: 980px\)[\s\S]*?grid-template-columns:\s*var\(--muyun-management-collapsed-rail-width/,
   );
   assert.match(workspaceSource, /@media \(max-width: 760px\)[\s\S]*?grid-template-columns: 1fr/);
+  assert.match(
+    workspaceSource,
+    /management-workspace--composer[\s\S]*?grid-template-columns: minmax\(180px, 0\.8fr\) minmax\(220px, 1fr\) minmax\(0, 2fr\)/,
+  );
+  assert.notMatch(workspaceSource, /@media \(max-width: 1180px\)[\s\S]*?management-workspace--composer/);
+  assert.match(
+    workspaceSource,
+    /@media \(max-width: 760px\)[\s\S]*?management-workspace--composer[\s\S]*?grid-template-rows: minmax\(120px, 0\.45fr\) minmax\(120px, 0\.55fr\) minmax\(0, 1\.2fr\)/,
+  );
   assert.match(workspaceSource, /min-width: 0/);
   assert.match(indexSource, /export \{ default as ManagementWorkspace \}/);
   assert.match(indexSource, /export \{ default as ManagementExplorerColumn \}/);
@@ -689,6 +701,7 @@ it('role management enters the standard runner while keeping IAM scope and actio
   const roleAuthorizationViewSource = readSource('src/views/RoleAuthorizationView.vue');
   const roleAuthorizationWorkspaceViewSource = readSource('src/views/roleAuthorizationWorkspaceView.ts');
   const workspaceDrawerSource = readSource('src/platform-admin-runtime/WorkspaceViewDrawer.vue');
+  const queryListCellSource = readSource('src/platform-components/RecordQueryListCell.vue');
   assert.match(roleAuthorizationViewSource, /角色组不独立授权/);
   assert.match(roleAuthorizationDrawerSurfaceSource, /:module-context="roleContext"/);
   assert.match(roleAuthorizationViewSource, /props\.moduleContext \?\? defaultRoleContext/);
@@ -722,7 +735,7 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleAuthorizationViewSource, /props\.drawer === true/);
   assert.match(roleAuthorizationWorkspaceViewSource, /drawerProfile: 'wide-work'/);
   assert.match(workspaceDrawerSource, /min\(600px, 100vw\)/);
-  assert.match(panelSource, /record\[titleField \?\? `\$\{fieldName\}Title`\]/);
+  assert.match(queryListCellSource, /record\[titleField \?\? `\$\{fieldName\}Title`\]/);
   assert.match(contractsSource, /export type RoleAssignmentType = 'account' \| 'employment'/);
   assert.match(contractsSource, /export type RoleOwnerScopeType = 'platform' \| 'tenant' \| 'organization'/);
   assert.match(
@@ -1334,6 +1347,7 @@ it('platform account-role binding selects a target tenant before loading or savi
 
 it('record lists reuse their existing region for recycle-bin data and lifecycle actions', () => {
   const panelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
+  const listColumnModelSource = readSource('src/platform-components/recordQueryListColumnModel.ts');
   const explorerSource = readSource('src/platform-components/CrudRecordListExplorer.vue');
   const recycleBinButtonSource = readSource('src/platform-components/RecycleBinModeButton.vue');
   const explorerItemSource = readSource('src/vue-ui-antdv/components/UiRecordExplorerItem.vue');
@@ -1345,7 +1359,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   const editingSessionSource = readSource('src/dynamic-page-runtime/composables/useRecordEditingSession.ts');
   const indexSource = readSource('src/platform-components/index.ts');
 
-  assert.match(panelSource, /export type RecordQueryListMode = 'normal' \| 'recycleBin'/);
+  assert.match(listColumnModelSource, /export type RecordQueryListMode = 'normal' \| 'recycleBin'/);
   assert.match(panelSource, /mode\?: RecordQueryListMode/);
   assert.match(panelSource, /hasRecycleBinAbility\(props\.context\)/);
   assert.match(

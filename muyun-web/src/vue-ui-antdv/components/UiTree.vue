@@ -287,14 +287,70 @@ function handleTitleDoubleClick(key: unknown, event: MouseEvent) {
   if (node) emit('double-click', { node, nativeEvent: event });
 }
 
+/**
+ * Ant Tree owns its reorder gesture, but its drag adapter does not consistently preserve a
+ * sibling-tree payload (and empty branches are particularly fragile).  The title is therefore
+ * also a platform-native drag source.  It intentionally does not set internalDragging: the
+ * target must use the public external-drop contract with the real DataTransfer payload.
+ */
+function handleTitleNativeDragStart(key: unknown, event: DragEvent) {
+  if (typeof key !== 'string') return;
+  const node = findNode(props.nodes, key);
+  if (!node || (props.canDrag && !props.canDrag(node))) {
+    event.preventDefault();
+    return;
+  }
+  emit('drag-start', { node, nativeEvent: event });
+}
+
+function isNativeDraggable(key: unknown) {
+  if (typeof key !== 'string' || !props.draggable) return false;
+  const node = findNode(props.nodes, key);
+  return Boolean(node && (!props.canDrag || props.canDrag(node)));
+}
+
 function handleDrop(event: AntTreeDropEvent) {
   const normalized = normalizedDropEvent(event);
-  if (normalized) emit('drop', normalized);
+  if (normalized) {
+    emit('drop', normalized);
+    return;
+  }
+  // Some Ant Tree versions keep the foreign adapter node opaque.  Do not lose the drop merely
+  // because the source cannot be unwrapped by the target tree; the page composer owns that
+  // payload through the native DataTransfer (and its drag-session fallback).
+  if (!internalDragging.value && props.allowExternalDrop) {
+    const dropNode = event.node ? unwrapNode(event.node) : undefined;
+    if (!dropNode) return;
+    const external = {
+      dropNode,
+      dropPosition: 0 as const,
+      dropToGap: event.dropToGap === true,
+    };
+    if (props.allowExternalDrop(external)) {
+      emit('external-drop', { ...external, nativeEvent: event.event as DragEvent });
+    }
+  }
 }
 
 function allowsDrop(event: AntTreeDropEvent) {
+  // Ant Tree reports a node dragged from a sibling tree as a normal drop.  The target tree has
+  // no local drag state in that case, so apply its external contract instead of rejecting it with
+  // the internal reorder rules.  Its foreign drag node is not guaranteed to be resolvable from
+  // this tree's node snapshot, therefore the admission decision deliberately depends only on
+  // the target node.
+  if (!internalDragging.value && props.allowExternalDrop) {
+    const dropNode = event.node ? unwrapNode(event.node) : undefined;
+    return dropNode
+      ? props.allowExternalDrop({
+          dropNode,
+          dropPosition: 0,
+          dropToGap: event.dropToGap === true,
+        })
+      : false;
+  }
   const normalized = normalizedDropEvent(event);
-  return normalized ? (props.allowDrop?.(normalized) ?? true) : false;
+  if (!normalized) return false;
+  return props.allowDrop?.(normalized) ?? true;
 }
 
 function externalDropTarget(
@@ -372,7 +428,12 @@ function findNode(nodes: UiTreeNode[], key: string): UiTreeNode | undefined {
       @drop="handleDrop"
     >
       <template #title="{ key, title, secondary, tag, muted, actions }">
-        <div :data-ui-tree-key="key" @dblclick.stop="handleTitleDoubleClick(key, $event)">
+        <div
+          :data-ui-tree-key="key"
+          :draggable="isNativeDraggable(key)"
+          @dblclick.stop="handleTitleDoubleClick(key, $event)"
+          @dragstart.stop="handleTitleNativeDragStart(key, $event)"
+        >
           <UiRecordExplorerItem
             :title="title"
             :secondary="secondary"

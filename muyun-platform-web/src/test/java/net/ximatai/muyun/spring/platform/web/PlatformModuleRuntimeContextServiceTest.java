@@ -98,7 +98,7 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
-    void shouldCompilePublishedPageRevisionIntoDynamicExecutionPlanBeforeLegacyUiSnapshot() {
+    void shouldCompilePublishedPageRevisionIntoDynamicExecutionPlan() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
         DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
@@ -525,7 +525,7 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
-    void shouldExposeDynamicUiDescriptorFromPublishedPageSnapshot() {
+    void shouldNotUseLegacyUiSnapshotWhenNoPublishedPageRevisionExists() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
         DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
@@ -599,48 +599,10 @@ class PlatformModuleRuntimeContextServiceTest {
 
         PlatformModuleRuntimeContext context = service.context("crm.customer");
 
-        assertThat(context.uiDescriptor()).isNotNull();
-        assertThat(context.uiDescriptor().moduleKind()).isEqualTo(ModuleKind.DYNAMIC);
-        assertThat(context.uiDescriptor().moduleAlias()).isEqualTo("crm.customer");
-        assertThat(context.uiDescriptor().page()).isNotNull();
-        assertThat(resolvedNavigator.get()).satisfies(navigatorContext -> {
-            assertThat(navigatorContext.moduleAlias()).isEqualTo("crm.customer");
-            assertThat(navigatorContext.moduleKind()).isEqualTo(ModuleKind.DYNAMIC);
-            assertThat(navigatorContext.candidate()).isEqualTo(context.uiDescriptor().page());
-        });
-        ResolvedViewDescriptor pageList = context.uiDescriptor().page().list().fields();
-        assertThat(pageList.fields().getFirst().fieldControl()).isEqualTo(new ResolvedFieldControlDescriptor(
-                "text", "TEXT", "SCALAR", java.util.Map.of(), List.of()));
-        assertThat(context.uiDescriptor().page().navigator().levels()).singleElement().satisfies(level -> {
-            assertThat(level.sourceModuleAlias()).isEqualTo("base.product");
-        });
-        assertThat(context.uiDescriptor().page().navigator().contextBindings()).containsExactly(
-                new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "organization",
-                        PageContextTarget.LIST_QUERY, "organizationId", null));
-        assertThat(pageList).satisfies(view -> {
-                    assertThat(view.viewKind()).isEqualTo(ModuleViewKind.LIST);
-                    assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
-                            .containsExactly("name", "enabled", "createdAt", "storageBytes");
-                    assertThat(view.fields()).extracting(ResolvedViewFieldDescriptor::valueType)
-                            .containsExactly(FieldValueType.STRING, FieldValueType.BOOLEAN, FieldValueType.TIMESTAMP,
-                                    FieldValueType.LONG);
-                    assertThat(view.fields()).last().satisfies(field -> {
-                        assertThat(field.valuePresentation()).isEqualTo(FieldValuePresentation.FILE_SIZE);
-                        assertThat(field.uiType()).isNull();
-                    });
-                });
-        assertThat(context.uiDescriptor().page().detail().editor())
-                .satisfies(view -> {
-                    assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
-                    assertThat(view.fields()).extracting(field -> field.fieldRef().fieldId())
-                            .containsExactly("field-name", "field-organization");
-                    assertThat(view.fields()).last()
-                            .satisfies(field -> assertThat(field.reference())
-                                    .satisfies(reference -> {
-                                        assertThat(reference.targetModuleAlias()).isEqualTo("base.product");
-                                        assertThat(reference.cardinality()).isEqualTo(ReferenceCardinality.ONE);
-                                    }));
-                });
+        assertThat(context.uiDescriptor()).isNull();
+        assertThat(service.dynamicExecutionPlan("crm.customer")).isEmpty();
+        verify(snapshotService, never()).snapshot("crm.customer");
+        verify(bootstrapService, never()).resolveConfig(any(), any());
     }
 
     @Test

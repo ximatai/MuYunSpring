@@ -57,6 +57,7 @@ export { default as RecordModeDrawer } from './RecordModeDrawer.vue';
 export { default as RecordPicker } from './RecordPicker.vue';
 export { default as RecordMultiPicker } from './RecordMultiPicker.vue';
 export { default as RecordQueryListPanel } from './RecordQueryListPanel.vue';
+export { default as RecordQueryListCell } from './RecordQueryListCell.vue';
 export { default as RecycleBinModeButton } from './RecycleBinModeButton.vue';
 export {
   useRecycleBinExplorerMode,
@@ -113,6 +114,7 @@ export type {
   RecordQueryListMode,
   StandardCrudRowActionKey,
 } from './RecordQueryListPanel.vue';
+export { resolveRecordQueryListColumns } from './recordQueryListColumnModel';
 export type {
   RecordFormFieldDescriptor,
   RecordFormFieldFallback,

@@ -17,6 +17,7 @@ describe('RecordQueryListPanel', () => {
       },
       global: {
         stubs: {
+          RecordQueryListCell: false,
           UiDataTable: {
             props: ['columns', 'rows'],
             template: `
@@ -72,6 +73,7 @@ describe('RecordQueryListPanel', () => {
       props: { context, title: '标签' },
       global: {
         stubs: {
+          RecordQueryListCell: false,
           UiDataTable: {
             props: ['columns', 'rows'],
             template: `
@@ -113,6 +115,7 @@ describe('RecordQueryListPanel', () => {
       },
       global: {
         stubs: {
+          RecordQueryListCell: false,
           UiDataTable: {
             props: ['columns', 'rows'],
             template: `

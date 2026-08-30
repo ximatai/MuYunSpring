@@ -76,6 +76,117 @@ class PlatformPresentationTemplateCatalogTest {
                                 .isEqualTo("platform.presentation-revision.ui-tree-management-invalid"));
     }
 
+    @Test
+    void shouldAllowOnlyDeclaredDetailAssociationComponents() {
+        PlatformPresentationTemplate template = catalog.require("management", 1,
+                PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT);
+        PlatformPresentationRevision revision = revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":[]},
+                  {"slot":"form","title":"详情","fields":[],
+                   "relations":[{"relation":"participants","title":"参考学生","fields":["studentName"]}]}
+                ]}
+                """);
+
+        catalog.validateUiTree(revision, template);
+
+        revision.setUiTreeJson("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":[],
+                   "relations":[{"relation":"participants","title":"参考学生"}]},
+                  {"slot":"form","title":"详情","fields":[]}
+                ]}
+                """);
+        assertThatThrownBy(() -> catalog.validateUiTree(revision, template))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.actionMessage().code())
+                                .isEqualTo("platform.presentation-revision.ui-tree-management-invalid"));
+    }
+
+    @Test
+    void shouldAllowDistinctFormGroupsAndRejectAFieldPlacedTwice() {
+        PlatformPresentationTemplate template = catalog.require("management", 1,
+                PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT);
+        PlatformPresentationRevision revision = revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":[]},
+                  {"slot":"form","title":"详情","fields":[],"groups":[
+                    {"group":"basic","title":"基础信息","fields":["examDate"]},
+                    {"group":"subject","title":"科目信息","fields":["subject"]}
+                  ]}
+                ]}
+                """);
+
+        catalog.validateUiTree(revision, template);
+
+        revision.setUiTreeJson("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":[]},
+                  {"slot":"form","title":"详情","fields":[],"groups":[
+                    {"group":"basic","title":"基础信息","fields":["examDate"]},
+                    {"group":"subject","title":"科目信息","fields":["examDate"]}
+                  ]}
+                ]}
+                """);
+        assertThatThrownBy(() -> catalog.validateUiTree(revision, template))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.actionMessage().code())
+                                .isEqualTo("platform.presentation-revision.ui-tree-management-invalid"));
+    }
+
+    @Test
+    void shouldValidateOnlyTheDeclaredManagementListSearchPlaceholderRootProperty() {
+        PlatformPresentationTemplate template = catalog.require("management", 1,
+                PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT);
+        PlatformPresentationRevision revision = revision("""
+                {"template":"management","templateVersion":1,
+                 "props":{"list":{"searchPlaceholder":"搜索考试名称"}},
+                 "nodes":[
+                   {"slot":"list","title":"列表","fields":[]},
+                   {"slot":"form","title":"详情","fields":[]}
+                 ]}
+                """);
+
+        catalog.validateUiTree(revision, template);
+
+        revision.setUiTreeJson("""
+                {"template":"management","templateVersion":1,"unexpected":true,"nodes":[
+                  {"slot":"list","title":"列表","fields":[]},
+                  {"slot":"form","title":"详情","fields":[]}
+                ]}
+                """);
+        assertThatThrownBy(() -> catalog.validateUiTree(revision, template))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.actionMessage().code())
+                                .isEqualTo("platform.presentation-revision.ui-tree-management-invalid"));
+
+        revision.setUiTreeJson("""
+                {"template":"management","templateVersion":1,
+                 "props":{"form":{"searchPlaceholder":"不允许"}},
+                 "nodes":[
+                   {"slot":"list","title":"列表","fields":[]},
+                   {"slot":"form","title":"详情","fields":[]}
+                 ]}
+                """);
+        assertThatThrownBy(() -> catalog.validateUiTree(revision, template))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.actionMessage().code())
+                                .isEqualTo("platform.presentation-revision.ui-tree-management-invalid"));
+
+        revision.setUiTreeJson("""
+                {"template":"management","templateVersion":1,
+                 "props":{"list":{"searchPlaceholder":" "}},
+                 "nodes":[
+                   {"slot":"list","title":"列表","fields":[]},
+                   {"slot":"form","title":"详情","fields":[]}
+                 ]}
+                """);
+        assertThatThrownBy(() -> catalog.validateUiTree(revision, template))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.actionMessage().code())
+                                .isEqualTo("platform.presentation-revision.ui-tree-management-invalid"));
+    }
+
     private PlatformPresentationRevision revision(String uiTreeJson) {
         PlatformPresentationRevision revision = new PlatformPresentationRevision();
         revision.setTemplateAlias("management");

@@ -426,7 +426,20 @@ public final class ModuleUiDescriptorCompiler {
                 .filter(candidate -> candidate.resource().equals(relation.targetEntityAlias()))
                 .findFirst().orElseThrow(() -> new IllegalArgumentException(
                         "detail relation requires an editor contribution: " + relation.code()));
-        List<ResolvedDetailRelationListField> fields = editor.editor().fields().stream()
+        Map<String, ResolvedViewFieldDescriptor> fieldsByName = editor.editor().fields().stream()
+                .collect(java.util.stream.Collectors.toMap(field -> field.fieldRef().fieldName(),
+                        java.util.function.Function.identity(), (left, ignored) -> left, LinkedHashMap::new));
+        List<ResolvedViewFieldDescriptor> selected = relation.listFields().isEmpty()
+                ? List.copyOf(fieldsByName.values())
+                : relation.listFields().stream().map(fieldName -> {
+                    ResolvedViewFieldDescriptor field = fieldsByName.get(fieldName);
+                    if (field == null) {
+                        throw new IllegalArgumentException("detail relation list field is unavailable: "
+                                + relation.code() + "." + fieldName);
+                    }
+                    return field;
+                }).toList();
+        List<ResolvedDetailRelationListField> fields = selected.stream()
                 .map(field -> new ResolvedDetailRelationListField(field.fieldRef().fieldName(), field.label(),
                         null, field.fieldControl() == null ? null : field.fieldControl().alias(),
                         relationColumnWidth(field.width()), field.align(), field.maxDisplayLines()))

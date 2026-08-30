@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
+import net.ximatai.muyun.spring.dynamic.metadata.AssociationViewDisplayMode;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageContractType;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
@@ -8,6 +11,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPresentationTemplateCatalog;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,6 +35,30 @@ class PageRevisionModuleUiDefinitionAdapterTest {
         assertThat(page.detail().editor().title()).isEqualTo("编辑考试");
         assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
                 .containsExactly("title", "subject", "examDate");
+        assertThat(page.list().searchPlaceholder()).isEqualTo("考试列表");
+    }
+
+    @Test
+    void shouldCompileManagementListSearchPlaceholderForPublishedAndPreviewTrees() {
+        String tree = """
+                {"template":"management","templateVersion":1,
+                 "props":{"list":{"searchPlaceholder":"搜索考试名称或日期"}},
+                 "nodes":[
+                   {"slot":"list","title":"考试列表","fields":["title"]},
+                   {"slot":"form","title":"编辑考试","fields":["title"]}
+                 ]}
+                """;
+        PlatformPresentationRevision published = revision(tree);
+        PlatformPresentationRevision draft = revision(tree);
+        draft.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+
+        ModuleUiDefinition publishedDefinition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(),
+                published, List.of("title"));
+        ModuleUiDefinition previewDefinition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page(), draft,
+                tree, List.of("title"));
+
+        assertThat(listSearchPlaceholder(publishedDefinition)).isEqualTo("搜索考试名称或日期");
+        assertThat(listSearchPlaceholder(previewDefinition)).isEqualTo("搜索考试名称或日期");
     }
 
     @Test
@@ -103,6 +131,81 @@ class PageRevisionModuleUiDefinitionAdapterTest {
         assertThatThrownBy(() -> PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), draft,
                 List.of("title")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("must be published");
+    }
+
+    @Test
+    void shouldCompileTransientTreeForDraftWithoutChangingPublishedCompilationRule() {
+        PlatformPresentationRevision draft = revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"考试","fields":["title"]},
+                  {"slot":"form","title":"编辑考试","fields":["title"]}
+                ]}
+                """);
+        draft.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+
+        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page(), draft, """
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"草稿考试","fields":["title"]},
+                  {"slot":"form","title":"草稿编辑","fields":["title"]}
+                ]}
+                """, List.of("title"));
+
+        assertThat(((ListDetailCardPageDefinition) definition.page()).list().list().title()).isEqualTo("草稿考试");
+        assertThat(draft.getUiTreeJson()).doesNotContain("草稿考试");
+    }
+
+    @Test
+    void shouldCompileDeclaredDetailAssociationFromTheDynamicRuntimeCatalog() {
+        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"考试","fields":["title"]},
+                  {"slot":"form","title":"编辑考试","fields":["title"],
+                   "relations":[{"relation":"participants","title":"参考学生","fields":["studentName"]}]}
+                ]}
+                """), Map.of("title", "考试名称"), Map.of("participants",
+                new DynamicAssociationViewDescriptor("participants", "exam", "education.exam", "exam_participant",
+                        AssociationViewDisplayMode.INLINE_LIST, "participants", null, EntityViewType.LIST, true)));
+
+        assertThat(definition.detailRelations()).singleElement().satisfies(relation -> {
+            assertThat(relation.code()).isEqualTo("participants");
+            assertThat(relation.title()).isEqualTo("参考学生");
+            assertThat(relation.targetEntityAlias()).isEqualTo("exam_participant");
+            assertThat(relation.listFields()).containsExactly("studentName");
+        });
+    }
+
+    @Test
+    void shouldUseDynamicMetadataTitleByDefaultAndPreserveExplicitTreeLabelForPublishedAndPreview() {
+        String tree = """
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"考试","fields":["acceptanceNote",
+                    {"field":"title","props":{"label":"页面标题"}}]},
+                  {"slot":"form","title":"编辑考试","fields":["acceptanceNote","title"]}
+                ]}
+                """;
+        Map<String, String> titles = Map.of("acceptanceNote", "验收说明（发布验证）", "title", "元数据标题");
+        PlatformPresentationRevision published = revision(tree);
+        PlatformPresentationRevision draft = revision(tree);
+        draft.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+
+        ModuleUiDefinition publishedDefinition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(),
+                published, titles);
+        ModuleUiDefinition previewDefinition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page(), draft,
+                tree, titles);
+
+        assertThat(labels(publishedDefinition)).containsExactly("验收说明（发布验证）", "页面标题",
+                "验收说明（发布验证）", "元数据标题");
+        assertThat(labels(previewDefinition)).containsExactlyElementsOf(labels(publishedDefinition));
+    }
+
+    private List<String> labels(ModuleUiDefinition definition) {
+        ListDetailCardPageDefinition page = (ListDetailCardPageDefinition) definition.page();
+        return java.util.stream.Stream.concat(page.list().list().fields().stream(), page.detail().editor().fields().stream())
+                .map(ViewFieldDefinition::label).toList();
+    }
+
+    private String listSearchPlaceholder(ModuleUiDefinition definition) {
+        return ((ListDetailCardPageDefinition) definition.page()).list().searchPlaceholder();
     }
 
     private PlatformPageDefinition page() {

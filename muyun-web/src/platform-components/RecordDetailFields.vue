@@ -33,6 +33,14 @@ const props = withDefaults(
     fileTransferContext?: ModuleContext<unknown>;
     displayOf?: RecordDetailDisplayResolver;
     emptyText?: string;
+    /**
+     * Enables field-level inspection without changing the default read-only detail surface.
+     * Consumers receive the stable descriptor fieldName rather than reconstructing it from DOM.
+     */
+    interactionMode?: 'none' | 'selectable';
+    selectedFieldName?: string;
+    /** Stable DOM keys for a parent-owned layout transition; absent in ordinary detail surfaces. */
+    layoutTransitionPrefix?: string;
   }>(),
   {
     fieldNames: undefined,
@@ -44,8 +52,16 @@ const props = withDefaults(
     fileTransferContext: undefined,
     displayOf: undefined,
     emptyText: '-',
+    interactionMode: 'none',
+    selectedFieldName: undefined,
+    layoutTransitionPrefix: undefined,
   },
 );
+
+const emit = defineEmits<{
+  select: [fieldName: string];
+  configure: [fieldName: string];
+}>();
 
 const resolvedFieldNames = computed(
   () =>
@@ -112,6 +128,18 @@ function fileSizeValue(field: RecordFormFieldState) {
     ? value
     : undefined;
 }
+
+function isInteractiveField(field: RecordFormFieldState) {
+  return props.interactionMode === 'selectable' && field.fieldName;
+}
+
+function selectField(field: RecordFormFieldState) {
+  if (isInteractiveField(field)) emit('select', field.fieldName);
+}
+
+function configureField(field: RecordFormFieldState) {
+  if (isInteractiveField(field)) emit('configure', field.fieldName);
+}
 </script>
 
 <template>
@@ -120,7 +148,21 @@ function fileSizeValue(field: RecordFormFieldState) {
       v-for="field in fieldStates"
       :key="field.fieldName"
       class="record-detail-field"
-      :class="{ 'record-detail-field-full-row': field.columnSpan === 2 }"
+      :class="{
+        'record-detail-field-full-row': field.columnSpan === 2,
+        'record-detail-field--interactive': isInteractiveField(field),
+        'record-detail-field--selected': isInteractiveField(field) && selectedFieldName === field.fieldName,
+      }"
+      :data-field-name="field.fieldName"
+      :data-page-composition-layout-key="
+        layoutTransitionPrefix ? `${layoutTransitionPrefix}:field:${field.fieldName}` : undefined
+      "
+      :role="isInteractiveField(field) ? 'button' : undefined"
+      :tabindex="isInteractiveField(field) ? 0 : undefined"
+      @click="selectField(field)"
+      @dblclick="configureField(field)"
+      @keydown.enter="selectField(field)"
+      @keydown.space.prevent="configureField(field)"
     >
       <dt>{{ field.label }}</dt>
       <dd>
@@ -173,6 +215,19 @@ function fileSizeValue(field: RecordFormFieldState) {
 
 .record-detail-field-full-row {
   grid-column: 1 / -1;
+}
+
+.record-detail-field--interactive {
+  cursor: pointer;
+  outline: 1px solid transparent;
+  outline-offset: 2px;
+}
+
+.record-detail-field--interactive:hover,
+.record-detail-field--interactive:focus-visible,
+.record-detail-field--selected {
+  outline: 2px solid var(--muyun-primary);
+  background: var(--muyun-primary-surface, var(--muyun-hover));
 }
 
 dt {
