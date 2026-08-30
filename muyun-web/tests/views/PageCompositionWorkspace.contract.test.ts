@@ -10,10 +10,8 @@ it('keeps management quick search as a constrained template component', () => {
 
   assert.match(workspaceSource, /key: 'ui:template:list:quick-search'/);
   assert.match(workspaceSource, /title: '快速查询'/);
-  assert.match(
-    workspaceSource,
-    /secondary: state\.quickSearchPlaceholder\.value \? '模板内置 · 已配置' : '模板内置 · 可配置'/,
-  );
+  assert.match(workspaceSource, /secondary: '模板内置 · 可改占位提示'/);
+  assert.match(workspaceSource, /selectedQuickSearch\.value \? '配置：快速查询占位提示'/);
   assert.match(workspaceSource, /target\.kind === 'root' \|\| target\.kind === 'template'/);
   assert.match(
     workspaceSource,
@@ -29,6 +27,34 @@ it('keeps management quick search as a constrained template component', () => {
   assert.match(
     workspaceSource,
     /if \(!confirmed \|\| isMutating\.value\) return;[\s\S]*hydrateDraft\(revision\.value\)/,
+  );
+});
+
+it('keeps metadata quick addition explicit and keyboard-reachable', () => {
+  const workspaceSource = readSource('src/views/PageCompositionWorkspace.vue');
+
+  assert.match(workspaceSource, /aria-label="字段快速添加目标"/);
+  assert.match(workspaceSource, /双击添加到：/);
+  assert.match(workspaceSource, /@click="selectQuickAddTarget\('list'\)"/);
+  assert.match(workspaceSource, /@click="selectQuickAddTarget\('form'\)"/);
+  assert.match(workspaceSource, /@click="addSelectedMetadataField\('list'\)"/);
+  assert.match(workspaceSource, /@click="addSelectedMetadataField\('form'\)"/);
+  assert.match(workspaceSource, /function addSelectedMetadataField\(slot: PageComposerSlot\)/);
+  assert.match(workspaceSource, /当前双击目标为：\{\{ quickAddTargetLabel \}\}/);
+});
+
+it('keeps the last successful descriptor visibly stale and retries the current draft safely', () => {
+  const workspaceSource = readSource('src/views/PageCompositionWorkspace.vue');
+
+  assert.match(workspaceSource, /当前展示的是上一次成功解析结果，不代表当前草稿。/);
+  assert.match(workspaceSource, /@click="retryPreviewDescriptor"/);
+  assert.match(
+    workspaceSource,
+    /function retryPreviewDescriptor\(\) \{[\s\S]*?previewLoading\.value \|\| !variant\.value\?\.id \|\| !revision\.value\?\.id[\s\S]*?schedulePreviewDescriptor\(\);/,
+  );
+  assert.match(
+    workspaceSource,
+    /const uiTreeJson = currentUiTreeJson\.value;[\s\S]*?requestPreviewDescriptor\(requestSequence, variantId, revisionId, uiTreeJson\)/,
   );
 });
 

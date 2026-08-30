@@ -84,12 +84,24 @@ const visibleFields = computed(() => {
 });
 const selectedField = computed(() => state.selectedNode.value?.field);
 const selectedQuickSearch = computed(() => state.selectedNode.value?.id === 'template:list:quick-search');
+const selectedMetadataField = computed(() => {
+  const key = selectedMetadataTreeKey.value;
+  const prefix = 'metadata:field:';
+  if (!key?.startsWith(prefix)) return undefined;
+  return metadataFields.value.find((field) => field.id === key.slice(prefix.length));
+});
 const selectedFieldLabel = computed(() =>
   selectedQuickSearch.value
     ? '快速查询'
     : selectedField.value
       ? fieldDisplayTitle(selectedField.value)
       : '组件',
+);
+const propertyDrawerTitle = computed(() =>
+  selectedQuickSearch.value ? '配置：快速查询占位提示' : `配置：${selectedFieldLabel.value}`,
+);
+const quickAddTargetLabel = computed(() =>
+  selectedSlot.value === 'list' ? '列表展示字段' : '详情 / 表单字段',
 );
 const selectedPreviewFieldName = computed(() => {
   const node = state.selectedNode.value;
@@ -180,7 +192,7 @@ const uiTreeNodes = computed<UiTreeNode[]>(() => [
           {
             key: 'ui:template:list:quick-search',
             title: '快速查询',
-            secondary: state.quickSearchPlaceholder.value ? '模板内置 · 已配置' : '模板内置 · 可配置',
+            secondary: '模板内置 · 可改占位提示',
             isLeaf: true,
           },
           {
@@ -387,6 +399,11 @@ function schedulePreviewDescriptor() {
     previewDebounceTimer = undefined;
     void requestPreviewDescriptor(requestSequence, variantId, revisionId, uiTreeJson);
   }, 250);
+}
+
+function retryPreviewDescriptor() {
+  if (previewLoading.value || !variant.value?.id || !revision.value?.id) return;
+  schedulePreviewDescriptor();
 }
 
 async function requestPreviewDescriptor(
@@ -700,6 +717,18 @@ function addToSelectedSlot(field: PageComposerField) {
   state.addField(field, selectedSlot.value);
 }
 
+function selectQuickAddTarget(slot: PageComposerSlot) {
+  if (isMutating.value) return;
+  selectedSlot.value = slot;
+}
+
+function addSelectedMetadataField(slot: PageComposerSlot) {
+  const field = selectedMetadataField.value;
+  if (!field || isMutating.value) return;
+  selectedSlot.value = slot;
+  state.addField(field, slot);
+}
+
 function slotTitle(slot: PageComposerSlot) {
   return slot === 'list' ? '列表' : '详情 / 表单';
 }
@@ -917,6 +946,25 @@ function applyPropertyDraft() {
         <UiEmpty v-else-if="!relation" description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体" />
         <div v-else class="metadata-tree" data-testid="page-composer-metadata-tree">
           <p class="metadata-tree__hint">拖动字段到“页面结构”；引用字段展开将在关联治理接入后提供。</p>
+          <div class="metadata-tree__quick-add" aria-label="字段快速添加目标">
+            <span>双击添加到：</span>
+            <UiButton
+              size="small"
+              :type="selectedSlot === 'list' ? 'primary' : 'default'"
+              :disabled="isMutating"
+              @click="selectQuickAddTarget('list')"
+            >
+              列表展示字段
+            </UiButton>
+            <UiButton
+              size="small"
+              :type="selectedSlot === 'form' ? 'primary' : 'default'"
+              :disabled="isMutating"
+              @click="selectQuickAddTarget('form')"
+            >
+              详情 / 表单字段
+            </UiButton>
+          </div>
           <UiTree
             v-model:expanded-keys="metadataExpandedKeys"
             :nodes="metadataTreeNodes"
@@ -928,6 +976,18 @@ function applyPropertyDraft() {
             @drag-start="handleMetadataDragStart"
             @double-click="handleMetadataDoubleClick"
           />
+          <div class="metadata-tree__selection" aria-live="polite">
+            <span v-if="selectedMetadataField">已选：{{ fieldDisplayTitle(selectedMetadataField) }}</span>
+            <span v-else>选择字段后可快速添加；当前双击目标为：{{ quickAddTargetLabel }}</span>
+            <div v-if="selectedMetadataField" class="metadata-tree__selection-actions">
+              <UiButton size="small" :disabled="isMutating" @click="addSelectedMetadataField('list')">
+                添加到列表
+              </UiButton>
+              <UiButton size="small" :disabled="isMutating" @click="addSelectedMetadataField('form')">
+                添加到详情 / 表单
+              </UiButton>
+            </div>
+          </div>
           <UiEmpty v-if="!visibleFields.length" description="暂无可编排字段" />
         </div>
       </RecordExplorerPanel>
@@ -1037,13 +1097,15 @@ function applyPropertyDraft() {
       <p v-if="previewLoading" class="page-composition-preview-status" aria-live="polite">
         草稿解析中{{ previewDescriptor ? '；当前仍展示上一次成功解析的结果。' : '。' }}
       </p>
-      <p
+      <div
         v-else-if="previewError"
         class="page-composition-preview-status page-composition-preview-status--error"
         aria-live="polite"
       >
-        草稿解析失败：{{ previewError }}
-      </p>
+        <span>草稿解析失败：{{ previewError }}</span>
+        <span v-if="previewDescriptor">当前展示的是上一次成功解析结果，不代表当前草稿。</span>
+        <UiButton size="small" :disabled="previewLoading" @click="retryPreviewDescriptor">重新解析</UiButton>
+      </div>
       <PageCompositionDescriptorPreview
         v-if="previewDescriptor"
         :descriptor="previewDescriptor"
@@ -1056,7 +1118,7 @@ function applyPropertyDraft() {
         v-else-if="revision && !previewLoading"
         class="page-composition-preview-empty"
         :description="
-          previewError ? '保留当前草稿；修正页面结构后将自动重新解析。' : '正在等待草稿解析结果。'
+          previewError ? '当前草稿未能解析；可重新解析，或修正页面结构后自动重试。' : '正在等待草稿解析结果。'
         "
       />
       <UiEmpty
@@ -1069,7 +1131,7 @@ function applyPropertyDraft() {
     <RecordDetailDrawer
       :open="propertyDrawerOpen"
       render-mode="inline"
-      :title="`配置：${selectedFieldLabel}`"
+      :title="propertyDrawerTitle"
       subtitle="页面组件属性仅作用于当前草稿；元数据字段事实不在此处修改。"
       :width="420"
       @close="propertyDrawerOpen = false"
@@ -1160,6 +1222,26 @@ function applyPropertyDraft() {
   color: var(--muyun-text-muted);
   font-size: 13px;
   line-height: 1.55;
+}
+.metadata-tree__quick-add,
+.metadata-tree__selection,
+.metadata-tree__selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.metadata-tree__quick-add,
+.metadata-tree__selection {
+  flex: 0 0 auto;
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.metadata-tree__selection {
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--muyun-border-subtle);
 }
 .metadata-tree > :deep(.ui-tree) {
   flex: 1 1 auto;
@@ -1254,6 +1336,10 @@ function applyPropertyDraft() {
   line-height: 1.5;
 }
 .page-composition-preview-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   margin: 10px 0 0;
   color: var(--muyun-text-muted);
   font-size: 12px;
