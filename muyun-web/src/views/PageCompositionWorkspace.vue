@@ -72,7 +72,7 @@ let previewDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 const previewTabs: UiTabItem[] = [
   { key: 'list', title: '列表预览' },
-  { key: 'card', title: '列表卡片' },
+  { key: 'card', title: '列表卡片（继承）' },
   { key: 'detail', title: '详情预览' },
 ];
 const visibleFields = computed(() => {
@@ -148,21 +148,20 @@ const compositionHint = computed(() => {
 const pageContextItems = computed(() => [
   {
     label: '页面',
-    value: page.value ? (page.value.title ?? '管理页') : '未初始化',
-    detail: page.value?.alias ?? 'management',
+    value: page.value ? `${page.value.title ?? '管理页'}（${page.value.alias ?? 'management'}）` : '未初始化',
   },
-  { label: '呈现目标', value: 'Web · 全局', detail: variant.value?.title ?? '等待初始化' },
+  { label: '呈现', value: variant.value?.title ?? 'Web · 全局' },
   {
     label: '模板',
     value: revision.value?.templateAlias
       ? `${revision.value.templateAlias} v${revision.value.templateVersion ?? 1}`
       : 'management v1',
-    detail: '受模板契约约束',
   },
   {
     label: '修订',
-    value: revision.value ? `草稿 v${revision.value.revisionNo}` : '尚无草稿',
-    detail: publishedRevision.value ? `最近发布 v${publishedRevision.value.revisionNo}` : '尚未发布',
+    value: revision.value
+      ? `草稿 v${revision.value.revisionNo}${publishedRevision.value ? ` / 已发布 v${publishedRevision.value.revisionNo}` : ''}`
+      : '尚无草稿',
   },
 ]);
 const metadataTreeNodes = computed<UiTreeNode[]>(() => [
@@ -1074,7 +1073,6 @@ function applyPropertyDraft() {
         <div v-for="item in pageContextItems" :key="item.label" class="page-composition-context__item">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
-          <small>{{ item.detail }}</small>
         </div>
       </section>
       <div
@@ -1282,25 +1280,21 @@ function applyPropertyDraft() {
   gap: 8px;
 }
 .page-composition-context {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.page-composition-context__item {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--muyun-border-subtle);
-  border-radius: 6px;
-  background: var(--muyun-surface-muted);
-}
-.page-composition-context__item > span,
-.page-composition-context__item > small {
-  overflow: hidden;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 2px 0 10px;
   color: var(--muyun-text-muted);
   font-size: 12px;
+  line-height: 1.5;
+}
+.page-composition-context__item {
+  display: inline-flex;
+  min-width: 0;
+  gap: 4px;
+}
+.page-composition-context__item > span {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1380,9 +1374,4 @@ function applyPropertyDraft() {
   line-height: 1.4;
 }
 
-@media (max-width: 1180px) {
-  .page-composition-context {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 </style>
