@@ -1,4 +1,4 @@
-import { shallowMount } from '@vue/test-utils';
+import { mount, shallowMount } from '@vue/test-utils';
 import { expect, it } from 'vitest';
 import PageCompositionDescriptorPreview from '@/views/PageCompositionDescriptorPreview.vue';
 import type { ResolvedModuleUiDescriptor } from '@/web-contracts/index.ts';
@@ -35,6 +35,34 @@ it('uses the standard list cell semantic component for descriptor list and card 
 
   expect(list.findAllComponents({ name: 'RecordQueryListCell' })).toHaveLength(2);
 });
+
+it('keeps list and card keyboard actions aligned with detail inspection', async () => {
+  const list = mount(PageCompositionDescriptorPreview, {
+    props: { descriptor: descriptor(), mode: 'list' },
+    global: { stubs: { UiDataTable: tableStub } },
+  });
+  await list.get('button').trigger('keydown', { key: ' ' });
+  expect(list.emitted('configureField')).toEqual([['list', 'enabled']]);
+
+  const card = mount(PageCompositionDescriptorPreview, {
+    props: { descriptor: descriptor(), mode: 'card' },
+  });
+  await card.get('[role="button"]').trigger('keydown', { key: 'Enter' });
+  expect(card.emitted('selectField')).toEqual([['list', 'enabled']]);
+});
+
+const tableStub = {
+  props: ['columns', 'rows'],
+  template: `
+    <div>
+      <template v-for="row in rows" :key="row.id">
+        <template v-for="column in columns" :key="column.key">
+          <slot name="cell" :record="row" :column="column" />
+        </template>
+      </template>
+    </div>
+  `,
+};
 
 function descriptor(): ResolvedModuleUiDescriptor {
   return {

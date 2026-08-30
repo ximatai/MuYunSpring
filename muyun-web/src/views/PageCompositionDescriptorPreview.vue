@@ -108,6 +108,7 @@ function isSelected(slot: PreviewSlot, fieldName: string) {
           :title="`配置${column.title}`"
           @click="emit('selectField', 'list', column.key)"
           @dblclick="emit('configureField', 'list', column.key)"
+          @keydown.space.prevent="emit('configureField', 'list', column.key)"
         >
           <RecordQueryListCell
             :record="listRecord"
@@ -146,7 +147,7 @@ function isSelected(slot: PreviewSlot, fieldName: string) {
             :title="`配置${column.title}`"
             @click="emit('selectField', 'list', column.key)"
             @dblclick="emit('configureField', 'list', column.key)"
-            @keydown.enter="emit('configureField', 'list', column.key)"
+            @keydown.enter="emit('selectField', 'list', column.key)"
             @keydown.space.prevent="emit('configureField', 'list', column.key)"
           >
             <dt>{{ column.title }}</dt>
