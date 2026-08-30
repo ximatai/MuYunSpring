@@ -2,11 +2,13 @@
 import { computed } from 'vue';
 import {
   RecordDetailFields,
+  RecordQueryListCell,
   resolveRecordDetailFields,
   resolveRecordQueryListColumns,
 } from '@muyun/platform-components';
 import { UiDataTable, UiEmpty, type UiDataTableColumn, type UiDataTableRecord } from '@muyun/vue-ui-antdv';
 import type { ResolvedModuleUiDescriptor, ResolvedViewFieldDescriptor } from '@muyun/web-contracts';
+import type { QueryListRecord } from '@muyun/platform-components';
 
 defineOptions({ name: 'PageCompositionDescriptorPreview' });
 
@@ -33,12 +35,15 @@ const dataTableColumns = computed<UiDataTableColumn[]>(() =>
     align: column.align,
   })),
 );
-const listRecord = computed<UiDataTableRecord>(() =>
+const listRecord = computed<QueryListRecord>(() =>
   previewRecord(props.descriptor.page?.list?.fields.fields ?? []),
 );
 const detailFields = computed(() => resolveRecordDetailFields(props.descriptor));
 const detailFieldNames = computed(() => [...detailFields.value.keys()]);
 const detailRecord = computed<UiDataTableRecord>(() => previewRecord([...detailFields.value.values()]));
+const selectedDetailFieldName = computed(() =>
+  props.selectedFieldName?.startsWith('form:') ? props.selectedFieldName.slice('form:'.length) : undefined,
+);
 const isListEmpty = computed(() => listColumns.value.length === 0);
 const isDetailEmpty = computed(() => detailFieldNames.value.length === 0);
 
@@ -59,29 +64,20 @@ function previewValue(field: ResolvedViewFieldDescriptor): unknown {
   if (field.valueType === 'TIMESTAMP' || field.valueType === 'ZONED_TIMESTAMP') {
     return '2026-08-30T09:30:00+08:00';
   }
-  if (field.uiType === 'tagList') return ['示例标签 A', '示例标签 B'];
+  if (field.uiType === 'tagList') {
+    return [
+      { id: 'tag-a', title: '示例标签 A', color: '#1677FF' },
+      { id: 'tag-b', title: '示例标签 B', color: '#52C41A' },
+    ];
+  }
+  if (field.fieldControl?.rendererType === 'COLOR_PICKER' || field.uiType === 'colorPicker') {
+    return '#1677FF';
+  }
   return '示例内容';
 }
 
 function isSelected(slot: PreviewSlot, fieldName: string) {
   return props.selectedFieldName === `${slot}:${fieldName}`;
-}
-
-function fieldFromDetailEvent(event: MouseEvent): string | undefined {
-  const target = event.target;
-  const container = event.currentTarget;
-  if (!(target instanceof Element) || !(container instanceof HTMLElement)) return undefined;
-  const fieldElement = target.closest('.record-detail-field');
-  if (!fieldElement || !container.contains(fieldElement)) return undefined;
-  const index = Array.from(container.querySelectorAll('.record-detail-field')).indexOf(fieldElement);
-  return index >= 0 ? detailFieldNames.value[index] : undefined;
-}
-
-function selectDetailField(event: MouseEvent, configure = false) {
-  const fieldName = fieldFromDetailEvent(event);
-  if (!fieldName) return;
-  if (configure) emit('configureField', 'form', fieldName);
-  else emit('selectField', 'form', fieldName);
 }
 </script>
 
@@ -104,7 +100,7 @@ function selectDetailField(event: MouseEvent, configure = false) {
       :pagination="false"
       horizontal-scroll
     >
-      <template #cell="{ column, value }">
+      <template #cell="{ column }">
         <button
           class="page-composition-descriptor-preview__field"
           :class="{ 'page-composition-descriptor-preview__field--selected': isSelected('list', column.key) }"
@@ -113,7 +109,10 @@ function selectDetailField(event: MouseEvent, configure = false) {
           @click="emit('selectField', 'list', column.key)"
           @dblclick="emit('configureField', 'list', column.key)"
         >
-          {{ value ?? '-' }}
+          <RecordQueryListCell
+            :record="listRecord"
+            :column="listColumns.find((item) => item.key === column.key)!"
+          />
         </button>
       </template>
     </UiDataTable>
@@ -151,7 +150,7 @@ function selectDetailField(event: MouseEvent, configure = false) {
             @keydown.space.prevent="emit('configureField', 'list', column.key)"
           >
             <dt>{{ column.title }}</dt>
-            <dd>{{ listRecord[column.key] ?? '-' }}</dd>
+            <dd><RecordQueryListCell :record="listRecord" :column="column" /></dd>
           </div>
         </dl>
       </article>
@@ -163,14 +162,16 @@ function selectDetailField(event: MouseEvent, configure = false) {
       <strong>详情预览</strong><span>字段与布局由当前草稿的服务端解析结果驱动</span>
     </header>
     <UiEmpty v-if="isDetailEmpty" description="当前草稿尚未配置详情字段" />
-    <div
+    <RecordDetailFields
       v-else
-      class="page-composition-descriptor-preview__detail"
-      @click="selectDetailField($event)"
-      @dblclick="selectDetailField($event, true)"
-    >
-      <RecordDetailFields :record="detailRecord" :field-names="detailFieldNames" :fields="detailFields" />
-    </div>
+      interaction-mode="selectable"
+      :record="detailRecord"
+      :field-names="detailFieldNames"
+      :fields="detailFields"
+      :selected-field-name="selectedDetailFieldName"
+      @select="(fieldName) => emit('selectField', 'form', fieldName)"
+      @configure="(fieldName) => emit('configureField', 'form', fieldName)"
+    />
   </section>
 </template>
 
@@ -273,20 +274,5 @@ function selectDetailField(event: MouseEvent, configure = false) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.page-composition-descriptor-preview__detail {
-  cursor: pointer;
-}
-
-.page-composition-descriptor-preview__detail :deep(.record-detail-field) {
-  padding: 6px;
-  border-radius: 4px;
-  outline: 1px solid transparent;
-}
-
-.page-composition-descriptor-preview__detail :deep(.record-detail-field:hover) {
-  outline-color: var(--muyun-primary);
-  background: var(--muyun-primary-surface, var(--muyun-hover));
 }
 </style>

@@ -5,6 +5,34 @@ import RecordDetailFields from '@/platform-components/RecordDetailFields.vue';
 import RecordImageFileReferencePreview from '@/platform-components/RecordImageFileReferencePreview.vue';
 
 describe('RecordDetailFields', () => {
+  it('emits descriptor field names for optional accessible inspection interactions', async () => {
+    const wrapper = mount(RecordDetailFields, {
+      props: {
+        interactionMode: 'selectable',
+        selectedFieldName: 'subject',
+        record: { title: '期末考试', subject: '数学' },
+        fields: new Map([
+          ['title', { fieldRef: { fieldName: 'title' }, label: '考试名称' }],
+          ['subject', { fieldRef: { fieldName: 'subject' }, label: '科目' }],
+        ]),
+      },
+    });
+
+    const title = wrapper.get('[data-field-name="title"]');
+    const subject = wrapper.get('[data-field-name="subject"]');
+    expect(title.attributes('role')).toBe('button');
+    expect(title.attributes('tabindex')).toBe('0');
+    expect(subject.classes()).toContain('record-detail-field--selected');
+
+    await title.trigger('click');
+    await title.trigger('keydown', { key: 'Enter' });
+    await title.trigger('keydown', { key: ' ' });
+    await title.trigger('dblclick');
+
+    expect(wrapper.emitted('select')).toEqual([['title'], ['title']]);
+    expect(wrapper.emitted('configure')).toEqual([['title'], ['title']]);
+  });
+
   it('renders a color-picker read projection as a color swatch', () => {
     const wrapper = mount(RecordDetailFields, {
       props: {
