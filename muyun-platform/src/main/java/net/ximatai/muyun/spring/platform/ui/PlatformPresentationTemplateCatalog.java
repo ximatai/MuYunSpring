@@ -98,6 +98,14 @@ public class PlatformPresentationTemplateCatalog {
                     || !node.path("fields").isArray()) {
                 throw invalidManagementTree();
             }
+            java.util.Iterator<String> nodeNames = node.fieldNames();
+            while (nodeNames.hasNext()) {
+                String name = nodeNames.next();
+                if (!Set.of("slot", "title", "fields", "relations", "groups").contains(name)
+                        || ("relations".equals(name) && !"form".equals(slot))) {
+                    throw invalidManagementTree();
+                }
+            }
             Set<String> fields = new java.util.LinkedHashSet<>();
             for (JsonNode field : node.path("fields")) {
                 String fieldName = field.isTextual() ? field.asText() : field.path("field").asText();
@@ -108,9 +116,67 @@ public class PlatformPresentationTemplateCatalog {
                     validateManagementFieldProperties(slot, field);
                 }
             }
+            validateManagementRelations(node.path("relations"));
+            validateManagementGroups(slot, node.path("groups"), fields);
         }
         if (!slots.equals(Set.of("list", "form"))) {
             throw invalidManagementTree();
+        }
+    }
+
+    /** Form groups are a typed template node, never an arbitrary nested property bag. */
+    private static void validateManagementGroups(String slot, JsonNode groups, Set<String> placedFields) {
+        if (groups.isMissingNode()) return;
+        if (!"form".equals(slot) || !groups.isArray()) throw invalidManagementTree();
+        Set<String> codes = new java.util.LinkedHashSet<>();
+        for (JsonNode group : groups) {
+            if (!group.isObject() || !group.path("group").isTextual()
+                    || !group.path("group").asText().matches("[a-z][a-z0-9_]{0,62}")
+                    || !group.path("title").isTextual() || group.path("title").asText().isBlank()
+                    || !group.path("fields").isArray() || !codes.add(group.path("group").asText())) {
+                throw invalidManagementTree();
+            }
+            java.util.Iterator<String> names = group.fieldNames();
+            while (names.hasNext()) {
+                if (!Set.of("group", "title", "subtitle", "fields").contains(names.next())) throw invalidManagementTree();
+            }
+            if (group.has("subtitle") && (!group.path("subtitle").isTextual() || group.path("subtitle").asText().isBlank())) {
+                throw invalidManagementTree();
+            }
+            for (JsonNode field : group.path("fields")) {
+                String fieldName = field.isTextual() ? field.asText() : field.path("field").asText();
+                if (fieldName.isBlank() || !placedFields.add(fieldName)) throw invalidManagementTree();
+                if (!field.isTextual()) validateManagementFieldProperties("form", field);
+            }
+        }
+    }
+
+    /** Detail relations are template-owned components, not pseudo fields in the form field namespace. */
+    private static void validateManagementRelations(JsonNode relations) {
+        if (relations.isMissingNode()) return;
+        if (!relations.isArray()) throw invalidManagementTree();
+        Set<String> codes = new java.util.LinkedHashSet<>();
+        for (JsonNode relation : relations) {
+            if (!relation.isObject() || (relation.size() != 2 && relation.size() != 3)
+                    || !relation.path("relation").isTextual() || relation.path("relation").asText().isBlank()
+                    || !relation.path("title").isTextual() || relation.path("title").asText().isBlank()
+                    || !codes.add(relation.path("relation").asText())) {
+                throw invalidManagementTree();
+            }
+            java.util.Iterator<String> names = relation.fieldNames();
+            while (names.hasNext()) {
+                if (!Set.of("relation", "title", "fields").contains(names.next())) throw invalidManagementTree();
+            }
+            JsonNode fields = relation.path("fields");
+            if (!fields.isMissingNode()) {
+                if (!fields.isArray()) throw invalidManagementTree();
+                Set<String> fieldNames = new java.util.LinkedHashSet<>();
+                for (JsonNode field : fields) {
+                    if (!field.isTextual() || field.asText().isBlank() || !fieldNames.add(field.asText())) {
+                        throw invalidManagementTree();
+                    }
+                }
+            }
         }
     }
 

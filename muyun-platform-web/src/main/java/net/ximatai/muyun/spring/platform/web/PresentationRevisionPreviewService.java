@@ -49,7 +49,8 @@ public class PresentationRevisionPreviewService {
         templateCatalog.validateUiTree(request.uiTreeJson(), template);
 
         ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page, revision,
-                request.uiTreeJson(), runtimeContextService.dynamicMainFieldTitles(page.getModuleAlias()));
+                request.uiTreeJson(), runtimeContextService.dynamicMainFieldTitles(page.getModuleAlias()),
+                runtimeContextService.dynamicAssociationViews(page.getModuleAlias()));
         ResolvedModuleUiDescriptor descriptor = runtimeContextService.previewDynamicPageDescriptor(page.getModuleAlias(),
                 definition);
         return new PresentationRevisionPreview(page.getId(), variant.getId(), revision.getId(), descriptor);

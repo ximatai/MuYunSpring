@@ -21,8 +21,6 @@ import {
   UiTree,
   type UiTabItem,
   type UiTreeDragEvent,
-  type UiTreeDropEvent,
-  type UiTreeExternalDropEvent,
   type UiTreeNode,
 } from '@muyun/vue-ui-antdv';
 import type {
@@ -40,6 +38,7 @@ import {
 } from './pageCompositionDraftState';
 import { pageCompositionTransport } from './pageCompositionTransport';
 import PageCompositionDescriptorPreview from './PageCompositionDescriptorPreview.vue';
+import PageCompositionTree, { type ComposerDropTarget } from './PageCompositionTree.vue';
 
 defineOptions({ name: 'PageCompositionWorkspace' });
 
@@ -50,7 +49,9 @@ const loading = ref(false);
 const saving = ref(false);
 const publishing = ref(false);
 const relation = ref<ModuleMetadataRelation>();
+const metadataRelations = ref<ModuleMetadataRelation[]>([]);
 const metadataFields = ref<PageComposerField[]>([]);
+const childMetadataFields = ref(new Map<string, PageComposerField[]>());
 const page = ref<PageDefinition>();
 const variant = ref<PresentationVariant>();
 const revision = ref<PresentationRevision>();
@@ -59,21 +60,25 @@ const selectedSlot = ref<PageComposerSlot>('list');
 const fieldKeyword = ref('');
 const selectedMetadataTreeKey = ref<string>();
 const metadataExpandedKeys = ref<string[]>(['metadata:root']);
-const uiExpandedKeys = ref<string[]>(['ui:root', 'ui:slot:list', 'ui:slot:list:fields', 'ui:slot:form']);
 const propertyDrawerOpen = ref(false);
 const propertyDraft = ref<PageComposerFieldProperties>({});
+const groupTitleDraft = ref('');
+const groupSubtitleDraft = ref('');
 const quickSearchPlaceholderDraft = ref('');
 const savedUiTreeJson = ref<string>();
 const previewDescriptor = ref<ResolvedModuleUiDescriptor>();
 const previewLoading = ref(false);
 const previewError = ref<string>();
+const activeMetadataDragPayload = ref<MetadataDragPayload>();
 let previewRequestSequence = 0;
 let previewDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+let workspaceLoadSequence = 0;
 
 const previewTabs: UiTabItem[] = [
   { key: 'list', title: '列表预览' },
-  { key: 'card', title: '列表卡片（继承）' },
+  { key: 'query', title: '查询预览' },
   { key: 'detail', title: '详情预览' },
+  { key: 'edit', title: '编辑预览' },
 ];
 const visibleFields = computed(() => {
   const keyword = fieldKeyword.value.trim().toLowerCase();
@@ -83,6 +88,18 @@ const visibleFields = computed(() => {
   );
 });
 const selectedField = computed(() => state.selectedNode.value?.field);
+const selectedMetadataRelation = computed(() => {
+  const key = selectedMetadataTreeKey.value;
+  const prefix = 'metadata:relation:';
+  if (!key?.startsWith(prefix)) return undefined;
+  return metadataRelations.value.find(
+    (candidate) => (candidate.id ?? candidate.metadataId) === key.slice(prefix.length),
+  );
+});
+const selectedRelation = computed(() => state.selectedNode.value?.relation);
+const selectedRelationField = computed(() => state.selectedNode.value?.relationField);
+const selectedGroup = computed(() => state.selectedNode.value?.group);
+const selectedGroupNode = computed(() => state.selectedNode.value?.kind === 'group' ? state.selectedNode.value.group : undefined);
 const selectedQuickSearch = computed(() => state.selectedNode.value?.id === 'template:list:quick-search');
 const selectedMetadataField = computed(() => {
   const key = selectedMetadataTreeKey.value;
@@ -90,12 +107,25 @@ const selectedMetadataField = computed(() => {
   if (!key?.startsWith(prefix)) return undefined;
   return metadataFields.value.find((field) => field.id === key.slice(prefix.length));
 });
+const selectedChildMetadataField = computed(() => {
+  const match = /^metadata:relation-field:(.+):(.+)$/.exec(selectedMetadataTreeKey.value ?? '');
+  if (!match) return undefined;
+  const relation = metadataRelations.value.find(
+    (candidate) => (candidate.id ?? candidate.metadataId) === match[1],
+  );
+  const field = childMetadataFields.value.get(match[1])?.find((candidate) => candidate.id === match[2]);
+  return relation && field ? { relation, field } : undefined;
+});
 const selectedFieldLabel = computed(() =>
   selectedQuickSearch.value
     ? '快速查询'
     : selectedField.value
       ? fieldDisplayTitle(selectedField.value)
-      : '组件',
+      : selectedRelationField.value
+        ? fieldDisplayTitle(selectedRelationField.value)
+      : selectedGroupNode.value
+        ? selectedGroupNode.value.title
+      : (selectedRelation.value?.title ?? '组件'),
 );
 const propertyDrawerTitle = computed(() =>
   selectedQuickSearch.value ? '配置：快速查询占位提示' : `配置：${selectedFieldLabel.value}`,
@@ -125,6 +155,11 @@ const selectedUiTreeKey = computed(() => {
   const node = state.selectedNode.value;
   if (!node) return undefined;
   if (node.kind === 'template') return 'ui:template:list:quick-search';
+  if (node.kind === 'relation') return `ui:relation:form:${node.relation?.id}`;
+  if (node.kind === 'relationField')
+    return `ui:relation-field:form:${node.relation?.id}:${node.relationField?.id}`;
+  if (node.kind === 'group') return `ui:group:form:${node.group?.id}`;
+  if (node.kind === 'groupField') return `ui:group-field:form:${node.group?.id}:${node.field?.id}`;
   return node.kind === 'slot'
     ? node.slot === 'list'
       ? 'ui:slot:list:fields'
@@ -138,90 +173,22 @@ const compositionSubtitle = computed(() => {
   if (!revision.value) return '尚无可编辑草稿';
   return `草稿 v${revision.value.revisionNo} · 最近发布 ${publishedRevision.value ? `v${publishedRevision.value.revisionNo}` : '无'}`;
 });
-const compositionHint = computed(() => {
-  if (!page.value) return '初始化后即可从左侧字段投放到页面结构。';
-  if (!revision.value && publishedRevision.value)
-    return '当前没有可编辑草稿；基于最近发布修订创建后续草稿后即可继续编排。';
-  if (!revision.value) return '当前页面尚无草稿，初始化后即可开始编排。';
-  return '调整页面结构与组件属性；保存草稿后，再发布到 Web 管理页。';
-});
-const pageContextItems = computed(() => [
-  {
-    label: '页面',
-    value: page.value ? `${page.value.title ?? '管理页'}（${page.value.alias ?? 'management'}）` : '未初始化',
-  },
-  { label: '呈现', value: variant.value?.title ?? 'Web · 全局' },
-  {
-    label: '模板',
-    value: revision.value?.templateAlias
-      ? `${revision.value.templateAlias} v${revision.value.templateVersion ?? 1}`
-      : 'management v1',
-  },
-  {
-    label: '修订',
-    value: revision.value
-      ? `草稿 v${revision.value.revisionNo}${publishedRevision.value ? ` / 已发布 v${publishedRevision.value.revisionNo}` : ''}`
-      : '尚无草稿',
-  },
-]);
 const metadataTreeNodes = computed<UiTreeNode[]>(() => [
   {
     key: 'metadata:root',
     title: mainEntityTitle.value,
     secondary: '主元数据',
-    children: visibleFields.value.map((field) => ({
-      key: `metadata:field:${field.id}`,
-      title: field.title,
-      secondary: field.fieldName,
-      isLeaf: true,
-    })),
-  },
-]);
-const uiTreeNodes = computed<UiTreeNode[]>(() => [
-  {
-    key: 'ui:root',
-    title: '管理页模板',
-    secondary: 'management v1',
     children: [
-      {
-        key: 'ui:slot:list',
-        title: slotTitle('list'),
-        secondary: '标准列表',
-        children: [
-          {
-            key: 'ui:template:list:quick-search',
-            title: '快速查询',
-            secondary: '模板内置 · 可改占位提示',
-            isLeaf: true,
-          },
-          {
-            key: 'ui:slot:list:fields',
-            title: '列表展示字段',
-            secondary: fieldsInSlot('list').length ? '可拖拽编排' : '拖动字段到此处',
-            children: fieldsInSlot('list').map((field) => ({
-              key: `ui:field:list:${field.id}`,
-              title: fieldDisplayTitle(field),
-              secondary: field.fieldName,
-              isLeaf: true,
-            })),
-          },
-        ],
-      },
-      {
-        key: 'ui:slot:form',
-        title: slotTitle('form'),
-        secondary: fieldsInSlot('form').length ? '详情 / 表单字段' : '拖动字段到此处',
-        children: fieldsInSlot('form').map((field) => ({
-          key: `ui:field:form:${field.id}`,
-          title: fieldDisplayTitle(field),
-          secondary: field.fieldName,
-          isLeaf: true,
-        })),
-      },
+      ...visibleFields.value.map((field) => ({
+        key: `metadata:field:${field.id}`,
+        title: field.title,
+        secondary: field.fieldName,
+        isLeaf: true,
+      })),
+      ...childRelationNodes(relation.value?.metadataId),
     ],
   },
 ]);
-
 watch(selectedField, (field) => {
   propertyDraft.value = { ...(field?.properties ?? {}) };
 });
@@ -229,6 +196,10 @@ watch(selectedField, (field) => {
 watch(selectedQuickSearch, (selected) => {
   if (selected) quickSearchPlaceholderDraft.value = state.quickSearchPlaceholder.value ?? '';
 });
+
+// Older transient drag sessions could place one form field in more than one group.  The editor
+// repairs that impossible state before previewing, keeping the UI tree and server descriptor aligned.
+watch([state.formFields, state.formGroups], () => state.normalizeFormFieldPlacements(), { immediate: true });
 
 watch(
   () => props.moduleAlias,
@@ -243,7 +214,10 @@ watch([currentUiTreeJson, () => variant.value?.id, () => revision.value?.id], ()
   schedulePreviewDescriptor(),
 );
 
-onBeforeUnmount(() => resetPreviewDescriptor());
+onBeforeUnmount(() => {
+  workspaceLoadSequence += 1;
+  resetPreviewDescriptor();
+});
 
 type PageDefinition = {
   id?: string;
@@ -282,18 +256,17 @@ type PresentationRevisionPreview = {
   revisionId: string;
   uiDescriptor: ResolvedModuleUiDescriptor;
 };
-
-function pageClient() {
+function pageClient(moduleAlias = props.moduleAlias) {
   return createStaticResourceCrudClient<PageDefinition>(
     moduleContext.http,
-    `/platform.module/${encodeURIComponent(props.moduleAlias)}/pages`,
+    `/platform.module/${encodeURIComponent(moduleAlias)}/pages`,
   );
 }
 
-function variantClient(pageId: string) {
+function variantClient(moduleAlias: string, pageId: string) {
   return createStaticResourceCrudClient<PresentationVariant>(
     moduleContext.http,
-    `/platform.module/${encodeURIComponent(props.moduleAlias)}/pages/${encodeURIComponent(pageId)}/presentation-variants`,
+    `/platform.module/${encodeURIComponent(moduleAlias)}/pages/${encodeURIComponent(pageId)}/presentation-variants`,
   );
 }
 
@@ -305,36 +278,96 @@ function revisionClient(variantId: string) {
 }
 
 async function loadWorkspace() {
-  await loadMetadataTree();
-  await loadComposition();
+  const requestSequence = ++workspaceLoadSequence;
+  const moduleAlias = props.moduleAlias;
+  await loadMetadataTree(requestSequence, moduleAlias);
+  if (requestSequence !== workspaceLoadSequence) return;
+  await loadComposition(requestSequence, moduleAlias);
 }
 
-async function loadMetadataTree() {
+async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleAlias = props.moduleAlias) {
   loading.value = true;
   relation.value = undefined;
+  metadataRelations.value = [];
   metadataFields.value = [];
+  childMetadataFields.value = new Map();
   try {
     const relations = await loadAll<ModuleMetadataRelation>(
-      `/platform.module/${encodeURIComponent(props.moduleAlias)}/metadata-relations/query`,
+      `/platform.module/${encodeURIComponent(moduleAlias)}/metadata-relations/query`,
     );
+    if (requestSequence !== workspaceLoadSequence) return;
+    metadataRelations.value = relations;
     const main = relations.find((item) => item.relationRole === 'main' || item.relationRole === 'MAIN');
     relation.value = main;
     if (!main?.metadataId) return;
     const fields = await loadAll<MetadataField>(
       `/platform.metadata/${encodeURIComponent(main.metadataId)}/fields/query`,
     );
+    if (requestSequence !== workspaceLoadSequence) return;
     metadataFields.value = fields
       .filter((field) => field.enabled !== false)
       .map(toComposerField)
       .filter((field): field is PageComposerField => field != null);
+    const directChildren = relations.filter(
+      (candidate) =>
+        candidate.relationRole !== 'main' &&
+        candidate.relationRole !== 'MAIN' &&
+        candidate.parentMetadataId === main.metadataId &&
+        Boolean(candidate.metadataId),
+    );
+    const childFieldEntries = await Promise.all(
+      directChildren.map(async (child) => {
+        const childFields = await loadAll<MetadataField>(
+          `/platform.metadata/${encodeURIComponent(child.metadataId!)}/fields/query`,
+        );
+        return [
+          child.id ?? child.metadataId!,
+          childFields
+            .filter((field) => field.enabled !== false)
+            .map(toComposerField)
+            .filter((field): field is PageComposerField => field != null),
+        ] as const;
+      }),
+    );
+    if (requestSequence !== workspaceLoadSequence) return;
+    childMetadataFields.value = new Map(childFieldEntries);
   } catch (cause) {
-    presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+    if (requestSequence === workspaceLoadSequence)
+      presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
   } finally {
-    loading.value = false;
+    if (requestSequence === workspaceLoadSequence) loading.value = false;
   }
 }
 
-async function loadComposition() {
+function childRelationNodes(parentMetadataId?: string): UiTreeNode[] {
+  if (!parentMetadataId) return [];
+  return metadataRelations.value
+    .filter(
+      (candidate) =>
+        candidate.relationRole !== 'main' &&
+        candidate.relationRole !== 'MAIN' &&
+        candidate.parentMetadataId === parentMetadataId,
+    )
+    .map((candidate) => {
+      const relationId = candidate.id ?? candidate.metadataId;
+      const fields = relationId ? childMetadataFields.value.get(relationId) ?? [] : [];
+      return {
+        key: `metadata:relation:${relationId}`,
+        title: candidate.title ?? candidate.relationAlias ?? '子实体',
+        secondary: '子实体 · 拖入详情创建关联列表',
+        isLeaf: fields.length === 0,
+        children: fields.map((field) => ({
+          key: `metadata:relation-field:${relationId}:${field.id}`,
+          title: field.title,
+          secondary: field.fieldName,
+          isLeaf: true,
+        })),
+      };
+    });
+}
+
+async function loadComposition(requestSequence = workspaceLoadSequence, moduleAlias = props.moduleAlias) {
+  if (requestSequence !== workspaceLoadSequence) return;
   resetPreviewDescriptor();
   page.value = undefined;
   variant.value = undefined;
@@ -344,15 +377,17 @@ async function loadComposition() {
   state.updateQuickSearchPlaceholder(undefined);
   savedUiTreeJson.value = undefined;
   try {
-    const pages = await loadAllFromClient(pageClient(), [
+    const pages = await loadAllFromClient(pageClient(moduleAlias), [
       { fieldName: 'alias', operator: 'EQ', values: ['management'] },
     ]);
+    if (requestSequence !== workspaceLoadSequence) return;
     page.value = pages[0];
     if (!page.value?.id) return;
-    const variants = await loadAllFromClient(variantClient(page.value.id), [
+    const variants = await loadAllFromClient(variantClient(moduleAlias, page.value.id), [
       { fieldName: 'clientType', operator: 'EQ', values: [pageCompositionTransport.webClient] },
       { fieldName: 'scopeType', operator: 'EQ', values: [pageCompositionTransport.globalScope] },
     ]);
+    if (requestSequence !== workspaceLoadSequence) return;
     variant.value = variants[0];
     if (!variant.value?.id) return;
     const [drafts, published] = await Promise.all([
@@ -363,11 +398,13 @@ async function loadComposition() {
         { fieldName: 'status', operator: 'EQ', values: [pageCompositionTransport.publishedRevision] },
       ]),
     ]);
+    if (requestSequence !== workspaceLoadSequence) return;
     revision.value = latestRevision(drafts);
     publishedRevision.value = latestRevision(published);
     hydrateDraft(revision.value);
   } catch (cause) {
-    presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+    if (requestSequence === workspaceLoadSequence)
+      presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
   }
 }
 
@@ -444,6 +481,8 @@ function hydrateDraft(current: PresentationRevision | undefined) {
       nodes?: Array<{
         slot?: PageComposerSlot;
         fields?: Array<string | { field?: string; props?: PageComposerFieldProperties }>;
+        relations?: Array<{ relation?: string; title?: string; fields?: string[] }>;
+        groups?: Array<{ group?: string; title?: string; subtitle?: string; fields?: Array<string | { field?: string; props?: PageComposerFieldProperties }> }>;
       }>;
     };
     const resolve = (slot: PageComposerSlot) => tree.nodes?.find((node) => node.slot === slot)?.fields ?? [];
@@ -465,6 +504,33 @@ function hydrateDraft(current: PresentationRevision | undefined) {
       form: resolve('form')
         .map(resolveField)
         .filter((field): field is PageComposerField => Boolean(field)),
+      relations: (tree.nodes?.find((node) => node.slot === 'form')?.relations ?? []).flatMap((entry) => {
+        const relation = metadataRelations.value.find(
+          (candidate) => candidate.relationAlias === entry.relation,
+        );
+        const relationCode = relation?.relationAlias ?? entry.relation;
+        if (!relationCode) return [];
+        return [
+          {
+            id: relation?.id ?? relationCode,
+            relationCode,
+            title: entry.title?.trim() || relation?.title || relation?.relationAlias || relationCode,
+            fields: (entry.fields ?? []).flatMap((fieldName) => {
+              const childField = relation
+                ? childMetadataFields.value
+                    .get(relation.id ?? relation.metadataId ?? '')
+                    ?.find((candidate) => candidate.fieldName === fieldName)
+                : undefined;
+              return childField ? [{ ...childField }] : [];
+            }),
+          },
+        ];
+      }),
+      groups: (tree.nodes?.find((node) => node.slot === 'form')?.groups ?? []).flatMap((entry) => {
+        if (!entry.group || !entry.title) return [];
+        return [{ id: entry.group, groupCode: entry.group, title: entry.title, subtitle: entry.subtitle,
+          fields: (entry.fields ?? []).map(resolveField).filter((field): field is PageComposerField => Boolean(field)) }];
+      }),
     });
     state.updateQuickSearchPlaceholder(
       typeof tree.props?.list?.searchPlaceholder === 'string' ? tree.props.list.searchPlaceholder : undefined,
@@ -493,7 +559,7 @@ async function initializeComposition() {
     if (!page.value.id) return;
     if (!variant.value) {
       variant.value = (
-        await variantClient(page.value.id).insert({
+        await variantClient(props.moduleAlias, page.value.id).insert({
           clientType: pageCompositionTransport.webClient,
           scopeType: pageCompositionTransport.globalScope,
           title: 'Web 全局呈现',
@@ -620,9 +686,14 @@ function latestRevision(revisions: PresentationRevision[]) {
 }
 
 type PersistedUiField = { field: string; props?: PageComposerFieldProperties };
+type PersistedUiRelation = { relation: string; title?: string; fields?: string[] };
 type PersistedUiTree = {
   props?: { list?: { searchPlaceholder?: unknown } };
-  nodes?: Array<{ slot?: PageComposerSlot; fields?: Array<string | PersistedUiField> }>;
+  nodes?: Array<{
+    slot?: PageComposerSlot;
+    fields?: Array<string | PersistedUiField>;
+    relations?: PersistedUiRelation[];
+  }>;
 };
 
 function summarizeUiTreeChanges(savedTreeJson: string | undefined, currentTreeJson: string) {
@@ -653,8 +724,26 @@ function summarizeUiTreeChanges(savedTreeJson: string | undefined, currentTreeJs
       reordered = true;
     }
   }
+  const savedRelations = saved.relationsBySlot.get('form') ?? [];
+  const currentRelations = current.relationsBySlot.get('form') ?? [];
+  const savedRelationCodes = new Set(savedRelations.map((relation) => relation.relation));
+  const currentRelationCodes = new Set(currentRelations.map((relation) => relation.relation));
+  const relationsAdded = currentRelations.filter(
+    (relation) => !savedRelationCodes.has(relation.relation),
+  ).length;
+  const relationsRemoved = savedRelations.filter(
+    (relation) => !currentRelationCodes.has(relation.relation),
+  ).length;
+  const savedRelationsByCode = new Map(savedRelations.map((relation) => [relation.relation, relation]));
+  const changedRelationFields = currentRelations.filter((relation) => {
+    const savedRelation = savedRelationsByCode.get(relation.relation);
+    return savedRelation && (savedRelation.fields ?? []).join('|') !== (relation.fields ?? []).join('|');
+  }).length;
   if (added) changes.push(`新增 ${added} 个字段`);
   if (removed) changes.push(`移除 ${removed} 个字段`);
+  if (relationsAdded) changes.push(`添加 ${relationsAdded} 个关联子表`);
+  if (relationsRemoved) changes.push(`移除 ${relationsRemoved} 个关联子表`);
+  if (changedRelationFields) changes.push(`调整 ${changedRelationFields} 个子表展示字段`);
   if (reordered) changes.push('调整字段顺序');
   if (propertiesChanged) changes.push(`修改 ${propertiesChanged} 项展示属性`);
   if (saved.quickSearchPlaceholder !== current.quickSearchPlaceholder) {
@@ -665,8 +754,9 @@ function summarizeUiTreeChanges(savedTreeJson: string | undefined, currentTreeJs
 
 function parsePersistedUiTree(treeJson: string | undefined) {
   const fieldsBySlot = new Map<PageComposerSlot, PersistedUiField[]>();
+  const relationsBySlot = new Map<PageComposerSlot, PersistedUiRelation[]>();
   let quickSearchPlaceholder: string | undefined;
-  if (!treeJson) return { fieldsBySlot, quickSearchPlaceholder };
+  if (!treeJson) return { fieldsBySlot, relationsBySlot, quickSearchPlaceholder };
   try {
     const tree = JSON.parse(treeJson) as PersistedUiTree;
     quickSearchPlaceholder =
@@ -680,11 +770,19 @@ function parsePersistedUiTree(treeJson: string | undefined) {
           return field ? [{ field, props: typeof entry === 'string' ? undefined : entry.props }] : [];
         }),
       );
+      const relations = tree.nodes?.find((node) => node.slot === slot)?.relations ?? [];
+      relationsBySlot.set(
+        slot,
+        relations.filter(
+          (relation): relation is PersistedUiRelation =>
+            typeof relation?.relation === 'string' && relation.relation.trim().length > 0,
+        ),
+      );
     }
   } catch {
     // A malformed persisted draft is still recoverable through the editor's empty local state.
   }
-  return { fieldsBySlot, quickSearchPlaceholder };
+  return { fieldsBySlot, relationsBySlot, quickSearchPlaceholder };
 }
 
 async function loadAll<T>(path: string): Promise<T[]> {
@@ -741,13 +839,52 @@ function selectMetadataNode(node: UiTreeNode) {
   selectedMetadataTreeKey.value = node.key;
 }
 
+function addSelectedMetadataRelation() {
+  const selectedRelation = selectedMetadataRelation.value;
+  if (
+    !selectedRelation ||
+    isMutating.value ||
+    !selectedRelation.relationAlias ||
+    selectedRelation.parentMetadataId !== relation.value?.metadataId
+  )
+    return;
+  state.addFormRelation({
+    id: selectedRelation.id ?? selectedRelation.metadataId ?? selectedRelation.relationAlias,
+    relationCode: selectedRelation.relationAlias,
+    title: selectedRelation.title ?? selectedRelation.relationAlias,
+    fields: [],
+  });
+}
+
+function addSelectedChildMetadataField() {
+  const selected = selectedChildMetadataField.value;
+  if (
+    !selected ||
+    isMutating.value ||
+    !selected.relation.relationAlias ||
+    selected.relation.parentMetadataId !== relation.value?.metadataId
+  )
+    return;
+  state.addFormRelationField(
+    {
+      id: selected.relation.id ?? selected.relation.metadataId ?? selected.relation.relationAlias,
+      relationCode: selected.relation.relationAlias,
+      title: selected.relation.title ?? selected.relation.relationAlias,
+      fields: [],
+    },
+    selected.field,
+  );
+}
+
 function handleMetadataDoubleClick(event: UiTreeDragEvent) {
   const field = fieldOfMetadataNode(event.node);
   if (field) addToSelectedSlot(field);
+  else if (event.node.key.startsWith('metadata:relation-field:')) addSelectedChildMetadataField();
+  else if (event.node.key.startsWith('metadata:relation:')) addSelectedMetadataRelation();
 }
 
-function selectUiTreeNode(node: UiTreeNode) {
-  const parsed = parseUiNode(node.key);
+function selectUiTreeKey(key: string) {
+  const parsed = parseUiNode(key);
   if (!parsed) return;
   if (parsed.kind === 'slot' || parsed.kind === 'fieldGroup') {
     selectNode({ id: `slot:${parsed.slot}`, kind: 'slot', title: slotTitle(parsed.slot), slot: parsed.slot });
@@ -755,6 +892,43 @@ function selectUiTreeNode(node: UiTreeNode) {
   }
   if (parsed.kind === 'template') {
     selectNode({ id: 'template:list:quick-search', kind: 'template', title: '快速查询', slot: 'list' });
+    return;
+  }
+  if (parsed.kind === 'relation') {
+    const relation = state.formRelations.value.find((candidate) => candidate.id === parsed.relationId);
+    if (relation)
+      selectNode({
+        id: `form:relation:${relation.id}`,
+        kind: 'relation',
+        title: relation.title,
+        slot: 'form',
+        relation,
+      });
+    return;
+  }
+  if (parsed.kind === 'group') {
+    const group = state.formGroups.value.find((candidate) => candidate.id === parsed.groupId);
+    if (group) selectNode({ id: `form:group:${group.id}`, kind: 'group', title: group.title, slot: 'form', group });
+    return;
+  }
+  if (parsed.kind === 'groupField') {
+    const group = state.formGroups.value.find((candidate) => candidate.id === parsed.groupId);
+    const field = group?.fields.find((candidate) => candidate.id === parsed.fieldId);
+    if (group && field) selectNode({ id: `form:group:${group.id}:field:${field.id}`, kind: 'groupField', title: field.title, slot: 'form', group, field });
+    return;
+  }
+  if (parsed.kind === 'relationField') {
+    const relation = state.formRelations.value.find((candidate) => candidate.id === parsed.relationId);
+    const field = relation?.fields.find((candidate) => candidate.id === parsed.fieldId);
+    if (relation && field)
+      selectNode({
+        id: `form:relation:${relation.id}:field:${field.id}`,
+        kind: 'relationField',
+        title: field.title,
+        slot: 'form',
+        relation,
+        relationField: field,
+      });
     return;
   }
   if (parsed.kind !== 'field') return;
@@ -771,79 +945,134 @@ function selectUiTreeNode(node: UiTreeNode) {
 
 function handleMetadataDragStart(event: UiTreeDragEvent) {
   if (isMutating.value) return;
-  const field = fieldOfMetadataNode(event.node);
   const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
-  if (!field || !dataTransfer) return;
+  const payload = metadataDragPayload(event.node);
+  if (!payload) return;
+  activeMetadataDragPayload.value = payload;
+  if (!dataTransfer) return;
   dataTransfer.effectAllowed = 'copy';
-  dataTransfer.setData('text/page-composer-field', field.id);
+  const serialized = JSON.stringify(payload);
+  dataTransfer.setData('application/x-muyun-page-composer', serialized);
+  // text/plain keeps the payload available when a browser strips custom MIME types between tree components.
+  dataTransfer.setData('text/plain', serialized);
 }
 
 function canDragMetadataNode(node: UiTreeNode) {
-  return !isMutating.value && fieldOfMetadataNode(node) != null;
+  return !isMutating.value && metadataDragPayload(node) != null;
 }
 
-function handleUiTreeDragStart(event: UiTreeDragEvent) {
+function handleUiTreeDoubleClick(key: string) {
+  selectUiTreeKey(key);
+  if (['field', 'group', 'template'].includes(parseUiNode(key)?.kind ?? '')) openPropertyDrawer();
+}
+
+function reorderListField(fieldId: string, targetIndex: number) {
+  if (!isMutating.value) state.moveField(fieldId, 'list', 'list', targetIndex);
+}
+
+function reorderFormField(fieldId: string, targetIndex: number) {
+  if (!isMutating.value) state.moveField(fieldId, 'form', 'form', targetIndex);
+}
+
+function moveFormFieldToGroup(fieldId: string, groupId: string, targetIndex: number) {
+  if (!isMutating.value) state.moveFormFieldToGroup(fieldId, groupId, targetIndex);
+}
+
+function moveGroupFieldToForm(groupId: string, fieldId: string, targetIndex: number) {
+  if (!isMutating.value) state.moveGroupFieldToForm(groupId, fieldId, targetIndex);
+}
+
+function reorderGroupField(groupId: string, fieldId: string, targetIndex: number) {
+  if (!isMutating.value) state.moveGroupField(groupId, fieldId, targetIndex);
+}
+
+function moveGroupFieldToGroup(sourceGroupId: string, fieldId: string, targetGroupId: string, targetIndex: number) {
+  if (!isMutating.value) state.moveGroupFieldToGroup(sourceGroupId, fieldId, targetGroupId, targetIndex);
+}
+
+function reorderGroup(groupId: string, targetIndex: number) {
+  if (!isMutating.value) state.moveFormGroup(groupId, targetIndex);
+}
+
+function reorderRelationField(relationId: string, fieldId: string, targetIndex: number) {
+  if (!isMutating.value) state.moveFormRelationField(relationId, fieldId, targetIndex);
+}
+
+function handleCompositionMetadataDrop(target: ComposerDropTarget, nativeEvent: DragEvent) {
   if (isMutating.value) return;
-  const parsed = parseUiNode(event.node.key);
-  const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
-  if (!parsed || parsed.kind !== 'field' || !dataTransfer) return;
-  dataTransfer.effectAllowed = 'move';
-  dataTransfer.setData('text/page-composer-ui-field', JSON.stringify(parsed));
-}
-
-function canDragUiTreeNode(node: UiTreeNode) {
-  return !isMutating.value && parseUiNode(node.key)?.kind === 'field';
-}
-
-function handleUiTreeDoubleClick(event: UiTreeDragEvent) {
-  selectUiTreeNode(event.node);
-  if (['field', 'template'].includes(parseUiNode(event.node.key)?.kind ?? '')) openPropertyDrawer();
-}
-
-function handleUiTreeDrop(
-  event: Pick<UiTreeDropEvent, 'dropNode' | 'dropPosition' | 'dropToGap' | 'nativeEvent'>,
-) {
-  if (isMutating.value) return;
-  const target = parseUiNode(event.dropNode.key);
-  if (!target || target.kind === 'root' || target.kind === 'template') return;
-  const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
-  const fieldId = dataTransfer?.getData('text/page-composer-field');
-  if (fieldId) {
-    const field = metadataFields.value.find((candidate) => candidate.id === fieldId);
-    const targetIndex =
-      target.kind === 'field'
-        ? fieldsInSlot(target.slot).findIndex((candidate) => candidate.id === target.fieldId) +
-          (event.dropPosition > 0 ? 1 : 0)
-        : undefined;
-    if (field) state.addField(field, target.slot, targetIndex);
-    return;
+  const metadata = parseMetadataDragPayload(nativeEvent.dataTransfer) ?? activeMetadataDragPayload.value;
+  if (!metadata) return;
+  if (metadata.kind === 'field') {
+    const field = metadataFields.value.find((candidate) => candidate.id === metadata.fieldId);
+    if (!field) return;
+    if (target.kind === 'list') state.addField(field, 'list');
+    else if (target.kind === 'form') state.addField(field, 'form');
+    else {
+      state.addField(field, 'form');
+      state.moveFormFieldToGroup(field.id, target.groupId);
+    }
+  } else if (metadata.kind === 'relation' && target.kind === 'form') {
+    addRelationById(metadata.relationId);
+  } else if (metadata.kind === 'relationField' && target.kind === 'form') {
+    addRelationFieldById(metadata.relationId, metadata.fieldId);
   }
-  const raw = dataTransfer?.getData('text/page-composer-ui-field');
-  if (!raw) return;
+  activeMetadataDragPayload.value = undefined;
+}
+
+type MetadataDragPayload =
+  | { kind: 'field'; fieldId: string }
+  | { kind: 'relation'; relationId: string }
+  | { kind: 'relationField'; relationId: string; fieldId: string };
+
+function metadataDragPayload(node: UiTreeNode): MetadataDragPayload | undefined {
+  const mainField = fieldOfMetadataNode(node);
+  if (mainField) return { kind: 'field', fieldId: mainField.id };
+  const relationMatch = /^metadata:relation:(.+)$/.exec(node.key);
+  if (relationMatch) return { kind: 'relation', relationId: relationMatch[1] };
+  const childFieldMatch = /^metadata:relation-field:(.+):(.+)$/.exec(node.key);
+  return childFieldMatch
+    ? { kind: 'relationField', relationId: childFieldMatch[1], fieldId: childFieldMatch[2] }
+    : undefined;
+}
+
+function parseMetadataDragPayload(dataTransfer?: DataTransfer | null): MetadataDragPayload | undefined {
+  const raw = dataTransfer?.getData('application/x-muyun-page-composer') || dataTransfer?.getData('text/plain');
+  if (!raw) return undefined;
   try {
-    const source = JSON.parse(raw) as { kind?: string; slot?: PageComposerSlot; fieldId?: string };
-    if (source.kind !== 'field' || !source.slot || !source.fieldId) return;
-    const targetIndex =
-      target.kind === 'field'
-        ? fieldsInSlot(target.slot).findIndex((field) => field.id === target.fieldId) +
-          (event.dropPosition > 0 ? 1 : 0)
-        : undefined;
-    state.moveField(source.fieldId, source.slot, target.slot, targetIndex);
+    const payload = JSON.parse(raw) as MetadataDragPayload;
+    if (payload.kind === 'field' && payload.fieldId) return payload;
+    if (payload.kind === 'relation' && payload.relationId) return payload;
+    if (payload.kind === 'relationField' && payload.relationId && payload.fieldId) return payload;
   } catch {
-    // Ignore payloads not owned by the page composer.
+    // Ignore native drops whose text payload is not created by this composer.
   }
+  return undefined;
 }
 
-function handleUiTreeExternalDrop(event: UiTreeExternalDropEvent) {
-  handleUiTreeDrop(event);
+function addRelationById(relationId: string) {
+  const selected = metadataRelations.value.find((candidate) => (candidate.id ?? candidate.metadataId) === relationId);
+  if (!selected?.relationAlias || selected.parentMetadataId !== relation.value?.metadataId) return;
+  state.addFormRelation({
+    id: selected.id ?? selected.metadataId ?? selected.relationAlias,
+    relationCode: selected.relationAlias,
+    title: selected.title ?? selected.relationAlias,
+    fields: [],
+  });
 }
 
-function allowUiTreeDrop(event: Pick<UiTreeDropEvent, 'dropNode' | 'dropToGap'>) {
-  if (isMutating.value) return false;
-  const target = parseUiNode(event.dropNode.key);
-  if (!target || target.kind === 'root' || target.kind === 'template') return false;
-  if (target.kind === 'fieldGroup') return !event.dropToGap;
-  return target.kind === 'slot' ? !event.dropToGap : event.dropToGap;
+function addRelationFieldById(relationId: string, fieldId: string) {
+  const selected = metadataRelations.value.find((candidate) => (candidate.id ?? candidate.metadataId) === relationId);
+  const field = childMetadataFields.value.get(relationId)?.find((candidate) => candidate.id === fieldId);
+  if (!selected?.relationAlias || !field || selected.parentMetadataId !== relation.value?.metadataId) return;
+  state.addFormRelationField(
+    {
+      id: selected.id ?? selected.metadataId ?? selected.relationAlias,
+      relationCode: selected.relationAlias,
+      title: selected.title ?? selected.relationAlias,
+      fields: [],
+    },
+    field,
+  );
 }
 
 function fieldOfMetadataNode(node: UiTreeNode) {
@@ -858,11 +1087,24 @@ function parseUiNode(
   | { kind: 'root' }
   | { kind: 'slot'; slot: PageComposerSlot }
   | { kind: 'fieldGroup'; slot: 'list' }
+  | { kind: 'group'; groupId: string }
+  | { kind: 'groupField'; groupId: string; fieldId: string }
   | { kind: 'template' }
+  | { kind: 'relation'; relationId: string }
+  | { kind: 'relationField'; relationId: string; fieldId: string }
   | { kind: 'field'; slot: PageComposerSlot; fieldId: string }
   | undefined {
   if (key === 'ui:root') return { kind: 'root' };
   if (key === 'ui:template:list:quick-search') return { kind: 'template' };
+  const groupMatch = /^ui:group:form:(.+)$/.exec(key);
+  if (groupMatch) return { kind: 'group', groupId: groupMatch[1] };
+  const groupFieldMatch = /^ui:group-field:form:(.+):(.+)$/.exec(key);
+  if (groupFieldMatch) return { kind: 'groupField', groupId: groupFieldMatch[1], fieldId: groupFieldMatch[2] };
+  const relationMatch = /^ui:relation:form:(.+)$/.exec(key);
+  if (relationMatch) return { kind: 'relation', relationId: relationMatch[1] };
+  const relationFieldMatch = /^ui:relation-field:form:(.+):(.+)$/.exec(key);
+  if (relationFieldMatch)
+    return { kind: 'relationField', relationId: relationFieldMatch[1], fieldId: relationFieldMatch[2] };
   if (key === 'ui:slot:list:fields') return { kind: 'fieldGroup', slot: 'list' };
   const slotMatch = /^ui:slot:(list|form)$/.exec(key);
   if (slotMatch) return { kind: 'slot', slot: slotMatch[1] as PageComposerSlot };
@@ -890,8 +1132,8 @@ function selectDescriptorPreviewField(slot: PageComposerSlot, fieldName: string,
 }
 
 function selectPreviewMode(key: string) {
-  if (isMutating.value || (key !== 'list' && key !== 'card' && key !== 'detail')) return;
-  state.previewMode.value = key;
+  if (isMutating.value || !['list', 'query', 'detail', 'edit'].includes(key)) return;
+  state.previewMode.value = key as typeof state.previewMode.value;
 }
 
 function canMoveSelectedField(offset: -1 | 1) {
@@ -906,6 +1148,38 @@ function moveSelectedField(offset: -1 | 1) {
   state.moveSelectedField(offset);
 }
 
+function canMoveSelectedRelationField(offset: -1 | 1) {
+  const relation = selectedRelation.value;
+  const field = selectedRelationField.value;
+  if (!relation || !field) return false;
+  const index = relation.fields.findIndex((candidate) => candidate.id === field.id);
+  return index >= 0 && index + offset >= 0 && index + offset < relation.fields.length;
+}
+
+function moveSelectedRelationField(offset: -1 | 1) {
+  const relation = selectedRelation.value;
+  const field = selectedRelationField.value;
+  if (isMutating.value || !relation || !field) return;
+  const index = relation.fields.findIndex((candidate) => candidate.id === field.id);
+  if (index < 0) return;
+  state.moveFormRelationField(relation.id, field.id, index + offset);
+}
+
+function canMoveSelectedGroup(offset: -1 | 1) {
+  const group = selectedGroupNode.value;
+  if (!group) return false;
+  const index = state.formGroups.value.findIndex((candidate) => candidate.id === group.id);
+  return index >= 0 && index + offset >= 0 && index + offset < state.formGroups.value.length;
+}
+
+function moveSelectedGroup(offset: -1 | 1) {
+  const group = selectedGroupNode.value;
+  if (isMutating.value || !group) return;
+  const index = state.formGroups.value.findIndex((candidate) => candidate.id === group.id);
+  if (index < 0) return;
+  state.moveFormGroup(group.id, index + offset);
+}
+
 function removeSelectedField() {
   if (isMutating.value) return;
   state.removeSelectedField();
@@ -916,9 +1190,13 @@ function fieldDisplayTitle(field: PageComposerField) {
 }
 
 function openPropertyDrawer() {
-  if (isMutating.value || (!selectedField.value && !selectedQuickSearch.value)) return;
+  if (isMutating.value || (!selectedField.value && !selectedQuickSearch.value && !selectedGroup.value)) return;
   if (selectedQuickSearch.value) quickSearchPlaceholderDraft.value = state.quickSearchPlaceholder.value ?? '';
   else if (selectedField.value) propertyDraft.value = { ...(selectedField.value.properties ?? {}) };
+  else if (selectedGroup.value) {
+    groupTitleDraft.value = selectedGroup.value.title;
+    groupSubtitleDraft.value = selectedGroup.value.subtitle ?? '';
+  }
   propertyDrawerOpen.value = true;
 }
 
@@ -926,6 +1204,7 @@ function applyPropertyDraft() {
   if (isMutating.value) return;
   if (selectedQuickSearch.value) state.updateQuickSearchPlaceholder(quickSearchPlaceholderDraft.value);
   else if (selectedField.value) state.updateSelectedFieldProperties(propertyDraft.value);
+  else if (selectedGroup.value) state.updateFormGroup(selectedGroup.value.id, groupTitleDraft.value, groupSubtitleDraft.value);
   else return;
   propertyDrawerOpen.value = false;
 }
@@ -937,16 +1216,14 @@ function applyPropertyDraft() {
       <RecordExplorerPanel
         v-model:search-keyword="fieldKeyword"
         title="可用字段"
-        :subtitle="`${mainEntityTitle} · 主实体`"
         search-placeholder="搜索字段"
         @refresh="loadMetadataTree"
       >
         <UiSpin v-if="loading" tip="加载主实体字段" />
         <UiEmpty v-else-if="!relation" description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体" />
         <div v-else class="metadata-tree" data-testid="page-composer-metadata-tree">
-          <p class="metadata-tree__hint">拖动字段到“页面结构”；引用字段展开将在关联治理接入后提供。</p>
           <div class="metadata-tree__quick-add" aria-label="字段快速添加目标">
-            <span>双击添加到：</span>
+            <span>双击添加至</span>
             <UiButton
               size="small"
               :type="selectedSlot === 'list' ? 'primary' : 'default'"
@@ -977,6 +1254,10 @@ function applyPropertyDraft() {
           />
           <div class="metadata-tree__selection" aria-live="polite">
             <span v-if="selectedMetadataField">已选：{{ fieldDisplayTitle(selectedMetadataField) }}</span>
+            <span v-else-if="selectedChildMetadataField">
+              已选子表字段：{{ fieldDisplayTitle(selectedChildMetadataField.field) }}
+            </span>
+            <span v-else-if="selectedMetadataRelation">已选子实体：{{ selectedMetadataRelation.title }}</span>
             <span v-else>选择字段后可快速添加；当前双击目标为：{{ quickAddTargetLabel }}</span>
             <div v-if="selectedMetadataField" class="metadata-tree__selection-actions">
               <UiButton size="small" :disabled="isMutating" @click="addSelectedMetadataField('list')">
@@ -986,6 +1267,16 @@ function applyPropertyDraft() {
                 添加到详情 / 表单
               </UiButton>
             </div>
+            <div v-else-if="selectedMetadataRelation" class="metadata-tree__selection-actions">
+              <UiButton size="small" :disabled="isMutating" @click="addSelectedMetadataRelation">
+                添加关联子表到详情
+              </UiButton>
+            </div>
+            <div v-else-if="selectedChildMetadataField" class="metadata-tree__selection-actions">
+              <UiButton size="small" :disabled="isMutating" @click="addSelectedChildMetadataField">
+                添加到 {{ selectedChildMetadataField.relation.title ?? selectedChildMetadataField.relation.relationAlias }} 子表
+              </UiButton>
+            </div>
           </div>
           <UiEmpty v-if="!visibleFields.length" description="暂无可编排字段" />
         </div>
@@ -993,15 +1284,23 @@ function applyPropertyDraft() {
     </ManagementExplorerColumn>
 
     <ManagementExplorerColumn>
-      <RecordExplorerPanel title="页面结构" subtitle="management v1" :searchable="false">
+      <RecordExplorerPanel title="页面结构" :searchable="false">
         <div v-if="state.selectedNode.value" class="ui-tree__contextbar">
           <span>已选：{{ selectedFieldLabel }}</span>
           <div class="ui-tree__operations">
+            <UiButton
+              v-if="state.selectedNode.value?.slot === 'form'"
+              size="small"
+              :disabled="isMutating"
+              @click="state.addFormGroup"
+            >
+              添加分组
+            </UiButton>
             <UiButton size="small" :disabled="isMutating" @click="openPropertyDrawer">配置</UiButton>
-            <template v-if="selectedField">
+            <template v-if="selectedField || (selectedRelation && !selectedRelationField)">
               <UiButton
                 size="small"
-                :disabled="isMutating || !canMoveSelectedField(-1)"
+                :disabled="isMutating || Boolean(selectedRelation) || !canMoveSelectedField(-1)"
                 title="已在首位"
                 @click="moveSelectedField(-1)"
               >
@@ -1009,9 +1308,51 @@ function applyPropertyDraft() {
               </UiButton>
               <UiButton
                 size="small"
-                :disabled="isMutating || !canMoveSelectedField(1)"
+                :disabled="isMutating || Boolean(selectedRelation) || !canMoveSelectedField(1)"
                 title="已在末位"
                 @click="moveSelectedField(1)"
+              >
+                下移
+              </UiButton>
+              <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
+                移除
+              </UiButton>
+            </template>
+            <template v-else-if="selectedGroupNode">
+              <UiButton
+                size="small"
+                :disabled="isMutating || !canMoveSelectedGroup(-1)"
+                title="已在首位"
+                @click="moveSelectedGroup(-1)"
+              >
+                上移分组
+              </UiButton>
+              <UiButton
+                size="small"
+                :disabled="isMutating || !canMoveSelectedGroup(1)"
+                title="已在末位"
+                @click="moveSelectedGroup(1)"
+              >
+                下移分组
+              </UiButton>
+              <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
+                移除分组
+              </UiButton>
+            </template>
+            <template v-else-if="selectedRelationField && selectedRelation">
+              <UiButton
+                size="small"
+                :disabled="isMutating || !canMoveSelectedRelationField(-1)"
+                title="已在首位"
+                @click="moveSelectedRelationField(-1)"
+              >
+                上移
+              </UiButton>
+              <UiButton
+                size="small"
+                :disabled="isMutating || !canMoveSelectedRelationField(1)"
+                title="已在末位"
+                @click="moveSelectedRelationField(1)"
               >
                 下移
               </UiButton>
@@ -1022,19 +1363,24 @@ function applyPropertyDraft() {
           </div>
         </div>
         <div class="ui-tree" data-testid="page-composer-ui-tree">
-          <UiTree
-            v-model:expanded-keys="uiExpandedKeys"
-            :nodes="uiTreeNodes"
+          <PageCompositionTree
+            :list-fields="state.listFields.value"
+            :form-fields="state.formFields.value"
+            :form-groups="state.formGroups.value"
+            :form-relations="state.formRelations.value"
             :selected-key="selectedUiTreeKey"
-            :draggable="!isMutating"
-            :can-drag="canDragUiTreeNode"
-            :allow-drop="allowUiTreeDrop"
-            :allow-external-drop="allowUiTreeDrop"
-            @select="selectUiTreeNode"
-            @drag-start="handleUiTreeDragStart"
+            :disabled="isMutating"
+            @select="selectUiTreeKey"
             @double-click="handleUiTreeDoubleClick"
-            @drop="handleUiTreeDrop"
-            @external-drop="handleUiTreeExternalDrop"
+            @reorder-list-field="reorderListField"
+            @reorder-form-field="reorderFormField"
+            @move-form-field-to-group="moveFormFieldToGroup"
+            @move-group-field-to-form="moveGroupFieldToForm"
+            @reorder-group-field="reorderGroupField"
+            @move-group-field-to-group="moveGroupFieldToGroup"
+            @reorder-group="reorderGroup"
+            @reorder-relation-field="reorderRelationField"
+            @metadata-drop="handleCompositionMetadataDrop"
           />
         </div>
       </RecordExplorerPanel>
@@ -1069,51 +1415,43 @@ function applyPropertyDraft() {
           </template>
         </div>
       </template>
-      <section class="page-composition-context" aria-label="当前页面编排上下文">
-        <div v-for="item in pageContextItems" :key="item.label" class="page-composition-context__item">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-        </div>
-      </section>
       <div
-        v-if="revision"
+        v-if="revision && hasUnsavedChanges"
         class="page-composition-status"
-        :class="{ 'page-composition-status--dirty': hasUnsavedChanges }"
         aria-live="polite"
       >
-        {{ hasUnsavedChanges ? '未保存更改' : '草稿已保存' }}
+        未保存更改
       </div>
       <p v-if="hasUnsavedChanges" class="page-composition-change-summary">
         本次更改：{{ unsavedChangeSummary.join(' · ') }}
       </p>
-      <p class="page-composition-notice">{{ compositionHint }}</p>
       <UiTabs
         :active-key="state.previewMode.value"
         :tabs="previewTabs"
         @update:active-key="selectPreviewMode"
       />
-      <p v-if="previewLoading" class="page-composition-preview-status" aria-live="polite">
-        草稿解析中{{ previewDescriptor ? '；当前仍展示上一次成功解析的结果。' : '。' }}
-      </p>
       <div
-        v-else-if="previewError"
+        v-if="previewError"
         class="page-composition-preview-status page-composition-preview-status--error"
         aria-live="polite"
       >
         <span>草稿解析失败：{{ previewError }}</span>
         <span v-if="previewDescriptor">当前展示的是上一次成功解析结果，不代表当前草稿。</span>
-        <UiButton size="small" :disabled="previewLoading" @click="retryPreviewDescriptor">重新解析</UiButton>
+        <UiButton size="small" :disabled="previewLoading" @click="retryPreviewDescriptor">
+          重新解析
+        </UiButton>
       </div>
-      <PageCompositionDescriptorPreview
+          <PageCompositionDescriptorPreview
         v-if="previewDescriptor"
         :descriptor="previewDescriptor"
+        :module-alias="props.moduleAlias"
         :mode="state.previewMode.value"
         :selected-field-name="selectedPreviewFieldName"
         @select-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName)"
         @configure-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName, true)"
       />
       <UiEmpty
-        v-else-if="revision && !previewLoading"
+        v-else-if="revision && !previewLoading && !previewError"
         class="page-composition-preview-empty"
         :description="
           previewError ? '当前草稿未能解析；可重新解析，或修正页面结构后自动重试。' : '正在等待草稿解析结果。'
@@ -1122,7 +1460,7 @@ function applyPropertyDraft() {
       <UiEmpty
         v-else-if="!revision"
         class="page-composition-preview-empty"
-        description="初始化页面草稿后，即可查看服务端解析的页面预览。"
+        description="初始化页面草稿后，即可查看页面预览。"
       />
     </RecordDetailPanel>
 
@@ -1186,6 +1524,17 @@ function applyPropertyDraft() {
         </template>
         <p>保存草稿后属性才会持久化；发布时由模板 schema 校验后写入运行态。</p>
       </div>
+      <div v-else-if="selectedGroup" class="component-property-drawer">
+        <label>
+          <span>分组标题</span>
+          <UiInput v-model:value="groupTitleDraft" placeholder="例如：基本信息" />
+        </label>
+        <label>
+          <span>辅助说明</span>
+          <UiInput v-model:value="groupSubtitleDraft" placeholder="可选，例如：填写考试基础资料" />
+        </label>
+        <p>Group 是标准表单的语义分段；仅已拖入的字段会在该分组中显示。</p>
+      </div>
       <template #operation>
         <UiButton @click="propertyDrawerOpen = false">取消</UiButton>
         <UiButton
@@ -1212,14 +1561,6 @@ function applyPropertyDraft() {
   gap: 4px;
   min-height: 0;
   overflow: auto;
-}
-.metadata-tree__hint,
-.page-composition-notice {
-  flex: 0 0 auto;
-  margin: 0;
-  color: var(--muyun-text-muted);
-  font-size: 13px;
-  line-height: 1.55;
 }
 .metadata-tree__quick-add,
 .metadata-tree__selection,
@@ -1279,34 +1620,6 @@ function applyPropertyDraft() {
   justify-content: flex-end;
   gap: 8px;
 }
-.page-composition-context {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  margin: 2px 0 10px;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.page-composition-context__item {
-  display: inline-flex;
-  min-width: 0;
-  gap: 4px;
-}
-.page-composition-context__item > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.page-composition-context__item > strong {
-  overflow: hidden;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.page-composition-notice {
-  margin-bottom: 12px;
-}
 .page-composition-status {
   display: inline-flex;
   align-items: center;
@@ -1314,14 +1627,10 @@ function applyPropertyDraft() {
   margin-bottom: 6px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: var(--muyun-surface-muted);
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-  line-height: 20px;
-}
-.page-composition-status--dirty {
   background: var(--muyun-warning-surface, var(--muyun-surface-muted));
   color: var(--muyun-warning-text, var(--muyun-text));
+  font-size: 12px;
+  line-height: 20px;
 }
 .page-composition-change-summary {
   margin: 0 0 6px;
@@ -1373,5 +1682,8 @@ function applyPropertyDraft() {
   font-size: 12px;
   line-height: 1.4;
 }
-
 </style>
+  const groupMatch = /^ui:group:form:(.+)$/.exec(key);
+  if (groupMatch) return { kind: 'group', groupId: groupMatch[1] };
+  const groupFieldMatch = /^ui:group-field:form:(.+):(.+)$/.exec(key);
+  if (groupFieldMatch) return { kind: 'groupField', groupId: groupFieldMatch[1], fieldId: groupFieldMatch[2] };

@@ -39,6 +39,8 @@ const props = withDefaults(
      */
     interactionMode?: 'none' | 'selectable';
     selectedFieldName?: string;
+    /** Stable DOM keys for a parent-owned layout transition; absent in ordinary detail surfaces. */
+    layoutTransitionPrefix?: string;
   }>(),
   {
     fieldNames: undefined,
@@ -52,6 +54,7 @@ const props = withDefaults(
     emptyText: '-',
     interactionMode: 'none',
     selectedFieldName: undefined,
+    layoutTransitionPrefix: undefined,
   },
 );
 
@@ -151,6 +154,9 @@ function configureField(field: RecordFormFieldState) {
         'record-detail-field--selected': isInteractiveField(field) && selectedFieldName === field.fieldName,
       }"
       :data-field-name="field.fieldName"
+      :data-page-composition-layout-key="
+        layoutTransitionPrefix ? `${layoutTransitionPrefix}:field:${field.fieldName}` : undefined
+      "
       :role="isInteractiveField(field) ? 'button' : undefined"
       :tabindex="isInteractiveField(field) ? 0 : undefined"
       @click="selectField(field)"

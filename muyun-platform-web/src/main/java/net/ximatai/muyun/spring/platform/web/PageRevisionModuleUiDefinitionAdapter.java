@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.web;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageContractType;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
@@ -41,14 +42,14 @@ public final class PageRevisionModuleUiDefinitionAdapter {
 
     /**
      * Converts one effective published revision. {@code mainEntityFieldNames} is the already
-     * compiled main metadata field namespace; relation and virtual fields are intentionally out of
-     * scope for this first management template.
+     * compiled main metadata field namespace. The form slot may additionally select a direct
+     * child association from the supplied runtime catalog; virtual fields remain out of scope.
      */
     public static ModuleUiDefinition fromPublishedRevision(PlatformPageDefinition page,
                                                            PlatformPresentationRevision revision,
                                                            Collection<String> mainEntityFieldNames) {
         return fromRevision(page, revision, revision == null ? null : revision.getUiTreeJson(),
-                fieldTitles(mainEntityFieldNames), true);
+                fieldTitles(mainEntityFieldNames), Map.of(), true);
     }
 
     /** Dynamic sources supply their metadata titles here; an explicit tree label still wins. */
@@ -56,7 +57,16 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                                                            PlatformPresentationRevision revision,
                                                            Map<String, String> mainEntityFieldTitles) {
         return fromRevision(page, revision, revision == null ? null : revision.getUiTreeJson(),
-                mainEntityFieldTitles, true);
+                mainEntityFieldTitles, Map.of(), true);
+    }
+
+    /** Dynamic page revisions may place only server-known association views into the detail slot. */
+    public static ModuleUiDefinition fromPublishedRevision(PlatformPageDefinition page,
+                                                           PlatformPresentationRevision revision,
+                                                           Map<String, String> mainEntityFieldTitles,
+                                                           Map<String, DynamicAssociationViewDescriptor> associations) {
+        return fromRevision(page, revision, revision == null ? null : revision.getUiTreeJson(),
+                mainEntityFieldTitles, associations, true);
     }
 
     /**
@@ -68,20 +78,29 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                                                          PlatformPresentationRevision revision,
                                                          String uiTreeJson,
                                                          Collection<String> mainEntityFieldNames) {
-        return fromRevision(page, revision, uiTreeJson, fieldTitles(mainEntityFieldNames), false);
+        return fromRevision(page, revision, uiTreeJson, fieldTitles(mainEntityFieldNames), Map.of(), false);
     }
 
     public static ModuleUiDefinition fromPreviewRevision(PlatformPageDefinition page,
                                                          PlatformPresentationRevision revision,
                                                          String uiTreeJson,
                                                          Map<String, String> mainEntityFieldTitles) {
-        return fromRevision(page, revision, uiTreeJson, mainEntityFieldTitles, false);
+        return fromRevision(page, revision, uiTreeJson, mainEntityFieldTitles, Map.of(), false);
+    }
+
+    public static ModuleUiDefinition fromPreviewRevision(PlatformPageDefinition page,
+                                                         PlatformPresentationRevision revision,
+                                                         String uiTreeJson,
+                                                         Map<String, String> mainEntityFieldTitles,
+                                                         Map<String, DynamicAssociationViewDescriptor> associations) {
+        return fromRevision(page, revision, uiTreeJson, mainEntityFieldTitles, associations, false);
     }
 
     private static ModuleUiDefinition fromRevision(PlatformPageDefinition page,
                                                    PlatformPresentationRevision revision,
                                                    String uiTreeJson,
                                                    Map<String, String> mainEntityFieldTitles,
+                                                   Map<String, DynamicAssociationViewDescriptor> associations,
                                                    boolean requirePublished) {
         if (page == null) {
             throw new IllegalArgumentException("page definition must not be null");
@@ -116,16 +135,42 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                         new PageDetailDefinition(null, form.title(), null,
                                 view(ModuleUiViewCodes.DEFAULT_FORM, ModuleViewKind.FORM, form, knownFields, fieldTitles)),
                         new PageTraitsDefinition(null)),
-                null, List.of(), List.of());
+                null, List.of(), List.of(), detailRelations(form, associations));
+    }
+
+    private static List<PageDetailRelationDefinition> detailRelations(
+            Slot form, Map<String, DynamicAssociationViewDescriptor> associations) {
+        Map<String, DynamicAssociationViewDescriptor> known = associations == null ? Map.of() : associations;
+        return form.relations().stream().map(relation -> {
+            DynamicAssociationViewDescriptor view = known.get(relation.code());
+            if (view == null) {
+                throw new IllegalArgumentException("management form references an unknown association view: "
+                        + relation.code());
+            }
+            if (view.relationCode() == null || view.relationCode().isBlank()) {
+                throw new IllegalArgumentException("management form association must be a child relation: "
+                        + relation.code());
+            }
+            return new PageDetailRelationDefinition(view.code(), relation.title(), view.targetEntityAlias(),
+                    view.relationCode(), true, true, relation.fields());
+        }).toList();
     }
 
     private static ViewDefinition view(String viewCode, ModuleViewKind viewKind, Slot slot, Set<String> knownFields,
                                        Map<String, String> fieldTitles) {
         List<ViewFieldDefinition> fields = slot.fields().stream()
                 .map(field -> field(field, slot.slot(), knownFields, fieldTitles))
-                .toList();
+                .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+        List<FormGroupDefinition> groups = "form".equals(slot.slot())
+                ? slot.groups().stream().map(group -> {
+                    List<ViewFieldDefinition> groupFields = group.fields().stream()
+                            .map(field -> field(field, slot.slot(), knownFields, fieldTitles)).toList();
+                    fields.addAll(groupFields);
+                    return new FormGroupDefinition(group.code(), group.title(), group.subtitle(), groupFields);
+                }).toList()
+                : List.of();
         return new ViewDefinition(viewCode, viewKind, ModuleUiClientType.WEB, slot.title(), fields,
-                null, List.of(), List.of());
+                null, groups, List.of());
     }
 
     private static ViewFieldDefinition field(FieldNode field, String slot, Set<String> knownFields,
@@ -236,7 +281,14 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             if (fields.stream().map(FieldNode::name).collect(java.util.stream.Collectors.toSet()).size() != fields.size()) {
                 throw new IllegalArgumentException("management " + slot + " slot contains duplicate fields");
             }
-            if (slots.put(slot, new Slot(slot, title.trim(), List.copyOf(fields))) != null) {
+            List<RelationNode> relations = "form".equals(slot) ? relationNodes(node.path("relations")) : List.of();
+            List<GroupNode> groups = "form".equals(slot) ? groupNodes(node.path("groups"), slot) : List.of();
+            Set<String> allFields = new LinkedHashSet<>(fields.stream().map(FieldNode::name).toList());
+            groups.forEach(group -> group.fields().forEach(field -> allFields.add(field.name())));
+            if (allFields.size() != fields.size() + groups.stream().mapToInt(group -> group.fields().size()).sum()) {
+                throw new IllegalArgumentException("management form slot contains duplicate fields");
+            }
+            if (slots.put(slot, new Slot(slot, title.trim(), List.copyOf(fields), relations, groups)) != null) {
                 throw new IllegalArgumentException("management page revision declares duplicate " + slot + " slot");
             }
         }
@@ -249,6 +301,43 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             }
         }
         return new Composition(Map.copyOf(slots), searchPlaceholder);
+    }
+
+    private static List<RelationNode> relationNodes(JsonNode nodes) {
+        if (nodes.isMissingNode()) return List.of();
+        List<RelationNode> values = new java.util.ArrayList<>();
+        nodes.forEach(node -> values.add(new RelationNode(node.path("relation").asText(null),
+                node.path("title").asText(null), relationFields(node.path("fields")))));
+        if (values.stream().map(RelationNode::code).collect(java.util.stream.Collectors.toSet()).size() != values.size()) {
+            throw new IllegalArgumentException("management form slot contains duplicate relations");
+        }
+        return List.copyOf(values);
+    }
+
+    private static List<GroupNode> groupNodes(JsonNode nodes, String slot) {
+        if (nodes.isMissingNode()) return List.of();
+        List<GroupNode> values = new java.util.ArrayList<>();
+        nodes.forEach(node -> {
+            List<FieldNode> fields = new java.util.ArrayList<>();
+            node.path("fields").forEach(field -> fields.add(fieldNode(field, slot)));
+            values.add(new GroupNode(node.path("group").asText(null), node.path("title").asText(null),
+                    node.path("subtitle").asText(null), List.copyOf(fields)));
+        });
+        if (values.stream().map(GroupNode::code).collect(java.util.stream.Collectors.toSet()).size() != values.size()) {
+            throw new IllegalArgumentException("management form slot contains duplicate groups");
+        }
+        return List.copyOf(values);
+    }
+
+    private static List<String> relationFields(JsonNode fields) {
+        if (fields.isMissingNode()) return List.of();
+        List<String> values = new java.util.ArrayList<>();
+        fields.forEach(field -> values.add(field.asText(null)));
+        if (values.stream().anyMatch(field -> field == null || field.isBlank())
+                || values.stream().map(String::trim).collect(java.util.stream.Collectors.toSet()).size() != values.size()) {
+            throw new IllegalArgumentException("management form relation contains invalid fields");
+        }
+        return values.stream().map(String::trim).toList();
     }
 
     private static Slot requireSlot(Map<String, Slot> slots, String slot, String revisionId) {
@@ -273,7 +362,14 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 properties.has("readOnly") ? properties.path("readOnly").asBoolean() : null);
     }
 
-    private record Slot(String slot, String title, List<FieldNode> fields) {
+    private record Slot(String slot, String title, List<FieldNode> fields, List<RelationNode> relations,
+                        List<GroupNode> groups) {
+    }
+
+    private record RelationNode(String code, String title, List<String> fields) {
+    }
+
+    private record GroupNode(String code, String title, String subtitle, List<FieldNode> fields) {
     }
 
     private record Composition(Map<String, Slot> slots, String listSearchPlaceholder) {

@@ -265,7 +265,7 @@ public record ModuleUiDefinition(String moduleAlias,
                                                                  List<AggregateChildFormulaDefinition> formComputeRules) {
             return new PageDetailRelationDefinition(code, title, targetEntityAlias, parentBinding, readOnly, managedQuery,
                     mutations, parentConstraint, pagination, editing, refreshOnDetailReload, aggregateChild,
-                    formComputeRules, visible);
+                    formComputeRules, visible, List.of());
         }
     }
 

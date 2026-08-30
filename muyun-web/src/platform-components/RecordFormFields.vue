@@ -59,6 +59,8 @@ const props = withDefaults(
     fileTransferContext?: ModuleContext<unknown>;
     formSessionKey?: string | number;
     validationRequestKey?: number;
+    /** Stable DOM keys for a parent-owned layout transition; absent in ordinary form surfaces. */
+    layoutTransitionPrefix?: string;
     disabled?: boolean;
     showLabels?: boolean;
     compact?: boolean;
@@ -80,6 +82,7 @@ const props = withDefaults(
     fileTransferContext: undefined,
     formSessionKey: undefined,
     validationRequestKey: 0,
+    layoutTransitionPrefix: undefined,
     disabled: false,
     showLabels: true,
     compact: false,
@@ -539,10 +542,16 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         class="record-form-group-heading"
         :title="groupOf(field)?.title ?? ''"
         :subtitle="groupOf(field)?.subtitle"
+        :data-page-composition-layout-key="
+          layoutTransitionPrefix ? `${layoutTransitionPrefix}:group:${groupOf(field)?.groupCode}` : undefined
+        "
       />
     </template>
     <label
       class="record-form-field"
+      :data-page-composition-layout-key="
+        layoutTransitionPrefix ? `${layoutTransitionPrefix}:field:${field.fieldName}` : undefined
+      "
       :class="{
         'record-form-field-full-row': field.columnSpan === 2,
         'record-form-field--compact': compact,

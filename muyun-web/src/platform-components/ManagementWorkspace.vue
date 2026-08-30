@@ -219,18 +219,6 @@ const pageLayout = usePageLayout();
   min-width: 0;
 }
 
-@media (max-width: 1180px) {
-  .management-workspace--composer .management-workspace__grid {
-    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-    grid-template-rows: minmax(160px, 0.75fr) minmax(0, 1.25fr);
-    gap: 8px;
-  }
-
-  .management-workspace--composer .management-workspace__grid > :nth-child(3) {
-    grid-column: 1 / -1;
-  }
-}
-
 @media (max-width: 760px) {
   .management-workspace--composer .management-workspace__grid {
     grid-template-columns: minmax(0, 1fr);

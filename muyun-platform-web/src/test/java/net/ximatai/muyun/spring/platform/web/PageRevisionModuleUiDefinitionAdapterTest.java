@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
+import net.ximatai.muyun.spring.dynamic.metadata.AssociationViewDisplayMode;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageContractType;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
@@ -149,6 +152,26 @@ class PageRevisionModuleUiDefinitionAdapterTest {
 
         assertThat(((ListDetailCardPageDefinition) definition.page()).list().list().title()).isEqualTo("草稿考试");
         assertThat(draft.getUiTreeJson()).doesNotContain("草稿考试");
+    }
+
+    @Test
+    void shouldCompileDeclaredDetailAssociationFromTheDynamicRuntimeCatalog() {
+        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"考试","fields":["title"]},
+                  {"slot":"form","title":"编辑考试","fields":["title"],
+                   "relations":[{"relation":"participants","title":"参考学生","fields":["studentName"]}]}
+                ]}
+                """), Map.of("title", "考试名称"), Map.of("participants",
+                new DynamicAssociationViewDescriptor("participants", "exam", "education.exam", "exam_participant",
+                        AssociationViewDisplayMode.INLINE_LIST, "participants", null, EntityViewType.LIST, true)));
+
+        assertThat(definition.detailRelations()).singleElement().satisfies(relation -> {
+            assertThat(relation.code()).isEqualTo("participants");
+            assertThat(relation.title()).isEqualTo("参考学生");
+            assertThat(relation.targetEntityAlias()).isEqualTo("exam_participant");
+            assertThat(relation.listFields()).containsExactly("studentName");
+        });
     }
 
     @Test

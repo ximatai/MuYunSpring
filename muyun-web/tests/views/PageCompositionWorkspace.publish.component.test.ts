@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
 import PageCompositionWorkspace from '@/views/PageCompositionWorkspace.vue';
+import PageCompositionTree from '@/views/PageCompositionTree.vue';
 import { confirmAction } from '@muyun/vue-ui-antdv';
 
 vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
@@ -12,6 +13,7 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
 describe('PageCompositionWorkspace publication flow', () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('saves the same local tree before publishing and creates the next draft from that snapshot', async () => {
@@ -64,7 +66,152 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect((followUpRequest.body as { status: string }).status).toBe('draft');
     expect(vi.mocked(confirmAction)).toHaveBeenCalledTimes(1);
   });
+
+  it('ignores an older module load after the workspace switches modules', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const oldRelations = deferred<unknown>();
+    configureModuleContext({
+      http: {
+        request: <T>(options: HttpRequestOptions) => {
+          requests.push(options);
+          if (options.path === '/platform.module/platform.module/context')
+            return Promise.resolve({ moduleAlias: 'platform.module', capabilities: [], actions: [] } as T);
+          if (options.path === '/platform.module/education.old/metadata-relations/query')
+            return oldRelations.promise as Promise<T>;
+          if (options.path === '/platform.module/education.new/metadata-relations/query')
+            return Promise.resolve(
+              page([
+                {
+                  id: 'relation-new',
+                  metadataId: 'metadata-new',
+                  relationAlias: '新主实体',
+                  relationRole: 'main',
+                },
+              ]) as T,
+            );
+          if (options.path === '/platform.metadata/metadata-new/fields/query')
+            return Promise.resolve(page([{ id: 'field-new', fieldName: 'title', title: '新字段' }]) as T);
+          if (options.path === '/platform.module/education.new/pages/query')
+            return Promise.resolve(page([]) as T);
+          throw new Error(`Unexpected request: ${options.method ?? 'GET'} ${options.path}`);
+        },
+      },
+    });
+
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.old' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await wrapper.setProps({ moduleAlias: 'education.new' });
+    await flushPromises();
+    oldRelations.resolve(
+      page([
+        { id: 'relation-old', metadataId: 'metadata-old', relationAlias: '旧主实体', relationRole: 'main' },
+      ]),
+    );
+    await flushPromises();
+
+    expect(requests.some((request) => request.path === '/platform.module/education.old/pages/query')).toBe(
+      false,
+    );
+    expect(requests.some((request) => request.path === '/platform.module/education.new/pages/query')).toBe(
+      true,
+    );
+    expect(wrapper.text()).toContain('新主实体');
+    expect(wrapper.text()).not.toContain('旧主实体');
+  });
+
+  it('shows known child metadata as a detail association source', async () => {
+    configureModuleContext({ http: publicationFlowHttp([]) });
+
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('参考学生');
+    expect(wrapper.text()).toContain('子实体 · 拖入详情创建关联列表');
+    expect(wrapper.text()).toContain('学生姓名');
+  });
+
+  it('accepts a metadata field through the dedicated composer-tree drop contract', async () => {
+    configureModuleContext({ http: publicationFlowHttp([]) });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const metadataTree = wrapper.findComponent({ name: 'UiTree' });
+    const pageTree = wrapper.findComponent(PageCompositionTree);
+    const metadataField = treeNode(metadataTree.props('nodes'), 'metadata:field:field-title');
+    expect(metadataField).toBeDefined();
+
+    metadataTree.vm.$emit('drag-start', { node: metadataField, nativeEvent: undefined });
+    pageTree.vm.$emit('metadata-drop', { kind: 'list' }, { dataTransfer: undefined });
+    await flushPromises();
+
+    expect(pageTree.props('listFields')).toMatchObject([{ id: 'field-title', title: '考试名称' }]);
+  });
+
+  it('keeps first-class group ordering available as a visible fallback to drag sorting', async () => {
+    configureModuleContext({ http: publicationFlowHttp([]) });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const pageTree = wrapper.findComponent(PageCompositionTree);
+    pageTree.vm.$emit('select', 'ui:slot:form');
+    await flushPromises();
+    const addGroup = wrapper.findAll('button').find((button) => button.text() === '添加分组');
+    await addGroup?.trigger('click');
+    await addGroup?.trigger('click');
+    pageTree.vm.$emit('select', 'ui:group:form:group_2');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('已选：分组 2');
+    const moveUp = wrapper.findAll('button').find((button) => button.text() === '上移分组');
+    await moveUp?.trigger('click');
+
+    expect((pageTree.props('formGroups') as Array<{ id: string }>).map((group) => group.id)).toEqual([
+      'group_2',
+      'group_1',
+    ]);
+  });
 });
+
+function treeNode(nodes: unknown, key: string): { key: string; title: string } | undefined {
+  if (!Array.isArray(nodes)) return undefined;
+  for (const node of nodes) {
+    if (!node || typeof node !== 'object') continue;
+    const candidate = node as { key?: unknown; title?: unknown; children?: unknown };
+    if (candidate.key === key && typeof candidate.title === 'string') {
+      return { key: candidate.key, title: candidate.title };
+    }
+    const child = treeNode(candidate.children, key);
+    if (child) return child;
+  }
+  return undefined;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
+function page(records: unknown[]) {
+  return { records, pages: 1, totalKnown: true };
+}
 
 function publicationFlowHttp(requests: HttpRequestOptions[]): HttpClient {
   let published = false;
@@ -84,7 +231,16 @@ function responseFor(options: HttpRequestOptions, published: boolean) {
   }
   if (options.path === '/platform.module/education.exam/metadata-relations/query') {
     return {
-      records: [{ id: 'relation-1', metadataId: 'metadata-1', relationAlias: '考试' }],
+      records: [
+        { id: 'relation-1', metadataId: 'metadata-1', relationAlias: '考试', relationRole: 'main' },
+        {
+          id: 'relation-participant',
+          metadataId: 'metadata-participant',
+          parentMetadataId: 'metadata-1',
+          relationAlias: '参考学生',
+          relationRole: 'child',
+        },
+      ],
       pages: 1,
       totalKnown: true,
     };
@@ -96,6 +252,21 @@ function responseFor(options: HttpRequestOptions, published: boolean) {
           id: 'field-title',
           fieldName: 'title',
           title: '考试名称',
+          fieldOwnership: 'BUSINESS',
+          fieldForm: 'PHYSICAL',
+        },
+      ],
+      pages: 1,
+      totalKnown: true,
+    };
+  }
+  if (options.path === '/platform.metadata/metadata-participant/fields/query') {
+    return {
+      records: [
+        {
+          id: 'field-student-name',
+          fieldName: 'studentName',
+          title: '学生姓名',
           fieldOwnership: 'BUSINESS',
           fieldForm: 'PHYSICAL',
         },
@@ -189,7 +360,12 @@ function workspaceStubs() {
     UiSpin: { template: '<span><slot /></span>' },
     UiSwitch: { template: '<button><slot /></button>' },
     UiTabs: { template: '<div><slot /></div>' },
-    UiTree: { template: '<div />' },
+    UiTree: {
+      name: 'UiTree',
+      props: { nodes: Array },
+      emits: ['drag-start', 'external-drop'],
+      template: '<div>{{ JSON.stringify(nodes) }}</div>',
+    },
     UiEmpty: { template: '<div><slot /></div>' },
   };
 }

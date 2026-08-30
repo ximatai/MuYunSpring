@@ -6,13 +6,13 @@ const root = resolve(import.meta.dirname, '../..');
 
 it('keeps management quick search as a constrained template component', () => {
   const workspaceSource = readSource('src/views/PageCompositionWorkspace.vue');
+  const treeSource = readSource('src/views/PageCompositionTree.vue');
   const draftStateSource = readSource('src/views/pageCompositionDraftState.ts');
 
-  assert.match(workspaceSource, /key: 'ui:template:list:quick-search'/);
-  assert.match(workspaceSource, /title: '快速查询'/);
-  assert.match(workspaceSource, /secondary: '模板内置 · 可改占位提示'/);
+  assert.match(treeSource, /ui:template:list:quick-search/);
+  assert.match(treeSource, /快速查询/);
+  assert.match(treeSource, /可配置占位提示/);
   assert.match(workspaceSource, /selectedQuickSearch\.value \? '配置：快速查询占位提示'/);
-  assert.match(workspaceSource, /target\.kind === 'root' \|\| target\.kind === 'template'/);
   assert.match(
     workspaceSource,
     /if \(key === 'ui:template:list:quick-search'\) return \{ kind: 'template' \}/,
@@ -34,7 +34,7 @@ it('keeps metadata quick addition explicit and keyboard-reachable', () => {
   const workspaceSource = readSource('src/views/PageCompositionWorkspace.vue');
 
   assert.match(workspaceSource, /aria-label="字段快速添加目标"/);
-  assert.match(workspaceSource, /双击添加到：/);
+  assert.match(workspaceSource, /双击添加至/);
   assert.match(workspaceSource, /@click="selectQuickAddTarget\('list'\)"/);
   assert.match(workspaceSource, /@click="selectQuickAddTarget\('form'\)"/);
   assert.match(workspaceSource, /@click="addSelectedMetadataField\('list'\)"/);

@@ -92,6 +92,45 @@ it('accepts a native payload dropped from another tree without relying on Ant Tr
   ]);
 });
 
+it('uses the external target contract when Ant Tree receives a drag from a sibling tree', () => {
+  const slot = { key: 'slot:form', title: '详情' };
+  const wrapper = mount(UiTree, {
+    props: {
+      nodes: [slot],
+      draggable: true,
+      allowDrop: () => false,
+      allowExternalDrop: () => true,
+    },
+    global: {
+      stubs: {
+        ATree: { name: 'ATree', props: ['allowDrop'], template: '<div />' },
+        UiRecordExplorerItem: true,
+      },
+    },
+  });
+
+  const allowDrop = wrapper.findComponent({ name: 'ATree' }).props('allowDrop') as (event: unknown) => boolean;
+  expect(
+    allowDrop({
+      // A sibling tree's adapter node is intentionally opaque to this tree.
+      dragNode: { key: 'metadata:field:title', dataRef: { external: true } },
+      node: { key: slot.key, dataRef: slot, pos: '0-1' },
+      dropPosition: 1,
+      dropToGap: false,
+    }),
+  ).toBe(true);
+
+  wrapper.findComponent({ name: 'ATree' }).vm.$emit('drop', {
+    dragNode: { key: 'metadata:field:title', dataRef: { external: true } },
+    node: { key: slot.key, dataRef: slot, pos: '0-1' },
+    dropPosition: 1,
+    dropToGap: false,
+  });
+  expect(wrapper.emitted('external-drop')).toEqual([
+    [{ dropNode: slot, dropPosition: 0, dropToGap: false, nativeEvent: undefined }],
+  ]);
+});
+
 it('delegates lazy children loading to Ant Tree so its switcher shows the built-in loading spinner', async () => {
   const loadChildren = vi.fn().mockResolvedValue(undefined);
   const wrapper = mount(UiTree, {
