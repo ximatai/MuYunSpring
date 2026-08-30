@@ -39,7 +39,6 @@ it('supports list keyboard actions for field inspection and configuration', asyn
   });
   await list.get('button').trigger('keydown', { key: ' ' });
   expect(list.emitted('configureField')).toEqual([['list', 'enabled']]);
-
 });
 
 it('animates stable list fields into their new descriptor order', async () => {
@@ -57,7 +56,7 @@ it('animates stable list fields into their new descriptor order', async () => {
   HTMLElement.prototype.animate = animate as typeof HTMLElement.prototype.animate;
   HTMLElement.prototype.getBoundingClientRect = function () {
     const key = this.dataset.pageCompositionLayoutKey;
-    const left = key ? positions.get(key) ?? 0 : 0;
+    const left = key ? (positions.get(key) ?? 0) : 0;
     return { x: left, y: 0, top: 0, left, right: left + 100, bottom: 24, width: 100, height: 24 } as DOMRect;
   };
   window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
@@ -102,7 +101,7 @@ it('falls back to CSS transforms when the browser has no Web Animations API', as
   HTMLElement.prototype.animate = undefined as unknown as typeof HTMLElement.prototype.animate;
   HTMLElement.prototype.getBoundingClientRect = function () {
     const key = this.dataset.pageCompositionLayoutKey;
-    const left = key ? positions.get(key) ?? 0 : 0;
+    const left = key ? (positions.get(key) ?? 0) : 0;
     return { x: left, y: 0, top: 0, left, right: left + 100, bottom: 24, width: 100, height: 24 } as DOMRect;
   };
   window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
@@ -122,9 +121,9 @@ it('falls back to CSS transforms when the browser has no Web Animations API', as
     positions.set('list:field:tags', 0);
     callbacks.splice(0).forEach((callback) => callback(0));
 
-    expect(wrapper.get('[data-page-composition-layout-key="list:field:enabled"]').attributes('style')).toContain(
-      'transform',
-    );
+    expect(
+      wrapper.get('[data-page-composition-layout-key="list:field:enabled"]').attributes('style'),
+    ).toContain('transform');
   } finally {
     HTMLElement.prototype.animate = originalAnimate;
     HTMLElement.prototype.getBoundingClientRect = originalRect;

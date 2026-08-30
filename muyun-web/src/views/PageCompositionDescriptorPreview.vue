@@ -119,7 +119,9 @@ function relationColumns(relation: ResolvedDetailRelationDescriptor): UiDataTabl
     key: field.fieldName,
     title: field.title ?? field.fieldName,
     ...(field.width ? { width: field.width } : {}),
-    ...(field.align === 'left' || field.align === 'center' || field.align === 'right' ? { align: field.align } : {}),
+    ...(field.align === 'left' || field.align === 'center' || field.align === 'right'
+      ? { align: field.align }
+      : {}),
   }));
 }
 
@@ -172,25 +174,30 @@ function layoutKeyOf(element: HTMLElement) {
 
 onBeforeUpdate(() => {
   previousLayout.clear();
-  previewRoot.value?.querySelectorAll<HTMLElement>('[data-page-composition-layout-key]').forEach((element) => {
-    const key = layoutKeyOf(element);
-    if (key) previousLayout.set(key, element.getBoundingClientRect());
-  });
+  previewRoot.value
+    ?.querySelectorAll<HTMLElement>('[data-page-composition-layout-key]')
+    .forEach((element) => {
+      const key = layoutKeyOf(element);
+      if (key) previousLayout.set(key, element.getBoundingClientRect());
+    });
 });
 
 onUpdated(() => {
-  if (typeof window === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  if (typeof window === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+    return;
   const animateLayout = () => {
-    previewRoot.value?.querySelectorAll<HTMLElement>('[data-page-composition-layout-key]').forEach((element) => {
-      const key = layoutKeyOf(element);
-      const previous = key ? previousLayout.get(key) : undefined;
-      if (!previous) return;
-      const current = element.getBoundingClientRect();
-      const x = previous.left - current.left;
-      const y = previous.top - current.top;
-      if (Math.abs(x) < 1 && Math.abs(y) < 1) return;
-      animateLayoutElement(element, x, y);
-    });
+    previewRoot.value
+      ?.querySelectorAll<HTMLElement>('[data-page-composition-layout-key]')
+      .forEach((element) => {
+        const key = layoutKeyOf(element);
+        const previous = key ? previousLayout.get(key) : undefined;
+        if (!previous) return;
+        const current = element.getBoundingClientRect();
+        const x = previous.left - current.left;
+        const y = previous.top - current.top;
+        if (Math.abs(x) < 1 && Math.abs(y) < 1) return;
+        animateLayoutElement(element, x, y);
+      });
   };
   if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(animateLayout);
   else animateLayout();
@@ -199,12 +206,12 @@ onUpdated(() => {
 function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   if (typeof element.animate === 'function') {
     element.animate(
-        [
-          { transform: `translate(${x}px, ${y}px)`, opacity: 0.72 },
-          { transform: 'translate(0, 0)', opacity: 1 },
-        ],
-        { duration: 300, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
-      );
+      [
+        { transform: `translate(${x}px, ${y}px)`, opacity: 0.72 },
+        { transform: 'translate(0, 0)', opacity: 1 },
+      ],
+      { duration: 300, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
+    );
     return;
   }
   const originalTransition = element.style.transition;
@@ -212,7 +219,8 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   element.style.transform = `translate(${x}px, ${y}px)`;
   element.style.opacity = '0.72';
   void element.offsetWidth;
-  element.style.transition = 'transform 300ms cubic-bezier(0.2, 0, 0, 1), opacity 300ms cubic-bezier(0.2, 0, 0, 1)';
+  element.style.transition =
+    'transform 300ms cubic-bezier(0.2, 0, 0, 1), opacity 300ms cubic-bezier(0.2, 0, 0, 1)';
   element.style.transform = 'translate(0, 0)';
   element.style.opacity = '1';
   window.setTimeout(() => {
@@ -291,7 +299,12 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     </label>
   </section>
 
-  <section v-else-if="mode === 'detail'" ref="previewRoot" class="page-composition-descriptor-preview" data-testid="page-composer-detail-preview">
+  <section
+    v-else-if="mode === 'detail'"
+    ref="previewRoot"
+    class="page-composition-descriptor-preview"
+    data-testid="page-composer-detail-preview"
+  >
     <header class="page-composition-descriptor-preview__toolbar">
       <strong>详情预览</strong>
     </header>
@@ -337,14 +350,16 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           </template>
         </UiDataTable>
       </div>
-      <UiEmpty
-        v-if="!relation.listProjection?.fields?.length"
-        description="尚未选择子表展示字段"
-      />
+      <UiEmpty v-if="!relation.listProjection?.fields?.length" description="尚未选择子表展示字段" />
     </section>
   </section>
 
-  <section v-else ref="previewRoot" class="page-composition-descriptor-preview" data-testid="page-composer-edit-preview">
+  <section
+    v-else
+    ref="previewRoot"
+    class="page-composition-descriptor-preview"
+    data-testid="page-composer-edit-preview"
+  >
     <header class="page-composition-descriptor-preview__toolbar">
       <strong>编辑预览</strong>
     </header>
@@ -396,13 +411,13 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           </template>
         </UiDataTable>
       </div>
-      <p v-if="relation.listProjection?.fields?.length" class="page-composition-descriptor-preview__relation-note">
+      <p
+        v-if="relation.listProjection?.fields?.length"
+        class="page-composition-descriptor-preview__relation-note"
+      >
         可直接编辑示例值以检查编辑态。
       </p>
-      <UiEmpty
-        v-if="!relation.listProjection?.fields?.length"
-        description="尚未选择子表展示字段"
-      />
+      <UiEmpty v-if="!relation.listProjection?.fields?.length" description="尚未选择子表展示字段" />
     </section>
   </section>
 </template>
@@ -527,7 +542,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   will-change: transform, opacity;
 }
 
-.page-composition-descriptor-preview__relation--editor .page-composition-descriptor-preview__relation-table :deep(.ant-table-cell) {
+.page-composition-descriptor-preview__relation--editor
+  .page-composition-descriptor-preview__relation-table
+  :deep(.ant-table-cell) {
   padding: 6px;
 }
 
@@ -536,5 +553,4 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   color: var(--muyun-text-muted);
   font-size: 12px;
 }
-
 </style>

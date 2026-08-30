@@ -49,9 +49,7 @@ public class DynamicPublishedPageDefinitionResolver {
                                         (left, right) -> left, LinkedHashMap::new)))
                         .orElseThrow(() -> new IllegalStateException(
                                 "dynamic runtime has no main entity: " + module.moduleAlias())),
-                module.associationViews().stream().collect(java.util.stream.Collectors.toMap(
-                        net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor::code,
-                        java.util.function.Function.identity(), (left, right) -> left, LinkedHashMap::new)));
+                DynamicPageAssociationCatalog.mainEntityChildAssociations(module));
     }
 
     /** The exact page revision used to compile a global Web runtime surface. */

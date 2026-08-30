@@ -99,7 +99,9 @@ const selectedMetadataRelation = computed(() => {
 const selectedRelation = computed(() => state.selectedNode.value?.relation);
 const selectedRelationField = computed(() => state.selectedNode.value?.relationField);
 const selectedGroup = computed(() => state.selectedNode.value?.group);
-const selectedGroupNode = computed(() => state.selectedNode.value?.kind === 'group' ? state.selectedNode.value.group : undefined);
+const selectedGroupNode = computed(() =>
+  state.selectedNode.value?.kind === 'group' ? state.selectedNode.value.group : undefined,
+);
 const selectedQuickSearch = computed(() => state.selectedNode.value?.id === 'template:list:quick-search');
 const selectedMetadataField = computed(() => {
   const key = selectedMetadataTreeKey.value;
@@ -123,9 +125,9 @@ const selectedFieldLabel = computed(() =>
       ? fieldDisplayTitle(selectedField.value)
       : selectedRelationField.value
         ? fieldDisplayTitle(selectedRelationField.value)
-      : selectedGroupNode.value
-        ? selectedGroupNode.value.title
-      : (selectedRelation.value?.title ?? '组件'),
+        : selectedGroupNode.value
+          ? selectedGroupNode.value.title
+          : (selectedRelation.value?.title ?? '组件'),
 );
 const propertyDrawerTitle = computed(() =>
   selectedQuickSearch.value ? '配置：快速查询占位提示' : `配置：${selectedFieldLabel.value}`,
@@ -350,7 +352,7 @@ function childRelationNodes(parentMetadataId?: string): UiTreeNode[] {
     )
     .map((candidate) => {
       const relationId = candidate.id ?? candidate.metadataId;
-      const fields = relationId ? childMetadataFields.value.get(relationId) ?? [] : [];
+      const fields = relationId ? (childMetadataFields.value.get(relationId) ?? []) : [];
       return {
         key: `metadata:relation:${relationId}`,
         title: candidate.title ?? candidate.relationAlias ?? '子实体',
@@ -482,7 +484,12 @@ function hydrateDraft(current: PresentationRevision | undefined) {
         slot?: PageComposerSlot;
         fields?: Array<string | { field?: string; props?: PageComposerFieldProperties }>;
         relations?: Array<{ relation?: string; title?: string; fields?: string[] }>;
-        groups?: Array<{ group?: string; title?: string; subtitle?: string; fields?: Array<string | { field?: string; props?: PageComposerFieldProperties }> }>;
+        groups?: Array<{
+          group?: string;
+          title?: string;
+          subtitle?: string;
+          fields?: Array<string | { field?: string; props?: PageComposerFieldProperties }>;
+        }>;
       }>;
     };
     const resolve = (slot: PageComposerSlot) => tree.nodes?.find((node) => node.slot === slot)?.fields ?? [];
@@ -528,8 +535,17 @@ function hydrateDraft(current: PresentationRevision | undefined) {
       }),
       groups: (tree.nodes?.find((node) => node.slot === 'form')?.groups ?? []).flatMap((entry) => {
         if (!entry.group || !entry.title) return [];
-        return [{ id: entry.group, groupCode: entry.group, title: entry.title, subtitle: entry.subtitle,
-          fields: (entry.fields ?? []).map(resolveField).filter((field): field is PageComposerField => Boolean(field)) }];
+        return [
+          {
+            id: entry.group,
+            groupCode: entry.group,
+            title: entry.title,
+            subtitle: entry.subtitle,
+            fields: (entry.fields ?? [])
+              .map(resolveField)
+              .filter((field): field is PageComposerField => Boolean(field)),
+          },
+        ];
       }),
     });
     state.updateQuickSearchPlaceholder(
@@ -908,13 +924,22 @@ function selectUiTreeKey(key: string) {
   }
   if (parsed.kind === 'group') {
     const group = state.formGroups.value.find((candidate) => candidate.id === parsed.groupId);
-    if (group) selectNode({ id: `form:group:${group.id}`, kind: 'group', title: group.title, slot: 'form', group });
+    if (group)
+      selectNode({ id: `form:group:${group.id}`, kind: 'group', title: group.title, slot: 'form', group });
     return;
   }
   if (parsed.kind === 'groupField') {
     const group = state.formGroups.value.find((candidate) => candidate.id === parsed.groupId);
     const field = group?.fields.find((candidate) => candidate.id === parsed.fieldId);
-    if (group && field) selectNode({ id: `form:group:${group.id}:field:${field.id}`, kind: 'groupField', title: field.title, slot: 'form', group, field });
+    if (group && field)
+      selectNode({
+        id: `form:group:${group.id}:field:${field.id}`,
+        kind: 'groupField',
+        title: field.title,
+        slot: 'form',
+        group,
+        field,
+      });
     return;
   }
   if (parsed.kind === 'relationField') {
@@ -986,7 +1011,12 @@ function reorderGroupField(groupId: string, fieldId: string, targetIndex: number
   if (!isMutating.value) state.moveGroupField(groupId, fieldId, targetIndex);
 }
 
-function moveGroupFieldToGroup(sourceGroupId: string, fieldId: string, targetGroupId: string, targetIndex: number) {
+function moveGroupFieldToGroup(
+  sourceGroupId: string,
+  fieldId: string,
+  targetGroupId: string,
+  targetIndex: number,
+) {
   if (!isMutating.value) state.moveGroupFieldToGroup(sourceGroupId, fieldId, targetGroupId, targetIndex);
 }
 
@@ -1036,7 +1066,8 @@ function metadataDragPayload(node: UiTreeNode): MetadataDragPayload | undefined 
 }
 
 function parseMetadataDragPayload(dataTransfer?: DataTransfer | null): MetadataDragPayload | undefined {
-  const raw = dataTransfer?.getData('application/x-muyun-page-composer') || dataTransfer?.getData('text/plain');
+  const raw =
+    dataTransfer?.getData('application/x-muyun-page-composer') || dataTransfer?.getData('text/plain');
   if (!raw) return undefined;
   try {
     const payload = JSON.parse(raw) as MetadataDragPayload;
@@ -1050,7 +1081,9 @@ function parseMetadataDragPayload(dataTransfer?: DataTransfer | null): MetadataD
 }
 
 function addRelationById(relationId: string) {
-  const selected = metadataRelations.value.find((candidate) => (candidate.id ?? candidate.metadataId) === relationId);
+  const selected = metadataRelations.value.find(
+    (candidate) => (candidate.id ?? candidate.metadataId) === relationId,
+  );
   if (!selected?.relationAlias || selected.parentMetadataId !== relation.value?.metadataId) return;
   state.addFormRelation({
     id: selected.id ?? selected.metadataId ?? selected.relationAlias,
@@ -1061,7 +1094,9 @@ function addRelationById(relationId: string) {
 }
 
 function addRelationFieldById(relationId: string, fieldId: string) {
-  const selected = metadataRelations.value.find((candidate) => (candidate.id ?? candidate.metadataId) === relationId);
+  const selected = metadataRelations.value.find(
+    (candidate) => (candidate.id ?? candidate.metadataId) === relationId,
+  );
   const field = childMetadataFields.value.get(relationId)?.find((candidate) => candidate.id === fieldId);
   if (!selected?.relationAlias || !field || selected.parentMetadataId !== relation.value?.metadataId) return;
   state.addFormRelationField(
@@ -1099,7 +1134,8 @@ function parseUiNode(
   const groupMatch = /^ui:group:form:(.+)$/.exec(key);
   if (groupMatch) return { kind: 'group', groupId: groupMatch[1] };
   const groupFieldMatch = /^ui:group-field:form:(.+):(.+)$/.exec(key);
-  if (groupFieldMatch) return { kind: 'groupField', groupId: groupFieldMatch[1], fieldId: groupFieldMatch[2] };
+  if (groupFieldMatch)
+    return { kind: 'groupField', groupId: groupFieldMatch[1], fieldId: groupFieldMatch[2] };
   const relationMatch = /^ui:relation:form:(.+)$/.exec(key);
   if (relationMatch) return { kind: 'relation', relationId: relationMatch[1] };
   const relationFieldMatch = /^ui:relation-field:form:(.+):(.+)$/.exec(key);
@@ -1190,7 +1226,8 @@ function fieldDisplayTitle(field: PageComposerField) {
 }
 
 function openPropertyDrawer() {
-  if (isMutating.value || (!selectedField.value && !selectedQuickSearch.value && !selectedGroup.value)) return;
+  if (isMutating.value || (!selectedField.value && !selectedQuickSearch.value && !selectedGroup.value))
+    return;
   if (selectedQuickSearch.value) quickSearchPlaceholderDraft.value = state.quickSearchPlaceholder.value ?? '';
   else if (selectedField.value) propertyDraft.value = { ...(selectedField.value.properties ?? {}) };
   else if (selectedGroup.value) {
@@ -1204,7 +1241,8 @@ function applyPropertyDraft() {
   if (isMutating.value) return;
   if (selectedQuickSearch.value) state.updateQuickSearchPlaceholder(quickSearchPlaceholderDraft.value);
   else if (selectedField.value) state.updateSelectedFieldProperties(propertyDraft.value);
-  else if (selectedGroup.value) state.updateFormGroup(selectedGroup.value.id, groupTitleDraft.value, groupSubtitleDraft.value);
+  else if (selectedGroup.value)
+    state.updateFormGroup(selectedGroup.value.id, groupTitleDraft.value, groupSubtitleDraft.value);
   else return;
   propertyDrawerOpen.value = false;
 }
@@ -1274,7 +1312,12 @@ function applyPropertyDraft() {
             </div>
             <div v-else-if="selectedChildMetadataField" class="metadata-tree__selection-actions">
               <UiButton size="small" :disabled="isMutating" @click="addSelectedChildMetadataField">
-                添加到 {{ selectedChildMetadataField.relation.title ?? selectedChildMetadataField.relation.relationAlias }} 子表
+                添加到
+                {{
+                  selectedChildMetadataField.relation.title ??
+                  selectedChildMetadataField.relation.relationAlias
+                }}
+                子表
               </UiButton>
             </div>
           </div>
@@ -1415,11 +1458,7 @@ function applyPropertyDraft() {
           </template>
         </div>
       </template>
-      <div
-        v-if="revision && hasUnsavedChanges"
-        class="page-composition-status"
-        aria-live="polite"
-      >
+      <div v-if="revision && hasUnsavedChanges" class="page-composition-status" aria-live="polite">
         未保存更改
       </div>
       <p v-if="hasUnsavedChanges" class="page-composition-change-summary">
@@ -1441,7 +1480,7 @@ function applyPropertyDraft() {
           重新解析
         </UiButton>
       </div>
-          <PageCompositionDescriptorPreview
+      <PageCompositionDescriptorPreview
         v-if="previewDescriptor"
         :descriptor="previewDescriptor"
         :module-alias="props.moduleAlias"
@@ -1683,7 +1722,6 @@ function applyPropertyDraft() {
   line-height: 1.4;
 }
 </style>
-  const groupMatch = /^ui:group:form:(.+)$/.exec(key);
-  if (groupMatch) return { kind: 'group', groupId: groupMatch[1] };
-  const groupFieldMatch = /^ui:group-field:form:(.+):(.+)$/.exec(key);
-  if (groupFieldMatch) return { kind: 'groupField', groupId: groupFieldMatch[1], fieldId: groupFieldMatch[2] };
+const groupMatch = /^ui:group:form:(.+)$/.exec(key); if (groupMatch) return { kind: 'group', groupId:
+groupMatch[1] }; const groupFieldMatch = /^ui:group-field:form:(.+):(.+)$/.exec(key); if (groupFieldMatch)
+return { kind: 'groupField', groupId: groupFieldMatch[1], fieldId: groupFieldMatch[2] };

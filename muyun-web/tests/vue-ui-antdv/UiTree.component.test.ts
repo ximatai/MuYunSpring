@@ -109,7 +109,9 @@ it('uses the external target contract when Ant Tree receives a drag from a sibli
     },
   });
 
-  const allowDrop = wrapper.findComponent({ name: 'ATree' }).props('allowDrop') as (event: unknown) => boolean;
+  const allowDrop = wrapper.findComponent({ name: 'ATree' }).props('allowDrop') as (
+    event: unknown,
+  ) => boolean;
   expect(
     allowDrop({
       // A sibling tree's adapter node is intentionally opaque to this tree.

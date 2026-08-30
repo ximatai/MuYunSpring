@@ -64,7 +64,12 @@ export interface ManagementUiTree {
     title: string;
     fields: Array<string | { field: string; props: PageComposerFieldProperties }>;
     relations?: Array<{ relation: string; title: string; fields?: string[] }>;
-    groups?: Array<{ group: string; title: string; subtitle?: string; fields: Array<string | { field: string; props: PageComposerFieldProperties }> }>;
+    groups?: Array<{
+      group: string;
+      title: string;
+      subtitle?: string;
+      fields: Array<string | { field: string; props: PageComposerFieldProperties }>;
+    }>;
   }>;
 }
 
@@ -84,8 +89,9 @@ export function createPageCompositionDraftState() {
   const previewMode = ref<PageComposerPreviewMode>('list');
 
   function formFieldPlaced(fieldId: string) {
-    return formFields.value.some((field) => field.id === fieldId) || formGroups.value.some((group) =>
-      group.fields.some((field) => field.id === fieldId),
+    return (
+      formFields.value.some((field) => field.id === fieldId) ||
+      formGroups.value.some((group) => group.fields.some((field) => field.id === fieldId))
     );
   }
 
@@ -108,7 +114,13 @@ export function createPageCompositionDraftState() {
       field,
     })),
     ...formGroups.value.flatMap((group) => [
-      { id: `form:group:${group.id}`, kind: 'group' as const, title: group.title, slot: 'form' as const, group },
+      {
+        id: `form:group:${group.id}`,
+        kind: 'group' as const,
+        title: group.title,
+        slot: 'form' as const,
+        group,
+      },
       ...group.fields.map((field) => ({
         id: `form:group:${group.id}:field:${field.id}`,
         kind: 'groupField' as const,
@@ -143,15 +155,21 @@ export function createPageCompositionDraftState() {
     const target = slot === 'list' ? listFields : formFields;
     // A form field has exactly one presentation placement: root form or one FormGroup.
     // Copying a metadata source must never create a second projection that the template would reject.
-    if (!target.value.some((candidate) => candidate.id === field.id) && !(slot === 'form' && formFieldPlaced(field.id))) {
+    if (
+      !target.value.some((candidate) => candidate.id === field.id) &&
+      !(slot === 'form' && formFieldPlaced(field.id))
+    ) {
       const next = [...target.value];
       next.splice(Math.max(0, Math.min(targetIndex ?? next.length, next.length)), 0, placedField(field));
       target.value = next;
     }
-    const existingGroup = slot === 'form'
-      ? formGroups.value.find((group) => group.fields.some((candidate) => candidate.id === field.id))
-      : undefined;
-    selectedNodeId.value = existingGroup ? `form:group:${existingGroup.id}:field:${field.id}` : `${slot}:${field.id}`;
+    const existingGroup =
+      slot === 'form'
+        ? formGroups.value.find((group) => group.fields.some((candidate) => candidate.id === field.id))
+        : undefined;
+    selectedNodeId.value = existingGroup
+      ? `form:group:${existingGroup.id}:field:${field.id}`
+      : `${slot}:${field.id}`;
     previewMode.value = slot === 'list' ? 'list' : 'edit';
   }
 
@@ -164,8 +182,15 @@ export function createPageCompositionDraftState() {
   }
 
   function addFormGroup() {
-    const number = formGroups.value.length + 1;
-    const group = { id: `group_${number}`, groupCode: `group_${number}`, title: `分组 ${number}`, fields: [] };
+    const usedIdentifiers = new Set(formGroups.value.flatMap((group) => [group.id, group.groupCode]));
+    let number = 1;
+    while (usedIdentifiers.has(`group_${number}`)) number += 1;
+    const group = {
+      id: `group_${number}`,
+      groupCode: `group_${number}`,
+      title: `分组 ${number}`,
+      fields: [],
+    };
     formGroups.value = [...formGroups.value, group];
     selectedNodeId.value = `form:group:${group.id}`;
     previewMode.value = 'edit';
@@ -190,7 +215,9 @@ export function createPageCompositionDraftState() {
     const field = group?.fields.find((candidate) => candidate.id === fieldId);
     if (!group || !field) return;
     formGroups.value = formGroups.value.map((candidate) =>
-      candidate.id === groupId ? { ...candidate, fields: candidate.fields.filter((item) => item.id !== fieldId) } : candidate,
+      candidate.id === groupId
+        ? { ...candidate, fields: candidate.fields.filter((item) => item.id !== fieldId) }
+        : candidate,
     );
     const fields = [...formFields.value];
     fields.splice(Math.max(0, Math.min(targetIndex ?? fields.length, fields.length)), 0, field);
@@ -205,7 +232,9 @@ export function createPageCompositionDraftState() {
     if (!group || index < 0) return;
     const fields = group.fields.filter((candidate) => candidate.id !== fieldId);
     fields.splice(Math.max(0, Math.min(targetIndex ?? fields.length, fields.length)), 0, group.fields[index]);
-    formGroups.value = formGroups.value.map((candidate) => candidate.id === groupId ? { ...candidate, fields } : candidate);
+    formGroups.value = formGroups.value.map((candidate) =>
+      candidate.id === groupId ? { ...candidate, fields } : candidate,
+    );
     selectedNodeId.value = `form:group:${groupId}:field:${fieldId}`;
   }
 
@@ -224,7 +253,8 @@ export function createPageCompositionDraftState() {
     const target = formGroups.value.find((group) => group.id === targetGroupId);
     if (!source || !field || !target || target.fields.some((candidate) => candidate.id === fieldId)) return;
     formGroups.value = formGroups.value.map((group) => {
-      if (group.id === sourceGroupId) return { ...group, fields: group.fields.filter((candidate) => candidate.id !== fieldId) };
+      if (group.id === sourceGroupId)
+        return { ...group, fields: group.fields.filter((candidate) => candidate.id !== fieldId) };
       if (group.id === targetGroupId) {
         const fields = [...group.fields];
         fields.splice(Math.max(0, Math.min(targetIndex ?? fields.length, fields.length)), 0, field);
@@ -239,9 +269,11 @@ export function createPageCompositionDraftState() {
   function updateFormGroup(groupId: string, title: string, subtitle?: string) {
     const normalizedTitle = title.trim();
     if (!normalizedTitle) return;
-    formGroups.value = formGroups.value.map((group) => group.id === groupId
-      ? { ...group, title: normalizedTitle, subtitle: subtitle?.trim() || undefined }
-      : group);
+    formGroups.value = formGroups.value.map((group) =>
+      group.id === groupId
+        ? { ...group, title: normalizedTitle, subtitle: subtitle?.trim() || undefined }
+        : group,
+    );
   }
 
   function moveFormGroup(groupId: string, targetIndex?: number) {
@@ -256,7 +288,9 @@ export function createPageCompositionDraftState() {
   }
 
   function addFormRelationField(relation: PageComposerRelation, field: PageComposerField) {
-    const existing = formRelations.value.find((candidate) => candidate.relationCode === relation.relationCode);
+    const existing = formRelations.value.find(
+      (candidate) => candidate.relationCode === relation.relationCode,
+    );
     if (!existing) {
       formRelations.value = [...formRelations.value, { ...relation, fields: [placedField(field)] }];
     } else if (!existing.fields.some((candidate) => candidate.id === field.id)) {
@@ -275,7 +309,11 @@ export function createPageCompositionDraftState() {
     const sourceIndex = relation?.fields.findIndex((candidate) => candidate.id === fieldId) ?? -1;
     if (!relation || sourceIndex < 0) return;
     const fields = relation.fields.filter((candidate) => candidate.id !== fieldId);
-    fields.splice(Math.max(0, Math.min(targetIndex ?? fields.length, fields.length)), 0, relation.fields[sourceIndex]);
+    fields.splice(
+      Math.max(0, Math.min(targetIndex ?? fields.length, fields.length)),
+      0,
+      relation.fields[sourceIndex],
+    );
     formRelations.value = formRelations.value.map((candidate) =>
       candidate.id === relationId ? { ...candidate, fields } : candidate,
     );
@@ -358,6 +396,18 @@ export function createPageCompositionDraftState() {
   function updateSelectedFieldProperties(properties: PageComposerFieldProperties) {
     const node = selectedNode.value;
     if (!node?.field) return;
+    if (node.kind === 'groupField' && node.group) {
+      formGroups.value = formGroups.value.map((group) => {
+        if (group.id !== node.group?.id) return group;
+        return {
+          ...group,
+          fields: group.fields.map((field) =>
+            field.id === node.field?.id ? { ...field, properties: compactProperties(properties) } : field,
+          ),
+        };
+      });
+      return;
+    }
     const target = node.slot === 'list' ? listFields : formFields;
     const index = target.value.findIndex((field) => field.id === node.field?.id);
     if (index < 0) return;
@@ -436,13 +486,21 @@ export function createPageCompositionDraftState() {
                 relations: formRelations.value.map((relation) => ({
                   relation: relation.relationCode,
                   title: relation.title,
-                  ...(relation.fields.length ? { fields: relation.fields.map((field) => field.fieldName) } : {}),
+                  ...(relation.fields.length
+                    ? { fields: relation.fields.map((field) => field.fieldName) }
+                    : {}),
                 })),
               }
             : {}),
           ...(formGroups.value.length
-            ? { groups: formGroups.value.map((group) => ({ group: group.groupCode, title: group.title,
-              ...(group.subtitle ? { subtitle: group.subtitle } : {}), fields: group.fields.map(toPersistedField) })) }
+            ? {
+                groups: formGroups.value.map((group) => ({
+                  group: group.groupCode,
+                  title: group.title,
+                  ...(group.subtitle ? { subtitle: group.subtitle } : {}),
+                  fields: group.fields.map(toPersistedField),
+                })),
+              }
             : {}),
         },
       ],
@@ -494,8 +552,9 @@ function uniqueFields(fields: PageComposerField[]) {
 function previewModeFor(node: PageComposerNode): PageComposerPreviewMode {
   if (node.kind === 'template') return 'query';
   if (node.slot === 'list') return 'list';
-  // A form field is edited through the real form renderer; association lists remain a detail view.
-  return node.kind === 'field' ? 'edit' : 'detail';
+  // Form fields, including fields placed inside groups, are edited through the real form renderer;
+  // association lists remain a detail view.
+  return node.kind === 'field' || node.kind === 'groupField' ? 'edit' : 'detail';
 }
 
 function placedField(field: PageComposerField): PageComposerField {

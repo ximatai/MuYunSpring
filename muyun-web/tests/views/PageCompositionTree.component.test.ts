@@ -20,7 +20,9 @@ describe('PageCompositionTree', () => {
     expect(wrapper.text()).toContain('快速查询');
     await wrapper.get('.page-composition-tree__node--branch-list').trigger('click');
     expect(wrapper.text()).not.toContain('快速查询');
-    expect(wrapper.get('.page-composition-tree__node--branch-list').attributes('aria-expanded')).toBe('false');
+    expect(wrapper.get('.page-composition-tree__node--branch-list').attributes('aria-expanded')).toBe(
+      'false',
+    );
     expect(wrapper.text()).toContain('详情 / 表单');
 
     await wrapper.get('.page-composition-tree__node--root').trigger('click');
@@ -112,7 +114,12 @@ describe('PageCompositionTree', () => {
         formFields: [],
         formGroups: [],
         formRelations: [
-          { id: 'participants', relationCode: 'participants', title: '参考学生', fields: [subject, examDate] },
+          {
+            id: 'participants',
+            relationCode: 'participants',
+            title: '参考学生',
+            fields: [subject, examDate],
+          },
         ],
       },
     });

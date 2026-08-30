@@ -76,7 +76,12 @@ describe('pageCompositionDraftState', () => {
     state.addField(date, 'form');
     expect(state.previewMode.value).toBe('edit');
 
-    state.addFormRelation({ id: 'participants', relationCode: 'participants', title: '参考学生', fields: [] });
+    state.addFormRelation({
+      id: 'participants',
+      relationCode: 'participants',
+      title: '参考学生',
+      fields: [],
+    });
     expect(state.previewMode.value).toBe('detail');
   });
 
@@ -125,6 +130,18 @@ describe('pageCompositionDraftState', () => {
     expect(state.formGroups.value.map((group) => group.groupCode)).toEqual(['group_3', 'group_1', 'group_2']);
   });
 
+  it('assigns a fresh group code after a group is deleted', () => {
+    const state = createPageCompositionDraftState();
+    state.addFormGroup();
+    state.addFormGroup();
+    state.selectNode(state.nodes.value.find((node) => node.id === 'form:group:group_1')!);
+    state.removeSelectedField();
+    state.addFormGroup();
+
+    expect(state.formGroups.value.map((group) => group.groupCode)).toEqual(['group_2', 'group_1']);
+    expect(new Set(state.formGroups.value.map((group) => group.groupCode)).size).toBe(2);
+  });
+
   it('moves a group field directly into another group at the dropped position', () => {
     const state = createPageCompositionDraftState();
     state.addField(title, 'form');
@@ -159,6 +176,41 @@ describe('pageCompositionDraftState', () => {
       { group: 'group_1', title: '分组 1', fields: ['examDate'] },
       { group: 'group_2', title: '分组 2', fields: [] },
     ]);
+  });
+
+  it('updates and serializes properties for a field placed inside a form group', () => {
+    const state = createPageCompositionDraftState();
+    state.addField(title, 'form');
+    state.addFormGroup();
+    const group = state.formGroups.value[0];
+    state.moveFormFieldToGroup(title.id, group.id);
+    state.selectNode(
+      state.nodes.value.find((node) => node.id === `form:group:${group.id}:field:${title.id}`)!,
+    );
+    state.updateSelectedFieldProperties({ label: '考试标题', columnSpan: 2 });
+
+    expect(state.formGroups.value[0].fields[0].properties).toEqual({ label: '考试标题', columnSpan: 2 });
+    expect(state.toManagementUiTree().nodes[1].groups).toEqual([
+      {
+        group: 'group_1',
+        title: '分组 1',
+        fields: [{ field: 'title', props: { label: '考试标题', columnSpan: 2 } }],
+      },
+    ]);
+  });
+
+  it('switches a selected group field to the editable form preview', () => {
+    const state = createPageCompositionDraftState();
+    state.addField(title, 'form');
+    state.addFormGroup();
+    const group = state.formGroups.value[0];
+    state.moveFormFieldToGroup(title.id, group.id);
+
+    state.selectNode(
+      state.nodes.value.find((node) => node.id === `form:group:${group.id}:field:${title.id}`)!,
+    );
+
+    expect(state.previewMode.value).toBe('edit');
   });
 
   it('repairs a legacy draft that placed one form field in more than one group', () => {

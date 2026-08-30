@@ -307,9 +307,7 @@ public class PlatformModuleRuntimeContextService {
             throw new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
                     "dynamic module runtime context not found: " + validModuleAlias);
         }
-        return dynamicDescriptor.associationViews().stream().collect(java.util.stream.Collectors.toMap(
-                net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor::code,
-                java.util.function.Function.identity(), (left, right) -> left, LinkedHashMap::new));
+        return DynamicPageAssociationCatalog.mainEntityChildAssociations(dynamicDescriptor);
     }
 
     /**
@@ -483,17 +481,11 @@ public class PlatformModuleRuntimeContextService {
             String moduleAlias, DynamicModuleDescriptor sourceModule, List<PageDetailRelationDefinition> configured) {
         if (configured == null || configured.isEmpty()) return List.of();
         java.util.Map<String, net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor> views =
-                sourceModule.associationViews().stream().collect(java.util.stream.Collectors.toMap(
-                        net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor::code,
-                        java.util.function.Function.identity(), (left, right) -> left));
+                DynamicPageAssociationCatalog.mainEntityChildAssociations(sourceModule);
         return configured.stream().map(selection -> {
             var view = views.get(selection.code());
             if (view == null) {
                 throw new IllegalArgumentException("page revision references an unknown dynamic association view: "
-                        + selection.code());
-            }
-            if (view.relationCode() == null || view.relationCode().isBlank()) {
-                throw new IllegalArgumentException("page revision association is not a child relation: "
                         + selection.code());
             }
             DynamicModuleDescriptor targetModule = moduleAlias.equals(view.targetModuleAlias())
