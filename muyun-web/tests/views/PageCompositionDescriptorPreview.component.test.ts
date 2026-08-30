@@ -51,6 +51,16 @@ it('keeps list and card keyboard actions aligned with detail inspection', async 
   expect(card.emitted('selectField')).toEqual([['list', 'enabled']]);
 });
 
+it('renders the descriptor-owned quick-search placeholder as a disabled template control', () => {
+  const wrapper = shallowMount(PageCompositionDescriptorPreview, {
+    props: { descriptor: descriptor(), mode: 'list' },
+  });
+
+  const quickSearch = wrapper.getComponent({ name: 'UiInput' });
+  expect(quickSearch.props('placeholder')).toBe('搜索验收记录');
+  expect(quickSearch.props('disabled')).toBe(true);
+});
+
 const tableStub = {
   props: ['columns', 'rows'],
   template: `
@@ -71,7 +81,7 @@ function descriptor(): ResolvedModuleUiDescriptor {
     page: {
       template: 'FLAT_MANAGEMENT',
       list: {
-        searchPlaceholder: '搜索',
+        searchPlaceholder: '搜索验收记录',
         fields: {
           viewCode: 'list',
           viewKind: 'LIST',

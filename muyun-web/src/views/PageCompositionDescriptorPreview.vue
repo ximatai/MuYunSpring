@@ -6,7 +6,13 @@ import {
   resolveRecordDetailFields,
   resolveRecordQueryListColumns,
 } from '@muyun/platform-components';
-import { UiDataTable, UiEmpty, type UiDataTableColumn, type UiDataTableRecord } from '@muyun/vue-ui-antdv';
+import {
+  UiDataTable,
+  UiEmpty,
+  UiInput,
+  type UiDataTableColumn,
+  type UiDataTableRecord,
+} from '@muyun/vue-ui-antdv';
 import type { ResolvedModuleUiDescriptor, ResolvedViewFieldDescriptor } from '@muyun/web-contracts';
 import type { QueryListRecord } from '@muyun/platform-components';
 
@@ -38,6 +44,7 @@ const dataTableColumns = computed<UiDataTableColumn[]>(() =>
 const listRecord = computed<QueryListRecord>(() =>
   previewRecord(props.descriptor.page?.list?.fields.fields ?? []),
 );
+const listSearchPlaceholder = computed(() => props.descriptor.page?.list?.searchPlaceholder);
 const detailFields = computed(() => resolveRecordDetailFields(props.descriptor));
 const detailFieldNames = computed(() => [...detailFields.value.keys()]);
 const detailRecord = computed<UiDataTableRecord>(() => previewRecord([...detailFields.value.values()]));
@@ -90,6 +97,15 @@ function isSelected(slot: PreviewSlot, fieldName: string) {
     <header class="page-composition-descriptor-preview__toolbar">
       <strong>列表布局</strong><span>由当前草稿的服务端解析结果驱动</span>
     </header>
+    <label class="page-composition-descriptor-preview__quick-search">
+      <span>快速查询</span>
+      <UiInput
+        type="search"
+        :placeholder="listSearchPlaceholder"
+        disabled
+        aria-label="快速查询（模板内置）"
+      />
+    </label>
     <UiEmpty v-if="isListEmpty" description="当前草稿尚未配置列表字段" />
     <UiDataTable
       v-else
@@ -197,6 +213,15 @@ function isSelected(slot: PreviewSlot, fieldName: string) {
 
 .page-composition-descriptor-preview__toolbar span,
 .page-composition-descriptor-preview__card > header span {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+
+.page-composition-descriptor-preview__quick-search {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 320px);
+  gap: 10px;
+  align-items: center;
   color: var(--muyun-text-muted);
   font-size: 12px;
 }

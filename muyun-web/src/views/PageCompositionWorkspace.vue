@@ -59,7 +59,7 @@ const selectedSlot = ref<PageComposerSlot>('list');
 const fieldKeyword = ref('');
 const selectedMetadataTreeKey = ref<string>();
 const metadataExpandedKeys = ref<string[]>(['metadata:root']);
-const uiExpandedKeys = ref<string[]>(['ui:root', 'ui:slot:list', 'ui:slot:form']);
+const uiExpandedKeys = ref<string[]>(['ui:root', 'ui:slot:list', 'ui:slot:list:fields', 'ui:slot:form']);
 const propertyDrawerOpen = ref(false);
 const propertyDraft = ref<PageComposerFieldProperties>({});
 const savedUiTreeJson = ref<string>();
@@ -106,7 +106,11 @@ const propertyValidationMessage = computed(() => {
 const selectedUiTreeKey = computed(() => {
   const node = state.selectedNode.value;
   if (!node) return undefined;
-  return node.kind === 'slot' ? `ui:slot:${node.slot}` : `ui:field:${node.slot}:${node.field?.id}`;
+  return node.kind === 'slot'
+    ? node.slot === 'list'
+      ? 'ui:slot:list:fields'
+      : `ui:slot:${node.slot}`
+    : `ui:field:${node.slot}:${node.field?.id}`;
 });
 const composerTitle = computed(() => '页面预览');
 const mainEntityTitle = computed(() => relation.value?.relationAlias ?? '主实体');
@@ -160,22 +164,44 @@ const uiTreeNodes = computed<UiTreeNode[]>(() => [
     key: 'ui:root',
     title: '管理页模板',
     secondary: 'management v1',
-    children: (['list', 'form'] as PageComposerSlot[]).map((slot) => ({
-      key: `ui:slot:${slot}`,
-      title: slotTitle(slot),
-      secondary:
-        fieldsInSlot(slot).length > 0
-          ? slot === 'list'
-            ? '列表展示字段'
-            : '详情 / 表单字段'
-          : '拖动字段到此处',
-      children: fieldsInSlot(slot).map((field) => ({
-        key: `ui:field:${slot}:${field.id}`,
-        title: fieldDisplayTitle(field),
-        secondary: field.fieldName,
-        isLeaf: true,
-      })),
-    })),
+    children: [
+      {
+        key: 'ui:slot:list',
+        title: slotTitle('list'),
+        secondary: '标准列表',
+        children: [
+          {
+            key: 'ui:template:list:quick-search',
+            title: '快速查询',
+            secondary: '模板内置 · 只读',
+            disabled: true,
+            isLeaf: true,
+          },
+          {
+            key: 'ui:slot:list:fields',
+            title: '列表展示字段',
+            secondary: fieldsInSlot('list').length ? '可拖拽编排' : '拖动字段到此处',
+            children: fieldsInSlot('list').map((field) => ({
+              key: `ui:field:list:${field.id}`,
+              title: fieldDisplayTitle(field),
+              secondary: field.fieldName,
+              isLeaf: true,
+            })),
+          },
+        ],
+      },
+      {
+        key: 'ui:slot:form',
+        title: slotTitle('form'),
+        secondary: fieldsInSlot('form').length ? '详情 / 表单字段' : '拖动字段到此处',
+        children: fieldsInSlot('form').map((field) => ({
+          key: `ui:field:form:${field.id}`,
+          title: fieldDisplayTitle(field),
+          secondary: field.fieldName,
+          isLeaf: true,
+        })),
+      },
+    ],
   },
 ]);
 
@@ -673,7 +699,7 @@ function handleMetadataDoubleClick(event: UiTreeDragEvent) {
 function selectUiTreeNode(node: UiTreeNode) {
   const parsed = parseUiNode(node.key);
   if (!parsed) return;
-  if (parsed.kind === 'slot') {
+  if (parsed.kind === 'slot' || parsed.kind === 'fieldGroup') {
     selectNode({ id: `slot:${parsed.slot}`, kind: 'slot', title: slotTitle(parsed.slot), slot: parsed.slot });
     return;
   }
@@ -725,7 +751,7 @@ function handleUiTreeDrop(
 ) {
   if (isMutating.value) return;
   const target = parseUiNode(event.dropNode.key);
-  if (!target || target.kind === 'root') return;
+  if (!target || target.kind === 'root' || target.kind === 'template') return;
   const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
   const fieldId = dataTransfer?.getData('text/page-composer-field');
   if (fieldId) {
@@ -761,7 +787,8 @@ function handleUiTreeExternalDrop(event: UiTreeExternalDropEvent) {
 function allowUiTreeDrop(event: Pick<UiTreeDropEvent, 'dropNode' | 'dropToGap'>) {
   if (isMutating.value) return false;
   const target = parseUiNode(event.dropNode.key);
-  if (!target || target.kind === 'root') return false;
+  if (!target || target.kind === 'root' || target.kind === 'template') return false;
+  if (target.kind === 'fieldGroup') return !event.dropToGap;
   return target.kind === 'slot' ? !event.dropToGap : event.dropToGap;
 }
 
@@ -776,9 +803,13 @@ function parseUiNode(
 ):
   | { kind: 'root' }
   | { kind: 'slot'; slot: PageComposerSlot }
+  | { kind: 'fieldGroup'; slot: 'list' }
+  | { kind: 'template' }
   | { kind: 'field'; slot: PageComposerSlot; fieldId: string }
   | undefined {
   if (key === 'ui:root') return { kind: 'root' };
+  if (key === 'ui:template:list:quick-search') return { kind: 'template' };
+  if (key === 'ui:slot:list:fields') return { kind: 'fieldGroup', slot: 'list' };
   const slotMatch = /^ui:slot:(list|form)$/.exec(key);
   if (slotMatch) return { kind: 'slot', slot: slotMatch[1] as PageComposerSlot };
   const fieldMatch = /^ui:field:(list|form):(.+)$/.exec(key);
