@@ -35,9 +35,13 @@ describe('ManagementExplorerColumn', () => {
     });
 
     expect(wrapper.classes()).toContain('management-workspace--composer');
-    expect(wrapper.find('.management-workspace__grid').attributes('style')).toContain(
-      '--muyun-management-explorer-count: 2',
-    );
+    const grid = wrapper.find('.management-workspace__grid');
+    expect(grid.attributes('style')).toContain('--muyun-management-explorer-count: 2');
+    expect(Array.from(grid.element.children).map((child) => child.tagName)).toEqual([
+      'ASIDE',
+      'ASIDE',
+      'MAIN',
+    ]);
   });
 
   it('releases a collapsed micro list into the left rail and restores it from its dedicated expand action', async () => {

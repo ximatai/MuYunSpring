@@ -426,6 +426,7 @@ it('management workspace consumes the page layout contract for constrained deskt
 
   assert.match(workspaceSource, /explorerCount\?: number/);
   assert.match(workspaceSource, /layout\?: 'default' \| 'composer'/);
+  assert.match(workspaceSource, /exactly two explorer children must[\s\S]*?precede the primary canvas child/);
   assert.match(workspaceSource, /'management-workspace--composer': layout === 'composer'/);
   assert.match(workspaceSource, /--muyun-management-explorer-width: 280px/);
   assert.match(workspaceSource, /--muyun-management-list-min-width: 720px/);
@@ -459,7 +460,11 @@ it('management workspace consumes the page layout contract for constrained deskt
   );
   assert.match(
     workspaceSource,
-    /@media \(max-width: 1180px\)[\s\S]*?management-workspace--composer[\s\S]*?grid-column: 1 \/ -1/,
+    /@media \(max-width: 1180px\)[\s\S]*?management-workspace--composer[\s\S]*?grid-template-columns: minmax\(0, 0\.9fr\) minmax\(0, 1\.1fr\)[\s\S]*?grid-column: 1 \/ -1/,
+  );
+  assert.match(
+    workspaceSource,
+    /@media \(max-width: 760px\)[\s\S]*?management-workspace--composer[\s\S]*?grid-template-rows: minmax\(120px, 0\.45fr\) minmax\(120px, 0\.55fr\) minmax\(0, 1\.2fr\)/,
   );
   assert.match(workspaceSource, /min-width: 0/);
   assert.match(indexSource, /export \{ default as ManagementWorkspace \}/);

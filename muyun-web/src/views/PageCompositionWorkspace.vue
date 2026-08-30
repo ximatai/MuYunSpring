@@ -111,6 +111,8 @@ const compositionSubtitle = computed(() => {
 });
 const compositionHint = computed(() => {
   if (!page.value) return '初始化后即可从左侧字段投放到页面结构。';
+  if (!revision.value && publishedRevision.value)
+    return '当前没有可编辑草稿；基于最近发布修订创建后续草稿后即可继续编排。';
   if (!revision.value) return '当前页面尚无草稿，初始化后即可开始编排。';
   return '调整页面结构与组件属性；保存草稿后，再发布到 Web 管理页。';
 });
@@ -370,18 +372,23 @@ async function initializeComposition() {
     }
     if (!variant.value.id || revision.value) return;
     const revisions = await loadAllFromClient(revisionClient(variant.value.id));
+    const latestPublished = latestRevision(
+      revisions.filter((item) => item.status === pageCompositionTransport.publishedRevision),
+    );
+    const treeJsonToPersist = latestPublished?.uiTreeJson ?? currentUiTreeJson.value;
     revision.value = (
       await revisionClient(variant.value.id).insert({
         revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
-        templateAlias: 'management',
-        templateVersion: 1,
-        uiTreeJson: JSON.stringify(state.toManagementUiTree()),
+        templateAlias: latestPublished?.templateAlias ?? 'management',
+        templateVersion: latestPublished?.templateVersion ?? 1,
+        uiTreeJson: treeJsonToPersist,
         status: pageCompositionTransport.draftRevision,
-        title: '初始草稿',
+        title: latestPublished ? `基于 v${latestPublished.revisionNo ?? 1} 的草稿` : '初始草稿',
         enabled: true,
       })
     ).record;
-    savedUiTreeJson.value = currentUiTreeJson.value;
+    if (latestPublished) publishedRevision.value = latestPublished;
+    hydrateDraft(revision.value);
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
   } finally {
@@ -389,7 +396,10 @@ async function initializeComposition() {
   }
 }
 
-async function saveDraft(allowDuringPublish = false): Promise<boolean> {
+async function saveDraft(
+  allowDuringPublish = false,
+  treeJsonToPersist = currentUiTreeJson.value,
+): Promise<boolean> {
   if (saving.value || (!allowDuringPublish && publishing.value) || !revision.value?.id || !variant.value?.id)
     return false;
   saving.value = true;
@@ -397,10 +407,10 @@ async function saveDraft(allowDuringPublish = false): Promise<boolean> {
     revision.value = (
       await revisionClient(variant.value.id).update(revision.value.id, {
         ...revision.value,
-        uiTreeJson: JSON.stringify(state.toManagementUiTree()),
+        uiTreeJson: treeJsonToPersist,
       })
     ).record;
-    savedUiTreeJson.value = currentUiTreeJson.value;
+    savedUiTreeJson.value = treeJsonToPersist;
     return true;
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
@@ -418,16 +428,27 @@ async function publishDraft() {
     okText: '确认发布',
   });
   if (!confirmed) return;
+  const treeJsonToPublish = currentUiTreeJson.value;
   publishing.value = true;
   try {
-    if (!(await saveDraft(true))) return;
-    const publishedTreeJson = JSON.stringify(state.toManagementUiTree());
-    const publishedRevision = revision.value;
+    if (!(await saveDraft(true, treeJsonToPublish))) return;
+    const publicationCandidate = revision.value;
     await moduleContext.http.request<number>({
       method: 'POST',
       path: `/platform.presentation_publish/revisions/${encodeURIComponent(revision.value.id)}/publish`,
     });
-    await createFollowUpDraft(publishedRevision, publishedTreeJson);
+    try {
+      await createFollowUpDraft(publicationCandidate, treeJsonToPublish);
+    } catch {
+      await loadComposition();
+      presentPlatformError(
+        new Error(
+          `草稿 v${publicationCandidate.revisionNo ?? 1} 已发布，但未能生成后续草稿；请基于最近发布修订重新创建草稿。`,
+        ),
+        { source: 'page-composition', phase: 'action' },
+      );
+      return;
+    }
     await loadComposition();
   } catch (cause) {
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
@@ -553,6 +574,7 @@ function toComposerField(field: MetadataField): PageComposerField | undefined {
 }
 
 function addToSelectedSlot(field: PageComposerField) {
+  if (isMutating.value) return;
   state.addField(field, selectedSlot.value);
 }
 
@@ -565,6 +587,7 @@ function fieldsInSlot(slot: PageComposerSlot) {
 }
 
 function selectMetadataNode(node: UiTreeNode) {
+  if (isMutating.value) return;
   selectedMetadataTreeKey.value = node.key;
 }
 
@@ -593,6 +616,7 @@ function selectUiTreeNode(node: UiTreeNode) {
 }
 
 function handleMetadataDragStart(event: UiTreeDragEvent) {
+  if (isMutating.value) return;
   const field = fieldOfMetadataNode(event.node);
   const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
   if (!field || !dataTransfer) return;
@@ -601,10 +625,11 @@ function handleMetadataDragStart(event: UiTreeDragEvent) {
 }
 
 function canDragMetadataNode(node: UiTreeNode) {
-  return fieldOfMetadataNode(node) != null;
+  return !isMutating.value && fieldOfMetadataNode(node) != null;
 }
 
 function handleUiTreeDragStart(event: UiTreeDragEvent) {
+  if (isMutating.value) return;
   const parsed = parseUiNode(event.node.key);
   const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
   if (!parsed || parsed.kind !== 'field' || !dataTransfer) return;
@@ -613,7 +638,7 @@ function handleUiTreeDragStart(event: UiTreeDragEvent) {
 }
 
 function canDragUiTreeNode(node: UiTreeNode) {
-  return parseUiNode(node.key)?.kind === 'field';
+  return !isMutating.value && parseUiNode(node.key)?.kind === 'field';
 }
 
 function handleUiTreeDoubleClick(event: UiTreeDragEvent) {
@@ -624,6 +649,7 @@ function handleUiTreeDoubleClick(event: UiTreeDragEvent) {
 function handleUiTreeDrop(
   event: Pick<UiTreeDropEvent, 'dropNode' | 'dropPosition' | 'dropToGap' | 'nativeEvent'>,
 ) {
+  if (isMutating.value) return;
   const target = parseUiNode(event.dropNode.key);
   if (!target || target.kind === 'root') return;
   const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
@@ -659,6 +685,7 @@ function handleUiTreeExternalDrop(event: UiTreeExternalDropEvent) {
 }
 
 function allowUiTreeDrop(event: Pick<UiTreeDropEvent, 'dropNode' | 'dropToGap'>) {
+  if (isMutating.value) return false;
   const target = parseUiNode(event.dropNode.key);
   if (!target || target.kind === 'root') return false;
   return target.kind === 'slot' ? !event.dropToGap : event.dropToGap;
@@ -686,12 +713,19 @@ function parseUiNode(
 }
 
 function selectNode(node: (typeof state.nodes.value)[number]) {
+  if (isMutating.value) return;
   state.selectNode(node);
   selectedSlot.value = node.slot;
 }
 
 function selectPreviewField(slot: PageComposerSlot, field: PageComposerField) {
+  if (isMutating.value) return;
   selectNode({ id: `${slot}:${field.id}`, kind: 'field', title: field.title, slot, field });
+}
+
+function selectPreviewMode(key: string) {
+  if (isMutating.value || (key !== 'list' && key !== 'card' && key !== 'detail')) return;
+  state.previewMode.value = key;
 }
 
 function openPreviewFieldProperties(slot: PageComposerSlot, field: PageComposerField) {
@@ -710,18 +744,28 @@ function canMoveSelectedField(offset: -1 | 1) {
   return index >= 0 && index + offset >= 0 && index + offset < fieldsInSlot(node.slot).length;
 }
 
+function moveSelectedField(offset: -1 | 1) {
+  if (isMutating.value) return;
+  state.moveSelectedField(offset);
+}
+
+function removeSelectedField() {
+  if (isMutating.value) return;
+  state.removeSelectedField();
+}
+
 function fieldDisplayTitle(field: PageComposerField) {
   return field.properties?.label ?? field.title;
 }
 
 function openPropertyDrawer() {
-  if (!selectedField.value) return;
+  if (isMutating.value || !selectedField.value) return;
   propertyDraft.value = { ...(selectedField.value.properties ?? {}) };
   propertyDrawerOpen.value = true;
 }
 
 function applyPropertyDraft() {
-  if (!selectedField.value) return;
+  if (isMutating.value || !selectedField.value) return;
   state.updateSelectedFieldProperties(propertyDraft.value);
   propertyDrawerOpen.value = false;
 }
@@ -745,7 +789,7 @@ function applyPropertyDraft() {
             v-model:expanded-keys="metadataExpandedKeys"
             :nodes="metadataTreeNodes"
             :selected-key="selectedMetadataTreeKey"
-            draggable
+            :draggable="!isMutating"
             :can-drag="canDragMetadataNode"
             :allow-drop="() => false"
             @select="selectMetadataNode"
@@ -762,24 +806,24 @@ function applyPropertyDraft() {
         <div v-if="selectedField" class="ui-tree__contextbar">
           <span>已选：{{ selectedFieldLabel }}</span>
           <div class="ui-tree__operations">
-            <UiButton size="small" @click="openPropertyDrawer">配置</UiButton>
+            <UiButton size="small" :disabled="isMutating" @click="openPropertyDrawer">配置</UiButton>
             <UiButton
               size="small"
-              :disabled="!canMoveSelectedField(-1)"
+              :disabled="isMutating || !canMoveSelectedField(-1)"
               title="已在首位"
-              @click="state.moveSelectedField(-1)"
+              @click="moveSelectedField(-1)"
             >
               上移
             </UiButton>
             <UiButton
               size="small"
-              :disabled="!canMoveSelectedField(1)"
+              :disabled="isMutating || !canMoveSelectedField(1)"
               title="已在末位"
-              @click="state.moveSelectedField(1)"
+              @click="moveSelectedField(1)"
             >
               下移
             </UiButton>
-            <UiButton size="small" danger @click="state.removeSelectedField">移除</UiButton>
+            <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">移除</UiButton>
           </div>
         </div>
         <div class="ui-tree" data-testid="page-composer-ui-tree">
@@ -787,7 +831,7 @@ function applyPropertyDraft() {
             v-model:expanded-keys="uiExpandedKeys"
             :nodes="uiTreeNodes"
             :selected-key="selectedUiTreeKey"
-            draggable
+            :draggable="!isMutating"
             :can-drag="canDragUiTreeNode"
             :allow-drop="allowUiTreeDrop"
             :allow-external-drop="allowUiTreeDrop"
@@ -811,7 +855,7 @@ function applyPropertyDraft() {
             type="primary"
             @click="initializeComposition"
           >
-            初始化页面
+            {{ publishedRevision ? '基于已发布版本创建草稿' : '初始化页面' }}
           </UiButton>
           <template v-else>
             <UiButton
@@ -841,6 +885,7 @@ function applyPropertyDraft() {
         v-if="revision"
         class="page-composition-status"
         :class="{ 'page-composition-status--dirty': hasUnsavedChanges }"
+        aria-live="polite"
       >
         {{ hasUnsavedChanges ? '未保存更改' : '草稿已保存' }}
       </div>
@@ -848,7 +893,11 @@ function applyPropertyDraft() {
         本次更改：{{ unsavedChangeSummary.join(' · ') }}
       </p>
       <p class="page-composition-notice">{{ compositionHint }}</p>
-      <UiTabs v-model:active-key="state.previewMode.value" :tabs="previewTabs" />
+      <UiTabs
+        :active-key="state.previewMode.value"
+        :tabs="previewTabs"
+        @update:active-key="selectPreviewMode"
+      />
       <section
         v-if="state.previewMode.value === 'list'"
         class="preview-surface"
@@ -875,6 +924,7 @@ function applyPropertyDraft() {
                 @click="selectPreviewField('list', field)"
                 @dblclick="openPreviewFieldProperties('list', field)"
                 @keydown.enter="openPreviewFieldProperties('list', field)"
+                @keydown.space.prevent="openPreviewFieldProperties('list', field)"
                 >{{ fieldDisplayTitle(field) }}</span
               >
             </div>
@@ -891,6 +941,7 @@ function applyPropertyDraft() {
                 @click="selectPreviewField('list', field)"
                 @dblclick="openPreviewFieldProperties('list', field)"
                 @keydown.enter="openPreviewFieldProperties('list', field)"
+                @keydown.space.prevent="openPreviewFieldProperties('list', field)"
                 >{{ field.fieldSpecAlias ?? '文本' }}</span
               >
             </div>
@@ -926,6 +977,7 @@ function applyPropertyDraft() {
                 @click="selectPreviewField('list', field)"
                 @dblclick="openPreviewFieldProperties('list', field)"
                 @keydown.enter="openPreviewFieldProperties('list', field)"
+                @keydown.space.prevent="openPreviewFieldProperties('list', field)"
               >
                 <dt>{{ fieldDisplayTitle(field) }}</dt>
                 <dd>{{ field.fieldSpecAlias ?? '文本' }}</dd>
@@ -951,6 +1003,7 @@ function applyPropertyDraft() {
             @click="selectPreviewField('form', field)"
             @dblclick="openPreviewFieldProperties('form', field)"
             @keydown.enter="openPreviewFieldProperties('form', field)"
+            @keydown.space.prevent="openPreviewFieldProperties('form', field)"
           >
             <dt>{{ fieldDisplayTitle(field) }}<em v-if="field.required">*</em></dt>
             <dd>
@@ -1017,7 +1070,11 @@ function applyPropertyDraft() {
       </div>
       <template #operation>
         <UiButton @click="propertyDrawerOpen = false">取消</UiButton>
-        <UiButton type="primary" :disabled="Boolean(propertyValidationMessage)" @click="applyPropertyDraft">
+        <UiButton
+          type="primary"
+          :disabled="isMutating || Boolean(propertyValidationMessage)"
+          @click="applyPropertyDraft"
+        >
           应用到草稿
         </UiButton>
       </template>

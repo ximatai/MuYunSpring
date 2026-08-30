@@ -15,7 +15,11 @@ defineOptions({ name: 'ManagementWorkspace' });
 
 const props = withDefaults(
   defineProps<{
-    /** Stable workspace geometry for specialized platform workbenches. */
+    /**
+     * Stable workspace geometry for specialized platform workbenches.
+     * `composer` is a positional preset: exactly two explorer children must
+     * precede the primary canvas child.
+     */
     layout?: 'default' | 'composer';
     /** Number of explorer columns shown before the detail workspace. */
     explorerCount?: number;
@@ -204,9 +208,9 @@ const pageLayout = usePageLayout();
     minmax(var(--muyun-management-detail-min-width), var(--muyun-management-detail-preferred-width));
 }
 
-/* Page composers are three coordinated work areas rather than the standard
-   explorer/list/detail relationship. Keep the content canvas flexible: it is
-   the primary editing surface and must never be forced outside a workbench. */
+/* Composer is deliberately positional: explorer, explorer, then canvas. It is
+   not a generic three-column layout. Keep the canvas flexible: it is the
+   primary editing surface and must never be forced outside a workbench. */
 .management-workspace--composer .management-workspace__grid {
   grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(0, 2fr);
 }
