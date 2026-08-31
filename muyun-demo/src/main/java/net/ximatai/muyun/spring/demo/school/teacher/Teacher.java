@@ -7,14 +7,13 @@ import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.annotation.TrueOrFalse;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.capability.EnabledCapable;
-import net.ximatai.muyun.spring.common.option.DictionaryField;
-import net.ximatai.muyun.spring.common.option.OptionLoad;
 import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
 import net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraint;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.demo.school.student.StudentService;
+import net.ximatai.muyun.spring.demo.school.subject.SubjectCategoryService;
 
-/** 教师主数据；班级主表通过班主任引用关联教师，教学学科则保存平台字典项 code。 */
+/** 教师主数据；班级主表通过班主任引用关联教师，教师与测评共用学科分类树。 */
 @Getter
 @Setter
 @Table(name = "education_teacher", comment = "教师")
@@ -31,20 +30,11 @@ public class Teacher extends StandardTitledEntity implements EnabledCapable {
     @Column(name = "teacher_no", type = ColumnType.VARCHAR, length = 32, nullable = false)
     private String teacherNo;
 
-    /** 教学学科由平台字典供给候选项，教师模型只保存稳定 code。 */
-    @DictionaryField(
-            source = "education.teaching_subject",
-            title = "教学学科",
-            initialItems = {
-                    @DictionaryField.InitialItem(code = "mathematics", title = "数学", sortOrder = 10),
-                    @DictionaryField.InitialItem(code = "chinese", title = "语文", sortOrder = 20),
-                    @DictionaryField.InitialItem(code = "english", title = "英语", sortOrder = 30)
-            }
-    )
-    @Column(name = "subject_code", type = ColumnType.VARCHAR, length = 64, nullable = false)
-    private String subjectCode;
+    @ReferenceTo(target = SubjectCategoryService.class)
+    @Column(name = "subject_category_id", type = ColumnType.VARCHAR, length = 32, nullable = false)
+    private String subjectCategoryId;
 
-    @OptionLoad(source = "subjectCode")
+    @net.ximatai.muyun.spring.ability.reference.ReferenceLoad(source = "subjectCategoryId", field = "title")
     private transient String subjectTitle;
 
     @Column(name = "enabled", type = ColumnType.BOOLEAN, nullable = false,

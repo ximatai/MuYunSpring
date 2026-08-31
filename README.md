@@ -137,6 +137,8 @@ dependencies {
 ./scripts/dev-local.sh --platform
 ```
 
+`school-demo` 是可重建的本地演示 fixture，不提供旧元数据的兼容迁移。演示场景升级后需要获得干净状态时，先停止本地开发栈，再执行 `docker compose down --volumes`，然后重新运行 `./scripts/dev-local.sh --demo`。该命令会删除本仓库 Docker Compose 管理的全部本地 PostgreSQL 数据卷，不能用于需要保留本地数据的环境。
+
 需要分终端运行时，先 `docker compose up -d`，然后复制本机配置并启动后端：
 
 ```bash

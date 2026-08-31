@@ -8,8 +8,12 @@ import net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.demo.school.student.StudentService;
+import net.ximatai.muyun.spring.demo.school.subject.SubjectCategoryService;
+import net.ximatai.muyun.spring.demo.school.teacher.TeacherService;
+import net.ximatai.muyun.spring.demo.school.classroom.ClassroomService;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -39,12 +43,17 @@ public class DemoBootstrapConfiguration {
     ExamDemoBootstrapTask examDemoBootstrapTask(PlatformModuleService moduleService,
                                                 MetadataService metadataService,
                                                 MetadataFieldService fieldService,
+                                                MetadataFieldReferenceConfigService referenceConfigService,
                                                 ModuleMetadataRelationService relationService,
                                                 DynamicRecordService recordService,
                                                 StudentService studentService,
+                                                SubjectCategoryService subjectCategoryService,
+                                                TeacherService teacherService,
+                                                ClassroomService classroomService,
                                                 PlatformDynamicRuntimeRefreshService runtimeRefreshService,
                                                 TransactionTemplate transactionTemplate) {
-        return new ExamDemoBootstrapTask(moduleService, metadataService, fieldService, relationService,
-                recordService, studentService, runtimeRefreshService, transactionTemplate);
+        return new ExamDemoBootstrapTask(moduleService, metadataService, fieldService, referenceConfigService,
+                relationService, recordService, studentService, subjectCategoryService, teacherService,
+                classroomService, runtimeRefreshService, transactionTemplate);
     }
 }

@@ -2,7 +2,7 @@ package net.ximatai.muyun.spring.demo.school.configuration;
 
 import net.ximatai.muyun.spring.demo.school.classroom.ClassMemberService;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassroomService;
-import net.ximatai.muyun.spring.demo.school.hobby.HobbyService;
+import net.ximatai.muyun.spring.demo.school.subject.SubjectCategoryService;
 import net.ximatai.muyun.spring.demo.school.student.StudentService;
 import net.ximatai.muyun.spring.demo.school.teacher.TeacherService;
 import org.junit.jupiter.api.Test;
@@ -23,7 +23,7 @@ class TeachingDemoProfileBoundaryTest {
             assertThat(context).doesNotHaveBean(TeacherService.class);
             assertThat(context).doesNotHaveBean(ClassroomService.class);
             assertThat(context).doesNotHaveBean(ClassMemberService.class);
-            assertThat(context).doesNotHaveBean(HobbyService.class);
+            assertThat(context).doesNotHaveBean(SubjectCategoryService.class);
         });
     }
 
