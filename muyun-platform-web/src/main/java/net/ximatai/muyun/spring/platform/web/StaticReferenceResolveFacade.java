@@ -149,18 +149,42 @@ public class StaticReferenceResolveFacade {
         ReferenceTarget target = plan.target();
         ReferenceAbility<?> referenceAbility = abilities.findReference(target)
                 .orElseThrow(() -> new PlatformException("tree reference target is not available: " + target.qualifiedName()));
-        if (!(referenceAbility instanceof TreeAbility<?>)) {
-            throw new PlatformException("tree reference target does not support tree delivery: " + target.qualifiedName());
-        }
-        Map<String, List<TreeCapable>> children = treeChildrenByParent((ReferenceAbility) referenceAbility,
-                candidateCriteria(plan, request));
+        requireTreeTarget(referenceAbility);
+        Criteria criteria = candidateCriteria(plan, request);
+        Map<String, List<TreeCapable>> children = treeChildrenByParent((ReferenceAbility) referenceAbility, criteria);
         Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
-                children.values().stream().flatMap(List::stream).map(TreeCapable::getId).toList());
+                children.values().stream()
+                        .flatMap(List::stream).map(TreeCapable::getId).toList());
+        return targetTree(referenceAbility, children, selectionProjections);
+    }
+
+    /**
+     * Delivers a static tree target for metadata-driven sources. The source may be dynamic, but the
+     * target's tree traversal and REFERENCE data scope remain owned by the static ability.
+     */
+    public WebReferenceResolveResponse resolveTargetTree(ReferenceTarget target, Criteria criteria) {
+        ReferenceAbility<?> referenceAbility = abilities.findReference(target)
+                .orElseThrow(() -> new PlatformException("tree reference target is not available: " + target.qualifiedName()));
+        requireTreeTarget(referenceAbility);
+        return targetTree(referenceAbility, treeChildrenByParent((ReferenceAbility) referenceAbility, criteria), Map.of());
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private WebReferenceResolveResponse targetTree(ReferenceAbility<?> referenceAbility,
+                                                   Map<String, List<TreeCapable>> children,
+                                                   Map<String, Map<String, Object>> selectionProjections) {
         List<WebTreeNode<WebReferenceResolveItem>> nodes = children.getOrDefault(TreeAbility.ROOT_ID, List.of()).stream()
                 .map(record -> treeNode((ReferenceAbility) referenceAbility, children, record, selectionProjections))
                 .toList();
         return new WebReferenceResolveResponse(nodes.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,
                 WebReferenceResolveMode.TREE, List.of(), List.of(), 0, 0, nodes.size(), nodes);
+    }
+
+    private static void requireTreeTarget(ReferenceAbility<?> referenceAbility) {
+        if (!(referenceAbility instanceof TreeAbility<?>)) {
+            throw new PlatformException("tree reference target does not support tree delivery: "
+                    + referenceAbility.referenceTarget().qualifiedName());
+        }
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.iam.employee.EmployeeService;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
 import net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
+import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.demo.school.student.StudentService;
 import net.ximatai.muyun.spring.demo.school.subject.SubjectCategoryService;
@@ -17,6 +18,7 @@ import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigSe
 import net.ximatai.muyun.spring.platform.metadata.MetadataService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.platform.module.ModuleActionContributionRegistrar;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionPublishService;
@@ -35,11 +37,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class DemoBootstrapConfiguration {
     @Bean
     DemoBootstrapTask demoBootstrapTask(DemoBootstrapProperties properties, TenantService tenantService,
+                                        TenantApplicationService tenantApplicationService,
                                         OrganizationService organizationService, DepartmentService departmentService,
                                         EmployeeService employeeService, UserAccountService userAccountService,
                                         EmployeeAccountService employeeAccountService,
                                         DefaultTenantRoleProvisioner tenantRoleProvisioner) {
-        return new DemoBootstrapTask(properties, tenantService, organizationService, departmentService,
+        return new DemoBootstrapTask(properties, tenantService, tenantApplicationService, organizationService, departmentService,
                 employeeService, userAccountService, employeeAccountService, tenantRoleProvisioner);
     }
 
@@ -54,11 +57,12 @@ public class DemoBootstrapConfiguration {
                                                 SubjectCategoryService subjectCategoryService,
                                                 TeacherService teacherService,
                                                 ClassroomService classroomService,
+                                                ModuleActionContributionRegistrar actionRegistrar,
                                                 PlatformDynamicRuntimeRefreshService runtimeRefreshService,
                                                 TransactionTemplate transactionTemplate) {
         return new ExamDemoBootstrapTask(moduleService, metadataService, fieldService, referenceConfigService,
                 relationService, recordService, studentService, subjectCategoryService, teacherService,
-                classroomService, runtimeRefreshService, transactionTemplate);
+                classroomService, actionRegistrar, runtimeRefreshService, transactionTemplate);
     }
 
     @Bean

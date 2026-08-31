@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassMember;
 import net.ximatai.muyun.spring.demo.school.classroom.Classroom;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassroomService;
@@ -26,6 +27,9 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.module.ModuleActionContribution;
+import net.ximatai.muyun.spring.platform.module.ModuleActionContributionRegistrar;
+import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformBootstrapTask;
@@ -55,6 +59,7 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
     private final SubjectCategoryService subjectCategoryService;
     private final TeacherService teacherService;
     private final ClassroomService classroomService;
+    private final ModuleActionContributionRegistrar actionRegistrar;
     private final PlatformDynamicRuntimeRefreshService runtimeRefreshService;
     private final TransactionTemplate transactionTemplate;
 
@@ -68,6 +73,7 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
                                  SubjectCategoryService subjectCategoryService,
                                  TeacherService teacherService,
                                  ClassroomService classroomService,
+                                 ModuleActionContributionRegistrar actionRegistrar,
                                  PlatformDynamicRuntimeRefreshService runtimeRefreshService,
                                  TransactionTemplate transactionTemplate) {
         this.moduleService = moduleService;
@@ -80,6 +86,7 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
         this.subjectCategoryService = subjectCategoryService;
         this.teacherService = teacherService;
         this.classroomService = classroomService;
+        this.actionRegistrar = actionRegistrar;
         this.runtimeRefreshService = runtimeRefreshService;
         this.transactionTemplate = transactionTemplate;
     }
@@ -124,6 +131,7 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
 
     private void configureMetadata() {
         ensureModule();
+        ensureModuleActions();
         Metadata exam = ensureMetadata(EXAM_METADATA_ALIAS, "考试", "education_exam");
         ensureField(exam.getId(), "title", "title", "string", "考试名称", true, true);
         MetadataField classroomId = ensureField(exam.getId(), "classroomId", "classroom_id", "string", "教学班", true,
@@ -157,6 +165,50 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
         module.setModuleKind(ModuleKind.DYNAMIC);
         module.setTitle("考试管理");
         moduleService.insert(module);
+    }
+
+    /**
+     * 动态模块的标准动作同样是平台动作目录中的治理事实；不能只依赖运行时临时推导，
+     * 否则租户管理员无法按既有隐式授权规则进入模块。
+     */
+    private void ensureModuleActions() {
+        actionRegistrar.registerAll(List.of(
+                PlatformAction.MENU,
+                PlatformAction.CREATE,
+                PlatformAction.VIEW,
+                PlatformAction.UPDATE,
+                PlatformAction.DELETE,
+                PlatformAction.BATCH_DELETE,
+                PlatformAction.QUERY,
+                PlatformAction.REFERENCE
+        ).stream().map(this::standardAction).toList());
+    }
+
+    private ModuleActionContribution standardAction(PlatformAction action) {
+        return new ModuleActionContribution(
+                MODULE_ALIAS,
+                EXAM_METADATA_ALIAS,
+                action.code(),
+                action.permissionActionCode(),
+                action.title(),
+                null,
+                null,
+                null,
+                action.actionAuth(),
+                false,
+                action.defaultGrantPolicy(),
+                null,
+                null,
+                null,
+                null,
+                ModuleActionSourceType.DYNAMIC_MODULE,
+                MODULE_ALIAS,
+                null,
+                null,
+                null,
+                null,
+                true
+        );
     }
 
     private Metadata ensureMetadata(String alias, String title, String tableName) {

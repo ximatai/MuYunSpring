@@ -1157,6 +1157,57 @@ it('static module client normalizes backend action envelopes', async () => {
   }
 });
 
+it('module client unwraps dynamic record transport into the shared record contract', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    const record = {
+      id: 'exam-1',
+      version: 2,
+      values: { title: '期中测评', examDate: '2026-04-18' },
+      children: {
+        participants: [
+          {
+            id: 'participant-1',
+            version: 0,
+            values: { studentNo: 'S2026001', score: '92.50' },
+            children: {},
+          },
+        ],
+      },
+    };
+    if (request.url.endsWith('/query')) {
+      return Response.json({ records: [record], total: 1, pageNum: 1, pageSize: 20, pages: 1 });
+    }
+    if (request.url.includes('/view/')) return Response.json(record);
+    return Response.json({ data: record, changeSetId: 'change-set-1' });
+  };
+
+  try {
+    const client = createModuleCrudClient<Record<string, unknown>>(createHttpClient({ baseUrl: 'http://api.local' }), {
+      moduleAlias: 'education.exam',
+    });
+
+    const expected = {
+      id: 'exam-1',
+      version: 2,
+      title: '期中测评',
+      examDate: '2026-04-18',
+      participants: [{ id: 'participant-1', version: 0, studentNo: 'S2026001', score: '92.50' }],
+    };
+    assert.deepEqual((await client.query()).records, [expected]);
+    assert.deepEqual(await client.view('exam-1'), expected);
+    assert.deepEqual(await client.insert({ title: '期中测评' }), {
+      record: expected,
+      changeSetId: 'change-set-1',
+      message: undefined,
+      changes: undefined,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 it('static module tree client maps standard CRUD and tree endpoints by module alias', async () => {
   const requests: Request[] = [];
   const originalFetch = globalThis.fetch;

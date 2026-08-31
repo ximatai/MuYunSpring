@@ -24,6 +24,9 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
+import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.metadata.Metadata;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
@@ -94,6 +97,9 @@ public class TeachingDemoIT {
 
     @Autowired
     private ApplicationService applicationService;
+
+    @Autowired
+    private PlatformModuleActionService moduleActions;
 
     @Autowired
     private MetadataService metadataService;
@@ -234,6 +240,19 @@ public class TeachingDemoIT {
                     .containsExactlyInAnyOrder("S2026001", "S2026002");
             assertThat(rows).extracting(row -> row.getValue("studentTitle"))
                     .containsExactlyInAnyOrder("陈晨", "林晓");
+        }
+    }
+
+    @Test
+    void shouldRegisterGovernableStandardActionsForDynamicExamModule() {
+        try (TenantContext.Scope ignored = TenantContext.system("inspect academic evaluation actions")) {
+            assertThat(moduleActions.listByModuleAliases(List.of(ExamDemoBootstrapTask.MODULE_ALIAS)))
+                    .extracting(PlatformModuleAction::getActionCode)
+                    .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "batchDelete", "query",
+                            "reference");
+            assertThat(moduleActions.listByModuleAliases(List.of(ExamDemoBootstrapTask.MODULE_ALIAS)))
+                    .extracting(PlatformModuleAction::getSourceType)
+                    .containsOnly(ModuleActionSourceType.DYNAMIC_MODULE);
         }
     }
 

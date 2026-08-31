@@ -6,7 +6,7 @@ import type {
   WebQueryRequest,
 } from '@muyun/web-contracts';
 import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+import { normalizeModulePageResponse, type ModuleContext } from '@muyun/web-core';
 import RecordQueryListPanel, {
   type QueryListRecord,
   type RecordQueryListColumn,
@@ -61,7 +61,7 @@ const relationContext = computed<ModuleContext<QueryListRecord> | undefined>(() 
           method: 'POST',
           path: queryPath,
           body: request,
-        }),
+        }).then(normalizeModulePageResponse),
     },
   };
 });

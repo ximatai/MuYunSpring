@@ -27,6 +27,7 @@ import net.ximatai.muyun.spring.platform.web.NavigatorListQueryMode;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan;
 import net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService;
+import net.ximatai.muyun.spring.platform.web.StaticReferenceResolveFacade;
 import net.ximatai.muyun.spring.platform.web.ListQuerySummaryRuntime;
 import net.ximatai.muyun.spring.platform.web.ModuleMutationFieldValidation;
 import net.ximatai.muyun.spring.platform.web.ModuleQueryFormField;
@@ -114,6 +115,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceMatchMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveRequest;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveResponse;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshot;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshotService;
 import net.ximatai.muyun.spring.platform.ui.PlatformQueryItemService;
@@ -185,6 +187,7 @@ public class DynamicRecordWebController implements
     private final PlatformModuleRuntimeContextService runtimeContextService;
     private final TenantRequestScope tenantRequestScope;
     private RecycleBinFacade recycleBinFacade;
+    private StaticReferenceResolveFacade staticReferenceResolveFacade;
     private final DynamicOpenApiGenerator openApiGenerator = new DynamicOpenApiGenerator();
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -216,6 +219,11 @@ public class DynamicRecordWebController implements
     @Autowired(required = false)
     void setRecycleBinFacade(RecycleBinFacade recycleBinFacade) {
         this.recycleBinFacade = recycleBinFacade;
+    }
+
+    @Autowired(required = false)
+    void setStaticReferenceResolveFacade(StaticReferenceResolveFacade staticReferenceResolveFacade) {
+        this.staticReferenceResolveFacade = staticReferenceResolveFacade;
     }
 
     @Override
@@ -1704,6 +1712,13 @@ public class DynamicRecordWebController implements
             throw new PlatformException("dynamic tree reference is not available");
         }
         Criteria criteria = referenceCriteria(reference, request);
+        if (!recordService.hasRegisteredDynamicEntity(reference.targetModuleAlias(), reference.targetEntityAlias())) {
+            if (staticReferenceResolveFacade == null) {
+                throw new PlatformException("static reference tree resolver is not configured");
+            }
+            return staticReferenceResolveFacade.resolveTargetTree(
+                    ReferenceTarget.of(reference.targetModuleAlias(), reference.targetEntityAlias()), criteria);
+        }
         List<WebTreeNode<WebReferenceResolveItem>> tree = dynamicReferenceChildren(reference, criteria, TreeAbility.ROOT_ID)
                 .stream().map(record -> dynamicReferenceTreeNode(reference, criteria, record)).toList();
         return new WebReferenceResolveResponse(tree.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,

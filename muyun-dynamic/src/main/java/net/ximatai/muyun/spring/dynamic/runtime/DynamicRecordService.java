@@ -152,7 +152,12 @@ public class DynamicRecordService {
         return new DynamicEntityOperations(this, moduleAlias, entityAlias);
     }
 
-    boolean hasRegisteredDynamicEntity(String moduleAlias, String entityAlias) {
+    /**
+     * Distinguishes a metadata-owned target from a static target that shares the platform reference registry.
+     * Consumers must keep static targets on their own delivery path instead of treating a reference identity
+     * module segment as a dynamic module alias.
+     */
+    public boolean hasRegisteredDynamicEntity(String moduleAlias, String entityAlias) {
         return runtime.registry().findModule(moduleAlias)
                 .stream()
                 .flatMap(module -> module.entities().stream())

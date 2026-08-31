@@ -74,7 +74,7 @@ export function createManagedDetailRelationClient<TRecord>(
         method: 'POST',
         path: `${relationPath}/query`,
         body: request,
-      }),
+      }).then(normalizeModulePageResponse),
     insert: async (record) =>
       normalizeRecordMutationResponse(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
@@ -123,7 +123,7 @@ export function createNavigatorReferenceCrudClient<TRecord>(
         method: 'POST',
         path: `${modulePath}/navigator/reference/query`,
         body: navigatorReferenceRequest(request, options.navigatorReference),
-      }),
+      }).then(normalizeModulePageResponse),
   };
 }
 
@@ -146,8 +146,9 @@ export function createStaticResourceCrudClient<TRecord>(
         method: 'POST',
         path: `${modulePath}/query`,
         body: request,
-      }),
-    view: (id) => http.request<TRecord>({ path: `${modulePath}/view/${encodeURIComponent(id)}` }),
+      }).then(normalizeModulePageResponse),
+    view: (id) => http.request<TRecord>({ path: `${modulePath}/view/${encodeURIComponent(id)}` })
+      .then(normalizeModuleRecord),
     insert: async (record) =>
       normalizeRecordMutationResponse(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
@@ -299,7 +300,7 @@ function normalizeRecordMutationResponse<TRecord>(
 ): StaticRecordMutationResult<TRecord> {
   if (isWebActionResultEnvelope<TRecord>(response)) {
     const result: StaticRecordMutationResult<TRecord> = {
-      record: response.data,
+      record: normalizeModuleRecord(response.data),
       message: response.message,
       changes: response.changes,
       changeSetId: response.changeSetId,
@@ -309,7 +310,65 @@ function normalizeRecordMutationResponse<TRecord>(
     }
     return result;
   }
-  return { record: response };
+  return { record: normalizeModuleRecord(response) };
+}
+
+/**
+ * Dynamic records use a typed `{ id, version, values, children }` wire envelope while static
+ * records already publish their fields at the root. The shared module client is the only place
+ * that should bridge this transport difference: every page surface then consumes one flat record
+ * contract, including aggregate children, and submits that same accepted shape back to the
+ * dynamic deserializer.
+ */
+function normalizeModuleRecord<TRecord>(record: TRecord): TRecord {
+  if (!isDynamicRecordWire(record)) return record;
+  return {
+    ...record.values,
+    ...normalizeModuleChildren(record.children),
+    id: record.id,
+    version: record.version,
+  } as TRecord;
+}
+
+function normalizeModuleChildren(children: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(children).map(([fieldName, records]) => [
+      fieldName,
+      Array.isArray(records) ? records.map((record) => normalizeModuleRecord(record)) : records,
+    ]),
+  );
+}
+
+/**
+ * Normalizes a page response at the source-neutral module transport boundary.
+ *
+ * <p>Association query contracts use their server-issued route directly instead of the standard
+ * module CRUD path, but they still return the same dynamic record envelope.  Keeping this helper
+ * public lets those descriptor-driven surfaces reuse the one normalization rule.</p>
+ */
+export function normalizeModulePageResponse<TRecord>(response: WebPageResponse<TRecord>): WebPageResponse<TRecord> {
+  if (!Array.isArray(response.records)) return response;
+  return {
+    ...response,
+    records: response.records.map(normalizeModuleRecord),
+  };
+}
+
+function isDynamicRecordWire(value: unknown): value is {
+  id: string;
+  version: number | undefined;
+  values: Record<string, unknown>;
+  children: Record<string, unknown>;
+} {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === 'string'
+    && typeof record.values === 'object'
+    && record.values !== null
+    && !Array.isArray(record.values)
+    && typeof record.children === 'object'
+    && record.children !== null
+    && !Array.isArray(record.children);
 }
 
 function normalizeCountMutationResponse(response: StaticCountMutationResult): StaticCountMutationResult {
