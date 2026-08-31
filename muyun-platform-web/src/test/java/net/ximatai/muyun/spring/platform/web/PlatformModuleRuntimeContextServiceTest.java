@@ -152,6 +152,52 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
+    void shouldExposeStaticReferenceTargetWithItsCompletePlatformModuleAliasInPublishedDynamicPage() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
+        DynamicPublishedPageDefinitionResolver resolver = mock(DynamicPublishedPageDefinitionResolver.class);
+        DynamicReferenceDescriptor classroomReference = new DynamicReferenceDescriptor(
+                "exam", "classroomId", "education", "classroom", ReferenceCardinality.ONE, List.of());
+        DynamicEntityDescriptor exam = dynamicEntity("exam", List.of(
+                DynamicFieldDescriptor.from(FieldDefinition.string("title", "考试名称")),
+                DynamicFieldDescriptor.from(FieldDefinition.string("classroomId", "教学班"), classroomReference)),
+                "CRUD");
+        DynamicModuleDescriptor dynamic = new DynamicModuleDescriptor("education.exam", "考试管理", "exam", List.of(),
+                List.of(exam), List.of(), List.of(), List.of());
+        PlatformPageDefinition page = new PlatformPageDefinition();
+        page.setId("page-exam");
+        PlatformPresentationRevision revision = new PlatformPresentationRevision();
+        revision.setId("revision-exam");
+        revision.setRevisionNo(1);
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("education.exam")
+                .page(PageTemplates.listDetailCard(pageDefinition -> pageDefinition
+                        .list(list -> list.fields(fields -> fields.field("title").field("classroomId")))
+                        .detail(detail -> detail.editor(fields -> fields.field("title").field("classroomId")))))
+                .build();
+        StaticModuleDefinition classroom = StaticModuleDefinition.builder("education", "education.classroom", "教学班")
+                .actions(List.of()).build();
+        when(moduleService.resolveVisibleModule("education.exam"))
+                .thenReturn(module("education.exam", "考试管理", ModuleKind.DYNAMIC));
+        when(actionService.listByModuleAliases(List.of("education.exam"))).thenReturn(List.of());
+        when(dynamicRecordService.describe("education.exam")).thenReturn(dynamic);
+        when(dynamicRecordService.actions("education.exam")).thenReturn(List.of());
+        when(resolver.resolveWebGlobal(dynamic)).thenReturn(Optional.of(
+                new DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage(page, revision, definition)));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, new StaticModuleDefinitionCatalog(List.of(classroom)), dynamicRecordService,
+                null, null, allowAllPolicy(), List.of(), new DeclaredPageNavigatorResolver(), null,
+                null, null, null, null, resolver);
+
+        ResolvedViewFieldDescriptor field = service.context("education.exam").uiDescriptor().page().detail()
+                .editor().fields().stream().filter(candidate -> "classroomId".equals(candidate.fieldRef().fieldName()))
+                .findFirst().orElseThrow();
+
+        assertThat(field.reference().targetModuleAlias()).isEqualTo("education.classroom");
+        assertThat(field.reference().pickerMode()).isEqualTo(ReferencePickerMode.LIST);
+    }
+
+    @Test
     void shouldResolveStaticPageNavigatorWithCurrentRequestFacts() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);

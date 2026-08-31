@@ -27,7 +27,7 @@ public class Student extends StandardTitledEntity implements EnabledCapable {
     @ReferencedBy
     private transient List<ClassMember> classMemberships;
 
-    @Column(name = "student_no", type = ColumnType.VARCHAR, length = 32, nullable = false)
+    @Column(name = "student_no", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "学号")
     private String studentNo;
 
     @Column(name = "grade", type = ColumnType.VARCHAR, length = 32, nullable = false)

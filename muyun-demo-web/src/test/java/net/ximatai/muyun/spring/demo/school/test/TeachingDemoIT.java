@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.boot.MuYunSpringApplication;
 import net.ximatai.muyun.spring.demo.DemoBootstrapTask;
 import net.ximatai.muyun.spring.demo.ExamDemoBootstrapTask;
+import net.ximatai.muyun.spring.demo.ExamPageDemoBootstrapTask;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassMember;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassMemberService;
 import net.ximatai.muyun.spring.demo.school.classroom.Classroom;
@@ -19,6 +20,8 @@ import net.ximatai.muyun.spring.demo.school.teacher.TeacherService;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.platform.metadata.Metadata;
@@ -31,6 +34,16 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionPublishService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionStatus;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationVariant;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationVariantService;
+import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan;
+import net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -96,6 +109,21 @@ public class TeachingDemoIT {
 
     @Autowired
     private DynamicRecordService dynamicRecords;
+
+    @Autowired
+    private PlatformPageDefinitionService pageDefinitions;
+
+    @Autowired
+    private PlatformPresentationVariantService presentationVariants;
+
+    @Autowired
+    private PlatformPresentationRevisionService presentationRevisions;
+
+    @Autowired
+    private PlatformPresentationRevisionPublishService presentationRevisionPublisher;
+
+    @Autowired
+    private PlatformModuleRuntimeContextService runtimeContexts;
 
     @DynamicPropertySource
     static void applicationProperties(DynamicPropertyRegistry registry) {
@@ -206,6 +234,111 @@ public class TeachingDemoIT {
                     .containsExactlyInAnyOrder("S2026001", "S2026002");
             assertThat(rows).extracting(row -> row.getValue("studentTitle"))
                     .containsExactlyInAnyOrder("陈晨", "林晓");
+        }
+    }
+
+    @Test
+    void shouldPublishExamManagementPageAndKeepAnEditableFollowUpDraft() {
+        try (TenantContext.Scope ignored = TenantContext.system("inspect academic evaluation page baseline")) {
+            PlatformPageDefinition page = pageDefinitions.resolveGlobalPage(ExamDemoBootstrapTask.MODULE_ALIAS,
+                    ExamPageDemoBootstrapTask.PAGE_ALIAS).orElseThrow();
+            assertThat(page.getMainRelationId()).isEqualTo(relation(metadata("exam").getId(), RelationRole.MAIN).getId());
+
+            PlatformPresentationVariant variant = presentationVariants.list(Criteria.of().eq("pageId", page.getId()))
+                    .getFirst();
+            List<PlatformPresentationRevision> revisions = presentationRevisions.list(
+                    Criteria.of().eq("variantId", variant.getId()));
+            PlatformPresentationRevision published = revisions.stream()
+                    .filter(revision -> revision.getStatus() == PlatformPresentationRevisionStatus.PUBLISHED)
+                    .findFirst().orElseThrow();
+            PlatformPresentationRevision draft = revisions.stream()
+                    .filter(revision -> revision.getStatus() == PlatformPresentationRevisionStatus.DRAFT)
+                    .findFirst().orElseThrow();
+            assertThat(draft.getRevisionNo()).isGreaterThan(published.getRevisionNo());
+            assertThat(draft.getUiTreeJson()).isEqualTo(published.getUiTreeJson());
+            assertThat(published.getUiTreeJson()).contains("searchPlaceholder", "participants", "studentNo", "studentTitle");
+
+            ModuleExecutionPlan plan = runtimeContexts.dynamicExecutionPlan(ExamDemoBootstrapTask.MODULE_ALIAS)
+                    .orElseThrow();
+            assertThat(plan.versionKey()).contains("-page-" + published.getId(), "-r" + published.getRevisionNo());
+            assertThat(plan.uiDescriptor().page().list().fields().fields())
+                    .extracting(field -> field.fieldRef().fieldName())
+                    .containsExactly("title", "classroomId", "subjectCategoryId", "examDate");
+            assertThat(plan.uiDescriptor().page().detail().editor().fields())
+                    .extracting(field -> field.fieldRef().fieldName())
+                    .containsExactly("title", "classroomId", "subjectCategoryId", "examDate");
+            assertThat(plan.mutationFieldValidations()).extracting(validation -> validation.fieldName())
+                    .containsExactly("title", "classroomId", "subjectCategoryId", "examDate")
+                    .doesNotContain("studentNo", "studentTitle");
+            assertThat(plan.uiDescriptor().detailRelations()).singleElement().satisfies(participants -> {
+                assertThat(participants.code()).isEqualTo("participants");
+                assertThat(participants.targetEntityAlias()).isEqualTo("exam_participant");
+                assertThat(participants.readOnly()).isFalse();
+                assertThat(participants.embeddedField()).isEqualTo("participants");
+                assertThat(participants.editing().saveMode().name()).isEqualTo("AGGREGATE_DRAFT");
+                assertThat(participants.mutationContract()).satisfies(mutations -> {
+                    assertThat(mutations.createAllowed()).isTrue();
+                    assertThat(mutations.updateAllowed()).isTrue();
+                    assertThat(mutations.deleteAllowed()).isTrue();
+                });
+                assertThat(participants.queryContract().listProjection().fields())
+                        .extracting(field -> field.fieldName())
+                        .containsExactly("studentId", "studentNo", "studentTitle", "score", "attendanceStatus");
+                assertThat(participants.queryContract().listProjection().fields())
+                        .filteredOn(field -> field.fieldName().equals("studentNo") || field.fieldName().equals("studentTitle"))
+                        .extracting(field -> field.title())
+                        .containsExactly("学号", "学生名称");
+            });
+            assertThat(plan.uiDescriptor().editorContributions()).singleElement().satisfies(contribution ->
+                    assertThat(contribution.editor().fields()).extracting(field -> field.fieldRef().fieldName())
+                            .containsExactly("studentId", "score", "attendanceStatus"));
+
+        }
+    }
+
+    @Test
+    void shouldExposeReferenceProjectionsThroughTheRealExamParticipantAssociationQuery() {
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.systemUser(
+                "inspect-exam-participant-projections", "Exam Participant Projection Inspection"));
+             TenantContext.Scope ignored = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            DynamicRecord exam = dynamicRecords.listSystem(ExamDemoBootstrapTask.MODULE_ALIAS, "exam",
+                    Criteria.of().eq("title", "2026 春季期中数学测评"), PageRequest.of(1, 1)).getFirst();
+            assertThat(dynamicRecords.associationViewPage(ExamDemoBootstrapTask.MODULE_ALIAS, "exam", exam.getId(),
+                    "participants", Criteria.of(), PageRequest.of(1, 20)).getRecords())
+                    .allSatisfy(participant -> {
+                        assertThat(String.valueOf(participant.getValue("studentNo"))).isNotBlank();
+                        assertThat(String.valueOf(participant.getValue("studentTitle"))).isNotBlank();
+                    });
+        }
+    }
+
+    @Test
+    void shouldSwitchDynamicExecutionPlanWhenPublishingTheFollowUpDraft() {
+        try (TenantContext.Scope ignored = TenantContext.system("publish academic evaluation page follow-up draft")) {
+            PlatformPageDefinition page = pageDefinitions.resolveGlobalPage(ExamDemoBootstrapTask.MODULE_ALIAS,
+                    ExamPageDemoBootstrapTask.PAGE_ALIAS).orElseThrow();
+            PlatformPresentationVariant variant = presentationVariants.list(Criteria.of().eq("pageId", page.getId()))
+                    .getFirst();
+            PlatformPresentationRevision draft = presentationRevisions.list(Criteria.of().eq("variantId", variant.getId()))
+                    .stream().filter(revision -> revision.getStatus() == PlatformPresentationRevisionStatus.DRAFT)
+                    .findFirst().orElseThrow();
+
+            PlatformPresentationRevision published = presentationRevisionPublisher.publish(draft.getId());
+            ModuleExecutionPlan plan = runtimeContexts.dynamicExecutionPlan(ExamDemoBootstrapTask.MODULE_ALIAS)
+                    .orElseThrow();
+            assertThat(published.getStatus()).isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
+            assertThat(plan.versionKey()).contains("-page-" + published.getId(), "-r" + published.getRevisionNo());
+
+            PlatformPresentationRevision nextDraft = new PlatformPresentationRevision();
+            nextDraft.setVariantId(variant.getId());
+            nextDraft.setRevisionNo(published.getRevisionNo() + 1);
+            nextDraft.setTemplateAlias(published.getTemplateAlias());
+            nextDraft.setTemplateVersion(published.getTemplateVersion());
+            nextDraft.setUiTreeJson(published.getUiTreeJson());
+            nextDraft.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+            nextDraft.setEnabled(Boolean.TRUE);
+            nextDraft.setTitle("考试管理页后续草稿");
+            presentationRevisions.insert(nextDraft);
         }
     }
 

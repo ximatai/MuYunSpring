@@ -100,8 +100,11 @@ public record ResolvedDetailRelationDescriptor(
         if (readOnly && mutationContract != null) {
             throw new IllegalArgumentException("read-only detail relation must not declare mutations");
         }
-        if (mutationContract != null && (queryContract == null || !queryContract.managedGateway())) {
-            throw new IllegalArgumentException("detail relation mutations require a managed gateway query");
+        boolean aggregateDraftMutation = embeddedField != null
+                && editing.saveMode() == ResolvedDetailRelationEditing.SaveMode.AGGREGATE_DRAFT;
+        if (mutationContract != null && (queryContract == null || !queryContract.managedGateway())
+                && !aggregateDraftMutation) {
+            throw new IllegalArgumentException("detail relation mutations require a managed gateway query or aggregate draft");
         }
     }
 

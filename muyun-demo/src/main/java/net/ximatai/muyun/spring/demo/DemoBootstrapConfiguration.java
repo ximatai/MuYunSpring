@@ -18,6 +18,10 @@ import net.ximatai.muyun.spring.platform.metadata.MetadataService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionPublishService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationVariantService;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -55,5 +59,15 @@ public class DemoBootstrapConfiguration {
         return new ExamDemoBootstrapTask(moduleService, metadataService, fieldService, referenceConfigService,
                 relationService, recordService, studentService, subjectCategoryService, teacherService,
                 classroomService, runtimeRefreshService, transactionTemplate);
+    }
+
+    @Bean
+    ExamPageDemoBootstrapTask examPageDemoBootstrapTask(ModuleMetadataRelationService relationService,
+                                                        PlatformPageDefinitionService pageService,
+                                                        PlatformPresentationVariantService variantService,
+                                                        PlatformPresentationRevisionService revisionService,
+                                                        PlatformPresentationRevisionPublishService publishService) {
+        return new ExamPageDemoBootstrapTask(relationService, pageService, variantService, revisionService,
+                publishService);
     }
 }

@@ -32,6 +32,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
@@ -469,15 +470,66 @@ public class PlatformModuleRuntimeContextService {
                                                                      String title,
                                                                      DynamicModuleDescriptor dynamicDescriptor,
                                                                      ModuleUiDefinition definition) {
-        java.util.Map<ViewFieldRef, FieldValueType> fieldTypes = dynamicMainFieldTypes(dynamicDescriptor);
-        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, title,
-                dynamicOptionFields(dynamicDescriptor), dynamicReferenceFields(dynamicDescriptor),
+        List<DynamicDetailRelationTarget> relationTargets = dynamicDetailRelationTargets(moduleAlias, dynamicDescriptor,
+                definition.detailRelations());
+        java.util.Map<ViewFieldRef, FieldValueType> fieldTypes = new java.util.LinkedHashMap<>(
+                dynamicMainFieldTypes(dynamicDescriptor));
+        java.util.Map<String, ResolvedOptionFieldDescriptor> optionFields = new java.util.LinkedHashMap<>(
+                dynamicOptionFields(dynamicDescriptor));
+        java.util.Map<String, ResolvedReferenceFieldDescriptor> referenceFields = new java.util.LinkedHashMap<>(
+                dynamicReferenceFields(dynamicDescriptor));
+        relationTargets.stream().filter(DynamicDetailRelationTarget::aggregateChild).forEach(target ->
+                mergeDynamicRelationEditorFacts(target, fieldTypes, optionFields, referenceFields));
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
+                withDynamicRelationEditors(definition, relationTargets), ModuleKind.DYNAMIC, title,
+                optionFields, referenceFields,
                 dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard());
         return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()))
-                .withDetailRelations(dynamicDetailRelations(moduleAlias, dynamicDescriptor, definition.detailRelations()));
+                .withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));
     }
 
     private List<net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor> dynamicDetailRelations(
+            String moduleAlias, List<DynamicDetailRelationTarget> targets) {
+        if (targets.isEmpty()) return List.of();
+        return targets.stream().map(target -> {
+            PageDetailRelationDefinition selection = target.selection();
+            var view = target.view();
+            DynamicEntityDescriptor targetEntity = target.entity();
+            java.util.Map<String, net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField> targetFields =
+                    dynamicRelationReadableFields(targetEntity);
+            List<net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField> selectedFields = selection.listFields().isEmpty()
+                    ? List.of()
+                    : selection.listFields().stream().map(fieldName -> {
+                        net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField field = targetFields.get(fieldName);
+                        if (field == null) {
+                            throw new IllegalArgumentException("page revision relation field is unavailable: "
+                                    + selection.code() + "." + fieldName);
+                        }
+                        return field;
+                    }).toList();
+            var projection = new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListProjection(null,
+                    selectedFields);
+            var query = new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationQueryContract(
+                    "/" + moduleAlias + "/view/{id}/associations/" + view.code() + "/query", null, null,
+                    true, view.queryable(), projection,
+                    DynamicQuerySchemas.from(view.targetModuleAlias(), targetEntity, List.of()), false, null);
+            boolean aggregateChild = target.aggregateChild();
+            var mutations = aggregateChild ? new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationMutationContract(
+                    true, true, true, PlatformAction.CREATE.code(), PlatformAction.UPDATE.code(), PlatformAction.DELETE.code()) : null;
+            var editing = aggregateChild
+                    ? new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing(
+                    net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing.Mode.INLINE,
+                    net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing.SaveMode.AGGREGATE_DRAFT, false)
+                    : net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing.DEFAULT;
+            return new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor(
+                    selection.code(), selection.title(), !aggregateChild, moduleAlias, view.sourceEntityAlias(),
+                    view.targetModuleAlias(), view.targetEntityAlias(), view.relationCode(), query, mutations, null,
+                    editing, true, aggregateChild ? selection.code() : null, projection, List.of(),
+                    net.ximatai.muyun.spring.platform.ui.ResolvedUiRule.constant(Boolean.TRUE));
+        }).toList();
+    }
+
+    private List<DynamicDetailRelationTarget> dynamicDetailRelationTargets(
             String moduleAlias, DynamicModuleDescriptor sourceModule, List<PageDetailRelationDefinition> configured) {
         if (configured == null || configured.isEmpty()) return List.of();
         java.util.Map<String, net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor> views =
@@ -495,35 +547,159 @@ public class PlatformModuleRuntimeContextService {
                     .findFirst().orElseThrow(() -> new IllegalArgumentException(
                             "dynamic association target entity is unavailable: " + view.targetModuleAlias()
                                     + "." + view.targetEntityAlias()));
-            java.util.Map<String, DynamicFieldDescriptor> targetFields = target.fields().stream()
-                    .collect(java.util.stream.Collectors.toMap(DynamicFieldDescriptor::fieldName,
-                            java.util.function.Function.identity(), (left, ignored) -> left,
-                            java.util.LinkedHashMap::new));
-            List<DynamicFieldDescriptor> selectedFields = selection.listFields().isEmpty()
-                    ? List.of()
-                    : selection.listFields().stream().map(fieldName -> {
-                        DynamicFieldDescriptor field = targetFields.get(fieldName);
-                        if (field == null) {
-                            throw new IllegalArgumentException("page revision relation field is unavailable: "
-                                    + selection.code() + "." + fieldName);
-                        }
-                        return field;
-                    }).toList();
-            var projection = new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListProjection(null,
-                    selectedFields.stream().map(field ->
-                            new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField(
-                                    field.fieldName(), field.title(),
-                                    field.storageForm() == null ? null : field.storageForm().name(), null,
-                                    null, null, null)).toList());
-            var query = new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationQueryContract(
-                    "/" + moduleAlias + "/view/{id}/associations/" + view.code() + "/query", null, null,
-                    true, view.queryable(), projection,
-                    DynamicQuerySchemas.from(view.targetModuleAlias(), target, List.of()), false, null);
-            return new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor(
-                    selection.code(), selection.title(), true, moduleAlias, view.sourceEntityAlias(),
-                    view.targetModuleAlias(), view.targetEntityAlias(), view.relationCode(), query, null, null,
-                    net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing.DEFAULT, true);
+            String parentForeignKey = sourceModule.relations().stream()
+                    .filter(relation -> view.relationCode().equals(relation.code()))
+                    .filter(relation -> view.sourceEntityAlias().equals(relation.parentEntityAlias()))
+                    .filter(relation -> view.targetEntityAlias().equals(relation.childEntityAlias()))
+                    .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor::childForeignKeyField)
+                    .findFirst().orElse(null);
+            return new DynamicDetailRelationTarget(selection, view, target, parentForeignKey);
         }).toList();
+    }
+
+    /**
+     * A dynamic page can edit only a direct aggregate child that has a declared physical parent
+     * foreign key.  Association views without that aggregate fact stay query-only.
+     */
+    private ModuleUiDefinition withDynamicRelationEditors(ModuleUiDefinition definition,
+                                                           List<DynamicDetailRelationTarget> targets) {
+        List<PageDetailEditorContribution> contributions = new java.util.ArrayList<>(definition.editorContributions());
+        java.util.Set<String> resources = contributions.stream().map(PageDetailEditorContribution::resource)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        for (DynamicDetailRelationTarget target : targets) {
+            if (!target.aggregateChild() || !resources.add(target.entity().entityAlias())) continue;
+            ViewDefinition.Builder editor = ViewDefinition.form(
+                    ModuleUiViewCodes.childResourceDefaultForm(target.entity().entityAlias()));
+            target.writableFields().forEach(field -> editor.field(target.entity().entityAlias(), field.fieldName(), ignored -> {
+            }));
+            contributions.add(new PageDetailEditorContribution(target.entity().entityAlias(), editor.build()));
+        }
+        return new ModuleUiDefinition(definition.moduleAlias(), definition.actions(), definition.page(),
+                definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations());
+    }
+
+    private void mergeDynamicRelationEditorFacts(DynamicDetailRelationTarget target,
+                                                  java.util.Map<ViewFieldRef, FieldValueType> fieldTypes,
+                                                  java.util.Map<String, ResolvedOptionFieldDescriptor> optionFields,
+                                                  java.util.Map<String, ResolvedReferenceFieldDescriptor> referenceFields) {
+        for (DynamicFieldDescriptor field : target.writableFields()) {
+            fieldTypes.put(ViewFieldRef.relation(target.entity().entityAlias(), field.fieldName()),
+                    FieldValueType.from(field.type()));
+            if (field.optionBinding() != null) {
+                optionFields.putIfAbsent(field.fieldName(), new ResolvedOptionFieldDescriptor(field.optionBinding(),
+                        field.selectionMode() == null ? OptionSelectionMode.SINGLE : field.selectionMode(), null));
+            }
+            if (field.reference() != null) {
+                referenceFields.putIfAbsent(field.fieldName(), dynamicRelationReferenceField(field));
+            }
+        }
+    }
+
+    /** Child aggregate forms resolve candidates at the target module, not through the main-record route. */
+    private ResolvedReferenceFieldDescriptor dynamicRelationReferenceField(DynamicFieldDescriptor field) {
+        var reference = field.reference();
+        String targetModuleAlias = deliveryReferenceModuleAlias(reference);
+        return new ResolvedReferenceFieldDescriptor(targetModuleAlias, reference.cardinality(),
+                reference.projections().stream().filter(projection -> "title".equals(projection.targetField()))
+                        .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceProjectionDescriptor::outputField)
+                        .findFirst().orElse(null), referencePickerMode(targetModuleAlias),
+                ReferenceCandidateDelivery.TARGET_NAVIGATOR, null, reference.candidateDependencies(),
+                reference.plusFields().stream().map(ResolvedReferenceSelectionProjectionDescriptor::new).toList());
+    }
+
+    /**
+     * Relation lists select from the dynamic runtime's readable shape: physical child fields and
+     * the read-only outputs of declared references.  Projection outputs are intentionally not
+     * promoted into editor or mutation fields; they remain relation-list display facts.
+     */
+    private java.util.Map<String, net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField>
+    dynamicRelationReadableFields(DynamicEntityDescriptor target) {
+        java.util.Map<String, net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField> fields =
+                new java.util.LinkedHashMap<>();
+        for (DynamicFieldDescriptor field : target.fields()) {
+            fields.put(field.fieldName(), new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField(
+                    field.fieldName(), field.title(), field.storageForm() == null ? null : field.storageForm().name(),
+                    null, null, null, null));
+            if (field.reference() == null) continue;
+            for (var projection : field.reference().projections()) {
+                fields.putIfAbsent(projection.outputField(),
+                        new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField(
+                                projection.outputField(), dynamicReferenceProjectionTitle(field.reference(), projection),
+                                null, null, null, null, null));
+            }
+        }
+        return fields;
+    }
+
+    private String dynamicReferenceProjectionTitle(
+            net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceDescriptor reference,
+            net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceProjectionDescriptor projection) {
+        String targetModuleAlias = deliveryReferenceModuleAlias(reference);
+        Optional<StaticModuleDefinition> staticTarget = staticModuleCatalog.find(targetModuleAlias);
+        if (staticTarget.isPresent()) {
+            Optional<String> title = staticProjectionFieldTitle(staticTarget.get(), reference.targetEntityAlias(),
+                    projection.targetField());
+            if (title.isEmpty()) title = staticTarget.get().entities().stream()
+                    .filter(entity -> reference.targetEntityAlias().equals(entity.alias()))
+                    .flatMap(entity -> entity.fields().stream())
+                    .filter(field -> projection.targetField().equals(field.fieldName()))
+                    .map(FieldDefinition::name)
+                    .filter(value -> !projection.targetField().equals(value))
+                    .findFirst();
+            if (title.isPresent()) return title.get();
+        }
+        try {
+            return dynamicRecordService.describe(reference.targetModuleAlias()).entities().stream()
+                    .filter(entity -> reference.targetEntityAlias().equals(entity.entityAlias()))
+                    .flatMap(entity -> entity.fields().stream())
+                    .filter(field -> projection.targetField().equals(field.fieldName()))
+                    .map(DynamicFieldDescriptor::title)
+                    .filter(value -> value != null && !value.isBlank())
+                    .findFirst().orElse(projection.outputField());
+        } catch (RuntimeException ignored) {
+            return projection.outputField();
+        }
+    }
+
+    /** Static reference targets retain their model column comments as the most specific human label. */
+    private Optional<String> staticProjectionFieldTitle(StaticModuleDefinition target, String entityAlias,
+                                                         String fieldName) {
+        Class<?> modelClass = target.entityModelClasses().get(entityAlias);
+        if (modelClass == null) modelClass = target.modelClass();
+        for (Class<?> type = modelClass; type != null && type != Object.class; type = type.getSuperclass()) {
+            try {
+                java.lang.reflect.Field field = type.getDeclaredField(fieldName);
+                var column = field.getAnnotation(net.ximatai.muyun.database.core.annotation.Column.class);
+                if (column != null && column.comment() != null && !column.comment().isBlank()
+                        && !"Title".equals(column.comment())) {
+                    return Optional.of(column.comment().trim());
+                }
+                if ("title".equals(fieldName) && target.title() != null && !target.title().isBlank()) {
+                    return Optional.of(target.title().trim() + "名称");
+                }
+                return Optional.empty();
+            } catch (NoSuchFieldException ignored) {
+                // Continue through inherited model fields.
+            }
+        }
+        return Optional.empty();
+    }
+
+    private record DynamicDetailRelationTarget(PageDetailRelationDefinition selection,
+                                               net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor view,
+                                               DynamicEntityDescriptor entity,
+                                               String parentForeignKeyField) {
+        boolean aggregateChild() {
+            return parentForeignKeyField != null && !parentForeignKeyField.isBlank();
+        }
+
+        List<DynamicFieldDescriptor> writableFields() {
+            if (!aggregateChild()) return List.of();
+            return entity.fields().stream()
+                    .filter(field -> !parentForeignKeyField.equals(field.fieldName()))
+                    .filter(field -> !field.writeProtected())
+                    .toList();
+        }
     }
 
     private ResolvedModulePageDescriptor resolvePage(String moduleAlias,
@@ -629,12 +805,12 @@ public class PlatformModuleRuntimeContextService {
                                 .collect(java.util.stream.Collectors.toUnmodifiableMap(
                                         field -> field.fieldName(),
                                         field -> new ResolvedReferenceFieldDescriptor(
-                                                field.reference().targetModuleAlias(), field.reference().cardinality(),
+                                                deliveryReferenceModuleAlias(field.reference()), field.reference().cardinality(),
                                                 field.reference().projections().stream()
                                                         .filter(projection -> "title".equals(projection.targetField()))
                                                         .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceProjectionDescriptor::outputField)
                                                         .findFirst().orElse(null),
-                                                referencePickerMode(field.reference().targetModuleAlias()),
+                                                referencePickerMode(deliveryReferenceModuleAlias(field.reference())),
                                                 ReferenceCandidateDelivery.SOURCE_FIELD,
                                                 "/" + dynamicDescriptor.moduleAlias() + "/references/"
                                                         + field.fieldName() + "/resolve",
@@ -644,6 +820,22 @@ public class PlatformModuleRuntimeContextService {
                                         (left, right) -> left)),
                         this::referencePickerMode))
                 .orElseGet(java.util.Map::of);
+    }
+
+    /**
+     * Dynamic metadata carries the source-neutral {@code ReferenceTarget} split into module and
+     * entity segments.  Static target modules use their complete platform module alias as the
+     * delivery address, while dynamic targets retain their registered dynamic module alias.
+     */
+    private String deliveryReferenceModuleAlias(
+            net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceDescriptor reference) {
+        String moduleAlias = reference.targetModuleAlias();
+        String entityAlias = reference.targetEntityAlias();
+        if (moduleAlias == null || moduleAlias.isBlank() || entityAlias == null || entityAlias.isBlank()) {
+            return moduleAlias;
+        }
+        String staticModuleAlias = moduleAlias + "." + entityAlias;
+        return staticModuleCatalog.find(staticModuleAlias).isPresent() ? staticModuleAlias : moduleAlias;
     }
 
     /** Resolves target capabilities during descriptor compilation; browser code never probes them. */
