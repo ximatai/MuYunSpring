@@ -8,6 +8,24 @@ import type { ModuleContext } from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
 
 describe('RecordQueryListPanel', () => {
+  it('does not load options for a reference column that only has a companion title field', async () => {
+    const request = vi.fn();
+    const context = createContext({ id: 'exam-1', classroomId: 'demo_classroom_g1a', classroomIdTitle: '高一（1）班' });
+    Object.assign(context, { http: { request } });
+
+    shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '考试',
+        columns: [{ key: 'classroomId', title: '教学班', titleField: 'classroomIdTitle' }],
+      },
+    });
+
+    await flushPromises();
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it('renders a color-picker list projection as a color swatch', async () => {
     const wrapper = shallowMount(RecordQueryListPanel, {
       props: {

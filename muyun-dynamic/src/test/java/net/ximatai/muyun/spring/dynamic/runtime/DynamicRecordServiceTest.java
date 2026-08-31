@@ -12,6 +12,8 @@ import net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventType;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaRulePhase;
@@ -2000,6 +2002,42 @@ class DynamicRecordServiceTest {
     }
 
     @Test
+    void shouldForwardPlanAwareReferenceReadsThroughRegisteredDynamicServiceAdapter() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of(referenceRow("contract-1", "Contract One")));
+        DataScopeCriteriaService dataScope = mock(DataScopeCriteriaService.class);
+        when(dataScope.resolveReadScope(eq(MODULE), any(ActionExecutionPolicy.class), any(Criteria.class), any()))
+                .thenAnswer(invocation -> DataScopeCriteriaResult.unrestricted(invocation.getArgument(2)));
+        DynamicRecordService service = service(operations, referenceEntity(), RuntimeEventPublisher.noop(), dataScope);
+        ReferenceTarget target = ReferenceTarget.of(MODULE, "contract");
+        ReferencePlan plan = ReferencePlan.of("contractCode", target, ReferenceCardinality.ONE)
+                .withTargetFields("code", "title");
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureReferenceTargetResolver(
+                reference -> service.referenceAbility(reference));
+        try {
+            var adapter = net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver()
+                    .resolve(target).orElseThrow();
+
+            assertThat(adapter.referenceLabels(plan, List.of("CONTRACT-1")))
+                    .containsEntry("CONTRACT-1", "Contract One");
+            assertThat(adapter.referenceRecordIds(plan, List.of("CONTRACT-1")))
+                    .containsEntry("CONTRACT-1", "contract-1");
+            assertThat(adapter.projections(plan, List.of("CONTRACT-1"), List.of("title")))
+                    .containsEntry("CONTRACT-1", Map.of("title", "Contract One"));
+            assertThat(adapter.referenceOptions(plan, Criteria.of(), PageRequest.of(1, 10)).getRecords())
+                    .containsExactly(new ReferenceOption("CONTRACT-1", "Contract One", "contract-1"));
+        } finally {
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetReferenceTargetResolver();
+        }
+
+        ArgumentCaptor<ActionExecutionPolicy> policies = ArgumentCaptor.forClass(ActionExecutionPolicy.class);
+        verify(dataScope, times(4)).resolveReadScope(eq(MODULE), policies.capture(), any(Criteria.class), any());
+        assertThat(policies.getAllValues()).allSatisfy(policy ->
+                assertThat(policy.actionCode()).isEqualTo(PlatformAction.REFERENCE.code()));
+    }
+
+    @Test
     void shouldOmitDynamicReferenceProjectionWhenReferenceScopeCannotSeeTheTarget() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.query(anyString(), anyMap())).thenReturn(List.of());
@@ -2131,6 +2169,48 @@ class DynamicRecordServiceTest {
         assertThat(response.results().getFirst().matchedBy()).isEqualTo(DynamicReferenceMatchMode.KEY);
         assertThat(response.results().get(1).matchedBy()).isEqualTo(DynamicReferenceMatchMode.LABEL);
         assertThat(response.results().getFirst().item().projections()).containsEntry("contractCode", "CONTRACT-1");
+    }
+
+    @Test
+    void shouldResolveDynamicReferenceUsingConfiguredCandidateKeyAndLabel() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
+        when(operations.query(anyString(), anyMap())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            assertThat(sql).containsAnyOf("\"code\"", "\"display_name\"");
+            return List.of(Map.of(
+                    "id", "contract-1",
+                    "code", "C-001",
+                    "title", "内部标题",
+                    "display_name", "高一数学期中",
+                    "deleted", Boolean.FALSE,
+                    "version", 0
+            ));
+        });
+        EntityDefinition target = new EntityDefinition("contract", "app_contract", "Contract", List.of(
+                FieldDefinition.string("code", "Code").length(64).required().unique(),
+                FieldDefinition.titleField().required(),
+                FieldDefinition.string("displayName", "Display Name").column("display_name").length(128)
+        )).withCapabilities(EntityCapability.CRUD, EntityCapability.REFERENCE);
+        EntityReferenceDefinition reference = EntityReferenceDefinition
+                .to("line", "contractId", ReferenceTarget.of(MODULE, "contract"))
+                .withRuntimeConfig("code", "displayName", null, null, java.util.Set.of());
+        DynamicRecordService service = referenceResolvingService(operations, target, lineEntity(), reference);
+
+        DynamicReferenceResolveResponse query = service.resolveReference(MODULE, "line", "contractId",
+                DynamicReferenceResolveRequest.query("高一数学期中"));
+        DynamicReferenceResolveResponse translated = service.resolveReference(MODULE, "line", "contractId",
+                DynamicReferenceResolveRequest.translate(List.of("C-001")));
+
+        assertThat(query.options()).singleElement().satisfies(item -> {
+            assertThat(item.id()).isEqualTo("C-001");
+            assertThat(item.title()).isEqualTo("高一数学期中");
+        });
+        assertThat(translated.results()).singleElement().satisfies(result -> {
+            assertThat(result.status()).isEqualTo(DynamicReferenceResolveStatus.RESOLVED);
+            assertThat(result.item().id()).isEqualTo("C-001");
+            assertThat(result.item().title()).isEqualTo("高一数学期中");
+        });
     }
 
     @Test

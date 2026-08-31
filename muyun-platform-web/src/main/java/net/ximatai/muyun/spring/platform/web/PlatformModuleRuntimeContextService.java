@@ -478,12 +478,15 @@ public class PlatformModuleRuntimeContextService {
                 dynamicOptionFields(dynamicDescriptor));
         java.util.Map<String, ResolvedReferenceFieldDescriptor> referenceFields = new java.util.LinkedHashMap<>(
                 dynamicReferenceFields(dynamicDescriptor));
+        java.util.Map<ViewFieldRef, ResolvedOptionFieldDescriptor> relationOptionFields = new java.util.LinkedHashMap<>();
+        java.util.Map<ViewFieldRef, ResolvedReferenceFieldDescriptor> relationReferenceFields = new java.util.LinkedHashMap<>();
         relationTargets.stream().filter(DynamicDetailRelationTarget::aggregateChild).forEach(target ->
-                mergeDynamicRelationEditorFacts(target, fieldTypes, optionFields, referenceFields));
-        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
+                mergeDynamicRelationEditorFacts(moduleAlias, target, fieldTypes, relationOptionFields, relationReferenceFields));
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compileDynamicRelationEditors(
                 withDynamicRelationEditors(definition, relationTargets), ModuleKind.DYNAMIC, title,
                 optionFields, referenceFields,
-                dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard());
+                dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard(),
+                relationOptionFields, relationReferenceFields);
         return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()))
                 .withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));
     }
@@ -578,33 +581,38 @@ public class PlatformModuleRuntimeContextService {
                 definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations());
     }
 
-    private void mergeDynamicRelationEditorFacts(DynamicDetailRelationTarget target,
+    private void mergeDynamicRelationEditorFacts(String moduleAlias, DynamicDetailRelationTarget target,
                                                   java.util.Map<ViewFieldRef, FieldValueType> fieldTypes,
-                                                  java.util.Map<String, ResolvedOptionFieldDescriptor> optionFields,
-                                                  java.util.Map<String, ResolvedReferenceFieldDescriptor> referenceFields) {
+                                                  java.util.Map<ViewFieldRef, ResolvedOptionFieldDescriptor> optionFields,
+                                                  java.util.Map<ViewFieldRef, ResolvedReferenceFieldDescriptor> referenceFields) {
         for (DynamicFieldDescriptor field : target.writableFields()) {
-            fieldTypes.put(ViewFieldRef.relation(target.entity().entityAlias(), field.fieldName()),
-                    FieldValueType.from(field.type()));
+            ViewFieldRef fieldRef = ViewFieldRef.relation(target.entity().entityAlias(), field.fieldName());
+            fieldTypes.put(fieldRef, FieldValueType.from(field.type()));
             if (field.optionBinding() != null) {
-                optionFields.putIfAbsent(field.fieldName(), new ResolvedOptionFieldDescriptor(field.optionBinding(),
+                optionFields.putIfAbsent(fieldRef, new ResolvedOptionFieldDescriptor(field.optionBinding(),
                         field.selectionMode() == null ? OptionSelectionMode.SINGLE : field.selectionMode(), null));
             }
             if (field.reference() != null) {
-                referenceFields.putIfAbsent(field.fieldName(), dynamicRelationReferenceField(field));
+                referenceFields.putIfAbsent(fieldRef, dynamicRelationReferenceField(moduleAlias, target.entity().entityAlias(), field));
             }
         }
     }
 
-    /** Child aggregate forms resolve candidates at the target module, not through the main-record route. */
-    private ResolvedReferenceFieldDescriptor dynamicRelationReferenceField(DynamicFieldDescriptor field) {
+    /** Child aggregate forms retain the child source context so declared projection mappings are delivered. */
+    private ResolvedReferenceFieldDescriptor dynamicRelationReferenceField(String moduleAlias, String entityAlias,
+                                                                            DynamicFieldDescriptor field) {
         var reference = field.reference();
         String targetModuleAlias = deliveryReferenceModuleAlias(reference);
         return new ResolvedReferenceFieldDescriptor(targetModuleAlias, reference.cardinality(),
-                reference.projections().stream().filter(projection -> "title".equals(projection.targetField()))
-                        .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceProjectionDescriptor::outputField)
-                        .findFirst().orElse(null), referencePickerMode(targetModuleAlias),
-                ReferenceCandidateDelivery.TARGET_NAVIGATOR, null, reference.candidateDependencies(),
-                reference.plusFields().stream().map(ResolvedReferenceSelectionProjectionDescriptor::new).toList());
+                dynamicReferenceTitleField(reference), referencePickerMode(targetModuleAlias),
+                ReferenceCandidateDelivery.SOURCE_FIELD,
+                "/" + moduleAlias + "/" + entityAlias + "/references/" + field.fieldName() + "/resolve",
+                reference.candidateDependencies(),
+                reference.plusFields().stream().map(ResolvedReferenceSelectionProjectionDescriptor::new).toList(),
+                reference.projections().stream()
+                        .map(projection -> new ResolvedReferenceDisplayProjectionDescriptor(
+                                projection.targetField(), projection.outputField()))
+                        .toList());
     }
 
     /**
@@ -806,20 +814,38 @@ public class PlatformModuleRuntimeContextService {
                                         field -> field.fieldName(),
                                         field -> new ResolvedReferenceFieldDescriptor(
                                                 deliveryReferenceModuleAlias(field.reference()), field.reference().cardinality(),
-                                                field.reference().projections().stream()
-                                                        .filter(projection -> "title".equals(projection.targetField()))
-                                                        .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceProjectionDescriptor::outputField)
-                                                        .findFirst().orElse(null),
+                                                dynamicReferenceTitleField(field.reference()),
                                                 referencePickerMode(deliveryReferenceModuleAlias(field.reference())),
                                                 ReferenceCandidateDelivery.SOURCE_FIELD,
                                                 "/" + dynamicDescriptor.moduleAlias() + "/references/"
                                                         + field.fieldName() + "/resolve",
                                                 field.reference().candidateDependencies(),
                                                 field.reference().plusFields().stream()
-                                                        .map(ResolvedReferenceSelectionProjectionDescriptor::new).toList()),
+                                                        .map(ResolvedReferenceSelectionProjectionDescriptor::new).toList(),
+                                                field.reference().projections().stream()
+                                                        .map(projection -> new ResolvedReferenceDisplayProjectionDescriptor(
+                                                                projection.targetField(), projection.outputField()))
+                                                        .toList()),
                                         (left, right) -> left)),
                         this::referencePickerMode))
                 .orElseGet(java.util.Map::of);
+    }
+
+    /** The source-side companion projection is stable even when the target label is not named title. */
+    private static String dynamicReferenceTitleField(
+            net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceDescriptor reference) {
+        String standardOutput = reference.sourceField() + "Title";
+        String configuredTargetLabel = reference.labelField() == null || reference.labelField().isBlank()
+                ? "title" : reference.labelField();
+        return reference.projections().stream()
+                .filter(projection -> standardOutput.equals(projection.outputField()))
+                .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceProjectionDescriptor::outputField)
+                .findFirst()
+                .or(() -> reference.projections().stream()
+                        .filter(projection -> configuredTargetLabel.equals(projection.targetField()))
+                        .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceProjectionDescriptor::outputField)
+                        .findFirst())
+                .orElse(null);
     }
 
     /**

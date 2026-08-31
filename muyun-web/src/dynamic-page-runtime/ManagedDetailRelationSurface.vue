@@ -76,14 +76,23 @@ const pickerConfigs = computed<Record<string, RecordFormFieldPickerConfig>>(() =
   return configs;
 });
 const columns = computed<RecordQueryListColumn[]>(() =>
-  (props.relation.queryContract?.listProjection?.fields ?? []).map((field) => ({
-    key: field.fieldName,
-    title: field.title ?? field.fieldName,
-    width: field.width == null ? undefined : `${field.width}px`,
-    align:
-      field.align === 'left' || field.align === 'center' || field.align === 'right' ? field.align : undefined,
-    maxDisplayLines: field.maxDisplayLines,
-  })),
+  (props.relation.queryContract?.listProjection?.fields ?? []).map((field) => {
+    const queryField = props.relation.queryContract?.querySchema?.fields.find(
+      (candidate) => candidate.name === field.fieldName,
+    );
+    const formField = formFields.value.get(field.fieldName);
+    return {
+      key: field.fieldName,
+      title: field.title ?? field.fieldName,
+      width: field.width == null ? undefined : `${field.width}px`,
+      align:
+        field.align === 'left' || field.align === 'center' || field.align === 'right' ? field.align : undefined,
+      titleField: queryField?.optionTitleField,
+      optionBinding: formField?.option ? true : undefined,
+      optionEntityAlias: formField?.option ? props.relation.targetEntityAlias : undefined,
+      maxDisplayLines: field.maxDisplayLines,
+    };
+  }),
 );
 const relationContext = computed<ModuleContext<QueryListRecord>>(() => ({
   ...props.sourceContext,
@@ -256,6 +265,7 @@ watch(
       :fields="formFields"
       :form-session-key="formSessionKey"
       :option-context="sourceContext"
+      :option-entity-alias="relation.targetEntityAlias"
       :picker-configs="pickerConfigs"
       :disabled="runtime.saving.value"
       @update:field="updateField"

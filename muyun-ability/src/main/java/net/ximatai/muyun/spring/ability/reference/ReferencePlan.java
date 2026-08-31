@@ -14,7 +14,9 @@ public record ReferencePlan(
         ReferenceIntegrityPolicy integrity,
         ReferenceTenantScope tenantScope,
         List<ReferenceCandidateDependency> candidateDependencies,
-        List<ReferenceSelectionProjection> selectionProjections
+        List<ReferenceSelectionProjection> selectionProjections,
+        String targetKeyField,
+        String targetLabelField
 ) {
     public ReferencePlan {
         if (sourceField == null || sourceField.isBlank()) {
@@ -32,6 +34,8 @@ public record ReferencePlan(
         candidateDependencies = candidateDependencies == null ? List.of() : List.copyOf(candidateDependencies);
         selectionProjections = selectionProjections == null ? List.of() : selectionProjections.stream()
                 .filter(java.util.Objects::nonNull).distinct().toList();
+        targetKeyField = normalizeField(targetKeyField, "id");
+        targetLabelField = normalizeField(targetLabelField, null);
         if (cardinality == ReferenceCardinality.MANY
                 && integrity.onTargetUnavailable() == ReferenceTargetUnavailablePolicy.RESTRICT) {
             throw new PlatformException("RESTRICT reference deletion requires cardinality ONE: " + sourceField);
@@ -47,7 +51,7 @@ public record ReferencePlan(
                          ReferenceTarget target,
                          ReferenceCardinality cardinality) {
         this(sourceField, target, cardinality, List.of(), ReferenceIntegrityPolicy.DEFAULT,
-                ReferenceTenantScope.SAME_TENANT, List.of(), List.of());
+                ReferenceTenantScope.SAME_TENANT, List.of(), List.of(), "id", null);
     }
 
     public ReferencePlan(String sourceField,
@@ -55,31 +59,62 @@ public record ReferencePlan(
                          ReferenceCardinality cardinality,
                          List<ReferenceProjection> projections,
                          ReferenceIntegrityPolicy integrity) {
-        this(sourceField, target, cardinality, projections, integrity, ReferenceTenantScope.SAME_TENANT, List.of(), List.of());
+        this(sourceField, target, cardinality, projections, integrity, ReferenceTenantScope.SAME_TENANT, List.of(), List.of(), "id", null);
     }
 
     public ReferencePlan(String sourceField, ReferenceTarget target, ReferenceCardinality cardinality,
                          List<ReferenceProjection> projections, ReferenceIntegrityPolicy integrity,
                          ReferenceTenantScope tenantScope) {
-        this(sourceField, target, cardinality, projections, integrity, tenantScope, List.of(), List.of());
+        this(sourceField, target, cardinality, projections, integrity, tenantScope, List.of(), List.of(), "id", null);
     }
 
     public static ReferencePlan of(String sourceField, ReferenceTarget target, ReferenceCardinality cardinality) {
         return new ReferencePlan(sourceField, target, cardinality, List.of(), ReferenceIntegrityPolicy.DEFAULT,
-                ReferenceTenantScope.SAME_TENANT, List.of(), List.of());
+                ReferenceTenantScope.SAME_TENANT, List.of(), List.of(), "id", null);
     }
 
     public ReferencePlan withProjection(String targetField, String outputField) {
         return new ReferencePlan(sourceField(), target, cardinality,
                 appendProjection(new ReferenceProjection(targetField, outputField)), integrity, tenantScope,
-                candidateDependencies, selectionProjections);
+                candidateDependencies, selectionProjections, targetKeyField, targetLabelField);
     }
 
     /** Compatibility constructor for callers created before picker selection projections existed. */
     public ReferencePlan(String sourceField, ReferenceTarget target, ReferenceCardinality cardinality,
                          List<ReferenceProjection> projections, ReferenceIntegrityPolicy integrity,
                          ReferenceTenantScope tenantScope, List<ReferenceCandidateDependency> candidateDependencies) {
-        this(sourceField, target, cardinality, projections, integrity, tenantScope, candidateDependencies, List.of());
+        this(sourceField, target, cardinality, projections, integrity, tenantScope, candidateDependencies, List.of(), "id", null);
+    }
+
+    /** Compatibility constructor for plans declared before target key/label selection was configurable. */
+    public ReferencePlan(String sourceField, ReferenceTarget target, ReferenceCardinality cardinality,
+                         List<ReferenceProjection> projections, ReferenceIntegrityPolicy integrity,
+                         ReferenceTenantScope tenantScope, List<ReferenceCandidateDependency> candidateDependencies,
+                         List<ReferenceSelectionProjection> selectionProjections) {
+        this(sourceField, target, cardinality, projections, integrity, tenantScope, candidateDependencies,
+                selectionProjections, "id", null);
+    }
+
+    /**
+     * Returns a copy whose persisted value is read from {@code targetKeyField} and whose
+     * rendered option label is read from {@code targetLabelField}.  A blank label retains the
+     * target's declared title field, which keeps static and dynamic title conventions aligned.
+     */
+    public ReferencePlan withTargetFields(String targetKeyField, String targetLabelField) {
+        return new ReferencePlan(sourceField, target, cardinality, projections, integrity, tenantScope,
+                candidateDependencies, selectionProjections, targetKeyField, targetLabelField);
+    }
+
+    /** True when existing id/title reference facades remain sufficient. */
+    public boolean usesDefaultTargetFields() {
+        return "id".equals(targetKeyField) && targetLabelField == null;
+    }
+
+    private static String normalizeField(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return value.trim();
     }
 
     public List<String> normalizeValues(Object value) {

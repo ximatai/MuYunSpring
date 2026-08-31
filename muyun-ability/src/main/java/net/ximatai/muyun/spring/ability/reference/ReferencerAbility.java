@@ -14,9 +14,21 @@ import java.util.Set;
 public interface ReferencerAbility<T extends EntityContract> extends CrudAbility<T> {
     default Map<ReferenceTarget, Set<String>> collectReferenceIdsByTarget(T entity) {
         Class<?> modelClass = referenceModelClass(entity);
-        return modelClass == null
-                ? Map.of()
-                : StaticReferenceResolver.collect(modelClass, entity);
+        if (modelClass == null || entity == null) {
+            return Map.of();
+        }
+        Map<ReferenceTarget, Set<String>> result = new java.util.LinkedHashMap<>();
+        for (ReferencePlan plan : StaticReferenceResolver.plans(modelClass)) {
+            List<String> values = StaticReferenceResolver.values(entity, plan);
+            if (values.isEmpty()) continue;
+            Map<String, String> recordIds = requireReferenceAbility(plan.target(), "dependency")
+                    .referenceRecordIds(plan, values);
+            if (!recordIds.isEmpty()) {
+                result.computeIfAbsent(plan.target(), ignored -> new java.util.LinkedHashSet<>())
+                        .addAll(recordIds.values());
+            }
+        }
+        return result.isEmpty() ? Map.of() : java.util.Collections.unmodifiableMap(result);
     }
 
     default void afterReferenceSelect(T entity) {
@@ -53,7 +65,7 @@ public interface ReferencerAbility<T extends EntityContract> extends CrudAbility
             if (ids.isEmpty()) {
                 continue;
             }
-            Map<String, String> resolved = referenceTitles(rule.target(), ids);
+            Map<String, String> resolved = referenceLabelsForPlan(rule.plan(), ids);
             List<String> persistedIds = existing == null
                     ? List.of()
                     : StaticReferenceResolver.values(existing, rule.plan());
@@ -109,10 +121,24 @@ public interface ReferencerAbility<T extends EntityContract> extends CrudAbility
         return requireReferenceAbility(target, "title").titles(ids);
     }
 
+    /** Resolves persisted source values through the plan's configured target candidate key. */
+    default Map<String, String> referenceLabelsForPlan(ReferencePlan plan, Collection<String> values) {
+        ReferenceAbility<?> target = requireReferenceAbility(plan.target(), "label");
+        return plan.usesDefaultTargetFields() ? target.titles(values) : target.referenceLabels(plan, values);
+    }
+
     default Map<String, Map<String, Object>> referenceProjections(ReferenceTarget target,
                                                                   Collection<String> ids,
                                                                   Collection<String> sourceFields) {
         return requireReferenceAbility(target, "projection").projections(ids, sourceFields);
+    }
+
+    default Map<String, Map<String, Object>> referenceProjectionsForPlan(ReferencePlan plan,
+                                                                    Collection<String> values,
+                                                                    Collection<String> sourceFields) {
+        ReferenceAbility<?> target = requireReferenceAbility(plan.target(), "projection");
+        return plan.usesDefaultTargetFields() ? target.projections(values, sourceFields)
+                : target.projections(plan, values, sourceFields);
     }
 
     private ReferenceAbility<?> requireReferenceAbility(ReferenceTarget target, String purpose) {
@@ -142,7 +168,7 @@ public interface ReferencerAbility<T extends EntityContract> extends CrudAbility
         if (plan.projections().isEmpty()) {
             return;
         }
-        Map<String, Map<String, Object>> loaded = referenceProjections(plan.target(), ids, projectionSourceFields(plan));
+        Map<String, Map<String, Object>> loaded = referenceProjectionsForPlan(plan, ids, projectionSourceFields(plan));
         for (ReferenceProjection projection : plan.projections()) {
             StaticReferenceResolver.writeLoadedValue(entity, projection.outputField(),
                     referenceProjectionValue(ids, loaded, plan, projection.targetField()));

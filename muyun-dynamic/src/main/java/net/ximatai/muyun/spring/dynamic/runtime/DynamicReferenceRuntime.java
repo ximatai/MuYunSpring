@@ -1,7 +1,12 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.orm.PageResult;
 
 import java.util.Collection;
 import java.util.Map;
@@ -29,5 +34,27 @@ final class DynamicReferenceRuntime extends DynamicAbilityRuntime<DynamicTitledR
     @Override
     public Map<String, Map<String, Object>> projections(Collection<String> ids, Collection<String> fieldNames) {
         return owner.projections(ids, fieldNames);
+    }
+
+    @Override
+    public Map<String, String> referenceLabels(ReferencePlan plan, Collection<String> values) {
+        return owner.referenceLabels(plan, values);
+    }
+
+    @Override
+    public Map<String, String> referenceRecordIds(ReferencePlan plan, Collection<String> values) {
+        return owner.referenceRecordIds(plan, values);
+    }
+
+    @Override
+    public Map<String, Map<String, Object>> projections(ReferencePlan plan,
+                                                         Collection<String> values,
+                                                         Collection<String> fieldNames) {
+        return owner.projections(plan, values, fieldNames);
+    }
+
+    @Override
+    public PageResult<ReferenceOption> referenceOptions(ReferencePlan plan, Criteria criteria, PageRequest pageRequest) {
+        return owner.referenceOptions(plan, criteria, pageRequest);
     }
 }

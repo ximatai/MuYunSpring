@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Getter
 @Setter
@@ -36,6 +37,21 @@ public class MetadataFieldReferenceConfig extends StandardEntity {
     @Column(name = "target_metadata_id", type = ColumnType.VARCHAR, length = 32, comment = "Target metadata id")
     private String targetMetadataId;
 
+    /**
+     * Optional target value field persisted by the source field.  A missing value deliberately
+     * means that the runtime applies its stable target-key default; configuration must not
+     * materialize a guessed default such as {@code id}.
+     */
+    @Column(name = "target_key_field", type = ColumnType.VARCHAR, length = 64, comment = "Target reference key field")
+    private String targetKeyField;
+
+    /**
+     * Optional target field used as the reference label.  Runtime resolves an omitted value
+     * from the target title contract.
+     */
+    @Column(name = "target_label_field", type = ColumnType.VARCHAR, length = 64, comment = "Target reference label field")
+    private String targetLabelField;
+
     @Column(name = "cardinality", type = ColumnType.VARCHAR, length = 16, nullable = false,
             comment = "Reference cardinality", defaultVal = @Default(varchar = "ONE"))
     private ReferenceCardinality cardinality = ReferenceCardinality.ONE;
@@ -57,6 +73,20 @@ public class MetadataFieldReferenceConfig extends StandardEntity {
                 .filter(value -> !value.isBlank())
                 .map(MetadataFieldReferenceConfig::projection)
                 .toList();
+    }
+
+    /** Converts the persistence representation into the draft/read-model wire representation. */
+    public static List<String> projectionMappings(MetadataFieldReferenceConfig config) {
+        return config == null ? List.of() : config.projections().stream()
+                .map(item -> item.targetField() + ":" + item.outputField()).toList();
+    }
+
+    /** Normalizes an edit-session list into the compact persistence representation. */
+    public static String encodeProjections(List<String> mappings) {
+        if (mappings == null || mappings.isEmpty()) return null;
+        String encoded = mappings.stream().filter(java.util.Objects::nonNull).map(String::trim)
+                .filter(value -> !value.isBlank()).collect(Collectors.joining(","));
+        return encoded.isBlank() ? null : encoded;
     }
 
     private static ReferenceProjection projection(String value) {

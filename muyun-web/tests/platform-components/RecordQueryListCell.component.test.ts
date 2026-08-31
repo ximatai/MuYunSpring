@@ -56,13 +56,48 @@ it('preserves text, option title, custom rendering, color and multiline semantic
 
   expect(wrapper.find('.record-query-list-text').text()).toBe('平台管理员');
 
+  await wrapper.setProps({
+    record: { ownerId: 'owner-1', ownerIdTitle: '教学管理员', color: '#1677FF', summary: '默认值' },
+    column: { key: 'ownerId', title: '负责人', titleField: 'legacyOwnerTitle' },
+  });
+  expect(wrapper.find('.record-query-list-text').text()).toBe('教学管理员');
+
+  await wrapper.setProps({
+    record: { attendanceStatus: 'ATTENDED', color: '#1677FF', summary: '默认值' },
+    column: {
+      key: 'attendanceStatus',
+      title: '参加状态',
+      optionItems: [{ code: 'ATTENDED', title: '已参加', enabled: true }],
+    },
+  });
+  expect(wrapper.find('.record-query-list-text').text()).toBe('已参加');
+
+  await wrapper.setProps({
+    record: { attendanceStatuses: '["ATTENDED","ABSENT"]' },
+    column: {
+      key: 'attendanceStatuses',
+      title: '参加状态',
+      optionItems: [
+        { code: 'ATTENDED', title: '已参加', enabled: true },
+        { code: 'ABSENT', title: '缺考', enabled: true },
+      ],
+    },
+  });
+  expect(wrapper.find('.record-query-list-text').text()).toBe('已参加、缺考');
+
+  await wrapper.setProps({ record: { attendanceStatuses: ['ABSENT', 'ATTENDED'] } });
+  expect(wrapper.find('.record-query-list-text').text()).toBe('缺考、已参加');
+
   await wrapper.setProps({ column: { key: 'summary', title: '摘要', maxDisplayLines: 3 } });
   expect(wrapper.find('.record-query-list-text').text()).toBe('外部渲染值');
   expect(wrapper.find('.record-query-list-text').attributes('style')).toContain(
     '--record-query-list-max-lines: 3',
   );
 
-  await wrapper.setProps({ column: { key: 'color', title: '颜色', type: 'colorPicker' } });
+  await wrapper.setProps({
+    record: { color: '#1677FF' },
+    column: { key: 'color', title: '颜色', type: 'colorPicker' },
+  });
   expect(wrapper.find('.record-query-list-color').text()).toContain('#1677FF');
   expect(wrapper.find('.record-query-list-color i').attributes('style')).toContain(
     'background-color: rgb(22, 119, 255)',

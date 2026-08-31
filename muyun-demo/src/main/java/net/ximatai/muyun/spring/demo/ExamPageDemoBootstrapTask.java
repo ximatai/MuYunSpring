@@ -29,8 +29,9 @@ import java.util.Comparator;
  *
  * <p>This is deliberately an application fixture rather than a generic page seeding mechanism:
  * it owns one education business baseline and creates it through the same page, variant, revision
- * and publication services used by governance.  A same-tree draft follows the published baseline
- * so the composition workspace always has an editable starting point.</p>
+ * and publication services used by governance. A same-tree draft follows the published baseline
+ * so the composition workspace always has an editable starting point. Existing revisions are
+ * user-owned once they exist and are never rewritten by this fixture.</p>
  */
 public class ExamPageDemoBootstrapTask implements PlatformBootstrapTask {
     public static final String PAGE_ALIAS = "management";
@@ -127,9 +128,10 @@ public class ExamPageDemoBootstrapTask implements PlatformBootstrapTask {
     }
 
     private void ensureFollowUpDraft(PlatformPresentationVariant variant, PlatformPresentationRevision published) {
-        boolean hasDraft = revisions(variant.getId()).stream()
-                .anyMatch(revision -> revision.getStatus() == PlatformPresentationRevisionStatus.DRAFT);
-        if (hasDraft) return;
+        java.util.List<PlatformPresentationRevision> drafts = revisions(variant.getId()).stream()
+                .filter(revision -> revision.getStatus() == PlatformPresentationRevisionStatus.DRAFT)
+                .toList();
+        if (!drafts.isEmpty()) return;
         PlatformPresentationRevision draft = newRevision(variant.getId(), nextRevisionNo(variant.getId()),
                 PlatformPresentationRevisionStatus.DRAFT, published.getUiTreeJson());
         draft.setTitle("考试管理页草稿");
@@ -164,9 +166,9 @@ public class ExamPageDemoBootstrapTask implements PlatformBootstrapTask {
                  "props":{"list":{"searchPlaceholder":"搜索考试名称"}},
                  "nodes":[
                    {"slot":"list","title":"考试列表","fields":["title","classroomId","subjectCategoryId","examDate"]},
-                   {"slot":"form","title":"考试详情 / 编辑","fields":["title","classroomId","subjectCategoryId","examDate"],
+                    {"slot":"form","title":"考试详情 / 编辑","fields":["title","classroomId","subjectCategoryId","examDate"],
                     "relations":[{"relation":"participants","title":"参考学生",
-                    "fields":["studentId","studentNo","studentTitle","score","attendanceStatus"]}]}
+                    "fields":["studentId","studentNo","score","attendanceStatus"]}]}
                  ]}
                 """;
     }

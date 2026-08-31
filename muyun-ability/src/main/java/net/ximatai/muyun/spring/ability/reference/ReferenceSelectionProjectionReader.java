@@ -86,6 +86,10 @@ public final class ReferenceSelectionProjectionReader {
                 throw new PlatformException("selection projection hop requires cardinality ONE: "
                         + hopSource.qualifiedName() + "." + viaField);
             }
+            if (!hop.usesDefaultTargetFields()) {
+                throw new PlatformException("selection projection hop requires an id-backed reference: "
+                        + hopSource.qualifiedName() + "." + viaField);
+            }
             hops.add(new ReferenceLoadPath.Hop(hop.target(), viaField));
             current = hop.target();
         }

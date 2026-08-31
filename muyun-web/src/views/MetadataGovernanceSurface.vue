@@ -10,7 +10,13 @@ import {
   presentPlatformError,
   presentPlatformMessage,
 } from '@muyun/platform-components';
-import type { Metadata, MetadataField, ModuleMetadataRelation, WebPageResponse } from '@muyun/web-contracts';
+import type {
+  Metadata,
+  MetadataField,
+  ModuleMetadataRelation,
+  Option,
+  WebPageResponse,
+} from '@muyun/web-contracts';
 import { createStaticResourceCrudClient, useModuleContext } from '@muyun/web-core';
 import {
   UiActionButton,
@@ -21,6 +27,7 @@ import {
   UiSelect,
   UiSpin,
   UiSwitch,
+  UiTextArea,
   confirmAction,
   type UiDataTableColumn,
   type UiDataTableRecord,
@@ -30,10 +37,18 @@ import {
   entityTitleOf,
   fieldSpecDisplayLabel,
   isValidFieldDraft,
+  isValidFieldPropertyDraft,
   isValidMainMetadataDraft,
   isMainRelation,
+  metadataFieldPropertyLabel,
+  metadataFieldPropertySummary,
   normalizeFieldDraft,
+  normalizeFieldPropertyDraft,
   normalizeMainMetadataDraft,
+  propertyDraftFromSummary,
+  storageFieldSpecAliasOf,
+  type MetadataFieldPropertyDraft,
+  type MetadataFieldPropertySummary,
 } from './metadataOrchestrationState';
 import {
   createMetadataModelEditSession,
@@ -56,11 +71,13 @@ const state = createMetadataOrchestrationState();
 const editSession = createMetadataModelEditSession();
 const mainMetadataDraft = state.mainMetadataDraft;
 const fieldDraft = state.fieldDraft;
+const fieldPropertyDraft = state.fieldPropertyDraft;
 const loading = ref(false);
 const saving = ref(false);
 const pageHost = ref<ComponentPublicInstance | null>(null);
 const pageRoot = computed(() => (pageHost.value?.$el instanceof HTMLElement ? pageHost.value.$el : null));
 const capabilitySnapshot = ref<ModuleMetadataCapabilitySnapshot>();
+const fieldProperties = ref<MetadataFieldPropertySummary[]>([]);
 
 type ModuleMetadataCapabilityFact = {
   capability: string;
@@ -101,6 +118,21 @@ type MetadataChangeSetPreview = {
   warnings: MetadataChangeSetIssue[];
   errors: MetadataChangeSetIssue[];
 };
+type ReferenceTargetFieldCandidate = {
+  fieldName: string;
+  title?: string;
+  defaultField?: boolean;
+  selectable?: boolean;
+};
+type ReferenceTargetFieldCatalog = {
+  targetModuleAlias: string;
+  targetMetadataId?: string;
+  keyFields: ReferenceTargetFieldCandidate[];
+  labelFields: ReferenceTargetFieldCandidate[];
+};
+const referenceTargetFieldCatalog = ref<ReferenceTargetFieldCatalog>();
+const referenceTargetFieldCatalogLoading = ref(false);
+const referenceTargetFieldCatalogError = ref<string>();
 const sessionFields = computed(() => editSession.fieldsForDisplay(state.allFields.value));
 const firstReleaseDeclaredCapabilities = new Set(['TREE', 'SORT', 'ENABLE']);
 const capabilityFieldNames = computed(
@@ -129,6 +161,20 @@ const displayedFields = computed(() => {
     );
   return [...sessionFields.value, ...systemFields];
 });
+const fieldGroups = computed(() => {
+  const businessFields = displayedFields.value.filter(fieldIsBusiness);
+  const groups = (['BASIC', 'MODULE_REFERENCE', 'DICTIONARY'] as const)
+    .map((kind) => ({
+      kind,
+      title: metadataFieldPropertyLabel(kind),
+      fields: businessFields.filter((field) => fieldPropertyOf(field).kind === kind),
+    }))
+    .filter((group) => group.fields.length > 0);
+  const protectedFields = displayedFields.value.filter((field) => !fieldIsBusiness(field));
+  return protectedFields.length > 0
+    ? [...groups, { kind: 'PROTECTED' as const, title: '受保护字段', fields: protectedFields }]
+    : groups;
+});
 const metadataTabs = computed(() =>
   state.relations.value
     .filter((relation) => relation.id)
@@ -144,10 +190,68 @@ const capabilityItems = computed(() =>
   })),
 );
 const selectedRelationIsMain = computed(() => isMainRelation(state.selectedRelation.value?.relationRole));
+const fieldPropertyEditorKind = computed(() => state.fieldPropertyDraft.value.kind);
+const fieldStorageSpecAlias = computed(() =>
+  storageFieldSpecAliasOf(
+    fieldPropertyEditorKind.value,
+    fieldPropertyDraft.value.dictionaryConfig?.selectionMode,
+  ),
+);
+const fieldStorageSpecLabel = computed(() =>
+  fieldSpecDisplayLabel(fieldStorageSpecAlias.value, state.fieldSpecs.value),
+);
+const fieldEditorTitle = computed(() => {
+  if (state.mode.value === 'edit-field')
+    return `编辑${metadataFieldPropertyLabel(fieldPropertyEditorKind.value)}`;
+  return `新增${metadataFieldPropertyLabel(fieldPropertyEditorKind.value)}`;
+});
+const projectionMappingsText = computed({
+  get: () => state.fieldPropertyDraft.value.referenceConfig?.projectionMappings?.join('\n') ?? '',
+  set: (value: string) => {
+    const reference = state.fieldPropertyDraft.value.referenceConfig;
+    if (!reference) return;
+    reference.projectionMappings = value
+      .split(/[\n,;]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  },
+});
+const referenceKeyFieldOptions = computed(() =>
+  referenceFieldOptions(
+    referenceTargetFieldCatalog.value?.keyFields ?? [],
+    fieldPropertyDraft.value.referenceConfig?.targetKeyField,
+  ),
+);
+const referenceLabelFieldOptions = computed(() =>
+  referenceFieldOptions(
+    referenceTargetFieldCatalog.value?.labelFields ?? [],
+    fieldPropertyDraft.value.referenceConfig?.targetLabelField,
+  ),
+);
+const referenceTargetFieldCatalogProblem = computed(() => {
+  if (fieldPropertyEditorKind.value !== 'MODULE_REFERENCE') return undefined;
+  const reference = fieldPropertyDraft.value.referenceConfig;
+  if (!reference?.targetModuleAlias?.trim()) return undefined;
+  if (referenceTargetFieldCatalogError.value) return referenceTargetFieldCatalogError.value;
+  const catalog = referenceTargetFieldCatalog.value;
+  if (!catalog) return '目标字段目录尚未加载完成。';
+  if (reference.cardinality === 'MANY') {
+    return '本期仅支持单选模块引用；现有多选配置需迁移后才能发布。';
+  }
+  if (!candidateIsSelectable(catalog.keyFields, reference.targetKeyField)) {
+    return `目标键字段“${reference.targetKeyField || '未选择'}”不在可选目录中，请调整。`;
+  }
+  if (!candidateIsSelectable(catalog.labelFields, reference.targetLabelField)) {
+    return `目标展示字段“${reference.targetLabelField || '未选择'}”不在可选目录中，请调整。`;
+  }
+  return undefined;
+});
 
 const fieldColumns: UiDataTableColumn[] = [
   { key: 'title', title: '字段' },
   { key: 'fieldName', title: '字段名', width: 150 },
+  { key: 'propertyKind', title: '数据属性', width: 120 },
+  { key: 'propertySummary', title: '属性配置', width: 240 },
   { key: 'fieldSpecAlias', title: '字段规格', width: 140 },
   { key: 'source', title: '治理归属', width: 100 },
   { key: 'required', title: '必填', width: 70 },
@@ -158,6 +262,30 @@ watch(
   () => props.moduleAlias,
   () => void loadWorkspace(),
   { immediate: true },
+);
+
+watch(
+  () => [fieldPropertyEditorKind.value, fieldPropertyDraft.value.dictionaryConfig?.selectionMode] as const,
+  ([kind, selectionMode]) => {
+    const storageSpecAlias = storageFieldSpecAliasOf(kind, selectionMode);
+    if (storageSpecAlias) fieldDraft.value.fieldSpecAlias = storageSpecAlias;
+  },
+);
+
+watch(
+  () => [
+    fieldPropertyEditorKind.value,
+    fieldPropertyDraft.value.referenceConfig?.targetModuleAlias,
+    fieldPropertyDraft.value.referenceConfig?.targetMetadataId,
+  ],
+  ([kind, targetModuleAlias, targetMetadataId]) => {
+    if (kind !== 'MODULE_REFERENCE' || !targetModuleAlias?.trim()) {
+      referenceTargetFieldCatalog.value = undefined;
+      referenceTargetFieldCatalogError.value = undefined;
+      return;
+    }
+    void loadReferenceTargetFieldCatalog(targetModuleAlias, targetMetadataId);
+  },
 );
 
 onMounted(() => void loadFieldSpecs());
@@ -198,16 +326,25 @@ async function selectMetadataTab(relationId: string) {
 async function loadSelectedMetadata() {
   const metadataId = state.selectedRelation.value?.metadataId;
   state.handleFieldsLoaded([]);
+  fieldProperties.value = [];
   capabilitySnapshot.value = undefined;
   editSession.cancel();
   if (!metadataId) return;
   try {
     const metadata = await metadataClient.view(metadataId);
     state.handleMetadataLoaded(metadata);
-    state.handleFieldsLoaded(
-      await loadAllRecords(`/platform.metadata/${encodeURIComponent(metadataId)}/fields/query`),
-    );
     const relationId = state.selectedRelation.value?.id;
+    const [loadedFields, loadedProperties] = await Promise.all([
+      loadAllRecords<MetadataField>(`/platform.metadata/${encodeURIComponent(metadataId)}/fields/query`),
+      relationId
+        ? moduleContext.http.request<MetadataFieldPropertySummary[]>({
+            method: 'GET',
+            path: relationPath(`/${encodeURIComponent(relationId)}/field-properties`),
+          })
+        : Promise.resolve([]),
+    ]);
+    state.handleFieldsLoaded(loadedFields);
+    fieldProperties.value = loadedProperties;
     if (relationId) {
       capabilitySnapshot.value = await moduleContext.http.request<ModuleMetadataCapabilitySnapshot>({
         method: 'GET',
@@ -234,6 +371,7 @@ function startEditSession() {
       selectable: capabilitySelectable(fact),
       reason: fact.reason,
     })),
+    fieldProperties.value,
   );
 }
 
@@ -320,6 +458,7 @@ function cancelEditSession() {
 
 function stageFieldDraft() {
   const draft = normalizeFieldDraft(state.fieldDraft.value);
+  const property = normalizeFieldPropertyDraft(state.fieldPropertyDraft.value);
   if (!isValidFieldDraft(draft)) {
     presentPlatformMessage('请填写字段名、物理列名和字段规格', {
       source: 'metadata-orchestration',
@@ -327,8 +466,101 @@ function stageFieldDraft() {
     });
     return;
   }
-  editSession.stageField({ ...draft, fieldOwnership: 'BUSINESS', fieldForm: 'PHYSICAL' });
+  if (!isValidFieldPropertyDraft(property)) {
+    presentPlatformMessage(
+      property.kind === 'MODULE_REFERENCE' ? '请配置目标模块。' : '请配置字典应用和类别。',
+      { source: 'metadata-orchestration', phase: 'validation' },
+    );
+    return;
+  }
+  if (property.kind === 'MODULE_REFERENCE' && referenceTargetFieldCatalogProblem.value) {
+    presentPlatformMessage(referenceTargetFieldCatalogProblem.value, {
+      source: 'metadata-orchestration',
+      phase: 'validation',
+    });
+    return;
+  }
+  editSession.stageField({ ...draft, fieldOwnership: 'BUSINESS', fieldForm: 'PHYSICAL' }, property);
   state.cancelEditor();
+}
+
+async function loadReferenceTargetFieldCatalog(
+  targetModuleAlias: string,
+  targetMetadataId: string | undefined,
+) {
+  const relationId = state.selectedRelation.value?.id;
+  if (!relationId) return;
+  const requestedTarget = targetModuleAlias.trim();
+  referenceTargetFieldCatalogLoading.value = true;
+  referenceTargetFieldCatalogError.value = undefined;
+  try {
+    const query = new URLSearchParams({ targetModuleAlias: requestedTarget });
+    if (targetMetadataId?.trim()) query.set('targetMetadataId', targetMetadataId.trim());
+    const catalog = await moduleContext.http.request<ReferenceTargetFieldCatalog>({
+      method: 'GET',
+      path: relationPath(
+        `/${encodeURIComponent(relationId)}/reference-target-field-catalog?${query.toString()}`,
+      ),
+    });
+    // Do not let an earlier request overwrite the catalog for a subsequently selected target.
+    const reference = fieldPropertyDraft.value.referenceConfig;
+    if (
+      fieldPropertyEditorKind.value !== 'MODULE_REFERENCE' ||
+      reference?.targetModuleAlias?.trim() !== requestedTarget ||
+      (reference?.targetMetadataId?.trim() || undefined) !== (targetMetadataId?.trim() || undefined)
+    ) {
+      return;
+    }
+    referenceTargetFieldCatalog.value = catalog;
+    // Target metadata identity is resolved by the server with the same authorization and target rules
+    // as candidate fields. It is an internal binding, never a user-entered identifier.
+    reference.targetMetadataId = catalog.targetMetadataId;
+    // `id/title` is the platform contract, not a catalog preference.  The catalog may only fill
+    // a genuinely absent legacy value; it must never replace a newly-created default.
+    if (!reference.targetKeyField?.trim()) {
+      reference.targetKeyField = defaultCandidateField(catalog.keyFields);
+    }
+    if (!reference.targetLabelField?.trim()) {
+      reference.targetLabelField = defaultCandidateField(catalog.labelFields);
+    }
+  } catch (cause) {
+    referenceTargetFieldCatalog.value = undefined;
+    referenceTargetFieldCatalogError.value = `无法加载“${requestedTarget}”的目标字段目录。`;
+    presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
+  } finally {
+    referenceTargetFieldCatalogLoading.value = false;
+  }
+}
+
+function referenceFieldOptions(
+  candidates: ReferenceTargetFieldCandidate[],
+  selectedField: string | undefined,
+): Option[] {
+  const options = candidates
+    .filter((candidate) => candidate.selectable !== false)
+    .map((candidate) => ({ value: candidate.fieldName, label: candidateLabel(candidate) }));
+  if (selectedField && !options.some((option) => option.value === selectedField)) {
+    options.unshift({ value: selectedField, label: `${selectedField}（当前值不在候选中，需调整）` });
+  }
+  return options;
+}
+
+function candidateIsSelectable(
+  candidates: ReferenceTargetFieldCandidate[],
+  fieldName: string | undefined,
+): boolean {
+  return Boolean(
+    fieldName &&
+    candidates.some((candidate) => candidate.fieldName === fieldName && candidate.selectable !== false),
+  );
+}
+
+function defaultCandidateField(candidates: ReferenceTargetFieldCandidate[]): string | undefined {
+  return candidates.find((candidate) => candidate.defaultField && candidate.selectable !== false)?.fieldName;
+}
+
+function candidateLabel(candidate: ReferenceTargetFieldCandidate): string {
+  return candidate.title ? `${candidate.title}（${candidate.fieldName}）` : candidate.fieldName;
 }
 
 async function createMainMetadata() {
@@ -394,9 +626,19 @@ function fieldCellValue(column: UiDataTableColumn, record: UiDataTableRecord) {
   if (column.key === 'fieldSpecAlias')
     return fieldSpecDisplayLabel(field.fieldSpecAlias, state.fieldSpecs.value);
   if (column.key === 'source') return fieldSourceOf(field);
+  if (column.key === 'propertyKind') return metadataFieldPropertyLabel(fieldPropertyOf(field).kind);
+  if (column.key === 'propertySummary') return metadataFieldPropertySummary(fieldPropertyOf(field));
   if (column.key === 'required') return field.required ? '是' : '否';
   if (column.key === 'enabled') return field.enabled === false ? '停用' : '启用';
   return String(field[column.key as keyof MetadataField] ?? '');
+}
+
+function fieldPropertyOf(field: MetadataField): MetadataFieldPropertyDraft {
+  if (editSession.editing.value) return editSession.propertyForField(field);
+  const summary = fieldProperties.value.find(
+    (item) => item.fieldId === field.id || item.fieldName === field.fieldName,
+  );
+  return summary ? propertyDraftFromSummary(summary) : { kind: 'BASIC' };
 }
 
 function fieldSourceOf(field: MetadataField): string {
@@ -405,14 +647,24 @@ function fieldSourceOf(field: MetadataField): string {
   );
 }
 
+function fieldIsBusiness(field: MetadataField): boolean {
+  return (
+    metadataFieldGovernanceKind(field, state.selectedRelation.value, capabilityFieldNames.value) === 'BUSINESS'
+  );
+}
+
 function fieldEditableInSession(field: MetadataField): boolean {
   return (
     editSession.editing.value &&
-    isSessionEditableMetadataField(field, state.selectedRelation.value, capabilityFieldNames.value)
+    isSessionEditableMetadataField(field, state.selectedRelation.value, capabilityFieldNames.value) &&
+    fieldPropertyOf(field).kind !== 'LEGACY_LOCKED'
   );
 }
 
 function fieldProtectionReason(field: MetadataField): string | undefined {
+  if (fieldPropertyOf(field).kind === 'LEGACY_LOCKED') {
+    return '该字段仍由旧配置链路维护，已锁定，不能改为新的字段属性。';
+  }
   const kind = metadataFieldGovernanceKind(field, state.selectedRelation.value, capabilityFieldNames.value);
   return (
     {
@@ -466,8 +718,18 @@ function capabilityTitleOf(capability: string): string {
         </UiActionButton>
         <template v-else>
           <UiActionButton emphasis="quiet" @click="cancelEditSession">取消编辑</UiActionButton>
-          <UiActionButton emphasis="quiet" :disabled="saving" @click="state.startCreateField">
-            新增字段
+          <UiActionButton emphasis="quiet" :disabled="saving" @click="state.startCreateField('BASIC')">
+            新增普通字段
+          </UiActionButton>
+          <UiActionButton
+            emphasis="quiet"
+            :disabled="saving"
+            @click="state.startCreateField('MODULE_REFERENCE')"
+          >
+            新增模块引用
+          </UiActionButton>
+          <UiActionButton emphasis="quiet" :disabled="saving" @click="state.startCreateField('DICTIONARY')">
+            新增数据字典
           </UiActionButton>
           <UiActionButton
             emphasis="primary"
@@ -507,31 +769,53 @@ function capabilityTitleOf(capability: string): string {
     <section class="field-section">
       <header class="field-section-header">
         <h3>字段</h3>
-        <span v-if="editSession.editing.value">仅业务字段可编辑；平台、能力和关系字段受保护。</span>
+        <span v-if="editSession.editing.value">数据属性与字段规格分开编排；平台、能力和关系字段受保护。</span>
       </header>
       <UiSpin v-if="loading" tip="加载字段" />
       <UiEmpty v-else-if="!displayedFields.length" description="暂无字段，点击右上角新增字段" />
-      <UiDataTable
-        v-else
-        :columns="fieldColumns"
-        :rows="displayedFields as unknown as UiDataTableRecord[]"
-        :row-muted="(record) => !fieldEditableInSession(record as MetadataField)"
-        :show-action-column="editSession.editing.value"
-        action-column-title="操作"
-      >
-        <template #cell="{ column, record }">{{ fieldCellValue(column, record) }}</template>
-        <template #rowActions="{ record }">
-          <UiActionButton
-            emphasis="quiet"
-            density="compact"
-            :disabled="!fieldEditableInSession(record as MetadataField)"
-            :title="fieldProtectionReason(record as MetadataField)"
-            @click="state.startEditField(record as MetadataField)"
+      <div v-else class="field-property-groups">
+        <section v-for="group in fieldGroups" :key="group.kind" class="field-property-group">
+          <h4>{{ group.title }}</h4>
+          <UiDataTable
+            :columns="fieldColumns"
+            :rows="group.fields as unknown as UiDataTableRecord[]"
+            :row-muted="(record) => !fieldEditableInSession(record as MetadataField)"
+            :show-action-column="editSession.editing.value"
+            action-column-title="操作"
           >
-            编辑
-          </UiActionButton>
-        </template>
-      </UiDataTable>
+            <template #cell="{ column, record }">{{ fieldCellValue(column, record) }}</template>
+            <template #rowActions="{ record }">
+              <template v-if="fieldPropertyOf(record as MetadataField).kind === 'BASIC'">
+                <UiActionButton
+                  emphasis="quiet"
+                  density="compact"
+                  :disabled="!fieldEditableInSession(record as MetadataField)"
+                  @click="state.startConfigureFieldProperty(record as MetadataField, 'MODULE_REFERENCE')"
+                >
+                  配置引用
+                </UiActionButton>
+                <UiActionButton
+                  emphasis="quiet"
+                  density="compact"
+                  :disabled="!fieldEditableInSession(record as MetadataField)"
+                  @click="state.startConfigureFieldProperty(record as MetadataField, 'DICTIONARY')"
+                >
+                  配置字典
+                </UiActionButton>
+              </template>
+              <UiActionButton
+                emphasis="quiet"
+                density="compact"
+                :disabled="!fieldEditableInSession(record as MetadataField)"
+                :title="fieldProtectionReason(record as MetadataField)"
+                @click="state.startEditField(record as MetadataField, fieldPropertyOf(record as MetadataField))"
+              >
+                编辑
+              </UiActionButton>
+            </template>
+          </UiDataTable>
+        </section>
+      </div>
     </section>
   </RecordDetailPanel>
   <RecordDetailPanel v-else ref="pageHost" title="数据模型">
@@ -588,7 +872,7 @@ function capabilityTitleOf(capability: string): string {
   <RecordModeDrawer
     :open="state.fieldEditorOpen.value"
     :container="pageRoot"
-    :title="state.mode.value === 'edit-field' ? '编辑字段' : '新增字段'"
+    :title="fieldEditorTitle"
     :subtitle="state.selectedMetadata.value?.title"
     mode="create"
     @close="state.cancelEditor"
@@ -616,14 +900,123 @@ function capabilityTitleOf(capability: string): string {
           <UiInput v-model:value="fieldDraft.title" placeholder="例如 客户名称" />
         </label>
         <label>
-          <span>字段规格</span>
+          <span>存储字段规格</span>
           <UiSelect
+            v-if="fieldPropertyEditorKind === 'BASIC'"
             v-model:value="fieldDraft.fieldSpecAlias"
             :options="state.fieldSpecOptions.value"
             placeholder="选择字段规格"
             style="width: 100%"
           />
+          <UiInput
+            v-else
+            :value="fieldStorageSpecLabel"
+            disabled
+            :title="fieldStorageSpecAlias"
+          />
         </label>
+        <template v-if="fieldPropertyEditorKind === 'MODULE_REFERENCE'">
+          <div class="field-property-heading">
+            <strong>模块引用</strong>
+            <span>源字段存储目标键；默认读取目标记录的 id，并以 title 展示。</span>
+          </div>
+          <label>
+            <span>目标模块</span>
+            <UiInput
+              v-model:value="fieldPropertyDraft.referenceConfig!.targetModuleAlias"
+              placeholder="例如 education.subject_category"
+            />
+          </label>
+          <div v-if="fieldPropertyDraft.referenceConfig!.targetMetadataId" class="field-property-binding">
+            <strong>目标实体绑定</strong>
+            <span>{{ fieldPropertyDraft.referenceConfig!.targetMetadataId }}</span>
+          </div>
+          <div class="orchestration-form-grid">
+            <label>
+              <span>目标键字段</span>
+              <UiSelect
+                v-model:value="fieldPropertyDraft.referenceConfig!.targetKeyField"
+                :options="referenceKeyFieldOptions"
+                :loading="referenceTargetFieldCatalogLoading"
+                :disabled="Boolean(referenceTargetFieldCatalogError)"
+                placeholder="请选择目标键字段"
+                style="width: 100%"
+              />
+            </label>
+            <label>
+              <span>目标展示字段</span>
+              <UiSelect
+                v-model:value="fieldPropertyDraft.referenceConfig!.targetLabelField"
+                :options="referenceLabelFieldOptions"
+                :loading="referenceTargetFieldCatalogLoading"
+                :disabled="Boolean(referenceTargetFieldCatalogError)"
+                placeholder="请选择目标展示字段"
+                style="width: 100%"
+              />
+            </label>
+          </div>
+          <p v-if="referenceTargetFieldCatalogProblem" class="field-property-error" role="alert">
+            {{ referenceTargetFieldCatalogProblem }}
+          </p>
+          <div class="orchestration-form-grid">
+            <label>
+              <span>基数</span>
+              <UiInput value="单选" disabled />
+              <small class="field-property-note">本期模块引用仅支持单选。</small>
+            </label>
+            <label>
+              <span>目标不可用策略</span>
+              <UiSelect
+                v-model:value="fieldPropertyDraft.referenceConfig!.targetUnavailablePolicy"
+                :options="[
+                  { value: 'PRESERVE_HISTORY', label: '保留历史' },
+                  { value: 'RESTRICT', label: '限制删除' },
+                  { value: 'CASCADE_DELETE', label: '级联删除' },
+                ]"
+                style="width: 100%"
+              />
+            </label>
+          </div>
+          <label>
+            <span>展示投影与自动带出字段</span>
+            <UiTextArea
+              v-model:value="projectionMappingsText"
+              :rows="3"
+              placeholder="每行一项，例如 title:subjectCategoryIdTitle"
+            />
+          </label>
+        </template>
+        <template v-else-if="fieldPropertyEditorKind === 'DICTIONARY'">
+          <div class="field-property-heading">
+            <strong>数据字典</strong>
+            <span>固定以字典 code 存储、title 展示。</span>
+          </div>
+          <label>
+            <span>字典应用</span>
+            <UiInput
+              v-model:value="fieldPropertyDraft.dictionaryConfig!.dictionaryApplicationAlias"
+              placeholder="例如 education"
+            />
+          </label>
+          <label>
+            <span>字典类别</span>
+            <UiInput
+              v-model:value="fieldPropertyDraft.dictionaryConfig!.dictionaryCategoryAlias"
+              placeholder="例如 exam_attendance_status"
+            />
+          </label>
+          <label>
+            <span>选择方式</span>
+            <UiSelect
+              v-model:value="fieldPropertyDraft.dictionaryConfig!.selectionMode"
+              :options="[
+                { value: 'SINGLE', label: '单选' },
+                { value: 'MULTIPLE', label: '多选' },
+              ]"
+              style="width: 100%"
+            />
+          </label>
+        </template>
         <div class="orchestration-form-flags">
           <UiCheckbox v-model:checked="fieldDraft.required">必填</UiCheckbox>
           <UiCheckbox v-model:checked="fieldDraft.uniqueField">唯一</UiCheckbox>
@@ -683,6 +1076,23 @@ function capabilityTitleOf(capability: string): string {
   display: grid;
   gap: 10px;
   padding-top: 8px;
+}
+
+.field-property-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.field-property-group {
+  display: grid;
+  gap: 8px;
+}
+
+.field-property-group h4 {
+  margin: 0;
+  color: var(--muyun-text-body);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .capability-summary {
@@ -747,5 +1157,48 @@ function capabilityTitleOf(capability: string): string {
   flex-wrap: wrap;
   gap: 12px 18px;
   align-items: center;
+}
+
+.orchestration-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.field-property-heading {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--muyun-color-primary-soft, #f0f6ff);
+  color: var(--muyun-text-body);
+}
+
+.field-property-heading span {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+
+.field-property-binding {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+
+.field-property-binding strong {
+  color: var(--muyun-text-body);
+}
+
+.field-property-note {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+
+.field-property-error {
+  margin: -6px 0 0;
+  color: var(--muyun-color-danger, #d32029);
+  font-size: 12px;
 }
 </style>

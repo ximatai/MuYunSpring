@@ -13,7 +13,7 @@ describe('managed detail relation surface', () => {
     aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
     const wrapper = shallowMount(ModulePageDetailRelations, {
       props: {
-        sourceContext: context(vi.fn()),
+        sourceContext: context(vi.fn(async () => page([]))),
         uiDescriptor: descriptor(),
         relations: [aggregate],
         parentRecord: { properties: [] },
@@ -192,6 +192,91 @@ describe('managed detail relation surface', () => {
     expect(wrapper.findComponent({ name: 'RecordStatusTag' }).props('enabled')).toBe(true);
   });
 
+  it('resolves dictionary labels for a read-only inline child table', async () => {
+    const managed = relation('properties');
+    managed.embeddedField = 'properties';
+    managed.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    managed.queryContract!.listProjection = {
+      fields: [{ fieldName: 'attendanceStatus', title: '参加状态' }],
+    };
+    const uiDescriptor = descriptor();
+    uiDescriptor.editorContributions![0]!.editor.fields.push({
+      fieldRef: { relationCode: 'field_ui_control_property', fieldName: 'attendanceStatus' },
+      label: '参加状态',
+      visible: { constant: true },
+      required: { constant: true },
+      readOnly: { constant: false },
+      option: {
+        binding: { sourceType: 'dictionary', source: 'education.exam_attendance_status' },
+        selectionMode: 'SINGLE',
+      },
+    });
+    const request = vi.fn(async () => [{ code: 'ATTENDED', title: '已参加', enabled: true }]);
+    const wrapper = shallowMount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(request),
+        uiDescriptor,
+        relation: managed,
+        parentRecord: { id: 'exam-1', properties: [{ id: 'row-1', attendanceStatus: 'ATTENDED' }] },
+        mutationEnabled: false,
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('.managed-relation-inline__value').text()).toBe('已参加');
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/platform.module/platform.field_ui_control/fields/attendanceStatus/options',
+        query: { enabledOnly: false, entityAlias: 'field_ui_control_property' },
+      }),
+    );
+  });
+
+  it('keeps reference projection columns read-only while refreshing them from the selected record', async () => {
+    const managed = relation('properties');
+    managed.embeddedField = 'properties';
+    managed.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    managed.queryContract!.listProjection = {
+      fields: [
+        { fieldName: 'studentId', title: '学生' },
+        { fieldName: 'studentNo', title: '学号' },
+      ],
+    };
+    const uiDescriptor = descriptor();
+    uiDescriptor.editorContributions![0]!.editor.fields = [
+      {
+        fieldRef: { relationCode: 'field_ui_control_property', fieldName: 'studentId' },
+        label: '学生',
+        visible: { constant: true },
+        required: { constant: true },
+        readOnly: { constant: false },
+        reference: {
+          targetModuleAlias: 'education.student',
+          cardinality: 'ONE',
+          displayProjections: [{ targetField: 'studentNo', outputField: 'studentNo' }],
+        },
+      },
+    ];
+    const wrapper = shallowMount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(vi.fn(async () => page([]))),
+        uiDescriptor,
+        relation: managed,
+        parentRecord: { id: 'exam-1', properties: [{ id: 'row-1', studentId: 'student-1' }] },
+        mutationEnabled: true,
+      },
+    });
+    await flushPromises();
+
+    const editors = wrapper.findAllComponents({ name: 'RecordFormFields' });
+    expect(editors).toHaveLength(1);
+    editors[0]!.vm.$emit('reference-projections-change', 'studentId', { studentNo: 'S2026001' });
+    await flushPromises();
+
+    expect(wrapper.find('.managed-relation-inline__value').text()).toBe('S2026001');
+    expect(wrapper.emitted('records-change')?.at(-1)?.[0]).toEqual([{ id: 'row-1', studentId: 'student-1' }]);
+  });
+
   it('validates a new row as soon as any editable cell contains data', async () => {
     const managed = relation('properties');
     managed.embeddedField = 'properties';
@@ -294,6 +379,7 @@ describe('managed detail relation surface', () => {
 
     const field = wrapper.findComponent({ name: 'RecordFormFields' });
     expect(field.exists()).toBe(true);
+    expect(field.props('optionEntityAlias')).toBe('field_ui_control_property');
     expect(wrapper.findAll('col')[1]!.attributes('style')).toContain('width: 180px');
     field.vm.$emit('update:field', 'attributeAlias', 'visibleRows');
     await flushPromises();
@@ -508,6 +594,7 @@ describe('managed detail relation surface', () => {
     await flushPromises();
     const fields = wrapper.findComponent({ name: 'RecordFormFields' });
     expect(fields.exists()).toBe(true);
+    expect(fields.props('optionEntityAlias')).toBe('field_ui_control_property');
     fields.vm.$emit('update:field', 'attributeAlias', 'placeholder');
     fields.vm.$emit('validity-change', { valid: false });
     await flushPromises();
@@ -643,6 +730,65 @@ describe('managed detail relation surface', () => {
       showRecycleBin: true,
       rowActionsVisible: true,
     });
+  });
+
+  it('passes reference presentation companions to child list cells', () => {
+    const configured = relation('properties');
+    configured.queryContract!.querySchema!.fields = [
+      {
+        name: 'studentId',
+        title: '学生',
+        valueType: 'STRING',
+        operators: [],
+        defaultOperator: 'LIKE',
+        quickSearch: false,
+        sortable: false,
+        optionTitleField: 'studentTitle',
+      },
+    ];
+    configured.queryContract!.listProjection = { fields: [{ fieldName: 'studentId', title: '学生' }] };
+    const wrapper = shallowMount(ManagedDetailRelationSurface, {
+      props: {
+        sourceContext: context(vi.fn(async () => page([]))),
+        uiDescriptor: descriptor(),
+        relation: configured,
+        parentRecord: { id: 'select' },
+      },
+    });
+
+    expect(wrapper.findComponent({ name: 'RecordQueryListPanel' }).props('columns')).toEqual([
+      expect.objectContaining({ key: 'studentId', titleField: 'studentTitle', optionBinding: undefined }),
+    ]);
+  });
+
+  it('marks a managed child dictionary column with its target entity option context', () => {
+    const configured = relation('properties');
+    configured.queryContract!.listProjection = { fields: [{ fieldName: 'attendanceStatus', title: '参加状态' }] };
+    const uiDescriptor = descriptor();
+    uiDescriptor.editorContributions![0]!.editor.fields.push({
+      fieldRef: { relationCode: 'field_ui_control_property', fieldName: 'attendanceStatus' },
+      label: '参加状态',
+      visible: { constant: true },
+      required: { constant: false },
+      readOnly: { constant: false },
+      option: { binding: { sourceType: 'dictionary', source: 'platform.attendance_status' }, selectionMode: 'SINGLE' },
+    });
+    const wrapper = shallowMount(ManagedDetailRelationSurface, {
+      props: {
+        sourceContext: context(vi.fn(async () => page([]))),
+        uiDescriptor,
+        relation: configured,
+        parentRecord: { id: 'select' },
+      },
+    });
+
+    expect(wrapper.findComponent({ name: 'RecordQueryListPanel' }).props('columns')).toEqual([
+      expect.objectContaining({
+        key: 'attendanceStatus',
+        optionBinding: true,
+        optionEntityAlias: 'field_ui_control_property',
+      }),
+    ]);
   });
 });
 

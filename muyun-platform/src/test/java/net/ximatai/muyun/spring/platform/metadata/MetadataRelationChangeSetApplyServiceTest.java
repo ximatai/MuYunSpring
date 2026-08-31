@@ -92,6 +92,85 @@ class MetadataRelationChangeSetApplyServiceTest {
         verify(fixture.schemaEnsureService, never()).ensureNow(any(Metadata.class));
     }
 
+    @Test
+    void shouldPublishReferencePropertyAfterCreatingItsSourceField() {
+        MetadataFieldReferenceConfig reference = new MetadataFieldReferenceConfig();
+        reference.setTargetModuleAlias("education.student");
+        reference.setTargetKeyField("studentNo");
+        reference.setTargetLabelField("name");
+        MetadataFieldPropertyChangeSetPlan property = new MetadataFieldPropertyChangeSetPlan(
+                MetadataFieldPropertyKind.MODULE_REFERENCE, null, reference, null);
+        MetadataRelationChangeSetPlan plan = new MetadataRelationChangeSetPlan("metadata-1", 3,
+                Set.of(EntityCapability.ENABLE), false,
+                List.of(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field("studentId", "student_id"), property)));
+        Fixture fixture = fixture(new MetadataRelationChangeSetPreview("crm.customer", "main", "metadata-1", 3,
+                Set.of(EntityCapability.ENABLE), List.of(), List.of(), List.of(), List.of(), "fingerprint", plan));
+        when(fixture.fieldService.insert(any(MetadataField.class))).thenReturn("field-student");
+
+        fixture.service.apply("crm.customer", "main", command("fingerprint", List.of()));
+
+        verify(fixture.referenceConfigService).insert(org.mockito.ArgumentMatchers.argThat(config ->
+                "field-student".equals(config.getMetadataFieldId()) && "main".equals(config.getRelationId())
+                        && "studentNo".equals(config.getTargetKeyField()) && "name".equals(config.getTargetLabelField())));
+    }
+
+    @Test
+    void shouldCreateDictionaryRelationOverrideFromEffectiveBaseWithoutCopyingStorageShape() {
+        MetadataFieldConfig dictionary = new MetadataFieldConfig();
+        dictionary.setDictionaryApplicationAlias("education");
+        dictionary.setDictionaryCategoryAlias("exam_attendance_status");
+        MetadataFieldPropertyChangeSetPlan property = new MetadataFieldPropertyChangeSetPlan(
+                MetadataFieldPropertyKind.DICTIONARY, 5, null, dictionary);
+        MetadataRelationChangeSetPlan plan = new MetadataRelationChangeSetPlan("metadata-1", 3,
+                Set.of(EntityCapability.ENABLE), false,
+                List.of(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field("attendanceStatus", "attendance_status"), property)));
+        Fixture fixture = fixture(new MetadataRelationChangeSetPreview("crm.customer", "main", "metadata-1", 3,
+                Set.of(EntityCapability.ENABLE), List.of(), List.of(), List.of(), List.of(), "fingerprint", plan));
+        when(fixture.fieldService.insert(any(MetadataField.class))).thenReturn("field-attendance");
+        MetadataFieldConfig base = new MetadataFieldConfig();
+        base.setVersion(5);
+        base.setFieldLength(64);
+        base.setPrecision(12);
+        base.setScale(2);
+        base.setQueryable(false);
+        base.setDefaultValue("ATTENDED");
+        base.setValidationRegex("[A-Z_]+");
+        base.setCopyable(true);
+        base.setWriteProtected(true);
+        when(fixture.fieldConfigService.findRelationOverride("field-attendance", "main")).thenReturn(null);
+        when(fixture.fieldConfigService.findByMetadataFieldId("field-attendance")).thenReturn(base);
+
+        fixture.service.apply("crm.customer", "main", command("fingerprint", List.of()));
+
+        verify(fixture.fieldConfigService).insert(org.mockito.ArgumentMatchers.argThat(config ->
+                "field-attendance".equals(config.getMetadataFieldId()) && "main".equals(config.getRelationId())
+                        && "exam_attendance_status".equals(config.getDictionaryCategoryAlias())
+                        && Boolean.FALSE.equals(config.getQueryable())
+                        && "ATTENDED".equals(config.getDefaultValue())
+                        && "[A-Z_]+".equals(config.getValidationRegex())
+                        && Boolean.TRUE.equals(config.getCopyable()) && Boolean.TRUE.equals(config.getWriteProtected())
+                        && config.getFieldLength() == null && config.getPrecision() == null && config.getScale() == null));
+    }
+
+    @Test
+    void shouldRejectLegacyLockedPropertyEvenIfAnInvalidPreviewPlanIsInjected() {
+        MetadataFieldPropertyChangeSetPlan property = new MetadataFieldPropertyChangeSetPlan(
+                MetadataFieldPropertyKind.LEGACY_LOCKED, null, null, null);
+        MetadataRelationChangeSetPlan plan = new MetadataRelationChangeSetPlan("metadata-1", 3,
+                Set.of(EntityCapability.ENABLE), false,
+                List.of(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field("legacySubject", "legacy_subject"), property)));
+        Fixture fixture = fixture(new MetadataRelationChangeSetPreview("crm.customer", "main", "metadata-1", 3,
+                Set.of(EntityCapability.ENABLE), List.of(), List.of(), List.of(), List.of(), "fingerprint", plan));
+        when(fixture.fieldService.insert(any(MetadataField.class))).thenReturn("field-legacy");
+
+        assertThatThrownBy(() -> fixture.service.apply("crm.customer", "main", command("fingerprint", List.of())))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("read-only");
+        verify(fixture.metadataService, never()).update(any());
+    }
+
     private MetadataRelationChangeSetApplyCommand command(String fingerprint, List<MetadataFieldChangeSetDraft> fields) {
         return new MetadataRelationChangeSetApplyCommand(new MetadataRelationChangeSetPreviewCommand(3,
                 Map.of(EntityCapability.ENABLE, true), fields), fingerprint);
@@ -113,6 +192,8 @@ class MetadataRelationChangeSetApplyServiceTest {
         PlatformMetadataSchemaEnsureService schemaEnsureService = mock(PlatformMetadataSchemaEnsureService.class);
         PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator = mock(PlatformDynamicRuntimeRefreshCoordinator.class);
         ModuleMetadataCapabilitySnapshotService snapshotService = mock(ModuleMetadataCapabilitySnapshotService.class);
+        MetadataFieldReferenceConfigService referenceConfigService = mock(MetadataFieldReferenceConfigService.class);
+        MetadataFieldConfigService fieldConfigService = mock(MetadataFieldConfigService.class);
         ModuleMetadataRelation relation = new ModuleMetadataRelation();
         relation.setId("main");
         relation.setModuleAlias("crm.customer");
@@ -131,8 +212,8 @@ class MetadataRelationChangeSetApplyServiceTest {
         when(metadataService.select("metadata-1")).thenReturn(metadata);
         when(fieldService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of());
         return new Fixture(new MetadataRelationChangeSetApplyService(previewService, relationService, metadataService, fieldService,
-                schemaEnsureService, refreshCoordinator, snapshotService), metadataService, fieldService, schemaEnsureService,
-                refreshCoordinator, metadata);
+                schemaEnsureService, refreshCoordinator, snapshotService, referenceConfigService, fieldConfigService), metadataService,
+                fieldService, schemaEnsureService, refreshCoordinator, metadata, referenceConfigService, fieldConfigService);
     }
 
     private MetadataField field(String fieldName, String columnName) {
@@ -146,6 +227,8 @@ class MetadataRelationChangeSetApplyServiceTest {
 
     private record Fixture(MetadataRelationChangeSetApplyService service, MetadataService metadataService,
                            MetadataFieldService fieldService, PlatformMetadataSchemaEnsureService schemaEnsureService,
-                           PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator, Metadata metadata) {
+                           PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator, Metadata metadata,
+                           MetadataFieldReferenceConfigService referenceConfigService,
+                           MetadataFieldConfigService fieldConfigService) {
     }
 }

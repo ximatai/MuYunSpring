@@ -85,7 +85,9 @@ public class MetadataFieldConfigService extends AbstractAbilityService<MetadataF
 
     @Override
     public void afterChanged(MetadataFieldConfig config) {
-        refreshByMetadataFieldId(config.getMetadataFieldId());
+        if (!MetadataFieldPropertyMutationContext.active()) {
+            refreshByMetadataFieldId(config.getMetadataFieldId());
+        }
     }
 
     public MetadataFieldConfig findByMetadataFieldId(String metadataFieldId) {
@@ -112,16 +114,28 @@ public class MetadataFieldConfigService extends AbstractAbilityService<MetadataF
     private void normalizeAndValidate(MetadataFieldConfig config) {
         MetadataField field = requireField(config.getMetadataFieldId());
         normalizeRelation(config, field);
-        FieldSpec fieldType = fieldTypeService.requireFieldType(field.getFieldSpecAlias());
-        normalizeFieldShape(config, fieldType);
-        normalizeDictionaryBinding(config, field, fieldType);
+        validateDictionaryDraft(config, field);
         validateVirtualQueryBoundary(config, field);
+        FieldSpec fieldType = fieldTypeService.requireFieldType(field.getFieldSpecAlias());
         normalizeQueryDefinition(config, fieldType);
         validateProtectionQueryBoundary(config, fieldType);
         normalizeBehavior(config, fieldType);
         validateVirtualBehaviorBoundary(config, field);
         rejectDuplicate(config, scopeCriteria(config.getMetadataFieldId(), config.getRelationId()),
                 "metadata field config must be unique in scope: " + config.getMetadataFieldId());
+    }
+
+    /**
+     * Validates the physical shape and dictionary binding of a field proposal without requiring
+     * that the field itself has been inserted.  Query/behavior validation remains part of the
+     * persisted-config path because it can depend on protection configuration keyed by field id.
+     */
+    public void validateDictionaryDraft(MetadataFieldConfig config, MetadataField field) {
+        if (config == null) throw new IllegalArgumentException("field config must not be null");
+        if (field == null) throw new IllegalArgumentException("metadata field must not be null");
+        FieldSpec fieldType = fieldTypeService.requireFieldType(field.getFieldSpecAlias());
+        normalizeFieldShape(config, fieldType);
+        normalizeDictionaryBinding(config, field, fieldType);
     }
 
     private Criteria scopeCriteria(String metadataFieldId, String relationId) {

@@ -14,9 +14,12 @@ import net.ximatai.muyun.spring.demo.school.teacher.TeacherService;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassroomService;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.module.ModuleActionContributionRegistrar;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
@@ -50,7 +53,10 @@ public class DemoBootstrapConfiguration {
     ExamDemoBootstrapTask examDemoBootstrapTask(PlatformModuleService moduleService,
                                                 MetadataService metadataService,
                                                 MetadataFieldService fieldService,
+                                                MetadataFieldConfigService fieldConfigService,
                                                 MetadataFieldReferenceConfigService referenceConfigService,
+                                                DictionaryCategoryService dictionaryCategoryService,
+                                                DictionaryItemService dictionaryItemService,
                                                 ModuleMetadataRelationService relationService,
                                                 DynamicRecordService recordService,
                                                 StudentService studentService,
@@ -60,9 +66,10 @@ public class DemoBootstrapConfiguration {
                                                 ModuleActionContributionRegistrar actionRegistrar,
                                                 PlatformDynamicRuntimeRefreshService runtimeRefreshService,
                                                 TransactionTemplate transactionTemplate) {
-        return new ExamDemoBootstrapTask(moduleService, metadataService, fieldService, referenceConfigService,
-                relationService, recordService, studentService, subjectCategoryService, teacherService,
-                classroomService, actionRegistrar, runtimeRefreshService, transactionTemplate);
+        return new ExamDemoBootstrapTask(moduleService, metadataService, fieldService, fieldConfigService,
+                referenceConfigService, dictionaryCategoryService, dictionaryItemService, relationService,
+                recordService, studentService, subjectCategoryService, teacherService, classroomService,
+                actionRegistrar, runtimeRefreshService, transactionTemplate);
     }
 
     @Bean

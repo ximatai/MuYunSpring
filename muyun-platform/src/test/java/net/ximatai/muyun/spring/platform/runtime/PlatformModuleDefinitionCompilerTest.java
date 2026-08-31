@@ -339,7 +339,8 @@ class PlatformModuleDefinitionCompilerTest {
 
         ModuleDefinition definition = compiler.compile("crm.order");
 
-        EntityReferenceDefinition reference = definition.references().getFirst();
+        EntityReferenceDefinition reference = definition.references().stream()
+                .filter(item -> "customerId".equals(item.sourceField())).findFirst().orElseThrow();
         assertThat(reference.sourceField()).isEqualTo("customerId");
         assertThat(reference.targetQualifiedName()).isEqualTo("crm.customer.customer");
         assertThat(reference.integrity().onTargetUnavailable()).isEqualTo(ReferenceTargetUnavailablePolicy.RESTRICT);
@@ -451,32 +452,56 @@ class PlatformModuleDefinitionCompilerTest {
         String invoiceId = metadataService.insert(metadata("sales", "invoice"));
         String lineId = metadataService.insert(metadata("sales", "invoice_line"));
         fieldService.insert(titleField(invoiceId));
-        fieldService.insert(field(invoiceId, "code", "code", FieldType.STRING));
+        MetadataField invoiceCode = field(invoiceId, "code", "code", FieldType.STRING);
+        invoiceCode.setUniqueField(true);
+        fieldService.insert(invoiceCode);
         fieldService.insert(titleField(lineId));
         MetadataField invoiceField = field(lineId, "invoiceId", "invoice_id", FieldType.STRING);
         fieldService.insert(invoiceField);
+        MetadataField invoiceCodeField = field(lineId, "invoiceRefCode", "invoice_ref_code", FieldType.STRING);
+        fieldService.insert(invoiceCodeField);
         relationService.insert(mainRelation("sales.invoice", invoiceId));
         relationService.insert(childRelation("sales.invoice", lineId, invoiceId));
         MetadataFieldReferenceConfig referenceConfig = referenceConfig(invoiceField.getId(), invoiceId);
         referenceConfig.setTargetUnavailablePolicy(ReferenceTargetUnavailablePolicy.RESTRICT);
         referenceConfig.setProjectionMappings("title:invoiceTitle,code:invoiceCode");
         referenceConfigService.insert(referenceConfig);
+        MetadataFieldReferenceConfig genericReference = referenceConfig(invoiceCodeField.getId(), invoiceId);
+        genericReference.setTargetKeyField("code");
+        genericReference.setTargetLabelField("title");
+        genericReference.setProjectionMappings("title:invoiceDisplayTitle");
+        referenceConfigService.insert(genericReference);
 
         ModuleDefinition definition = compiler.compile("sales.invoice");
 
-        assertThat(definition.references()).hasSize(1);
-        EntityReferenceDefinition reference = definition.references().getFirst();
+        assertThat(definition.references()).hasSize(2);
+        EntityReferenceDefinition reference = definition.references().stream()
+                .filter(item -> "invoiceId".equals(item.sourceField())).findFirst().orElseThrow();
         assertThat(reference.sourceEntityAlias()).isEqualTo("invoice_line");
         assertThat(reference.sourceField()).isEqualTo("invoiceId");
         assertThat(reference.targetQualifiedName()).isEqualTo("sales.invoice.invoice");
         assertThat(reference.projections()).anySatisfy(projection -> assertThat(projection.outputField()).isEqualTo("invoiceTitle"));
         assertThat(reference.integrity().onTargetUnavailable()).isEqualTo(ReferenceTargetUnavailablePolicy.RESTRICT);
-        assertThat(reference.projections()).hasSize(2);
+        assertThat(reference.projections()).hasSize(3);
+        assertThat(reference.projections()).anySatisfy(projection -> {
+            assertThat(projection.targetField()).isEqualTo("title");
+            assertThat(projection.outputField()).isEqualTo("invoiceIdTitle");
+        });
         assertThat(reference.projections()).anySatisfy(projection -> {
             assertThat(projection.targetField()).isEqualTo("code");
             assertThat(projection.outputField()).isEqualTo("invoiceCode");
         });
-        assertThat(DynamicModuleDescriptor.from(definition).references().getFirst().targetEntityAlias()).isEqualTo("invoice");
+        assertThat(definition.references()).anySatisfy(generic -> {
+            assertThat(generic.sourceField()).isEqualTo("invoiceRefCode");
+            assertThat(generic.keyField()).isEqualTo("code");
+            assertThat(generic.labelField()).isEqualTo("title");
+            assertThat(generic.projections()).extracting(projection -> projection.targetField() + ":" + projection.outputField())
+                    .contains("title:invoiceRefCodeTitle", "title:invoiceDisplayTitle");
+        });
+        assertThat(DynamicModuleDescriptor.from(definition).references()).anySatisfy(item -> {
+            assertThat(item.sourceField()).isEqualTo("invoiceId");
+            assertThat(item.targetEntityAlias()).isEqualTo("invoice");
+        });
         assertThat(DynamicModuleDescriptor.from(definition).entities().get(1).fields().stream()
                 .filter(field -> field.fieldName().equals("invoiceId"))
                 .findFirst())
@@ -559,8 +584,9 @@ class PlatformModuleDefinitionCompilerTest {
             assertThat(ReferenceTargets.of(student)).isEqualTo(target);
             assertThat(definition.references()).singleElement().satisfies(reference -> {
                 assertThat(reference.target()).isEqualTo(target);
-                assertThat(reference.projections()).containsExactly(new net.ximatai.muyun.spring.ability.reference.ReferenceProjection(
-                        "title", "studentTitle"));
+                assertThat(reference.projections()).containsExactly(
+                        new net.ximatai.muyun.spring.ability.reference.ReferenceProjection("title", "studentIdTitle"),
+                        new net.ximatai.muyun.spring.ability.reference.ReferenceProjection("title", "studentTitle"));
             });
             assertThat(definition.associationViews()).isEmpty();
         } finally {

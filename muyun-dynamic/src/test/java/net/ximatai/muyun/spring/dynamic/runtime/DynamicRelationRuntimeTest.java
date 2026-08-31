@@ -14,6 +14,10 @@ import net.ximatai.muyun.spring.ability.deletion.DeletionNode;
 import net.ximatai.muyun.spring.ability.deletion.DeletionResource;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityRelationDefinition;
@@ -916,6 +920,42 @@ class DynamicRelationRuntimeTest {
             assertThat(row.getValue("invoiceId")).isEqualTo("invoice-1");
             assertThat(row.getValue("title")).isEqualTo("L-001");
         });
+    }
+
+    @Test
+    void shouldEnrichAggregateChildrenAfterParentViewEvenWhenChildQueryScopeExcludesThem() {
+        IDatabaseOperations<Object> operations = operations();
+        stubInvoiceRows(operations);
+        DataScopeCriteriaService scopes = new DataScopeCriteriaService() {
+            @Override
+            public DataScopeCriteriaResult resolveReadScope(String moduleAlias,
+                                                            String actionCode,
+                                                            net.ximatai.muyun.database.core.orm.Criteria criteria,
+                                                            java.util.Optional<net.ximatai.muyun.spring.common.identity.CurrentUser> currentUser) {
+                return PlatformAction.VIEW.code().equals(actionCode)
+                        ? DataScopeCriteriaResult.restricted(criteria.eq("id", "invoice-1"))
+                        : DataScopeCriteriaResult.restricted(criteria.eq("id", "query-blocked"));
+            }
+
+            @Override
+            public DataScopeCriteriaResult resolveReadScope(String moduleAlias,
+                                                            ActionExecutionPolicy policy,
+                                                            net.ximatai.muyun.database.core.orm.Criteria criteria,
+                                                            java.util.Optional<net.ximatai.muyun.spring.common.identity.CurrentUser> currentUser) {
+                return resolveReadScope(moduleAlias, policy.permissionActionCode(), criteria, currentUser);
+            }
+        };
+        DynamicRecordService service = new DynamicRecordService(
+                new DynamicRecordRuntime(operations).register(invoiceModule()),
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService(), scopes);
+
+        assertThat(service.list(MODULE, "invoice_line", net.ximatai.muyun.database.core.orm.Criteria.of(),
+                net.ximatai.muyun.database.core.orm.PageRequest.of(1, 20))).isEmpty();
+        assertThat(service.aggregateChildrenForView(MODULE, "invoice-1", "lines"))
+                .singleElement().satisfies(line -> {
+                    assertThat(line.getId()).isEqualTo("line-1");
+                    assertThat(line.getValue("invoiceTitle")).isEqualTo("I-001");
+                });
     }
 
     @Test

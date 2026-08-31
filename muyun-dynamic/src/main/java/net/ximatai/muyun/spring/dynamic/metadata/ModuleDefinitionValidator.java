@@ -1024,6 +1024,7 @@ public class ModuleDefinitionValidator {
         EntityDefinition targetEntity = moduleAlias != null && moduleAlias.equals(target.moduleAlias())
                 ? requireEntity(entities, target.entityAlias(), "reference target entity")
                 : null;
+        validateReferenceTargetFields(reference, target, targetEntity);
         validateSelectionProjections(plan, target, entities, moduleAlias, references);
         if (!reference.projections().isEmpty()) {
             if (targetEntity != null) {
@@ -1040,6 +1041,31 @@ public class ModuleDefinitionValidator {
             }
         }
         validateReferenceInteractionRules(reference, source, target, entities, moduleAlias);
+    }
+
+    /**
+     * For a local dynamic target, an alternative persisted key is only safe when metadata can
+     * prove it is tenant-unique.  Foreign/static targets validate the same fact through their
+     * reference facade at runtime because this module does not own their schema.
+     */
+    private void validateReferenceTargetFields(EntityReferenceDefinition reference,
+                                               ReferenceTarget target,
+                                               EntityDefinition targetEntity) {
+        if (targetEntity == null) return;
+        String keyField = reference.plan().targetKeyField();
+        if (!StandardEntitySchema.ID_FIELD.equals(keyField)) {
+            requireField(targetEntity, keyField, "reference target key field");
+            boolean unique = targetEntity.resolvedTenantUniqueConstraints().stream()
+                    .anyMatch(constraint -> constraint.fieldNames().equals(List.of(keyField)));
+            if (!unique) {
+                throw new ModuleDefinitionException("reference target key field must be tenant-unique: "
+                        + target.qualifiedName() + "." + keyField);
+            }
+        }
+        String labelField = reference.plan().targetLabelField();
+        if (labelField != null) {
+            requireField(targetEntity, labelField, "reference target label field");
+        }
     }
 
     /**

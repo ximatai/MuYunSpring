@@ -31,11 +31,13 @@ import org.junit.jupiter.api.AfterEach;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
@@ -88,6 +90,74 @@ class DynamicEntityServiceReferenceReadTest {
         assertThat(records).extracting(record -> record.getValue("contractTitle"))
                 .containsExactly("合同一", "合同二");
         verify(targetAbility, times(1)).projections(List.of("contract-1", "contract-2"), List.of("title"));
+    }
+
+    @Test
+    void shouldBatchDynamicListReferenceReadsByConfiguredStaticTargetKey() {
+        ReferenceTarget target = ReferenceTarget.of("education", "student");
+        EntityDefinition line = new EntityDefinition("line", "exam_line", "考试明细", List.of(
+                FieldDefinition.string("studentNo", "学号").column("student_no")));
+        EntityReferenceDefinition definition = EntityReferenceDefinition.to("line", "studentNo", target)
+                .withProjection("displayName", "studentName")
+                .withRuntimeConfig("studentNo", "displayName", null, null, java.util.Set.of());
+        ModuleDefinition module = ModuleDefinition.builder("education.exam", "考试")
+                .entities(List.of(line)).references(List.of(definition)).build();
+        DynamicRecord first = new DynamicRecord(line).setValue("studentNo", "S-001");
+        DynamicRecord second = new DynamicRecord(line).setValue("studentNo", "S-002");
+        DynamicRecordDao sourceDao = mock(DynamicRecordDao.class);
+        when(sourceDao.getEntity()).thenReturn(line);
+        when(sourceDao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(List.of(first, second));
+        @SuppressWarnings("unchecked") ReferenceAbility<?> student = mock(ReferenceAbility.class);
+        doReturn(StandardTitledEntity.class).when(student).modelClass();
+        when(student.projections(eq(definition.plan()), eq(List.of("S-001", "S-002")), eq(List.of("displayName"))))
+                .thenReturn(Map.of("S-001", Map.of("displayName", "张三"),
+                        "S-002", Map.of("displayName", "李四")));
+        when(student.referenceLabels(eq(definition.plan()), eq(List.of("S-001"))))
+                .thenReturn(Map.of("S-001", "张三"));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(reference -> target.equals(reference)
+                ? java.util.Optional.of(student) : java.util.Optional.empty());
+        DynamicEntityService service = new DynamicEntityService(sourceDao, "education.exam", DynamicRecordLifecycle.NONE,
+                module, ignored -> { throw new IllegalStateException("relations are not used"); },
+                ignored -> { throw new net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException("static target"); },
+                null, DynamicFieldValueValidator.NONE, FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE,
+                new PlatformTimeService());
+
+        List<DynamicRecord> records = service.list(Criteria.of(), PageRequest.of(1, 20));
+        service.beforeInsert(new DynamicRecord(line).setValue("studentNo", "S-001"));
+
+        assertThat(records).extracting(record -> record.getValue("studentName")).containsExactly("张三", "李四");
+        verify(student).projections(eq(definition.plan()), eq(List.of("S-001", "S-002")), eq(List.of("displayName")));
+        verify(student).referenceLabels(eq(definition.plan()), eq(List.of("S-001")));
+    }
+
+    @Test
+    void shouldCollectConfiguredDynamicReferenceKeyDependenciesByTargetRecordId() {
+        ReferenceTarget target = ReferenceTarget.of("education", "student");
+        EntityDefinition line = new EntityDefinition("line", "exam_line", "考试明细", List.of(
+                FieldDefinition.string("studentNo", "学号").column("student_no")));
+        EntityReferenceDefinition definition = EntityReferenceDefinition.to("line", "studentNo", target)
+                .withRuntimeConfig("studentNo", "displayName", null, null, java.util.Set.of());
+        ModuleDefinition module = ModuleDefinition.builder("education.exam", "考试")
+                .entities(List.of(line)).references(List.of(definition)).build();
+        DynamicRecordDao sourceDao = mock(DynamicRecordDao.class);
+        when(sourceDao.getEntity()).thenReturn(line);
+        @SuppressWarnings("unchecked") ReferenceAbility<?> student = mock(ReferenceAbility.class);
+        when(student.referenceRecordIds(eq(definition.plan()), eq(List.of("S-001"))))
+                .thenReturn(Map.of("S-001", "student-record-17"));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(reference -> target.equals(reference)
+                ? java.util.Optional.of(student) : java.util.Optional.empty());
+        DynamicEntityService service = new DynamicEntityService(sourceDao, "education.exam", DynamicRecordLifecycle.NONE,
+                module, ignored -> { throw new IllegalStateException("relations are not used"); },
+                ignored -> { throw new net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException("static target"); },
+                null, DynamicFieldValueValidator.NONE, FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE,
+                new PlatformTimeService());
+
+        Map<ReferenceTarget, Set<String>> dependencies = service.collectReferenceIdsByTarget(
+                new DynamicRecord(line).setValue("studentNo", "S-001"));
+
+        assertThat(dependencies).containsEntry(target, Set.of("student-record-17"));
+        verify(student).referenceRecordIds(eq(definition.plan()), eq(List.of("S-001")));
     }
 
     @Test

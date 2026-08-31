@@ -106,3 +106,55 @@ it('keeps field and capability changes local until a future change-set facade ap
   session.cancel();
   expect(session.editing.value).toBe(false);
 });
+
+it('stages a reference property with its field and carries the binding through the one change set', () => {
+  const session = createMetadataModelEditSession();
+  session.begin('metadata-1', 'relation-1', 3, [], [], []);
+
+  session.stageField(
+    {
+      fieldName: 'subjectCategoryId',
+      columnName: 'subject_category_id',
+      fieldSpecAlias: 'string',
+      fieldOwnership: 'BUSINESS',
+      fieldForm: 'PHYSICAL',
+    },
+    {
+      kind: 'MODULE_REFERENCE',
+      referenceConfig: {
+        targetModuleAlias: 'education.subject_category',
+        targetKeyField: 'code',
+        targetLabelField: 'name',
+        cardinality: 'ONE',
+        targetUnavailablePolicy: 'RESTRICT',
+        projectionMappings: ['name:subjectCategoryIdTitle'],
+      },
+    },
+  );
+
+  const proposal = session.buildProposal();
+  expect(proposal?.fieldDrafts).toEqual([
+    {
+      operation: 'ADD',
+      field: {
+        fieldName: 'subjectCategoryId',
+        columnName: 'subject_category_id',
+        fieldSpecAlias: 'string',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      },
+      property: {
+        kind: 'MODULE_REFERENCE',
+        referenceConfig: {
+          targetModuleAlias: 'education.subject_category',
+          targetKeyField: 'code',
+          targetLabelField: 'name',
+          cardinality: 'ONE',
+          targetUnavailablePolicy: 'RESTRICT',
+          projectionMappings: ['name:subjectCategoryIdTitle'],
+        },
+      },
+    },
+  ]);
+  expect(JSON.stringify(proposal)).toContain('"projectionMappings":["name:subjectCategoryIdTitle"]');
+});

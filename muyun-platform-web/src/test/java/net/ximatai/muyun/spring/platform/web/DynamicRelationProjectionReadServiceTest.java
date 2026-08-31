@@ -54,6 +54,7 @@ class DynamicRelationProjectionReadServiceTest {
                         "tenantId", "tenant_a",
                         "version", 7,
                         "orderNo", "O-001",
+                        "customerId", "customer-1",
                         "customerTitle", "Acme"
                 )));
         when(jdbcOperations.queryForObject(any(String.class), any(Map.class), eq(Long.class)))
@@ -62,7 +63,7 @@ class DynamicRelationProjectionReadServiceTest {
         PageResult<DynamicRecord> page = service.queryList(
                 "crm.order",
                 recordService,
-                Set.of("orderNo", "customerTitle"),
+                Set.of("orderNo", "customerId"),
                 Criteria.of(),
                 PageRequest.of(1, 20)
         ).orElseThrow();
@@ -73,6 +74,7 @@ class DynamicRelationProjectionReadServiceTest {
             assertThat(record.getTenantId()).isEqualTo("tenant_a");
             assertThat(record.getVersion()).isEqualTo(7);
             assertThat(record.getValue("orderNo")).isEqualTo("O-001");
+            assertThat(record.getValue("customerId")).isEqualTo("customer-1");
             assertThat(record.getValue("customerTitle")).isEqualTo("Acme");
         });
         ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.captor();
@@ -80,6 +82,7 @@ class DynamicRelationProjectionReadServiceTest {
         assertThat(sqlCaptor.getValue())
                 .contains("left join \"public\".\"crm_customer\" \"customer_id\"")
                 .contains("\"tenantId\"", "\"version\"")
+                .contains("\"main\".\"customer_id\" as \"customerId\"")
                 .contains("\"customer_id\".\"title\" as \"customerTitle\"");
     }
 
@@ -166,6 +169,22 @@ class DynamicRelationProjectionReadServiceTest {
                 storageProtectedDynamicRecordService(),
                 Set.of("orderNo", "customerTitle")
         ).fallbackReason()).isEqualTo(ProjectionQueryFallbackReason.PROTECTED_FIELD);
+    }
+
+    @Test
+    void shouldFallbackToGenericReadWhenReferenceUsesNonIdStoredKey() {
+        DynamicRelationProjectionReadService service = new DynamicRelationProjectionReadService(
+                new RelationProjectionReadService(
+                        new RelationProjectionQueryExecutor(mock(NamedParameterJdbcOperations.class)),
+                        new RelationProjectionDatabaseTypeProvider()
+                )
+        );
+
+        assertThat(service.supportsListQuery(
+                "crm.order", nonIdKeyDynamicRecordService(), Set.of("orderNo", "customerId"))).isFalse();
+        assertThat(service.describeListQuery(
+                "crm.order", nonIdKeyDynamicRecordService(), Set.of("orderNo", "customerId"))
+                .fallbackReason()).isEqualTo(ProjectionQueryFallbackReason.NON_ID_REFERENCE_KEY);
     }
 
     @Test
@@ -265,6 +284,13 @@ class DynamicRelationProjectionReadServiceTest {
         return new DynamicRecordService(runtime);
     }
 
+    private DynamicRecordService nonIdKeyDynamicRecordService() {
+        DynamicRecordRuntime runtime = new DynamicRecordRuntime(mock(IDatabaseOperations.class));
+        runtime.register(nonIdKeyOrderModule());
+        runtime.register(customerModuleWithCode());
+        return new DynamicRecordService(runtime);
+    }
+
     private static final class TenantRestrictedDataScopeCriteriaService implements DataScopeCriteriaService {
         @Override
         public DataScopeCriteriaResult resolveReadScope(String moduleAlias,
@@ -325,6 +351,32 @@ class DynamicRelationProjectionReadServiceTest {
                         List.of(FieldDefinition.string("title", "客户名称").column("title"))
                 ))
         );
+    }
+
+    private ModuleDefinition nonIdKeyOrderModule() {
+        return ModuleDefinition.builder("crm.order", "订单")
+                .entities(List.of(new EntityDefinition(
+                        "order", "crm_order", "Order",
+                        List.of(
+                                FieldDefinition.string("customerId", "客户").column("customer_id"),
+                                FieldDefinition.string("orderNo", "订单号").column("order_no")
+                        )
+                )))
+                .relations(List.of())
+                .references(List.of(new EntityReferenceDefinition(
+                        "order", "customerId", "crm.customer.customer", ReferenceCardinality.ONE,
+                        List.of(new ReferenceProjection("title", "customerTitle"))
+                ).withRuntimeConfig("code", "title", null, null, Set.of())))
+                .build();
+    }
+
+    private ModuleDefinition customerModuleWithCode() {
+        return new ModuleDefinition(
+                "crm.customer", "客户", List.of(new EntityDefinition(
+                "customer", "crm_customer", "Customer", List.of(
+                        FieldDefinition.string("code", "客户编码").column("code").unique(),
+                        FieldDefinition.string("title", "客户名称").column("title")
+                ))));
     }
 
     private ModuleDefinition protectedCustomerModule() {

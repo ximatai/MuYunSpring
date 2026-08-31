@@ -5,6 +5,7 @@ import {
   RecordSelectionCheckbox,
   RecordStatusTag,
   UiModal,
+  loadOptionFieldItems,
   recordPickerModeOf,
   resolveRecordDetailDisplayValue,
   applyReferenceDependencyClears,
@@ -18,6 +19,7 @@ import {
   type RecordPickerRecord,
 } from '@muyun/platform-components';
 import type {
+  OptionItemDescriptor,
   ResolvedDetailRelationDescriptor,
   ResolvedModuleUiDescriptor,
   WebPageResponse,
@@ -80,6 +82,7 @@ const recycleBinRecords = ref<QueryListRecord[]>([]);
 const recycleBinSourceRecords = ref<QueryListRecord[]>([]);
 const recycleBinSelectedIds = ref(new Set<string>());
 const recoveredSourceIds = ref(new Set<string>());
+const optionItems = ref<Record<string, OptionItemDescriptor[]>>({});
 let draftSequence = 0;
 let recycleBinRequestSequence = 0;
 
@@ -122,6 +125,11 @@ const editingEnabled = computed(() =>
 const formFields = computed(() =>
   resolveRecordFormFields(props.uiDescriptor, props.relation.targetEntityAlias),
 );
+/**
+ * Reference projections are row-scoped presentation facts. Keep them out of the child draft so
+ * a read-only projection never becomes part of the aggregate mutation payload.
+ */
+const referenceProjectionValues = ref<Record<string, Record<string, Record<string, unknown>>>>({});
 const columns = computed(
   () => props.relation.listProjection?.fields ?? props.relation.queryContract?.listProjection?.fields ?? [],
 );
@@ -144,6 +152,7 @@ function pickerConfigsOf(row: DraftRow): Record<string, RecordFormFieldPickerCon
       id: item.id,
       title: item.title,
       ...(item.projections ?? {}),
+      projections: item.projections,
       affectPatch: item.affectPatch,
     });
     const sourceReferencePickerConfig: Pick<
@@ -160,8 +169,9 @@ function pickerConfigsOf(row: DraftRow): Record<string, RecordFormFieldPickerCon
         ...props.parentRecord,
         ...row,
       });
-      const source = () =>
-        props.parentRecord.id == null ? undefined : { recordId: String(props.parentRecord.id) };
+      // A child reference belongs to the row being edited, not to the aggregate parent. The row
+      // may be newly created, so do not send the parent's id as a child-source record id.
+      const source = () => undefined;
       sourceReferencePickerConfig.loadOptions = async (keyword: string) => {
         const response = await referenceResolver.resolve(fieldName, {
           mode: 'QUERY',
@@ -190,10 +200,16 @@ function pickerConfigsOf(row: DraftRow): Record<string, RecordFormFieldPickerCon
         return response.results.flatMap((result) => (result.item ? [pickerRecord(result.item)] : []));
       };
     }
-    const pickerContext = createModuleContext<RecordPickerRecord>({
-      http: props.crossModuleHttp ?? props.sourceContext.http,
-      moduleAlias: reference.targetModuleAlias,
-    });
+    // SOURCE_FIELD delegates every candidate operation to the declaring child field. Its
+    // picker must therefore use the already-ready source-module context; initializing a
+    // target-module runtime would issue an unrelated request and can surface a false load
+    // failure for entities that are not independently navigable modules.
+    const pickerContext: ModuleContext<RecordPickerRecord> = usesSourceReferenceResolver
+      ? (props.sourceContext as ModuleContext<RecordPickerRecord>)
+      : createModuleContext<RecordPickerRecord>({
+          http: props.crossModuleHttp ?? props.sourceContext.http,
+          moduleAlias: reference.targetModuleAlias,
+        });
     result[fieldName] = {
       context: pickerContext,
       mode: recordPickerModeOf(reference.pickerMode),
@@ -230,13 +246,44 @@ function fieldRequired(fieldName: string, row: QueryListRecord = {}) {
   return resolveRecordFormFieldState(fieldName, { fields: formFields.value, record: row }).required;
 }
 
+function displayRecord(row: DraftRow | QueryListRecord): RecordFormRecord {
+  const rowKey = (row as DraftRow).__draftKey;
+  return {
+    ...row,
+    ...Object.values(referenceProjectionValues.value[rowKey] ?? {}).reduce<Record<string, unknown>>(
+      (merged, projections) => ({ ...merged, ...projections }),
+      {},
+    ),
+  };
+}
+
 function displayValue(row: DraftRow | QueryListRecord, fieldName: string) {
   const field = resolveRecordFormFieldState(fieldName, {
     fields: formFields.value,
-    record: row as RecordFormRecord,
+    record: displayRecord(row),
   });
-  const value = resolveRecordDetailDisplayValue(field, row as RecordFormRecord);
+  const value = resolveRecordDetailDisplayValue(field, displayRecord(row), {
+    optionItems: optionItems.value[fieldName],
+  });
   return value === 'true' ? '是' : value === 'false' ? '否' : value;
+}
+
+async function loadOptionFields() {
+  for (const field of formFields.value.values()) {
+    if (!field.option || field.option.inlineItems?.length) continue;
+    try {
+      optionItems.value = {
+        ...optionItems.value,
+        [field.fieldRef.fieldName]: await loadOptionFieldItems(
+          props.sourceContext,
+          field.fieldRef.fieldName,
+          props.relation.targetEntityAlias,
+        ),
+      };
+    } catch {
+      // Keep the persisted code visible if the option source is temporarily unavailable.
+    }
+  }
 }
 
 function statusField(fieldName: string, row: DraftRow | QueryListRecord) {
@@ -289,6 +336,7 @@ async function load() {
   if (!embedded.value || !field) throw new Error('inline relation requires an embedded child field');
   const records = Array.isArray(props.parentRecord[field]) ? props.parentRecord[field] : [];
   rows.value = records.map((record) => toDraftRow(record as QueryListRecord));
+  referenceProjectionValues.value = {};
   removed.value = [];
   selectedKeys.value = new Set();
   fieldValidity.value = {};
@@ -478,6 +526,20 @@ function updateField(row: DraftRow, fieldName: string, value: RecordFormFieldVal
   publishDraft();
 }
 
+function updateReferenceProjections(
+  row: DraftRow,
+  fieldName: string,
+  projections: Record<string, unknown>,
+) {
+  const rowProjections = { ...(referenceProjectionValues.value[row.__draftKey] ?? {}) };
+  if (Object.keys(projections).length === 0) {
+    delete rowProjections[fieldName];
+  } else {
+    rowProjections[fieldName] = projections;
+  }
+  referenceProjectionValues.value = { ...referenceProjectionValues.value, [row.__draftKey]: rowProjections };
+}
+
 function updateValidity(row: DraftRow, fieldName: string, value: boolean) {
   fieldValidity.value = {
     ...fieldValidity.value,
@@ -495,6 +557,11 @@ watch(removed, (value) => emit('removed-count-change', value.length), { immediat
 watch(
   () => [parentId.value, props.relation.code, props.reloadKey, props.mutationEnabled],
   () => void load(),
+);
+watch(
+  () => [props.uiDescriptor, props.relation.targetEntityAlias],
+  () => void loadOptionFields(),
+  { immediate: true },
 );
 watch(
   () => props.addRequestKey,
@@ -575,17 +642,19 @@ onMounted(() => void load());
               }"
             >
               <RecordFormFields
-                v-if="editingEnabled"
-                :record="row as RecordFormRecord"
+                v-if="editingEnabled && formFields.has(column.fieldName)"
+                :record="displayRecord(row)"
                 :fields="formFields"
                 :field-names="[column.fieldName]"
                 :picker-configs="pickerConfigsOf(row)"
                 :option-context="sourceContext"
+                :option-entity-alias="relation.targetEntityAlias"
                 :form-session-key="row.__draftKey"
                 :disabled="row.id != null && !updateAllowed"
                 :show-labels="false"
                 compact
                 @update:field="(fieldName, value) => updateField(row, fieldName, value)"
+                @reference-projections-change="(fieldName, projections) => updateReferenceProjections(row, fieldName, projections)"
                 @validity-change="updateValidity(row, column.fieldName, $event.valid)"
               />
               <RecordStatusTag

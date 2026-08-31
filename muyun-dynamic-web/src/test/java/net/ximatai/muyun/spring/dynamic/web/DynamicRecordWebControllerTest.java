@@ -3902,6 +3902,8 @@ class DynamicRecordWebControllerTest {
     private MockMvc projectionMvc(PlatformPageConfigSnapshotService snapshotService,
                                   ModuleMetadataFieldService moduleFieldService,
                                   DynamicRelationProjectionReadService projectionReadService) {
+        when(projectionReadService.resolveListOutputFields(eq(MODULE), eq(service), any()))
+                .thenAnswer(invocation -> invocation.getArgument(2));
         return MockMvcBuilders
                 .standaloneSetup(controllerFixture(service, activeTenantVerifier)
                         .codePreview(codeBusinessPreviewService)

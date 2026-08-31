@@ -17,6 +17,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,6 +48,19 @@ public class DynamicRelationProjectionReadService {
         return describeListQuery(moduleAlias, recordService, outputFields).supported();
     }
 
+    /**
+     * Resolves the complete web read contract for selected dynamic fields, including declared
+     * reference presentation companions. Both SQL and ordinary record reads must use this set.
+     */
+    public Set<String> resolveListOutputFields(String moduleAlias,
+                                               DynamicRecordService recordService,
+                                               Set<String> outputFields) {
+        if (recordService == null || outputFields == null || outputFields.isEmpty()) {
+            return outputFields == null ? Set.of() : Set.copyOf(outputFields);
+        }
+        return withReferencePresentationFields(recordService.moduleDefinitions(), moduleAlias, outputFields);
+    }
+
     public ProjectionQueryDescriptor describeListQuery(String moduleAlias,
                                                        DynamicRecordService recordService,
                                                        Set<String> outputFields) {
@@ -57,12 +71,16 @@ public class DynamicRelationProjectionReadService {
             return ProjectionQueryDescriptor.unsupported(moduleAlias, "dynamic_ui_config_list",
                     outputFields, ProjectionQueryFallbackReason.MISSING_PROJECTION);
         }
-        RecordReadProjection projection = projection(moduleAlias, outputFields);
         List<ModuleDefinition> dynamicDefinitions = recordService.moduleDefinitions();
-        if (hasProtectedProjectionFields(dynamicDefinitions, moduleAlias, outputFields)) {
+        Set<String> resolvedOutputFields = resolveListOutputFields(moduleAlias, recordService, outputFields);
+        RecordReadProjection projection = projection(moduleAlias, resolvedOutputFields);
+        if (hasNonIdReferenceKey(dynamicDefinitions, moduleAlias)) {
+            return ProjectionQueryDescriptor.unsupported(projection, ProjectionQueryFallbackReason.NON_ID_REFERENCE_KEY);
+        }
+        if (hasProtectedProjectionFields(dynamicDefinitions, moduleAlias, resolvedOutputFields)) {
             return ProjectionQueryDescriptor.unsupported(projection, ProjectionQueryFallbackReason.PROTECTED_FIELD);
         }
-        if (!supportsOutputFields(dynamicDefinitions, moduleAlias, outputFields)) {
+        if (!supportsOutputFields(dynamicDefinitions, moduleAlias, resolvedOutputFields)) {
             return ProjectionQueryDescriptor.unsupported(projection,
                     ProjectionQueryFallbackReason.UNSUPPORTED_OUTPUT_FIELD);
         }
@@ -88,10 +106,14 @@ public class DynamicRelationProjectionReadService {
             return Optional.empty();
         }
         List<ModuleDefinition> dynamicDefinitions = recordService.moduleDefinitions();
-        if (hasProtectedProjectionFields(dynamicDefinitions, moduleAlias, outputFields)) {
+        Set<String> resolvedOutputFields = resolveListOutputFields(moduleAlias, recordService, outputFields);
+        if (hasNonIdReferenceKey(dynamicDefinitions, moduleAlias)) {
             return Optional.empty();
         }
-        if (!supportsOutputFields(dynamicDefinitions, moduleAlias, outputFields)) {
+        if (hasProtectedProjectionFields(dynamicDefinitions, moduleAlias, resolvedOutputFields)) {
+            return Optional.empty();
+        }
+        if (!supportsOutputFields(dynamicDefinitions, moduleAlias, resolvedOutputFields)) {
             return Optional.empty();
         }
         List<StaticModuleDefinition> definitions = DynamicRelationProjectionDefinitionAdapter.adapt(dynamicDefinitions);
@@ -99,7 +121,7 @@ public class DynamicRelationProjectionReadService {
         if (definition == null) {
             return Optional.empty();
         }
-        RecordReadProjection projection = projection(moduleAlias, outputFields);
+        RecordReadProjection projection = projection(moduleAlias, resolvedOutputFields);
         PageResult<Map<String, Object>> page = recordService.withQueryReadScope(moduleAlias, criteria,
                 scopedCriteria -> relationProjectionReadService.queryListWithInternalFields(
                         definitions,
@@ -139,6 +161,45 @@ public class DynamicRelationProjectionReadService {
                 .map(ReferenceProjection::outputField)
                 .forEach(supportedFields::add);
         return supportedFields.containsAll(outputFields);
+    }
+
+    /**
+     * The SQL relation-projection planner joins source values to target primary keys.  A
+     * configured alternate reference key is valid at runtime, but must use the generic record
+     * read path until that planner has an explicit target-key join contract.
+     */
+    private boolean hasNonIdReferenceKey(List<ModuleDefinition> definitions, String moduleAlias) {
+        ModuleDefinition definition = dynamicDefinition(definitions, moduleAlias);
+        if (definition == null) return false;
+        EntityDefinition mainEntity = mainEntity(definition);
+        return definition.references().stream()
+                .filter(reference -> mainEntity.alias().equals(reference.sourceEntityAlias()))
+                .filter(reference -> reference.cardinality() == ReferenceCardinality.ONE)
+                .anyMatch(reference -> !"id".equals(reference.plan().targetKeyField()));
+    }
+
+    /**
+     * A list selects its business field, while the read model must also return the presentation
+     * companion declared by that field's reference. This keeps the SQL projection path aligned
+     * with the generic web cells instead of degrading a reference into its stored ID.
+     */
+    private Set<String> withReferencePresentationFields(List<ModuleDefinition> definitions,
+                                                        String moduleAlias,
+                                                        Set<String> outputFields) {
+        LinkedHashSet<String> fields = new LinkedHashSet<>(outputFields);
+        ModuleDefinition definition = dynamicDefinition(definitions, moduleAlias);
+        if (definition == null) {
+            return java.util.Collections.unmodifiableSet(fields);
+        }
+        EntityDefinition mainEntity = mainEntity(definition);
+        definition.references().stream()
+                .filter(reference -> mainEntity.alias().equals(reference.sourceEntityAlias()))
+                .filter(reference -> reference.cardinality() == ReferenceCardinality.ONE)
+                .filter(reference -> fields.contains(reference.sourceField()))
+                .flatMap(reference -> reference.projections().stream())
+                .map(ReferenceProjection::outputField)
+                .forEach(fields::add);
+        return java.util.Collections.unmodifiableSet(fields);
     }
 
     private StaticModuleDefinition staticDefinition(List<StaticModuleDefinition> definitions, String moduleAlias) {

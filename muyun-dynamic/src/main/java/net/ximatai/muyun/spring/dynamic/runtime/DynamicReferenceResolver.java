@@ -10,7 +10,6 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
 import net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjectionReader;
 import net.ximatai.muyun.spring.common.model.title.TitleFieldResolver;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
-import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceAffectDefinition;
 
 import java.util.LinkedHashMap;
@@ -69,6 +68,7 @@ final class DynamicReferenceResolver {
     private DynamicReferenceResolveResponse query(DynamicReferenceResolveRequest request) {
         if (dynamicTargetService != null) {
             PageResult<DynamicRecord> page = dynamicTargetService.pageQuery(queryCriteria(request), request.pageRequest());
+            requireUniqueDynamicKeys(page.getRecords());
             Map<String, Map<String, Object>> selectionProjections = dynamicSelectionProjections(page.getRecords(), request.includeProjections());
             List<DynamicReferenceResolveItem> items = page.getRecords().stream()
                     .map(record -> dynamicItem(record, matchedBy(record, request.fuzzy(), request.matchMode()),
@@ -77,7 +77,7 @@ final class DynamicReferenceResolver {
             return new DynamicReferenceResolveResponse(resolveQueryStatus(page.getTotal()), DynamicReferenceResolveMode.QUERY,
                     items, List.of(), request.pageRequest().getOffset(), request.pageRequest().getLimit(), page.getTotal());
         }
-        PageResult<ReferenceOption> page = targetAbility.referenceOptions(queryCriteria(request), request.pageRequest());
+        PageResult<ReferenceOption> page = referenceOptions(queryCriteria(request), request.pageRequest());
         return new DynamicReferenceResolveResponse(
                 resolveQueryStatus(page.getTotal()), DynamicReferenceResolveMode.QUERY,
                 items(page.getRecords(), request.fuzzy(), request.matchMode(), request.includeProjections()), List.of(),
@@ -107,12 +107,13 @@ final class DynamicReferenceResolver {
                                                       DynamicReferenceMatchMode matchMode) {
         Criteria criteria = baseCriteria(request.criteria());
         if (matchMode == DynamicReferenceMatchMode.KEY) {
-            criteria.eq(StandardEntitySchema.ID_FIELD, value);
+            criteria.eq(plan.targetKeyField(), value);
         } else {
             criteria.eq(titleFieldName(), value);
         }
         if (dynamicTargetService != null) {
             PageResult<DynamicRecord> page = dynamicTargetService.pageQuery(criteria, request.pageRequest());
+            requireUniqueDynamicKeys(page.getRecords());
             if (page.getTotal() == 0) {
                 return new DynamicReferenceResolveResult(value, DynamicReferenceResolveStatus.NOT_FOUND, matchMode, null, List.of());
             }
@@ -128,7 +129,7 @@ final class DynamicReferenceResolver {
                     page.getRecords().stream().map(record -> dynamicItem(record, matchMode, request.includeProjections(),
                             selectionProjections.get(record.getId()))).toList());
         }
-        PageResult<ReferenceOption> page = targetAbility.referenceOptions(criteria, request.pageRequest());
+        PageResult<ReferenceOption> page = referenceOptions(criteria, request.pageRequest());
         if (page.getTotal() == 0) {
             return new DynamicReferenceResolveResult(value, DynamicReferenceResolveStatus.NOT_FOUND, matchMode, null, List.of());
         }
@@ -146,10 +147,10 @@ final class DynamicReferenceResolver {
         Criteria criteria = baseCriteria(request.criteria());
         String fuzzy = request.fuzzy();
         if (fuzzy == null || fuzzy.isBlank()) return criteria;
-        if (request.matchMode() == DynamicReferenceMatchMode.KEY) return criteria.eq(StandardEntitySchema.ID_FIELD, fuzzy);
+        if (request.matchMode() == DynamicReferenceMatchMode.KEY) return criteria.eq(plan.targetKeyField(), fuzzy);
         if (request.matchMode() == DynamicReferenceMatchMode.LABEL) return criteria.like(titleFieldName(), fuzzy);
         return criteria.andGroup(group -> group
-                .or(StandardEntitySchema.ID_FIELD, net.ximatai.muyun.database.core.orm.CriteriaOperator.EQ, fuzzy)
+                .or(plan.targetKeyField(), net.ximatai.muyun.database.core.orm.CriteriaOperator.EQ, fuzzy)
                 .or(titleFieldName(), net.ximatai.muyun.database.core.orm.CriteriaOperator.LIKE, fuzzy));
     }
 
@@ -166,9 +167,9 @@ final class DynamicReferenceResolver {
         if (options == null || options.isEmpty()) return List.of();
         List<String> ids = options.stream().map(ReferenceOption::id).toList();
         Map<String, Map<String, Object>> values = targetValues(ids, includeProjections);
-        Map<String, Map<String, Object>> selectionProjections = selectionProjections(ids, includeProjections);
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(options, includeProjections);
         return options.stream().map(option -> item(option, matchedBy(option, fuzzy, requested), includeProjections,
-                values.get(option.id()), selectionProjections.get(option.id()))).toList();
+                values.get(option.id()), selectionProjections.get(option.recordId()))).toList();
     }
 
     private DynamicReferenceResolveItem item(ReferenceOption option,
@@ -184,7 +185,7 @@ final class DynamicReferenceResolver {
                                                     DynamicReferenceMatchMode matchedBy,
                                                     boolean includeProjections,
                                                     Map<String, Object> selectionProjections) {
-        return new DynamicReferenceResolveItem(record.getId(), dynamicTargetService.referenceTitle(record), matchedBy,
+        return new DynamicReferenceResolveItem(dynamicKey(record), dynamicLabel(record), matchedBy,
                 dynamicProjectionValues(record, includeProjections, selectionProjections), dynamicAffectPatch(record));
     }
 
@@ -220,7 +221,10 @@ final class DynamicReferenceResolver {
             plan.projections().forEach(projection -> fieldNames.add(projection.targetField()));
         }
         affects.forEach(affect -> fieldNames.add(affect.referenceField()));
-        return fieldNames.isEmpty() ? Map.of() : targetAbility.projections(ids, List.copyOf(fieldNames));
+        if (fieldNames.isEmpty()) return Map.of();
+        return plan.usesDefaultTargetFields()
+                ? targetAbility.projections(ids, List.copyOf(fieldNames))
+                : targetAbility.projections(plan, ids, List.copyOf(fieldNames));
     }
 
     private Map<String, Object> projectionValues(Map<String, Object> targetValues,
@@ -235,9 +239,9 @@ final class DynamicReferenceResolver {
         return values;
     }
 
-    private Map<String, Map<String, Object>> selectionProjections(List<String> ids, boolean includeProjections) {
-        if (!includeProjections || plan.selectionProjections().isEmpty() || ids.isEmpty()) return Map.of();
-        return ReferenceSelectionProjectionReader.read(plan.target(), ids, plan.selectionProjections(),
+    private Map<String, Map<String, Object>> selectionProjections(List<ReferenceOption> options, boolean includeProjections) {
+        if (!includeProjections || plan.selectionProjections().isEmpty() || options.isEmpty()) return Map.of();
+        return ReferenceSelectionProjectionReader.read(plan.target(), options.stream().map(ReferenceOption::recordId).toList(), plan.selectionProjections(),
                 sourceService.referenceTargetResolver());
     }
 
@@ -274,7 +278,31 @@ final class DynamicReferenceResolver {
         if (requested != DynamicReferenceMatchMode.AUTO || fuzzy == null || fuzzy.isBlank()) {
             return requested == DynamicReferenceMatchMode.AUTO ? DynamicReferenceMatchMode.LABEL : requested;
         }
-        return Objects.equals(record.getId(), fuzzy) ? DynamicReferenceMatchMode.KEY : DynamicReferenceMatchMode.LABEL;
+        return Objects.equals(dynamicKey(record), fuzzy) ? DynamicReferenceMatchMode.KEY : DynamicReferenceMatchMode.LABEL;
+    }
+
+    private String dynamicKey(DynamicRecord record) {
+        Object value = "id".equals(plan.targetKeyField()) ? record.getId() : record.getValue(plan.targetKeyField());
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private String dynamicLabel(DynamicRecord record) {
+        if (plan.targetLabelField() == null) return dynamicTargetService.referenceTitle(record);
+        Object value = dynamicTargetService.maskProtectedValue(plan.targetLabelField(),
+                record.getValue(plan.targetLabelField()), net.ximatai.muyun.spring.common.security.FieldOutputContext.REFERENCE);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private void requireUniqueDynamicKeys(List<DynamicRecord> records) {
+        if (plan.usesDefaultTargetFields()) return;
+        LinkedHashSet<String> values = new LinkedHashSet<>();
+        for (DynamicRecord record : records) {
+            String key = dynamicKey(record);
+            if (!values.add(key)) {
+                throw new net.ximatai.muyun.spring.common.exception.PlatformException("reference target key is not unique: "
+                        + plan.target().qualifiedName() + "." + plan.targetKeyField() + "=" + key);
+            }
+        }
     }
 
     private DynamicReferenceResolveStatus resolveQueryStatus(long total) {
@@ -294,7 +322,14 @@ final class DynamicReferenceResolver {
     }
 
     private String titleFieldName() {
+        if (plan.targetLabelField() != null) return plan.targetLabelField();
         if (dynamicTargetService != null) return PlatformAbilityFields.TITLE_FIELD;
         return TitleFieldResolver.resolveFieldName(targetAbility.modelClass()).orElse(PlatformAbilityFields.TITLE_FIELD);
+    }
+
+    private PageResult<ReferenceOption> referenceOptions(Criteria criteria, PageRequest pageRequest) {
+        return plan.usesDefaultTargetFields()
+                ? targetAbility.referenceOptions(criteria, pageRequest)
+                : targetAbility.referenceOptions(plan, criteria, pageRequest);
     }
 }

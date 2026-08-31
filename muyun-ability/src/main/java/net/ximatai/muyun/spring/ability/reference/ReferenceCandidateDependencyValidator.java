@@ -20,8 +20,12 @@ public final class ReferenceCandidateDependencyValidator {
         if (entity == null || ids == null || ids.isEmpty() || dependencies.isEmpty()) {
             return;
         }
-        Map<String, Map<String, Object>> targets = target.projections(ids,
-                dependencies.stream().map(ReferenceCandidateDependency::targetField).toList());
+        List<String> fields = dependencies.stream().map(ReferenceCandidateDependency::targetField).toList();
+        // Keep existing id/title targets on their stable facade, while any configured alternate
+        // key is always resolved through the plan-aware projection contract.
+        Map<String, Map<String, Object>> targets = plan.usesDefaultTargetFields()
+                ? target.projections(ids, fields)
+                : target.projections(plan, ids, fields);
         for (String id : ids) {
             Map<String, Object> targetValues = targets.get(id);
             for (ReferenceCandidateDependency dependency : dependencies) {

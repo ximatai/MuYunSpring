@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassMember;
@@ -19,6 +20,8 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.metadata.Metadata;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfig;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfig;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
@@ -34,6 +37,11 @@ import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformBootstrapTask;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategory;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryKind;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryItem;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -52,7 +60,10 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
     private final PlatformModuleService moduleService;
     private final MetadataService metadataService;
     private final MetadataFieldService fieldService;
+    private final MetadataFieldConfigService fieldConfigService;
     private final MetadataFieldReferenceConfigService referenceConfigService;
+    private final DictionaryCategoryService dictionaryCategoryService;
+    private final DictionaryItemService dictionaryItemService;
     private final ModuleMetadataRelationService relationService;
     private final DynamicRecordService recordService;
     private final StudentService studentService;
@@ -66,7 +77,10 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
     public ExamDemoBootstrapTask(PlatformModuleService moduleService,
                                  MetadataService metadataService,
                                  MetadataFieldService fieldService,
+                                 MetadataFieldConfigService fieldConfigService,
                                  MetadataFieldReferenceConfigService referenceConfigService,
+                                 DictionaryCategoryService dictionaryCategoryService,
+                                 DictionaryItemService dictionaryItemService,
                                  ModuleMetadataRelationService relationService,
                                  DynamicRecordService recordService,
                                  StudentService studentService,
@@ -79,7 +93,10 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
         this.moduleService = moduleService;
         this.metadataService = metadataService;
         this.fieldService = fieldService;
+        this.fieldConfigService = fieldConfigService;
         this.referenceConfigService = referenceConfigService;
+        this.dictionaryCategoryService = dictionaryCategoryService;
+        this.dictionaryItemService = dictionaryItemService;
         this.relationService = relationService;
         this.recordService = recordService;
         this.studentService = studentService;
@@ -114,6 +131,9 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
                 runtimeRefreshService.refresh(MODULE_ALIAS);
             }
             try (TenantContext.Scope ignoredTenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+                // Dictionary values are tenant-scoped runtime data. Keep the same declared category
+                // available in the demonstration tenant before it validates the seeded records.
+                ensureAttendanceStatusDictionary();
                 Student firstStudent = ensureStudent("demo_student_1001", "S2026001", "陈晨", "高一");
                 Student secondStudent = ensureStudent("demo_student_1002", "S2026002", "林晓", "高一");
                 SubjectCategory mathematics = ensureSubjectCategory("demo_subject_mathematics", "mathematics", "数学",
@@ -140,19 +160,24 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
                 "学科", true, false);
         ensureField(exam.getId(), "examDate", "exam_date", "date", "考试日期", true, false);
         ModuleMetadataRelation main = ensureMainRelation(exam.getId());
-        ensureStaticReference(classroomId, main, ClassroomService.MODULE_ALIAS, "classCode:classroomCode");
-        ensureStaticReference(subjectCategoryId, main, SubjectCategoryService.MODULE_ALIAS, "code:subjectCategoryCode");
+        ensureStaticReference(classroomId, main, ClassroomService.MODULE_ALIAS,
+                "title:classroomIdTitle,classCode:classroomCode");
+        ensureStaticReference(subjectCategoryId, main, SubjectCategoryService.MODULE_ALIAS,
+                "title:subjectCategoryIdTitle,code:subjectCategoryCode");
 
         Metadata participant = ensureMetadata(PARTICIPANT_METADATA_ALIAS, "参考学生", "education_exam_participant");
         ensureField(participant.getId(), "examId", "exam_id", "string", "考试", true, false);
         MetadataField studentId = ensureField(participant.getId(), "studentId", "student_id", "string", "学生", true,
                 false);
         ensureField(participant.getId(), "score", "score", "decimal", "成绩", false, false);
-        ensureField(participant.getId(), "attendanceStatus", "attendance_status", "string", "参考状态", true, false);
+        MetadataField attendanceStatus = ensureField(participant.getId(), "attendanceStatus", "attendance_status",
+                "string", "参加状态", true, false);
         ModuleMetadataRelation participants = ensureChildRelation(participant.getId(), main.getMetadataId());
         removeLegacyChildField(participant.getId(), "studentNo");
         removeLegacyChildField(participant.getId(), "studentName");
-        ensureStaticReference(studentId, participants, StudentService.MODULE_ALIAS, "studentNo:studentNo,title:studentTitle");
+        ensureStaticReference(studentId, participants, StudentService.MODULE_ALIAS, "studentNo:studentNo,title:studentIdTitle");
+        ensureAttendanceStatusDictionary();
+        ensureDictionaryBinding(attendanceStatus, participants);
     }
 
     private void ensureModule() {
@@ -231,7 +256,17 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
                                       String title, boolean required, boolean titleField) {
         MetadataField existing = fieldService.list(Criteria.of().eq("metadataId", metadataId).eq("fieldName", fieldName), ONE)
                 .stream().findFirst().orElse(null);
-        if (existing != null) return existing;
+        if (existing != null) {
+            if (!title.equals(existing.getTitle())
+                    || !Boolean.valueOf(required).equals(existing.getRequired())
+                    || !Boolean.valueOf(titleField).equals(existing.getTitleField())) {
+                existing.setTitle(title);
+                existing.setRequired(required);
+                existing.setTitleField(titleField);
+                fieldService.update(existing);
+            }
+            return existing;
+        }
         MetadataField field = new MetadataField();
         field.setMetadataId(metadataId);
         field.setFieldName(fieldName);
@@ -283,7 +318,15 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
                                        ModuleMetadataRelation relation,
                                        String targetModuleAlias,
                                        String projectionMappings) {
-        if (referenceConfigService.findForRelation(field.getId(), relation.getId()) != null) {
+        MetadataFieldReferenceConfig existing = referenceConfigService.findForRelation(field.getId(), relation.getId());
+        if (existing != null) {
+            if (targetModuleAlias.equals(existing.getTargetModuleAlias())
+                    && projectionMappings.equals(existing.getProjectionMappings())) {
+                return;
+            }
+            existing.setTargetModuleAlias(targetModuleAlias);
+            existing.setProjectionMappings(projectionMappings);
+            referenceConfigService.update(existing);
             return;
         }
         MetadataFieldReferenceConfig config = new MetadataFieldReferenceConfig();
@@ -292,6 +335,64 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
         config.setTargetModuleAlias(targetModuleAlias);
         config.setProjectionMappings(projectionMappings);
         referenceConfigService.insert(config);
+    }
+
+    private void ensureAttendanceStatusDictionary() {
+        DictionaryCategory category = dictionaryCategoryService.list(Criteria.of()
+                        .eq("applicationAlias", "education").eq("alias", "exam_attendance_status"), ONE)
+                .stream().findFirst().orElse(null);
+        if (category == null) {
+            category = new DictionaryCategory();
+            category.setApplicationAlias("education");
+            category.setAlias("exam_attendance_status");
+            category.setCategoryKind(DictionaryCategoryKind.DICTIONARY);
+            category.setParentId(TreeAbility.ROOT_ID);
+            category.setTitle("考试参加状态");
+            category.setEnabled(Boolean.TRUE);
+            category.setSortOrder(10);
+            category = dictionaryCategoryService.select(dictionaryCategoryService.insert(category));
+        }
+        ensureDictionaryItem(category, "ATTENDED", "已参加", 10);
+        ensureDictionaryItem(category, "ABSENT", "缺考", 20);
+    }
+
+    private void ensureDictionaryItem(DictionaryCategory category, String code, String title, int sortOrder) {
+        DictionaryItem existing = dictionaryItemService.list(Criteria.of()
+                        .eq("categoryId", category.getId()).eq("code", code), ONE)
+                .stream().findFirst().orElse(null);
+        if (existing != null) return;
+        DictionaryItem item = new DictionaryItem();
+        item.setCategoryId(category.getId());
+        item.setCategoryAlias(category.getAlias());
+        item.setCode(code);
+        item.setParentId(TreeAbility.ROOT_ID);
+        item.setTitle(title);
+        item.setEnabled(Boolean.TRUE);
+        item.setSortOrder(sortOrder);
+        dictionaryItemService.insert(item);
+    }
+
+    private void ensureDictionaryBinding(MetadataField field, ModuleMetadataRelation relation) {
+        MetadataFieldConfig config = fieldConfigService.findRelationOverride(field.getId(), relation.getId());
+        if (config == null) {
+            config = new MetadataFieldConfig();
+            config.setMetadataFieldId(field.getId());
+            config.setRelationId(relation.getId());
+            config.setDictionaryApplicationAlias("education");
+            config.setDictionaryCategoryAlias("exam_attendance_status");
+            config.setSelectionMode(OptionSelectionMode.SINGLE);
+            fieldConfigService.insert(config);
+            return;
+        }
+        if ("education".equals(config.getDictionaryApplicationAlias())
+                && "exam_attendance_status".equals(config.getDictionaryCategoryAlias())
+                && config.getSelectionMode() == OptionSelectionMode.SINGLE) {
+            return;
+        }
+        config.setDictionaryApplicationAlias("education");
+        config.setDictionaryCategoryAlias("exam_attendance_status");
+        config.setSelectionMode(OptionSelectionMode.SINGLE);
+        fieldConfigService.update(config);
     }
 
     /**

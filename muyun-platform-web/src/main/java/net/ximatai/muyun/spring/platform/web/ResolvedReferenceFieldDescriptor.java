@@ -11,7 +11,8 @@ public record ResolvedReferenceFieldDescriptor(String targetModuleAlias,
                                                ReferenceCandidateDelivery candidateDelivery,
                                                String resolvePath,
                                                java.util.List<net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependency> candidateDependencies,
-                                               java.util.List<ResolvedReferenceSelectionProjectionDescriptor> selectionProjections) {
+                                               java.util.List<ResolvedReferenceSelectionProjectionDescriptor> selectionProjections,
+                                               java.util.List<ResolvedReferenceDisplayProjectionDescriptor> displayProjections) {
     public ResolvedReferenceFieldDescriptor {
         targetModuleAlias = PlatformNameRules.requireModuleAlias(targetModuleAlias);
         cardinality = cardinality == null ? ReferenceCardinality.ONE : cardinality;
@@ -25,32 +26,34 @@ public record ResolvedReferenceFieldDescriptor(String targetModuleAlias,
                 : java.util.List.copyOf(candidateDependencies);
         selectionProjections = selectionProjections == null ? java.util.List.of()
                 : java.util.List.copyOf(selectionProjections);
+        displayProjections = displayProjections == null ? java.util.List.of()
+                : java.util.List.copyOf(displayProjections);
     }
 
     /** Compatibility constructor for descriptors without a picker contract. */
     public ResolvedReferenceFieldDescriptor(String targetModuleAlias, ReferenceCardinality cardinality,
                                             String titleField) {
         this(targetModuleAlias, cardinality, titleField, ReferencePickerMode.AUTO,
-                ReferenceCandidateDelivery.TARGET_NAVIGATOR, null, java.util.List.of(), java.util.List.of());
+                ReferenceCandidateDelivery.TARGET_NAVIGATOR, null, java.util.List.of(), java.util.List.of(), java.util.List.of());
     }
 
     public ResolvedReferenceFieldDescriptor(String targetModuleAlias, ReferenceCardinality cardinality,
                                             String titleField, ReferencePickerMode pickerMode) {
         this(targetModuleAlias, cardinality, titleField, pickerMode, ReferenceCandidateDelivery.TARGET_NAVIGATOR, null,
-                java.util.List.of(), java.util.List.of());
+                java.util.List.of(), java.util.List.of(), java.util.List.of());
     }
 
     /** Compatibility constructor for descriptors without a read-side title projection. */
     public ResolvedReferenceFieldDescriptor(String targetModuleAlias, ReferenceCardinality cardinality) {
         this(targetModuleAlias, cardinality, null, ReferencePickerMode.AUTO,
-                ReferenceCandidateDelivery.TARGET_NAVIGATOR, null, java.util.List.of(), java.util.List.of());
+                ReferenceCandidateDelivery.TARGET_NAVIGATOR, null, java.util.List.of(), java.util.List.of(), java.util.List.of());
     }
 
     public ResolvedReferenceFieldDescriptor(String targetModuleAlias, ReferenceCardinality cardinality,
                                             String titleField, ReferencePickerMode pickerMode,
                                             ReferenceCandidateDelivery candidateDelivery) {
         this(targetModuleAlias, cardinality, titleField, pickerMode, candidateDelivery, null, java.util.List.of(),
-                java.util.List.of());
+                java.util.List.of(), java.util.List.of());
     }
 
     /** Compatibility constructor for descriptors issued before candidate dependencies were explicit. */
@@ -58,6 +61,16 @@ public record ResolvedReferenceFieldDescriptor(String targetModuleAlias,
                                             String titleField, ReferencePickerMode pickerMode,
                                             ReferenceCandidateDelivery candidateDelivery, String resolvePath) {
         this(targetModuleAlias, cardinality, titleField, pickerMode, candidateDelivery, resolvePath,
-                java.util.List.of(), java.util.List.of());
+                java.util.List.of(), java.util.List.of(), java.util.List.of());
+    }
+
+    /** Compatibility constructor for descriptors issued before display projections were explicit. */
+    public ResolvedReferenceFieldDescriptor(String targetModuleAlias, ReferenceCardinality cardinality,
+                                            String titleField, ReferencePickerMode pickerMode,
+                                            ReferenceCandidateDelivery candidateDelivery, String resolvePath,
+                                            java.util.List<net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependency> candidateDependencies,
+                                            java.util.List<ResolvedReferenceSelectionProjectionDescriptor> selectionProjections) {
+        this(targetModuleAlias, cardinality, titleField, pickerMode, candidateDelivery, resolvePath,
+                candidateDependencies, selectionProjections, java.util.List.of());
     }
 }

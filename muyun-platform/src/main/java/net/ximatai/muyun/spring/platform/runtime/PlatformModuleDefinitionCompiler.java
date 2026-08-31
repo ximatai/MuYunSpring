@@ -427,7 +427,7 @@ public class PlatformModuleDefinitionCompiler {
                 foreignKey.getFieldName(),
                 moduleAlias + "." + parentMetadata.getAlias(),
                 config.getCardinality(),
-                config.projections(), null, null, null, null, Set.of(), List.of(), List.of(),
+                config.projections(), config.getTargetKeyField(), config.getTargetLabelField(), null, null, Set.of(), List.of(), List.of(),
                 new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy())
         );
     }
@@ -541,7 +541,7 @@ public class PlatformModuleDefinitionCompiler {
                 sourceField.getFieldName(),
                 target.qualifiedName(),
                 config.getCardinality(),
-                config.projections(), null, null, null, null, Set.of(), List.of(), List.of(),
+                config.projections(), config.getTargetKeyField(), config.getTargetLabelField(), null, null, Set.of(), List.of(), List.of(),
                 new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy())
         );
         return definition;

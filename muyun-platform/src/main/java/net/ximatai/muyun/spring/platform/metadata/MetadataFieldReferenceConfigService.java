@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.metadata;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.PageRequests;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
@@ -78,7 +79,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, MetadataFieldReferenceConfig.class, java.util.List.of("id", "metadataFieldId", "relationId", "targetModuleAlias", "targetMetadataId", "cardinality", "targetUnavailablePolicy", "projectionMappings", "createdAt", "updatedAt"));
+        return QueryDescriptors.fromModel(MODULE_ALIAS, MetadataFieldReferenceConfig.class, java.util.List.of("id", "metadataFieldId", "relationId", "targetModuleAlias", "targetMetadataId", "targetKeyField", "targetLabelField", "cardinality", "targetUnavailablePolicy", "projectionMappings", "createdAt", "updatedAt"));
     }
 
     @Override
@@ -93,7 +94,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
 
     @Override
     public void afterChanged(MetadataFieldReferenceConfig config) {
-        refreshByMetadataFieldId(config.getMetadataFieldId());
+        if (!MetadataFieldPropertyMutationContext.active()) {
+            refreshByMetadataFieldId(config.getMetadataFieldId());
+        }
     }
 
     public MetadataFieldReferenceConfig findByMetadataFieldId(String metadataFieldId) {
@@ -121,9 +124,26 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
     }
 
     private void normalizeAndValidate(MetadataFieldReferenceConfig config) {
-        normalizeTargetIdentifiers(config);
         MetadataField sourceField = requireField(config.getMetadataFieldId(), "source metadata field");
         ModuleMetadataRelation sourceRelation = normalizeRelation(config, sourceField);
+        validateDraft(config, sourceField, sourceRelation);
+        rejectDuplicate(config, scopeCriteria(config.getMetadataFieldId(), config.getRelationId()),
+                "metadata field reference config must be unique in scope: " + config.getMetadataFieldId());
+    }
+
+    /**
+     * Validates a proposed reference without requiring its source field or config to be persisted.
+     * Change-set preview uses this same target and projection contract before atomic publish.
+     */
+    public void validateDraft(MetadataFieldReferenceConfig config,
+                              MetadataField sourceField,
+                              ModuleMetadataRelation sourceRelation) {
+        if (config == null) throw new IllegalArgumentException("reference config must not be null");
+        if (sourceField == null) throw new IllegalArgumentException("reference source field must not be null");
+        if (sourceRelation != null) config.setRelationId(sourceRelation.getId());
+        normalizeTargetIdentifiers(config);
+        config.setTargetKeyField(normalizeFieldName(config.getTargetKeyField(), "targetKeyField"));
+        config.setTargetLabelField(normalizeFieldName(config.getTargetLabelField(), "targetLabelField"));
         FieldSpec sourceType = fieldTypeService.requireFieldType(sourceField.getFieldSpecAlias());
         if (sourceType.getFieldType() != FieldType.STRING && sourceType.getFieldType() != FieldType.TEXT) {
             throw new IllegalArgumentException("reference source field must be string/text: " + sourceField.getFieldName());
@@ -133,20 +153,17 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         if (config.getCardinality() == null) {
             config.setCardinality(ReferenceCardinality.ONE);
         }
+        if (config.getCardinality() == ReferenceCardinality.MANY) {
+            throw new PlatformException("Metadata field reference currently supports ONE cardinality only: "
+                    + sourceField.getFieldName());
+        }
+        validateTargetKey(config, target);
         if (config.getTargetUnavailablePolicy() == null) {
             config.setTargetUnavailablePolicy(ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY);
         }
         new ReferencePlan(sourceField.getFieldName(), target,
                 config.getCardinality(), List.of(),
                 new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy()));
-        if (!targetsStaticEntity(config)
-                && config.getTargetModuleAlias() != null
-                && !config.projections().isEmpty()) {
-            throw new PlatformException("Cross-module reference display is not supported yet: "
-                    + config.getTargetModuleAlias());
-        }
-        rejectDuplicate(config, scopeCriteria(config.getMetadataFieldId(), config.getRelationId()),
-                "metadata field reference config must be unique in scope: " + config.getMetadataFieldId());
     }
 
     /**
@@ -159,12 +176,61 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         normalizeTargetIdentifiers(config);
         if (targetsStaticEntity(config)) {
             ReferenceTarget target = resolveStaticTarget(config, sourceRelation);
+            normalizeStandardLabelProjection(config, sourceField, target);
             validateOutputFields(config, sourceField.getMetadataId(), target);
             return target;
         }
         ReferenceTarget target = resolveDynamicTarget(config, sourceField, sourceRelation);
+        normalizeStandardLabelProjection(config, sourceField, target);
         validateOutputFields(config, sourceField.getMetadataId(), target);
         return target;
+    }
+
+    /**
+     * Every reference owns one predictable companion label projection.  The target label may
+     * still use the target's default title contract; only the source output name is standardized.
+     * Explicit mappings remain additive and are never used as a hidden replacement for it.
+     */
+    private void normalizeStandardLabelProjection(MetadataFieldReferenceConfig config,
+                                                   MetadataField sourceField,
+                                                   ReferenceTarget target) {
+        String output = sourceField.getFieldName() + "Title";
+        String label = config.getTargetLabelField();
+        if (label == null || label.isBlank()) {
+            label = defaultTargetLabelField(config, target);
+        }
+        final String normalizedLabel = label;
+        List<ReferenceProjection> existing = config.projections();
+        for (ReferenceProjection projection : existing) {
+            if (!output.equals(projection.outputField())) continue;
+            if (!normalizedLabel.equals(projection.targetField())) {
+                throw new PlatformException("Reference label projection conflicts with standard output field: " + output);
+            }
+        }
+        java.util.ArrayList<String> mappings = new java.util.ArrayList<>();
+        mappings.add(normalizedLabel + ":" + output);
+        existing.stream()
+                .filter(item -> !(normalizedLabel.equals(item.targetField()) && output.equals(item.outputField())))
+                .forEach(item -> mappings.add(item.targetField() + ":" + item.outputField()));
+        config.setProjectionMappings(MetadataFieldReferenceConfig.encodeProjections(mappings));
+    }
+
+    private String defaultTargetLabelField(MetadataFieldReferenceConfig config, ReferenceTarget target) {
+        if (targetsStaticEntity(config)) {
+            ReferenceAbility<?> ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
+                    .orElseThrow(() -> new PlatformException("Static reference target is not registered: "
+                            + target.qualifiedName()));
+            return ability.referenceCandidateLabels().stream()
+                    .filter(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateField::defaultField)
+                    .map(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateField::fieldName)
+                    .findFirst().orElse("title");
+        }
+        if (config.getTargetMetadataId() != null) {
+            return fieldService.list(Criteria.of().eq("metadataId", config.getTargetMetadataId()), PageRequests.all())
+                    .stream().filter(field -> Boolean.TRUE.equals(field.getTitleField()))
+                    .map(MetadataField::getFieldName).findFirst().orElse("title");
+        }
+        return "title";
     }
 
     private void normalizeTargetIdentifiers(MetadataFieldReferenceConfig config) {
@@ -236,6 +302,11 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
 
     private String normalizeBlank(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String normalizeFieldName(String value, String name) {
+        String normalized = normalizeBlank(value);
+        return normalized == null ? null : PlatformNameRules.requireFieldName(normalized, name);
     }
 
     private void validateChildForeignKeyReference(MetadataField sourceField,
@@ -342,6 +413,8 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
     private void validateOutputFields(MetadataFieldReferenceConfig config,
                                       String sourceMetadataId,
                                       ReferenceTarget target) {
+        requireTargetFieldIfPresent(config, target, config.getTargetKeyField());
+        requireTargetFieldIfPresent(config, target, config.getTargetLabelField());
         LinkedHashSet<String> outputFields = new LinkedHashSet<>();
         for (ReferenceProjection projection : config.projections()) {
             PlatformNameRules.requireFieldName(projection.targetField(), "projection.targetField");
@@ -351,6 +424,38 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
             if (!outputFields.add(projection.outputField())) {
                 throw new PlatformException("Duplicate reference output field: " + projection.outputField());
             }
+        }
+    }
+
+    private void requireTargetFieldIfPresent(MetadataFieldReferenceConfig config,
+                                             ReferenceTarget target,
+                                             String fieldName) {
+        if (fieldName == null || fieldName.isBlank() || "id".equals(fieldName)) return;
+        requireTargetField(config, target, fieldName);
+    }
+
+    private void validateTargetKey(MetadataFieldReferenceConfig config, ReferenceTarget target) {
+        String keyField = config.getTargetKeyField();
+        if (keyField == null || keyField.isBlank() || "id".equals(keyField)) return;
+        if (targetsStaticEntity(config)) {
+            ReferenceAbility<?> ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
+                    .orElseThrow(() -> new PlatformException("Static reference target is not registered: "
+                            + target.qualifiedName()));
+            net.ximatai.muyun.spring.ability.reference.ReferenceCandidateKey candidate =
+                    ability.referenceCandidateKey(keyField);
+            if (!candidate.readable() || !candidate.unique()) {
+                throw new PlatformException("Static reference target key must be a readable unique field: "
+                        + target.qualifiedName() + "." + keyField);
+            }
+            return;
+        }
+        MetadataField targetField = fieldService.list(Criteria.of()
+                        .eq("metadataId", config.getTargetMetadataId())
+                        .eq("fieldName", keyField), PageRequests.all())
+                .stream().findFirst().orElse(null);
+        if (targetField == null || !Boolean.TRUE.equals(targetField.getUniqueField())) {
+            throw new PlatformException("Dynamic reference target key must use a unique target field: "
+                    + target.qualifiedName() + "." + keyField);
         }
     }
 

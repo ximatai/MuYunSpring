@@ -29,6 +29,7 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.metadata.Metadata;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataService;
@@ -47,6 +48,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPresentationVariant;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationVariantService;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan;
 import net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService;
+import net.ximatai.muyun.spring.platform.web.ResolvedReferenceDisplayProjectionDescriptor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,6 +57,10 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.WebApplicationContext;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -64,6 +70,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
 
 /**
  * 教学管理动静一体演示：在真实 Boot 上下文中验证 Spring 装配、Repository 持久化、
@@ -111,6 +120,9 @@ public class TeachingDemoIT {
     private MetadataFieldReferenceConfigService referenceConfigs;
 
     @Autowired
+    private MetadataFieldConfigService fieldConfigs;
+
+    @Autowired
     private ModuleMetadataRelationService metadataRelations;
 
     @Autowired
@@ -129,7 +141,13 @@ public class TeachingDemoIT {
     private PlatformPresentationRevisionPublishService presentationRevisionPublisher;
 
     @Autowired
+    private ExamPageDemoBootstrapTask examPageBootstrap;
+
+    @Autowired
     private PlatformModuleRuntimeContextService runtimeContexts;
+
+    @Autowired
+    private WebApplicationContext webApplicationContext;
 
     @DynamicPropertySource
     static void applicationProperties(DynamicPropertyRegistry registry) {
@@ -143,6 +161,7 @@ public class TeachingDemoIT {
     @AfterEach
     void clearTenantContext() {
         TenantContext.clear();
+        RequestContextHolder.resetRequestAttributes();
     }
 
     @Test
@@ -214,22 +233,32 @@ public class TeachingDemoIT {
                     .satisfies(config -> {
                         assertThat(config.getTargetModuleAlias()).isEqualTo(ClassroomService.MODULE_ALIAS);
                         assertThat(config.getTargetMetadataId()).isNull();
+                        assertThat(config.getProjectionMappings()).isEqualTo("title:classroomIdTitle,classCode:classroomCode");
                     });
             assertThat(referenceConfigs.findForRelation(subjectCategoryId.getId(), main.getId()))
-                    .satisfies(config -> assertThat(config.getTargetModuleAlias())
-                            .isEqualTo(SubjectCategoryService.MODULE_ALIAS));
+                    .satisfies(config -> {
+                        assertThat(config.getTargetModuleAlias()).isEqualTo(SubjectCategoryService.MODULE_ALIAS);
+                        assertThat(config.getProjectionMappings()).isEqualTo("title:subjectCategoryIdTitle,code:subjectCategoryCode");
+                    });
             assertThat(referenceConfigs.findForRelation(studentId.getId(), participants.getId()))
                     .satisfies(config -> {
                         assertThat(config.getTargetModuleAlias()).isEqualTo(StudentService.MODULE_ALIAS);
-                        assertThat(config.getProjectionMappings()).isEqualTo("studentNo:studentNo,title:studentTitle");
+                        assertThat(config.getProjectionMappings()).isEqualTo("title:studentIdTitle,studentNo:studentNo");
                     });
+            assertThat(fieldConfigs.findRelationOverride(field(participant.getId(), "attendanceStatus").getId(),
+                    participants.getId())).satisfies(config -> {
+                assertThat(config.getDictionaryApplicationAlias()).isEqualTo("education");
+                assertThat(config.getDictionaryCategoryAlias()).isEqualTo("exam_attendance_status");
+            });
         }
 
         try (TenantContext.Scope ignored = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
             DynamicRecord examRecord = dynamicRecords.listSystem(ExamDemoBootstrapTask.MODULE_ALIAS, "exam",
                     Criteria.of().eq("title", "2026 春季期中数学测评"), PageRequest.of(1, 1)).getFirst();
             assertThat(examRecord.getValue("classroomId")).isEqualTo("demo_classroom_g1a");
+            assertThat(examRecord.getValue("classroomIdTitle")).isEqualTo("高一（1）班");
             assertThat(examRecord.getValue("classroomCode")).isEqualTo("G1-A");
+            assertThat(examRecord.getValue("subjectCategoryIdTitle")).isEqualTo("数学");
             assertThat(examRecord.getValue("subjectCategoryCode")).isEqualTo("mathematics");
 
             List<DynamicRecord> rows = dynamicRecords.listSystem(ExamDemoBootstrapTask.MODULE_ALIAS,
@@ -238,7 +267,7 @@ public class TeachingDemoIT {
                     .containsExactlyInAnyOrder("demo_student_1001", "demo_student_1002");
             assertThat(rows).extracting(row -> row.getValue("studentNo"))
                     .containsExactlyInAnyOrder("S2026001", "S2026002");
-            assertThat(rows).extracting(row -> row.getValue("studentTitle"))
+            assertThat(rows).extracting(row -> row.getValue("studentIdTitle"))
                     .containsExactlyInAnyOrder("陈晨", "林晓");
         }
     }
@@ -275,7 +304,8 @@ public class TeachingDemoIT {
                     .findFirst().orElseThrow();
             assertThat(draft.getRevisionNo()).isGreaterThan(published.getRevisionNo());
             assertThat(draft.getUiTreeJson()).isEqualTo(published.getUiTreeJson());
-            assertThat(published.getUiTreeJson()).contains("searchPlaceholder", "participants", "studentNo", "studentTitle");
+            assertThat(published.getUiTreeJson()).contains("searchPlaceholder", "participants", "studentNo")
+                    .doesNotContain("\"studentIdTitle\"");
 
             ModuleExecutionPlan plan = runtimeContexts.dynamicExecutionPlan(ExamDemoBootstrapTask.MODULE_ALIAS)
                     .orElseThrow();
@@ -288,7 +318,7 @@ public class TeachingDemoIT {
                     .containsExactly("title", "classroomId", "subjectCategoryId", "examDate");
             assertThat(plan.mutationFieldValidations()).extracting(validation -> validation.fieldName())
                     .containsExactly("title", "classroomId", "subjectCategoryId", "examDate")
-                    .doesNotContain("studentNo", "studentTitle");
+                    .doesNotContain("studentNo", "studentIdTitle");
             assertThat(plan.uiDescriptor().detailRelations()).singleElement().satisfies(participants -> {
                 assertThat(participants.code()).isEqualTo("participants");
                 assertThat(participants.targetEntityAlias()).isEqualTo("exam_participant");
@@ -302,16 +332,54 @@ public class TeachingDemoIT {
                 });
                 assertThat(participants.queryContract().listProjection().fields())
                         .extracting(field -> field.fieldName())
-                        .containsExactly("studentId", "studentNo", "studentTitle", "score", "attendanceStatus");
+                        .containsExactly("studentId", "studentNo", "score", "attendanceStatus");
                 assertThat(participants.queryContract().listProjection().fields())
-                        .filteredOn(field -> field.fieldName().equals("studentNo") || field.fieldName().equals("studentTitle"))
+                        .filteredOn(field -> field.fieldName().equals("studentId") || field.fieldName().equals("studentNo")
+                                || field.fieldName().equals("attendanceStatus"))
                         .extracting(field -> field.title())
-                        .containsExactly("学号", "学生名称");
+                        .containsExactly("学生", "学号", "参加状态");
             });
             assertThat(plan.uiDescriptor().editorContributions()).singleElement().satisfies(contribution ->
                     assertThat(contribution.editor().fields()).extracting(field -> field.fieldRef().fieldName())
                             .containsExactly("studentId", "score", "attendanceStatus"));
+            assertThat(plan.uiDescriptor().editorContributions().getFirst().editor().fields())
+                    .filteredOn(field -> field.fieldRef().fieldName().equals("studentId"))
+                    .singleElement().satisfies(field -> {
+                        assertThat(field.reference()).isNotNull();
+                        assertThat(field.reference().titleField()).isEqualTo("studentIdTitle");
+                        assertThat(field.reference().displayProjections())
+                                .containsExactly(new ResolvedReferenceDisplayProjectionDescriptor("title", "studentIdTitle"),
+                                        new ResolvedReferenceDisplayProjectionDescriptor("studentNo", "studentNo"));
+                    });
+            assertThat(plan.uiDescriptor().editorContributions().getFirst().editor().fields())
+                    .filteredOn(field -> field.fieldRef().fieldName().equals("attendanceStatus"))
+                    .singleElement().satisfies(field -> assertThat(field.option()).isNotNull());
 
+        }
+    }
+
+    @Test
+    void shouldNeverRewriteUserOwnedExamPageDraftWhenDemoBootstrapRunsAgain() {
+        try (TenantContext.Scope ignored = TenantContext.system("protect user-owned exam page draft")) {
+            PlatformPageDefinition page = pageDefinitions.resolveGlobalPage(ExamDemoBootstrapTask.MODULE_ALIAS,
+                    ExamPageDemoBootstrapTask.PAGE_ALIAS).orElseThrow();
+            PlatformPresentationVariant variant = presentationVariants.list(Criteria.of()
+                    .eq("pageId", page.getId())).getFirst();
+            PlatformPresentationRevision userDraft = new PlatformPresentationRevision();
+            userDraft.setVariantId(variant.getId());
+            userDraft.setRevisionNo(presentationRevisions.list(Criteria.of().eq("variantId", variant.getId()))
+                    .stream().map(PlatformPresentationRevision::getRevisionNo).max(Integer::compareTo).orElse(0) + 1);
+            userDraft.setTemplateAlias("management");
+            userDraft.setTemplateVersion(1);
+            userDraft.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+            userDraft.setTitle("用户自定义考试管理页草稿");
+            userDraft.setUiTreeJson("{\"nodes\":[{\"fields\":[\"studentId\",\"studentNo\",\"studentTitle\"]}]}");
+            String draftId = presentationRevisions.insert(userDraft);
+
+            examPageBootstrap.run();
+
+            assertThat(presentationRevisions.select(draftId).getUiTreeJson())
+                    .contains("studentTitle");
         }
     }
 
@@ -326,8 +394,65 @@ public class TeachingDemoIT {
                     "participants", Criteria.of(), PageRequest.of(1, 20)).getRecords())
                     .allSatisfy(participant -> {
                         assertThat(String.valueOf(participant.getValue("studentNo"))).isNotBlank();
-                        assertThat(String.valueOf(participant.getValue("studentTitle"))).isNotBlank();
+                        assertThat(String.valueOf(participant.getValue("studentIdTitle"))).isNotBlank();
                     });
+        }
+    }
+
+    @Test
+    void shouldExposeReferenceTitlesThroughTheExamListWebResponse() throws Exception {
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.systemUser(
+                "inspect-exam-list-projections", "Exam List Projection Inspection"));
+             TenantContext.Scope ignored = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            MockMvc mvc = webAppContextSetup(webApplicationContext).build();
+            MvcResult result = mvc.perform(post("/education.exam/query")
+                    .contentType("application/json").content("{}"))
+                    .andReturn();
+            assertThat(result.getResponse().getStatus())
+                    .as(result.getResponse().getContentAsString())
+                    .isEqualTo(200);
+            String response = result.getResponse().getContentAsString();
+            assertThat(response).contains("\"classroomId\":\"demo_classroom_g1a\"",
+                    "\"classroomIdTitle\":\"高一（1）班\"",
+                    "\"subjectCategoryId\":\"demo_subject_mathematics\"",
+                    "\"subjectCategoryIdTitle\":\"数学\"");
+        }
+    }
+
+    @Test
+    void shouldExposeReferenceTitlesThroughTheEmbeddedExamParticipantViewResponse() throws Exception {
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.systemUser(
+                "inspect-exam-detail-projections", "Exam Detail Projection Inspection"));
+             TenantContext.Scope ignored = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            DynamicRecord exam = dynamicRecords.listSystem(ExamDemoBootstrapTask.MODULE_ALIAS, "exam",
+                    Criteria.of().eq("title", "2026 春季期中数学测评"), PageRequest.of(1, 1)).getFirst();
+            MockMvc mvc = webAppContextSetup(webApplicationContext).build();
+            MvcResult result = mvc.perform(get("/education.exam/view/{id}", exam.getId())).andReturn();
+
+            assertThat(result.getResponse().getStatus())
+                    .as(result.getResponse().getContentAsString())
+                    .isEqualTo(200);
+            assertThat(result.getResponse().getContentAsString())
+                    .contains("\"studentId\":\"demo_student_1001\"", "\"studentIdTitle\":\"陈晨\"");
+        }
+    }
+
+    @Test
+    void shouldResolveAttendanceDictionaryOptionsForTheExamParticipantEntity() throws Exception {
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.systemUser(
+                "inspect-exam-participant-options", "Exam Participant Option Inspection"));
+             TenantContext.Scope ignored = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            MockMvc mvc = webAppContextSetup(webApplicationContext).build();
+            MvcResult result = mvc.perform(get("/platform.module/education.exam/fields/attendanceStatus/options")
+                    .param("entityAlias", "exam_participant")
+                    .param("enabledOnly", "false"))
+                    .andReturn();
+
+            assertThat(result.getResponse().getStatus())
+                    .as(result.getResponse().getContentAsString())
+                    .isEqualTo(200);
+            assertThat(result.getResponse().getContentAsString())
+                    .contains("\"code\":\"ATTENDED\"", "\"title\":\"已参加\"");
         }
     }
 

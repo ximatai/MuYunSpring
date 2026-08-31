@@ -28,13 +28,21 @@ const executableRelation = computed(() =>
 const queryContract = computed(() => executableRelation.value?.queryContract);
 const ready = computed(() => executableRelation.value != null && props.recordId != null);
 const columns = computed<RecordQueryListColumn[]>(() =>
-  (queryContract.value?.listProjection?.fields ?? []).map((field) => ({
-    key: field.fieldName,
-    title: field.title ?? field.fieldName,
-    width: field.width == null ? undefined : `${field.width}px`,
-    align: normalizeAlign(field.align),
-    maxDisplayLines: field.maxDisplayLines,
-  })),
+  (queryContract.value?.listProjection?.fields ?? []).map((field) => {
+    const queryField = queryContract.value?.querySchema?.fields.find(
+      (candidate) => candidate.name === field.fieldName,
+    );
+    return {
+      key: field.fieldName,
+      title: field.title ?? field.fieldName,
+      width: field.width == null ? undefined : `${field.width}px`,
+      align: normalizeAlign(field.align),
+      titleField: queryField?.optionTitleField,
+      optionBinding: queryField?.optionBinding ? true : undefined,
+      optionEntityAlias: queryField?.optionBinding ? props.relation.targetEntityAlias : undefined,
+      maxDisplayLines: field.maxDisplayLines,
+    };
+  }),
 );
 
 /**

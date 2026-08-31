@@ -86,7 +86,8 @@ public record EntityReferenceDefinition(
 
     public ReferencePlan plan() {
         return new ReferencePlan(sourceField, target(), cardinality, projections, integrity, tenantScope,
-                List.of(), plusFields.stream().map(net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection::new).toList());
+                List.of(), plusFields.stream().map(net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection::new).toList(),
+                keyField, labelField);
     }
 
     public EntityReferenceDefinition many() {

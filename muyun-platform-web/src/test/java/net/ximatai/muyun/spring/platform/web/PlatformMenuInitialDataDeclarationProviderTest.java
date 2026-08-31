@@ -141,6 +141,33 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     }
 
     @Test
+    void shouldRetireTheStandaloneMetadataManagementMenu() {
+        try (GenericApplicationContext context = context(MetadataWebController.class)) {
+            registerStaticModules(context);
+            initializePlatformMenus(context);
+            Menu retiredMenu = new Menu();
+            retiredMenu.setId("platform.menu.module.platform.metadata");
+            retiredMenu.setSchemeId(MenuSchemeService.ADMIN_SCHEME_ID);
+            retiredMenu.setParentId(PlatformMenuGroups.MODELING);
+            retiredMenu.setModuleAlias("platform.metadata");
+            retiredMenu.setTitle("元数据管理");
+            retiredMenu.setOpenMode(MenuOpenMode.TAB);
+            retiredMenu.setPageMode(MenuPageMode.LIST);
+            retiredMenu.setEnabled(Boolean.TRUE);
+            retiredMenu.setSystemManaged(Boolean.TRUE);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.insert(retiredMenu));
+
+            PlatformMenuInitialDataDeclarationProvider provider =
+                    new PlatformMenuInitialDataDeclarationProvider(menuService, context);
+            new PlatformMenuContributionReconciliationTask(menuService, provider).run();
+
+            assertThat(provider.declaredMenuIds())
+                    .doesNotContain("platform.menu.module.platform.metadata");
+            assertThat(menuService.select(retiredMenu.getId()).getEnabled()).isFalse();
+        }
+    }
+
+    @Test
     void shouldRegisterPasswordManagementUnderSecurityAndAudit() {
         try (GenericApplicationContext context = context(PasswordPolicyRuleWebController.class)) {
             registerStaticModules(context);
