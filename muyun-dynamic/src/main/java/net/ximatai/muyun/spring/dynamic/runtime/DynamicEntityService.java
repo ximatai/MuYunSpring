@@ -674,7 +674,14 @@ public class DynamicEntityService implements
                                                             DynamicReferenceResolveRequest request) {
         EntityReferenceDefinition reference = referenceDefinition(sourceField);
         ReferencePlan plan = reference.plan();
-        return new DynamicReferenceResolver(this, plan, referenceService(plan.target()), reference.affects()).resolve(request);
+        DynamicEntityService targetService;
+        try {
+            targetService = referenceService(plan.target());
+        } catch (ModuleDefinitionException dynamicTargetUnavailable) {
+            return new DynamicReferenceResolver(this, plan, referenceAbility(plan.target()), reference.affects())
+                    .resolve(request);
+        }
+        return new DynamicReferenceResolver(this, plan, targetService, reference.affects()).resolve(request);
     }
 
     @Override

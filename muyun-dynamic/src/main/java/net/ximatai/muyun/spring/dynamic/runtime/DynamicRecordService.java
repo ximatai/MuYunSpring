@@ -152,6 +152,13 @@ public class DynamicRecordService {
         return new DynamicEntityOperations(this, moduleAlias, entityAlias);
     }
 
+    boolean hasRegisteredDynamicEntity(String moduleAlias, String entityAlias) {
+        return runtime.registry().findModule(moduleAlias)
+                .stream()
+                .flatMap(module -> module.entities().stream())
+                .anyMatch(entity -> entity.alias().equals(entityAlias));
+    }
+
     public DynamicEntityOperations mainEntity(String moduleAlias) {
         return entity(moduleAlias, mainEntityAlias(moduleAlias));
     }

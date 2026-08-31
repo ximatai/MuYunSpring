@@ -535,49 +535,16 @@ public class PlatformModuleDefinitionCompiler {
         if (config == null) {
             return null;
         }
-        Metadata targetMetadata = metadataById.get(config.getTargetMetadataId());
-        if (targetMetadata == null) {
-            targetMetadata = metadataService.select(config.getTargetMetadataId());
-        }
-        if (targetMetadata == null) {
-            throw new PlatformException("Reference config points to missing metadata: " + config.getTargetMetadataId());
-        }
-        String targetModuleAlias = config.getTargetModuleAlias() == null || config.getTargetModuleAlias().isBlank()
-                ? moduleAlias
-                : config.getTargetModuleAlias();
-        validateReferenceTargetBinding(config, relation, targetModuleAlias, targetMetadata);
+        ReferenceTarget target = referenceConfigService.resolveTarget(config, sourceField, relation);
         EntityReferenceDefinition definition = new EntityReferenceDefinition(
                 sourceMetadata.getAlias(),
                 sourceField.getFieldName(),
-                targetModuleAlias + "." + targetMetadata.getAlias(),
+                target.qualifiedName(),
                 config.getCardinality(),
                 config.projections(), null, null, null, null, Set.of(), List.of(), List.of(),
                 new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy())
         );
         return definition;
-    }
-
-    private void validateReferenceTargetBinding(MetadataFieldReferenceConfig config,
-                                                ModuleMetadataRelation sourceRelation,
-                                                String targetModuleAlias,
-                                                Metadata targetMetadata) {
-        boolean crossModule = !sourceRelation.getModuleAlias().equals(targetModuleAlias);
-        if (crossModule && (config.getRelationId() == null || config.getRelationId().isBlank())) {
-            throw new PlatformException("Cross-module reference config must be relation-scoped: "
-                    + config.getMetadataFieldId());
-        }
-        List<ModuleMetadataRelation> targetRelations = relationService.list(Criteria.of()
-                        .eq("moduleAlias", targetModuleAlias)
-                        .eq("metadataId", targetMetadata.getId()),
-                ALL);
-        if (targetRelations.isEmpty()) {
-            throw new PlatformException("Reference target metadata is not bound to module: "
-                    + targetModuleAlias + "." + targetMetadata.getAlias());
-        }
-        if (crossModule && targetRelations.stream().noneMatch(item -> item.getRelationRole() == RelationRole.MAIN)) {
-            throw new PlatformException("Cross-module reference target must be the target module MAIN metadata: "
-                    + targetModuleAlias);
-        }
     }
 
     private List<EntityViewDefinition> views(List<ModuleMetadataRelation> relations, Map<String, Metadata> metadataById) {
@@ -630,7 +597,7 @@ public class PlatformModuleDefinitionCompiler {
                         relation.childEntityAlias(),
                         relation.code()
                 )),
-                references.stream().map(reference -> {
+                references.stream().filter(reference -> isDynamicReferenceTarget(reference.target())).map(reference -> {
                     ReferenceTarget target = reference.target();
                     return EntityAssociationViewDefinition.reference(
                             reference.sourceField(),
@@ -642,6 +609,16 @@ public class PlatformModuleDefinitionCompiler {
                     );
                 })
         ).toList();
+    }
+
+    /**
+     * Association views are backed by DynamicRecordRelationRuntime's target-page operation. A
+     * static target already exposes the same picker through ReferenceAbility and must not be
+     * represented as a fake dynamic association view.
+     */
+    private boolean isDynamicReferenceTarget(ReferenceTarget target) {
+        PlatformModule targetModule = moduleService.select(target.moduleAlias());
+        return targetModule != null && targetModule.getModuleKind() == ModuleKind.DYNAMIC;
     }
 
     private List<EntityActionDefinition> actions(String moduleAlias,

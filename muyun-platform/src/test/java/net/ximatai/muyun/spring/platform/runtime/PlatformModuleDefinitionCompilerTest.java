@@ -1,8 +1,13 @@
 package net.ximatai.muyun.spring.platform.runtime;
 
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
 import net.ximatai.muyun.spring.common.formula.FormulaIssueLevel;
 import net.ximatai.muyun.spring.common.formula.FormulaRuleKind;
 import net.ximatai.muyun.spring.common.formula.FormulaRulePhase;
@@ -72,6 +77,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.when;
 
 class PlatformModuleDefinitionCompilerTest {
     private final TestMemoryDao<PlatformModule> moduleDao = new TestMemoryDao<>();
@@ -521,6 +529,66 @@ class PlatformModuleDefinitionCompilerTest {
         assertThatThrownBy(() -> referenceConfigService.insert(referenceConfig(invoiceField.getId(), customerId)))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("must reference its parent metadata");
+    }
+
+    @Test
+    void shouldCompileRelationScopedReferenceToStaticTargetWithProjection() {
+        moduleService.insert(module("education.exam", ModuleKind.DYNAMIC));
+        moduleService.insert(module("education.student", ModuleKind.STATIC));
+        String examId = metadataService.insert(metadata("education", "exam"));
+        fieldService.insert(titleField(examId));
+        MetadataField studentId = field(examId, "studentId", "student_id", FieldType.STRING);
+        fieldService.insert(studentId);
+        String relationId = relationService.insert(mainRelation("education.exam", examId));
+        MetadataFieldReferenceConfig config = new MetadataFieldReferenceConfig();
+        config.setMetadataFieldId(studentId.getId());
+        config.setRelationId(relationId);
+        config.setTargetModuleAlias("education.student");
+        config.setTargetEntityAlias("student");
+        config.setProjectionMappings("title:studentTitle");
+        @SuppressWarnings("unchecked") ReferenceAbility<?> student = mock(ReferenceAbility.class);
+        ReferenceTarget target = ReferenceTarget.of("education", "student");
+        when(student.getModuleAlias()).thenReturn("education.student");
+        doReturn(StandardTitledEntity.class).when(student).modelClass();
+        PlatformAbilityRuntime.configureReferenceTargetResolver(reference -> target.equals(reference)
+                ? Optional.of(student) : Optional.empty());
+        try {
+            referenceConfigService.insert(config);
+
+            ModuleDefinition definition = compiler.compile("education.exam");
+
+            assertThat(ReferenceTargets.of(student)).isEqualTo(target);
+            assertThat(definition.references()).singleElement().satisfies(reference -> {
+                assertThat(reference.target()).isEqualTo(target);
+                assertThat(reference.projections()).containsExactly(new net.ximatai.muyun.spring.ability.reference.ReferenceProjection(
+                        "title", "studentTitle"));
+            });
+            assertThat(definition.associationViews()).isEmpty();
+        } finally {
+            PlatformAbilityRuntime.resetReferenceTargetResolver();
+        }
+    }
+
+    @Test
+    void shouldRejectStaticTargetForChildForeignKey() {
+        moduleService.insert(module("education.exam", ModuleKind.DYNAMIC));
+        moduleService.insert(module("education.student", ModuleKind.STATIC));
+        String examId = metadataService.insert(metadata("education", "exam"));
+        String lineId = metadataService.insert(metadata("education", "exam_line"));
+        fieldService.insert(titleField(examId));
+        MetadataField examIdField = field(lineId, "examId", "exam_id", FieldType.STRING);
+        fieldService.insert(examIdField);
+        relationService.insert(mainRelation("education.exam", examId));
+        String lineRelationId = relationService.insert(childRelation("education.exam", lineId, examId, "examId"));
+        MetadataFieldReferenceConfig config = new MetadataFieldReferenceConfig();
+        config.setMetadataFieldId(examIdField.getId());
+        config.setRelationId(lineRelationId);
+        config.setTargetModuleAlias("education.student");
+        config.setTargetEntityAlias("student");
+
+        assertThatThrownBy(() -> referenceConfigService.insert(config))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("Child relation foreign key cannot reference a static target");
     }
 
     @Test

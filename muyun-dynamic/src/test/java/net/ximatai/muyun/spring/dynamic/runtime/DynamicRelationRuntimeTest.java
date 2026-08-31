@@ -340,6 +340,30 @@ class DynamicRelationRuntimeTest {
     }
 
     @Test
+    void shouldRestrictStaticReferenceTargetThroughTheSameRuntimeIndex() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
+                "id", "line-1", "student_id", "student-1"
+        )));
+        EntityDefinition line = new EntityDefinition("invoice_line", "app_invoice_line", "Invoice Line",
+                List.of(FieldDefinition.string("studentId", "Student").column("student_id")));
+        ModuleDefinition module = ModuleDefinition.builder(MODULE, "Invoice")
+                .entities(List.of(line))
+                .references(List.of(EntityReferenceDefinition.to("invoice_line", "studentId",
+                                ReferenceTarget.of("education", "student"))
+                        .withIntegrity(new ReferenceIntegrityPolicy(ReferenceTargetUnavailablePolicy.RESTRICT))))
+                .build();
+        DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(module);
+
+        assertThatThrownBy(() -> runtime.validateReferenceTargetDeletion(
+                ReferenceTarget.of("education", "student"), "student-1"))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("cannot make reference target unavailable");
+
+        verify(operations, never()).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
+    }
+
+    @Test
     void shouldReplaceDynamicChildrenThroughSharedChildRelationAbility() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.query(anyString(), anyMap())).thenAnswer(invocation -> {
@@ -950,11 +974,11 @@ class DynamicRelationRuntimeTest {
     }
 
     @Test
-    void shouldRejectInvalidDynamicReferenceTargetMetadata() {
+    void shouldRejectMalformedReferenceTargetModuleAlias() {
         ModuleDefinition module = ModuleDefinition.builder(MODULE, "Invoice")
                 .entities(List.of(invoiceEntity(), invoiceLineEntity()))
                 .relations(List.of())
-                .references(List.of(EntityReferenceDefinition.to("invoice_line", "invoiceId", "sales.invoice")))
+                .references(List.of(EntityReferenceDefinition.to("invoice_line", "invoiceId", "sales-.invoice")))
                 .build();
 
         assertThatThrownBy(() -> new ModuleDefinitionValidator().validate(module))

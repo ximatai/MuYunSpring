@@ -1013,7 +1013,7 @@ public class ModuleDefinitionValidator {
         } catch (RuntimeException e) {
             throw new ModuleDefinitionException("invalid reference target qualified name: " + reference.targetQualifiedName());
         }
-        requireModuleAlias(target.moduleAlias(), "reference target module alias");
+        requireReferenceTargetModuleAlias(target.moduleAlias(), "reference target module alias");
         requireIdentifier(target.entityAlias(), "reference target entity alias");
         requireField(source, reference.sourceField(), "reference source field");
         if (moduleAlias != null && moduleAlias.equals(target.moduleAlias())) {
@@ -1384,6 +1384,19 @@ public class ModuleDefinitionValidator {
         } catch (RuntimeException e) {
             throw new ModuleDefinitionException("invalid " + name + ": " + value);
         }
+    }
+
+    /**
+     * Dynamic targets retain platform module aliases such as {@code sales.contract}; a static
+     * service target may use the application-level coordinate produced by
+     * {@link net.ximatai.muyun.spring.ability.reference.ReferenceTargets}, such as
+     * {@code education/student}.  Both are valid source-neutral ReferenceTarget identities.
+     */
+    private void requireReferenceTargetModuleAlias(String value, String name) {
+        if (PlatformNameRules.isIdentifier(value)) {
+            return;
+        }
+        requireModuleAlias(value, name);
     }
 
     private void requireUnique(Set<String> values, String value, String name) {

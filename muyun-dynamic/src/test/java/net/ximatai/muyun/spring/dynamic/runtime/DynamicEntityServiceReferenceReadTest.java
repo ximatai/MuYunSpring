@@ -1,7 +1,11 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.database.core.IDatabaseOperations;
+import net.ximatai.muyun.database.core.metadata.DBInfo;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.CriteriaSqlCompiler;
 import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
@@ -10,9 +14,13 @@ import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
 import net.ximatai.muyun.spring.common.time.PlatformTimeService;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceAffectDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceFilterDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceLoadDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityReferencedByDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -23,11 +31,13 @@ import org.junit.jupiter.api.AfterEach;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -78,6 +88,100 @@ class DynamicEntityServiceReferenceReadTest {
         assertThat(records).extracting(record -> record.getValue("contractTitle"))
                 .containsExactly("合同一", "合同二");
         verify(targetAbility, times(1)).projections(List.of("contract-1", "contract-2"), List.of("title"));
+    }
+
+    @Test
+    void shouldResolveAndValidateDynamicReferenceThroughStaticReferenceAbility() {
+        ReferenceTarget target = ReferenceTarget.of("education", "student");
+        EntityDefinition line = new EntityDefinition("line", "exam_line", "考试明细",
+                List.of(
+                        FieldDefinition.string("studentId", "学生").column("student_id"),
+                        FieldDefinition.string("studentNoSnapshot", "学生学号").column("student_no_snapshot")
+                ));
+        ModuleDefinition module = ModuleDefinition.builder("education.exam", "考试")
+                .entities(List.of(line))
+                .references(List.of(EntityReferenceDefinition.to("line", "studentId", target)
+                        .withProjection("studentNo", "studentNo")
+                        .withInteractionRules(List.of(), List.of(
+                                new EntityReferenceAffectDefinition("studentNo", "studentNoSnapshot")))))
+                .build();
+        DynamicRecordDao sourceDao = mock(DynamicRecordDao.class);
+        when(sourceDao.getEntity()).thenReturn(line);
+        @SuppressWarnings("unchecked") ReferenceAbility<?> student = mock(ReferenceAbility.class);
+        doReturn(StandardTitledEntity.class).when(student).modelClass();
+        when(student.referenceOptions(any(Criteria.class), any(PageRequest.class)))
+                .thenAnswer(invocation -> PageResult.of(List.of(new net.ximatai.muyun.spring.ability.reference.ReferenceOption(
+                                "student-1", "张三")),
+                        1, invocation.getArgument(1)));
+        when(student.projections(List.of("student-1"), List.of("studentNo")))
+                .thenReturn(Map.of("student-1", Map.of("studentNo", "S-001")));
+        when(student.titles(List.of("student-1"))).thenReturn(Map.of("student-1", "张三"));
+        when(student.titles(List.of("missing"))).thenReturn(Map.of());
+        PlatformAbilityRuntime.configureReferenceTargetResolver(reference -> target.equals(reference)
+                ? java.util.Optional.of(student) : java.util.Optional.empty());
+        DynamicEntityService service = new DynamicEntityService(sourceDao, "education.exam", DynamicRecordLifecycle.NONE,
+                module, ignored -> { throw new IllegalStateException("relations are not used"); },
+                ignored -> { throw new net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException("static target"); },
+                null, DynamicFieldValueValidator.NONE, FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE,
+                new PlatformTimeService());
+
+        DynamicReferenceResolveResponse response = service.resolveReference("studentId",
+                DynamicReferenceResolveRequest.query("张三"));
+
+        assertThat(response.options()).singleElement().satisfies(option -> {
+            assertThat(option.id()).isEqualTo("student-1");
+            assertThat(option.title()).isEqualTo("张三");
+            assertThat(option.projections()).containsEntry("studentNo", "S-001");
+            assertThat(option.affectPatch()).containsEntry("studentNoSnapshot", "S-001");
+        });
+        DynamicReferenceResolveResponse compactResponse = service.resolveReference("studentId",
+                DynamicReferenceResolveRequest.query("张三").withoutProjections());
+        assertThat(compactResponse.options()).singleElement().satisfies(option -> {
+            assertThat(option.projections()).isEmpty();
+            assertThat(option.affectPatch()).containsEntry("studentNoSnapshot", "S-001");
+        });
+        service.beforeInsert(new DynamicRecord(line).setValue("studentId", "student-1"));
+        assertThatThrownBy(() -> service.beforeInsert(new DynamicRecord(line).setValue("studentId", "missing")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("education.student.missing");
+        verify(student, times(2)).referenceOptions(any(Criteria.class), any(PageRequest.class));
+        verify(student, times(2)).projections(List.of("student-1"), List.of("studentNo"));
+        verify(student).titles(List.of("student-1"));
+    }
+
+    @Test
+    void shouldApplyCandidateCriteriaBeforeResolvingStaticReferenceTarget() {
+        ReferenceTarget target = ReferenceTarget.of("education", "student");
+        EntityDefinition line = new EntityDefinition("line", "exam_line", "考试明细", List.of(
+                FieldDefinition.string("studentId", "学生").column("student_id"),
+                FieldDefinition.string("department", "院系")
+        ));
+        ModuleDefinition module = ModuleDefinition.builder("education.exam", "考试")
+                .entities(List.of(line))
+                .references(List.of(EntityReferenceDefinition.to("line", "studentId", target)
+                        .withInteractionRules(List.of(new EntityReferenceFilterDefinition(
+                                "department", "departmentCode", DynamicQueryOperator.EQ)), List.of())))
+                .build();
+        @SuppressWarnings("unchecked") ReferenceAbility<?> student = mock(ReferenceAbility.class);
+        doReturn(StandardTitledEntity.class).when(student).modelClass();
+        AtomicReference<Criteria> captured = new AtomicReference<>();
+        when(student.referenceOptions(any(Criteria.class), any(PageRequest.class))).thenAnswer(invocation -> {
+            captured.set(invocation.getArgument(0));
+            return PageResult.of(List.of(new net.ximatai.muyun.spring.ability.reference.ReferenceOption(
+                    "student-1", "张三")), 1, invocation.getArgument(1));
+        });
+        PlatformAbilityRuntime.configureReferenceTargetResolver(reference -> target.equals(reference)
+                ? java.util.Optional.of(student) : java.util.Optional.empty());
+        @SuppressWarnings("unchecked") IDatabaseOperations<Object> operations = mock(IDatabaseOperations.class);
+        DynamicRecordService service = new DynamicRecordService(new DynamicRecordRuntime(operations).register(module));
+
+        service.resolveReference("education.exam", "line", "studentId",
+                DynamicReferenceResolveRequest.query("张三").withFormValues(Map.of("department", "math")));
+
+        var compiled = new CriteriaSqlCompiler().compile(captured.get(), field -> field, DBInfo.Type.POSTGRESQL);
+        assertThat(compiled.getSql()).contains("\"departmentCode\" =");
+        assertThat(compiled.getParams()).containsValue("math");
+        verify(student).referenceOptions(any(Criteria.class), any(PageRequest.class));
     }
 
     @Test

@@ -150,6 +150,12 @@ final class DynamicRecordRelationRuntime {
         DynamicReferenceResolveRequest normalized = request == null
                 ? DynamicReferenceResolveRequest.query(null) : request;
         Criteria criteria = referenceCriteria(normalized.criteria(), reference, normalized.formValues());
+        if (!records.hasRegisteredDynamicEntity(reference.targetModuleAlias(), reference.targetEntityAlias())) {
+            // Static targets execute their own REFERENCE data-scope policy through ReferenceAbility.
+            // Do not force them through the dynamic runtime only because the source is metadata-driven.
+            return records.entityService(moduleAlias, entityAlias)
+                    .resolveReference(sourceField, normalized.withCriteria(criteria));
+        }
         DataScopeCriteriaResult scope = records.readScope(reference.targetModuleAlias(), PlatformAction.REFERENCE, criteria);
         return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
                 .resolveReference(sourceField, normalized.withCriteria(scope.criteria())));

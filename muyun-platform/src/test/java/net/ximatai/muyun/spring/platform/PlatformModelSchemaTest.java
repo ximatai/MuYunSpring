@@ -148,7 +148,7 @@ class PlatformModelSchemaTest {
                 .contains("id", "metadata_field_id", "enabled", "encryption_mode", "signature_mode", "masking_policy");
         assertThat(columnNames(mapper.toTable(MetadataFieldReferenceConfig.class)))
                 .contains("id", "metadata_field_id", "relation_id", "target_module_alias", "target_metadata_id",
-                        "cardinality", "target_unavailable_policy", "projection_mappings")
+                        "target_entity_alias", "cardinality", "target_unavailable_policy", "projection_mappings")
                 .doesNotContain("auto_title", "title_output_field");
         assertThat(columnNames(mapper.toTable(ModuleMetadataRelation.class)))
                 .contains("id", "module_alias", "metadata_id", "relation_role", "parent_metadata_id",
