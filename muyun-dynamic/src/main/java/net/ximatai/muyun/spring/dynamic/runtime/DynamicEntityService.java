@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.child.ChildPlan;
 import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.child.ChildAbility;
@@ -674,14 +675,16 @@ public class DynamicEntityService implements
                                                             DynamicReferenceResolveRequest request) {
         EntityReferenceDefinition reference = referenceDefinition(sourceField);
         ReferencePlan plan = reference.plan();
-        DynamicEntityService targetService;
         try {
-            targetService = referenceService(plan.target());
-        } catch (ModuleDefinitionException dynamicTargetUnavailable) {
-            return new DynamicReferenceResolver(this, plan, referenceAbility(plan.target()), reference.affects())
+            return new DynamicReferenceResolver(this, plan, referenceService(plan.target()), reference.affects())
                     .resolve(request);
+        } catch (ModuleDefinitionException dynamicTargetUnavailable) {
+            var staticTarget = PlatformAbilityRuntime.referenceTargetResolver().resolve(plan.target());
+            if (staticTarget.isEmpty()) {
+                throw dynamicTargetUnavailable;
+            }
+            return new DynamicReferenceResolver(this, plan, staticTarget.get(), reference.affects()).resolve(request);
         }
-        return new DynamicReferenceResolver(this, plan, targetService, reference.affects()).resolve(request);
     }
 
     @Override

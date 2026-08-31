@@ -132,9 +132,8 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
                 "学科", true, false);
         ensureField(exam.getId(), "examDate", "exam_date", "date", "考试日期", true, false);
         ModuleMetadataRelation main = ensureMainRelation(exam.getId());
-        ensureStaticReference(classroomId, main, ClassroomService.MODULE_ALIAS, "classroom", "classCode:classroomCode");
-        ensureStaticReference(subjectCategoryId, main, SubjectCategoryService.MODULE_ALIAS, "subject_category",
-                "code:subjectCategoryCode");
+        ensureStaticReference(classroomId, main, ClassroomService.MODULE_ALIAS, "classCode:classroomCode");
+        ensureStaticReference(subjectCategoryId, main, SubjectCategoryService.MODULE_ALIAS, "code:subjectCategoryCode");
 
         Metadata participant = ensureMetadata(PARTICIPANT_METADATA_ALIAS, "参考学生", "education_exam_participant");
         ensureField(participant.getId(), "examId", "exam_id", "string", "考试", true, false);
@@ -145,8 +144,7 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
         ModuleMetadataRelation participants = ensureChildRelation(participant.getId(), main.getMetadataId());
         removeLegacyChildField(participant.getId(), "studentNo");
         removeLegacyChildField(participant.getId(), "studentName");
-        ensureStaticReference(studentId, participants, StudentService.MODULE_ALIAS, "student",
-                "studentNo:studentNo,title:studentTitle");
+        ensureStaticReference(studentId, participants, StudentService.MODULE_ALIAS, "studentNo:studentNo,title:studentTitle");
     }
 
     private void ensureModule() {
@@ -232,7 +230,6 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
     private void ensureStaticReference(MetadataField field,
                                        ModuleMetadataRelation relation,
                                        String targetModuleAlias,
-                                       String targetEntityAlias,
                                        String projectionMappings) {
         if (referenceConfigService.findForRelation(field.getId(), relation.getId()) != null) {
             return;
@@ -241,7 +238,6 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
         config.setMetadataFieldId(field.getId());
         config.setRelationId(relation.getId());
         config.setTargetModuleAlias(targetModuleAlias);
-        config.setTargetEntityAlias(targetEntityAlias);
         config.setProjectionMappings(projectionMappings);
         referenceConfigService.insert(config);
     }

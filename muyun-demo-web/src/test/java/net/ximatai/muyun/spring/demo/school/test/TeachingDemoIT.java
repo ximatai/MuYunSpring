@@ -50,8 +50,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 静态业务模块的最终交付演示：在真实 Boot 上下文中验证 Spring 装配、Repository 持久化、
- * 自动建表、静态模块/端点注册和业务 Ability 组合。
+ * 教学管理动静一体演示：在真实 Boot 上下文中验证 Spring 装配、Repository 持久化、
+ * 自动建表、模块/端点注册和业务 Ability 组合。
  */
 @Testcontainers
 @SpringBootTest(classes = MuYunSpringApplication.class)
@@ -179,7 +179,7 @@ public class TeachingDemoIT {
             assertThat(referenceConfigs.findForRelation(classroomId.getId(), main.getId()))
                     .satisfies(config -> {
                         assertThat(config.getTargetModuleAlias()).isEqualTo(ClassroomService.MODULE_ALIAS);
-                        assertThat(config.getTargetEntityAlias()).isEqualTo("classroom");
+                        assertThat(config.getTargetMetadataId()).isNull();
                     });
             assertThat(referenceConfigs.findForRelation(subjectCategoryId.getId(), main.getId()))
                     .satisfies(config -> assertThat(config.getTargetModuleAlias())

@@ -9,6 +9,7 @@ import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.capability.EnabledCapable;
 import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
 import net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraint;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.demo.school.student.StudentService;
 import net.ximatai.muyun.spring.demo.school.subject.SubjectCategoryService;
@@ -34,7 +35,7 @@ public class Teacher extends StandardTitledEntity implements EnabledCapable {
     @Column(name = "subject_category_id", type = ColumnType.VARCHAR, length = 32, nullable = false)
     private String subjectCategoryId;
 
-    @net.ximatai.muyun.spring.ability.reference.ReferenceLoad(source = "subjectCategoryId", field = "title")
+    @ReferenceLoad(source = "subjectCategoryId", field = "title")
     private transient String subjectTitle;
 
     @Column(name = "enabled", type = ColumnType.BOOLEAN, nullable = false,

@@ -544,7 +544,6 @@ class PlatformModuleDefinitionCompilerTest {
         config.setMetadataFieldId(studentId.getId());
         config.setRelationId(relationId);
         config.setTargetModuleAlias("education.student");
-        config.setTargetEntityAlias("student");
         config.setProjectionMappings("title:studentTitle");
         @SuppressWarnings("unchecked") ReferenceAbility<?> student = mock(ReferenceAbility.class);
         ReferenceTarget target = ReferenceTarget.of("education", "student");
@@ -584,7 +583,6 @@ class PlatformModuleDefinitionCompilerTest {
         config.setMetadataFieldId(examIdField.getId());
         config.setRelationId(lineRelationId);
         config.setTargetModuleAlias("education.student");
-        config.setTargetEntityAlias("student");
 
         assertThatThrownBy(() -> referenceConfigService.insert(config))
                 .isInstanceOf(PlatformException.class)

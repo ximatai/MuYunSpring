@@ -78,7 +78,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, MetadataFieldReferenceConfig.class, java.util.List.of("id", "metadataFieldId", "relationId", "targetModuleAlias", "targetMetadataId", "targetEntityAlias", "cardinality", "targetUnavailablePolicy", "projectionMappings", "createdAt", "updatedAt"));
+        return QueryDescriptors.fromModel(MODULE_ALIAS, MetadataFieldReferenceConfig.class, java.util.List.of("id", "metadataFieldId", "relationId", "targetModuleAlias", "targetMetadataId", "cardinality", "targetUnavailablePolicy", "projectionMappings", "createdAt", "updatedAt"));
     }
 
     @Override
@@ -121,6 +121,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
     }
 
     private void normalizeAndValidate(MetadataFieldReferenceConfig config) {
+        normalizeTargetIdentifiers(config);
         MetadataField sourceField = requireField(config.getMetadataFieldId(), "source metadata field");
         ModuleMetadataRelation sourceRelation = normalizeRelation(config, sourceField);
         FieldSpec sourceType = fieldTypeService.requireFieldType(sourceField.getFieldSpecAlias());
@@ -138,7 +139,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         new ReferencePlan(sourceField.getFieldName(), target,
                 config.getCardinality(), List.of(),
                 new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy()));
-        if (!config.targetsStaticEntity()
+        if (!targetsStaticEntity(config)
                 && config.getTargetModuleAlias() != null
                 && !config.projections().isEmpty()) {
             throw new PlatformException("Cross-module reference display is not supported yet: "
@@ -156,7 +157,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                                           MetadataField sourceField,
                                           ModuleMetadataRelation sourceRelation) {
         normalizeTargetIdentifiers(config);
-        if (config.targetsStaticEntity()) {
+        if (targetsStaticEntity(config)) {
             ReferenceTarget target = resolveStaticTarget(config, sourceRelation);
             validateOutputFields(config, sourceField.getMetadataId(), target);
             return target;
@@ -168,7 +169,6 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
 
     private void normalizeTargetIdentifiers(MetadataFieldReferenceConfig config) {
         config.setTargetMetadataId(normalizeBlank(config.getTargetMetadataId()));
-        config.setTargetEntityAlias(normalizeBlank(config.getTargetEntityAlias()));
         String targetModuleAlias = normalizeBlank(config.getTargetModuleAlias());
         if (targetModuleAlias == null) {
             config.setTargetModuleAlias(null);
@@ -200,12 +200,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         if (targetPlatformModule == null || targetPlatformModule.getModuleKind() != ModuleKind.STATIC) {
             throw new PlatformException("Static reference config requires STATIC target module: " + targetModuleAlias);
         }
-        String entityAlias = PlatformNameRules.requireIdentifier(config.getTargetEntityAlias(), "targetEntityAlias");
         ReferenceTarget target = ReferenceTargets.fromModuleAlias(targetModuleAlias);
-        if (!entityAlias.equals(target.entityAlias())) {
-            throw new PlatformException("Static reference entity alias must match target platform module: "
-                    + targetModuleAlias + "." + entityAlias);
-        }
         ReferenceAbility<?> ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
                 .orElseThrow(() -> new PlatformException("Static reference target is not registered: "
                         + target.qualifiedName()));
@@ -255,7 +250,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                             || !relation.getForeignKey().equals(sourceField.getFieldName())) {
                         return;
                     }
-                    if (config.targetsStaticEntity()) {
+                    if (targetsStaticEntity(config)) {
                         throw new PlatformException("Child relation foreign key cannot reference a static target: "
                                 + relation.getRelationAlias());
                     }
@@ -362,7 +357,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
     private void requireTargetField(MetadataFieldReferenceConfig config,
                                     ReferenceTarget target,
                                     String targetFieldName) {
-        if (config.targetsStaticEntity()) {
+        if (targetsStaticEntity(config)) {
             ReferenceAbility<?> ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
                     .orElseThrow(() -> new PlatformException("Static reference target is not registered: "
                             + target.qualifiedName()));
@@ -384,6 +379,14 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                 .eq("fieldName", outputField)) > 0) {
             throw new PlatformException(name + " conflicts with source field: " + outputField);
         }
+    }
+
+    private boolean targetsStaticEntity(MetadataFieldReferenceConfig config) {
+        if (config.getTargetMetadataId() != null || config.getTargetModuleAlias() == null) {
+            return false;
+        }
+        PlatformModule target = moduleService.select(config.getTargetModuleAlias());
+        return target != null && target.getModuleKind() == ModuleKind.STATIC;
     }
 
     private MetadataField requireField(String metadataFieldId, String name) {

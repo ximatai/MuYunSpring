@@ -36,13 +36,6 @@ public class MetadataFieldReferenceConfig extends StandardEntity {
     @Column(name = "target_metadata_id", type = ColumnType.VARCHAR, length = 32, comment = "Target metadata id")
     private String targetMetadataId;
 
-    /**
-     * Static targets do not have dynamic metadata.  Together with the complete static platform
-     * module alias, this declares the entity segment of the registered {@code ReferenceTarget}.
-     */
-    @Column(name = "target_entity_alias", type = ColumnType.VARCHAR, length = 64, comment = "Static target entity alias")
-    private String targetEntityAlias;
-
     @Column(name = "cardinality", type = ColumnType.VARCHAR, length = 16, nullable = false,
             comment = "Reference cardinality", defaultVal = @Default(varchar = "ONE"))
     private ReferenceCardinality cardinality = ReferenceCardinality.ONE;
@@ -64,10 +57,6 @@ public class MetadataFieldReferenceConfig extends StandardEntity {
                 .filter(value -> !value.isBlank())
                 .map(MetadataFieldReferenceConfig::projection)
                 .toList();
-    }
-
-    public boolean targetsStaticEntity() {
-        return targetEntityAlias != null && !targetEntityAlias.isBlank();
     }
 
     private static ReferenceProjection projection(String value) {

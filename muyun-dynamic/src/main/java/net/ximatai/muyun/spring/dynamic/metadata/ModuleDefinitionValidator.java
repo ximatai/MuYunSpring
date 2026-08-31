@@ -1388,9 +1388,10 @@ public class ModuleDefinitionValidator {
 
     /**
      * Dynamic targets retain platform module aliases such as {@code sales.contract}; a static
-     * service target may use the application-level coordinate produced by
+     * service target uses the complete static platform module alias produced by
      * {@link net.ximatai.muyun.spring.ability.reference.ReferenceTargets}, such as
-     * {@code education/student}.  Both are valid source-neutral ReferenceTarget identities.
+     * {@code education.student}, which is resolved to {@code ReferenceTarget("education", "student")}.
+     * Both are valid source-neutral ReferenceTarget identities.
      */
     private void requireReferenceTargetModuleAlias(String value, String name) {
         if (PlatformNameRules.isIdentifier(value)) {
