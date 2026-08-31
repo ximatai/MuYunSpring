@@ -838,6 +838,8 @@ export interface QuerySchemaField {
   defaultOperator?: QueryOperator;
   quickSearch?: boolean;
   sortable?: boolean;
+  /** Explicit field-domain binding; distinguishes options from reference title companions. */
+  optionBinding?: OptionBindingDescriptor;
   optionTitleField?: string;
 }
 
@@ -1021,6 +1023,8 @@ export interface ResolvedReferenceFieldDescriptor {
   candidateDependencies?: ReferenceCandidateDependency[];
   /** Read-side title projection for this scalar reference, when supplied by the server. */
   titleField?: string;
+  /** Target fields mapped by metadata to read-only source-record display projections. */
+  displayProjections?: ResolvedReferenceDisplayProjectionDescriptor[];
   /**
    * Explicitly authorized target-field paths available after choosing this ONE reference.
    * Paths are relative to this reference field; the form runtime prefixes them with the
@@ -1035,6 +1039,11 @@ export interface ResolvedReferenceFieldDescriptor {
  */
 export interface ResolvedReferenceSelectionProjectionDescriptor {
   path: string[];
+}
+
+export interface ResolvedReferenceDisplayProjectionDescriptor {
+  targetField: string;
+  outputField: string;
 }
 
 export interface ReferenceCandidateDependency {

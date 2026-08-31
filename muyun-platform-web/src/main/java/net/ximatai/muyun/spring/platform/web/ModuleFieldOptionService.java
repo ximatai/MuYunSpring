@@ -29,26 +29,37 @@ public class ModuleFieldOptionService {
         this.optionSourceRegistry = optionSourceRegistry;
     }
 
-    public List<OptionItem> options(String moduleAlias, String fieldName, boolean enabledOnly, String parentCode) {
-        OptionBinding binding = binding(moduleAlias, fieldName);
+    public List<OptionItem> options(String moduleAlias, String entityAlias, String fieldName,
+                                    boolean enabledOnly, String parentCode) {
+        OptionBinding binding = binding(moduleAlias, entityAlias, fieldName);
         return optionSourceRegistry.source(binding).options(new OptionQuery(enabledOnly, parentCode));
     }
 
-    private OptionBinding binding(String moduleAlias, String fieldName) {
+    public List<OptionItem> options(String moduleAlias, String fieldName, boolean enabledOnly, String parentCode) {
+        return options(moduleAlias, null, fieldName, enabledOnly, parentCode);
+    }
+
+    private OptionBinding binding(String moduleAlias, String entityAlias, String fieldName) {
         return staticModuleCatalog.find(moduleAlias)
                 .flatMap(definition -> OptionFieldResolver.resolve(definition.modelClass()).stream()
                         .filter(field -> field.fieldName().equals(fieldName))
                         .findFirst()
                         .map(field -> field.binding()))
-                .orElseGet(() -> dynamicBinding(moduleAlias, fieldName));
+                .orElseGet(() -> dynamicBinding(moduleAlias, entityAlias, fieldName));
     }
 
-    private OptionBinding dynamicBinding(String moduleAlias, String fieldName) {
+    private OptionBinding dynamicBinding(String moduleAlias, String entityAlias, String fieldName) {
         if (dynamicRecordService != null) {
             DynamicModuleDescriptor module = dynamicRecordService.describe(moduleAlias);
-            OptionBinding binding = module.entities().stream()
-                    .filter(entity -> entity.entityAlias().equals(module.mainEntityAlias()))
-                    .flatMap(entity -> entity.fields().stream())
+            String resolvedEntityAlias = entityAlias == null || entityAlias.isBlank()
+                    ? module.mainEntityAlias()
+                    : entityAlias.trim();
+            var entity = module.entities().stream()
+                    .filter(candidate -> candidate.entityAlias().equals(resolvedEntityAlias))
+                    .findFirst()
+                    .orElseThrow(() -> new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
+                            "dynamic entity not found: " + moduleAlias + "." + resolvedEntityAlias));
+            OptionBinding binding = entity.fields().stream()
                     .filter(field -> field.fieldName().equals(fieldName))
                     .map(field -> field.optionBinding())
                     .filter(java.util.Objects::nonNull)

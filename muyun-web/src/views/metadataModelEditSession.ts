@@ -1,5 +1,12 @@
 import { computed, ref } from 'vue';
 import type { MetadataField, ModuleMetadataRelation } from '@muyun/web-contracts';
+import {
+  copyFieldPropertyDraft,
+  emptyFieldPropertyDraft,
+  propertyDraftFromSummary,
+  type MetadataFieldPropertyDraft,
+  type MetadataFieldPropertySummary,
+} from './metadataOrchestrationState';
 
 /**
  * A local edit session for one metadata relation.
@@ -20,6 +27,7 @@ export interface MetadataModelEditDraft {
   relationId: string;
   expectedMetadataVersion: number;
   fields: Record<string, MetadataField>;
+  fieldProperties: Record<string, MetadataFieldPropertyDraft>;
   capabilitySelections: Record<string, boolean>;
 }
 
@@ -32,6 +40,7 @@ export type MetadataFieldGovernanceKind =
 export function createMetadataModelEditSession() {
   const draft = ref<MetadataModelEditDraft>();
   const initialFields = ref<Record<string, MetadataField>>({});
+  const initialFieldProperties = ref<Record<string, MetadataFieldPropertyDraft>>({});
   const initialCapabilities = ref<Record<string, boolean>>({});
 
   const editing = computed(() => draft.value !== undefined);
@@ -46,6 +55,15 @@ export function createMetadataModelEditSession() {
     ) {
       return true;
     }
+    if (
+      Object.keys(current.fieldProperties).some(
+        (id) =>
+          JSON.stringify(current.fieldProperties[id]) !== JSON.stringify(initialFieldProperties.value[id]),
+      ) ||
+      Object.keys(initialFieldProperties.value).some((id) => !(id in current.fieldProperties))
+    ) {
+      return true;
+    }
     return Object.entries(current.capabilitySelections).some(
       ([capability, enabled]) => enabled !== initialCapabilities.value[capability],
     );
@@ -57,14 +75,17 @@ export function createMetadataModelEditSession() {
     expectedMetadataVersion: number,
     fields: MetadataField[],
     capabilities: MetadataCapabilityDraftSource[],
+    fieldProperties: MetadataFieldPropertySummary[] = [],
   ) {
     initialFields.value = fieldMap(fields);
+    initialFieldProperties.value = propertyMap(initialFields.value, fieldProperties);
     initialCapabilities.value = capabilityMap(capabilities);
     draft.value = {
       metadataId,
       relationId,
       expectedMetadataVersion,
       fields: copyFieldMap(initialFields.value),
+      fieldProperties: copyFieldPropertyMap(initialFieldProperties.value),
       capabilitySelections: { ...initialCapabilities.value },
     };
   }
@@ -72,14 +93,26 @@ export function createMetadataModelEditSession() {
   function cancel() {
     draft.value = undefined;
     initialFields.value = {};
+    initialFieldProperties.value = {};
     initialCapabilities.value = {};
   }
 
-  function stageField(field: MetadataField) {
+  function stageField(field: MetadataField, property?: MetadataFieldPropertyDraft) {
     const current = draft.value;
     const key = field.id ?? (field.fieldName ? `new:${field.fieldName}` : undefined);
     if (!current || !key) return;
     current.fields = { ...current.fields, [key]: { ...field } };
+    if (property) {
+      current.fieldProperties = { ...current.fieldProperties, [key]: copyFieldPropertyDraft(property) };
+    }
+  }
+
+  function propertyForField(field: MetadataField): MetadataFieldPropertyDraft {
+    const current = draft.value;
+    const key = field.id ?? (field.fieldName ? `new:${field.fieldName}` : undefined);
+    return key && current?.fieldProperties[key]
+      ? current.fieldProperties[key]
+      : emptyFieldPropertyDraft('BASIC');
   }
 
   function stageCapability(capability: string, enabled: boolean, selectable: boolean) {
@@ -98,14 +131,22 @@ export function createMetadataModelEditSession() {
     const fieldDrafts: MetadataFieldChangeSetDraft[] = [];
     for (const [id, field] of Object.entries(current.fields)) {
       const initial = initialFields.value[id];
+      const property = current.fieldProperties[id] ?? emptyFieldPropertyDraft('BASIC');
+      const initialProperty = initialFieldProperties.value[id];
+      const propertyChanged = JSON.stringify(property) !== JSON.stringify(initialProperty);
       if (!initial) {
-        fieldDrafts.push({ operation: 'ADD', field: { ...field } });
-      } else if (JSON.stringify(field) !== JSON.stringify(initial)) {
+        fieldDrafts.push({
+          operation: 'ADD',
+          field: { ...field },
+          property: property?.kind === 'BASIC' ? undefined : toFieldPropertyChangeSetPayload(property),
+        });
+      } else if (JSON.stringify(field) !== JSON.stringify(initial) || propertyChanged) {
         fieldDrafts.push({
           operation: 'UPDATE',
           fieldId: id,
           expectedFieldVersion: initial.version,
           field: { ...field },
+          property: propertyChanged ? toFieldPropertyChangeSetPayload(property) : undefined,
         });
       }
     }
@@ -124,6 +165,7 @@ export function createMetadataModelEditSession() {
     begin,
     cancel,
     stageField,
+    propertyForField,
     stageCapability,
     fieldsForDisplay,
     buildProposal,
@@ -135,6 +177,16 @@ export interface MetadataFieldChangeSetDraft {
   fieldId?: string;
   expectedFieldVersion?: number;
   field?: MetadataField;
+  /** JSON-facing command contract; projection mappings remain an ordered string array. */
+  property?: MetadataFieldPropertyChangeSetPayload;
+}
+
+export type MetadataFieldPropertyChangeSetPayload = MetadataFieldPropertyDraft;
+
+export function toFieldPropertyChangeSetPayload(
+  property: MetadataFieldPropertyDraft,
+): MetadataFieldPropertyChangeSetPayload {
+  return copyFieldPropertyDraft(property);
 }
 
 export interface MetadataRelationChangeSetProposal {
@@ -164,10 +216,10 @@ export function metadataFieldGovernanceKind(
 export function metadataFieldGovernanceLabel(kind: MetadataFieldGovernanceKind): string {
   return (
     {
-      BUSINESS: '业务字段',
-      CAPABILITY_DERIVED: '能力派生',
-      PLATFORM_SYSTEM: '平台系统',
-      RELATION_FOREIGN_KEY: '关系外键',
+      BUSINESS: '业务',
+      CAPABILITY_DERIVED: '能力',
+      PLATFORM_SYSTEM: '平台',
+      RELATION_FOREIGN_KEY: '关系',
     }[kind] ?? kind
   );
 }
@@ -190,6 +242,31 @@ function fieldMap(fields: MetadataField[]): Record<string, MetadataField> {
 
 function copyFieldMap(fields: Record<string, MetadataField>): Record<string, MetadataField> {
   return Object.fromEntries(Object.entries(fields).map(([id, field]) => [id, { ...field }]));
+}
+
+function propertyMap(
+  fields: Record<string, MetadataField>,
+  summaries: MetadataFieldPropertySummary[],
+): Record<string, MetadataFieldPropertyDraft> {
+  const summariesByFieldId = new Map(
+    summaries.filter((summary) => summary.fieldId).map((summary) => [summary.fieldId!, summary]),
+  );
+  return Object.fromEntries(
+    Object.entries(fields).map(([id]) => [
+      id,
+      summariesByFieldId.has(id)
+        ? propertyDraftFromSummary(summariesByFieldId.get(id)!)
+        : emptyFieldPropertyDraft('BASIC'),
+    ]),
+  );
+}
+
+function copyFieldPropertyMap(
+  properties: Record<string, MetadataFieldPropertyDraft>,
+): Record<string, MetadataFieldPropertyDraft> {
+  return Object.fromEntries(
+    Object.entries(properties).map(([id, property]) => [id, copyFieldPropertyDraft(property)]),
+  );
 }
 
 function capabilityMap(capabilities: MetadataCapabilityDraftSource[]): Record<string, boolean> {

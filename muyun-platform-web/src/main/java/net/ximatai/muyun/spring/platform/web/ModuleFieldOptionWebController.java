@@ -24,8 +24,9 @@ public class ModuleFieldOptionWebController {
     @ActionEndpoint(PlatformAction.MENU)
     public List<OptionItem> options(@PathVariable String moduleAlias,
                                     @PathVariable String fieldName,
+                                    @RequestParam(required = false) String entityAlias,
                                     @RequestParam(defaultValue = "true") boolean enabledOnly,
                                     @RequestParam(required = false) String parentCode) {
-        return optionService.options(moduleAlias, fieldName, enabledOnly, parentCode);
+        return optionService.options(moduleAlias, entityAlias, fieldName, enabledOnly, parentCode);
     }
 }

@@ -57,21 +57,22 @@ public final class ReferenceReadPipeline<T> {
         Map<ReferenceTarget, TargetRequest> requests = new LinkedHashMap<>();
         for (ReferencePlan plan : plans) {
             if (plan.projections().isEmpty()) continue;
-            TargetRequest request = requests.computeIfAbsent(plan.target(), ignored -> new TargetRequest());
+            TargetRequest request = requests.computeIfAbsent(plan.target(), ignored -> new TargetRequest(plan));
             plan.projections().stream().map(ReferenceProjection::targetField).forEach(request.fields::add);
             for (T record : records) request.ids.addAll(ids(plan, record));
         }
         Map<ReferenceTarget, Map<String, Map<String, Object>>> resolved = new LinkedHashMap<>();
-        requests.forEach((target, request) -> {
+        requests.forEach((key, request) -> {
+            ReferencePlan plan = request.plan;
             if (request.ids.isEmpty()) {
-                resolved.put(target, Map.of());
+                resolved.put(key, Map.of());
                 return;
             }
             List<String> ids = List.copyOf(request.ids);
             List<String> fields = List.copyOf(request.fields);
-            observer.onProjection(new ReferenceReadObserver.ProjectionRequest(target, fields, ids.size(),
+            observer.onProjection(new ReferenceReadObserver.ProjectionRequest(plan.target(), fields, ids.size(),
                     ReferenceReadObserver.Kind.DIRECT, null, null, 0));
-            resolved.put(target, require(target).projections(ids, fields));
+            resolved.put(key, require(plan.target()).projections(ids, fields));
         });
         for (T record : records) {
             Map<String, Object> output = new LinkedHashMap<>();
@@ -136,7 +137,12 @@ public final class ReferenceReadPipeline<T> {
     }
 
     private static final class TargetRequest {
+        private final ReferencePlan plan;
         private final LinkedHashSet<String> ids = new LinkedHashSet<>();
         private final LinkedHashSet<String> fields = new LinkedHashSet<>();
+
+        private TargetRequest(ReferencePlan plan) {
+            this.plan = plan;
+        }
     }
 }

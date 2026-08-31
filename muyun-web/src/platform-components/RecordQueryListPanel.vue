@@ -70,6 +70,7 @@ import {
   type RecordQueryListMode,
   type StandardCrudRowActionKey,
 } from './recordQueryListColumnModel';
+import { loadOptionFieldItems } from './optionFieldOptionCache';
 
 defineOptions({ name: 'RecordQueryListPanel' });
 
@@ -249,6 +250,7 @@ const activeConditions = ref<WebQueryCondition[]>([]);
 const selectedRowKeys = ref<UiDataTableKey[]>([]);
 const persistentQueryValues = ref<Record<string, boolean>>({});
 const querySummaryValues = ref<WebListQuerySummaryItem[]>([]);
+const optionItemsByField = ref<Record<string, import('@muyun/web-contracts').OptionItemDescriptor[]>>({});
 let schemaRequestSeq = 0;
 let recordsRequestSeq = 0;
 
@@ -336,7 +338,10 @@ const tableColumns = computed<RecordQueryListColumn[]>(() => {
     props.columns && props.columns.length > 0
       ? recycleBinColumns(props.columns)
       : recycleBinColumns(resolveRecordQueryListColumns(runtimeListView.value, queryFields.value));
-  return mergeColumns(base, props.additionalColumns);
+  return mergeColumns(base, props.additionalColumns).map((column) => ({
+    ...column,
+    optionItems: optionItemsByField.value[column.key] ?? column.optionItems,
+  }));
 });
 const dataTableColumns = computed<UiDataTableColumn[]>(() =>
   tableColumns.value.map((column) => ({
@@ -357,6 +362,22 @@ const booleanOptions: Option[] = [
 onMounted(() => {
   void loadSchemaAndRecords();
 });
+
+async function loadListOptionItems() {
+  for (const column of tableColumns.value) {
+    if (!column.optionBinding || optionItemsByField.value[column.key]) continue;
+    try {
+      optionItemsByField.value = {
+        ...optionItemsByField.value,
+        [column.key]: await loadOptionFieldItems(props.context, column.key, column.optionEntityAlias),
+      };
+    } catch {
+      // Keep the persisted value visible while an optional title source is unavailable.
+    }
+  }
+}
+
+watch(tableColumns, () => void loadListOptionItems(), { immediate: true });
 
 watch(
   () => props.reloadKey,

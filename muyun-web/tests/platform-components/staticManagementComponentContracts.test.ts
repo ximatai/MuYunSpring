@@ -735,7 +735,7 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleAuthorizationViewSource, /props\.drawer === true/);
   assert.match(roleAuthorizationWorkspaceViewSource, /drawerProfile: 'wide-work'/);
   assert.match(workspaceDrawerSource, /min\(600px, 100vw\)/);
-  assert.match(queryListCellSource, /record\[titleField \?\? `\$\{fieldName\}Title`\]/);
+  assert.match(queryListCellSource, /\[titleField, `\$\{fieldName\}Title`\]/);
   assert.match(contractsSource, /export type RoleAssignmentType = 'account' \| 'employment'/);
   assert.match(contractsSource, /export type RoleOwnerScopeType = 'platform' \| 'tenant' \| 'organization'/);
   assert.match(

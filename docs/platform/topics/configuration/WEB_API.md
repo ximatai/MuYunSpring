@@ -351,6 +351,8 @@
 
 模块聚合接口只处理天然归属模块的配置。请求体里即使传入 `moduleAlias` 或 `relationId`，后端也以 URL 路径为准，并校验存量记录不能跨模块操作。
 
+元数据字段治理读口同样以模块和关系为作用域。字段属性摘要返回当前关系下的有效基础、引用、字典或存量锁定绑定；引用目标字段目录只返回平台已验证可用的匹配键和展示字段候选，不读取目标业务记录。
+
 模块字段配置可声明计量单位消费契约。主数值字段通过 `unitCategoryAlias` 进入单位能力；`unitMode=FIXED` 时使用 `fixedUnitCode`，`unitMode=SELECTABLE` 时绑定同元数据、同 owner 的伴生单位字段 `unitFieldId`。`baseValueFieldId` 绑定同 owner 的影子标准值字段，`baseUnitCategoryAlias` 和 `baseUnitCode` 是归一基准单位，未配置基准分类时默认等于 `unitCategoryAlias`；`unitConversionMode` 表达线性目录换算或业务规则换算，`conversionScopeFieldId` 用于后续记录上下文换算。
 
 模块字段配置也可声明金额消费契约。主金额字段通过 `moneyCurrencyMode` 进入金额能力；`FIXED` 时使用 `moneyFixedCurrencyCode`，`SELECTABLE` 时绑定同元数据、同 owner 的币种伴生字段 `moneyCurrencyFieldId`。`moneyBaseAmountFieldId` 是动态保存时写入的本位金额影子字段；`moneyBaseCurrencyCode` 可固定本位币，未配置时运行态按租户本位币设置解析；`moneyRateTypeCode` 必填；`moneyRateDateFieldId` 可绑定业务日期字段；`moneyExchangeRateFieldId` 可选，用于保存本次折算汇率。
@@ -374,6 +376,8 @@
 | 元数据关系     | `POST`   | `/platform.module/{moduleAlias}/metadata-relations/update/{id}`                                                     | 更新模块元数据关系                                                 |
 | 元数据关系     | `POST`   | `/platform.module/{moduleAlias}/metadata-relations/delete/{id}`                                                     | 删除模块元数据关系                                                 |
 | 元数据关系     | `POST`   | `/platform.module/{moduleAlias}/metadata-relations/sort/{id}`                                                       | 在模块内调整关系顺序                                               |
+| 字段属性摘要   | `GET`    | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/field-properties`                                   | 读取关系下每个元数据字段的有效属性与绑定版本                         |
+| 引用目标字段目录 | `GET`    | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/reference-target-field-catalog`                    | 按 `targetModuleAlias` 和可选 `targetMetadataId` 读取匹配键、展示字段候选 |
 | 元数据视图     | `POST`   | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/views/query`                                        | 查询关系下的元数据视图                                             |
 | 元数据视图     | `GET`    | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/views/view/{id}`                                    | 查看元数据视图                                                     |
 | 元数据视图     | `POST`   | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/views/insert`                                       | 新增元数据视图；后端以 URL 中的 `relationId` 为准                  |
@@ -416,6 +420,8 @@
 | 模块公式规则   | `POST`   | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/formula-rules/sort/{id}`                            | 在关系内调整公式规则顺序                                           |
 
 模块公式规则可以引用当前关系字段或子关系字段。`CALCULATION` 规则允许把目标字段配置为虚拟字段，运行态试算会返回计算后的虚拟字段值；标准保存入口不接受外部显式写入虚拟字段，公式内部计算出的虚拟字段也不参与动态表持久化。`IMPORT_VALIDATE` 阶段不允许计算写字段，只用于校验。
+
+引用目标字段目录中的 `keyFields` 是选择、搜索和导入匹配候选，不表示引用字段改为保存业务键。标准记录引用始终保存目标记录 `id`；业务唯一键命中后必须先解析为唯一 `id` 再写入。`labelFields` 用于选择标题或其他展示字段，不改变引用存储身份。动态目标的 `targetMetadataId` 只能是目标模块的 MAIN 元数据；静态目标无独立元数据 ID，以模块引用目录为准。
 
 ## 页面配置与查询模板
 

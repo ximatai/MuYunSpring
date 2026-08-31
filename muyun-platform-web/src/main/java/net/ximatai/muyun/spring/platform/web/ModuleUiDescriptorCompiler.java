@@ -101,7 +101,7 @@ public final class ModuleUiDescriptorCompiler {
         ResolvedModuleUiDescriptor descriptor = compileResolved(uiDefinition, ModuleKind.STATIC, definition.title(),
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
                         staticRecordLabelField(definition), Map.copyOf(fieldTypes), FieldControlDescriptorCatalog.standard(),
-                        false);
+                        false, Map.of(), Map.of());
         descriptor = withPageContextBindings(descriptor, definition.pageContextBindings());
         List<ResolvedPageDetailEditorContribution> resolvedContributions = uiDefinition.editorContributions().stream()
                 .map(contribution -> {
@@ -218,6 +218,33 @@ public final class ModuleUiDescriptorCompiler {
                 fieldTypes == null ? Map.of() : fieldTypes, Map.copyOf(fieldControls));
     }
 
+    /**
+     * Dynamic aggregate-child editors carry facts owned by their target entity.  Keep that scope
+     * in the compiler rather than folding child facts into the main-record field-name maps: a
+     * child and its parent may legitimately have fields with the same name but different option
+     * or reference contracts.
+     */
+    static ResolvedModuleUiDescriptor compileDynamicRelationEditors(
+            ModuleUiDefinition definition,
+            ModuleKind moduleKind,
+            String title,
+            Map<String, ResolvedOptionFieldDescriptor> optionFields,
+            Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
+            String defaultRecordLabelField,
+            Map<ViewFieldRef, FieldValueType> fieldTypes,
+            Map<String, ResolvedFieldControlDescriptor> fieldControls,
+            Map<ViewFieldRef, ResolvedOptionFieldDescriptor> relationOptionFields,
+            Map<ViewFieldRef, ResolvedReferenceFieldDescriptor> relationReferenceFields) {
+        if (fieldControls == null) {
+            throw new IllegalArgumentException("resolved field controls must not be null");
+        }
+        return compileResolved(definition, moduleKind, title, optionFields == null ? Map.of() : optionFields,
+                referenceFields == null ? Map.of() : referenceFields, Map.of(), defaultRecordLabelField,
+                fieldTypes == null ? Map.of() : fieldTypes, Map.copyOf(fieldControls), true,
+                relationOptionFields == null ? Map.of() : Map.copyOf(relationOptionFields),
+                relationReferenceFields == null ? Map.of() : Map.copyOf(relationReferenceFields));
+    }
+
     private static ResolvedModuleUiDescriptor compileResolved(ModuleUiDefinition definition,
                                                               ModuleKind moduleKind,
                                                               String title,
@@ -228,7 +255,7 @@ public final class ModuleUiDescriptorCompiler {
                                                               Map<ViewFieldRef, FieldValueType> fieldTypes,
                                                               Map<String, ResolvedFieldControlDescriptor> fieldControls) {
         return compileResolved(definition, moduleKind, title, optionFields, referenceFields, referenceSummaryFields,
-                defaultRecordLabelField, fieldTypes, fieldControls, true);
+                defaultRecordLabelField, fieldTypes, fieldControls, true, Map.of(), Map.of());
     }
 
     /**
@@ -245,7 +272,9 @@ public final class ModuleUiDescriptorCompiler {
                                                               String defaultRecordLabelField,
                                                               Map<ViewFieldRef, FieldValueType> fieldTypes,
                                                               Map<String, ResolvedFieldControlDescriptor> fieldControls,
-                                                              boolean compileEditorContributions) {
+                                                              boolean compileEditorContributions,
+                                                              Map<ViewFieldRef, ResolvedOptionFieldDescriptor> relationOptionFields,
+                                                              Map<ViewFieldRef, ResolvedReferenceFieldDescriptor> relationReferenceFields) {
         return new ResolvedModuleUiDescriptor(
                 ResolvedModuleUiDescriptor.SCHEMA_VERSION,
                 definition.moduleAlias(),
@@ -264,11 +293,36 @@ public final class ModuleUiDescriptorCompiler {
                                 referenceFields, referenceSummaryFields, fieldTypes, fieldControls))).toList(),
                 compileEditorContributions
                         ? definition.editorContributions().stream().map(contribution ->
-                        new ResolvedPageDetailEditorContribution(contribution.resource(), compileView(contribution.editor(),
-                                optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls))).toList()
+                        new ResolvedPageDetailEditorContribution(contribution.resource(), compileRelationEditorView(contribution.editor(),
+                                optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls,
+                                relationOptionFields, relationReferenceFields))).toList()
                         : List.of(),
                 List.of()
         );
+    }
+
+    private static ResolvedViewDescriptor compileRelationEditorView(
+            ViewDefinition editor,
+            Map<String, ResolvedOptionFieldDescriptor> optionFields,
+            Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
+            Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
+            Map<ViewFieldRef, FieldValueType> fieldTypes,
+            Map<String, ResolvedFieldControlDescriptor> fieldControls,
+            Map<ViewFieldRef, ResolvedOptionFieldDescriptor> relationOptionFields,
+            Map<ViewFieldRef, ResolvedReferenceFieldDescriptor> relationReferenceFields) {
+        if (relationOptionFields.isEmpty() && relationReferenceFields.isEmpty()) {
+            return compileView(editor, optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls);
+        }
+        Map<String, ResolvedOptionFieldDescriptor> scopedOptions = new LinkedHashMap<>();
+        Map<String, ResolvedReferenceFieldDescriptor> scopedReferences = new LinkedHashMap<>();
+        for (ViewFieldDefinition field : editor.fields()) {
+            ViewFieldRef ref = field.fieldRef();
+            ResolvedOptionFieldDescriptor option = relationOptionFields.get(ref);
+            if (option != null) scopedOptions.put(ref.fieldName(), option);
+            ResolvedReferenceFieldDescriptor reference = relationReferenceFields.get(ref);
+            if (reference != null) scopedReferences.put(ref.fieldName(), reference);
+        }
+        return compileView(editor, scopedOptions, scopedReferences, referenceSummaryFields, fieldTypes, fieldControls, true);
     }
 
     private static List<ResolvedDetailRelationDescriptor> staticDetailRelations(StaticModuleDefinition definition,
@@ -1231,7 +1285,11 @@ public final class ModuleUiDescriptorCompiler {
                                         + plan.sourceField() + "/resolve",
                                 plan.candidateDependencies(),
                                 plan.selectionProjections().stream()
-                                        .map(ResolvedReferenceSelectionProjectionDescriptor::new).toList());
+                                        .map(ResolvedReferenceSelectionProjectionDescriptor::new).toList(),
+                                plan.projections().stream()
+                                        .map(projection -> new ResolvedReferenceDisplayProjectionDescriptor(
+                                                projection.targetField(), projection.outputField()))
+                                        .toList());
                         },
                         (left, right) -> left
                 ));

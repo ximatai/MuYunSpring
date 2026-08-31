@@ -13,7 +13,11 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateKey;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraint;
+import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
 import net.ximatai.muyun.spring.common.model.capability.SortCapable;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
@@ -147,6 +151,7 @@ class PlatformMetadataServiceContractTest {
     @AfterEach
     void resetStaticChildAbilities() {
         PlatformAbilityRuntime.resetChildAbilityResolver();
+        PlatformAbilityRuntime.resetReferenceTargetResolver();
     }
     private final PlatformMetadataSchemaEnsureService schemaEnsureService = mock(PlatformMetadataSchemaEnsureService.class);
     private final PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator =
@@ -529,6 +534,25 @@ class PlatformMetadataServiceContractTest {
 
         verify(runtimeRefreshCoordinator).refreshByMetadataField(argThat(refreshed ->
                 refreshed != null && field.getId().equals(refreshed.getId())));
+    }
+
+    @Test
+    void shouldSuppressPerBindingRefreshWhenAnAtomicPropertyPublishRollsBack() {
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        MetadataField field = field(metadataId, "customerCode", "customer_code", FieldType.STRING);
+        fieldService.insert(field);
+        clearInvocations(runtimeRefreshCoordinator);
+        MetadataFieldConfig dictionary = fieldConfig(field.getId());
+        MetadataFieldReferenceConfig reference = new MetadataFieldReferenceConfig();
+        reference.setMetadataFieldId(field.getId());
+
+        assertThatThrownBy(() -> MetadataFieldPropertyMutationContext.run(() -> {
+            fieldConfigService.afterChanged(dictionary);
+            referenceConfigService.afterChanged(reference);
+            throw new IllegalStateException("rollback");
+        })).isInstanceOf(IllegalStateException.class).hasMessage("rollback");
+
+        org.mockito.Mockito.verifyNoInteractions(runtimeRefreshCoordinator);
     }
 
     @Test
@@ -1177,18 +1201,99 @@ class PlatformMetadataServiceContractTest {
         String customerId = metadataService.insert(metadata("crm", "customer"));
         String contactId = metadataService.insert(metadata("crm", "contact"));
         fieldService.insert(titleField(customerId));
-        fieldService.insert(field(customerId, "code", "code", FieldType.STRING));
+        MetadataField code = field(customerId, "code", "code", FieldType.STRING);
+        code.setUniqueField(Boolean.TRUE);
+        fieldService.insert(code);
         MetadataField customerField = field(contactId, "customerId", "customer_id", FieldType.STRING);
         fieldService.insert(customerField);
         MetadataFieldReferenceConfig config = referenceConfig(customerField.getId(), customerId);
+        config.setTargetKeyField("code");
+        config.setTargetLabelField("title");
         config.setProjectionMappings("title:customerIdTitle,code:customerCode");
 
         String id = referenceConfigService.insert(config);
 
         MetadataFieldReferenceConfig saved = referenceConfigService.select(id);
         assertThat(saved.getCardinality()).isEqualTo(net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE);
+        assertThat(saved.getTargetKeyField()).isEqualTo("code");
+        assertThat(saved.getTargetLabelField()).isEqualTo("title");
         assertThat(saved.projections()).anySatisfy(projection -> assertThat(projection.outputField()).isEqualTo("customerIdTitle"));
         assertThat(saved.projections()).hasSize(2);
+    }
+
+    @Test
+    void shouldDeriveStandardSourceTitleProjectionBeforeExplicitReferenceProjections() {
+        String customerId = metadataService.insert(metadata("crm", "customer"));
+        String contactId = metadataService.insert(metadata("crm", "contact"));
+        fieldService.insert(titleField(customerId));
+        MetadataField code = field(customerId, "code", "code", FieldType.STRING);
+        code.setUniqueField(Boolean.TRUE);
+        fieldService.insert(code);
+        MetadataField customerField = field(contactId, "customerCode", "customer_code", FieldType.STRING);
+        fieldService.insert(customerField);
+        MetadataFieldReferenceConfig config = referenceConfig(customerField.getId(), customerId);
+        config.setTargetKeyField("code");
+        config.setProjectionMappings("code:customerBusinessCode");
+
+        String id = referenceConfigService.insert(config);
+
+        assertThat(referenceConfigService.select(id).projections())
+                .extracting(projection -> projection.targetField() + ":" + projection.outputField())
+                .containsExactly("title:customerCodeTitle", "code:customerBusinessCode");
+    }
+
+    @Test
+    void shouldValidateUnpersistedReferenceTargetBeforeChangeSetPublish() {
+        MetadataField source = field("unpersisted-meta", "studentId", "student_id", FieldType.STRING);
+        MetadataFieldReferenceConfig config = new MetadataFieldReferenceConfig();
+        config.setTargetModuleAlias("crm.missing");
+
+        assertThatThrownBy(() -> referenceConfigService.validateDraft(config, source, null))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("existing target module");
+    }
+
+    @Test
+    void shouldAllowProvenStaticAlternateKeyAndReadableLabelInRelationScopedReferenceConfig() {
+        moduleService.insert(module("sales.order", "sales", ModuleKind.DYNAMIC));
+        moduleService.insert(module("crm.customer", "crm", ModuleKind.STATIC));
+        String metadataId = metadataService.insert(metadata("sales", "order"));
+        String relationId = relationService.insert(mainRelation("sales.order", metadataId));
+        MetadataField customerCode = field(metadataId, "customerCode", "customer_code", FieldType.STRING);
+        fieldService.insert(customerCode);
+        @SuppressWarnings("unchecked") ReferenceAbility<StaticCustomerReferenceTarget> target = mock(ReferenceAbility.class);
+        org.mockito.Mockito.doReturn(StaticCustomerReferenceTarget.class).when(target).modelClass();
+        when(target.getModuleAlias()).thenReturn("crm.customer");
+        when(target.referenceCandidateKey("code")).thenReturn(new ReferenceCandidateKey("code", true, true));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(reference ->
+                "crm.customer".equals(reference.qualifiedName()) ? Optional.of(target) : Optional.empty());
+        MetadataFieldReferenceConfig config = new MetadataFieldReferenceConfig();
+        config.setMetadataFieldId(customerCode.getId());
+        config.setRelationId(relationId);
+        config.setTargetModuleAlias("crm.customer");
+        config.setTargetKeyField("code");
+        config.setTargetLabelField("displayName");
+        config.setProjectionMappings("displayName:customerDisplayName");
+
+        String id = referenceConfigService.insert(config);
+
+        assertThat(referenceConfigService.select(id)).extracting(MetadataFieldReferenceConfig::getTargetKeyField,
+                MetadataFieldReferenceConfig::getTargetLabelField).containsExactly("code", "displayName");
+        assertThat(referenceConfigService.select(id).projections())
+                .extracting(projection -> projection.targetField() + ":" + projection.outputField())
+                .containsExactly("displayName:customerCodeTitle", "displayName:customerDisplayName");
+    }
+
+    @Test
+    void shouldValidateUnpersistedDictionaryCategoryBeforeChangeSetPublish() {
+        String metadataId = metadataService.insert(metadata("crm", "draft_dictionary"));
+        MetadataField source = field(metadataId, "attendanceStatus", "attendance_status", FieldType.STRING);
+        MetadataFieldConfig config = new MetadataFieldConfig();
+        config.setDictionaryCategoryAlias("missing_status");
+
+        assertThatThrownBy(() -> fieldConfigService.validateDictionaryDraft(config, source))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("existing category");
     }
 
     @Test
@@ -1241,6 +1346,7 @@ class PlatformMetadataServiceContractTest {
         moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
         String orderId = metadataService.insert(metadata("crm", "order"));
         String customerId = metadataService.insert(metadata("crm", "customer"));
+        fieldService.insert(titleField(customerId));
         MetadataField customerField = field(orderId, "customerId", "customer_id", FieldType.STRING);
         fieldService.insert(customerField);
         relationService.insert(mainRelation("crm.customer", customerId));
@@ -1290,6 +1396,7 @@ class PlatformMetadataServiceContractTest {
         moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
         String orderId = metadataService.insert(metadata("crm", "order"));
         String customerId = metadataService.insert(metadata("crm", "customer"));
+        fieldService.insert(titleField(customerId));
         MetadataField customerField = field(orderId, "customerId", "customer_id", FieldType.STRING);
         fieldService.insert(customerField);
         String orderRelationId = relationService.insert(mainRelation("crm.order", orderId));
@@ -1330,6 +1437,7 @@ class PlatformMetadataServiceContractTest {
         MetadataField customerField = field(contactId, "customerId", "customer_id", FieldType.STRING);
         fieldService.insert(customerField);
         MetadataFieldReferenceConfig config = referenceConfig(customerField.getId(), customerId);
+        config.setTargetLabelField("code");
         config.setProjectionMappings("code:id");
 
         assertThatThrownBy(() -> referenceConfigService.insert(config))
@@ -2644,6 +2752,12 @@ class PlatformMetadataServiceContractTest {
         relation.setRelationAlias("profile");
         relation.setTitle("profile");
         return relation;
+    }
+
+    @TenantUniqueConstraint(fields = "code")
+    private static class StaticCustomerReferenceTarget extends StandardTitledEntity {
+        private String code;
+        private String displayName;
     }
 
     private static class MemoryDao<T extends EntityContract> implements BaseDao<T, String> {

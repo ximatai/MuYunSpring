@@ -56,6 +56,11 @@ const props = withDefaults(
     fallback?: Record<string, RecordFormFieldFallback>;
     pickerConfigs?: Record<string, RecordFormFieldPickerConfig>;
     optionContext?: ModuleContext<unknown>;
+    /**
+     * Resolves option fields against a managed child entity while retaining the parent module context.
+     * Ordinary module forms intentionally leave this absent.
+     */
+    optionEntityAlias?: string;
     fileTransferContext?: ModuleContext<unknown>;
     formSessionKey?: string | number;
     validationRequestKey?: number;
@@ -79,6 +84,7 @@ const props = withDefaults(
     fallback: () => ({}),
     pickerConfigs: () => ({}),
     optionContext: undefined,
+    optionEntityAlias: undefined,
     fileTransferContext: undefined,
     formSessionKey: undefined,
     validationRequestKey: 0,
@@ -96,6 +102,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:field': [fieldName: string, value: RecordFormFieldValue];
   'validity-change': [validity: RecordFormValidity];
+  /** Read-only reference projections for a parent-owned display surface; never a mutation input. */
+  'reference-projections-change': [fieldName: string, projections: Record<string, unknown>];
 }>();
 
 const resolvedFieldNames = computed(
@@ -150,13 +158,10 @@ onMounted(() => {
   void loadOptionFields();
   initializeRequiredColorFields();
 });
-watch(
-  () => props.fields,
-  () => {
-    void loadOptionFields();
-    initializeRequiredColorFields();
-  },
-);
+watch([() => props.fields, () => props.optionEntityAlias], () => {
+  void loadOptionFields();
+  initializeRequiredColorFields();
+});
 watch([() => props.record.id, () => props.formSessionKey], () => {
   // A new record/session must never inherit parser failures from its predecessor.
   editorFieldErrors.value = {};
@@ -339,7 +344,7 @@ async function loadOptionField(field: RecordFormFieldDescriptor) {
   const fieldName = field.fieldRef.fieldName;
   loadingOptionFields.value = new Set(loadingOptionFields.value).add(fieldName);
   try {
-    const items = await loadOptionFieldItems(props.optionContext, fieldName);
+    const items = await loadOptionFieldItems(props.optionContext, fieldName, props.optionEntityAlias);
     optionItems.value = { ...optionItems.value, [fieldName]: items };
     const errors = { ...optionFieldErrors.value };
     delete errors[fieldName];
@@ -415,6 +420,20 @@ function updateReferenceSelectionContext(
     ...referenceSelectionSourceIds.value,
     [fieldName]: record?.id,
   };
+  emit('reference-projections-change', fieldName, referenceDisplayProjections(reference, record));
+}
+
+function referenceDisplayProjections(
+  reference: RecordFormFieldDescriptor['reference'],
+  record: import('./recordPickerConstraints').RecordPickerRecord | undefined,
+) {
+  if (!record) return {};
+  const projections = { ...(record.projections ?? {}) };
+  for (const projection of reference?.displayProjections ?? []) {
+    const value = (record as Record<string, unknown>)[projection.targetField];
+    if (value !== undefined) projections[projection.outputField] = value;
+  }
+  return projections;
 }
 
 function clearReferenceSelectionContext() {

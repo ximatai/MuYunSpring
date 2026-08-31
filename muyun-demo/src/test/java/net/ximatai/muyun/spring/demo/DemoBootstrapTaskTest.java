@@ -37,6 +37,7 @@ import net.ximatai.muyun.spring.iam.role.RoleSharePolicy;
 import net.ximatai.muyun.spring.iam.role.TenantScopePolicy;
 import net.ximatai.muyun.spring.iam.role.RoleOwnerScopeType;
 import net.ximatai.muyun.spring.iam.tenant.Tenant;
+import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.tenant.TenantDao;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.iam.user.PasswordHashingService;
@@ -78,6 +79,7 @@ class DemoBootstrapTaskTest {
     private final RoleActionMemoryDao roleActionDao = new RoleActionMemoryDao();
 
     private final TenantService tenantService = new TenantService(tenantDao);
+    private final TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
     private final OrganizationService organizationService = new OrganizationService(organizationDao, tenantService);
     private final DepartmentService departmentService = new DepartmentService(departmentDao, tenantService,
             organizationService);
@@ -320,11 +322,14 @@ class DemoBootstrapTaskTest {
         properties.setEmployeeTitle("演示租户管理员");
         properties.setAdminUsername("demo_admin");
         properties.setAdminInitialPassword("demo123");
-        DemoBootstrapTask task = new DemoBootstrapTask(properties, tenantService, organizationService,
+        DemoBootstrapTask task = new DemoBootstrapTask(properties, tenantService, tenantApplicationService, organizationService,
                 departmentService, employeeService, userAccountService, employeeAccountService, tenantRoleProvisioner);
 
         task.run();
         task.run();
+
+        verify(tenantApplicationService, times(2)).configureApplications(DemoBootstrapTask.TENANT_ALIAS,
+                List.of("iam", "education"));
 
         Tenant tenant = tenantService.select(DemoBootstrapTask.TENANT_ALIAS);
         assertThat(tenant).isNotNull();
@@ -402,7 +407,7 @@ class DemoBootstrapTaskTest {
         DemoBootstrapProperties properties = new DemoBootstrapProperties();
         properties.setAdminInitialPassword("demo123");
         when(grantableActionResolver.resolve(any())).thenReturn(List.of());
-        DemoBootstrapTask task = new DemoBootstrapTask(properties, tenantService, organizationService,
+        DemoBootstrapTask task = new DemoBootstrapTask(properties, tenantService, tenantApplicationService, organizationService,
                 departmentService, employeeService, userAccountService, employeeAccountService, tenantRoleProvisioner);
 
         task.run();
@@ -429,7 +434,7 @@ class DemoBootstrapTaskTest {
         properties.setAdminUsername("demo_admin");
         properties.setAdminInitialPassword("demo123");
         when(grantableActionResolver.resolve(any())).thenReturn(List.of());
-        DemoBootstrapTask task = new DemoBootstrapTask(properties, tenantService, organizationService,
+        DemoBootstrapTask task = new DemoBootstrapTask(properties, tenantService, tenantApplicationService, organizationService,
                 departmentService, employeeService, userAccountService, employeeAccountService, tenantRoleProvisioner);
 
         try (TenantContext.Scope ignored = TenantContext.system("test")) {
@@ -498,7 +503,7 @@ class DemoBootstrapTaskTest {
         DemoBootstrapProperties properties = new DemoBootstrapProperties();
         when(grantableActionResolver.resolve(any())).thenReturn(List.of());
         TenantService replayingTenantService = spy(new TenantService(tenantDao));
-        DemoBootstrapTask task = new DemoBootstrapTask(properties, replayingTenantService, organizationService,
+        DemoBootstrapTask task = new DemoBootstrapTask(properties, replayingTenantService, tenantApplicationService, organizationService,
                 departmentService, employeeService, userAccountService, employeeAccountService, tenantRoleProvisioner);
 
         try (TenantContext.Scope ignored = TenantContext.system("test")) {
@@ -519,7 +524,7 @@ class DemoBootstrapTaskTest {
     void shouldFailFastWhenExistingDemoAdminUserDrifts() {
         DemoBootstrapProperties properties = new DemoBootstrapProperties();
         when(grantableActionResolver.resolve(any())).thenReturn(List.of());
-        DemoBootstrapTask task = new DemoBootstrapTask(properties, tenantService, organizationService,
+        DemoBootstrapTask task = new DemoBootstrapTask(properties, tenantService, tenantApplicationService, organizationService,
                 departmentService, employeeService, userAccountService, employeeAccountService, tenantRoleProvisioner);
 
         try (TenantContext.Scope ignored = TenantContext.system("test")) {

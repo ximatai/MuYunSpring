@@ -11,6 +11,8 @@ import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceDependencyRegistryTestAccess;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
@@ -1763,6 +1765,57 @@ class AbilityContractTest {
                 .containsEntry(id, Map.of("title", "Raw title", "displayName", "Display title"));
         assertThat(service.referenceOptions(Criteria.of(), PageRequest.of(1, 10)).getRecords())
                 .containsExactly(new ReferenceOption(id, "Display title"));
+    }
+
+    @Test
+    void referenceAbilityShouldKeepRecordIdWhenUsingConfiguredCandidateKeyAndLabelFields() {
+        DemoCustomTitleRecordService service = new DemoCustomTitleRecordService();
+        String id = service.insert(new DemoCustomTitleRecord("CUSTOMER-001", "Internal title", "Customer One"));
+        ReferencePlan plan = ReferencePlan.of("customerCode", ReferenceTarget.of("demo", "customTitleRecord"),
+                ReferenceCardinality.ONE).withTargetFields("code", "displayName");
+
+        assertThat(service.referenceOptions(plan, Criteria.of().eq("code", "CUSTOMER-001"), PageRequest.of(1, 10))
+                .getRecords()).containsExactly(new ReferenceOption(id, "Customer One"));
+        assertThat(service.projections(List.of(id), List.of("title")))
+                .containsExactly(Map.entry(id, Map.of("title", "Internal title")));
+    }
+
+    @Test
+    void referenceCandidateKeyShouldRequireAStaticUniqueDeclaration() {
+        DemoCustomTitleRecordService uniqueService = new DemoCustomTitleRecordService();
+        DemoCustomerService nonUniqueService = new DemoCustomerService();
+
+        assertThat(uniqueService.referenceCandidateKey("code").usable()).isTrue();
+        assertThat(nonUniqueService.referenceCandidateKey("status"))
+                .extracting(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateKey::readable,
+                        net.ximatai.muyun.spring.ability.reference.ReferenceCandidateKey::unique)
+                .containsExactly(true, false);
+        ReferencePlan invalid = ReferencePlan.of("customerStatus", ReferenceTarget.of("demo", "customer"),
+                ReferenceCardinality.ONE).withTargetFields("status", "title");
+        assertThatThrownBy(() -> nonUniqueService.referenceOptions(invalid, Criteria.of(), PageRequest.of(1, 10)))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("reference target key field is not uniquely declared");
+    }
+
+    @Test
+    void referenceAbilityShouldExposeOnlySafeCandidateKeysAndReadableLabels() {
+        DemoCustomTitleRecordService uniqueService = new DemoCustomTitleRecordService();
+        DemoCustomerService nonUniqueService = new DemoCustomerService();
+
+        assertThat(uniqueService.referenceCandidateKeys())
+                .extracting(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateKey::fieldName)
+                .containsExactly("id", "code");
+        assertThat(nonUniqueService.referenceCandidateKeys())
+                .extracting(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateKey::fieldName)
+                .containsExactly("id");
+        assertThat(uniqueService.referenceCandidateLabels())
+                .filteredOn(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateField::defaultField)
+                .extracting(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateField::fieldName)
+                .containsExactly("displayName");
+        assertThat(uniqueService.referenceCandidateLabels())
+                .extracting(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateField::fieldName)
+                .contains("code", "displayName", "id", "title")
+                .doesNotContain("missingField", "INTERNAL_TEST_ONLY");
     }
 
     @Test

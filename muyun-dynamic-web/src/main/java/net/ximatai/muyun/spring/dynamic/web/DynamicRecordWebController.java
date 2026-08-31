@@ -27,6 +27,7 @@ import net.ximatai.muyun.spring.platform.web.NavigatorListQueryMode;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan;
 import net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService;
+import net.ximatai.muyun.spring.platform.web.StaticReferenceResolveFacade;
 import net.ximatai.muyun.spring.platform.web.ListQuerySummaryRuntime;
 import net.ximatai.muyun.spring.platform.web.ModuleMutationFieldValidation;
 import net.ximatai.muyun.spring.platform.web.ModuleQueryFormField;
@@ -114,6 +115,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceMatchMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveRequest;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveResponse;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshot;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshotService;
 import net.ximatai.muyun.spring.platform.ui.PlatformQueryItemService;
@@ -185,6 +187,7 @@ public class DynamicRecordWebController implements
     private final PlatformModuleRuntimeContextService runtimeContextService;
     private final TenantRequestScope tenantRequestScope;
     private RecycleBinFacade recycleBinFacade;
+    private StaticReferenceResolveFacade staticReferenceResolveFacade;
     private final DynamicOpenApiGenerator openApiGenerator = new DynamicOpenApiGenerator();
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -216,6 +219,11 @@ public class DynamicRecordWebController implements
     @Autowired(required = false)
     void setRecycleBinFacade(RecycleBinFacade recycleBinFacade) {
         this.recycleBinFacade = recycleBinFacade;
+    }
+
+    @Autowired(required = false)
+    void setStaticReferenceResolveFacade(StaticReferenceResolveFacade staticReferenceResolveFacade) {
+        this.staticReferenceResolveFacade = staticReferenceResolveFacade;
     }
 
     @Override
@@ -639,7 +647,9 @@ public class DynamicRecordWebController implements
         WebPageRequest webPage = request.pageOrDefault();
         PageRequest pageRequest = PageRequest.of(webPage.pageNum(), webPage.pageSize());
         Criteria criteria = queryCriteria(request);
-        Set<String> projectionFields = projectionFields(DynamicWebRequest.moduleAlias(), request);
+        Set<String> projectionFields = dynamicRelationProjectionReadService.resolveListOutputFields(
+                DynamicWebRequest.moduleAlias(), recordService,
+                projectionFields(DynamicWebRequest.moduleAlias(), request));
         ProjectionQueryDescriptor projectionDescriptor = projectionListQueryDescriptor(projectionFields);
         Sort[] sorts = querySorts(request, projectionDescriptor.sortableFields());
         PageResult<DynamicRecord> projectedPage = projectionDescriptor.supported()
@@ -712,7 +722,9 @@ public class DynamicRecordWebController implements
         if (request == null || (!hasText(request.uiConfigId()) && executionPlanCatalog == null)) {
             return records;
         }
-        Set<String> projectionFields = projectionFields(DynamicWebRequest.moduleAlias(), request);
+        Set<String> projectionFields = dynamicRelationProjectionReadService.resolveListOutputFields(
+                DynamicWebRequest.moduleAlias(), recordService,
+                projectionFields(DynamicWebRequest.moduleAlias(), request));
         return records.stream()
                 .map(record -> project(record, projectionFields))
                 .toList();
@@ -801,6 +813,41 @@ public class DynamicRecordWebController implements
         return webScope(() -> recordService.associationRelationOverview(DynamicWebRequest.moduleAlias()));
     }
 
+    /**
+     * The aggregate returned by the standard detail endpoint contains child records selected by
+     * the parent aggregate service. Those records have not passed their own dynamic read pipeline,
+     * so enrich only execution-plan declared embedded relations here, before transport
+     * serialization. This preserves the normal aggregate ownership and avoids serializer-side
+     * database access.
+     */
+    @Override
+    @GetMapping("/view/{id}")
+    @ActionEndpoint(PlatformAction.VIEW)
+    public DynamicRecord view(@PathVariable String id) {
+        return webScope(() -> detailOutput(selectForAction(PlatformAction.VIEW, id)));
+    }
+
+    private DynamicRecord detailOutput(DynamicRecord record) {
+        DynamicRecord output = WebOutputSupport.record(service(), record, FieldOutputContext.VIEW);
+        if (output == null || executionPlanCatalog == null) return output;
+        var plan = requireExecutionPlan(DynamicWebRequest.moduleAlias());
+        DynamicRecord enriched = output.copy();
+        plan.uiDescriptor().detailRelations().stream()
+                .filter(relation -> relation.embeddedField() != null)
+                .forEach(relation -> enrichEmbeddedRelation(enriched, relation.code()));
+        return enriched;
+    }
+
+    private void enrichEmbeddedRelation(DynamicRecord parent,
+                                        String relationCode) {
+        List<DynamicRecord> embedded = parent.getChildren(relationCode);
+        if (embedded == null || embedded.isEmpty()) return;
+        // The parent has already passed VIEW authorisation. Re-enter the aggregate relation read
+        // rather than a child QUERY path so VIEW and QUERY scopes cannot silently diverge.
+        parent.setChildren(relationCode, recordService.aggregateChildrenForView(
+                DynamicWebRequest.moduleAlias(), parent.getId(), relationCode));
+    }
+
     @GetMapping("/associations/design")
     @ActionEndpoint(PlatformAction.VIEW)
     public List<DynamicAssociationViewDescriptor> associationDesignDescriptors() {
@@ -853,7 +900,7 @@ public class DynamicRecordWebController implements
             validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
             String id = service().insert(normalized);
             syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
-            return WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
+            return detailOutput(service().select(id));
         });
     }
 
@@ -872,8 +919,7 @@ public class DynamicRecordWebController implements
             requireDataScopeRecord(PlatformAction.UPDATE, id);
             service().update(normalized);
             syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
-            return WebOutputSupport.record(service(), selectForAction(PlatformAction.VIEW, id),
-                    FieldOutputContext.VIEW);
+            return detailOutput(selectForAction(PlatformAction.VIEW, id));
         });
     }
 
@@ -1413,10 +1459,10 @@ public class DynamicRecordWebController implements
             Map<String, Object> values = source.getValues();
             if (values.containsKey(field)) {
                 FieldDefinition definition = fieldDefinitions.get(field);
-                if (definition != null && !definition.isPhysical()) {
-                    projected.putDisplayValue(field, values.get(field));
-                } else {
+                if (definition != null && definition.isPhysical()) {
                     projected.setValue(field, values.get(field));
+                } else {
+                    projected.putProjectedValue(field, values.get(field));
                 }
             }
         }
@@ -1615,6 +1661,15 @@ public class DynamicRecordWebController implements
         return ReferenceWeb.super.reference(fieldName, request);
     }
 
+    /** Resolves a declared child-entity reference without pretending that it belongs to the module root. */
+    @PostMapping("/{entityAlias:[a-z][a-z0-9_]*}/references/{fieldName}/resolve")
+    @ActionEndpoint(PlatformAction.REFERENCE)
+    public WebReferenceResolveResponse relationReference(@PathVariable String entityAlias,
+                                                         @PathVariable String fieldName,
+                                                         @RequestBody(required = false) WebReferenceResolveRequest request) {
+        return resolveReference(entityAlias, fieldName, request);
+    }
+
     @PostMapping("/references/{fieldName}/generate")
     @ActionEndpoint(PlatformAction.REFERENCE)
     public RecordGenerationResult generateFromReference(@PathVariable String fieldName,
@@ -1670,7 +1725,12 @@ public class DynamicRecordWebController implements
     @Override
     public WebReferenceResolveResponse resolveReference(String fieldName, WebReferenceResolveRequest request) {
         String moduleAlias = DynamicWebRequest.moduleAlias();
-        String entityAlias = mainEntityAlias(moduleAlias);
+        return resolveReference(mainEntityAlias(moduleAlias), fieldName, request);
+    }
+
+    private WebReferenceResolveResponse resolveReference(String entityAlias, String fieldName,
+                                                          WebReferenceResolveRequest request) {
+        String moduleAlias = DynamicWebRequest.moduleAlias();
         WebReferenceResolveRequest normalized = request == null ? WebReferenceResolveRequest.empty() : request;
         DynamicReferenceDescriptor reference = recordService.reference(moduleAlias, entityAlias, fieldName);
         validateReferenceUiContexts(moduleAlias, reference, normalized);
@@ -1704,6 +1764,13 @@ public class DynamicRecordWebController implements
             throw new PlatformException("dynamic tree reference is not available");
         }
         Criteria criteria = referenceCriteria(reference, request);
+        if (!recordService.hasRegisteredDynamicEntity(reference.targetModuleAlias(), reference.targetEntityAlias())) {
+            if (staticReferenceResolveFacade == null) {
+                throw new PlatformException("static reference tree resolver is not configured");
+            }
+            return staticReferenceResolveFacade.resolveTargetTree(
+                    ReferenceTarget.of(reference.targetModuleAlias(), reference.targetEntityAlias()), criteria);
+        }
         List<WebTreeNode<WebReferenceResolveItem>> tree = dynamicReferenceChildren(reference, criteria, TreeAbility.ROOT_ID)
                 .stream().map(record -> dynamicReferenceTreeNode(reference, criteria, record)).toList();
         return new WebReferenceResolveResponse(tree.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,

@@ -14,9 +14,16 @@ import java.util.Set;
 public interface ReferencerAbility<T extends EntityContract> extends CrudAbility<T> {
     default Map<ReferenceTarget, Set<String>> collectReferenceIdsByTarget(T entity) {
         Class<?> modelClass = referenceModelClass(entity);
-        return modelClass == null
-                ? Map.of()
-                : StaticReferenceResolver.collect(modelClass, entity);
+        if (modelClass == null || entity == null) {
+            return Map.of();
+        }
+        Map<ReferenceTarget, Set<String>> result = new java.util.LinkedHashMap<>();
+        for (ReferencePlan plan : StaticReferenceResolver.plans(modelClass)) {
+            List<String> values = StaticReferenceResolver.values(entity, plan);
+            if (values.isEmpty()) continue;
+            result.computeIfAbsent(plan.target(), ignored -> new java.util.LinkedHashSet<>()).addAll(values);
+        }
+        return result.isEmpty() ? Map.of() : java.util.Collections.unmodifiableMap(result);
     }
 
     default void afterReferenceSelect(T entity) {

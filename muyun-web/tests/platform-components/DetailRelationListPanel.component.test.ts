@@ -89,6 +89,33 @@ describe('DetailRelationListPanel', () => {
       body: undefined,
     });
   });
+
+  it('marks a relation dictionary column with its target entity option contract', async () => {
+    const relation = executableRelation();
+    const querySchema = relation.queryContract!.querySchema!;
+    querySchema.fields = [
+      {
+        name: 'summary',
+        valueType: 'STRING',
+        operators: [],
+        optionBinding: { sourceType: 'dictionary', source: 'crm.contract_status' },
+        optionTitleField: 'summaryTitle',
+      },
+    ];
+    const wrapper = shallowMount(DetailRelationListPanel, {
+      props: { sourceContext: sourceContext(vi.fn()), recordId: 'customer-1', relation },
+    });
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: 'RecordQueryListPanel' }).props('columns')).toEqual([
+      expect.objectContaining({
+        key: 'summary',
+        optionBinding: true,
+        optionEntityAlias: 'contract',
+        titleField: 'summaryTitle',
+      }),
+    ]);
+  });
 });
 
 function executableRelation(): ResolvedDetailRelationDescriptor {

@@ -18,6 +18,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 class MetadataRelationChangeSetPreviewServiceTest {
     @Test
@@ -84,6 +85,119 @@ class MetadataRelationChangeSetPreviewServiceTest {
         assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIELD_DRAFT");
     }
 
+    @Test
+    void shouldStageReferencePropertyInsideTheSameFieldPlanAndFingerprint() {
+        Fixture fixture = fixture(RelationRole.MAIN, List.of());
+        MetadataField field = businessField("studentId", "student_id", "string");
+        MetadataFieldReferenceConfig reference = new MetadataFieldReferenceConfig();
+        reference.setTargetModuleAlias("education.student");
+        reference.setTargetKeyField("studentNo");
+        reference.setTargetLabelField("name");
+        reference.setProjectionMappings("name:studentIdTitle");
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null,
+                        MetadataFieldReferenceConfigDraft.fromConfig(reference), null)))));
+
+        assertThat(result.valid()).isTrue();
+        MetadataFieldPropertyChangeSetPlan property = result.plan().fieldMutations().getFirst().property();
+        assertThat(property.kind()).isEqualTo(MetadataFieldPropertyKind.MODULE_REFERENCE);
+        assertThat(property.referenceConfig()).extracting(MetadataFieldReferenceConfig::getTargetKeyField,
+                MetadataFieldReferenceConfig::getTargetLabelField).containsExactly("studentNo", "name");
+        assertThat(result.proposalFingerprint()).hasSize(64);
+    }
+
+    @Test
+    void shouldRejectAReferencePropertyThatAlsoCarriesDictionaryBinding() {
+        Fixture fixture = fixture(RelationRole.MAIN, List.of());
+        MetadataField field = businessField("studentId", "student_id", "string");
+        MetadataFieldReferenceConfig reference = new MetadataFieldReferenceConfig();
+        reference.setTargetModuleAlias("education.student");
+        MetadataFieldConfig dictionary = new MetadataFieldConfig();
+        dictionary.setDictionaryCategoryAlias("status");
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null,
+                        MetadataFieldReferenceConfigDraft.fromConfig(reference), dictionary)))));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIELD_PROPERTY");
+    }
+
+    @Test
+    void shouldRejectUnresolvableReferenceTargetDuringPreviewWithoutWriting() {
+        Fixture fixture = fixture(RelationRole.MAIN, List.of());
+        MetadataField field = businessField("studentId", "student_id", "string");
+        MetadataFieldReferenceConfig reference = new MetadataFieldReferenceConfig();
+        reference.setTargetModuleAlias("education.missing");
+        doThrow(new net.ximatai.muyun.spring.common.exception.PlatformException("Reference config requires existing target module"))
+                .when(fixture.referenceConfigService).validateDraft(any(), any(), any());
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null,
+                        MetadataFieldReferenceConfigDraft.fromConfig(reference), null)))));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIELD_PROPERTY");
+        verify(fixture.fieldService, never()).insert(any());
+    }
+
+    @Test
+    void shouldRejectUnknownDictionaryCategoryDuringPreviewWithoutWriting() {
+        Fixture fixture = fixture(RelationRole.MAIN, List.of());
+        MetadataField field = businessField("attendanceStatus", "attendance_status", "string");
+        MetadataFieldConfig dictionary = new MetadataFieldConfig();
+        dictionary.setDictionaryCategoryAlias("missing_status");
+        doThrow(new net.ximatai.muyun.spring.common.exception.PlatformException("Dictionary category does not exist"))
+                .when(fixture.fieldConfigService).validateDictionaryDraft(any(), any());
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.DICTIONARY, null, null, dictionary)))));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIELD_PROPERTY");
+        verify(fixture.fieldService, never()).insert(any());
+    }
+
+    @Test
+    void shouldRejectNewPropertyChangeForLegacyModuleFieldBinding() {
+        MetadataField existing = businessField("subjectId", "subject_id", "string");
+        existing.setVersion(2);
+        Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
+        ModuleMetadataField legacy = new ModuleMetadataField();
+        legacy.setMetadataFieldId("field-0");
+        legacy.setReferenceModuleAlias("education.subject");
+        when(fixture.moduleFieldService.findByRelationAndField("main", "field-0")).thenReturn(legacy);
+
+        MetadataField draft = businessField("subjectId", "subject_id", "string");
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                        "field-0", 2, draft, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.BASIC,
+                        null, null, null)))));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code)
+                .contains("LEGACY_FIELD_PROPERTY_LOCKED");
+    }
+
+    @Test
+    void shouldRejectLegacyLockedPropertyKindDuringPreview() {
+        Fixture fixture = fixture(RelationRole.MAIN, List.of());
+        MetadataField field = businessField("subjectId", "subject_id", "string");
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.LEGACY_LOCKED)))));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code)
+                .contains("LEGACY_FIELD_PROPERTY_LOCKED");
+    }
+
     private MetadataRelationChangeSetPreviewCommand command(Integer version, Map<EntityCapability, Boolean> capabilities,
                                                              List<MetadataFieldChangeSetDraft> fields) {
         return new MetadataRelationChangeSetPreviewCommand(version, capabilities, fields);
@@ -95,6 +209,9 @@ class MetadataRelationChangeSetPreviewServiceTest {
         MetadataService metadataService = mock(MetadataService.class);
         MetadataFieldService fieldService = mock(MetadataFieldService.class);
         FieldSpecService fieldSpecService = mock(FieldSpecService.class);
+        MetadataFieldReferenceConfigService referenceConfigService = mock(MetadataFieldReferenceConfigService.class);
+        MetadataFieldConfigService fieldConfigService = mock(MetadataFieldConfigService.class);
+        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
         PlatformModule module = new PlatformModule();
         module.setAlias("crm.customer");
         module.setModuleKind(ModuleKind.DYNAMIC);
@@ -119,7 +236,8 @@ class MetadataRelationChangeSetPreviewServiceTest {
         when(fieldService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(fields);
         when(fieldSpecService.requireFieldType(anyString())).thenReturn(new FieldSpec());
         return new Fixture(new MetadataRelationChangeSetPreviewService(moduleService, relationService, metadataService, fieldService,
-                fieldSpecService), metadataService, fieldService, fieldSpecService);
+                fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService), metadataService, fieldService,
+                fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService);
     }
 
     private MetadataField businessField(String name, String column, String spec) {
@@ -134,6 +252,7 @@ class MetadataRelationChangeSetPreviewServiceTest {
 
     private record Fixture(MetadataRelationChangeSetPreviewService service,
                            MetadataService metadataService, MetadataFieldService fieldService,
-                           FieldSpecService fieldSpecService) {
+                           FieldSpecService fieldSpecService, MetadataFieldReferenceConfigService referenceConfigService,
+                           MetadataFieldConfigService fieldConfigService, ModuleMetadataFieldService moduleFieldService) {
     }
 }

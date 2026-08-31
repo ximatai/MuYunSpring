@@ -103,10 +103,10 @@ public class StaticReferenceResolveFacade {
         WebPageRequest page = request.page() == null ? WebPageRequest.DEFAULT : request.page();
         Criteria criteria = candidateCriteria(plan, request);
         if (request.fuzzy() != null && !request.fuzzy().isBlank()) {
-            criteria.like(titleField(plan.target()), request.fuzzy().trim());
+            criteria.like(titleField(plan), request.fuzzy().trim());
         }
         PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
-        PageResult<ReferenceOption> result = referenceOptions(plan.target(), criteria, pageRequest);
+        PageResult<ReferenceOption> result = referenceOptions(plan, criteria, pageRequest);
         Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
                 result.getRecords().stream().map(ReferenceOption::id).toList());
         List<WebReferenceResolveItem> options = result.getRecords().stream()
@@ -122,17 +122,18 @@ public class StaticReferenceResolveFacade {
         if (ids.isEmpty()) {
             criteria.raw(net.ximatai.muyun.database.core.orm.SqlRawCondition.of("1 = 0", java.util.Map.of()));
         } else {
-            criteria.in("id", ids);
+            criteria.in(plan.targetKeyField(), ids);
         }
-        Map<String, String> titles = referenceOptions(plan.target(), criteria, PageRequests.all()).getRecords().stream()
-                .collect(java.util.stream.Collectors.toMap(ReferenceOption::id, ReferenceOption::title, (left, right) -> left));
-        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan, ids);
+        List<ReferenceOption> resolved = referenceOptions(plan, criteria, PageRequests.all()).getRecords();
+        Map<String, ReferenceOption> optionsByMatchValue = optionsByMatchValue(plan, resolved);
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
+                optionsByMatchValue.values().stream().map(ReferenceOption::id).distinct().toList());
         List<WebReferenceResolveResult> results = request.values().stream().map(value -> {
-            String id = value == null ? null : String.valueOf(value);
-            String title = id == null ? null : titles.get(id);
-            WebReferenceResolveItem item = title == null ? null
-                    : new WebReferenceResolveItem(id, title, WebReferenceMatchMode.KEY,
-                    selectionProjections.get(id), null);
+            String matchValue = value == null ? null : String.valueOf(value);
+            ReferenceOption option = matchValue == null ? null : optionsByMatchValue.get(matchValue);
+            WebReferenceResolveItem item = option == null ? null
+                    : new WebReferenceResolveItem(option.id(), option.title(), WebReferenceMatchMode.KEY,
+                    selectionProjections.get(option.id()), null);
             return new WebReferenceResolveResult(value,
                     item == null ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.RESOLVED,
                     item == null ? null : WebReferenceMatchMode.KEY, item, List.of());
@@ -144,23 +145,69 @@ public class StaticReferenceResolveFacade {
                 0, 0, results.size());
     }
 
+    private Map<String, ReferenceOption> optionsByMatchValue(ReferencePlan plan,
+                                                              List<ReferenceOption> options) {
+        if ("id".equals(plan.targetKeyField())) {
+            return options.stream().collect(java.util.stream.Collectors.toMap(
+                    ReferenceOption::id, java.util.function.Function.identity(), (left, ignored) -> left));
+        }
+        Map<String, Map<String, Object>> keys = referenceAbility(plan.target())
+                .projections(options.stream().map(ReferenceOption::id).toList(), List.of(plan.targetKeyField()));
+        Map<String, ReferenceOption> result = new LinkedHashMap<>();
+        for (ReferenceOption option : options) {
+            Object key = keys.getOrDefault(option.id(), Map.of()).get(plan.targetKeyField());
+            if (key != null) result.put(String.valueOf(key), option);
+        }
+        return result;
+    }
+
     @SuppressWarnings({"rawtypes", "unchecked"})
     private WebReferenceResolveResponse tree(ReferencePlan plan, WebReferenceResolveRequest request) {
         ReferenceTarget target = plan.target();
         ReferenceAbility<?> referenceAbility = abilities.findReference(target)
                 .orElseThrow(() -> new PlatformException("tree reference target is not available: " + target.qualifiedName()));
-        if (!(referenceAbility instanceof TreeAbility<?>)) {
-            throw new PlatformException("tree reference target does not support tree delivery: " + target.qualifiedName());
-        }
-        Map<String, List<TreeCapable>> children = treeChildrenByParent((ReferenceAbility) referenceAbility,
-                candidateCriteria(plan, request));
+        requireTreeTarget(referenceAbility);
+        Criteria criteria = candidateCriteria(plan, request);
+        Map<String, List<TreeCapable>> children = treeChildrenByParent((ReferenceAbility) referenceAbility, criteria);
+        Map<String, ReferenceOption> optionsByRecordId = plan.targetLabelField() == null ? Map.of()
+                : referenceOptions(plan, criteria, PageRequests.all()).getRecords().stream()
+                .collect(java.util.stream.Collectors.toMap(ReferenceOption::id, option -> option,
+                        (left, right) -> left, LinkedHashMap::new));
         Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
-                children.values().stream().flatMap(List::stream).map(TreeCapable::getId).toList());
+                children.values().stream()
+                        .flatMap(List::stream).map(TreeCapable::getId).toList());
+        return targetTree(referenceAbility, children, selectionProjections, optionsByRecordId);
+    }
+
+    /**
+     * Delivers a static tree target for metadata-driven sources. The source may be dynamic, but the
+     * target's tree traversal and REFERENCE data scope remain owned by the static ability.
+     */
+    public WebReferenceResolveResponse resolveTargetTree(ReferenceTarget target, Criteria criteria) {
+        ReferenceAbility<?> referenceAbility = abilities.findReference(target)
+                .orElseThrow(() -> new PlatformException("tree reference target is not available: " + target.qualifiedName()));
+        requireTreeTarget(referenceAbility);
+        return targetTree(referenceAbility, treeChildrenByParent((ReferenceAbility) referenceAbility, criteria), Map.of(), Map.of());
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private WebReferenceResolveResponse targetTree(ReferenceAbility<?> referenceAbility,
+                                                   Map<String, List<TreeCapable>> children,
+                                                   Map<String, Map<String, Object>> selectionProjections,
+                                                   Map<String, ReferenceOption> optionsByRecordId) {
         List<WebTreeNode<WebReferenceResolveItem>> nodes = children.getOrDefault(TreeAbility.ROOT_ID, List.of()).stream()
-                .map(record -> treeNode((ReferenceAbility) referenceAbility, children, record, selectionProjections))
+                .map(record -> treeNode((ReferenceAbility) referenceAbility, children, record, selectionProjections,
+                        optionsByRecordId))
                 .toList();
         return new WebReferenceResolveResponse(nodes.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,
                 WebReferenceResolveMode.TREE, List.of(), List.of(), 0, 0, nodes.size(), nodes);
+    }
+
+    private static void requireTreeTarget(ReferenceAbility<?> referenceAbility) {
+        if (!(referenceAbility instanceof TreeAbility<?>)) {
+            throw new PlatformException("tree reference target does not support tree delivery: "
+                    + referenceAbility.referenceTarget().qualifiedName());
+        }
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -189,11 +236,14 @@ public class StaticReferenceResolveFacade {
     private WebTreeNode<WebReferenceResolveItem> treeNode(ReferenceAbility referenceAbility,
                                                            Map<String, List<TreeCapable>> children,
                                                            TreeCapable record,
-                                                           Map<String, Map<String, Object>> selectionProjections) {
-        WebReferenceResolveItem item = new WebReferenceResolveItem(record.getId(),
-                referenceAbility.referenceTitle(record), null, selectionProjections.get(record.getId()), null);
+                                                           Map<String, Map<String, Object>> selectionProjections,
+                                                           Map<String, ReferenceOption> optionsByRecordId) {
+        ReferenceOption option = optionsByRecordId.get(record.getId());
+        WebReferenceResolveItem item = new WebReferenceResolveItem(option == null ? record.getId() : option.id(),
+                option == null ? referenceAbility.referenceTitle(record) : option.title(), null,
+                selectionProjections.get(record.getId()), null);
         return new WebTreeNode<>(item, children.getOrDefault(record.getId(), List.of()).stream()
-                .map(child -> treeNode(referenceAbility, children, child, selectionProjections))
+                .map(child -> treeNode(referenceAbility, children, child, selectionProjections, optionsByRecordId))
                 .toList());
     }
 
@@ -228,17 +278,42 @@ public class StaticReferenceResolveFacade {
         return ReferenceCandidateCriteria.from(plan.candidateDependencies(), request.formValues());
     }
 
-    private PageResult<ReferenceOption> referenceOptions(ReferenceTarget target, Criteria criteria, PageRequest pageRequest) {
+    private PageResult<ReferenceOption> referenceOptions(ReferencePlan plan, Criteria criteria, PageRequest pageRequest) {
+        ReferenceTarget target = plan.target();
         ReferenceAbility<?> staticTarget = abilities.findReference(target).orElse(null);
-        if (staticTarget != null) return staticTarget.referenceOptions(criteria, pageRequest);
+        if (staticTarget != null) {
+            PageResult<ReferenceOption> options = staticTarget.referenceOptions(plan, criteria, pageRequest);
+            // Existing adapters that predate the plan-aware option method may return null;
+            // retain their id/title behavior only for an unchanged plan.
+            if (options != null || !plan.usesDefaultTargetFields()) return options;
+            return staticTarget.referenceOptions(criteria, pageRequest);
+        }
         if (dynamicRecords != null) {
-            return dynamicRecords.referenceOptions(target.moduleAlias(), target.entityAlias(), criteria, pageRequest);
+            if (plan.usesDefaultTargetFields()) {
+                return dynamicRecords.referenceOptions(target.moduleAlias(), target.entityAlias(), criteria, pageRequest);
+            }
+            return dynamicRecords.referenceAbility(target)
+                    .orElseThrow(() -> new PlatformException("reference target is not available: " + target.qualifiedName()))
+                    .referenceOptions(plan, criteria, pageRequest);
         }
         throw new PlatformException("reference target is not available: " + target.qualifiedName());
     }
 
-    private String titleField(ReferenceTarget target) {
-        return abilities.findReference(target)
+    private ReferenceAbility<?> referenceAbility(ReferenceTarget target) {
+        ReferenceAbility<?> staticTarget = abilities.findReference(target).orElse(null);
+        if (staticTarget != null) return staticTarget;
+        if (dynamicRecords != null) {
+            return dynamicRecords.referenceAbility(target).orElseThrow(() ->
+                    new PlatformException("reference target is not available: " + target.qualifiedName()));
+        }
+        throw new PlatformException("reference target is not available: " + target.qualifiedName());
+    }
+
+    private String titleField(ReferencePlan plan) {
+        if (plan.targetLabelField() != null) {
+            return plan.targetLabelField();
+        }
+        return abilities.findReference(plan.target())
                 .flatMap(ability -> TitleFieldResolver.resolveFieldName(ability.modelClass()))
                 .orElse("title");
     }

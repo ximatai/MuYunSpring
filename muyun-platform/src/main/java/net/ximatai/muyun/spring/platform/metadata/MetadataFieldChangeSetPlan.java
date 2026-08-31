@@ -5,6 +5,13 @@ public record MetadataFieldChangeSetPlan(
         MetadataFieldChangeSetDraft.Operation operation,
         String fieldId,
         Integer expectedFieldVersion,
-        MetadataField field
+        MetadataField field,
+        MetadataFieldPropertyChangeSetPlan property
 ) {
+    public MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation operation,
+                                      String fieldId,
+                                      Integer expectedFieldVersion,
+                                      MetadataField field) {
+        this(operation, fieldId, expectedFieldVersion, field, null);
+    }
 }

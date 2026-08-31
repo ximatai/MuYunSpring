@@ -6,7 +6,7 @@ import type {
   WebQueryRequest,
 } from '@muyun/web-contracts';
 import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+import { normalizeModulePageResponse, type ModuleContext } from '@muyun/web-core';
 import RecordQueryListPanel, {
   type QueryListRecord,
   type RecordQueryListColumn,
@@ -28,13 +28,21 @@ const executableRelation = computed(() =>
 const queryContract = computed(() => executableRelation.value?.queryContract);
 const ready = computed(() => executableRelation.value != null && props.recordId != null);
 const columns = computed<RecordQueryListColumn[]>(() =>
-  (queryContract.value?.listProjection?.fields ?? []).map((field) => ({
-    key: field.fieldName,
-    title: field.title ?? field.fieldName,
-    width: field.width == null ? undefined : `${field.width}px`,
-    align: normalizeAlign(field.align),
-    maxDisplayLines: field.maxDisplayLines,
-  })),
+  (queryContract.value?.listProjection?.fields ?? []).map((field) => {
+    const queryField = queryContract.value?.querySchema?.fields.find(
+      (candidate) => candidate.name === field.fieldName,
+    );
+    return {
+      key: field.fieldName,
+      title: field.title ?? field.fieldName,
+      width: field.width == null ? undefined : `${field.width}px`,
+      align: normalizeAlign(field.align),
+      titleField: queryField?.optionTitleField,
+      optionBinding: queryField?.optionBinding ? true : undefined,
+      optionEntityAlias: queryField?.optionBinding ? props.relation.targetEntityAlias : undefined,
+      maxDisplayLines: field.maxDisplayLines,
+    };
+  }),
 );
 
 /**
@@ -57,11 +65,13 @@ const relationContext = computed<ModuleContext<QueryListRecord> | undefined>(() 
     crud: {
       ...props.sourceContext.crud,
       query: (request?: WebQueryRequest) =>
-        props.sourceContext.http.request<WebPageResponse<QueryListRecord>>({
-          method: 'POST',
-          path: queryPath,
-          body: request,
-        }),
+        props.sourceContext.http
+          .request<WebPageResponse<QueryListRecord>>({
+            method: 'POST',
+            path: queryPath,
+            body: request,
+          })
+          .then(normalizeModulePageResponse),
     },
   };
 });

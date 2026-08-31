@@ -1,9 +1,46 @@
-import { mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { describe, expect, it, vi } from 'vitest';
 import RecordFormFields from '@/platform-components/RecordFormFields.vue';
 import type { RecordFormFieldDescriptor } from '@/platform-components/recordFormFieldModel.ts';
+import type { ModuleContext } from '@muyun/web-core';
 
 describe('RecordFormFields', () => {
+  it('emits selected reference projections separately from mutation field changes', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'studentId',
+        {
+          fieldRef: { fieldName: 'studentId' },
+          label: '学生',
+          reference: {
+            targetModuleAlias: 'education.student',
+            cardinality: 'ONE',
+            displayProjections: [{ targetField: 'studentNo', outputField: 'studentNo' }],
+          },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: { studentId: 'student-1' },
+        fields,
+        pickerConfigs: { studentId: { context: {} as never } },
+      },
+    });
+
+    wrapper.findComponent({ name: 'RecordPicker' }).vm.$emit('selection-resolved', {
+      id: 'student-1',
+      studentNo: 'S2026001',
+    });
+    await flushPromises();
+
+    expect(wrapper.emitted('reference-projections-change')).toContainEqual([
+      'studentId',
+      { studentNo: 'S2026001' },
+    ]);
+    expect(wrapper.emitted('update:field')).toBeUndefined();
+  });
+
   it('renders declared override fields with explicit inherit, enabled and disabled states', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [
@@ -436,6 +473,54 @@ describe('RecordFormFields', () => {
     expect(wrapper.emitted('update:field')).toContainEqual(['categoryCodes', ['vip', 'new']]);
   });
 
+  it('resolves child option fields with their entity alias while ordinary forms retain the module default', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'attendanceStatus',
+        {
+          fieldRef: { fieldName: 'attendanceStatus' },
+          label: '参加状态',
+          option: {
+            binding: { sourceType: 'dictionary', source: 'education.exam_attendance_status' },
+            selectionMode: 'SINGLE',
+          },
+        },
+      ],
+    ]);
+    const childRequest = vi.fn(async () => [{ code: 'ATTENDED', title: '已参加', enabled: true }]);
+    const mainRequest = vi.fn(async () => [{ code: 'ATTENDED', title: '已参加', enabled: true }]);
+
+    mount(RecordFormFields, {
+      props: {
+        record: { attendanceStatus: 'ATTENDED' },
+        fields,
+        optionContext: moduleContext('education.exam', childRequest),
+        optionEntityAlias: 'exam_participant',
+      },
+    });
+    mount(RecordFormFields, {
+      props: {
+        record: { attendanceStatus: 'ATTENDED' },
+        fields,
+        optionContext: moduleContext('education.exam', mainRequest),
+      },
+    });
+    await flushPromises();
+
+    expect(childRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/platform.module/education.exam/fields/attendanceStatus/options',
+        query: { enabledOnly: false, entityAlias: 'exam_participant' },
+      }),
+    );
+    expect(mainRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/platform.module/education.exam/fields/attendanceStatus/options',
+        query: { enabledOnly: false },
+      }),
+    );
+  });
+
   it('restores editor identities from display-enriched mutation response values', () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [
@@ -586,3 +671,7 @@ describe('RecordFormFields', () => {
     expect(wrapper.emitted('update:field')).toContainEqual(['customerCode', 'C-002']);
   });
 });
+
+function moduleContext(moduleAlias: string, request: ReturnType<typeof vi.fn>): ModuleContext<unknown> {
+  return { moduleAlias, http: { request } } as never;
+}

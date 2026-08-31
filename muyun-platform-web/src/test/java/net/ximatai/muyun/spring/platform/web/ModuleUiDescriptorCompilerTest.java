@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.option.DictionaryField;
 import net.ximatai.muyun.spring.common.option.OptionLoad;
+import net.ximatai.muyun.spring.common.option.OptionBinding;
+import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.model.title.TitleField;
 import net.ximatai.muyun.spring.iam.department.Department;
@@ -32,6 +34,31 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
+    @Test
+    void shouldKeepDynamicRelationEditorFactsScopedWhenParentAndChildReuseAFieldName() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("education.exam")
+                .page(emptyEditorPage())
+                .editorContribution("exam_participant", form -> form
+                        .field("exam_participant", "status", ignored -> { }))
+                .build();
+        ResolvedOptionFieldDescriptor parentStatus = new ResolvedOptionFieldDescriptor(
+                new OptionBinding(OptionBinding.DICTIONARY_SOURCE, "education.exam_status"),
+                OptionSelectionMode.SINGLE, null);
+        ResolvedOptionFieldDescriptor participantStatus = new ResolvedOptionFieldDescriptor(
+                new OptionBinding(OptionBinding.DICTIONARY_SOURCE, "education.exam_participant_status"),
+                OptionSelectionMode.SINGLE, null);
+
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compileDynamicRelationEditors(
+                definition, ModuleKind.DYNAMIC, "考试", Map.of("status", parentStatus), Map.of(), null,
+                Map.of(ViewFieldRef.relation("exam_participant", "status"), FieldValueType.STRING),
+                FieldControlDescriptorCatalog.standard(),
+                Map.of(ViewFieldRef.relation("exam_participant", "status"), participantStatus), Map.of());
+
+        assertThat(descriptor.editorContributions()).singleElement().satisfies(contribution ->
+                assertThat(contribution.editor().fields()).singleElement().satisfies(field ->
+                        assertThat(field.option().binding().source()).isEqualTo("education.exam_participant_status")));
+    }
+
     @Test
     void shouldRejectTreeResourceThatRepeatsThePageMainEntity() {
         ModuleUiDefinition ui = ModuleUiDefinition.builder("demo.menu")
@@ -1013,7 +1040,8 @@ class ModuleUiDescriptorCompilerTest {
         assertThat(field.reference()).isEqualTo(new ResolvedReferenceFieldDescriptor("iam.organization",
                 ReferenceCardinality.ONE, "organizationTitle", ReferencePickerMode.AUTO,
                 ReferenceCandidateDelivery.SOURCE_FIELD,
-                "/platform.module/iam.department/references/organizationId/resolve"));
+                "/platform.module/iam.department/references/organizationId/resolve", List.of(), List.of(),
+                List.of(new ResolvedReferenceDisplayProjectionDescriptor("title", "organizationTitle"))));
     }
 
     @Test

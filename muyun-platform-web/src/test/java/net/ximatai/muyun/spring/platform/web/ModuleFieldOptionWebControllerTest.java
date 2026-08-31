@@ -32,7 +32,7 @@ class ModuleFieldOptionWebControllerTest {
     @Test
     void shouldForwardOptionQueryParameters() throws Exception {
         ModuleFieldOptionService service = mock(ModuleFieldOptionService.class);
-        when(service.options("iam.dictionary", "category", false, "root"))
+        when(service.options("iam.dictionary", null, "category", false, "root"))
                 .thenReturn(List.of(new OptionItem("gender", "性别", true, 10, "root")));
 
         mvc(service).perform(get("/platform.module/iam.dictionary/fields/category/options")
@@ -43,24 +43,24 @@ class ModuleFieldOptionWebControllerTest {
                 .andExpect(jsonPath("$[0].title").value("性别"))
                 .andExpect(jsonPath("$[0].parentCode").value("root"));
 
-        verify(service).options("iam.dictionary", "category", false, "root");
+        verify(service).options("iam.dictionary", null, "category", false, "root");
     }
 
     @Test
     void shouldDefaultToEnabledOptionsOnly() throws Exception {
         ModuleFieldOptionService service = mock(ModuleFieldOptionService.class);
-        when(service.options("iam.employee", "gender", true, null)).thenReturn(List.of());
+        when(service.options("iam.employee", null, "gender", true, null)).thenReturn(List.of());
 
         mvc(service).perform(get("/platform.module/iam.employee/fields/gender/options"))
                 .andExpect(status().isOk());
 
-        verify(service).options("iam.employee", "gender", true, null);
+        verify(service).options("iam.employee", null, "gender", true, null);
     }
 
     @Test
     void shouldReturnNotFoundForUnknownModuleOrField() throws Exception {
         ModuleFieldOptionService service = mock(ModuleFieldOptionService.class);
-        when(service.options(anyString(), eq("unknown"), eq(true), eq(null))).thenThrow(new PlatformException(
+        when(service.options(anyString(), org.mockito.ArgumentMatchers.isNull(), eq("unknown"), eq(true), eq(null))).thenThrow(new PlatformException(
                 PlatformErrorCodes.RESOURCE_NOT_FOUND,
                 404,
                 "option field not found"
@@ -75,11 +75,26 @@ class ModuleFieldOptionWebControllerTest {
     @Test
     void shouldDeclareMenuActionForOptionsEndpoint() throws Exception {
         Method method = ModuleFieldOptionWebController.class.getMethod(
-                "options", String.class, String.class, boolean.class, String.class);
+                "options", String.class, String.class, String.class, boolean.class, String.class);
         ActionEndpoint endpoint = method.getAnnotation(ActionEndpoint.class);
 
         assertThat(endpoint).isNotNull();
         assertThat(endpoint.value()).isEqualTo(PlatformAction.MENU);
+    }
+
+    @Test
+    void shouldForwardOptionalDynamicEntityAlias() throws Exception {
+        ModuleFieldOptionService service = mock(ModuleFieldOptionService.class);
+        when(service.options("education.exam", "exam_participant", "attendanceStatus", false, null))
+                .thenReturn(List.of(new OptionItem("ATTENDED", "已参加", true, 10, null)));
+
+        mvc(service).perform(get("/platform.module/education.exam/fields/attendanceStatus/options")
+                        .param("entityAlias", "exam_participant")
+                        .param("enabledOnly", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].title").value("已参加"));
+
+        verify(service).options("education.exam", "exam_participant", "attendanceStatus", false, null);
     }
 
     @Test

@@ -39,11 +39,49 @@ const statusValue = computed(() =>
 );
 
 function displayRecordFieldValue(record: QueryListRecord, fieldName: string, titleField?: string) {
-  const titleValue = record[titleField ?? `${fieldName}Title`];
-  if (typeof titleValue === 'string' && titleValue.trim()) return titleValue;
+  const titleFields = [titleField, `${fieldName}Title`].filter(
+    (value, index, fields): value is string => Boolean(value) && fields.indexOf(value) === index,
+  );
+  for (const candidate of titleFields) {
+    const titleValue = record[candidate];
+    if (typeof titleValue === 'string' && titleValue.trim()) return titleValue;
+  }
   const value = record[fieldName];
+  const optionTitles = optionTitlesOf(value, props.column.optionItems);
+  if (optionTitles.length > 0) return optionTitles.join('、');
   if (typeof value === 'boolean') return value ? '是' : '否';
   return String(value ?? '');
+}
+
+/**
+ * Dictionary/reference selections may be transported as an array or as the JSON-set column
+ * representation.  Keep this at the shared list-cell boundary so normal lists, cards and
+ * managed relation tables render the same titles.
+ */
+function optionTitlesOf(value: unknown, optionItems: typeof props.column.optionItems): string[] {
+  if (!optionItems?.length) return [];
+  const titles: string[] = [];
+  for (const code of selectionCodesOf(value)) {
+    const option = optionItems.find((item) => item.code === code);
+    titles.push(option?.title ?? code);
+  }
+  return titles;
+}
+
+function selectionCodesOf(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value !== 'string') return value == null ? [] : [String(value)];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch {
+      // It is a scalar string beginning with "["; leave the persisted value visible.
+    }
+  }
+  return [value];
 }
 
 function scalarPresentationValue(value: unknown) {

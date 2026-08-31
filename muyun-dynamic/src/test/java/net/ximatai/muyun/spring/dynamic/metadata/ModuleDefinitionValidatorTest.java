@@ -81,6 +81,24 @@ class ModuleDefinitionValidatorTest {
     }
 
     @Test
+    void shouldRequireTenantUniqueCandidateKeyForInModuleReference() {
+        EntityDefinition target = new EntityDefinition("subject", "education_subject", "Subject", List.of(
+                FieldDefinition.string("code", "Code"),
+                FieldDefinition.titleField()), Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        EntityDefinition source = new EntityDefinition("exam", "education_exam", "Exam", List.of(
+                FieldDefinition.string("subjectCode", "Subject").column("subject_code")));
+        ModuleDefinition module = ModuleDefinition.builder("education.exam", "Exam")
+                .entities(List.of(target, source))
+                .references(List.of(EntityReferenceDefinition.to("exam", "subjectCode", "education.exam.subject")
+                        .withRuntimeConfig("code", "missingLabel", null, null, Set.of())))
+                .build();
+
+        assertThatThrownBy(() -> validator.validate(module))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("reference target key field must be tenant-unique: education.exam.subject.code");
+    }
+
+    @Test
     void shouldValidateEveryInModuleSelectionProjectionHopAndTerminalField() {
         EntityDefinition line = new EntityDefinition("line", "sales_line", "Line", List.of(
                 FieldDefinition.string("customerId", "Customer").column("customer_id")));

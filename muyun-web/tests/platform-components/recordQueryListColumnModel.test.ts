@@ -144,6 +144,19 @@ it('returns no columns when a list descriptor is unavailable', () => {
   expect(resolveRecordQueryListColumns(undefined)).toEqual([]);
 });
 
+it('uses the declared reference convention when a list descriptor has no option binding', () => {
+  expect(
+    resolveRecordQueryListColumns(
+      listView([
+        {
+          fieldRef: { fieldName: 'classroomId' },
+          reference: { targetModuleAlias: 'education.classroom', cardinality: 'ONE' },
+        },
+      ]),
+    ),
+  ).toMatchObject([{ key: 'classroomId', titleField: 'classroomIdTitle' }]);
+});
+
 function listView(fields: ResolvedViewDescriptor['fields']): ResolvedViewDescriptor {
   return { viewCode: 'list', viewKind: 'LIST', fields };
 }

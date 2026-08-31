@@ -16,6 +16,7 @@ import net.ximatai.muyun.spring.iam.organization.Organization;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
 import net.ximatai.muyun.spring.iam.role.Role;
 import net.ximatai.muyun.spring.iam.tenant.Tenant;
+import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
@@ -34,10 +35,12 @@ public class DemoBootstrapTask implements PlatformBootstrapTask {
     public static final String EMPLOYEE_NO = "DEMO-ADMIN";
     public static final String USER_ID = "demo_user_admin";
     public static final String EMPLOYEE_ACCOUNT_ID = "demo_employee_account_admin";
+    private static final java.util.List<String> DEMO_TENANT_APPLICATIONS = java.util.List.of("iam", "education");
     private static final String SYSTEM_OPERATOR_ID = "demo-bootstrap";
 
     private final DemoBootstrapProperties properties;
     private final TenantService tenantService;
+    private final TenantApplicationService tenantApplicationService;
     private final OrganizationService organizationService;
     private final DepartmentService departmentService;
     private final EmployeeService employeeService;
@@ -47,6 +50,7 @@ public class DemoBootstrapTask implements PlatformBootstrapTask {
 
     public DemoBootstrapTask(DemoBootstrapProperties properties,
                              TenantService tenantService,
+                             TenantApplicationService tenantApplicationService,
                              OrganizationService organizationService,
                              DepartmentService departmentService,
                              EmployeeService employeeService,
@@ -55,6 +59,8 @@ public class DemoBootstrapTask implements PlatformBootstrapTask {
                              DefaultTenantRoleProvisioner tenantRoleProvisioner) {
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
         this.tenantService = Objects.requireNonNull(tenantService, "tenantService must not be null");
+        this.tenantApplicationService = Objects.requireNonNull(tenantApplicationService,
+                "tenantApplicationService must not be null");
         this.organizationService = Objects.requireNonNull(organizationService, "organizationService must not be null");
         this.departmentService = Objects.requireNonNull(departmentService, "departmentService must not be null");
         this.employeeService = Objects.requireNonNull(employeeService, "employeeService must not be null");
@@ -84,6 +90,7 @@ public class DemoBootstrapTask implements PlatformBootstrapTask {
                 return;
             }
             tenantService.provisionTenant(TENANT_ALIAS);
+            tenantApplicationService.configureApplications(TENANT_ALIAS, DEMO_TENANT_APPLICATIONS);
             try (TenantContext.Scope ignoredTenant = TenantContext.use(TENANT_ALIAS)) {
                 Organization organization = ensureOrganization();
                 if (!isActive(organization)) {

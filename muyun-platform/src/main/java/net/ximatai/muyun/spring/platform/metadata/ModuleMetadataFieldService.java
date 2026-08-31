@@ -788,7 +788,8 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
         return normalized;
     }
 
-    private ModuleMetadataField findByRelationAndField(String relationId, String fieldId) {
+    /** Resolves the legacy module-field configuration for one relation-scoped metadata field. */
+    public ModuleMetadataField findByRelationAndField(String relationId, String fieldId) {
         return findOne(Criteria.of()
                 .eq("relationId", relationId)
                 .eq("metadataFieldId", fieldId));

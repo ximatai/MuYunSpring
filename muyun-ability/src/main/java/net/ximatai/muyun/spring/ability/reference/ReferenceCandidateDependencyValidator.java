@@ -20,8 +20,8 @@ public final class ReferenceCandidateDependencyValidator {
         if (entity == null || ids == null || ids.isEmpty() || dependencies.isEmpty()) {
             return;
         }
-        Map<String, Map<String, Object>> targets = target.projections(ids,
-                dependencies.stream().map(ReferenceCandidateDependency::targetField).toList());
+        List<String> fields = dependencies.stream().map(ReferenceCandidateDependency::targetField).toList();
+        Map<String, Map<String, Object>> targets = target.projections(ids, fields);
         for (String id : ids) {
             Map<String, Object> targetValues = targets.get(id);
             for (ReferenceCandidateDependency dependency : dependencies) {

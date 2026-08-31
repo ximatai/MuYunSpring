@@ -14,6 +14,10 @@ import net.ximatai.muyun.spring.ability.deletion.DeletionNode;
 import net.ximatai.muyun.spring.ability.deletion.DeletionResource;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityRelationDefinition;
@@ -333,6 +337,30 @@ class DynamicRelationRuntimeTest {
 
         assertThatThrownBy(() -> runtime.validateReferenceTargetDeletion(
                 ReferenceTarget.of(MODULE, "invoice"), "invoice-1"))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("cannot make reference target unavailable");
+
+        verify(operations, never()).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
+    }
+
+    @Test
+    void shouldRestrictStaticReferenceTargetThroughTheSameRuntimeIndex() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
+                "id", "line-1", "student_id", "student-1"
+        )));
+        EntityDefinition line = new EntityDefinition("invoice_line", "app_invoice_line", "Invoice Line",
+                List.of(FieldDefinition.string("studentId", "Student").column("student_id")));
+        ModuleDefinition module = ModuleDefinition.builder(MODULE, "Invoice")
+                .entities(List.of(line))
+                .references(List.of(EntityReferenceDefinition.to("invoice_line", "studentId",
+                                ReferenceTarget.of("education", "student"))
+                        .withIntegrity(new ReferenceIntegrityPolicy(ReferenceTargetUnavailablePolicy.RESTRICT))))
+                .build();
+        DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(module);
+
+        assertThatThrownBy(() -> runtime.validateReferenceTargetDeletion(
+                ReferenceTarget.of("education", "student"), "student-1"))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("cannot make reference target unavailable");
 
@@ -895,6 +923,42 @@ class DynamicRelationRuntimeTest {
     }
 
     @Test
+    void shouldEnrichAggregateChildrenAfterParentViewEvenWhenChildQueryScopeExcludesThem() {
+        IDatabaseOperations<Object> operations = operations();
+        stubInvoiceRows(operations);
+        DataScopeCriteriaService scopes = new DataScopeCriteriaService() {
+            @Override
+            public DataScopeCriteriaResult resolveReadScope(String moduleAlias,
+                                                            String actionCode,
+                                                            net.ximatai.muyun.database.core.orm.Criteria criteria,
+                                                            java.util.Optional<net.ximatai.muyun.spring.common.identity.CurrentUser> currentUser) {
+                return PlatformAction.VIEW.code().equals(actionCode)
+                        ? DataScopeCriteriaResult.restricted(criteria.eq("id", "invoice-1"))
+                        : DataScopeCriteriaResult.restricted(criteria.eq("id", "query-blocked"));
+            }
+
+            @Override
+            public DataScopeCriteriaResult resolveReadScope(String moduleAlias,
+                                                            ActionExecutionPolicy policy,
+                                                            net.ximatai.muyun.database.core.orm.Criteria criteria,
+                                                            java.util.Optional<net.ximatai.muyun.spring.common.identity.CurrentUser> currentUser) {
+                return resolveReadScope(moduleAlias, policy.permissionActionCode(), criteria, currentUser);
+            }
+        };
+        DynamicRecordService service = new DynamicRecordService(
+                new DynamicRecordRuntime(operations).register(invoiceModule()),
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService(), scopes);
+
+        assertThat(service.list(MODULE, "invoice_line", net.ximatai.muyun.database.core.orm.Criteria.of(),
+                net.ximatai.muyun.database.core.orm.PageRequest.of(1, 20))).isEmpty();
+        assertThat(service.aggregateChildrenForView(MODULE, "invoice-1", "lines"))
+                .singleElement().satisfies(line -> {
+                    assertThat(line.getId()).isEqualTo("line-1");
+                    assertThat(line.getValue("invoiceTitle")).isEqualTo("I-001");
+                });
+    }
+
+    @Test
     void shouldIncludeDynamicReferencePresentationCompanionsInAggregateExpansionFields() {
         DynamicRecordService service = new DynamicRecordService(
                 new DynamicRecordRuntime(operations()).register(invoiceModule()));
@@ -950,11 +1014,11 @@ class DynamicRelationRuntimeTest {
     }
 
     @Test
-    void shouldRejectInvalidDynamicReferenceTargetMetadata() {
+    void shouldRejectMalformedReferenceTargetModuleAlias() {
         ModuleDefinition module = ModuleDefinition.builder(MODULE, "Invoice")
                 .entities(List.of(invoiceEntity(), invoiceLineEntity()))
                 .relations(List.of())
-                .references(List.of(EntityReferenceDefinition.to("invoice_line", "invoiceId", "sales.invoice")))
+                .references(List.of(EntityReferenceDefinition.to("invoice_line", "invoiceId", "sales-.invoice")))
                 .build();
 
         assertThatThrownBy(() -> new ModuleDefinitionValidator().validate(module))

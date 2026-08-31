@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
@@ -150,6 +151,12 @@ final class DynamicRecordRelationRuntime {
         DynamicReferenceResolveRequest normalized = request == null
                 ? DynamicReferenceResolveRequest.query(null) : request;
         Criteria criteria = referenceCriteria(normalized.criteria(), reference, normalized.formValues());
+        if (!records.hasRegisteredDynamicEntity(reference.targetModuleAlias(), reference.targetEntityAlias())) {
+            // Static targets execute their own REFERENCE data-scope policy through ReferenceAbility.
+            // Do not force them through the dynamic runtime only because the source is metadata-driven.
+            return records.entityService(moduleAlias, entityAlias)
+                    .resolveReference(sourceField, normalized.withCriteria(criteria));
+        }
         DataScopeCriteriaResult scope = records.readScope(reference.targetModuleAlias(), PlatformAction.REFERENCE, criteria);
         return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
                 .resolveReference(sourceField, normalized.withCriteria(scope.criteria())));
@@ -184,6 +191,13 @@ final class DynamicRecordRelationRuntime {
                 .referenceOptions(scope.criteria(), pageRequest));
     }
 
+    PageResult<ReferenceOption> referenceOptions(String moduleAlias, String entityAlias, ReferencePlan plan,
+                                                 Criteria criteria, PageRequest pageRequest) {
+        DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.REFERENCE, criteria);
+        return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
+                .referenceOptions(plan, scope.criteria(), pageRequest));
+    }
+
     private DynamicRecord requireAssociationSource(String moduleAlias, String entityAlias, String sourceRecordId) {
         DynamicRecord source = records.select(moduleAlias, entityAlias, sourceRecordId);
         if (source == null) {
@@ -203,14 +217,13 @@ final class DynamicRecordRelationRuntime {
             return Criteria.of().eq(relation.childForeignKeyField(), source.getId());
         }
         DynamicReferenceDescriptor reference = reference(moduleAlias, entityAlias, view.referenceField());
-        String keyField = reference.keyField() == null || reference.keyField().isBlank() ? "id" : reference.keyField();
         Object value = source.getValue(reference.sourceField());
         if (value == null || (value instanceof String text && text.isBlank())) return falseCriteria();
         if (value instanceof Collection<?> collection) {
             List<?> values = collection.stream().filter(Objects::nonNull).filter(item -> !String.valueOf(item).isBlank()).toList();
-            return values.isEmpty() ? falseCriteria() : Criteria.of().in(keyField, values);
+            return values.isEmpty() ? falseCriteria() : Criteria.of().in("id", values);
         }
-        return Criteria.of().eq(keyField, value);
+        return Criteria.of().eq("id", value);
     }
 
     private Criteria associationTargetCriteria(DynamicRecord source, DynamicAssociationViewDescriptor view,

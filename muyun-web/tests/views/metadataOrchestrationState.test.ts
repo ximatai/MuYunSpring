@@ -5,14 +5,20 @@ import {
   emptyFieldDraft,
   emptyMainMetadataDraft,
   entityExplorerItem,
+  fieldSpecDisplayLabel,
   fieldSpecOptionListOf,
   isValidFieldDraft,
+  isValidFieldPropertyDraft,
   isValidMainMetadataDraft,
+  metadataFieldPropertySummary,
   metadataSubtitleOf,
   normalizeFieldDraft,
+  normalizeFieldPropertyDraft,
   normalizeMainMetadataDraft,
   orchestratableFields,
+  propertyDraftFromSummary,
   relationRoleTag,
+  storageFieldSpecAliasOf,
 } from '@/views/metadataOrchestrationState.ts';
 
 function relation(id: string, overrides: Partial<ModuleMetadataRelation> = {}): ModuleMetadataRelation {
@@ -61,6 +67,14 @@ it('orchestratable fields keep only business-owned physical fields', () => {
     orchestratableFields(fields).map((field) => field.id),
     ['f1'],
   );
+  assert.deepEqual(
+    propertyDraftFromSummary({
+      fieldId: 'legacy',
+      kind: 'LEGACY_LOCKED',
+      legacyReason: 'legacy module field',
+    }),
+    { kind: 'LEGACY_LOCKED' },
+  );
 });
 
 it('field draft validation and normalization trim identity fields', () => {
@@ -77,6 +91,92 @@ it('field draft validation and normalization trim identity fields', () => {
   assert.equal(draft.columnName, 'customer_name');
   assert.equal(draft.title, '客户名称');
   assert.equal(isValidFieldDraft(draft), true);
+});
+
+it('keeps module-reference and dictionary business properties separate from storage specifications', () => {
+  const reference = normalizeFieldPropertyDraft({
+    kind: 'MODULE_REFERENCE',
+    referenceConfig: {
+      targetModuleAlias: ' education.subject_category ',
+      targetKeyField: ' ',
+      targetLabelField: ' ',
+      projectionMappings: [' title:subjectCategoryIdTitle ', ''],
+    },
+  });
+  assert.deepEqual(reference, {
+    kind: 'MODULE_REFERENCE',
+    referenceConfig: {
+      targetModuleAlias: 'education.subject_category',
+      targetKeyField: 'id',
+      targetLabelField: 'title',
+      projectionMappings: ['title:subjectCategoryIdTitle'],
+    },
+  });
+  assert.equal(isValidFieldPropertyDraft(reference), true);
+  assert.equal(metadataFieldPropertySummary(reference), 'education.subject_category · id → title');
+
+  const dictionary = normalizeFieldPropertyDraft({
+    kind: 'DICTIONARY',
+    dictionaryConfig: {
+      dictionaryApplicationAlias: ' education ',
+      dictionaryCategoryAlias: ' exam_attendance_status ',
+      selectionMode: 'SINGLE',
+    },
+  });
+  assert.equal(isValidFieldPropertyDraft(dictionary), true);
+  assert.equal(metadataFieldPropertySummary(dictionary), 'education · exam_attendance_status');
+  assert.equal(storageFieldSpecAliasOf('MODULE_REFERENCE'), 'string');
+  assert.equal(storageFieldSpecAliasOf('DICTIONARY', 'SINGLE'), 'string');
+  assert.equal(storageFieldSpecAliasOf('DICTIONARY', 'MULTIPLE'), 'json_set');
+});
+
+it('adapts relation-scoped property summaries to the change-set property contract', () => {
+  assert.deepEqual(
+    propertyDraftFromSummary({
+      fieldId: 'subject',
+      kind: 'MODULE_REFERENCE',
+      bindingVersion: 4,
+      reference: {
+        targetModuleAlias: 'education.subject_category',
+        targetKeyField: 'code',
+        targetLabelField: 'name',
+        cardinality: 'ONE',
+        projectionMappings: ['name:subjectCategoryIdTitle'],
+      },
+    }),
+    {
+      kind: 'MODULE_REFERENCE',
+      expectedBindingVersion: 4,
+      referenceConfig: {
+        targetModuleAlias: 'education.subject_category',
+        targetKeyField: 'code',
+        targetLabelField: 'name',
+        cardinality: 'ONE',
+        projectionMappings: ['name:subjectCategoryIdTitle'],
+      },
+    },
+  );
+  assert.deepEqual(
+    propertyDraftFromSummary({
+      fieldId: 'attendance',
+      kind: 'DICTIONARY',
+      bindingVersion: 2,
+      dictionary: {
+        applicationAlias: 'education',
+        categoryAlias: 'exam_attendance_status',
+        selectionMode: 'SINGLE',
+      },
+    }),
+    {
+      kind: 'DICTIONARY',
+      expectedBindingVersion: 2,
+      dictionaryConfig: {
+        dictionaryApplicationAlias: 'education',
+        dictionaryCategoryAlias: 'exam_attendance_status',
+        selectionMode: 'SINGLE',
+      },
+    },
+  );
 });
 
 it('entity explorer item maps title, alias and relation role tag', () => {
@@ -109,6 +209,14 @@ it('field spec options skip disabled specs and unnamed values', () => {
   ]);
 
   assert.deepEqual(options, [{ value: 'spec.short_text', label: '短文本' }]);
+});
+
+it('uses the catalog title for a human-facing field specification', () => {
+  const specs = [{ id: 'string', alias: 'string', title: '短文本' }];
+
+  assert.equal(fieldSpecDisplayLabel('string', specs), '短文本');
+  assert.equal(fieldSpecDisplayLabel('custom.code', specs), 'custom.code');
+  assert.equal(fieldSpecDisplayLabel(undefined, specs), '');
 });
 
 it('metadata subtitle joins alias and physical table', () => {

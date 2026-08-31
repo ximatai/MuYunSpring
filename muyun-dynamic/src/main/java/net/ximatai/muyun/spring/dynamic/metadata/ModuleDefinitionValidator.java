@@ -1013,7 +1013,7 @@ public class ModuleDefinitionValidator {
         } catch (RuntimeException e) {
             throw new ModuleDefinitionException("invalid reference target qualified name: " + reference.targetQualifiedName());
         }
-        requireModuleAlias(target.moduleAlias(), "reference target module alias");
+        requireReferenceTargetModuleAlias(target.moduleAlias(), "reference target module alias");
         requireIdentifier(target.entityAlias(), "reference target entity alias");
         requireField(source, reference.sourceField(), "reference source field");
         if (moduleAlias != null && moduleAlias.equals(target.moduleAlias())) {
@@ -1024,6 +1024,7 @@ public class ModuleDefinitionValidator {
         EntityDefinition targetEntity = moduleAlias != null && moduleAlias.equals(target.moduleAlias())
                 ? requireEntity(entities, target.entityAlias(), "reference target entity")
                 : null;
+        validateReferenceTargetFields(reference, target, targetEntity);
         validateSelectionProjections(plan, target, entities, moduleAlias, references);
         if (!reference.projections().isEmpty()) {
             if (targetEntity != null) {
@@ -1040,6 +1041,31 @@ public class ModuleDefinitionValidator {
             }
         }
         validateReferenceInteractionRules(reference, source, target, entities, moduleAlias);
+    }
+
+    /**
+     * For a local dynamic target, an alternative candidate match field is only safe when metadata
+     * can prove it is tenant-unique. Foreign/static targets validate the same fact through their
+     * reference facade at runtime because this module does not own their schema.
+     */
+    private void validateReferenceTargetFields(EntityReferenceDefinition reference,
+                                               ReferenceTarget target,
+                                               EntityDefinition targetEntity) {
+        if (targetEntity == null) return;
+        String keyField = reference.plan().targetKeyField();
+        if (!StandardEntitySchema.ID_FIELD.equals(keyField)) {
+            requireField(targetEntity, keyField, "reference target key field");
+            boolean unique = targetEntity.resolvedTenantUniqueConstraints().stream()
+                    .anyMatch(constraint -> constraint.fieldNames().equals(List.of(keyField)));
+            if (!unique) {
+                throw new ModuleDefinitionException("reference target key field must be tenant-unique: "
+                        + target.qualifiedName() + "." + keyField);
+            }
+        }
+        String labelField = reference.plan().targetLabelField();
+        if (labelField != null) {
+            requireField(targetEntity, labelField, "reference target label field");
+        }
     }
 
     /**
@@ -1384,6 +1410,20 @@ public class ModuleDefinitionValidator {
         } catch (RuntimeException e) {
             throw new ModuleDefinitionException("invalid " + name + ": " + value);
         }
+    }
+
+    /**
+     * Dynamic targets retain platform module aliases such as {@code sales.contract}; a static
+     * service target uses the complete static platform module alias produced by
+     * {@link net.ximatai.muyun.spring.ability.reference.ReferenceTargets}, such as
+     * {@code education.student}, which is resolved to {@code ReferenceTarget("education", "student")}.
+     * Both are valid source-neutral ReferenceTarget identities.
+     */
+    private void requireReferenceTargetModuleAlias(String value, String name) {
+        if (PlatformNameRules.isIdentifier(value)) {
+            return;
+        }
+        requireModuleAlias(value, name);
     }
 
     private void requireUnique(Set<String> values, String value, String name) {

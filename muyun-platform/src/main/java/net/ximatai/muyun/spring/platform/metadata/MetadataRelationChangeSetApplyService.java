@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +28,8 @@ public class MetadataRelationChangeSetApplyService {
     private final PlatformMetadataSchemaEnsureService schemaEnsureService;
     private final PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator;
     private final ModuleMetadataCapabilitySnapshotService snapshotService;
+    private final MetadataFieldReferenceConfigService referenceConfigService;
+    private final MetadataFieldConfigService fieldConfigService;
 
     public MetadataRelationChangeSetApplyService(MetadataRelationChangeSetPreviewService previewService,
                                                  ModuleMetadataRelationService relationService,
@@ -35,6 +38,20 @@ public class MetadataRelationChangeSetApplyService {
                                                  PlatformMetadataSchemaEnsureService schemaEnsureService,
                                                  PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator,
                                                  ModuleMetadataCapabilitySnapshotService snapshotService) {
+        this(previewService, relationService, metadataService, fieldService, schemaEnsureService, refreshCoordinator,
+                snapshotService, null, null);
+    }
+
+    @Autowired
+    public MetadataRelationChangeSetApplyService(MetadataRelationChangeSetPreviewService previewService,
+                                                 ModuleMetadataRelationService relationService,
+                                                 MetadataService metadataService,
+                                                 MetadataFieldService fieldService,
+                                                 PlatformMetadataSchemaEnsureService schemaEnsureService,
+                                                 PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator,
+                                                 ModuleMetadataCapabilitySnapshotService snapshotService,
+                                                 MetadataFieldReferenceConfigService referenceConfigService,
+                                                 MetadataFieldConfigService fieldConfigService) {
         this.previewService = previewService;
         this.relationService = relationService;
         this.metadataService = metadataService;
@@ -42,6 +59,8 @@ public class MetadataRelationChangeSetApplyService {
         this.schemaEnsureService = schemaEnsureService;
         this.refreshCoordinator = refreshCoordinator;
         this.snapshotService = snapshotService;
+        this.referenceConfigService = referenceConfigService;
+        this.fieldConfigService = fieldConfigService;
     }
 
     @Transactional
@@ -70,38 +89,41 @@ public class MetadataRelationChangeSetApplyService {
             throw new PlatformException("Metadata change-set is stale; reload and preview again");
         }
 
-        MetadataCapabilityGovernanceMutationContext.run(() -> {
-            applyBusinessFieldMutations(metadata, plan.fieldMutations());
+        MetadataFieldPropertyMutationContext.run(() -> MetadataCapabilityGovernanceMutationContext.run(() -> {
+            applyBusinessFieldMutations(metadata, relation, plan.fieldMutations());
             applyDeclarations(metadata, plan.replaceCapabilityDeclarations(), plan.effectiveCapabilities());
             metadataService.update(metadata); // optimistic version is the final transactional CAS boundary
             MetadataCapabilityManagedFieldMaterializer.materialize(fieldService, metadata, preview.effectiveCapabilities());
             schemaEnsureService.ensureNow(metadata);
             return null;
-        });
+        }));
         List<String> affected = affectedModules(metadata.getId());
         TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateByMetadataIdNow(metadata.getId()));
         return new MetadataRelationChangeSetPublishResult(preview, snapshotService.snapshot(validModuleAlias, relationId), affected);
     }
 
-    private void applyBusinessFieldMutations(Metadata metadata, List<MetadataFieldChangeSetPlan> mutations) {
+    private void applyBusinessFieldMutations(Metadata metadata, ModuleMetadataRelation relation,
+                                             List<MetadataFieldChangeSetPlan> mutations) {
         if (mutations == null) return;
         for (MetadataFieldChangeSetPlan mutation : mutations) {
             if (mutation == null) continue;
             switch (mutation.operation()) {
-                case ADD -> insertBusinessField(metadata, mutation.field());
-                case UPDATE -> updateBusinessField(metadata, mutation);
+                case ADD -> applyProperty(insertBusinessField(metadata, mutation.field()), relation, mutation.property());
+                case UPDATE -> applyProperty(updateBusinessField(metadata, mutation), relation, mutation.property());
                 case DELETE -> throw new PlatformException("Validated additive change-set cannot delete metadata fields");
             }
         }
     }
 
-    private void insertBusinessField(Metadata metadata, MetadataField field) {
+    private MetadataField insertBusinessField(Metadata metadata, MetadataField field) {
         MetadataField mutation = newBusinessField(requireField(field));
         mutation.setMetadataId(metadata.getId());
-        fieldService.insert(mutation);
+        String id = fieldService.insert(mutation);
+        if (mutation.getId() == null) mutation.setId(id);
+        return mutation;
     }
 
-    private void updateBusinessField(Metadata metadata, MetadataFieldChangeSetPlan plan) {
+    private MetadataField updateBusinessField(Metadata metadata, MetadataFieldChangeSetPlan plan) {
         MetadataField existing = plan.fieldId() == null ? null : fieldService.select(plan.fieldId());
         if (existing == null || !metadata.getId().equals(existing.getMetadataId())) {
             throw new PlatformException("Metadata change-set field update is stale: " + plan.fieldId());
@@ -111,6 +133,83 @@ public class MetadataRelationChangeSetApplyService {
         }
         MetadataField mutation = overlayBusinessAttributes(existing, requireField(plan.field()));
         fieldService.update(mutation);
+        return mutation;
+    }
+
+    private void applyProperty(MetadataField field, ModuleMetadataRelation relation,
+                               MetadataFieldPropertyChangeSetPlan property) {
+        if (property == null || property.kind() == MetadataFieldPropertyKind.BASIC) return;
+        if (referenceConfigService == null || fieldConfigService == null) {
+            throw new PlatformException("Metadata change-set field property publishing is not configured");
+        }
+        switch (property.kind()) {
+            case MODULE_REFERENCE -> applyReferenceProperty(field, relation, property);
+            case DICTIONARY -> applyDictionaryProperty(field, relation, property);
+            case BASIC -> { }
+            case LEGACY_LOCKED -> throw new PlatformException("Legacy metadata field property is read-only and cannot be published: "
+                    + field.getFieldName());
+        }
+    }
+
+    private void applyReferenceProperty(MetadataField field, ModuleMetadataRelation relation,
+                                        MetadataFieldPropertyChangeSetPlan property) {
+        MetadataFieldReferenceConfig config = property.referenceConfig();
+        if (config == null) throw new PlatformException("Validated reference field property is missing its binding");
+        MetadataFieldReferenceConfig effective = referenceConfigService.findForRelation(field.getId(), relation.getId());
+        assertBindingVersion(property.expectedBindingVersion(), effective == null ? null : effective.getVersion(), field.getFieldName());
+        if (effective != null && relation.getId().equals(effective.getRelationId())) {
+            config.setId(effective.getId());
+            config.setVersion(effective.getVersion());
+        }
+        config.setMetadataFieldId(field.getId());
+        config.setRelationId(relation.getId());
+        if (config.getId() == null) referenceConfigService.insert(config);
+        else referenceConfigService.update(config);
+    }
+
+    private void applyDictionaryProperty(MetadataField field, ModuleMetadataRelation relation,
+                                         MetadataFieldPropertyChangeSetPlan property) {
+        MetadataFieldConfig requested = property.dictionaryConfig();
+        if (requested == null) throw new PlatformException("Validated dictionary field property is missing its binding");
+        MetadataFieldConfig override = fieldConfigService.findRelationOverride(field.getId(), relation.getId());
+        MetadataFieldConfig effective = override == null ? fieldConfigService.findByMetadataFieldId(field.getId()) : override;
+        assertBindingVersion(property.expectedBindingVersion(), effective == null ? null : effective.getVersion(), field.getFieldName());
+        MetadataFieldConfig config = mergeDictionaryBinding(effective, requested);
+        if (override != null) {
+            config.setId(override.getId());
+            config.setVersion(override.getVersion());
+        }
+        config.setMetadataFieldId(field.getId());
+        config.setRelationId(relation.getId());
+        if (config.getId() == null) fieldConfigService.insert(config);
+        else fieldConfigService.update(config);
+    }
+
+    /**
+     * Retains effective query/behavior/protection facts while replacing only dictionary facts.
+     * A new relation override deliberately does not inherit physical storage shape from base.
+     */
+    private MetadataFieldConfig mergeDictionaryBinding(MetadataFieldConfig existing, MetadataFieldConfig requested) {
+        MetadataFieldConfig result = new MetadataFieldConfig();
+        if (existing != null) {
+            result.setQueryable(existing.getQueryable());
+            result.setDefaultQueryOperator(existing.getDefaultQueryOperator());
+            result.setQueryOperators(existing.getQueryOperators());
+            result.setDefaultValue(existing.getDefaultValue());
+            result.setValidationRegex(existing.getValidationRegex());
+            result.setCopyable(existing.getCopyable());
+            result.setWriteProtected(existing.getWriteProtected());
+        }
+        result.setDictionaryApplicationAlias(requested.getDictionaryApplicationAlias());
+        result.setDictionaryCategoryAlias(requested.getDictionaryCategoryAlias());
+        result.setSelectionMode(requested.getSelectionMode());
+        return result;
+    }
+
+    private void assertBindingVersion(Integer expected, Integer actual, String fieldName) {
+        if (!java.util.Objects.equals(expected, actual)) {
+            throw new PlatformException("Metadata change-set field property version is stale: " + fieldName);
+        }
     }
 
     private MetadataField requireField(MetadataField field) {

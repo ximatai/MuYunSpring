@@ -93,6 +93,27 @@ class ReferenceReadPipelineTest {
     }
 
     @Test
+    void shouldResolveReferenceLoadByRecordIdWhenThePickerUsesANonIdCandidateKey() {
+        List<Map<String, Object>> records = new ArrayList<>(List.of(record("customerId", "customer-1")));
+        ReferencePlan plan = ReferencePlan.of("customerId", CUSTOMER, ReferenceCardinality.ONE)
+                .withTargetFields("code", "title");
+        ReferenceLoadPath path = new ReferenceLoadPath("customerId", CUSTOMER, List.of(), "title", "customerTitle");
+        ReferenceAbility<?> customer = new ReferenceAbility<Target>() {
+            @Override public BaseDao<Target, String> getDao() { return null; }
+            @Override public String getModuleAlias() { return "demo.customer"; }
+            @Override public Map<String, Map<String, Object>> projections(java.util.Collection<String> ids,
+                                                                            java.util.Collection<String> fields) {
+                return Map.of("customer-1", Map.of("title", "客户一"));
+            }
+        };
+
+        new ReferenceReadPipeline<Map<String, Object>>(List.of(plan), List.of(path), value -> value,
+                Map::putAll, ignored -> customer).populate(records);
+
+        assertThat(records.getFirst()).containsEntry("customerTitle", "客户一");
+    }
+
+    @Test
     void shouldBatchMultiHopSelectionProjectionsThroughTheSourceIndependentTargetResolver() {
         ReferenceTarget organization = ReferenceTarget.of("tenant", "organization");
         List<List<String>> customerRequests = new ArrayList<>();

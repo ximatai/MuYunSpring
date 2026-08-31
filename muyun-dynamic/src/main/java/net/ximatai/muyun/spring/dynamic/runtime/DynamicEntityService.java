@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.child.ChildPlan;
 import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.child.ChildAbility;
@@ -499,6 +500,19 @@ public class DynamicEntityService implements
         return records;
     }
 
+    /**
+     * Applies the entity-owned read pipeline to children already selected through an authorised
+     * parent aggregate. It deliberately does not execute a new child query: aggregate VIEW
+     * visibility is owned by the parent relation, while reference and option presentation still
+     * belongs to the child entity's metadata.
+     */
+    List<DynamicRecord> enrichAggregateViewChildren(List<DynamicRecord> records) {
+        if (records == null || records.isEmpty()) return List.of();
+        List<DynamicRecord> copies = records.stream().map(DynamicRecord::copy).toList();
+        applyReadPipeline(copies);
+        return List.copyOf(copies);
+    }
+
     public List<DynamicRecord> sortedList(Criteria criteria) {
         capabilityRuntimes.require(EntityCapability.SORT);
         List<DynamicRecord> records;
@@ -670,11 +684,29 @@ public class DynamicEntityService implements
         return capabilityRuntimes.reference().referenceOptions(criteria, pageRequest);
     }
 
+    PageResult<ReferenceOption> referenceOptions(ReferencePlan plan, Criteria criteria, PageRequest pageRequest) {
+        requireReferenceTargetFields(plan);
+        PageResult<DynamicRecord> page = pageQuery(criteria, pageRequest);
+        List<ReferenceOption> options = page.getRecords().stream()
+                .map(record -> new ReferenceOption(record.getId(), referenceLabel(record, plan)))
+                .toList();
+        return PageResult.of(options, page.getTotal(), pageRequest);
+    }
+
     public DynamicReferenceResolveResponse resolveReference(String sourceField,
                                                             DynamicReferenceResolveRequest request) {
         EntityReferenceDefinition reference = referenceDefinition(sourceField);
         ReferencePlan plan = reference.plan();
-        return new DynamicReferenceResolver(this, plan, referenceService(plan.target()), reference.affects()).resolve(request);
+        try {
+            return new DynamicReferenceResolver(this, plan, referenceService(plan.target()), reference.affects())
+                    .resolve(request);
+        } catch (ModuleDefinitionException dynamicTargetUnavailable) {
+            var staticTarget = PlatformAbilityRuntime.referenceTargetResolver().resolve(plan.target());
+            if (staticTarget.isEmpty()) {
+                throw dynamicTargetUnavailable;
+            }
+            return new DynamicReferenceResolver(this, plan, staticTarget.get(), reference.affects()).resolve(request);
+        }
     }
 
     @Override
@@ -707,8 +739,7 @@ public class DynamicEntityService implements
             Object value = record.getValue(plan.sourceField());
             List<String> values = plan.normalizeValues(value);
             if (!values.isEmpty()) {
-                ids.computeIfAbsent(plan.target(), ignored -> new LinkedHashSet<>())
-                        .addAll(values);
+                ids.computeIfAbsent(plan.target(), ignored -> new LinkedHashSet<>()).addAll(values);
             }
         }
         Map<ReferenceTarget, Set<String>> copy = new LinkedHashMap<>();
@@ -1110,8 +1141,10 @@ public class DynamicEntityService implements
         if (ids.isEmpty()) throw new IllegalArgumentException("dynamic discriminator reference value is required: " + valueField);
         validateReferenceIds(plan, ids, List.of());
         if (plan.candidateDependencies().isEmpty()) return;
-        Map<String, Map<String, Object>> targets = referenceAbility(plan.target()).projections(ids,
-                plan.candidateDependencies().stream().map(dependency -> dependency.targetField()).toList());
+        var targetAbility = referenceAbility(plan.target());
+        List<String> dependencyFields = plan.candidateDependencies().stream()
+                .map(dependency -> dependency.targetField()).toList();
+        Map<String, Map<String, Object>> targets = targetAbility.projections(ids, dependencyFields);
         for (String id : ids) {
             Map<String, Object> target = targets.get(id);
             for (var dependency : plan.candidateDependencies()) {
@@ -1157,17 +1190,7 @@ public class DynamicEntityService implements
         if (ids.isEmpty()) {
             return;
         }
-        Set<String> resolved;
-        try {
-            resolved = referenceService(plan.target()).list(
-                            Criteria.of().in(StandardEntitySchema.ID_FIELD, ids),
-                            new PageRequest(0, ids.size()))
-                    .stream()
-                    .map(DynamicRecord::getId)
-                    .collect(java.util.stream.Collectors.toSet());
-        } catch (RuntimeException dynamicResolutionFailure) {
-            resolved = referenceAbility(plan.target()).titles(ids).keySet();
-        }
+        Set<String> resolved = referenceAbility(plan.target()).titles(ids).keySet();
         Set<String> resolvedIds = resolved;
         List<String> unavailable = ids.stream()
                 .filter(id -> !resolvedIds.contains(id))
@@ -1194,6 +1217,35 @@ public class DynamicEntityService implements
     private void requireSameEntity(DynamicRecord record) {
         if (!dao.getEntity().alias().equals(record.getEntity().alias())) {
             throw new IllegalArgumentException("dynamic record entity mismatch: " + record.getEntity().alias());
+        }
+    }
+
+    private String referenceLabel(DynamicRecord record, ReferencePlan plan) {
+        Object value = plan.targetLabelField() == null ? record.title()
+                : referenceFieldValue(record, plan.targetLabelField());
+        Object rendered = maskProtectedValue(plan.targetLabelField() == null ? PlatformAbilityFields.TITLE_FIELD
+                : plan.targetLabelField(), value, FieldOutputContext.REFERENCE);
+        return rendered == null ? null : String.valueOf(rendered);
+    }
+
+    private Object referenceFieldValue(DynamicRecord record, String fieldName) {
+        return StandardEntitySchema.ID_FIELD.equals(fieldName) ? record.getId() : record.getValue(fieldName);
+    }
+
+    private void requireReferenceTargetFields(ReferencePlan plan) {
+        if (plan == null) throw new PlatformException("reference plan must not be null");
+        requireDynamicReferenceField(plan.targetKeyField(), plan, "target key");
+        if (plan.targetLabelField() != null) {
+            requireDynamicReferenceField(plan.targetLabelField(), plan, "target label");
+        }
+    }
+
+    private void requireDynamicReferenceField(String fieldName, ReferencePlan plan, String purpose) {
+        if (StandardEntitySchema.ID_FIELD.equals(fieldName)) return;
+        boolean known = dao.getEntity().fields().stream().anyMatch(field -> fieldName.equals(field.fieldName()));
+        if (!known) {
+            throw new PlatformException("reference " + purpose + " field is unavailable: "
+                    + plan.target().qualifiedName() + "." + fieldName);
         }
     }
 

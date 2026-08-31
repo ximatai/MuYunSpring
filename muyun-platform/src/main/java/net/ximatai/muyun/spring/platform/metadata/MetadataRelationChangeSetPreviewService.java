@@ -33,18 +33,46 @@ public class MetadataRelationChangeSetPreviewService {
     private final MetadataService metadataService;
     private final MetadataFieldService fieldService;
     private final FieldSpecService fieldSpecService;
+    private final MetadataFieldReferenceConfigService referenceConfigService;
+    private final MetadataFieldConfigService fieldConfigService;
+    private final ModuleMetadataFieldService moduleFieldService;
+
+    public MetadataRelationChangeSetPreviewService(PlatformModuleService moduleService,
+                                                   ModuleMetadataRelationService relationService,
+                                                   MetadataService metadataService,
+                                                   MetadataFieldService fieldService,
+                                                   FieldSpecService fieldSpecService) {
+        this(moduleService, relationService, metadataService, fieldService, fieldSpecService, null, null);
+    }
+
+    public MetadataRelationChangeSetPreviewService(PlatformModuleService moduleService,
+                                                   ModuleMetadataRelationService relationService,
+                                                   MetadataService metadataService,
+                                                   MetadataFieldService fieldService,
+                                                   FieldSpecService fieldSpecService,
+                                                   MetadataFieldReferenceConfigService referenceConfigService,
+                                                   MetadataFieldConfigService fieldConfigService) {
+        this(moduleService, relationService, metadataService, fieldService, fieldSpecService,
+                referenceConfigService, fieldConfigService, null);
+    }
 
     @Autowired
     public MetadataRelationChangeSetPreviewService(PlatformModuleService moduleService,
                                                    ModuleMetadataRelationService relationService,
                                                    MetadataService metadataService,
                                                    MetadataFieldService fieldService,
-                                                   FieldSpecService fieldSpecService) {
+                                                   FieldSpecService fieldSpecService,
+                                                   MetadataFieldReferenceConfigService referenceConfigService,
+                                                   MetadataFieldConfigService fieldConfigService,
+                                                   ModuleMetadataFieldService moduleFieldService) {
         this.moduleService = moduleService;
         this.relationService = relationService;
         this.metadataService = metadataService;
         this.fieldService = fieldService;
         this.fieldSpecService = fieldSpecService;
+        this.referenceConfigService = referenceConfigService;
+        this.fieldConfigService = fieldConfigService;
+        this.moduleFieldService = moduleFieldService;
     }
 
     public MetadataRelationChangeSetPreview preview(String moduleAlias, String relationId,
@@ -159,9 +187,12 @@ public class MetadataRelationChangeSetPreviewService {
             return;
         }
         MetadataField normalized = newBusinessField(field);
+        normalized.setMetadataId(context.metadata().getId());
+        MetadataFieldPropertyChangeSetPlan property = propertyPlan(context, normalized, draft.property(), null, errors);
+        if (draft.property() != null && property == null) return;
         String syntheticId = "new:" + normalized.getFieldName();
         fields.put(syntheticId, normalized);
-        mutations.add(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.ADD, null, null, normalized));
+        mutations.add(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.ADD, null, null, normalized, property));
         impacts.add(new MetadataChangeSetFieldImpact("ADD", field.getFieldName(), field.getColumnName(), false, "新增业务字段。"));
     }
 
@@ -176,6 +207,11 @@ public class MetadataRelationChangeSetPreviewService {
         }
         if (protectedField(existing, context.relation())) {
             error(errors, "PROTECTED_FIELD", existing.getFieldName(), "受保护字段不能在编辑会话中修改。");
+            return;
+        }
+        if (legacyPropertyLocked(existing, context.relation())) {
+            error(errors, "LEGACY_FIELD_PROPERTY_LOCKED", existing.getFieldName(),
+                    "字段仍使用旧模块字段引用或字典配置，迁移前不能通过新编排链路修改。");
             return;
         }
         if (!java.util.Objects.equals(draft.expectedFieldVersion(), existing.getVersion())) {
@@ -196,9 +232,11 @@ public class MetadataRelationChangeSetPreviewService {
             return;
         }
         MetadataField normalized = overlayBusinessAttributes(existing, field);
+        MetadataFieldPropertyChangeSetPlan property = propertyPlan(context, normalized, draft.property(), existing, errors);
+        if (draft.property() != null && property == null) return;
         fields.put(fieldId, normalized);
         mutations.add(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.UPDATE, fieldId,
-                draft.expectedFieldVersion(), normalized));
+                draft.expectedFieldVersion(), normalized, property));
         impacts.add(new MetadataChangeSetFieldImpact("UPDATE", field.getFieldName(), field.getColumnName(), false, "更新字段元数据。"));
     }
 
@@ -255,6 +293,150 @@ public class MetadataRelationChangeSetPreviewService {
             if (!names.add(field.getFieldName())) error(errors, "DUPLICATE_FIELD_NAME", field.getFieldName(), "字段名在最终模型中重复。");
             if (!columns.add(field.getColumnName())) error(errors, "DUPLICATE_COLUMN_NAME", field.getColumnName(), "物理列名在最终模型中重复。");
         }
+    }
+
+    private MetadataFieldPropertyChangeSetPlan propertyPlan(Context context,
+                                                            MetadataField proposedField,
+                                                            MetadataFieldPropertyDraft draft,
+                                                            MetadataField existingField,
+                                                            List<MetadataChangeSetValidationIssue> errors) {
+        if (draft == null) return null;
+        MetadataFieldPropertyKind kind = draft.kind();
+        if (kind == null) {
+            error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(), "字段属性草稿缺少类型。");
+            return null;
+        }
+        if (kind == MetadataFieldPropertyKind.LEGACY_LOCKED) {
+            error(errors, "LEGACY_FIELD_PROPERTY_LOCKED", proposedField.getFieldName(),
+                    "旧模块字段属性仅可读取，不能作为新编排草稿预检或发布。");
+            return null;
+        }
+        MetadataFieldReferenceConfig existingReference = existingField == null || referenceConfigService == null ? null
+                : referenceConfigService.findForRelation(existingField.getId(), context.relation().getId());
+        MetadataFieldConfig existingDictionary = existingField == null || fieldConfigService == null ? null
+                : effectiveFieldConfig(existingField.getId(), context.relation().getId());
+        boolean hasReference = existingReference != null;
+        boolean hasDictionary = existingDictionary != null && existingDictionary.hasDictionaryBinding();
+        if (hasReference && hasDictionary) {
+            error(errors, "CONFLICTING_FIELD_PROPERTY", proposedField.getFieldName(), "字段同时存在引用和字典绑定，不能编排。");
+            return null;
+        }
+        if (kind == MetadataFieldPropertyKind.BASIC) {
+            if (draft.referenceConfig() != null || draft.dictionaryConfig() != null) {
+                error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(), "普通字段不能携带引用或字典绑定。");
+                return null;
+            }
+            if (hasReference || hasDictionary) {
+                error(errors, "NON_ADDITIVE_FIELD_PROPERTY", proposedField.getFieldName(), "当前发布不能移除既有字段属性绑定。");
+                return null;
+            }
+            return new MetadataFieldPropertyChangeSetPlan(kind, draft.expectedBindingVersion(), null, null);
+        }
+        if (kind == MetadataFieldPropertyKind.MODULE_REFERENCE) {
+            if (draft.referenceConfig() == null || draft.dictionaryConfig() != null) {
+                error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(), "模块引用字段必须且只能携带引用绑定。");
+                return null;
+            }
+            if (hasDictionary) {
+                error(errors, "CONFLICTING_FIELD_PROPERTY", proposedField.getFieldName(), "字典字段不能同时配置模块引用。");
+                return null;
+            }
+            MetadataFieldReferenceConfig reference = draft.referenceConfig().toConfig();
+            if (!validateReferenceBinding(context, proposedField, reference, errors)) return null;
+            if (!bindingVersionMatches(draft.expectedBindingVersion(), existingReference)) {
+                error(errors, "STALE_FIELD_PROPERTY_VERSION", proposedField.getFieldName(), "引用配置版本已变化，请重新载入后预检。");
+                return null;
+            }
+            return new MetadataFieldPropertyChangeSetPlan(kind, draft.expectedBindingVersion(),
+                    copyReference(reference), null);
+        }
+        if (draft.dictionaryConfig() == null || draft.referenceConfig() != null) {
+            error(errors, "INVALID_FIELD_PROPERTY", proposedField.getFieldName(), "数据字典字段必须且只能携带字典绑定。");
+            return null;
+        }
+        if (hasReference) {
+            error(errors, "CONFLICTING_FIELD_PROPERTY", proposedField.getFieldName(), "引用字段不能同时配置数据字典。");
+            return null;
+        }
+        if (!validateDictionaryBinding(context, proposedField, draft.dictionaryConfig(), errors)) return null;
+        if (!bindingVersionMatches(draft.expectedBindingVersion(), hasDictionary ? existingDictionary : null)) {
+            error(errors, "STALE_FIELD_PROPERTY_VERSION", proposedField.getFieldName(), "字典配置版本已变化，请重新载入后预检。");
+            return null;
+        }
+        return new MetadataFieldPropertyChangeSetPlan(kind, draft.expectedBindingVersion(), null,
+                copyDictionary(draft.dictionaryConfig()));
+    }
+
+    private boolean legacyPropertyLocked(MetadataField field, ModuleMetadataRelation relation) {
+        if (moduleFieldService == null || field == null || relation == null) return false;
+        ModuleMetadataField legacy = moduleFieldService.findByRelationAndField(relation.getId(), field.getId());
+        return legacy != null && ((legacy.getReferenceModuleAlias() != null && !legacy.getReferenceModuleAlias().isBlank())
+                || (legacy.getDictionaryCategoryAlias() != null && !legacy.getDictionaryCategoryAlias().isBlank()));
+    }
+
+    private MetadataFieldConfig effectiveFieldConfig(String fieldId, String relationId) {
+        MetadataFieldConfig override = fieldConfigService.findRelationOverride(fieldId, relationId);
+        return override == null ? fieldConfigService.findByMetadataFieldId(fieldId) : override;
+    }
+
+    private boolean validateReferenceBinding(Context context, MetadataField field, MetadataFieldReferenceConfig config,
+                                             List<MetadataChangeSetValidationIssue> errors) {
+        try {
+            if (referenceConfigService == null) {
+                throw new IllegalStateException("Metadata reference validation is not configured");
+            }
+            config.setMetadataFieldId(field.getId());
+            config.setRelationId(context.relation().getId());
+            referenceConfigService.validateDraft(config, field, context.relation());
+            return true;
+        } catch (RuntimeException exception) {
+            error(errors, "INVALID_FIELD_PROPERTY", field.getFieldName(), exception.getMessage());
+            return false;
+        }
+    }
+
+    private boolean validateDictionaryBinding(Context context, MetadataField field, MetadataFieldConfig config,
+                                              List<MetadataChangeSetValidationIssue> errors) {
+        try {
+            if (fieldConfigService == null) {
+                throw new IllegalStateException("Metadata dictionary validation is not configured");
+            }
+            config.setMetadataFieldId(field.getId());
+            config.setRelationId(context.relation().getId());
+            fieldConfigService.validateDictionaryDraft(config, field);
+            return true;
+        } catch (RuntimeException exception) {
+            error(errors, "INVALID_FIELD_PROPERTY", field.getFieldName(), exception.getMessage());
+            return false;
+        }
+    }
+
+    private boolean bindingVersionMatches(Integer expectedVersion, Object existing) {
+        if (existing == null) return expectedVersion == null;
+        if (expectedVersion == null) return false;
+        Integer actual = existing instanceof MetadataFieldReferenceConfig reference ? reference.getVersion()
+                : ((MetadataFieldConfig) existing).getVersion();
+        return java.util.Objects.equals(expectedVersion, actual);
+    }
+
+    private MetadataFieldReferenceConfig copyReference(MetadataFieldReferenceConfig source) {
+        MetadataFieldReferenceConfig result = new MetadataFieldReferenceConfig();
+        result.setTargetModuleAlias(source.getTargetModuleAlias());
+        result.setTargetMetadataId(source.getTargetMetadataId());
+        result.setTargetKeyField(source.getTargetKeyField());
+        result.setTargetLabelField(source.getTargetLabelField());
+        result.setCardinality(source.getCardinality());
+        result.setTargetUnavailablePolicy(source.getTargetUnavailablePolicy());
+        result.setProjectionMappings(source.getProjectionMappings());
+        return result;
+    }
+
+    private MetadataFieldConfig copyDictionary(MetadataFieldConfig source) {
+        MetadataFieldConfig result = new MetadataFieldConfig();
+        result.setDictionaryApplicationAlias(source.getDictionaryApplicationAlias());
+        result.setDictionaryCategoryAlias(source.getDictionaryCategoryAlias());
+        result.setSelectionMode(source.getSelectionMode());
+        return result;
     }
 
     private boolean validateDraftField(MetadataField field, String subject, List<MetadataChangeSetValidationIssue> errors) {
@@ -317,9 +499,30 @@ public class MetadataRelationChangeSetPreviewService {
                     + field.getTitle() + "|" + field.getRequired() + "|" + field.getUniqueField() + "|"
                     + field.getIndexed() + "|" + field.getSortableField() + "|" + field.getTitleField() + "|"
                     + field.getEnabled() + "|" + field.getSortOrder());
+            MetadataFieldPropertyChangeSetPlan property = mutation.property();
+            if (property != null) {
+                facts.add("property:" + mutation.fieldId() + "|" + field.getFieldName() + "|" + property.kind() + "|"
+                        + property.expectedBindingVersion() + "|" + propertyFacts(property));
+            }
         }
         facts.sort(Comparator.naturalOrder());
         return sha256(String.join("\n", facts));
+    }
+
+    private String propertyFacts(MetadataFieldPropertyChangeSetPlan property) {
+        if (property.referenceConfig() != null) {
+            MetadataFieldReferenceConfig config = property.referenceConfig();
+            return String.join("|", "reference", String.valueOf(config.getTargetModuleAlias()),
+                    String.valueOf(config.getTargetMetadataId()), String.valueOf(config.getTargetKeyField()),
+                    String.valueOf(config.getTargetLabelField()), String.valueOf(config.getCardinality()),
+                    String.valueOf(config.getTargetUnavailablePolicy()), String.valueOf(config.getProjectionMappings()));
+        }
+        if (property.dictionaryConfig() != null) {
+            MetadataFieldConfig config = property.dictionaryConfig();
+            return String.join("|", "dictionary", String.valueOf(config.getDictionaryApplicationAlias()),
+                    String.valueOf(config.getDictionaryCategoryAlias()), String.valueOf(config.getSelectionMode()));
+        }
+        return "basic";
     }
 
     private MetadataField newBusinessField(MetadataField source) {

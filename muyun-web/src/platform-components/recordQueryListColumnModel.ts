@@ -1,4 +1,5 @@
 import type {
+  OptionItemDescriptor,
   QuerySchemaField,
   ResolvedViewDescriptor,
   ResolvedViewFieldDescriptor,
@@ -21,6 +22,12 @@ export interface RecordQueryListColumn {
   width?: string;
   align?: 'left' | 'center' | 'right';
   titleField?: string;
+  /** Only descriptor-declared option fields load a runtime option catalog. */
+  optionBinding?: boolean;
+  /** Dynamic child entity whose declared option binding owns this field. */
+  optionEntityAlias?: string;
+  /** Runtime dictionary/reference options used when the response has no title companion. */
+  optionItems?: OptionItemDescriptor[];
   /** Maximum visible lines for text cells. Defaults to one line. */
   maxDisplayLines?: number;
   render?: (record: QueryListRecord) => string;
@@ -56,7 +63,11 @@ export function resolveRecordQueryListColumns(
         type: columnType(field, queryField),
         width: field.width,
         align: normalizeColumnAlign(field.align),
-        titleField: field.option?.titleField ?? queryField?.optionTitleField,
+        titleField:
+          field.option?.titleField ??
+          queryField?.optionTitleField ??
+          (field.reference ? `${field.fieldRef.fieldName}Title` : undefined),
+        optionBinding: field.option ? true : undefined,
         booleanStatus: field.booleanStatus,
         maxDisplayLines: field.maxDisplayLines,
       };

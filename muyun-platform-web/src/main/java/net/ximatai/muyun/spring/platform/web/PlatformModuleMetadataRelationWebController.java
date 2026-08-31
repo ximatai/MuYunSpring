@@ -18,6 +18,10 @@ import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetPrevi
 import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetApplyCommand;
 import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetApplyService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetPublishResult;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldPropertySummary;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldPropertySummaryService;
+import net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalog;
+import net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalogService;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.web.NestedSortableCrudWebSupport;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,16 +42,38 @@ public class PlatformModuleMetadataRelationWebController
     private final ModuleMetadataCapabilitySnapshotService capabilitySnapshotService;
     private final MetadataRelationChangeSetPreviewService changeSetPreviewService;
     private final MetadataRelationChangeSetApplyService changeSetApplyService;
+    private final ModuleMetadataFieldPropertySummaryService propertySummaryService;
+    private final ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService;
+
+    public PlatformModuleMetadataRelationWebController(ModuleMetadataOrchestrationService orchestrationService,
+                                                       ModuleMetadataCapabilitySnapshotService capabilitySnapshotService,
+                                                       MetadataRelationChangeSetPreviewService changeSetPreviewService,
+                                                       MetadataRelationChangeSetApplyService changeSetApplyService) {
+        this(orchestrationService, capabilitySnapshotService, changeSetPreviewService, changeSetApplyService, null, null);
+    }
+
+    public PlatformModuleMetadataRelationWebController(ModuleMetadataOrchestrationService orchestrationService,
+                                                       ModuleMetadataCapabilitySnapshotService capabilitySnapshotService,
+                                                       MetadataRelationChangeSetPreviewService changeSetPreviewService,
+                                                       MetadataRelationChangeSetApplyService changeSetApplyService,
+                                                       ModuleMetadataFieldPropertySummaryService propertySummaryService) {
+        this(orchestrationService, capabilitySnapshotService, changeSetPreviewService, changeSetApplyService,
+                propertySummaryService, null);
+    }
 
     @Autowired
     public PlatformModuleMetadataRelationWebController(ModuleMetadataOrchestrationService orchestrationService,
                                                        ModuleMetadataCapabilitySnapshotService capabilitySnapshotService,
                                                        MetadataRelationChangeSetPreviewService changeSetPreviewService,
-                                                       MetadataRelationChangeSetApplyService changeSetApplyService) {
+                                                       MetadataRelationChangeSetApplyService changeSetApplyService,
+                                                       ModuleMetadataFieldPropertySummaryService propertySummaryService,
+                                                       ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService) {
         this.orchestrationService = orchestrationService;
         this.capabilitySnapshotService = capabilitySnapshotService;
         this.changeSetPreviewService = changeSetPreviewService;
         this.changeSetApplyService = changeSetApplyService;
+        this.propertySummaryService = propertySummaryService;
+        this.referenceTargetFieldCatalogService = referenceTargetFieldCatalogService;
     }
 
     @PostMapping("/create-main-metadata")
@@ -82,6 +108,25 @@ public class PlatformModuleMetadataRelationWebController
                                                                   @org.springframework.web.bind.annotation.PathVariable String relationId,
                                                                   @RequestBody MetadataRelationChangeSetApplyCommand command) {
         return webScope(() -> changeSetApply().apply(moduleAlias(request), relationId, command));
+    }
+
+    @GetMapping("/{relationId}/field-properties")
+    @CustomActionEndpoint(value = "viewMetadataFieldProperties", title = "查看字段数据属性",
+            level = PlatformActionLevel.RECORD, dataAuth = false)
+    public java.util.List<ModuleMetadataFieldPropertySummary> fieldProperties(HttpServletRequest request,
+                                                                                @org.springframework.web.bind.annotation.PathVariable String relationId) {
+        return webScope(() -> propertySummary().list(moduleAlias(request), relationId));
+    }
+
+    @GetMapping("/{relationId}/reference-target-field-catalog")
+    @CustomActionEndpoint(value = "viewReferenceTargetFieldCatalog", title = "查看引用目标字段目录",
+            level = PlatformActionLevel.RECORD, dataAuth = false)
+    public ReferenceTargetFieldCatalog referenceTargetFieldCatalog(HttpServletRequest request,
+                                                                    @org.springframework.web.bind.annotation.PathVariable String relationId,
+                                                                    @org.springframework.web.bind.annotation.RequestParam String targetModuleAlias,
+                                                                    @org.springframework.web.bind.annotation.RequestParam(required = false) String targetMetadataId) {
+        return webScope(() -> referenceTargetFieldCatalog().list(moduleAlias(request), relationId,
+                targetModuleAlias, targetMetadataId));
     }
 
     @Override
@@ -120,5 +165,19 @@ public class PlatformModuleMetadataRelationWebController
             throw new IllegalStateException("Metadata change-set apply is not configured");
         }
         return changeSetApplyService;
+    }
+
+    private ModuleMetadataFieldPropertySummaryService propertySummary() {
+        if (propertySummaryService == null) {
+            throw new IllegalStateException("Metadata field property summary is not configured");
+        }
+        return propertySummaryService;
+    }
+
+    private ReferenceTargetFieldCatalogService referenceTargetFieldCatalog() {
+        if (referenceTargetFieldCatalogService == null) {
+            throw new IllegalStateException("Reference target field catalog is not configured");
+        }
+        return referenceTargetFieldCatalogService;
     }
 }

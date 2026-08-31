@@ -333,6 +333,27 @@ class StaticReferenceResolveFacadeTest {
     }
 
     @Test
+    void shouldDeliverStaticTreeTargetForAMetadataDrivenSource() {
+        @SuppressWarnings("unchecked") ReferenceAbility<TreeCustomer> target = mock(ReferenceAbility.class,
+                withSettings().extraInterfaces(TreeAbility.class));
+        doReturn(TreeCustomer.class).when(target).modelClass();
+        doReturn("crm.customer").when(target).getModuleAlias();
+        TreeCustomer root = new TreeCustomer();
+        root.setId("customer-1");
+        root.setTitle("星云科技");
+        when(target.list(any(), any(PageRequest.class))).thenReturn(List.of(root));
+        when(target.referenceTitle(root)).thenReturn("星云科技");
+        StaticReferenceResolveFacade facade = new StaticReferenceResolveFacade(
+                new StaticModuleDefinitionCatalog(List.of()), new StaticAbilityCatalog(List.of(target)));
+
+        var response = facade.resolveTargetTree(
+                net.ximatai.muyun.spring.ability.reference.ReferenceTarget.of("crm", "customer"), Criteria.of());
+
+        assertThat(response.tree()).singleElement().extracting(node -> node.record().title()).isEqualTo("星云科技");
+        verify(target).list(any(), any(PageRequest.class));
+    }
+
+    @Test
     void shouldApplyCandidateDependencyToQueryAndValueTranslation() {
         @SuppressWarnings("unchecked") ReferenceAbility<Customer> target = mock(ReferenceAbility.class);
         doReturn(Customer.class).when(target).modelClass();

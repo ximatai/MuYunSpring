@@ -151,6 +151,8 @@ UI 配置、查询模板、菜单入口、页面 bootstrap、引用候选、附�
 静态模块引用和 service 级读投影的当前稳定契约见 [静态模块引用与读投影契约](STATIC_REFERENCE_READ_PROJECTION.md)。静态与动态列表读取都按 `ReferenceTarget` 聚合引用 ID，复用同一 `ReferenceAbility` 批量补齐标题和字段投影；静态可安全编译的 SQL join 只是该统一语义的优化路径。
 静态 `@ReferenceLoad` 的多跳声明会先编译为只含 `ReferenceTarget` 与字段 hop 的 `ReferenceLoadPath`，再通过同一引用投影契约执行；动态元数据接入多跳读取时应产出该路径契约，不得另建动态专用读取内核。
 动态侧使用 `EntityReferenceLoadDefinition` 声明来源字段、终端字段、输出字段与类型化 hop；hop 显式给出 `ReferenceTarget` 和当前节点的 `via` 字段，以便配置保存期完成校验。静态与动态的多跳路径均由 `ReferenceLoadReader` 执行，且来源与可校验 hop 必须为 `ONE` 基数；零跳的直接读取则复用普通引用投影的单值或集合语义。动态 `EntityReferencedByDefinition` 只声明目标实体、来源实体、来源引用字段和虚拟输出字段，运行态按同一 CRUD 查询链路装配反向集合，不把反向关系硬编码到 Service。
+
+教学管理演示如何以静态主数据、动态测评和跨来源引用验证这条路线，见[教学管理演示场景设计](EDUCATION_DEMO_SCENARIO.md)。
 引用候选按目标模块的 `REFERENCE` 数据权限过滤；来源记录已取得读取权限后，其标题和字段投影只遵循租户、软删除和字段保护，不额外以目标业务数据范围过滤来源记录。
 
 如果某个能力短期只能挂到一侧，应记录为阶段限制，不能把它包装成最终形态。

@@ -41,7 +41,9 @@ it('classifies field governance ownership before an edit session exposes operati
   expect(metadataFieldGovernanceKind(capability, relation, capabilityFields)).toBe('CAPABILITY_DERIVED');
   expect(metadataFieldGovernanceKind(system, relation, capabilityFields)).toBe('PLATFORM_SYSTEM');
   expect(metadataFieldGovernanceKind(foreignKey, relation, capabilityFields)).toBe('RELATION_FOREIGN_KEY');
-  expect(metadataFieldGovernanceLabel('RELATION_FOREIGN_KEY')).toBe('关系外键');
+  expect(metadataFieldGovernanceLabel('BUSINESS')).toBe('业务');
+  expect(metadataFieldGovernanceLabel('PLATFORM_SYSTEM')).toBe('平台');
+  expect(metadataFieldGovernanceLabel('RELATION_FOREIGN_KEY')).toBe('关系');
   expect(isSessionEditableMetadataField(business, relation, capabilityFields)).toBe(true);
   expect(isSessionEditableMetadataField(foreignKey, relation, capabilityFields)).toBe(false);
 });
@@ -103,4 +105,56 @@ it('keeps field and capability changes local until a future change-set facade ap
 
   session.cancel();
   expect(session.editing.value).toBe(false);
+});
+
+it('stages a reference property with its field and carries the binding through the one change set', () => {
+  const session = createMetadataModelEditSession();
+  session.begin('metadata-1', 'relation-1', 3, [], [], []);
+
+  session.stageField(
+    {
+      fieldName: 'subjectCategoryId',
+      columnName: 'subject_category_id',
+      fieldSpecAlias: 'string',
+      fieldOwnership: 'BUSINESS',
+      fieldForm: 'PHYSICAL',
+    },
+    {
+      kind: 'MODULE_REFERENCE',
+      referenceConfig: {
+        targetModuleAlias: 'education.subject_category',
+        targetKeyField: 'code',
+        targetLabelField: 'name',
+        cardinality: 'ONE',
+        targetUnavailablePolicy: 'RESTRICT',
+        projectionMappings: ['name:subjectCategoryIdTitle'],
+      },
+    },
+  );
+
+  const proposal = session.buildProposal();
+  expect(proposal?.fieldDrafts).toEqual([
+    {
+      operation: 'ADD',
+      field: {
+        fieldName: 'subjectCategoryId',
+        columnName: 'subject_category_id',
+        fieldSpecAlias: 'string',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      },
+      property: {
+        kind: 'MODULE_REFERENCE',
+        referenceConfig: {
+          targetModuleAlias: 'education.subject_category',
+          targetKeyField: 'code',
+          targetLabelField: 'name',
+          cardinality: 'ONE',
+          targetUnavailablePolicy: 'RESTRICT',
+          projectionMappings: ['name:subjectCategoryIdTitle'],
+        },
+      },
+    },
+  ]);
+  expect(JSON.stringify(proposal)).toContain('"projectionMappings":["name:subjectCategoryIdTitle"]');
 });
