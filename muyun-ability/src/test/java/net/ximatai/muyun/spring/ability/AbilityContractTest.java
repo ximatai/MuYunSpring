@@ -1768,18 +1768,16 @@ class AbilityContractTest {
     }
 
     @Test
-    void referenceAbilityShouldUseConfiguredCandidateKeyAndLabelFields() {
+    void referenceAbilityShouldKeepRecordIdWhenUsingConfiguredCandidateKeyAndLabelFields() {
         DemoCustomTitleRecordService service = new DemoCustomTitleRecordService();
         String id = service.insert(new DemoCustomTitleRecord("CUSTOMER-001", "Internal title", "Customer One"));
         ReferencePlan plan = ReferencePlan.of("customerCode", ReferenceTarget.of("demo", "customTitleRecord"),
                 ReferenceCardinality.ONE).withTargetFields("code", "displayName");
 
-        assertThat(service.referenceOptions(plan, Criteria.of(), PageRequest.of(1, 10)).getRecords())
-                .containsExactly(new ReferenceOption("CUSTOMER-001", "Customer One", id));
-        assertThat(service.referenceLabels(plan, List.of("CUSTOMER-001")))
-                .containsExactly(Map.entry("CUSTOMER-001", "Customer One"));
-        assertThat(service.projections(plan, List.of("CUSTOMER-001"), List.of("title")))
-                .containsExactly(Map.entry("CUSTOMER-001", Map.of("title", "Internal title")));
+        assertThat(service.referenceOptions(plan, Criteria.of().eq("code", "CUSTOMER-001"), PageRequest.of(1, 10))
+                .getRecords()).containsExactly(new ReferenceOption(id, "Customer One"));
+        assertThat(service.projections(List.of(id), List.of("title")))
+                .containsExactly(Map.entry(id, Map.of("title", "Internal title")));
     }
 
     @Test

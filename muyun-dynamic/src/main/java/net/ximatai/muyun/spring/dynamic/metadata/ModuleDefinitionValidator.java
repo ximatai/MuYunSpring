@@ -1044,8 +1044,8 @@ public class ModuleDefinitionValidator {
     }
 
     /**
-     * For a local dynamic target, an alternative persisted key is only safe when metadata can
-     * prove it is tenant-unique.  Foreign/static targets validate the same fact through their
+     * For a local dynamic target, an alternative candidate match field is only safe when metadata
+     * can prove it is tenant-unique. Foreign/static targets validate the same fact through their
      * reference facade at runtime because this module does not own their schema.
      */
     private void validateReferenceTargetFields(EntityReferenceDefinition reference,

@@ -55,6 +55,14 @@ Web 维护面按“独立配置根 + 模块聚合子资源”组织：应用、�
 7. Runtime refresh 是配置态到运行态契约的同步边界，负责把模块关系、模块字段消费配置、视图、动作等编译进动态运行态；结构 ensure 是物理结构层，两者职责不同。影响 `ModuleDefinition` 编译结果的配置保存后，平台会在事务提交后自动刷新受影响模块；无事务时立即刷新。自动刷新覆盖模块-元数据关系、模块字段消费配置、引用过滤/带出、公式规则、元数据视图、模块动作，以及元数据字段变更后引用该 metadata 的动态模块。手动 refresh 仍保留为运维入口，并沿用当前运行模式下的 schema migration 默认策略；preview refresh 始终 dry-run。模块级配置包归档偏治理版本定稿和跨环境迁移，不是业务运行的硬前置；UI 配置和查询模板 publish 仍表达用户可见生效，不触发 runtime refresh 或 schema ensure。
 8. 本专题不复盘推进过程，不记录测试流水；稳定契约优先由代码和 contract 测试支撑。
 
+## 元数据字段属性治理
+
+字段属性必须在具体模块-元数据关系中解析。`GET /platform.module/{moduleAlias}/metadata-relations/{relationId}/field-properties` 返回该关系下每个字段的有效属性摘要，包括基础、模块引用、字典和存量锁定状态及其绑定版本。该入口是配置管理面的有效读模型，不返回业务记录，也不替代引用、字典等子资源的写入契约。
+
+配置引用目标时，`GET /platform.module/{moduleAlias}/metadata-relations/{relationId}/reference-target-field-catalog` 按来源关系和目标模块返回平台已验证可用的匹配键与展示字段目录。动态目标只能指向目标模块的 MAIN 元数据；目录只描述配置候选字段，不是目标记录查询入口。
+
+记录引用的稳定存储身份统一为目标记录 `id`，与静态引用契约一致。标题或其他展示字段可按引用配置选择，但只用于候选展示和读投影，不改变已保存的引用值。目标业务唯一键可作为选择、搜索或导入匹配候选，匹配成功后必须解析为唯一的目标 `id` 再进入标准保存链路；它不是持久化外键身份，也不作为读投影的长期关联基础。这一边界沿用[静态模块引用与读投影契约](../../../architecture/STATIC_REFERENCE_READ_PROJECTION.md)，动态配置不另建一套引用身份语义。
+
 ## 静态选项字段
 
 静态模型通过 `@OptionField` 或其字典专用声明 `@DictionaryField` 声明字段的选项来源，和动态字段编译后的 option binding 复用同一套前端 schema、保存校验和 title 输出语义。`@DictionaryField` 只改善字典绑定与 baseline 的声明体验，运行时仍编译为同一个 dictionary `OptionBinding`；两者不能标注在同一个字段。通用 `@OptionField` 保持来源无关，避免 common 层依赖字典持久化或启动机制。

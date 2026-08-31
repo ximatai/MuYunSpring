@@ -206,23 +206,6 @@ public class DynamicRecordService {
                 }
 
                 @Override
-                public Map<String, String> referenceLabels(ReferencePlan plan, Collection<String> values) {
-                    return DynamicRecordService.this.referenceLabels(target.moduleAlias(), target.entityAlias(), plan, values);
-                }
-
-                @Override
-                public Map<String, String> referenceRecordIds(ReferencePlan plan, Collection<String> values) {
-                    return DynamicRecordService.this.referenceRecordIds(target.moduleAlias(), target.entityAlias(), plan, values);
-                }
-
-                @Override
-                public Map<String, Map<String, Object>> projections(ReferencePlan plan, Collection<String> values,
-                                                                      Collection<String> fieldNames) {
-                    return DynamicRecordService.this.projections(target.moduleAlias(), target.entityAlias(), plan,
-                            values, fieldNames);
-                }
-
-                @Override
                 public PageResult<ReferenceOption> referenceOptions(Criteria criteria, PageRequest pageRequest) {
                     return DynamicRecordService.this.referenceOptions(target.moduleAlias(), target.entityAlias(),
                             criteria, pageRequest);
@@ -916,21 +899,6 @@ public class DynamicRecordService {
                                                         Criteria criteria,
                                                         PageRequest pageRequest) {
         return relationRuntime.referenceOptions(moduleAlias, entityAlias, criteria, pageRequest);
-    }
-
-    public Map<String, String> referenceLabels(String moduleAlias, String entityAlias, ReferencePlan plan,
-                                               Collection<String> values) {
-        return relationRuntime.referenceLabels(moduleAlias, entityAlias, plan, values);
-    }
-
-    public Map<String, String> referenceRecordIds(String moduleAlias, String entityAlias, ReferencePlan plan,
-                                                   Collection<String> values) {
-        return relationRuntime.referenceRecordIds(moduleAlias, entityAlias, plan, values);
-    }
-
-    public Map<String, Map<String, Object>> projections(String moduleAlias, String entityAlias, ReferencePlan plan,
-                                                         Collection<String> values, Collection<String> fieldNames) {
-        return relationRuntime.projections(moduleAlias, entityAlias, plan, values, fieldNames);
     }
 
     public PageResult<ReferenceOption> referenceOptions(String moduleAlias, String entityAlias, ReferencePlan plan,

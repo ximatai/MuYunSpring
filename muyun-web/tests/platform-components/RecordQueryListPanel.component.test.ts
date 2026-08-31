@@ -10,7 +10,11 @@ import type { WebQueryRequest } from '@muyun/web-contracts';
 describe('RecordQueryListPanel', () => {
   it('does not load options for a reference column that only has a companion title field', async () => {
     const request = vi.fn();
-    const context = createContext({ id: 'exam-1', classroomId: 'demo_classroom_g1a', classroomIdTitle: '高一（1）班' });
+    const context = createContext({
+      id: 'exam-1',
+      classroomId: 'demo_classroom_g1a',
+      classroomIdTitle: '高一（1）班',
+    });
     Object.assign(context, { http: { request } });
 
     shallowMount(RecordQueryListPanel, {

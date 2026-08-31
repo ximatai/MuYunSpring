@@ -162,10 +162,7 @@ export function createMetadataOrchestrationState() {
     fieldPropertyDraft.value = emptyFieldPropertyDraft(kind);
     fieldDraft.value = {
       ...emptyFieldDraft(),
-      fieldSpecAlias: storageFieldSpecAliasOf(
-        kind,
-        fieldPropertyDraft.value.dictionaryConfig?.selectionMode,
-      ),
+      fieldSpecAlias: storageFieldSpecAliasOf(kind, fieldPropertyDraft.value.dictionaryConfig?.selectionMode),
     };
     mode.value =
       kind === 'MODULE_REFERENCE'

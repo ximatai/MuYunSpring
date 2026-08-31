@@ -75,37 +75,6 @@ public final class ReferenceLoadReader {
         return result;
     }
 
-    /**
-     * Resolves the first path target through the source reference's configured candidate key
-     * before executing the id-based path.  Subsequent hops deliberately remain id-backed; a
-     * configured non-id hop is rejected by {@link ReferenceSelectionProjectionReader} until the
-     * path format can carry each hop's plan without ambiguity.
-     */
-    public static Map<String, Object> readAll(ReferencePlan sourcePlan,
-                                              ReferenceLoadPath path,
-                                              List<String> sourceValues,
-                                              Function<ReferenceTarget, ReferenceAbility<?>> abilities,
-                                              ReferenceReadObserver observer) {
-        if (sourcePlan == null || sourcePlan.usesDefaultTargetFields()) {
-            return readAll(path, sourceValues, abilities, observer);
-        }
-        if (!sourcePlan.target().equals(path.sourceTarget())) {
-            throw new IllegalArgumentException("ReferenceLoad source plan target does not match path: "
-                    + path.sourceField());
-        }
-        List<String> values = sourceValues == null ? List.of() : sourceValues.stream()
-                .filter(Objects::nonNull).map(String::valueOf).map(String::trim)
-                .filter(value -> !value.isBlank()).distinct().toList();
-        if (values.isEmpty()) return Map.of();
-        Map<String, String> recordIds = require(abilities, sourcePlan.target()).referenceRecordIds(sourcePlan, values);
-        Map<String, Object> loaded = readAll(path, recordIds.values().stream().distinct().toList(), abilities, observer);
-        Map<String, Object> result = new LinkedHashMap<>();
-        recordIds.forEach((value, recordId) -> {
-            if (loaded.containsKey(recordId)) result.put(value, loaded.get(recordId));
-        });
-        return result;
-    }
-
     private static String nextId(Map<String, Map<String, Object>> values, String currentId, String viaField) {
         Object value = values.getOrDefault(currentId, Map.of()).get(viaField);
         if (value == null) {

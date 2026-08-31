@@ -6,6 +6,11 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 
+/**
+ * Runtime reference contract. Source values and every reference-graph edge always contain target
+ * record ids. {@code targetKeyField} is only an alternate candidate/import match field; it never
+ * changes the persisted identity.
+ */
 public record ReferencePlan(
         String sourceField,
         ReferenceTarget target,
@@ -95,11 +100,7 @@ public record ReferencePlan(
                 selectionProjections, "id", null);
     }
 
-    /**
-     * Returns a copy whose persisted value is read from {@code targetKeyField} and whose
-     * rendered option label is read from {@code targetLabelField}.  A blank label retains the
-     * target's declared title field, which keeps static and dynamic title conventions aligned.
-     */
+    /** Configures candidate matching and rendering without changing the persisted record id. */
     public ReferencePlan withTargetFields(String targetKeyField, String targetLabelField) {
         return new ReferencePlan(sourceField, target, cardinality, projections, integrity, tenantScope,
                 candidateDependencies, selectionProjections, targetKeyField, targetLabelField);

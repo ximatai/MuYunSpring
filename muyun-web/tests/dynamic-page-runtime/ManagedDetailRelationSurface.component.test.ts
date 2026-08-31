@@ -763,7 +763,9 @@ describe('managed detail relation surface', () => {
 
   it('marks a managed child dictionary column with its target entity option context', () => {
     const configured = relation('properties');
-    configured.queryContract!.listProjection = { fields: [{ fieldName: 'attendanceStatus', title: '参加状态' }] };
+    configured.queryContract!.listProjection = {
+      fields: [{ fieldName: 'attendanceStatus', title: '参加状态' }],
+    };
     const uiDescriptor = descriptor();
     uiDescriptor.editorContributions![0]!.editor.fields.push({
       fieldRef: { relationCode: 'field_ui_control_property', fieldName: 'attendanceStatus' },
@@ -771,7 +773,10 @@ describe('managed detail relation surface', () => {
       visible: { constant: true },
       required: { constant: false },
       readOnly: { constant: false },
-      option: { binding: { sourceType: 'dictionary', source: 'platform.attendance_status' }, selectionMode: 'SINGLE' },
+      option: {
+        binding: { sourceType: 'dictionary', source: 'platform.attendance_status' },
+        selectionMode: 'SINGLE',
+      },
     });
     const wrapper = shallowMount(ManagedDetailRelationSurface, {
       props: {

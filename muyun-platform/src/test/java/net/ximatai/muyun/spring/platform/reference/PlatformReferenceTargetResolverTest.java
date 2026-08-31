@@ -1,8 +1,12 @@
 package net.ximatai.muyun.spring.platform.reference;
 
+import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
@@ -28,7 +32,7 @@ class PlatformReferenceTargetResolverTest {
     }
 
     @Test
-    void shouldRegisterTheScopedDynamicAdapterForNonIdReferencePlans() {
+    void shouldResolveCandidateBusinessKeyToRecordIdThroughTheScopedDynamicAdapter() {
         ReferenceTarget target = ReferenceTarget.of("education.student", "student");
         ReferencePlan plan = ReferencePlan.of("studentNo", target, ReferenceCardinality.ONE)
                 .withTargetFields("studentNo", "name");
@@ -37,15 +41,21 @@ class PlatformReferenceTargetResolverTest {
         @SuppressWarnings("unchecked") ReferenceAbility<StandardTitledEntity> scoped =
                 (ReferenceAbility<StandardTitledEntity>) mock(ReferenceAbility.class);
         when(records.referenceAbility(target)).thenReturn(Optional.of(scoped));
-        when(scoped.referenceRecordIds(plan, List.of("20260001")))
-                .thenReturn(Map.of("20260001", "student-record-1"));
+        Criteria candidateCriteria = Criteria.of().eq("studentNo", "20260001");
+        PageRequest pageRequest = PageRequest.of(1, 20);
+        when(scoped.referenceOptions(plan, candidateCriteria, pageRequest)).thenReturn(PageResult.of(
+                List.of(new ReferenceOption("student-record-1", "张三")), 1, pageRequest));
+        when(scoped.projections(List.of("student-record-1"), List.of("name")))
+                .thenReturn(Map.of("student-record-1", Map.of("name", "张三")));
 
         PlatformAbilityRuntime.configureReferenceTargetResolver(
                 new PlatformReferenceTargetResolver(null, fallback, records));
 
         ReferenceAbility<?> resolved = PlatformAbilityRuntime.referenceTargetResolver().resolve(target).orElseThrow();
-        assertThat(resolved.referenceRecordIds(plan, List.of("20260001")))
-                .containsExactly(Map.entry("20260001", "student-record-1"));
+        assertThat(resolved.referenceOptions(plan, candidateCriteria, pageRequest).getRecords())
+                .containsExactly(new ReferenceOption("student-record-1", "张三"));
+        assertThat(resolved.projections(List.of("student-record-1"), List.of("name")))
+                .containsExactly(Map.entry("student-record-1", Map.of("name", "张三")));
         verify(fallback, never()).referenceAbility(target);
     }
 }

@@ -191,41 +191,11 @@ final class DynamicRecordRelationRuntime {
                 .referenceOptions(scope.criteria(), pageRequest));
     }
 
-    Map<String, String> referenceLabels(String moduleAlias, String entityAlias, ReferencePlan plan,
-                                        Collection<String> values) {
-        DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.REFERENCE,
-                referenceKeyCriteria(plan, values));
-        return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
-                .referenceLabels(plan, values, scope.criteria()));
-    }
-
-    Map<String, String> referenceRecordIds(String moduleAlias, String entityAlias, ReferencePlan plan,
-                                            Collection<String> values) {
-        DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.REFERENCE,
-                referenceKeyCriteria(plan, values));
-        return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
-                .referenceRecordIds(plan, values, scope.criteria()));
-    }
-
-    Map<String, Map<String, Object>> projections(String moduleAlias, String entityAlias, ReferencePlan plan,
-                                                  Collection<String> values, Collection<String> fieldNames) {
-        DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.REFERENCE,
-                referenceKeyCriteria(plan, values));
-        return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
-                .projections(plan, values, fieldNames, scope.criteria()));
-    }
-
     PageResult<ReferenceOption> referenceOptions(String moduleAlias, String entityAlias, ReferencePlan plan,
                                                  Criteria criteria, PageRequest pageRequest) {
         DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.REFERENCE, criteria);
         return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
                 .referenceOptions(plan, scope.criteria(), pageRequest));
-    }
-
-    private Criteria referenceKeyCriteria(ReferencePlan plan, Collection<String> values) {
-        List<String> keys = values == null ? List.of() : values.stream().filter(Objects::nonNull)
-                .map(String::valueOf).map(String::trim).filter(value -> !value.isBlank()).distinct().toList();
-        return keys.isEmpty() ? falseCriteria() : Criteria.of().in(plan.targetKeyField(), keys);
     }
 
     private DynamicRecord requireAssociationSource(String moduleAlias, String entityAlias, String sourceRecordId) {
@@ -247,14 +217,13 @@ final class DynamicRecordRelationRuntime {
             return Criteria.of().eq(relation.childForeignKeyField(), source.getId());
         }
         DynamicReferenceDescriptor reference = reference(moduleAlias, entityAlias, view.referenceField());
-        String keyField = reference.keyField() == null || reference.keyField().isBlank() ? "id" : reference.keyField();
         Object value = source.getValue(reference.sourceField());
         if (value == null || (value instanceof String text && text.isBlank())) return falseCriteria();
         if (value instanceof Collection<?> collection) {
             List<?> values = collection.stream().filter(Objects::nonNull).filter(item -> !String.valueOf(item).isBlank()).toList();
-            return values.isEmpty() ? falseCriteria() : Criteria.of().in(keyField, values);
+            return values.isEmpty() ? falseCriteria() : Criteria.of().in("id", values);
         }
-        return Criteria.of().eq(keyField, value);
+        return Criteria.of().eq("id", value);
     }
 
     private Criteria associationTargetCriteria(DynamicRecord source, DynamicAssociationViewDescriptor view,

@@ -54,14 +54,14 @@ public final class ReferenceReadPipeline<T> {
     }
 
     private void populateDirect(List<T> records) {
-        Map<TargetRequestKey, TargetRequest> requests = new LinkedHashMap<>();
+        Map<ReferenceTarget, TargetRequest> requests = new LinkedHashMap<>();
         for (ReferencePlan plan : plans) {
             if (plan.projections().isEmpty()) continue;
-            TargetRequest request = requests.computeIfAbsent(TargetRequestKey.of(plan), ignored -> new TargetRequest(plan));
+            TargetRequest request = requests.computeIfAbsent(plan.target(), ignored -> new TargetRequest(plan));
             plan.projections().stream().map(ReferenceProjection::targetField).forEach(request.fields::add);
             for (T record : records) request.ids.addAll(ids(plan, record));
         }
-        Map<TargetRequestKey, Map<String, Map<String, Object>>> resolved = new LinkedHashMap<>();
+        Map<ReferenceTarget, Map<String, Map<String, Object>>> resolved = new LinkedHashMap<>();
         requests.forEach((key, request) -> {
             ReferencePlan plan = request.plan;
             if (request.ids.isEmpty()) {
@@ -72,10 +72,7 @@ public final class ReferenceReadPipeline<T> {
             List<String> fields = List.copyOf(request.fields);
             observer.onProjection(new ReferenceReadObserver.ProjectionRequest(plan.target(), fields, ids.size(),
                     ReferenceReadObserver.Kind.DIRECT, null, null, 0));
-            ReferenceAbility<?> ability = require(plan.target());
-            resolved.put(key, plan.usesDefaultTargetFields()
-                    ? ability.projections(ids, fields)
-                    : ability.projections(plan, ids, fields));
+            resolved.put(key, require(plan.target()).projections(ids, fields));
         });
         for (T record : records) {
             Map<String, Object> output = new LinkedHashMap<>();
@@ -84,9 +81,9 @@ public final class ReferenceReadPipeline<T> {
                 List<String> ids = ids(plan, record);
                 for (ReferenceProjection projection : plan.projections()) {
                     Object projected = plan.cardinality() == ReferenceCardinality.MANY
-                            ? ids.stream().map(id -> resolved.get(TargetRequestKey.of(plan)).getOrDefault(id, Map.of()).get(projection.targetField()))
+                            ? ids.stream().map(id -> resolved.get(plan.target()).getOrDefault(id, Map.of()).get(projection.targetField()))
                             .filter(java.util.Objects::nonNull).toList()
-                            : ids.isEmpty() ? null : resolved.get(TargetRequestKey.of(plan)).getOrDefault(ids.getFirst(), Map.of()).get(projection.targetField());
+                            : ids.isEmpty() ? null : resolved.get(plan.target()).getOrDefault(ids.getFirst(), Map.of()).get(projection.targetField());
                     output.put(projection.outputField(), projected);
                 }
             }
@@ -107,7 +104,7 @@ public final class ReferenceReadPipeline<T> {
                 idsByRecord.put(record, sourceIds);
                 ids.addAll(sourceIds);
             }
-            Map<String, Object> loaded = ReferenceLoadReader.readAll(source, path, List.copyOf(ids), this::require, observer);
+            Map<String, Object> loaded = ReferenceLoadReader.readAll(path, List.copyOf(ids), this::require, observer);
             for (Map.Entry<T, List<String>> entry : idsByRecord.entrySet()) {
                 List<String> sourceIds = entry.getValue();
                 Object value = source.cardinality() == ReferenceCardinality.MANY && path.hops().isEmpty()
@@ -146,12 +143,6 @@ public final class ReferenceReadPipeline<T> {
 
         private TargetRequest(ReferencePlan plan) {
             this.plan = plan;
-        }
-    }
-
-    private record TargetRequestKey(ReferenceTarget target, String keyField) {
-        private static TargetRequestKey of(ReferencePlan plan) {
-            return new TargetRequestKey(plan.target(), plan.targetKeyField());
         }
     }
 }

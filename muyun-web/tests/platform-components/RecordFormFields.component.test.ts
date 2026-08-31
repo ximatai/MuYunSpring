@@ -672,9 +672,6 @@ describe('RecordFormFields', () => {
   });
 });
 
-function moduleContext(
-  moduleAlias: string,
-  request: ReturnType<typeof vi.fn>,
-): ModuleContext<unknown> {
+function moduleContext(moduleAlias: string, request: ReturnType<typeof vi.fn>): ModuleContext<unknown> {
   return { moduleAlias, http: { request } } as never;
 }

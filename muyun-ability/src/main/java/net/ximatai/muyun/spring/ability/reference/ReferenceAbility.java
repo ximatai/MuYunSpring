@@ -117,11 +117,7 @@ public interface ReferenceAbility<T extends EntityContract & TitledCapable> exte
         );
     }
 
-    /**
-     * Stable model-facing contract for validating a configured persisted reference key.
-     * {@code id} is inherently unique; every other static field must have an explicit,
-     * single-field tenant-unique declaration before it can be selected.
-     */
+    /** Describes a field that may be used to match a picker/import candidate. */
     default ReferenceCandidateKey referenceCandidateKey(String fieldName) {
         String normalized = fieldName == null || fieldName.isBlank() ? StandardEntitySchema.ID_FIELD : fieldName.trim();
         if (StandardEntitySchema.ID_FIELD.equals(normalized)) {
@@ -137,11 +133,7 @@ public interface ReferenceAbility<T extends EntityContract & TitledCapable> exte
         return new ReferenceCandidateKey(normalized, readable, unique);
     }
 
-    /**
-     * Lists every static target field that is safe to persist as a reference value.
-     * The immutable record id is always present; business candidates require both a readable
-     * model field and an explicit single-field tenant-unique declaration.
-     */
+    /** Lists target fields that may be used to match a picker/import candidate. */
     default List<ReferenceCandidateKey> referenceCandidateKeys() {
         LinkedHashSet<String> fieldNames = new LinkedHashSet<>();
         fieldNames.add(StandardEntitySchema.ID_FIELD);
@@ -175,77 +167,6 @@ public interface ReferenceAbility<T extends EntityContract & TitledCapable> exte
                 .toList();
     }
 
-    /**
-     * Resolves persisted reference values against the configured candidate key.  The returned
-     * keys are exactly the values accepted by the source field; duplicate target keys are a
-     * contract violation rather than an arbitrary first-record choice.
-     */
-    default Map<String, String> referenceLabels(ReferencePlan plan, Collection<String> values) {
-        if (values == null || values.isEmpty()) return Map.of();
-        requireReferencePlan(plan);
-        LinkedHashSet<String> requested = normalizedReferenceValues(values);
-        if (requested.isEmpty()) return Map.of();
-        PageResult<ReferenceOption> page = referenceOptions(plan,
-                Criteria.of().in(plan.targetKeyField(), List.copyOf(requested)), PageRequests.all());
-        Map<String, String> loaded = uniqueLabels(plan, page.getRecords());
-        Map<String, String> ordered = new LinkedHashMap<>();
-        for (String value : requested) {
-            if (loaded.containsKey(value)) ordered.put(value, loaded.get(value));
-        }
-        return Collections.unmodifiableMap(ordered);
-    }
-
-    /** Resolves configured persisted values to immutable target record ids for path reads. */
-    default Map<String, String> referenceRecordIds(ReferencePlan plan, Collection<String> values) {
-        if (values == null || values.isEmpty()) return Map.of();
-        requireReferencePlan(plan);
-        LinkedHashSet<String> requested = normalizedReferenceValues(values);
-        if (requested.isEmpty()) return Map.of();
-        PageResult<ReferenceOption> page = referenceOptions(plan,
-                Criteria.of().in(plan.targetKeyField(), List.copyOf(requested)), PageRequests.all());
-        Map<String, String> loaded = new LinkedHashMap<>();
-        for (ReferenceOption option : page.getRecords()) {
-            if (loaded.putIfAbsent(option.id(), option.recordId()) != null) {
-                throw duplicateTargetKey(plan, option.id());
-            }
-        }
-        Map<String, String> ordered = new LinkedHashMap<>();
-        for (String value : requested) {
-            if (loaded.containsKey(value)) ordered.put(value, loaded.get(value));
-        }
-        return Collections.unmodifiableMap(ordered);
-    }
-
-    /** Reads arbitrary target fields and indexes the result by the configured persisted key. */
-    default Map<String, Map<String, Object>> projections(ReferencePlan plan,
-                                                          Collection<String> values,
-                                                          Collection<String> fieldNames) {
-        if (values == null || values.isEmpty() || fieldNames == null || fieldNames.isEmpty()) return Map.of();
-        requireReferencePlan(plan);
-        LinkedHashSet<String> requested = normalizedReferenceValues(values);
-        LinkedHashSet<String> fields = new LinkedHashSet<>(fieldNames);
-        if (requested.isEmpty() || fields.isEmpty()) return Map.of();
-        PageResult<T> page = referenceOptionPage(Criteria.of().in(plan.targetKeyField(), List.copyOf(requested)),
-                PageRequests.all());
-        Map<String, Map<String, Object>> loaded = new LinkedHashMap<>();
-        for (T entity : page.getRecords()) {
-            String key = referenceKeyForOutput(entity, plan);
-            if (loaded.containsKey(key)) {
-                throw duplicateTargetKey(plan, key);
-            }
-            Map<String, Object> projected = new LinkedHashMap<>();
-            for (String fieldName : fields) {
-                projected.put(fieldName, referenceProjectionValue(fieldName, referenceFieldValue(entity, fieldName)));
-            }
-            loaded.put(key, Collections.unmodifiableMap(projected));
-        }
-        Map<String, Map<String, Object>> ordered = new LinkedHashMap<>();
-        for (String value : requested) {
-            if (loaded.containsKey(value)) ordered.put(value, loaded.get(value));
-        }
-        return Collections.unmodifiableMap(ordered);
-    }
-
     @SuppressWarnings("unchecked")
     private PageResult<T> referenceOptionPage(Criteria criteria, PageRequest pageRequest) {
         if (this instanceof DataScopeAbility<?> dataScopeAbility) {
@@ -276,16 +197,7 @@ public interface ReferenceAbility<T extends EntityContract & TitledCapable> exte
     }
 
     private ReferenceOption referenceOption(T entity, ReferencePlan plan) {
-        return new ReferenceOption(referenceKeyForOutput(entity, plan), referenceLabelForOutput(entity, plan), entity.getId());
-    }
-
-    private String referenceKeyForOutput(T entity, ReferencePlan plan) {
-        Object value = referenceFieldValue(entity, plan.targetKeyField());
-        if (value == null || String.valueOf(value).isBlank()) {
-            throw new PlatformException("reference target key must not be blank: "
-                    + plan.target().qualifiedName() + "." + plan.targetKeyField());
-        }
-        return String.valueOf(value);
+        return new ReferenceOption(entity.getId(), referenceLabelForOutput(entity, plan));
     }
 
     private String referenceLabelForOutput(T entity, ReferencePlan plan) {
@@ -320,28 +232,6 @@ public interface ReferenceAbility<T extends EntityContract & TitledCapable> exte
         if (plan.targetLabelField() != null) {
             ReferenceFieldResolver.requireReadable(type, plan.targetLabelField());
         }
-    }
-
-    private LinkedHashSet<String> normalizedReferenceValues(Collection<String> values) {
-        LinkedHashSet<String> normalized = new LinkedHashSet<>();
-        values.stream().filter(java.util.Objects::nonNull).map(String::valueOf).map(String::trim)
-                .filter(value -> !value.isBlank()).forEach(normalized::add);
-        return normalized;
-    }
-
-    private Map<String, String> uniqueLabels(ReferencePlan plan, List<ReferenceOption> options) {
-        Map<String, String> loaded = new LinkedHashMap<>();
-        for (ReferenceOption option : options) {
-            if (loaded.putIfAbsent(option.id(), option.title()) != null) {
-                throw duplicateTargetKey(plan, option.id());
-            }
-        }
-        return loaded;
-    }
-
-    private PlatformException duplicateTargetKey(ReferencePlan plan, String key) {
-        return new PlatformException("reference target key is not unique: "
-                + plan.target().qualifiedName() + "." + plan.targetKeyField() + "=" + key);
     }
 
     @SuppressWarnings("unchecked")

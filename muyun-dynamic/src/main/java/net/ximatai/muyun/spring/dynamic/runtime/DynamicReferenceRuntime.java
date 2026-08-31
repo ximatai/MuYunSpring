@@ -37,23 +37,6 @@ final class DynamicReferenceRuntime extends DynamicAbilityRuntime<DynamicTitledR
     }
 
     @Override
-    public Map<String, String> referenceLabels(ReferencePlan plan, Collection<String> values) {
-        return owner.referenceLabels(plan, values);
-    }
-
-    @Override
-    public Map<String, String> referenceRecordIds(ReferencePlan plan, Collection<String> values) {
-        return owner.referenceRecordIds(plan, values);
-    }
-
-    @Override
-    public Map<String, Map<String, Object>> projections(ReferencePlan plan,
-                                                         Collection<String> values,
-                                                         Collection<String> fieldNames) {
-        return owner.projections(plan, values, fieldNames);
-    }
-
-    @Override
     public PageResult<ReferenceOption> referenceOptions(ReferencePlan plan, Criteria criteria, PageRequest pageRequest) {
         return owner.referenceOptions(plan, criteria, pageRequest);
     }

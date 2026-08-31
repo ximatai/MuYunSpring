@@ -65,11 +65,13 @@ const relationContext = computed<ModuleContext<QueryListRecord> | undefined>(() 
     crud: {
       ...props.sourceContext.crud,
       query: (request?: WebQueryRequest) =>
-        props.sourceContext.http.request<WebPageResponse<QueryListRecord>>({
-          method: 'POST',
-          path: queryPath,
-          body: request,
-        }).then(normalizeModulePageResponse),
+        props.sourceContext.http
+          .request<WebPageResponse<QueryListRecord>>({
+            method: 'POST',
+            path: queryPath,
+            body: request,
+          })
+          .then(normalizeModulePageResponse),
     },
   };
 });

@@ -133,6 +133,7 @@ type ReferenceTargetFieldCatalog = {
 const referenceTargetFieldCatalog = ref<ReferenceTargetFieldCatalog>();
 const referenceTargetFieldCatalogLoading = ref(false);
 const referenceTargetFieldCatalogError = ref<string>();
+let referenceTargetFieldCatalogRequestToken = 0;
 const sessionFields = computed(() => editSession.fieldsForDisplay(state.allFields.value));
 const firstReleaseDeclaredCapabilities = new Set(['TREE', 'SORT', 'ENABLE']);
 const capabilityFieldNames = computed(
@@ -247,6 +248,19 @@ const referenceTargetFieldCatalogProblem = computed(() => {
   return undefined;
 });
 
+function updateReferenceTargetModuleAlias(targetModuleAlias: string) {
+  const reference = fieldPropertyDraft.value.referenceConfig;
+  if (!reference) return;
+  if (reference.targetModuleAlias?.trim() !== targetModuleAlias.trim()) {
+    referenceTargetFieldCatalogRequestToken += 1;
+    reference.targetMetadataId = undefined;
+    referenceTargetFieldCatalog.value = undefined;
+    referenceTargetFieldCatalogError.value = undefined;
+    referenceTargetFieldCatalogLoading.value = false;
+  }
+  reference.targetModuleAlias = targetModuleAlias;
+}
+
 const fieldColumns: UiDataTableColumn[] = [
   { key: 'title', title: '字段' },
   { key: 'fieldName', title: '字段名', width: 150 },
@@ -280,8 +294,10 @@ watch(
   ],
   ([kind, targetModuleAlias, targetMetadataId]) => {
     if (kind !== 'MODULE_REFERENCE' || !targetModuleAlias?.trim()) {
+      referenceTargetFieldCatalogRequestToken += 1;
       referenceTargetFieldCatalog.value = undefined;
       referenceTargetFieldCatalogError.value = undefined;
+      referenceTargetFieldCatalogLoading.value = false;
       return;
     }
     void loadReferenceTargetFieldCatalog(targetModuleAlias, targetMetadataId);
@@ -491,6 +507,7 @@ async function loadReferenceTargetFieldCatalog(
   const relationId = state.selectedRelation.value?.id;
   if (!relationId) return;
   const requestedTarget = targetModuleAlias.trim();
+  const requestToken = ++referenceTargetFieldCatalogRequestToken;
   referenceTargetFieldCatalogLoading.value = true;
   referenceTargetFieldCatalogError.value = undefined;
   try {
@@ -505,6 +522,7 @@ async function loadReferenceTargetFieldCatalog(
     // Do not let an earlier request overwrite the catalog for a subsequently selected target.
     const reference = fieldPropertyDraft.value.referenceConfig;
     if (
+      requestToken !== referenceTargetFieldCatalogRequestToken ||
       fieldPropertyEditorKind.value !== 'MODULE_REFERENCE' ||
       reference?.targetModuleAlias?.trim() !== requestedTarget ||
       (reference?.targetMetadataId?.trim() || undefined) !== (targetMetadataId?.trim() || undefined)
@@ -524,11 +542,14 @@ async function loadReferenceTargetFieldCatalog(
       reference.targetLabelField = defaultCandidateField(catalog.labelFields);
     }
   } catch (cause) {
+    if (requestToken !== referenceTargetFieldCatalogRequestToken) return;
     referenceTargetFieldCatalog.value = undefined;
     referenceTargetFieldCatalogError.value = `无法加载“${requestedTarget}”的目标字段目录。`;
     presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
   } finally {
-    referenceTargetFieldCatalogLoading.value = false;
+    if (requestToken === referenceTargetFieldCatalogRequestToken) {
+      referenceTargetFieldCatalogLoading.value = false;
+    }
   }
 }
 
@@ -649,7 +670,8 @@ function fieldSourceOf(field: MetadataField): string {
 
 function fieldIsBusiness(field: MetadataField): boolean {
   return (
-    metadataFieldGovernanceKind(field, state.selectedRelation.value, capabilityFieldNames.value) === 'BUSINESS'
+    metadataFieldGovernanceKind(field, state.selectedRelation.value, capabilityFieldNames.value) ===
+    'BUSINESS'
   );
 }
 
@@ -808,7 +830,9 @@ function capabilityTitleOf(capability: string): string {
                 density="compact"
                 :disabled="!fieldEditableInSession(record as MetadataField)"
                 :title="fieldProtectionReason(record as MetadataField)"
-                @click="state.startEditField(record as MetadataField, fieldPropertyOf(record as MetadataField))"
+                @click="
+                  state.startEditField(record as MetadataField, fieldPropertyOf(record as MetadataField))
+                "
               >
                 编辑
               </UiActionButton>
@@ -908,12 +932,7 @@ function capabilityTitleOf(capability: string): string {
             placeholder="选择字段规格"
             style="width: 100%"
           />
-          <UiInput
-            v-else
-            :value="fieldStorageSpecLabel"
-            disabled
-            :title="fieldStorageSpecAlias"
-          />
+          <UiInput v-else :value="fieldStorageSpecLabel" disabled :title="fieldStorageSpecAlias" />
         </label>
         <template v-if="fieldPropertyEditorKind === 'MODULE_REFERENCE'">
           <div class="field-property-heading">
@@ -923,8 +942,9 @@ function capabilityTitleOf(capability: string): string {
           <label>
             <span>目标模块</span>
             <UiInput
-              v-model:value="fieldPropertyDraft.referenceConfig!.targetModuleAlias"
+              :value="fieldPropertyDraft.referenceConfig!.targetModuleAlias"
               placeholder="例如 education.subject_category"
+              @update:value="updateReferenceTargetModuleAlias"
             />
           </label>
           <div v-if="fieldPropertyDraft.referenceConfig!.targetMetadataId" class="field-property-binding">
@@ -1170,7 +1190,7 @@ function capabilityTitleOf(capability: string): string {
   gap: 4px;
   padding: 10px 12px;
   border-radius: 6px;
-  background: var(--muyun-color-primary-soft, #f0f6ff);
+  background: var(--muyun-info-soft);
   color: var(--muyun-text-body);
 }
 
@@ -1198,7 +1218,7 @@ function capabilityTitleOf(capability: string): string {
 
 .field-property-error {
   margin: -6px 0 0;
-  color: var(--muyun-color-danger, #d32029);
+  color: var(--muyun-danger-base);
   font-size: 12px;
 }
 </style>

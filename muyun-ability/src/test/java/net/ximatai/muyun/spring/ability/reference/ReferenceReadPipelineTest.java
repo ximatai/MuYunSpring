@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ReferenceReadPipelineTest {
     private static final ReferenceTarget CUSTOMER = ReferenceTarget.of("demo", "customer");
@@ -94,17 +93,14 @@ class ReferenceReadPipelineTest {
     }
 
     @Test
-    void shouldResolveReferenceLoadWhenTheSourceUsesANonIdCandidateKey() {
-        List<Map<String, Object>> records = new ArrayList<>(List.of(record("customerCode", "C-001")));
-        ReferencePlan plan = ReferencePlan.of("customerCode", CUSTOMER, ReferenceCardinality.ONE)
+    void shouldResolveReferenceLoadByRecordIdWhenThePickerUsesANonIdCandidateKey() {
+        List<Map<String, Object>> records = new ArrayList<>(List.of(record("customerId", "customer-1")));
+        ReferencePlan plan = ReferencePlan.of("customerId", CUSTOMER, ReferenceCardinality.ONE)
                 .withTargetFields("code", "title");
-        ReferenceLoadPath path = new ReferenceLoadPath("customerCode", CUSTOMER, List.of(), "title", "customerTitle");
+        ReferenceLoadPath path = new ReferenceLoadPath("customerId", CUSTOMER, List.of(), "title", "customerTitle");
         ReferenceAbility<?> customer = new ReferenceAbility<Target>() {
             @Override public BaseDao<Target, String> getDao() { return null; }
             @Override public String getModuleAlias() { return "demo.customer"; }
-            @Override public Map<String, String> referenceRecordIds(ReferencePlan ignored, java.util.Collection<String> values) {
-                return Map.of("C-001", "customer-1");
-            }
             @Override public Map<String, Map<String, Object>> projections(java.util.Collection<String> ids,
                                                                             java.util.Collection<String> fields) {
                 return Map.of("customer-1", Map.of("title", "客户一"));
@@ -155,28 +151,6 @@ class ReferenceReadPipelineTest {
                 Map.entry("customer-2", Map.of("organizationId.regionCode", "CN-33")));
         assertThat(customerRequests).containsExactly(List.of("customer-1", "customer-2"));
         assertThat(organizationRequests).containsExactly(List.of("organization-1", "organization-2"));
-    }
-
-    @Test
-    void shouldRejectSelectionProjectionThroughANonIdCandidateKeyHop() {
-        ReferenceTarget organization = ReferenceTarget.of("tenant", "organization");
-        ReferenceTargetResolver resolver = new ReferenceTargetResolver() {
-            @Override
-            public java.util.Optional<ReferenceAbility<?>> resolve(ReferenceTarget target) {
-                return java.util.Optional.of(new FakeReferenceAbility((ids, fields) -> Map.of()));
-            }
-
-            @Override
-            public java.util.Optional<ReferencePlan> referencePlan(ReferenceTarget target, String sourceField) {
-                return java.util.Optional.of(ReferencePlan.of("organizationCode", organization, ReferenceCardinality.ONE)
-                        .withTargetFields("code", "title"));
-            }
-        };
-
-        assertThatThrownBy(() -> ReferenceSelectionProjectionReader.read(CUSTOMER, List.of("customer-1"),
-                List.of(new ReferenceSelectionProjection("organizationCode.regionCode")), resolver))
-                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
-                .hasMessageContaining("selection projection hop requires an id-backed reference");
     }
 
     private static Map<String, Object> record(Object... values) {

@@ -1184,9 +1184,12 @@ it('module client unwraps dynamic record transport into the shared record contra
   };
 
   try {
-    const client = createModuleCrudClient<Record<string, unknown>>(createHttpClient({ baseUrl: 'http://api.local' }), {
-      moduleAlias: 'education.exam',
-    });
+    const client = createModuleCrudClient<Record<string, unknown>>(
+      createHttpClient({ baseUrl: 'http://api.local' }),
+      {
+        moduleAlias: 'education.exam',
+      },
+    );
 
     const expected = {
       id: 'exam-1',

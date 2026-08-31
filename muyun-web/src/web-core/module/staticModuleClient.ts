@@ -70,11 +70,13 @@ export function createManagedDetailRelationClient<TRecord>(
   const relationPath = `${parentPath}/view/${encodeURIComponent(options.parentId)}/relations/${encodeURIComponent(options.relationCode)}`;
   return {
     query: (request) =>
-      http.request<WebPageResponse<TRecord>>({
-        method: 'POST',
-        path: `${relationPath}/query`,
-        body: request,
-      }).then(normalizeModulePageResponse),
+      http
+        .request<WebPageResponse<TRecord>>({
+          method: 'POST',
+          path: `${relationPath}/query`,
+          body: request,
+        })
+        .then(normalizeModulePageResponse),
     insert: async (record) =>
       normalizeRecordMutationResponse(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
@@ -119,11 +121,13 @@ export function createNavigatorReferenceCrudClient<TRecord>(
   return {
     ...normal,
     query: (request) =>
-      http.request<WebPageResponse<TRecord>>({
-        method: 'POST',
-        path: `${modulePath}/navigator/reference/query`,
-        body: navigatorReferenceRequest(request, options.navigatorReference),
-      }).then(normalizeModulePageResponse),
+      http
+        .request<WebPageResponse<TRecord>>({
+          method: 'POST',
+          path: `${modulePath}/navigator/reference/query`,
+          body: navigatorReferenceRequest(request, options.navigatorReference),
+        })
+        .then(normalizeModulePageResponse),
   };
 }
 
@@ -142,13 +146,17 @@ export function createStaticResourceCrudClient<TRecord>(
         },
       }),
     query: (request) =>
-      http.request<WebPageResponse<TRecord>>({
-        method: 'POST',
-        path: `${modulePath}/query`,
-        body: request,
-      }).then(normalizeModulePageResponse),
-    view: (id) => http.request<TRecord>({ path: `${modulePath}/view/${encodeURIComponent(id)}` })
-      .then(normalizeModuleRecord),
+      http
+        .request<WebPageResponse<TRecord>>({
+          method: 'POST',
+          path: `${modulePath}/query`,
+          body: request,
+        })
+        .then(normalizeModulePageResponse),
+    view: (id) =>
+      http
+        .request<TRecord>({ path: `${modulePath}/view/${encodeURIComponent(id)}` })
+        .then(normalizeModuleRecord),
     insert: async (record) =>
       normalizeRecordMutationResponse(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
@@ -346,7 +354,9 @@ function normalizeModuleChildren(children: Record<string, unknown>): Record<stri
  * module CRUD path, but they still return the same dynamic record envelope.  Keeping this helper
  * public lets those descriptor-driven surfaces reuse the one normalization rule.</p>
  */
-export function normalizeModulePageResponse<TRecord>(response: WebPageResponse<TRecord>): WebPageResponse<TRecord> {
+export function normalizeModulePageResponse<TRecord>(
+  response: WebPageResponse<TRecord>,
+): WebPageResponse<TRecord> {
   if (!Array.isArray(response.records)) return response;
   return {
     ...response,
@@ -362,13 +372,15 @@ function isDynamicRecordWire(value: unknown): value is {
 } {
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
-  return typeof record.id === 'string'
-    && typeof record.values === 'object'
-    && record.values !== null
-    && !Array.isArray(record.values)
-    && typeof record.children === 'object'
-    && record.children !== null
-    && !Array.isArray(record.children);
+  return (
+    typeof record.id === 'string' &&
+    typeof record.values === 'object' &&
+    record.values !== null &&
+    !Array.isArray(record.values) &&
+    typeof record.children === 'object' &&
+    record.children !== null &&
+    !Array.isArray(record.children)
+  );
 }
 
 function normalizeCountMutationResponse(response: StaticCountMutationResult): StaticCountMutationResult {

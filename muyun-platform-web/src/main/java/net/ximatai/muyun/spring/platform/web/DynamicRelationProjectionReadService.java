@@ -74,9 +74,6 @@ public class DynamicRelationProjectionReadService {
         List<ModuleDefinition> dynamicDefinitions = recordService.moduleDefinitions();
         Set<String> resolvedOutputFields = resolveListOutputFields(moduleAlias, recordService, outputFields);
         RecordReadProjection projection = projection(moduleAlias, resolvedOutputFields);
-        if (hasNonIdReferenceKey(dynamicDefinitions, moduleAlias)) {
-            return ProjectionQueryDescriptor.unsupported(projection, ProjectionQueryFallbackReason.NON_ID_REFERENCE_KEY);
-        }
         if (hasProtectedProjectionFields(dynamicDefinitions, moduleAlias, resolvedOutputFields)) {
             return ProjectionQueryDescriptor.unsupported(projection, ProjectionQueryFallbackReason.PROTECTED_FIELD);
         }
@@ -107,9 +104,6 @@ public class DynamicRelationProjectionReadService {
         }
         List<ModuleDefinition> dynamicDefinitions = recordService.moduleDefinitions();
         Set<String> resolvedOutputFields = resolveListOutputFields(moduleAlias, recordService, outputFields);
-        if (hasNonIdReferenceKey(dynamicDefinitions, moduleAlias)) {
-            return Optional.empty();
-        }
         if (hasProtectedProjectionFields(dynamicDefinitions, moduleAlias, resolvedOutputFields)) {
             return Optional.empty();
         }
@@ -161,21 +155,6 @@ public class DynamicRelationProjectionReadService {
                 .map(ReferenceProjection::outputField)
                 .forEach(supportedFields::add);
         return supportedFields.containsAll(outputFields);
-    }
-
-    /**
-     * The SQL relation-projection planner joins source values to target primary keys.  A
-     * configured alternate reference key is valid at runtime, but must use the generic record
-     * read path until that planner has an explicit target-key join contract.
-     */
-    private boolean hasNonIdReferenceKey(List<ModuleDefinition> definitions, String moduleAlias) {
-        ModuleDefinition definition = dynamicDefinition(definitions, moduleAlias);
-        if (definition == null) return false;
-        EntityDefinition mainEntity = mainEntity(definition);
-        return definition.references().stream()
-                .filter(reference -> mainEntity.alias().equals(reference.sourceEntityAlias()))
-                .filter(reference -> reference.cardinality() == ReferenceCardinality.ONE)
-                .anyMatch(reference -> !"id".equals(reference.plan().targetKeyField()));
     }
 
     /**

@@ -158,13 +158,10 @@ onMounted(() => {
   void loadOptionFields();
   initializeRequiredColorFields();
 });
-watch(
-  [() => props.fields, () => props.optionEntityAlias],
-  () => {
-    void loadOptionFields();
-    initializeRequiredColorFields();
-  },
-);
+watch([() => props.fields, () => props.optionEntityAlias], () => {
+  void loadOptionFields();
+  initializeRequiredColorFields();
+});
 watch([() => props.record.id, () => props.formSessionKey], () => {
   // A new record/session must never inherit parser failures from its predecessor.
   editorFieldErrors.value = {};

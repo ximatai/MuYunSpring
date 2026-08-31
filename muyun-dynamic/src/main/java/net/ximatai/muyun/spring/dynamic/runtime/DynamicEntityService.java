@@ -652,56 +652,6 @@ public class DynamicEntityService implements
         return capabilityRuntimes.reference().titles(ids);
     }
 
-    public Map<String, String> referenceLabels(ReferencePlan plan, Collection<String> values) {
-        return referenceLabels(plan, values, null);
-    }
-
-    Map<String, String> referenceLabels(ReferencePlan plan, Collection<String> values, Criteria criteria) {
-        if (values == null || values.isEmpty()) return Map.of();
-        LinkedHashSet<String> requested = normalizeReferenceValues(values);
-        if (requested.isEmpty()) return Map.of();
-        requireReferenceTargetFields(plan);
-        Criteria lookup = criteria == null ? Criteria.of().in(plan.targetKeyField(), List.copyOf(requested)) : criteria;
-        List<DynamicRecord> records = list(lookup,
-                new PageRequest(0, Integer.MAX_VALUE));
-        Map<String, String> loaded = new LinkedHashMap<>();
-        for (DynamicRecord record : records) {
-            String key = referenceKey(record, plan);
-            if (loaded.putIfAbsent(key, referenceLabel(record, plan)) != null) {
-                throw duplicateReferenceTargetKey(plan, key);
-            }
-        }
-        Map<String, String> ordered = new LinkedHashMap<>();
-        requested.forEach(value -> {
-            if (loaded.containsKey(value)) ordered.put(value, loaded.get(value));
-        });
-        return Collections.unmodifiableMap(ordered);
-    }
-
-    Map<String, String> referenceRecordIds(ReferencePlan plan, Collection<String> values) {
-        return referenceRecordIds(plan, values, null);
-    }
-
-    Map<String, String> referenceRecordIds(ReferencePlan plan, Collection<String> values, Criteria criteria) {
-        if (values == null || values.isEmpty()) return Map.of();
-        LinkedHashSet<String> requested = normalizeReferenceValues(values);
-        if (requested.isEmpty()) return Map.of();
-        requireReferenceTargetFields(plan);
-        Criteria lookup = criteria == null ? Criteria.of().in(plan.targetKeyField(), List.copyOf(requested)) : criteria;
-        List<DynamicRecord> records = list(lookup,
-                new PageRequest(0, Integer.MAX_VALUE));
-        Map<String, String> loaded = new LinkedHashMap<>();
-        for (DynamicRecord record : records) {
-            String key = referenceKey(record, plan);
-            if (loaded.putIfAbsent(key, record.getId()) != null) throw duplicateReferenceTargetKey(plan, key);
-        }
-        Map<String, String> ordered = new LinkedHashMap<>();
-        requested.forEach(value -> {
-            if (loaded.containsKey(value)) ordered.put(value, loaded.get(value));
-        });
-        return Collections.unmodifiableMap(ordered);
-    }
-
     public Map<String, Map<String, Object>> projections(Collection<String> ids, Collection<String> fieldNames) {
         capabilityRuntimes.require(EntityCapability.REFERENCE);
         if (ids == null || ids.isEmpty() || fieldNames == null || fieldNames.isEmpty()) {
@@ -730,42 +680,6 @@ public class DynamicEntityService implements
         return Collections.unmodifiableMap(new LinkedHashMap<>(ordered));
     }
 
-    Map<String, Map<String, Object>> projections(ReferencePlan plan,
-                                                  Collection<String> values,
-                                                  Collection<String> fieldNames) {
-        return projections(plan, values, fieldNames, null);
-    }
-
-    Map<String, Map<String, Object>> projections(ReferencePlan plan,
-                                                  Collection<String> values,
-                                                  Collection<String> fieldNames,
-                                                  Criteria criteria) {
-        if (values == null || values.isEmpty() || fieldNames == null || fieldNames.isEmpty()) return Map.of();
-        LinkedHashSet<String> requested = normalizeReferenceValues(values);
-        LinkedHashSet<String> normalizedFields = new LinkedHashSet<>(fieldNames);
-        if (requested.isEmpty() || normalizedFields.isEmpty()) return Map.of();
-        requireReferenceTargetFields(plan);
-        normalizedFields.forEach(field -> requireDynamicReferenceField(field, plan, "projection"));
-        Criteria lookup = criteria == null ? Criteria.of().in(plan.targetKeyField(), List.copyOf(requested)) : criteria;
-        List<DynamicRecord> records = list(lookup,
-                new PageRequest(0, Integer.MAX_VALUE));
-        Map<String, Map<String, Object>> loaded = new LinkedHashMap<>();
-        for (DynamicRecord record : records) {
-            String key = referenceKey(record, plan);
-            if (loaded.containsKey(key)) throw duplicateReferenceTargetKey(plan, key);
-            Map<String, Object> projected = new LinkedHashMap<>();
-            for (String field : normalizedFields) {
-                projected.put(field, maskProtectedValue(field, referenceFieldValue(record, field), FieldOutputContext.REFERENCE));
-            }
-            loaded.put(key, Collections.unmodifiableMap(projected));
-        }
-        Map<String, Map<String, Object>> ordered = new LinkedHashMap<>();
-        requested.forEach(value -> {
-            if (loaded.containsKey(value)) ordered.put(value, loaded.get(value));
-        });
-        return Collections.unmodifiableMap(ordered);
-    }
-
     public PageResult<ReferenceOption> referenceOptions(Criteria criteria, PageRequest pageRequest) {
         return capabilityRuntimes.reference().referenceOptions(criteria, pageRequest);
     }
@@ -774,9 +688,8 @@ public class DynamicEntityService implements
         requireReferenceTargetFields(plan);
         PageResult<DynamicRecord> page = pageQuery(criteria, pageRequest);
         List<ReferenceOption> options = page.getRecords().stream()
-                .map(record -> new ReferenceOption(referenceKey(record, plan), referenceLabel(record, plan), record.getId()))
+                .map(record -> new ReferenceOption(record.getId(), referenceLabel(record, plan)))
                 .toList();
-        ensureUniqueReferenceKeys(plan, options);
         return PageResult.of(options, page.getTotal(), pageRequest);
     }
 
@@ -826,14 +739,7 @@ public class DynamicEntityService implements
             Object value = record.getValue(plan.sourceField());
             List<String> values = plan.normalizeValues(value);
             if (!values.isEmpty()) {
-                Map<String, String> recordIds = plan.usesDefaultTargetFields()
-                        ? values.stream().collect(java.util.stream.Collectors.toMap(
-                                item -> item, item -> item, (first, ignored) -> first, LinkedHashMap::new))
-                        : referenceAbility(plan.target()).referenceRecordIds(plan, values);
-                if (!recordIds.isEmpty()) {
-                    ids.computeIfAbsent(plan.target(), ignored -> new LinkedHashSet<>())
-                            .addAll(recordIds.values());
-                }
+                ids.computeIfAbsent(plan.target(), ignored -> new LinkedHashSet<>()).addAll(values);
             }
         }
         Map<ReferenceTarget, Set<String>> copy = new LinkedHashMap<>();
@@ -1238,9 +1144,7 @@ public class DynamicEntityService implements
         var targetAbility = referenceAbility(plan.target());
         List<String> dependencyFields = plan.candidateDependencies().stream()
                 .map(dependency -> dependency.targetField()).toList();
-        Map<String, Map<String, Object>> targets = plan.usesDefaultTargetFields()
-                ? targetAbility.projections(ids, dependencyFields)
-                : targetAbility.projections(plan, ids, dependencyFields);
+        Map<String, Map<String, Object>> targets = targetAbility.projections(ids, dependencyFields);
         for (String id : ids) {
             Map<String, Object> target = targets.get(id);
             for (var dependency : plan.candidateDependencies()) {
@@ -1286,10 +1190,7 @@ public class DynamicEntityService implements
         if (ids.isEmpty()) {
             return;
         }
-        var target = referenceAbility(plan.target());
-        Set<String> resolved = (plan.usesDefaultTargetFields()
-                ? target.titles(ids)
-                : target.referenceLabels(plan, ids)).keySet();
+        Set<String> resolved = referenceAbility(plan.target()).titles(ids).keySet();
         Set<String> resolvedIds = resolved;
         List<String> unavailable = ids.stream()
                 .filter(id -> !resolvedIds.contains(id))
@@ -1319,22 +1220,6 @@ public class DynamicEntityService implements
         }
     }
 
-    private LinkedHashSet<String> normalizeReferenceValues(Collection<String> values) {
-        LinkedHashSet<String> normalized = new LinkedHashSet<>();
-        values.stream().filter(Objects::nonNull).map(String::valueOf).map(String::trim)
-                .filter(value -> !value.isBlank()).forEach(normalized::add);
-        return normalized;
-    }
-
-    private String referenceKey(DynamicRecord record, ReferencePlan plan) {
-        Object value = referenceFieldValue(record, plan.targetKeyField());
-        if (value == null || String.valueOf(value).isBlank()) {
-            throw new PlatformException("reference target key must not be blank: "
-                    + plan.target().qualifiedName() + "." + plan.targetKeyField());
-        }
-        return String.valueOf(value);
-    }
-
     private String referenceLabel(DynamicRecord record, ReferencePlan plan) {
         Object value = plan.targetLabelField() == null ? record.title()
                 : referenceFieldValue(record, plan.targetLabelField());
@@ -1362,18 +1247,6 @@ public class DynamicEntityService implements
             throw new PlatformException("reference " + purpose + " field is unavailable: "
                     + plan.target().qualifiedName() + "." + fieldName);
         }
-    }
-
-    private void ensureUniqueReferenceKeys(ReferencePlan plan, List<ReferenceOption> options) {
-        Set<String> keys = new LinkedHashSet<>();
-        for (ReferenceOption option : options) {
-            if (!keys.add(option.id())) throw duplicateReferenceTargetKey(plan, option.id());
-        }
-    }
-
-    private PlatformException duplicateReferenceTargetKey(ReferencePlan plan, String key) {
-        return new PlatformException("reference target key is not unique: "
-                + plan.target().qualifiedName() + "." + plan.targetKeyField() + "=" + key);
     }
 
     private static String requireModuleAlias(String value) {

@@ -86,7 +86,9 @@ const columns = computed<RecordQueryListColumn[]>(() =>
       title: field.title ?? field.fieldName,
       width: field.width == null ? undefined : `${field.width}px`,
       align:
-        field.align === 'left' || field.align === 'center' || field.align === 'right' ? field.align : undefined,
+        field.align === 'left' || field.align === 'center' || field.align === 'right'
+          ? field.align
+          : undefined,
       titleField: queryField?.optionTitleField,
       optionBinding: formField?.option ? true : undefined,
       optionEntityAlias: formField?.option ? props.relation.targetEntityAlias : undefined,

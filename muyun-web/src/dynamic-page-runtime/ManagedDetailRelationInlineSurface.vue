@@ -526,11 +526,7 @@ function updateField(row: DraftRow, fieldName: string, value: RecordFormFieldVal
   publishDraft();
 }
 
-function updateReferenceProjections(
-  row: DraftRow,
-  fieldName: string,
-  projections: Record<string, unknown>,
-) {
+function updateReferenceProjections(row: DraftRow, fieldName: string, projections: Record<string, unknown>) {
   const rowProjections = { ...(referenceProjectionValues.value[row.__draftKey] ?? {}) };
   if (Object.keys(projections).length === 0) {
     delete rowProjections[fieldName];
@@ -654,7 +650,9 @@ onMounted(() => void load());
                 :show-labels="false"
                 compact
                 @update:field="(fieldName, value) => updateField(row, fieldName, value)"
-                @reference-projections-change="(fieldName, projections) => updateReferenceProjections(row, fieldName, projections)"
+                @reference-projections-change="
+                  (fieldName, projections) => updateReferenceProjections(row, fieldName, projections)
+                "
                 @validity-change="updateValidity(row, column.fieldName, $event.valid)"
               />
               <RecordStatusTag

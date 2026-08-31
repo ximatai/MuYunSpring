@@ -68,7 +68,6 @@ final class DynamicReferenceResolver {
     private DynamicReferenceResolveResponse query(DynamicReferenceResolveRequest request) {
         if (dynamicTargetService != null) {
             PageResult<DynamicRecord> page = dynamicTargetService.pageQuery(queryCriteria(request), request.pageRequest());
-            requireUniqueDynamicKeys(page.getRecords());
             Map<String, Map<String, Object>> selectionProjections = dynamicSelectionProjections(page.getRecords(), request.includeProjections());
             List<DynamicReferenceResolveItem> items = page.getRecords().stream()
                     .map(record -> dynamicItem(record, matchedBy(record, request.fuzzy(), request.matchMode()),
@@ -113,7 +112,6 @@ final class DynamicReferenceResolver {
         }
         if (dynamicTargetService != null) {
             PageResult<DynamicRecord> page = dynamicTargetService.pageQuery(criteria, request.pageRequest());
-            requireUniqueDynamicKeys(page.getRecords());
             if (page.getTotal() == 0) {
                 return new DynamicReferenceResolveResult(value, DynamicReferenceResolveStatus.NOT_FOUND, matchMode, null, List.of());
             }
@@ -167,9 +165,11 @@ final class DynamicReferenceResolver {
         if (options == null || options.isEmpty()) return List.of();
         List<String> ids = options.stream().map(ReferenceOption::id).toList();
         Map<String, Map<String, Object>> values = targetValues(ids, includeProjections);
-        Map<String, Map<String, Object>> selectionProjections = selectionProjections(options, includeProjections);
-        return options.stream().map(option -> item(option, matchedBy(option, fuzzy, requested), includeProjections,
-                values.get(option.id()), selectionProjections.get(option.recordId()))).toList();
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(ids, includeProjections);
+        Map<String, String> candidateMatchValues = candidateMatchValues(ids, fuzzy, requested);
+        return options.stream().map(option -> item(option,
+                matchedBy(option, fuzzy, requested, candidateMatchValues), includeProjections,
+                values.get(option.id()), selectionProjections.get(option.id()))).toList();
     }
 
     private DynamicReferenceResolveItem item(ReferenceOption option,
@@ -185,7 +185,7 @@ final class DynamicReferenceResolver {
                                                     DynamicReferenceMatchMode matchedBy,
                                                     boolean includeProjections,
                                                     Map<String, Object> selectionProjections) {
-        return new DynamicReferenceResolveItem(dynamicKey(record), dynamicLabel(record), matchedBy,
+        return new DynamicReferenceResolveItem(record.getId(), dynamicLabel(record), matchedBy,
                 dynamicProjectionValues(record, includeProjections, selectionProjections), dynamicAffectPatch(record));
     }
 
@@ -222,9 +222,7 @@ final class DynamicReferenceResolver {
         }
         affects.forEach(affect -> fieldNames.add(affect.referenceField()));
         if (fieldNames.isEmpty()) return Map.of();
-        return plan.usesDefaultTargetFields()
-                ? targetAbility.projections(ids, List.copyOf(fieldNames))
-                : targetAbility.projections(plan, ids, List.copyOf(fieldNames));
+        return targetAbility.projections(ids, List.copyOf(fieldNames));
     }
 
     private Map<String, Object> projectionValues(Map<String, Object> targetValues,
@@ -239,9 +237,9 @@ final class DynamicReferenceResolver {
         return values;
     }
 
-    private Map<String, Map<String, Object>> selectionProjections(List<ReferenceOption> options, boolean includeProjections) {
-        if (!includeProjections || plan.selectionProjections().isEmpty() || options.isEmpty()) return Map.of();
-        return ReferenceSelectionProjectionReader.read(plan.target(), options.stream().map(ReferenceOption::recordId).toList(), plan.selectionProjections(),
+    private Map<String, Map<String, Object>> selectionProjections(List<String> ids, boolean includeProjections) {
+        if (!includeProjections || plan.selectionProjections().isEmpty() || ids.isEmpty()) return Map.of();
+        return ReferenceSelectionProjectionReader.read(plan.target(), ids, plan.selectionProjections(),
                 sourceService.referenceTargetResolver());
     }
 
@@ -265,11 +263,32 @@ final class DynamicReferenceResolver {
 
     private DynamicReferenceMatchMode matchedBy(ReferenceOption option,
                                                 String fuzzy,
-                                                DynamicReferenceMatchMode requested) {
+                                                DynamicReferenceMatchMode requested,
+                                                Map<String, String> candidateMatchValues) {
         if (requested != DynamicReferenceMatchMode.AUTO || fuzzy == null || fuzzy.isBlank()) {
             return requested == DynamicReferenceMatchMode.AUTO ? DynamicReferenceMatchMode.LABEL : requested;
         }
-        return Objects.equals(option.id(), fuzzy) ? DynamicReferenceMatchMode.KEY : DynamicReferenceMatchMode.LABEL;
+        return Objects.equals(candidateMatchValues.get(option.id()), fuzzy)
+                ? DynamicReferenceMatchMode.KEY : DynamicReferenceMatchMode.LABEL;
+    }
+
+    private Map<String, String> candidateMatchValues(List<String> ids,
+                                                      String fuzzy,
+                                                      DynamicReferenceMatchMode requested) {
+        if (requested != DynamicReferenceMatchMode.AUTO || fuzzy == null || fuzzy.isBlank() || ids.isEmpty()) {
+            return Map.of();
+        }
+        if ("id".equals(plan.targetKeyField())) {
+            return ids.stream().collect(java.util.stream.Collectors.toMap(
+                    id -> id, id -> id, (left, ignored) -> left, LinkedHashMap::new));
+        }
+        Map<String, Map<String, Object>> projected = targetAbility.projections(ids, List.of(plan.targetKeyField()));
+        Map<String, String> values = new LinkedHashMap<>();
+        ids.forEach(id -> {
+            Object value = projected.getOrDefault(id, Map.of()).get(plan.targetKeyField());
+            if (value != null) values.put(id, String.valueOf(value));
+        });
+        return values;
     }
 
     private DynamicReferenceMatchMode matchedBy(DynamicRecord record,
@@ -291,18 +310,6 @@ final class DynamicReferenceResolver {
         Object value = dynamicTargetService.maskProtectedValue(plan.targetLabelField(),
                 record.getValue(plan.targetLabelField()), net.ximatai.muyun.spring.common.security.FieldOutputContext.REFERENCE);
         return value == null ? null : String.valueOf(value);
-    }
-
-    private void requireUniqueDynamicKeys(List<DynamicRecord> records) {
-        if (plan.usesDefaultTargetFields()) return;
-        LinkedHashSet<String> values = new LinkedHashSet<>();
-        for (DynamicRecord record : records) {
-            String key = dynamicKey(record);
-            if (!values.add(key)) {
-                throw new net.ximatai.muyun.spring.common.exception.PlatformException("reference target key is not unique: "
-                        + plan.target().qualifiedName() + "." + plan.targetKeyField() + "=" + key);
-            }
-        }
     }
 
     private DynamicReferenceResolveStatus resolveQueryStatus(long total) {

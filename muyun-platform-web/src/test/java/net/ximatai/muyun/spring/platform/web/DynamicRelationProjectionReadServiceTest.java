@@ -172,7 +172,7 @@ class DynamicRelationProjectionReadServiceTest {
     }
 
     @Test
-    void shouldFallbackToGenericReadWhenReferenceUsesNonIdStoredKey() {
+    void shouldKeepSqlProjectionIdBackedWhenReferenceUsesAlternateCandidateKey() {
         DynamicRelationProjectionReadService service = new DynamicRelationProjectionReadService(
                 new RelationProjectionReadService(
                         new RelationProjectionQueryExecutor(mock(NamedParameterJdbcOperations.class)),
@@ -181,10 +181,10 @@ class DynamicRelationProjectionReadServiceTest {
         );
 
         assertThat(service.supportsListQuery(
-                "crm.order", nonIdKeyDynamicRecordService(), Set.of("orderNo", "customerId"))).isFalse();
+                "crm.order", nonIdKeyDynamicRecordService(), Set.of("orderNo", "customerId"))).isTrue();
         assertThat(service.describeListQuery(
                 "crm.order", nonIdKeyDynamicRecordService(), Set.of("orderNo", "customerId"))
-                .fallbackReason()).isEqualTo(ProjectionQueryFallbackReason.NON_ID_REFERENCE_KEY);
+                .supported()).isTrue();
     }
 
     @Test

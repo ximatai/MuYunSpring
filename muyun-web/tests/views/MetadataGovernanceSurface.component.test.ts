@@ -198,6 +198,97 @@ it('loads the target field catalog and selects its declared defaults for a new m
   expect(wrapper.text()).not.toContain('多选');
 });
 
+it('clears the resolved metadata binding before loading a different reference target', async () => {
+  const http = fakeHttp();
+  const request = vi.spyOn(http, 'request');
+  configureModuleContext({ http });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((item) => item.text().includes('编辑数据模型'))
+    ?.trigger('click');
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((item) => item.text().includes('新增模块引用'))
+    ?.trigger('click');
+
+  const targetModuleInput = wrapper.findAll('[data-testid="governance-input"]').at(4);
+  await targetModuleInput?.setValue('education.student');
+  await flushPromises();
+  await flushPromises();
+  expect(wrapper.text()).toContain('metadata-student');
+
+  await targetModuleInput?.setValue('education.teacher');
+  await flushPromises();
+  await flushPromises();
+
+  const teacherCatalogRequests = request.mock.calls
+    .map(([options]) => options.path)
+    .filter((path) => path.includes('targetModuleAlias=education.teacher'));
+  expect(teacherCatalogRequests[0]).toBe(
+    '/platform.module/education.exam/metadata-relations/rel-main/reference-target-field-catalog?targetModuleAlias=education.teacher',
+  );
+  expect(teacherCatalogRequests).not.toContainEqual(expect.stringContaining('metadata-student'));
+  expect(wrapper.text()).toContain('metadata-teacher');
+  expect(wrapper.text()).not.toContain('metadata-student');
+});
+
+it('keeps the current target catalog when an earlier target request fails late', async () => {
+  let rejectStudentCatalog!: (cause: unknown) => void;
+  const studentCatalog = new Promise<never>((_resolve, reject) => {
+    rejectStudentCatalog = reject;
+  });
+  const http: HttpClient = {
+    request: <T>(options: HttpRequestOptions) => {
+      if (
+        options.path.includes('targetModuleAlias=education.student') &&
+        !options.path.includes('targetMetadataId=')
+      ) {
+        return studentCatalog as Promise<T>;
+      }
+      return Promise.resolve(responseFor(options) as T);
+    },
+  };
+  configureModuleContext({ http });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((item) => item.text().includes('编辑数据模型'))
+    ?.trigger('click');
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((item) => item.text().includes('新增模块引用'))
+    ?.trigger('click');
+
+  const targetModuleInput = wrapper.findAll('[data-testid="governance-input"]').at(4);
+  await targetModuleInput?.setValue('education.student');
+  await flushPromises();
+  await targetModuleInput?.setValue('education.teacher');
+  await flushPromises();
+  await flushPromises();
+  expect(wrapper.text()).toContain('metadata-teacher');
+
+  rejectStudentCatalog(new Error('student catalog failed late'));
+  await flushPromises();
+
+  expect(wrapper.text()).toContain('metadata-teacher');
+  expect(wrapper.text()).not.toContain('无法加载“education.student”的目标字段目录。');
+});
+
 it('makes a failed target-field catalog load visible and blocks the reference selectors', async () => {
   configureModuleContext({ http: fakeHttp('MAIN', true) });
   const wrapper = shallowMount(MetadataGovernanceSurface, {
@@ -266,9 +357,11 @@ function responseFor(
     )
   ) {
     if (failReferenceTargetCatalog) throw new Error('catalog unavailable');
+    const targetModuleAlias = new URLSearchParams(options.path.split('?')[1]).get('targetModuleAlias') ?? '';
+    const targetName = targetModuleAlias.split('.').at(-1);
     return {
-      targetModuleAlias: 'education.student',
-      targetMetadataId: 'metadata-student',
+      targetModuleAlias,
+      targetMetadataId: targetName ? `metadata-${targetName}` : undefined,
       keyFields: [
         { fieldName: 'id', title: 'ID', selectable: true },
         { fieldName: 'studentNo', title: '学号', defaultField: true, selectable: true },

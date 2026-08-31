@@ -209,14 +209,7 @@ final class ReferenceReadProjectionPostProcessor {
         PlatformAbilityRuntime.referenceReadObserver().onProjection(
                 new ReferenceReadObserver.ProjectionRequest(plan.target(), fields, ids.size(),
                         ReferenceReadObserver.Kind.DIRECT, null, null, 0));
-        ReferenceAbility<?> target = resolveTarget(plan.target());
-        Map<String, Map<String, Object>> projections = target.projections(plan, ids, fields);
-        // Keep existing target adapters compatible for the unchanged id/title contract. New
-        // key-aware plans must always use the plan-aware capability method.
-        if ((projections != null && !projections.isEmpty()) || !plan.usesDefaultTargetFields()) {
-            return projections;
-        }
-        return target.projections(ids, fields);
+        return resolveTarget(plan.target()).projections(ids, fields);
     }
 
     private static void applyPlan(Map<String, Object> record, ReferencePlan plan, TargetValues target) {
@@ -261,7 +254,7 @@ final class ReferenceReadProjectionPostProcessor {
                     .flatMap(record -> source.normalizeValues(record.get(path.sourceField())).stream())
                     .distinct()
                     .toList();
-            Map<String, Object> values = ReferenceLoadReader.readAll(source, path, sourceValues,
+            Map<String, Object> values = ReferenceLoadReader.readAll(path, sourceValues,
                     target -> PlatformAbilityRuntime.referenceTargetResolver().resolve(target).orElseThrow(
                             () -> new PlatformException("reference target is not registered: " + target.qualifiedName())),
                     PlatformAbilityRuntime.referenceReadObserver());

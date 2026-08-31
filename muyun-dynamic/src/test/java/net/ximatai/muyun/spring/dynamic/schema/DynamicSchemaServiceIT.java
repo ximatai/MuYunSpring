@@ -24,6 +24,7 @@ import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityAssociationViewDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityRelationDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -170,11 +171,22 @@ class DynamicSchemaServiceIT {
         PlatformAbilityRuntime.configureReferenceDeletionGuard(dynamicReferenceGuard(runtime));
         try (TenantContext.Scope ignored = TenantContext.use("tenant-deletion-" + suffix)) {
             String invoiceId = service.create(moduleAlias, "invoice",
-                    service.newRecord(moduleAlias, "invoice").setValue("title", "Invoice " + policy));
+                    service.newRecord(moduleAlias, "invoice")
+                            .setValue("code", "INV-" + policy)
+                            .setValue("title", "Invoice " + policy));
             String lineId = service.create(moduleAlias, "invoice_line",
                     service.newRecord(moduleAlias, "invoice_line")
                             .setValue("title", "Line " + policy)
                             .setValue("invoiceId", invoiceId));
+
+            DynamicRecord persistedLine = service.select(moduleAlias, "invoice_line", lineId);
+            assertThat(persistedLine.getValue("invoiceId")).isEqualTo(invoiceId);
+            assertThat(runtime.entityService(moduleAlias, "invoice_line").collectReferenceIdsByTarget(persistedLine))
+                    .containsEntry(ReferenceTarget.of(moduleAlias, "invoice"), Set.of(invoiceId));
+            assertThat(service.associationViewPage(moduleAlias, "invoice_line", lineId, "invoice",
+                    Criteria.of(), PageRequest.of(1, 10)).getRecords())
+                    .extracting(DynamicRecord::getId)
+                    .containsExactly(invoiceId);
 
             if (policy == ReferenceTargetUnavailablePolicy.RESTRICT) {
                 assertThatThrownBy(() -> service.delete(moduleAlias, "invoice", invoiceId))
@@ -952,6 +964,7 @@ class DynamicSchemaServiceIT {
         return ModuleDefinition.builder(moduleAlias, "Deletion policy invoice")
                 .entities(List.of(
                         new EntityDefinition("invoice", invoiceTable, "Invoice", List.of(
+                                FieldDefinition.string("code", "Code").required().unique(),
                                 FieldDefinition.titleField().required()
                         )).withCapabilities(EntityCapability.CRUD, EntityCapability.REFERENCE),
                         new EntityDefinition("invoice_line", lineTable, "Invoice line", List.of(
@@ -963,7 +976,10 @@ class DynamicSchemaServiceIT {
                 .relations(List.of(EntityRelationDefinition.child("lines", "invoice", "invoice_line", "invoiceId")))
                 .references(List.of(EntityReferenceDefinition.to("invoice_line", "invoiceId",
                                 ReferenceTarget.of(moduleAlias, "invoice"))
+                        .withRuntimeConfig("code", "title", null, null, Set.of())
                         .withIntegrity(new ReferenceIntegrityPolicy(policy))))
+                .associationViews(List.of(EntityAssociationViewDefinition.reference(
+                        "invoice", "invoice_line", moduleAlias, "invoice", "invoiceId")))
                 .build();
     }
 
