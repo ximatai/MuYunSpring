@@ -207,6 +207,14 @@ export function fieldSpecOptionListOf(specs: FieldSpec[]): FieldSpecOption[] {
     .filter((option) => option.value);
 }
 
+/** Use the catalog title for human-facing metadata surfaces; aliases remain stable machine identities. */
+export function fieldSpecDisplayLabel(fieldSpecAlias: string | undefined, specs: FieldSpec[]): string {
+  if (!fieldSpecAlias) return '';
+  return (
+    specs.find((spec) => spec.alias === fieldSpecAlias || spec.id === fieldSpecAlias)?.title ?? fieldSpecAlias
+  );
+}
+
 export function entityTitleOf(relation: ModuleMetadataRelation, metadata: Metadata | undefined): string {
   return metadata?.title ?? relation.relationAlias ?? '未命名实体';
 }

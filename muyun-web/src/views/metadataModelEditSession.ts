@@ -164,10 +164,10 @@ export function metadataFieldGovernanceKind(
 export function metadataFieldGovernanceLabel(kind: MetadataFieldGovernanceKind): string {
   return (
     {
-      BUSINESS: '业务字段',
-      CAPABILITY_DERIVED: '能力派生',
-      PLATFORM_SYSTEM: '平台系统',
-      RELATION_FOREIGN_KEY: '关系外键',
+      BUSINESS: '业务',
+      CAPABILITY_DERIVED: '能力',
+      PLATFORM_SYSTEM: '平台',
+      RELATION_FOREIGN_KEY: '关系',
     }[kind] ?? kind
   );
 }

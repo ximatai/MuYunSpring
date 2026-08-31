@@ -28,6 +28,7 @@ import {
 import {
   createMetadataOrchestrationState,
   entityTitleOf,
+  fieldSpecDisplayLabel,
   isValidFieldDraft,
   isValidMainMetadataDraft,
   isMainRelation,
@@ -390,6 +391,8 @@ function relationMetadataOf(relation: ModuleMetadataRelation): Metadata | undefi
 
 function fieldCellValue(column: UiDataTableColumn, record: UiDataTableRecord) {
   const field = record as MetadataField;
+  if (column.key === 'fieldSpecAlias')
+    return fieldSpecDisplayLabel(field.fieldSpecAlias, state.fieldSpecs.value);
   if (column.key === 'source') return fieldSourceOf(field);
   if (column.key === 'required') return field.required ? '是' : '否';
   if (column.key === 'enabled') return field.enabled === false ? '停用' : '启用';

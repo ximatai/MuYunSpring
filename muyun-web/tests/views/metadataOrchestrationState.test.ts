@@ -5,6 +5,7 @@ import {
   emptyFieldDraft,
   emptyMainMetadataDraft,
   entityExplorerItem,
+  fieldSpecDisplayLabel,
   fieldSpecOptionListOf,
   isValidFieldDraft,
   isValidMainMetadataDraft,
@@ -109,6 +110,14 @@ it('field spec options skip disabled specs and unnamed values', () => {
   ]);
 
   assert.deepEqual(options, [{ value: 'spec.short_text', label: '短文本' }]);
+});
+
+it('uses the catalog title for a human-facing field specification', () => {
+  const specs = [{ id: 'string', alias: 'string', title: '短文本' }];
+
+  assert.equal(fieldSpecDisplayLabel('string', specs), '短文本');
+  assert.equal(fieldSpecDisplayLabel('custom.code', specs), 'custom.code');
+  assert.equal(fieldSpecDisplayLabel(undefined, specs), '');
 });
 
 it('metadata subtitle joins alias and physical table', () => {

@@ -41,7 +41,9 @@ it('classifies field governance ownership before an edit session exposes operati
   expect(metadataFieldGovernanceKind(capability, relation, capabilityFields)).toBe('CAPABILITY_DERIVED');
   expect(metadataFieldGovernanceKind(system, relation, capabilityFields)).toBe('PLATFORM_SYSTEM');
   expect(metadataFieldGovernanceKind(foreignKey, relation, capabilityFields)).toBe('RELATION_FOREIGN_KEY');
-  expect(metadataFieldGovernanceLabel('RELATION_FOREIGN_KEY')).toBe('关系外键');
+  expect(metadataFieldGovernanceLabel('BUSINESS')).toBe('业务');
+  expect(metadataFieldGovernanceLabel('PLATFORM_SYSTEM')).toBe('平台');
+  expect(metadataFieldGovernanceLabel('RELATION_FOREIGN_KEY')).toBe('关系');
   expect(isSessionEditableMetadataField(business, relation, capabilityFields)).toBe(true);
   expect(isSessionEditableMetadataField(foreignKey, relation, capabilityFields)).toBe(false);
 });
