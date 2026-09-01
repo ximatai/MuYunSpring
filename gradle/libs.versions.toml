@@ -9,7 +9,7 @@ postgresql = "42.7.13"
 testcontainers = "1.21.4"
 lombok = "1.18.46"
 caffeine = "3.2.4"
-jackson = "2.22.1"
+jackson = "2.22.2"
 poi = "5.5.1"
 swagger-parser = "2.1.45"
 
