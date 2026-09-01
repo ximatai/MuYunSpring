@@ -11,7 +11,7 @@ lombok = "1.18.46"
 caffeine = "3.2.4"
 jackson = "2.22.1"
 poi = "5.5.1"
-swagger-parser = "2.1.45"
+swagger-parser = "2.1.47"
 
 [libraries]
 muyun-database-core = { module = "net.ximatai.muyun.database:muyun-database-core", version.ref = "muyun-database" }
