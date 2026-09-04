@@ -28,10 +28,14 @@ try {
   const exampleTsConfig = JSON.parse(readFileSync(exampleTsConfigPath, 'utf8'));
   exampleTsConfig.extends = join(webRoot, 'tsconfig.json');
   writeFileSync(exampleTsConfigPath, `${JSON.stringify(exampleTsConfig, null, 2)}\n`);
-  execFileSync(process.execPath, [process.env.npm_execpath, 'ci'], {
-    cwd: temporaryExampleRoot,
-    stdio: 'inherit',
-  });
+  execFileSync(
+    process.execPath,
+    [process.env.npm_execpath, 'ci', '--prefer-offline', '--no-audit', '--no-fund'],
+    {
+      cwd: temporaryExampleRoot,
+      stdio: 'inherit',
+    },
+  );
   const installedPackageRoot = join(temporaryExampleRoot, 'node_modules', '@ximatai', 'muyun-web-app');
   rmSync(installedPackageRoot, { recursive: true, force: true });
   mkdirSync(installedPackageRoot, { recursive: true });
