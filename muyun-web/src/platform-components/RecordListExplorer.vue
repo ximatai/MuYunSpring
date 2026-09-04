@@ -24,6 +24,8 @@ const props = withDefaults(
   defineProps<{
     records: RecordListExplorerRecord[];
     selectedId?: string;
+    /** Provides the stable unique identity used by selection, Vue keys and drag commands. */
+    keyOf?: (record: RecordListExplorerRecord) => string | undefined;
     keyword?: string;
     emptyDescription?: string;
     titleOf?: (record: RecordListExplorerRecord) => string;
@@ -40,6 +42,7 @@ const props = withDefaults(
   }>(),
   {
     selectedId: undefined,
+    keyOf: undefined,
     keyword: '',
     emptyDescription: '暂无记录',
     titleOf: undefined,
@@ -72,7 +75,12 @@ const filteredRecords = computed(() => {
   return props.records.filter((record) => matchesKeyword(record, normalizedKeyword.value));
 });
 
-const treeNodes = computed<UiTreeNode[]>(() => filteredRecords.value.map(toTreeNode));
+const treeNodes = computed<UiTreeNode[]>(() =>
+  filteredRecords.value.flatMap((record) => {
+    const node = toTreeNode(record);
+    return node ? [node] : [];
+  }),
+);
 
 function recordTitle(record: RecordListExplorerRecord) {
   const item = props.itemOf?.(record);
@@ -136,9 +144,11 @@ function handleSelect(record: RecordListExplorerRecord) {
   emit('select', record);
 }
 
-function toTreeNode(record: RecordListExplorerRecord): UiTreeNode {
+function toTreeNode(record: RecordListExplorerRecord): UiTreeNode | undefined {
+  const key = recordKeyOf(record);
+  if (key === undefined) return undefined;
   return {
-    key: recordKeyOf(record),
+    key,
     title: recordTitle(record),
     secondary: recordSecondary(record),
     tag: recordTag(record),
@@ -152,7 +162,8 @@ function recordOfNode(node: UiTreeNode) {
 }
 
 function recordKeyOf(record: RecordListExplorerRecord) {
-  return String(record.id ?? record.code ?? record.title ?? record.name ?? '');
+  const key = props.keyOf?.(record) ?? record.id;
+  return key == null || key === '' ? undefined : String(key);
 }
 
 function sameSortPartition(left: RecordListExplorerRecord, right: RecordListExplorerRecord) {

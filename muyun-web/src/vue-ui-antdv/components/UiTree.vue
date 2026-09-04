@@ -123,7 +123,7 @@ const internalCheckedKeys = ref<string[]>([]);
 const effectiveCheckedKeys = computed(() => props.checkedKeys ?? internalCheckedKeys.value);
 const managedNodes = ref<UiTreeNode[]>();
 const renderNodes = computed(() => managedNodes.value ?? props.nodes);
-const flatNodes = computed<UiFlatTreeNode[]>(() => flattenNodes(renderNodes.value));
+const flatNodes = computed<UiFlatTreeNode[]>(() => renderNodes.value.map((node) => ({ node, depth: 0 })));
 const managesLoadedKeys = computed(
   () => props.loadStrategy === 'managed' || props.reloadOnReexpand || props.collapseEmptyLazyBranch,
 );
@@ -133,6 +133,7 @@ const pendingEmptyBranchCollapses = new Map<string, ReturnType<typeof setTimeout
 const branchLoadGenerations = new Map<string, number>();
 const branchAbortControllers = new Map<string, AbortController>();
 const loadCursors = new Map<string, string>();
+const pendingLoads = new Map<string, Promise<void>>();
 let loadRequestSequence = 0;
 const internalDragging = ref(false);
 const nativeTitleDraggingKey = ref<string>();
@@ -212,8 +213,7 @@ watch(
     pendingBranchReleases.clear();
     pendingEmptyBranchCollapses.forEach(clearTimeout);
     pendingEmptyBranchCollapses.clear();
-    branchAbortControllers.forEach((controller) => controller.abort());
-    branchAbortControllers.clear();
+    invalidatePendingLoads();
     loadedKeys.value = [];
     branchLoadGenerations.clear();
     loadCursors.clear();
@@ -226,7 +226,9 @@ watch(
   (nodes) => {
     // A parent update is authoritative. A managed result remains local only until the parent
     // publishes its next snapshot, which keeps legacy loaders and controlled mode predictable.
+    invalidatePendingLoads();
     managedNodes.value = undefined;
+    loadCursors.clear();
     if (nodes.length === 0) loadedKeys.value = [];
   },
   { deep: true },
@@ -320,13 +322,6 @@ type UiRenderTreeNode = UiTreeNode & {
   children?: UiRenderTreeNode[];
 };
 
-function flattenNodes(nodes: UiTreeNode[], depth = 0): UiFlatTreeNode[] {
-  return nodes.flatMap((node) => [
-    { node, depth },
-    ...(node.children ? flattenNodes(node.children, depth + 1) : []),
-  ]);
-}
-
 function treeRenderNodes(nodes: UiTreeNode[]): UiRenderTreeNode[] {
   return nodes.map((node) => ({
     ...node,
@@ -390,6 +385,20 @@ async function handleLoad(node: { key?: unknown }) {
 }
 
 async function loadTreeNode(treeNode: UiTreeNode, reason: UiTreeLoadReason) {
+  const cursor = reason === 'load-more' ? loadCursors.get(treeNode.key) : undefined;
+  const requestKey = `${treeNode.key}:${reason}:${cursor ?? ''}`;
+  const pending = pendingLoads.get(requestKey);
+  if (pending) return pending;
+  const loading = runLoadTreeNode(treeNode, reason, cursor);
+  pendingLoads.set(requestKey, loading);
+  try {
+    await loading;
+  } finally {
+    if (pendingLoads.get(requestKey) === loading) pendingLoads.delete(requestKey);
+  }
+}
+
+async function runLoadTreeNode(treeNode: UiTreeNode, reason: UiTreeLoadReason, cursor?: string) {
   const generation = nextBranchLoadGeneration(treeNode.key);
   branchAbortControllers.get(treeNode.key)?.abort();
   const controller = new AbortController();
@@ -398,9 +407,7 @@ async function loadTreeNode(treeNode: UiTreeNode, reason: UiTreeLoadReason) {
   const request: UiTreeLoadRequest = {
     node: treeNode,
     reason,
-    ...(reason === 'load-more' && loadCursors.get(treeNode.key)
-      ? { cursor: loadCursors.get(treeNode.key) }
-      : {}),
+    ...(reason === 'load-more' && cursor ? { cursor } : {}),
     requestId: `ui-tree-load-${++loadRequestSequence}`,
     signal: controller.signal,
   };
@@ -487,6 +494,15 @@ function nextBranchLoadGeneration(nodeKey: string) {
   return next;
 }
 
+function invalidatePendingLoads() {
+  branchAbortControllers.forEach((controller) => controller.abort());
+  branchAbortControllers.clear();
+  pendingLoads.clear();
+  for (const [nodeKey, generation] of branchLoadGenerations) {
+    branchLoadGenerations.set(nodeKey, generation + 1);
+  }
+}
+
 function invalidateBranchLoad(nodeKey: string) {
   branchAbortControllers.get(nodeKey)?.abort();
   branchAbortControllers.delete(nodeKey);
@@ -503,6 +519,7 @@ onBeforeUnmount(() => {
   pendingEmptyBranchCollapses.forEach(clearTimeout);
   branchAbortControllers.forEach((controller) => controller.abort());
   branchAbortControllers.clear();
+  pendingLoads.clear();
   if (activePointerDragSession?.owner === treeInstanceId) activePointerDragSession = undefined;
   previousTreeLayout.clear();
   document.removeEventListener('mousemove', handleDocumentMouseMove);
@@ -864,13 +881,8 @@ function handleDrop(event: AntTreeDropEvent) {
   // because the source cannot be unwrapped by the target tree; the page composer owns that
   // payload through the native DataTransfer (and its drag-session fallback).
   if (!internalDragging.value && props.allowExternalDrop) {
-    const dropNode = event.node ? unwrapNode(event.node) : undefined;
-    if (!dropNode) return;
-    const external = {
-      dropNode,
-      dropPosition: 0 as const,
-      dropToGap: event.dropToGap === true,
-    };
+    const external = externalTreeDropEvent(event);
+    if (!external) return;
     if (props.allowExternalDrop(external)) {
       emit('external-drop', { ...external, nativeEvent: event.event as DragEvent });
     }
@@ -884,18 +896,27 @@ function allowsDrop(event: AntTreeDropEvent) {
   // this tree's node snapshot, therefore the admission decision deliberately depends only on
   // the target node.
   if (!internalDragging.value && props.allowExternalDrop) {
-    const dropNode = event.node ? unwrapNode(event.node) : undefined;
-    return dropNode
-      ? props.allowExternalDrop({
-          dropNode,
-          dropPosition: 0,
-          dropToGap: event.dropToGap === true,
-        })
-      : false;
+    const external = externalTreeDropEvent(event);
+    return external ? props.allowExternalDrop(external) : false;
   }
   const normalized = normalizedDropEvent(event);
   if (!normalized) return false;
   return props.allowDrop?.(normalized) ?? true;
+}
+
+function externalTreeDropEvent(
+  event: AntTreeDropEvent,
+): Omit<UiTreeExternalDropEvent, 'nativeEvent'> | undefined {
+  const dropNode = event.node ? unwrapNode(event.node) : undefined;
+  if (!dropNode) return undefined;
+  const nativeEvent = event.event as DragEvent | undefined;
+  const payload = readDragPayload(nativeEvent?.dataTransfer ?? null);
+  return {
+    dropNode,
+    dropPosition: 0,
+    dropToGap: event.dropToGap === true,
+    ...(payload ? { payload: payload.value, payloadType: payload.type } : {}),
+  };
 }
 
 function externalDropTarget(

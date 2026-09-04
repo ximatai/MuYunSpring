@@ -81,10 +81,11 @@ it('renders flat nodes with the shared item renderer and independent checkboxes'
   const first = { key: 'item:first', title: '第一项', secondary: '字段' };
   const action = { key: 'inspect', title: '查看' };
   const second = { key: 'item:second', title: '第二项', actions: [action] };
+  const secondWithChild = { ...second, children: [{ key: 'nested', title: '不应出现在平铺视图' }] };
   const wrapper = mount(UiTree, {
     props: {
       displayMode: 'flat',
-      nodes: [{ key: 'group:one', title: '分组', children: [first, second] }],
+      nodes: [first, secondWithChild],
       checkable: true,
       checkedKeys: [first.key],
       selectedKey: first.key,
@@ -109,18 +110,18 @@ it('renders flat nodes with the shared item renderer and independent checkboxes'
   });
 
   expect(wrapper.findComponent({ name: 'ATree' }).exists()).toBe(false);
-  expect(wrapper.findAll('[data-ui-tree-key]')).toHaveLength(3);
+  expect(wrapper.findAll('[data-ui-tree-key]')).toHaveLength(2);
   expect(wrapper.get('[data-ui-tree-key="item:first"] .item').text()).toBe('第一项');
-  expect(wrapper.findAllComponents({ name: 'UiRecordExplorerItem' })[1]?.props('selected')).toBe(true);
+  expect(wrapper.findAllComponents({ name: 'UiRecordExplorerItem' })[0]?.props('selected')).toBe(true);
 
   const items = wrapper.findAllComponents({ name: 'UiRecordExplorerItem' });
-  items[1]!.vm.$emit('click');
-  items[2]!.vm.$emit('action', action);
+  items[0]!.vm.$emit('click');
+  items[1]!.vm.$emit('action', action);
   expect(wrapper.emitted('deselect')).toEqual([[]]);
-  expect(wrapper.emitted('action')).toEqual([[action, second]]);
+  expect(wrapper.emitted('action')).toEqual([[action, secondWithChild]]);
 
   const checkboxes = wrapper.findAllComponents({ name: 'UiCheckbox' });
-  await checkboxes[2]!.vm.$emit('update:checked', true);
+  await checkboxes[1]!.vm.$emit('update:checked', true);
 
   expect(wrapper.emitted('update:checkedKeys')).toEqual([[['item:first', 'item:second']]]);
   expect(wrapper.emitted('check')?.[0]?.[0]).toMatchObject({
@@ -501,14 +502,30 @@ it('uses the external target contract when Ant Tree receives a drag from a sibli
     }),
   ).toBe(true);
 
+  const dataTransfer = {
+    types: ['application/x-muyun-ui-tree'],
+    getData: () => JSON.stringify({ kind: 'field', fieldId: 'title' }),
+  } as unknown as DataTransfer;
+  const nativeEvent = new Event('drop') as DragEvent;
+  Object.defineProperty(nativeEvent, 'dataTransfer', { value: dataTransfer });
   wrapper.findComponent({ name: 'ATree' }).vm.$emit('drop', {
     dragNode: { key: 'metadata:field:title', dataRef: { external: true } },
     node: { key: slot.key, dataRef: slot, pos: '0-1' },
     dropPosition: 1,
     dropToGap: false,
+    event: nativeEvent,
   });
   expect(wrapper.emitted('external-drop')).toEqual([
-    [{ dropNode: slot, dropPosition: 0, dropToGap: false, nativeEvent: undefined }],
+    [
+      {
+        dropNode: slot,
+        dropPosition: 0,
+        dropToGap: false,
+        payload: { kind: 'field', fieldId: 'title' },
+        payloadType: 'application/x-muyun-ui-tree',
+        nativeEvent,
+      },
+    ],
   ]);
 });
 
@@ -563,6 +580,36 @@ it('supports managed replace and append lazy results without exposing renderer d
   expect(wrapper.emitted('load-request')?.[0]?.[0]).toMatchObject({ node: root, reason: 'expand' });
 });
 
+it('ignores a managed lazy result after the parent publishes a newer node snapshot', async () => {
+  const root = { key: 'root', title: '旧根节点', isLeaf: false };
+  let resolveLoad:
+    | ((result: { mode: 'replace'; nodes: { key: string; title: string }[] }) => void)
+    | undefined;
+  const loadChildren = vi.fn(
+    () =>
+      new Promise<{ mode: 'replace'; nodes: { key: string; title: string }[] }>((resolve) => {
+        resolveLoad = resolve;
+      }),
+  );
+  const wrapper = mount(UiTree, {
+    props: { nodes: [root], loadChildren, minLoadingDurationMs: 0 },
+    global: {
+      stubs: {
+        ATree: { name: 'ATree', props: ['loadData', 'treeData'], template: '<div />' },
+        UiRecordExplorerItem: true,
+      },
+    },
+  });
+
+  const tree = wrapper.findComponent({ name: 'ATree' });
+  const loading = (tree.props('loadData') as (node: { key: string }) => Promise<void>)({ key: root.key });
+  await wrapper.setProps({ nodes: [{ ...root, title: '新根节点' }] });
+  resolveLoad?.({ mode: 'replace', nodes: [{ key: 'stale-child', title: '过期子节点' }] });
+  await loading;
+
+  expect(tree.props('treeData')).toEqual([{ ...root, title: '新根节点' }]);
+});
+
 it('exposes refresh and load-more commands for multi-mode lazy data sources', async () => {
   const root = { key: 'root', title: '根节点', isLeaf: false };
   const loadChildren = vi.fn(async (_node, request) =>
@@ -596,6 +643,32 @@ it('exposes refresh and load-more commands for multi-mode lazy data sources', as
       ],
     },
   ]);
+});
+
+it('coalesces repeated lazy requests for the same node and cursor', async () => {
+  const root = { key: 'root', title: '根节点', isLeaf: false };
+  let resolveLoad: (() => void) | undefined;
+  const loadChildren = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveLoad = resolve;
+      }),
+  );
+  const wrapper = mount(UiTree, {
+    props: { nodes: [root], loadChildren, minLoadingDurationMs: 0 },
+    global: {
+      stubs: {
+        ATree: { name: 'ATree', props: ['treeData'], template: '<div />' },
+        UiRecordExplorerItem: true,
+      },
+    },
+  });
+
+  const first = wrapper.vm.refreshNode('root');
+  const second = wrapper.vm.refreshNode('root');
+  expect(loadChildren).toHaveBeenCalledTimes(1);
+  resolveLoad?.();
+  await Promise.all([first, second]);
 });
 
 it('supports controlled lazy loading by emitting a request while keeping node ownership upstream', async () => {
