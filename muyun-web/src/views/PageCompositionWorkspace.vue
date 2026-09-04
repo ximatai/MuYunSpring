@@ -40,6 +40,11 @@ import {
 import { pageCompositionTransport } from './pageCompositionTransport';
 import PageCompositionDescriptorPreview from './PageCompositionDescriptorPreview.vue';
 import PageCompositionTree, { type ComposerDropTarget } from './PageCompositionTree.vue';
+import {
+  PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+  parseMetadataDragPayload,
+  type MetadataDragPayload,
+} from './pageCompositionDragPayload';
 
 defineOptions({ name: 'PageCompositionWorkspace' });
 
@@ -972,16 +977,9 @@ function selectUiTreeKey(key: string) {
 
 function handleMetadataDragStart(event: UiTreeDragEvent) {
   if (isMutating.value) return;
-  const dataTransfer = (event.nativeEvent as DragEvent | undefined)?.dataTransfer;
   const payload = metadataDragPayload(event.node);
   if (!payload) return;
   activeMetadataDragPayload.value = payload;
-  if (!dataTransfer) return;
-  dataTransfer.effectAllowed = 'copy';
-  const serialized = JSON.stringify(payload);
-  dataTransfer.setData('application/x-muyun-page-composer', serialized);
-  // text/plain keeps the payload available when a browser strips custom MIME types between tree components.
-  dataTransfer.setData('text/plain', serialized);
 }
 
 function canDragMetadataNode(node: UiTreeNode) {
@@ -1051,10 +1049,9 @@ function handleCompositionMetadataDrop(target: ComposerDropTarget, nativeEvent: 
   activeMetadataDragPayload.value = undefined;
 }
 
-type MetadataDragPayload =
-  | { kind: 'field'; fieldId: string }
-  | { kind: 'relation'; relationId: string }
-  | { kind: 'relationField'; relationId: string; fieldId: string };
+function handlePreviewMetadataDrop(target: 'list' | 'form', nativeEvent: DragEvent) {
+  handleCompositionMetadataDrop({ kind: target }, nativeEvent);
+}
 
 function metadataDragPayload(node: UiTreeNode): MetadataDragPayload | undefined {
   const mainField = fieldOfMetadataNode(node);
@@ -1065,21 +1062,6 @@ function metadataDragPayload(node: UiTreeNode): MetadataDragPayload | undefined 
   return childFieldMatch
     ? { kind: 'relationField', relationId: childFieldMatch[1], fieldId: childFieldMatch[2] }
     : undefined;
-}
-
-function parseMetadataDragPayload(dataTransfer?: DataTransfer | null): MetadataDragPayload | undefined {
-  const raw =
-    dataTransfer?.getData('application/x-muyun-page-composer') || dataTransfer?.getData('text/plain');
-  if (!raw) return undefined;
-  try {
-    const payload = JSON.parse(raw) as MetadataDragPayload;
-    if (payload.kind === 'field' && payload.fieldId) return payload;
-    if (payload.kind === 'relation' && payload.relationId) return payload;
-    if (payload.kind === 'relationField' && payload.relationId && payload.fieldId) return payload;
-  } catch {
-    // Ignore native drops whose text payload is not created by this composer.
-  }
-  return undefined;
 }
 
 function addRelationById(relationId: string) {
@@ -1286,6 +1268,9 @@ function applyPropertyDraft() {
             :nodes="metadataTreeNodes"
             :selected-key="selectedMetadataTreeKey"
             :draggable="!isMutating"
+            :native-drag-source="true"
+            :drag-payload-type="PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE"
+            :drag-payload-of="metadataDragPayload"
             :can-drag="canDragMetadataNode"
             :allow-drop="() => false"
             @select="selectMetadataNode"
@@ -1488,8 +1473,10 @@ function applyPropertyDraft() {
         :module-alias="props.moduleAlias"
         :mode="state.previewMode.value"
         :selected-field-name="selectedPreviewFieldName"
+        :accept-external-drop="!isMutating"
         @select-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName)"
         @configure-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName, true)"
+        @metadata-drop="handlePreviewMetadataDrop"
       />
       <UiEmpty
         v-else-if="revision && !previewLoading && !previewError"

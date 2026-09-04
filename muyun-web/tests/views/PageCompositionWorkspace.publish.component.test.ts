@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
+import PageCompositionDescriptorPreview from '@/views/PageCompositionDescriptorPreview.vue';
 import PageCompositionWorkspace from '@/views/PageCompositionWorkspace.vue';
 import PageCompositionTree from '@/views/PageCompositionTree.vue';
 import { confirmAction } from '@muyun/vue-ui-antdv';
@@ -150,12 +151,92 @@ describe('PageCompositionWorkspace publication flow', () => {
     const pageTree = wrapper.findComponent(PageCompositionTree);
     const metadataField = treeNode(metadataTree.props('nodes'), 'metadata:field:field-title');
     expect(metadataField).toBeDefined();
+    expect(metadataTree.props('nativeDragSource')).toBe(true);
 
     metadataTree.vm.$emit('drag-start', { node: metadataField, nativeEvent: undefined });
     pageTree.vm.$emit('metadata-drop', { kind: 'list' }, { dataTransfer: undefined });
     await flushPromises();
 
     expect(pageTree.props('listFields')).toMatchObject([{ id: 'field-title', title: '考试名称' }]);
+  });
+
+  it('accepts a metadata field dropped directly onto the active preview and updates the draft slot', async () => {
+    configureModuleContext({ http: publicationFlowHttp([]) });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const metadataTree = wrapper.findComponent({ name: 'UiTree' });
+    await vi.waitFor(() =>
+      expect(wrapper.findComponent(PageCompositionDescriptorPreview).exists()).toBe(true),
+    );
+    const preview = wrapper.findComponent(PageCompositionDescriptorPreview);
+    const metadataField = treeNode(metadataTree.props('nodes'), 'metadata:field:field-title');
+    expect(metadataField).toBeDefined();
+    expect(preview.exists()).toBe(true);
+
+    metadataTree.vm.$emit('drag-start', { node: metadataField, nativeEvent: undefined });
+    preview.vm.$emit('metadata-drop', 'list', { dataTransfer: undefined });
+    await flushPromises();
+
+    expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toMatchObject([
+      { id: 'field-title', title: '考试名称' },
+    ]);
+    expect(wrapper.text()).toContain('列表预览');
+  });
+
+  it('rehydrates persisted page structure into the editor tree and preview state', async () => {
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({
+      http: publicationFlowHttp(
+        requests,
+        JSON.stringify({
+          template: 'management',
+          templateVersion: 1,
+          props: { list: { searchPlaceholder: '搜索考试标题' } },
+          nodes: [
+            {
+              slot: 'list',
+              title: '列表',
+              fields: [{ field: 'title', props: { label: '考试标题', width: '180px' } }],
+            },
+            {
+              slot: 'form',
+              title: '详情 / 表单',
+              fields: [],
+              groups: [{ group: 'basic', title: '基础信息', fields: ['title'] }],
+            },
+          ],
+        }),
+      ),
+    });
+
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const pageTree = wrapper.findComponent(PageCompositionTree);
+    expect(pageTree.props('listFields')).toMatchObject([
+      { id: 'field-title', title: '考试名称', properties: { label: '考试标题', width: '180px' } },
+    ]);
+    expect(pageTree.props('formGroups')).toMatchObject([
+      { id: 'basic', groupCode: 'basic', title: '基础信息', fields: [{ id: 'field-title' }] },
+    ]);
+    await vi.waitFor(() =>
+      expect(
+        requests.some(
+          (request) =>
+            request.path === '/platform.presentation-variant/variant-1/revisions/revision-1/preview' &&
+            JSON.stringify(request.body).includes('搜索考试标题'),
+        ),
+      ).toBe(true),
+    );
   });
 
   it('keeps first-class group ordering available as a visible fallback to drag sorting', async () => {
@@ -213,19 +294,19 @@ function page(records: unknown[]) {
   return { records, pages: 1, totalKnown: true };
 }
 
-function publicationFlowHttp(requests: HttpRequestOptions[]): HttpClient {
+function publicationFlowHttp(requests: HttpRequestOptions[], draftTree = initialTree()): HttpClient {
   let published = false;
   return {
     request: <T>(options: HttpRequestOptions) => {
       requests.push(options);
-      const response = responseFor(options, published);
+      const response = responseFor(options, published, draftTree);
       if (options.path === '/platform.presentation_publish/revisions/revision-1/publish') published = true;
       return Promise.resolve(response as T);
     },
   };
 }
 
-function responseFor(options: HttpRequestOptions, published: boolean) {
+function responseFor(options: HttpRequestOptions, published: boolean, draftTree = initialTree()) {
   if (options.path === '/platform.module/platform.module/context') {
     return { moduleAlias: 'platform.module', capabilities: [], actions: [] };
   }
@@ -306,7 +387,7 @@ function responseFor(options: HttpRequestOptions, published: boolean) {
           revisionNo: 2,
           templateAlias: 'management',
           templateVersion: 1,
-          uiTreeJson: initialTree(),
+          uiTreeJson: draftTree,
           status: 'draft',
         }
       : {
@@ -314,7 +395,7 @@ function responseFor(options: HttpRequestOptions, published: boolean) {
           revisionNo: 1,
           templateAlias: 'management',
           templateVersion: 1,
-          uiTreeJson: initialTree(),
+          uiTreeJson: draftTree,
           status: 'draft',
         };
     const records =
@@ -362,7 +443,7 @@ function workspaceStubs() {
     UiTabs: { template: '<div><slot /></div>' },
     UiTree: {
       name: 'UiTree',
-      props: { nodes: Array },
+      props: { nodes: Array, nativeDragSource: Boolean },
       emits: ['drag-start', 'external-drop'],
       template: '<div>{{ JSON.stringify(nodes) }}</div>',
     },

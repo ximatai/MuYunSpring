@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { UiEmpty, UiRecordExplorerItem, type UiRecordInlineAction } from '@muyun/vue-ui-antdv';
+import { computed } from 'vue';
+import {
+  UiEmpty,
+  UiTree,
+  type UiRecordInlineAction,
+  type UiTreeDropEvent,
+  type UiTreeNode,
+} from '@muyun/vue-ui-antdv';
 import type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
 
 defineOptions({ name: 'RecordListExplorer' });
@@ -18,6 +24,8 @@ const props = withDefaults(
   defineProps<{
     records: RecordListExplorerRecord[];
     selectedId?: string;
+    /** Provides the stable unique identity used by selection, Vue keys and drag commands. */
+    keyOf?: (record: RecordListExplorerRecord) => string | undefined;
     keyword?: string;
     emptyDescription?: string;
     titleOf?: (record: RecordListExplorerRecord) => string;
@@ -34,6 +42,7 @@ const props = withDefaults(
   }>(),
   {
     selectedId: undefined,
+    keyOf: undefined,
     keyword: '',
     emptyDescription: '暂无记录',
     titleOf: undefined,
@@ -59,14 +68,19 @@ const emit = defineEmits<{
 
 const normalizedKeyword = computed(() => props.keyword.trim().toLowerCase());
 const sortingEnabled = computed(() => props.sorting && !normalizedKeyword.value);
-const draggingId = ref<string>();
-const dropTarget = ref<{ id: string; position: -1 | 1 }>();
 const filteredRecords = computed(() => {
   if (!normalizedKeyword.value) {
     return props.records;
   }
   return props.records.filter((record) => matchesKeyword(record, normalizedKeyword.value));
 });
+
+const treeNodes = computed<UiTreeNode[]>(() =>
+  filteredRecords.value.flatMap((record) => {
+    const node = toTreeNode(record);
+    return node ? [node] : [];
+  }),
+);
 
 function recordTitle(record: RecordListExplorerRecord) {
   const item = props.itemOf?.(record);
@@ -130,42 +144,26 @@ function handleSelect(record: RecordListExplorerRecord) {
   emit('select', record);
 }
 
-function startDrag(record: RecordListExplorerRecord, event: DragEvent) {
-  if (!sortingEnabled.value || record.id == null) return;
-  draggingId.value = String(record.id);
-  event.dataTransfer?.setData('text/plain', String(record.id));
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-}
-
-function dragOver(record: RecordListExplorerRecord, event: DragEvent) {
-  if (!sortingEnabled.value || record.id == null || String(record.id) === draggingId.value) return;
-  const dragRecord = props.records.find((candidate) => String(candidate.id) === draggingId.value);
-  if (!dragRecord || !sameSortPartition(dragRecord, record)) return;
-  event.preventDefault();
-  const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  dropTarget.value = {
-    id: String(record.id),
-    position: event.clientY < bounds.top + bounds.height / 2 ? -1 : 1,
+function toTreeNode(record: RecordListExplorerRecord): UiTreeNode | undefined {
+  const key = recordKeyOf(record);
+  if (key === undefined) return undefined;
+  return {
+    key,
+    title: recordTitle(record),
+    secondary: recordSecondary(record),
+    tag: recordTag(record),
+    muted: recordMuted(record),
+    actions: recordActions(record),
   };
 }
 
-function dropRecord(record: RecordListExplorerRecord, event: DragEvent) {
-  if (
-    !sortingEnabled.value ||
-    record.id == null ||
-    !draggingId.value ||
-    String(record.id) === draggingId.value
-  )
-    return;
-  event.preventDefault();
-  const dragRecord = props.records.find((candidate) => String(candidate.id) === draggingId.value);
-  if (!dragRecord || !sameSortPartition(dragRecord, record)) {
-    clearDrag();
-    return;
-  }
-  const position = dropTarget.value?.id === String(record.id) ? dropTarget.value.position : 1;
-  clearDrag();
-  if (dragRecord) emit('sort', { dragRecord, dropRecord: record, position });
+function recordOfNode(node: UiTreeNode) {
+  return filteredRecords.value.find((record) => recordKeyOf(record) === node.key);
+}
+
+function recordKeyOf(record: RecordListExplorerRecord) {
+  const key = props.keyOf?.(record) ?? record.id;
+  return key == null || key === '' ? undefined : String(key);
 }
 
 function sameSortPartition(left: RecordListExplorerRecord, right: RecordListExplorerRecord) {
@@ -174,96 +172,62 @@ function sameSortPartition(left: RecordListExplorerRecord, right: RecordListExpl
   return leftPartition !== undefined && leftPartition === rightPartition;
 }
 
-function clearDrag() {
-  draggingId.value = undefined;
-  dropTarget.value = undefined;
+function canDropNode(event: Pick<UiTreeDropEvent, 'dragNode' | 'dropNode' | 'dropPosition' | 'dropToGap'>) {
+  if (!sortingEnabled.value || !event.dropToGap || event.dropPosition === 0) return false;
+  const dragRecord = recordOfNode(event.dragNode);
+  const dropRecord = recordOfNode(event.dropNode);
+  return Boolean(
+    dragRecord &&
+    dropRecord &&
+    event.dragNode.key !== event.dropNode.key &&
+    sameSortPartition(dragRecord, dropRecord),
+  );
+}
+
+function canDragNode(node: UiTreeNode) {
+  return sortingEnabled.value && Boolean(recordOfNode(node));
+}
+
+function handleDrop(event: UiTreeDropEvent) {
+  if (!canDropNode(event)) return;
+  const dragRecord = recordOfNode(event.dragNode);
+  const dropRecord = recordOfNode(event.dropNode);
+  if (dragRecord && dropRecord) {
+    emit('sort', { dragRecord, dropRecord, position: event.dropPosition as -1 | 1 });
+  }
+}
+
+function handleNodeSelect(node: UiTreeNode) {
+  const record = recordOfNode(node);
+  if (record) handleSelect(record);
+}
+
+function handleNodeAction(action: UiRecordInlineAction, node: UiTreeNode) {
+  const record = recordOfNode(node);
+  if (record) handleAction(action, record);
 }
 </script>
 
 <template>
   <UiEmpty v-if="filteredRecords.length === 0" :description="emptyDescription" />
-  <ul v-else class="record-list-explorer">
-    <li
-      v-for="record in filteredRecords"
-      :key="record.id"
-      :draggable="sortingEnabled"
-      :class="{
-        'record-list-explorer__item--dragging': String(record.id) === draggingId,
-        'record-list-explorer__item--drop-before':
-          dropTarget?.id === String(record.id) && dropTarget.position < 0,
-        'record-list-explorer__item--drop-after':
-          dropTarget?.id === String(record.id) && dropTarget.position > 0,
-      }"
-      @dragstart="startDrag(record, $event)"
-      @dragover="dragOver(record, $event)"
-      @drop="dropRecord(record, $event)"
-      @dragend="clearDrag"
-      @dragleave="dropTarget?.id === String(record.id) && (dropTarget = undefined)"
-    >
-      <UiRecordExplorerItem
-        role="button"
-        tabindex="0"
-        clickable
-        :title="recordTitle(record)"
-        :secondary="recordSecondary(record)"
-        :tag="recordTag(record)"
-        :muted="recordMuted(record)"
-        :selected="record.id === selectedId"
-        :actions="recordActions(record)"
-        @click="handleSelect(record)"
-        @keydown.enter.prevent="handleSelect(record)"
-        @keydown.space.prevent="handleSelect(record)"
-        @action="handleAction($event, record)"
-      />
-    </li>
-  </ul>
+  <UiTree
+    v-else
+    class="record-list-explorer"
+    display-mode="flat"
+    :nodes="treeNodes"
+    :selected-key="selectedId"
+    :draggable="sortingEnabled"
+    :can-drag="canDragNode"
+    :allow-drop="canDropNode"
+    @select="handleNodeSelect"
+    @deselect="emit('deselect')"
+    @action="handleNodeAction"
+    @drop="handleDrop"
+  />
 </template>
 
 <style scoped>
 .record-list-explorer {
-  display: grid;
-  align-content: start;
-  gap: 2px;
   min-height: 0;
-  margin: 0;
-  padding: 0;
-  overflow: auto;
-  list-style: none;
-}
-
-.record-list-explorer li {
-  min-width: 0;
-}
-
-.record-list-explorer li[draggable='true'] {
-  cursor: grab;
-}
-
-.record-list-explorer__item--dragging {
-  opacity: 0.45;
-}
-
-.record-list-explorer__item--drop-before,
-.record-list-explorer__item--drop-after {
-  position: relative;
-}
-
-.record-list-explorer__item--drop-before::before,
-.record-list-explorer__item--drop-after::after {
-  position: absolute;
-  right: 4px;
-  left: 4px;
-  z-index: 1;
-  height: 2px;
-  background: var(--muyun-primary);
-  content: '';
-}
-
-.record-list-explorer__item--drop-before::before {
-  top: -1px;
-}
-
-.record-list-explorer__item--drop-after::after {
-  bottom: -1px;
 }
 </style>

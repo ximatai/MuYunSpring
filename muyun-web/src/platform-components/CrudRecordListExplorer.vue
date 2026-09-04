@@ -320,6 +320,7 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       v-else
       :records="listRecords"
       :selected-id="selectedId"
+      :key-of="(record) => record.id"
       :keyword="keyword"
       :empty-description="emptyDescription"
       :title-of="(record) => recordTitle(record as CrudRecordListBase)"

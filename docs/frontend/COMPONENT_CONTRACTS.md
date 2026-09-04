@@ -2,7 +2,7 @@
 
 本文记录 MuYun 前端组件治理原则。它用于防止业务项目把底层 UI 库 API 当成平台 API，也用于指导哪些组件应沉淀为平台能力。具体组件 props 会随着平台业务接口建设逐步收口。
 
-静态管理页的 explorer、列表和树组件边界见 [静态管理页组件边界](STATIC_MANAGEMENT_PAGE_COMPONENTS.md)。
+静态管理页的 explorer、列表和树组件边界见 [静态管理页组件边界](STATIC_MANAGEMENT_PAGE_COMPONENTS.md)。树/平铺统一交互、拖拽、异步加载和结构动效见 [统一树与平铺拖拽组件专项治理](governance/UNIFIED_TREE_COMPONENT_GOVERNANCE.md)。
 
 ## 基本原则
 

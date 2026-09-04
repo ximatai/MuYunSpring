@@ -73,6 +73,36 @@ export interface UiTreeDragEvent {
   nativeEvent?: Event;
 }
 
+export type UiTreeDisplayMode = 'tree' | 'flat';
+
+export interface UiTreeCheckEvent {
+  node: UiTreeNode;
+  checked: boolean;
+  checkedKeys: string[];
+  halfCheckedKeys: string[];
+  nativeEvent?: Event;
+}
+
+export type UiTreeLoadStrategy = 'managed' | 'controlled';
+export type UiTreeLoadReason = 'expand' | 'refresh' | 'load-more';
+
+/** A renderer-neutral lazy-load request. The signal is aborted when the branch becomes stale. */
+export interface UiTreeLoadRequest {
+  node: UiTreeNode;
+  reason: UiTreeLoadReason;
+  cursor?: string;
+  requestId: string;
+  signal: AbortSignal;
+}
+
+/** Managed loaders can replace a branch or append a page without knowing the renderer. */
+export interface UiTreeLoadResult {
+  mode: 'replace' | 'append';
+  nodes: UiTreeNode[];
+  nextCursor?: string;
+  hasMore?: boolean;
+}
+
 /** A normalized drop target and relative position for tree editors. */
 export interface UiTreeDropEvent {
   dragNode: UiTreeNode;
@@ -87,6 +117,8 @@ export interface UiTreeExternalDropEvent {
   dropNode: UiTreeNode;
   dropPosition: -1 | 0 | 1;
   dropToGap: boolean;
+  payload?: unknown;
+  payloadType?: string;
   nativeEvent: DragEvent;
 }
 
