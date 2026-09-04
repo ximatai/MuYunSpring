@@ -41,6 +41,26 @@ it('supports list keyboard actions for field inspection and configuration', asyn
   expect(list.emitted('configureField')).toEqual([['list', 'enabled']]);
 });
 
+it('exposes the active preview mode as an external metadata drop target', async () => {
+  const wrapper = mount(PageCompositionDescriptorPreview, {
+    props: {
+      descriptor: descriptor(),
+      moduleAlias: 'platform.module',
+      mode: 'list',
+      acceptExternalDrop: true,
+    },
+    global: { stubs: { UiDataTable: tableStub } },
+  });
+  const dataTransfer = { dropEffect: 'none' } as unknown as DataTransfer;
+  const preview = wrapper.get('[data-testid="page-composer-list-preview"]');
+
+  await preview.trigger('dragover', { dataTransfer });
+  await preview.trigger('drop', { dataTransfer });
+
+  expect(wrapper.emitted('metadata-drop')).toHaveLength(1);
+  expect(wrapper.emitted('metadata-drop')?.[0]?.[0]).toBe('list');
+});
+
 it('animates stable list fields into their new descriptor order', async () => {
   const animate = vi.fn();
   const originalAnimate = HTMLElement.prototype.animate;

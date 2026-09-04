@@ -49,6 +49,8 @@ type LocalTree = {
 const local = ref<LocalTree>(snapshot());
 const expandedBranches = ref({ page: true, list: true, form: true });
 const expandedGroups = ref<Record<string, boolean>>({});
+const treeRoot = ref<HTMLElement>();
+const externalDropTarget = ref<ComposerDropTarget>();
 
 watch(
   () => [props.listFields, props.formFields, props.formGroups, props.formRelations] as const,
@@ -176,24 +178,34 @@ function resolveDropTarget(target: EventTarget | null): ComposerDropTarget | und
 }
 
 function handleExternalDragOver(event: DragEvent) {
-  if (props.disabled || !resolveDropTarget(event.target)) return;
+  const target = resolveDropTarget(event.target);
+  if (props.disabled || !target) return;
   event.preventDefault();
+  externalDropTarget.value = target;
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+}
+
+function handleExternalDragLeave(event: DragEvent) {
+  if (event.relatedTarget instanceof Node && treeRoot.value?.contains(event.relatedTarget)) return;
+  externalDropTarget.value = undefined;
 }
 
 function handleExternalDrop(event: DragEvent) {
   const target = resolveDropTarget(event.target);
   if (props.disabled || !target) return;
   event.preventDefault();
+  externalDropTarget.value = undefined;
   emit('metadata-drop', target, event);
 }
 </script>
 
 <template>
   <section
+    ref="treeRoot"
     class="page-composition-tree"
     data-testid="page-composition-sortable-tree"
     @dragover="handleExternalDragOver"
+    @dragleave="handleExternalDragLeave"
     @drop="handleExternalDrop"
   >
     <button
@@ -207,7 +219,11 @@ function handleExternalDrop(event: DragEvent) {
     </button>
 
     <template v-if="expandedBranches.page">
-      <section class="page-composition-tree__branch" data-composer-drop-target="list">
+      <section
+        class="page-composition-tree__branch"
+        :class="{ 'is-drop-target': externalDropTarget?.kind === 'list' }"
+        data-composer-drop-target="list"
+      >
         <button
           class="page-composition-tree__node page-composition-tree__node--branch-list"
           :class="{ 'is-selected': isSelected('ui:slot:list') }"
@@ -267,7 +283,11 @@ function handleExternalDrop(event: DragEvent) {
         </template>
       </section>
 
-      <section class="page-composition-tree__branch" data-composer-drop-target="form">
+      <section
+        class="page-composition-tree__branch"
+        :class="{ 'is-drop-target': externalDropTarget?.kind === 'form' }"
+        data-composer-drop-target="form"
+      >
         <button
           class="page-composition-tree__node page-composition-tree__node--branch-form"
           :class="{ 'is-selected': isSelected('ui:slot:form') }"
@@ -325,6 +345,10 @@ function handleExternalDrop(event: DragEvent) {
               v-for="group in local.formGroups"
               :key="group.id"
               class="page-composition-tree__group"
+              :class="{
+                'is-drop-target':
+                  externalDropTarget?.kind === 'group' && externalDropTarget.groupId === group.id,
+              }"
               data-composer-drop-target="group"
               :data-group-id="group.id"
             >
@@ -431,6 +455,11 @@ function handleExternalDrop(event: DragEvent) {
 .page-composition-tree__branch {
   margin-top: 4px;
 }
+.page-composition-tree__branch.is-drop-target {
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--muyun-primary) 5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--muyun-primary);
+}
 .page-composition-tree__node {
   align-items: center;
   background: transparent;
@@ -510,6 +539,11 @@ function handleExternalDrop(event: DragEvent) {
 .page-composition-tree__group {
   border-left: 1px solid var(--muyun-border-subtle);
   margin: 2px 0;
+}
+.page-composition-tree__group.is-drop-target {
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--muyun-primary) 5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--muyun-primary);
 }
 .page-composition-tree__caret,
 .page-composition-tree__indent {

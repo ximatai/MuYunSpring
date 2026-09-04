@@ -25,18 +25,22 @@ import type { QueryListRecord, RecordFormFieldValue, RecordFormRecord } from '@m
 defineOptions({ name: 'PageCompositionDescriptorPreview' });
 
 type PreviewMode = 'list' | 'query' | 'detail' | 'edit';
-type PreviewSlot = 'list' | 'form';
+export type PageCompositionPreviewDropTarget = 'list' | 'form';
+type PreviewSlot = PageCompositionPreviewDropTarget;
 
 const props = defineProps<{
   descriptor: ResolvedModuleUiDescriptor;
   moduleAlias: string;
   mode: PreviewMode;
   selectedFieldName?: string;
+  /** Allows the active preview surface to receive a compatible metadata payload. */
+  acceptExternalDrop?: boolean;
 }>();
 
 const emit = defineEmits<{
   selectField: [slot: PreviewSlot, fieldName: string];
   configureField: [slot: PreviewSlot, fieldName: string];
+  'metadata-drop': [target: PreviewSlot, nativeEvent: DragEvent];
 }>();
 
 const listColumns = computed(() => resolveRecordQueryListColumns(props.descriptor.page?.list?.fields));
@@ -71,6 +75,10 @@ const isDetailEmpty = computed(
 );
 const isFormEmpty = computed(() => formFieldNames.value.length === 0);
 const isEditEmpty = computed(() => isFormEmpty.value && detailRelations.value.length === 0);
+const previewDropTarget = computed<PreviewSlot>(() =>
+  props.mode === 'list' || props.mode === 'query' ? 'list' : 'form',
+);
+const externalDragOver = ref(false);
 
 watch(
   () => props.descriptor,
@@ -168,6 +176,27 @@ function updateFormField(fieldName: string, value: RecordFormFieldValue) {
   formRecord.value = { ...formRecord.value, [fieldName]: value };
 }
 
+function handleExternalDragOver(event: DragEvent) {
+  if (!props.acceptExternalDrop) return;
+  event.preventDefault();
+  externalDragOver.value = true;
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+}
+
+function handleExternalDragLeave(event: DragEvent) {
+  if (event.relatedTarget instanceof Node && (event.currentTarget as Element).contains(event.relatedTarget)) {
+    return;
+  }
+  externalDragOver.value = false;
+}
+
+function handleExternalDrop(event: DragEvent) {
+  if (!props.acceptExternalDrop) return;
+  event.preventDefault();
+  externalDragOver.value = false;
+  emit('metadata-drop', previewDropTarget.value, event);
+}
+
 function layoutKeyOf(element: HTMLElement) {
   return element.dataset.pageCompositionLayoutKey;
 }
@@ -236,7 +265,12 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     v-if="mode === 'list'"
     ref="previewRoot"
     class="page-composition-descriptor-preview"
+    :class="{ 'page-composition-descriptor-preview--drag-over': externalDragOver }"
     data-testid="page-composer-list-preview"
+    data-composer-drop-target="list"
+    @dragover="handleExternalDragOver"
+    @dragleave="handleExternalDragLeave"
+    @drop="handleExternalDrop"
   >
     <header class="page-composition-descriptor-preview__toolbar">
       <strong>列表预览</strong>
@@ -288,7 +322,12 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     v-else-if="mode === 'query'"
     ref="previewRoot"
     class="page-composition-descriptor-preview"
+    :class="{ 'page-composition-descriptor-preview--drag-over': externalDragOver }"
     data-testid="page-composer-query-preview"
+    data-composer-drop-target="list"
+    @dragover="handleExternalDragOver"
+    @dragleave="handleExternalDragLeave"
+    @drop="handleExternalDrop"
   >
     <header class="page-composition-descriptor-preview__toolbar">
       <strong>查询预览</strong>
@@ -303,7 +342,12 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     v-else-if="mode === 'detail'"
     ref="previewRoot"
     class="page-composition-descriptor-preview"
+    :class="{ 'page-composition-descriptor-preview--drag-over': externalDragOver }"
     data-testid="page-composer-detail-preview"
+    data-composer-drop-target="form"
+    @dragover="handleExternalDragOver"
+    @dragleave="handleExternalDragLeave"
+    @drop="handleExternalDrop"
   >
     <header class="page-composition-descriptor-preview__toolbar">
       <strong>详情预览</strong>
@@ -358,7 +402,12 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     v-else
     ref="previewRoot"
     class="page-composition-descriptor-preview"
+    :class="{ 'page-composition-descriptor-preview--drag-over': externalDragOver }"
     data-testid="page-composer-edit-preview"
+    data-composer-drop-target="form"
+    @dragover="handleExternalDragOver"
+    @dragleave="handleExternalDragLeave"
+    @drop="handleExternalDrop"
   >
     <header class="page-composition-descriptor-preview__toolbar">
       <strong>编辑预览</strong>
@@ -431,6 +480,12 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   padding: 16px;
   border: 1px solid var(--muyun-border);
   border-radius: 8px;
+}
+
+.page-composition-descriptor-preview--drag-over {
+  border-color: var(--muyun-primary);
+  background: color-mix(in srgb, var(--muyun-primary) 5%, var(--muyun-surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--muyun-primary) 18%, transparent);
 }
 
 .page-composition-descriptor-preview__toolbar {

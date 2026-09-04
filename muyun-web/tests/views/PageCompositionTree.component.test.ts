@@ -153,4 +153,23 @@ describe('PageCompositionTree', () => {
 
     expect(wrapper.emitted('metadata-drop')?.[0]?.[0]).toEqual({ kind: 'group', groupId: 'group_1' });
   });
+
+  it('highlights the active external drop branch and clears it when the drag leaves', async () => {
+    const wrapper = mount(PageCompositionTree, {
+      props: {
+        listFields: [],
+        formFields: [],
+        formGroups: [],
+        formRelations: [],
+      },
+    });
+    const listBranch = wrapper.get('[data-composer-drop-target="list"]');
+    const dataTransfer = { dropEffect: 'none' } as unknown as DataTransfer;
+
+    await listBranch.trigger('dragover', { dataTransfer });
+    expect(listBranch.classes()).toContain('is-drop-target');
+
+    await wrapper.get('.page-composition-tree').trigger('dragleave', { relatedTarget: document.body });
+    expect(listBranch.classes()).not.toContain('is-drop-target');
+  });
 });

@@ -27,7 +27,9 @@ it('record list explorer exposes visible secondary identity text', () => {
   );
   assert.match(listSource, /function recordSecondary/);
   assert.match(listSource, /props\.codeOf \? props\.codeOf\(record\)/);
-  assert.match(listSource, /:secondary="recordSecondary\(record\)"/);
+  assert.match(listSource, /secondary: recordSecondary\(record\)/);
+  assert.match(listSource, /display-mode="flat"/);
+  assert.match(listSource, /:allow-drop="canDropNode"/);
   assert.match(
     crudListSource,
     /itemOf\?: \(record: CrudRecordListBase\) => RecordExplorerItemDescriptor \| undefined/,
@@ -508,8 +510,10 @@ it('role scope navigation uses the platform tree with deferred children', () => 
   assert.match(roleSource, /tenantRootTreeNode/);
   assert.match(roleSource, /organizationTreeNode/);
   assert.match(roleSource, /createScopedTreeModuleContext/);
-  assert.match(treeSource, /loadChildren\?: \(node: UiTreeNode\) => Promise<void>/);
+  assert.match(treeSource, /loadChildren\?: \(\n\s+node: UiTreeNode,\n\s+request\?: UiTreeLoadRequest,/);
+  assert.match(treeSource, /loadStrategy\?: UiTreeLoadStrategy/);
   assert.match(treeSource, /event\?\.expanded/);
+  assert.match(treeSource, /nativeDragSource\?: boolean/);
 });
 
 it('application scope switcher remains a platform component for legacy scoped pages', () => {

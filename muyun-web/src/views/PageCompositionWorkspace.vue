@@ -1051,6 +1051,10 @@ function handleCompositionMetadataDrop(target: ComposerDropTarget, nativeEvent: 
   activeMetadataDragPayload.value = undefined;
 }
 
+function handlePreviewMetadataDrop(target: 'list' | 'form', nativeEvent: DragEvent) {
+  handleCompositionMetadataDrop({ kind: target }, nativeEvent);
+}
+
 type MetadataDragPayload =
   | { kind: 'field'; fieldId: string }
   | { kind: 'relation'; relationId: string }
@@ -1286,6 +1290,9 @@ function applyPropertyDraft() {
             :nodes="metadataTreeNodes"
             :selected-key="selectedMetadataTreeKey"
             :draggable="!isMutating"
+            :native-drag-source="true"
+            drag-payload-type="application/x-muyun-page-composer"
+            :drag-payload-of="metadataDragPayload"
             :can-drag="canDragMetadataNode"
             :allow-drop="() => false"
             @select="selectMetadataNode"
@@ -1488,8 +1495,10 @@ function applyPropertyDraft() {
         :module-alias="props.moduleAlias"
         :mode="state.previewMode.value"
         :selected-field-name="selectedPreviewFieldName"
+        :accept-external-drop="!isMutating"
         @select-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName)"
         @configure-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName, true)"
+        @metadata-drop="handlePreviewMetadataDrop"
       />
       <UiEmpty
         v-else-if="revision && !previewLoading && !previewError"
