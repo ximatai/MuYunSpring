@@ -20,6 +20,8 @@ export interface NavigatorLevelRuntime {
   descriptor: ResolvedPageNavigatorLevelDescriptor;
   context: ModuleContext<QueryListRecord>;
   tree: boolean;
+  /** REFERENCE tree transport does not expose the module's normal sort endpoint. */
+  sortingDisabled: boolean;
 }
 
 export interface NavigatorEntrySelectionChange {
@@ -234,6 +236,7 @@ export function useNavigatorRuntime(
           tree:
             descriptor.kind === 'TREE' &&
             (sourceCapabilities?.includes('REFERENCE_TREE') ?? navigatorContext.abilities.hasTree() === true),
+          sortingDisabled: descriptor.kind === 'TREE',
         };
       }),
     );

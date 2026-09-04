@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.common.platform.TenantApplicationCatalog;
 import net.ximatai.muyun.spring.common.platform.RecordActionAvailabilityContributor;
 import net.ximatai.muyun.spring.common.platform.RecordActionAvailabilityDecision;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
@@ -138,11 +139,12 @@ public class ApplicationService extends StandardBusinessService<Application> imp
 
     /**
      * Applications declared by the platform are catalog facts, not tenant-admin configurable records.
-     * Their lifecycle is owned by static application registration.
+     * Their lifecycle is owned by static application registration; catalogue ordering remains
+     * an operator-owned presentation concern.
      */
     @Override
     public Set<String> editablePlatformManagedFields() {
-        return Set.of();
+        return Set.of(PlatformAbilityFields.SORT_FIELD);
     }
 
     @Override

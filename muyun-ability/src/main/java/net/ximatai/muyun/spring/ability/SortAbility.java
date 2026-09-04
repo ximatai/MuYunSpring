@@ -22,6 +22,15 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
     }
 
     default void reorder(List<String> orderedIds) {
+        reorder(null, orderedIds);
+    }
+
+    /**
+     * Reorders a complete sort scope with an optional additional business filter.
+     * The filter is useful for scoped tree facades whose lookup scope is narrower than
+     * the entity's declared sort partition.
+     */
+    default void reorder(Criteria additionalScope, List<String> orderedIds) {
         if (orderedIds == null || orderedIds.isEmpty()) {
             throw new PlatformException("Cannot reorder empty records");
         }
@@ -42,7 +51,11 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
             validateSortScope(first, entity);
             entities.add(entity);
         }
-        List<String> scopedIds = sortedList(sortScope(first)).stream()
+        Criteria scope = sortScope(first);
+        if (additionalScope != null && !additionalScope.isEmpty()) {
+            scope.andGroup(additionalScope.getRoot());
+        }
+        List<String> scopedIds = sortedList(scope).stream()
                 .map(SortCapable::getId)
                 .toList();
         if (!new LinkedHashSet<>(scopedIds).equals(uniqueIds)) {

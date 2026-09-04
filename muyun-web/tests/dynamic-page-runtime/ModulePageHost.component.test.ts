@@ -55,6 +55,51 @@ it('uses the declared tree resource or page title as the tree panel title withou
   );
 });
 
+it('places tree sorting between the explorer search affordance and create action', () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
+    'utf8',
+  );
+
+  assert.match(source, /const mainTreeSorting = ref\(false\)/);
+  assert.match(
+    source,
+    /<template #actions>[\s\S]*?<RecordPanelButton[\s\S]*?icon-name="swap-vertical"[\s\S]*?<ModuleActionButton/,
+  );
+  assert.match(source, /<TreeRecordExplorer[\s\S]*?:sorting="mainTreeSorting"/);
+  assert.match(source, /mainTreeScopeReady && context\.can\('sort'\) === true/);
+  assert.match(source, /treeSearchKeyword\.trim\(\)[\s\S]*清空搜索后可调整排序/);
+});
+
+it('exposes flat-list ordering only when the runtime declares sort capability', () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
+    'utf8',
+  );
+
+  assert.match(source, /const flatManagementSorting = ref\(false\)/);
+  assert.match(
+    source,
+    /#explorer-actions>[\s\S]*?context\.can\('sort'\) === true[\s\S]*?icon-name="swap-vertical"/,
+  );
+  assert.match(source, /<CrudRecordListExplorer[\s\S]*?:sorting="flatManagementSorting"/);
+});
+
+it('exposes sortable navigator lists through the navigator module capability', () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
+    'utf8',
+  );
+
+  assert.match(
+    source,
+    /function navigatorSortingAvailable[\s\S]*?return !level\.sortingDisabled && navigatorManagementAvailable\(level\) && level\.context\.can\('sort'\) === true/,
+  );
+  assert.match(source, /<CrudRecordListExplorer[\s\S]*?:sorting="navigatorSorting\(level\)"/);
+  assert.match(source, /:sorting="navigatorSorting\(navigatorLevelAt\(index\)!\)"/);
+  assert.match(source, /function navigatorSortingAvailable[\s\S]*!level\.sortingDisabled/);
+});
+
 it('declares cancellation destinations from the detail entry context', () => {
   const source = readFileSync(
     resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),

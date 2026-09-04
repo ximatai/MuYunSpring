@@ -17,6 +17,7 @@ public record DynamicEntityDescriptor(
         String entityAlias,
         String title,
         Set<String> capabilities,
+        List<String> sortPartitionFields,
         List<DynamicFieldDescriptor> fields,
         List<DynamicFormulaRuleDescriptor> formulaRules,
         List<DynamicActionDescriptor> actions,
@@ -25,6 +26,7 @@ public record DynamicEntityDescriptor(
         List<DynamicFileReferenceDescriptor> fileReferences
 ) {
     public DynamicEntityDescriptor {
+        sortPartitionFields = sortPartitionFields == null ? List.of() : List.copyOf(sortPartitionFields);
         fields = fields == null ? List.of() : List.copyOf(fields);
         formulaRules = formulaRules == null ? List.of() : List.copyOf(formulaRules);
         actions = actions == null ? List.of() : List.copyOf(actions);
@@ -38,7 +40,17 @@ public record DynamicEntityDescriptor(
                                    List<DynamicFieldDescriptor> fields, List<DynamicFormulaRuleDescriptor> formulaRules,
                                    List<DynamicActionDescriptor> actions, List<DynamicViewDescriptor> views,
                                    List<DynamicAssociationViewDescriptor> associationViews) {
-        this(entityAlias, title, capabilities, fields, formulaRules, actions, views, associationViews, List.of());
+        this(entityAlias, title, capabilities, List.of(), fields, formulaRules, actions, views, associationViews, List.of());
+    }
+
+    /** Source-compatible constructor for descriptors before file-reference and sort-partition facts existed. */
+    public DynamicEntityDescriptor(String entityAlias, String title, Set<String> capabilities,
+                                   List<DynamicFieldDescriptor> fields, List<DynamicFormulaRuleDescriptor> formulaRules,
+                                   List<DynamicActionDescriptor> actions, List<DynamicViewDescriptor> views,
+                                   List<DynamicAssociationViewDescriptor> associationViews,
+                                   List<DynamicFileReferenceDescriptor> fileReferences) {
+        this(entityAlias, title, capabilities, List.of(), fields, formulaRules, actions, views, associationViews,
+                fileReferences);
     }
 
     public static DynamicEntityDescriptor from(EntityDefinition entity) {
@@ -81,6 +93,7 @@ public record DynamicEntityDescriptor(
                 entity.capabilities().stream()
                         .map(EntityCapability::name)
                         .collect(Collectors.toUnmodifiableSet()),
+                entity.sortPartitionFields(),
                 entity.fields().stream()
                         .map(field -> DynamicFieldDescriptor.from(field, referencesByField.get(field.fieldName())))
                         .toList(),

@@ -3,10 +3,12 @@ import {
   CrudRecordListExplorer,
   ModuleActionButton,
   RecordExplorerPanel,
+  RecordPanelButton,
   RecordPanelState,
   TreeRecordExplorer,
   type QueryListRecord,
 } from '@muyun/platform-components';
+import { computed, ref } from 'vue';
 import type { RecordInlineAction, ResolvedPageNavigatorLevelDescriptor } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import { navigatorItemOf, type NavigatorItemRecord } from './pageNavigatorItemModel';
@@ -17,6 +19,7 @@ type NavigatorLevelRuntime = {
   descriptor: ResolvedPageNavigatorLevelDescriptor;
   context: ModuleContext<QueryListRecord>;
   tree: boolean;
+  sortingDisabled: boolean;
 };
 
 const props = defineProps<{
@@ -46,11 +49,17 @@ const emit = defineEmits<{
   action: [action: RecordInlineAction, record: QueryListRecord];
 }>();
 
+const sorting = ref(false);
+const managementAvailable = computed(() => props.level.descriptor.management != null);
+const sortingAvailable = computed(
+  () => !props.level.sortingDisabled && managementAvailable.value && props.level.context.can('sort') === true,
+);
+
 function itemOf(record: NavigatorItemRecord) {
   return navigatorItemOf(
     record,
     props.level.descriptor.secondaryField,
-    props.level.descriptor.management != null,
+    managementAvailable.value,
     props.actionsOf,
   );
 }
@@ -58,7 +67,7 @@ function itemOf(record: NavigatorItemRecord) {
 
 <template>
   <RecordExplorerPanel
-    :class="{ 'page-navigator-explorer--readonly': !level.descriptor.management }"
+    :class="{ 'page-navigator-explorer--readonly': !managementAvailable }"
     :title="level.descriptor.title"
     :subtitle="scopeSubtitle"
     :refresh-title="`刷新${level.descriptor.title}${level.tree ? '树' : '列表'}`"
@@ -67,7 +76,20 @@ function itemOf(record: NavigatorItemRecord) {
     @update:search-keyword="emit('update:keyword', $event)"
     @refresh="emit('refresh')"
   >
-    <template v-if="level.descriptor.management" #actions>
+    <template v-if="sortingAvailable" #utility-actions>
+      <RecordPanelButton
+        icon-name="swap-vertical"
+        icon-only
+        size="small"
+        type="text"
+        :selected="sorting"
+        :disabled="Boolean(keyword.trim())"
+        :title="keyword.trim() ? '清空搜索后可调整排序' : sorting ? '结束排序' : '调整排序'"
+        :aria-label="sorting ? '结束排序' : '调整排序'"
+        @click="sorting = !sorting"
+      />
+    </template>
+    <template v-if="managementAvailable" #actions>
       <ModuleActionButton
         :context="level.context"
         action-code="create"
@@ -89,7 +111,8 @@ function itemOf(record: NavigatorItemRecord) {
       search-mode="none"
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
-      :actions-of="actionsOf"
+      :actions-of="managementAvailable ? actionsOf : undefined"
+      :sorting="sorting"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"
@@ -106,7 +129,8 @@ function itemOf(record: NavigatorItemRecord) {
       :navigator-target-level-key="level.descriptor.key"
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
-      :actions-of="actionsOf"
+      :actions-of="managementAvailable ? actionsOf : undefined"
+      :sorting="sorting"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"

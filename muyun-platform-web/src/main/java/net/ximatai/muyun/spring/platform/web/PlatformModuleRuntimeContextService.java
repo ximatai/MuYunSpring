@@ -252,11 +252,35 @@ public class PlatformModuleRuntimeContextService {
                 entryExternalUrl(module, staticDefinition),
                 mainEntityAlias(staticDefinition, dynamicDescriptor),
                 capabilities,
+                sortPartitionFields(staticDefinition, dynamicDescriptor),
                 abilityCodes(capabilities),
                 actions,
                 navigatorSourceCapabilities,
                 uiDescriptor
         );
+    }
+
+    /**
+     * Browser-visible declaration of the same persisted fields used by the sort ability to
+     * partition an order sequence.  The browser uses this only to avoid offering invalid drops;
+     * the service remains the authority that validates a move.
+     */
+    private List<String> sortPartitionFields(Optional<StaticModuleDefinition> staticDefinition,
+                                             DynamicModuleDescriptor dynamicDescriptor) {
+        String staticMainEntityAlias = mainEntityAlias(staticDefinition, null);
+        if (staticDefinition.isPresent()) {
+            return staticDefinition.get().entities().stream()
+                    .filter(entity -> entity.alias().equals(staticMainEntityAlias))
+                    .findFirst()
+                    .map(EntityDefinition::sortPartitionFields)
+                    .orElse(List.of());
+        }
+        if (dynamicDescriptor == null) return List.of();
+        return dynamicDescriptor.entities().stream()
+                .filter(entity -> entity.entityAlias().equals(dynamicDescriptor.mainEntityAlias()))
+                .findFirst()
+                .map(DynamicEntityDescriptor::sortPartitionFields)
+                .orElse(List.of());
     }
 
     /**

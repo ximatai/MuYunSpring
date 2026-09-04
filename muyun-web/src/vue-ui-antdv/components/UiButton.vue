@@ -19,6 +19,8 @@ const props = withDefaults(
     iconPosition?: 'start' | 'end';
     /** Fixed square hit area for compact actions whose content is only an icon. */
     iconOnly?: boolean;
+    /** Lightweight persistent selection for non-primary tools such as search and ordering. */
+    selected?: boolean;
   }>(),
   {
     type: 'default',
@@ -32,6 +34,7 @@ const props = withDefaults(
     iconName: undefined,
     iconPosition: 'start',
     iconOnly: false,
+    selected: false,
   },
 );
 
@@ -61,6 +64,7 @@ const emit = defineEmits<{
       {
         'ui-button--icon-only': iconOnly,
         'ui-button--icon-only-compact': iconOnly && size === 'small',
+        'ui-button--selected': selected,
       },
     ]"
     :style="$attrs.style"
@@ -81,6 +85,26 @@ const emit = defineEmits<{
 
 :deep(.ant-btn-primary.ant-btn-dangerous.ui-button--danger-solid:not(:disabled)) {
   color: var(--muyun-danger-on-base);
+}
+
+/* Selected tools stay visibly active without competing with primary submit actions. */
+:global(.ant-btn.ui-button--selected.ui-button--selected:not(:disabled)) {
+  border-color: color-mix(in srgb, var(--muyun-primary) 24%, transparent);
+  background: var(
+    --muyun-primary-surface,
+    color-mix(in srgb, var(--muyun-primary) 12%, var(--muyun-surface))
+  );
+  color: var(--muyun-primary);
+}
+
+:global(.ant-btn.ui-button--selected.ui-button--selected:not(:disabled):hover),
+:global(.ant-btn.ui-button--selected.ui-button--selected:not(:disabled):focus-visible) {
+  border-color: color-mix(in srgb, var(--muyun-primary) 36%, transparent);
+  background: var(
+    --muyun-primary-surface,
+    color-mix(in srgb, var(--muyun-primary) 16%, var(--muyun-surface))
+  );
+  color: var(--muyun-primary);
 }
 
 .ui-button-trailing-icon {

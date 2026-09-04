@@ -78,6 +78,29 @@ import static org.mockito.Mockito.when;
 
 class PlatformModuleRuntimeContextServiceTest {
     @Test
+    void shouldExposeMainEntitySortPartitionFieldsInRuntimeContext() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleService.resolveVisibleModule("sales.contract"))
+                .thenReturn(module("sales.contract", "合同", ModuleKind.STATIC));
+        when(actionService.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+        EntityDefinition contract = new EntityDefinition("contract", EntityDefinition.DEFAULT_SCHEMA_NAME,
+                "contract", "Contract", List.of(),
+                Set.of(EntityCapability.CRUD, EntityCapability.SORT), List.of(), List.of(),
+                List.of("tenantId", "type"));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.contract", "合同")
+                .entities(List.of(contract))
+                .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.SORT)))
+                .build();
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, new StaticModuleDefinitionCatalog(List.of(definition)), null,
+                null, null, allowAllPolicy());
+
+        assertThat(service.context("sales.contract").sortPartitionFields())
+                .containsExactly("tenantId", "type");
+    }
+
+    @Test
     void shouldExcludePlatformDynamicModulesWithoutAnInstalledRuntimeFromStartupPlans() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);

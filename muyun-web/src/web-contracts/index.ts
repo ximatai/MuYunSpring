@@ -1747,9 +1747,14 @@ export interface DictionaryItem extends StandardEnabledTreeEntity {
   code?: string;
 }
 
-export interface TreeSortRequest {
+/** Relative placement for a sortable flat record collection. */
+export interface SortRequest {
   previousId?: string | null;
   nextId?: string | null;
+}
+
+/** Relative placement for a sortable tree record collection. */
+export interface TreeSortRequest extends SortRequest {
   parentId?: string | null;
 }
 

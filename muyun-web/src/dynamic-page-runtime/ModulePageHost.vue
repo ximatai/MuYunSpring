@@ -164,6 +164,7 @@ let resolvedSelectionFormDefaultsRequest: Promise<void> | undefined;
 // CRUD/tree transport after the last navigator range is selected.
 const activeTreeResourceClient = ref<ModuleTreeClient<QueryListRecord>>();
 const treeReloadKey = ref(0);
+const mainTreeSorting = ref(false);
 const selectedTreeRecord = ref<QueryListRecord>();
 const moduleRequestPrefix = `/${props.descriptor.target.moduleAlias}`;
 const pageContextHeader = ref<string>();
@@ -204,6 +205,7 @@ const context: ModuleContext<QueryListRecord> = {
     delete: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).delete(id, request),
     enable: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).enable(id, request),
     disable: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).disable(id, request),
+    sort: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).sort(id, request),
   },
   abilities: {
     ...rawContext.abilities,
@@ -343,6 +345,7 @@ const {
   loadRuntimeForm,
 } = useNavigatorRuntime(context, baseContext.http);
 const navigatorEntryReloadKeys = ref<Record<string, number>>({});
+const navigatorSortingKeys = ref<Record<string, boolean>>({});
 watch(
   () => props.descriptor.params,
   (params) => applyNavigatorEntrySelectionChange(setNavigatorEntrySelection(params)),
@@ -432,6 +435,7 @@ const {
 const treeSearchKeyword = ref('');
 const flatManagementSearchKeyword = ref('');
 const flatManagementReloadKey = ref(0);
+const flatManagementSorting = ref(false);
 const {
   listMode,
   reloadKey,
@@ -1655,6 +1659,18 @@ function navigatorReloadKey(levelKey: string): number {
   return scopeReloadKey.value + (navigatorEntryReloadKeys.value[levelKey] ?? 0);
 }
 
+function navigatorSorting(level: NavigatorLevelRuntime): boolean {
+  return navigatorSortingKeys.value[level.descriptor.key] === true;
+}
+
+function toggleNavigatorSorting(level: NavigatorLevelRuntime) {
+  const key = level.descriptor.key;
+  navigatorSortingKeys.value = {
+    ...navigatorSortingKeys.value,
+    [key]: !navigatorSorting(level),
+  };
+}
+
 function preloadNavigatorRecordActions(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
   if (!navigatorManagementAvailable(level)) return;
   const recordIds = records.flatMap((record) => (record.id == null ? [] : [String(record.id)]));
@@ -1735,6 +1751,10 @@ function navigatorManagementScopeDisabledReason(level: NavigatorLevelRuntime): s
 
 function navigatorManagementAvailable(level: NavigatorLevelRuntime) {
   return level.descriptor.management != null;
+}
+
+function navigatorSortingAvailable(level: NavigatorLevelRuntime) {
+  return !level.sortingDisabled && navigatorManagementAvailable(level) && level.context.can('sort') === true;
 }
 
 function navigatorInlineActions(level: NavigatorLevelRuntime, record: NavigatorRecord): RecordInlineAction[] {
@@ -1848,6 +1868,7 @@ const navigatorManagementEnabledVisible = computed(() => {
   const record = navigatorManagementDetail.draft.value;
   return Boolean(
     level &&
+    navigatorManagementAvailable(level) &&
     record?.id != null &&
     navigatorManagementDetail.mode.value === 'edit' &&
     level.context.abilities.hasEnable() === true,
@@ -1857,7 +1878,7 @@ const navigatorManagementEnabledVisible = computed(() => {
 function navigatorManagementEnabledActionAvailable(actionCode: 'enable' | 'disable'): boolean {
   const level = navigatorManagementLevel.value;
   const recordId = navigatorManagementDetail.draft.value?.id;
-  if (!level || recordId == null) return false;
+  if (!level || !navigatorManagementAvailable(level) || recordId == null) return false;
   const recordAction = level.context
     .recordActionsSnapshot(String(recordId))
     ?.actions.find((action) => action.actionCode === actionCode);
@@ -1894,7 +1915,15 @@ async function toggleNavigatorManagementEnabled(enabled: boolean) {
   const record = navigatorManagementDetail.draft.value;
   const id = record?.id == null ? undefined : String(record.id);
   const version = typeof record?.version === 'number' ? record.version : undefined;
-  if (!level || !record || !id || version === undefined || navigatorManagementEnabledDisabled.value) return;
+  if (
+    !level ||
+    !navigatorManagementAvailable(level) ||
+    !record ||
+    !id ||
+    version === undefined ||
+    navigatorManagementEnabledDisabled.value
+  )
+    return;
 
   const session = navigatorManagementSession;
   const pendingDraft = { ...record };
@@ -1973,6 +2002,7 @@ async function handleNavigatorInlineAction(
   action: RecordInlineAction,
   record: NavigatorRecord,
 ) {
+  if (!navigatorManagementAvailable(level)) return;
   if (action.key === 'create-child') {
     createNavigatorRecord(level, record.id == null ? undefined : String(record.id));
   } else if (action.key === 'edit') {
@@ -1985,7 +2015,8 @@ async function handleNavigatorInlineAction(
 async function saveNavigatorRecord() {
   const level = navigatorManagementLevel.value;
   const record = navigatorManagementDetail.draft.value;
-  if (!level || !record || navigatorManagementDetail.saving.value) return;
+  if (!level || !navigatorManagementAvailable(level) || !record || navigatorManagementDetail.saving.value)
+    return;
   if (!navigatorManagementFormValid.value) {
     navigatorManagementFormValidationRequestKey.value += 1;
     return;
@@ -2030,7 +2061,13 @@ async function saveNavigatorRecord() {
 async function deleteNavigatorRecord(level: NavigatorLevelRuntime, record: NavigatorRecord) {
   const id = record.id == null ? undefined : String(record.id);
   const version = typeof record.version === 'number' ? record.version : undefined;
-  if (!id || version === undefined || level.context.can('delete') !== true) return;
+  if (
+    !navigatorManagementAvailable(level) ||
+    !id ||
+    version === undefined ||
+    level.context.can('delete') !== true
+  )
+    return;
   try {
     if (
       !(await confirmAction({
@@ -2535,8 +2572,33 @@ function recordTitle(record: QueryListRecord | undefined) {
           @update:search-keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
         >
-          <template v-if="navigatorManagementAvailable(navigatorLevelAt(index)!)" #actions>
+          <template
+            v-if="
+              navigatorManagementAvailable(navigatorLevelAt(index)!) ||
+              navigatorSortingAvailable(navigatorLevelAt(index)!)
+            "
+            #actions
+          >
+            <RecordPanelButton
+              v-if="navigatorSortingAvailable(navigatorLevelAt(index)!)"
+              icon-name="swap-vertical"
+              icon-only
+              size="small"
+              type="text"
+              :selected="navigatorSorting(navigatorLevelAt(index)!)"
+              :disabled="Boolean(scopeSearchKeyword.trim())"
+              :title="
+                scopeSearchKeyword.trim()
+                  ? '清空搜索后可调整排序'
+                  : navigatorSorting(navigatorLevelAt(index)!)
+                    ? '结束排序'
+                    : '调整排序'
+              "
+              :aria-label="navigatorSorting(navigatorLevelAt(index)!) ? '结束排序' : '调整排序'"
+              @click="toggleNavigatorSorting(navigatorLevelAt(index)!)"
+            />
             <ModuleActionButton
+              v-if="navigatorManagementAvailable(navigatorLevelAt(index)!)"
               :context="navigatorLevelAt(index)!.context"
               action-code="create"
               icon-only
@@ -2562,6 +2624,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             search-mode="none"
             :empty-description="`暂无${navigatorLevelAt(index)!.descriptor.title}`"
             :actions-of="(record) => navigatorInlineActions(navigatorLevelAt(index)!, record)"
+            :sorting="navigatorSorting(navigatorLevelAt(index)!)"
             @loaded="handleNavigatorLoaded(navigatorLevelAt(index)!, $event)"
             @select="selectNavigatorRecord(navigatorLevelAt(index)!.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(navigatorLevelAt(index)!.descriptor.key)"
@@ -2582,6 +2645,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :external-query-values="navigatorExplorerQueryValues(navigatorLevelAt(index)!.descriptor.key)"
             :empty-description="`暂无${navigatorLevelAt(index)!.descriptor.title}`"
             :actions-of="(record) => navigatorInlineActions(navigatorLevelAt(index)!, record)"
+            :sorting="navigatorSorting(navigatorLevelAt(index)!)"
             @loaded="handleNavigatorLoaded(navigatorLevelAt(index)!, $event)"
             @select="selectNavigatorRecord(navigatorLevelAt(index)!.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(navigatorLevelAt(index)!.descriptor.key)"
@@ -2623,6 +2687,24 @@ function recordTitle(record: QueryListRecord | undefined) {
         </RecordExplorerPanel>
       </template>
       <template v-if="!flatManagementRecycleBin.active.value" #explorer-actions>
+        <RecordPanelButton
+          v-if="context.can('sort') === true"
+          icon-name="swap-vertical"
+          icon-only
+          size="small"
+          type="text"
+          :selected="flatManagementSorting"
+          :disabled="Boolean(flatManagementSearchKeyword.trim())"
+          :title="
+            flatManagementSearchKeyword.trim()
+              ? '清空搜索后可调整排序'
+              : flatManagementSorting
+                ? '结束排序'
+                : '调整排序'
+          "
+          :aria-label="flatManagementSorting ? '结束排序' : '调整排序'"
+          @click="flatManagementSorting = !flatManagementSorting"
+        />
         <ModuleActionButton
           class="record-panel-create-button"
           :context="context"
@@ -2639,6 +2721,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :selected-id="selectedRecord?.id == null ? undefined : String(selectedRecord.id)"
           :reload-key="flatManagementRecycleBin.reloadKey.value"
           :mode="flatManagementRecycleBin.mode.value"
+          :sorting="flatManagementSorting"
           :keyword="flatManagementSearchKeyword"
           :external-query-values="navigatorListQueryValues"
           :empty-description="
@@ -2778,8 +2861,27 @@ function recordTitle(record: QueryListRecord | undefined) {
           @update:search-keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
         >
-          <template v-if="navigatorManagementAvailable(level)" #actions>
+          <template v-if="navigatorManagementAvailable(level) || navigatorSortingAvailable(level)" #actions>
+            <RecordPanelButton
+              v-if="navigatorSortingAvailable(level)"
+              icon-name="swap-vertical"
+              icon-only
+              size="small"
+              type="text"
+              :selected="navigatorSorting(level)"
+              :disabled="Boolean(scopeSearchKeyword.trim())"
+              :title="
+                scopeSearchKeyword.trim()
+                  ? '清空搜索后可调整排序'
+                  : navigatorSorting(level)
+                    ? '结束排序'
+                    : '调整排序'
+              "
+              :aria-label="navigatorSorting(level) ? '结束排序' : '调整排序'"
+              @click="toggleNavigatorSorting(level)"
+            />
             <ModuleActionButton
+              v-if="navigatorManagementAvailable(level)"
               :context="level.context"
               action-code="create"
               icon-only
@@ -2803,6 +2905,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             search-mode="none"
             :empty-description="`暂无${level.descriptor.title}`"
             :actions-of="(record) => navigatorInlineActions(level, record)"
+            :sorting="navigatorSorting(level)"
             @loaded="handleNavigatorLoaded(level, $event)"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(level.descriptor.key)"
@@ -2822,6 +2925,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :navigator-host-module-alias="context.moduleAlias"
             :empty-description="`暂无${level.descriptor.title}`"
             :actions-of="(record) => navigatorInlineActions(level, record)"
+            :sorting="navigatorSorting(level)"
             @loaded="handleNavigatorLoaded(level, $event)"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(level.descriptor.key)"
@@ -3097,6 +3201,20 @@ function recordTitle(record: QueryListRecord | undefined) {
           @refresh="treeReloadKey += 1"
         >
           <template #actions>
+            <RecordPanelButton
+              v-if="mainTreeScopeReady && context.can('sort') === true"
+              icon-name="swap-vertical"
+              icon-only
+              size="small"
+              type="text"
+              :selected="mainTreeSorting"
+              :disabled="Boolean(treeSearchKeyword.trim())"
+              :title="
+                treeSearchKeyword.trim() ? '清空搜索后可调整排序' : mainTreeSorting ? '结束排序' : '调整排序'
+              "
+              :aria-label="mainTreeSorting ? '结束排序' : '调整排序'"
+              @click="mainTreeSorting = !mainTreeSorting"
+            />
             <ModuleActionButton
               v-if="mainTreeScopeReady"
               class="record-panel-create-button"
@@ -3113,6 +3231,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :selected-id="selectedTreeRecord?.id == null ? undefined : String(selectedTreeRecord.id)"
             :reload-key="treeReloadKey"
             :keyword="treeSearchKeyword"
+            :sorting="mainTreeSorting"
             :external-query-values="runtimePage?.treeResource ? undefined : navigatorListQueryValues"
             search-mode="none"
             search-trigger="external"

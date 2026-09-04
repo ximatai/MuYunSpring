@@ -1,4 +1,5 @@
 import type {
+  SortRequest,
   TreeSortRequest,
   WebActionResultFacts,
   WebActionResultEnvelope,
@@ -35,6 +36,7 @@ export interface ModuleCrudClient<TRecord> {
   delete(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
   enable(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
   disable(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
+  sort(id: string, request: SortRequest): Promise<StaticCountMutationResult>;
 }
 
 /** Source-neutral tree extension for a platform module. */
@@ -194,6 +196,14 @@ export function createStaticResourceCrudClient<TRecord>(
         await http.request<StaticCountMutationResult>({
           method: 'POST',
           path: `${modulePath}/disable/${encodeURIComponent(id)}`,
+          body: request,
+        }),
+      ),
+    sort: async (id, request) =>
+      normalizeCountMutationResponse(
+        await http.request<StaticCountMutationResult>({
+          method: 'POST',
+          path: `${modulePath}/sort/${encodeURIComponent(id)}`,
           body: request,
         }),
       ),
