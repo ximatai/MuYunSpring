@@ -22,6 +22,15 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
     }
 
     default void reorder(List<String> orderedIds) {
+        reorder(null, orderedIds);
+    }
+
+    /**
+     * Reorders a complete sort scope with an optional additional business filter.
+     * The filter is useful for scoped tree facades whose lookup scope is narrower than
+     * the entity's declared sort partition.
+     */
+    default void reorder(Criteria additionalScope, List<String> orderedIds) {
         if (orderedIds == null || orderedIds.isEmpty()) {
             throw new PlatformException("Cannot reorder empty records");
         }
@@ -42,7 +51,11 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
             validateSortScope(first, entity);
             entities.add(entity);
         }
-        List<String> scopedIds = sortedList(sortScope(first)).stream()
+        Criteria scope = sortScope(first);
+        if (additionalScope != null && !additionalScope.isEmpty()) {
+            scope.andGroup(additionalScope.getRoot());
+        }
+        List<String> scopedIds = sortedList(scope).stream()
                 .map(SortCapable::getId)
                 .toList();
         if (!new LinkedHashSet<>(scopedIds).equals(uniqueIds)) {
@@ -76,6 +89,20 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
      */
     default SortPartition<T> sortPartition() {
         return SortPartitions.fromModel(modelClass());
+    }
+
+    /**
+     * Declares the persisted business fields that can be projected to a client as the
+     * sortable record partition. Custom services whose partition is not described by
+     * {@link SortPartitionBy} must override this method explicitly.
+     */
+    default List<String> sortPartitionFields() {
+        Class<?> type = modelClass();
+        if (type == null || type == Object.class) {
+            return List.of();
+        }
+        SortPartitionBy declaration = type.getAnnotation(SortPartitionBy.class);
+        return declaration == null ? List.of() : List.of(declaration.fields());
     }
 
     /**

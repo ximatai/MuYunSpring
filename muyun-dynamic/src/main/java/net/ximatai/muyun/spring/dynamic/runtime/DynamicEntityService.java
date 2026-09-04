@@ -613,6 +613,10 @@ public class DynamicEntityService implements
         return scope;
     }
 
+    void validateTreeMoveBusinessPartition(DynamicRecord moving, DynamicRecord targetParent) {
+        validateBusinessSortPartition(moving, targetParent);
+    }
+
     public SortPartition<DynamicRecord> sortPartition() {
         return new SortPartition<>() {
             @Override
@@ -626,13 +630,17 @@ public class DynamicEntityService implements
                         && !SortAbility.sameValue(left.parentId(), right.parentId())) {
                     throw new PlatformException("Tree sort can only move records within the same parent");
                 }
-                for (String fieldName : dao.getEntity().sortPartitionFields()) {
-                    if (!SortAbility.sameValue(left.getValue(fieldName), right.getValue(fieldName))) {
-                        throw new PlatformException("Sort can only move records within the same partition: " + fieldName);
-                    }
-                }
+                validateBusinessSortPartition(left, right);
             }
         };
+    }
+
+    private void validateBusinessSortPartition(DynamicRecord left, DynamicRecord right) {
+        for (String fieldName : dao.getEntity().sortPartitionFields()) {
+            if (!SortAbility.sameValue(left.getValue(fieldName), right.getValue(fieldName))) {
+                throw new PlatformException("Sort can only move records within the same partition: " + fieldName);
+            }
+        }
     }
 
     public String title(String id) {

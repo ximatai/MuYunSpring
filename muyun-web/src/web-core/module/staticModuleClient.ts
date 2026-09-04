@@ -1,4 +1,5 @@
 import type {
+  SortRequest,
   TreeSortRequest,
   WebActionResultFacts,
   WebActionResultEnvelope,
@@ -35,6 +36,8 @@ export interface ModuleCrudClient<TRecord> {
   delete(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
   enable(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
   disable(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
+  /** Optional capability: plain CRUD consumers must not be forced to implement sorting. */
+  sort?(id: string, request: SortRequest): Promise<StaticCountMutationResult>;
 }
 
 /** Source-neutral tree extension for a platform module. */
@@ -120,6 +123,8 @@ export function createNavigatorReferenceCrudClient<TRecord>(
   const modulePath = modulePathOf(options.moduleAlias);
   return {
     ...normal,
+    // A navigator reference is a scoped read projection, not the source module's full CRUD scope.
+    sort: undefined,
     query: (request) =>
       http
         .request<WebPageResponse<TRecord>>({
@@ -194,6 +199,14 @@ export function createStaticResourceCrudClient<TRecord>(
         await http.request<StaticCountMutationResult>({
           method: 'POST',
           path: `${modulePath}/disable/${encodeURIComponent(id)}`,
+          body: request,
+        }),
+      ),
+    sort: async (id, request) =>
+      normalizeCountMutationResponse(
+        await http.request<StaticCountMutationResult>({
+          method: 'POST',
+          path: `${modulePath}/sort/${encodeURIComponent(id)}`,
           body: request,
         }),
       ),

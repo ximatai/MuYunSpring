@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategory;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
@@ -81,6 +82,26 @@ class ApplicationServiceContractTest {
         assertThat(service.sortedList(Criteria.of()))
                 .extracting(Application::getAlias)
                 .containsExactly("sales", "crm");
+    }
+
+    @Test
+    void shouldAllowReorderingPlatformManagedApplicationsWithoutOpeningTheirEditor() {
+        ApplicationService service = new ApplicationService(new ApplicationMemoryDao());
+        Application platform = application("platform");
+        platform.setSystemManaged(Boolean.TRUE);
+        Application iam = application("iam");
+        iam.setSystemManaged(Boolean.TRUE);
+        PlatformManagedMutationContext.runAsPlatformManaged(() -> {
+            service.insert(platform);
+            service.insert(iam);
+        });
+
+        assertThat(service.ordinaryRecordActionAvailability(PlatformAction.SORT.code(), platform)).isEmpty();
+        service.moveAfter("platform", "iam");
+
+        assertThat(service.sortedList(Criteria.of()))
+                .extracting(Application::getAlias)
+                .containsExactly("iam", "platform");
     }
 
     @Test

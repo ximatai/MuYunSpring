@@ -26,6 +26,7 @@ import net.ximatai.muyun.spring.web.ScopedWeb;
 import net.ximatai.muyun.spring.web.SortWeb;
 import net.ximatai.muyun.spring.web.TreeWeb;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.reference.ModuleReadProjectionContributor;
@@ -165,12 +166,22 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .references(references(bean))
                 .readProjections(readProjections(bean, module.alias()))
                 .modelClass(modelClass)
+                .sortPartitionFields(sortPartitionFields(bean))
                 .entityModelClasses(entityModelClasses(bean, modelClass, entities))
                 .projectionJoins(projectionJoins)
                 .queryDescriptor(queryDescriptor(bean, module.alias()))
                 .openApiAvailable(AnnotationUtils.findAnnotation(beanClass, StaticModuleOpenApi.class) != null)
                 .legacyReadProjectionCompatibility(bean instanceof LegacyStaticReadProjectionCompatibility)
                 .build();
+    }
+
+    private List<String> sortPartitionFields(Object bean) {
+        Object service = service(bean);
+        if (!(service instanceof SortAbility<?> sortAbility)) {
+            return List.of();
+        }
+        List<String> fields = sortAbility.sortPartitionFields();
+        return fields == null ? List.of() : List.copyOf(fields);
     }
 
     /**

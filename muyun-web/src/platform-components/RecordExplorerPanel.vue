@@ -86,9 +86,11 @@ async function focusSearchInput() {
             icon-only
             size="small"
             type="text"
+            :selected="searchExpanded"
             :title="`搜索${title}`"
             @click="toggleSearch"
           />
+          <slot name="utility-actions" />
           <UiButton
             v-if="collapseAction && explorerColumn?.collapsible.value && !explorerColumn.collapsed.value"
             class="record-explorer-panel-action"

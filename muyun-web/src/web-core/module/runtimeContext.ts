@@ -51,6 +51,8 @@ export interface ModuleRuntimeContext {
   entryExternalUrl?: string;
   mainEntityAlias?: string;
   capabilities: string[];
+  /** Persisted fields that define the server-authoritative sort partition. */
+  sortPartitionFields?: string[];
   abilities?: string[];
   actions: ModuleRuntimeAction[];
   /** Read-only projections this module deliberately exposes for page navigation. */

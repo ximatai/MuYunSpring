@@ -7,11 +7,13 @@ import {
   UiSpin,
   UiTree,
   type UiRecordInlineAction,
+  type UiTreeDropEvent,
   type UiTreeNode,
 } from '@muyun/vue-ui-antdv';
 import type { ModuleContext } from '@muyun/web-core';
 import type { WebTreeNode } from '@muyun/web-contracts';
 import type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
+import { sortPartitionKey } from './sortPartitionKey';
 import {
   defaultTreeRecordMatches,
   defaultTreeRecordTitle,
@@ -50,6 +52,8 @@ const props = withDefaults(
     filterOption?: (record: TreeRecordBase, normalizedKeyword: string) => boolean;
     tagOf?: (record: TreeRecordBase) => string | undefined;
     mutedOf?: (record: TreeRecordBase) => boolean;
+    /** Enables same-parent drag ordering through the module's standard tree sort contract. */
+    sorting?: boolean;
   }>(),
   {
     selectedId: undefined,
@@ -71,6 +75,7 @@ const props = withDefaults(
     filterOption: undefined,
     tagOf: undefined,
     mutedOf: undefined,
+    sorting: false,
   },
 );
 
@@ -79,9 +84,11 @@ const emit = defineEmits<{
   deselect: [];
   action: [action: UiRecordInlineAction, record: TreeRecordBase];
   loaded: [records: TreeRecordBase[]];
+  sorted: [];
 }>();
 
 const loading = ref(false);
+const sortingRequest = ref(false);
 const localKeyword = ref('');
 const searchExpanded = ref(false);
 const tree = ref<WebTreeNode<TreeRecordBase>[]>([]);
@@ -109,6 +116,9 @@ const filteredTree = computed(() =>
 );
 const nodes = computed(() => filteredTree.value.map(toUiTreeNode));
 const records = computed(() => flattenTreeRecords(tree.value));
+const dragOrderingEnabled = computed(
+  () => props.sorting && !sortingRequest.value && !loading.value && !effectiveKeyword.value.trim(),
+);
 
 onMounted(loadTree);
 
@@ -208,6 +218,99 @@ function handleAction(action: UiRecordInlineAction, node: UiTreeNode) {
   }
 }
 
+function canDropForSort(
+  event: Pick<UiTreeDropEvent, 'dragNode' | 'dropNode' | 'dropPosition' | 'dropToGap'>,
+) {
+  if (!dragOrderingEnabled.value || !event.dropToGap || event.dropPosition === 0) return false;
+  const dragLocation = locateTreeNode(String(event.dragNode.key));
+  const dropLocation = locateTreeNode(String(event.dropNode.key));
+  const dragPartition = dragLocation && sortPartitionOf(dragLocation.node.record);
+  const dropPartition = dropLocation && sortPartitionOf(dropLocation.node.record);
+  return Boolean(
+    dragLocation &&
+    dropLocation &&
+    dragLocation.parent === dropLocation.parent &&
+    dragLocation.node !== dropLocation.node &&
+    dragPartition !== undefined &&
+    dragPartition === dropPartition,
+  );
+}
+
+function canDragForSort() {
+  return dragOrderingEnabled.value;
+}
+
+function sortPartitionOf(record: TreeRecordBase): string | undefined {
+  const runtime = props.context.runtime.snapshot?.();
+  if (!runtime) return undefined;
+  const fields = runtime.sortPartitionFields ?? [];
+  const values = record as Record<string, unknown>;
+  if (fields.some((field) => !Object.prototype.hasOwnProperty.call(values, field))) return undefined;
+  return sortPartitionKey(fields.map((field) => values[field]));
+}
+
+async function handleDropForSort(event: UiTreeDropEvent) {
+  if (!canDropForSort(event)) return;
+  const dragLocation = locateTreeNode(String(event.dragNode.key));
+  const dropLocation = locateTreeNode(String(event.dropNode.key));
+  if (!dragLocation || !dropLocation) return;
+
+  const siblings = [...dragLocation.siblings];
+  const sourceIndex = siblings.indexOf(dragLocation.node);
+  const targetIndex = siblings.indexOf(dropLocation.node);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+  const [moving] = siblings.splice(sourceIndex, 1);
+  const adjustedTargetIndex = siblings.indexOf(dropLocation.node);
+  siblings.splice(event.dropPosition < 0 ? adjustedTargetIndex : adjustedTargetIndex + 1, 0, moving);
+  const movedIndex = siblings.indexOf(moving);
+  const movingId = moving.record.id == null ? undefined : String(moving.record.id);
+  if (!movingId) return;
+
+  sortingRequest.value = true;
+  try {
+    await props.context.runtime.ready;
+    await props.context.abilities.tree().sort(movingId, {
+      previousId:
+        siblings[movedIndex - 1]?.record.id == null ? null : String(siblings[movedIndex - 1].record.id),
+      nextId: siblings[movedIndex + 1]?.record.id == null ? null : String(siblings[movedIndex + 1].record.id),
+      parentId: dragLocation.parent?.record.id == null ? null : String(dragLocation.parent.record.id),
+    });
+    emit('sorted');
+    await loadTree();
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'tree-record-explorer', phase: 'action' });
+  } finally {
+    sortingRequest.value = false;
+  }
+}
+
+function locateTreeNode(key: string):
+  | {
+      node: WebTreeNode<TreeRecordBase>;
+      parent?: WebTreeNode<TreeRecordBase>;
+      siblings: WebTreeNode<TreeRecordBase>[];
+    }
+  | undefined {
+  function visit(
+    candidates: WebTreeNode<TreeRecordBase>[],
+    parent?: WebTreeNode<TreeRecordBase>,
+  ):
+    | {
+        node: WebTreeNode<TreeRecordBase>;
+        parent?: WebTreeNode<TreeRecordBase>;
+        siblings: WebTreeNode<TreeRecordBase>[];
+      }
+    | undefined {
+    for (const candidate of candidates) {
+      if (String(candidate.record.id) === key) return { node: candidate, parent, siblings: candidates };
+      const located = visit(candidate.children, candidate);
+      if (located) return located;
+    }
+    return undefined;
+  }
+  return visit(tree.value);
+}
+
 function openSearch() {
   searchExpanded.value = true;
 }
@@ -277,9 +380,13 @@ defineExpose({ openSearch, toggleSearch });
       v-model:expanded-keys="expandedKeys"
       :nodes="nodes"
       :selected-key="selectedId"
+      :draggable="dragOrderingEnabled"
+      :can-drag="canDragForSort"
+      :allow-drop="canDropForSort"
       @select="handleSelect"
       @deselect="emit('deselect')"
       @action="handleAction"
+      @drop="handleDropForSort"
     />
   </div>
 </template>

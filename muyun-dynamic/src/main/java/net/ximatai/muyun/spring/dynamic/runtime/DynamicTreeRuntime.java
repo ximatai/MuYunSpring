@@ -23,4 +23,15 @@ final class DynamicTreeRuntime extends DynamicAbilityRuntime<DynamicTreeRecord> 
             }
         };
     }
+
+    @Override
+    public void validateTreeMoveTarget(DynamicTreeRecord moving, String targetParentId) {
+        if (targetParentId == null || targetParentId.isBlank() || TreeAbility.ROOT_ID.equals(targetParentId)) {
+            return;
+        }
+        DynamicRecord targetParent = owner.select(targetParentId);
+        if (targetParent != null) {
+            owner.validateTreeMoveBusinessPartition(moving.record(), targetParent);
+        }
+    }
 }

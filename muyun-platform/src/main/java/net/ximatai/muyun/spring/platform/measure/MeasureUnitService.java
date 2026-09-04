@@ -88,6 +88,11 @@ public class MeasureUnitService extends AbstractAbilityService<MeasureUnit> impl
                 "tenantId", "applicationAlias", "categoryAlias"));
     }
 
+    @Override
+    public List<String> sortPartitionFields() {
+        return List.of("tenantId", "applicationAlias", "categoryAlias");
+    }
+
     public MeasureUnit resolveUnit(String applicationAlias, String categoryAlias, String unitCode) {
         String validApplicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);
         String validCategoryAlias = requireCategoryAlias(categoryAlias);

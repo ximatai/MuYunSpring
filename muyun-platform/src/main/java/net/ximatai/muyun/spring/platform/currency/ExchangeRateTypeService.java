@@ -66,6 +66,11 @@ public class ExchangeRateTypeService extends AbstractAbilityService<ExchangeRate
                         "Exchange rate type sort can only move records within the same tenant scope", "tenantId"));
     }
 
+    @Override
+    public List<String> sortPartitionFields() {
+        return List.of("tenantId");
+    }
+
     public ExchangeRateType resolveRateType(String rateTypeCode) {
         String code = requireRateTypeCode(rateTypeCode);
         for (ExchangeRateType rateType : visibleRateTypeCandidates(code, false)) {

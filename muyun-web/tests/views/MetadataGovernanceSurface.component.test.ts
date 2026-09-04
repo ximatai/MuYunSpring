@@ -37,6 +37,22 @@ it('keeps main entity capabilities out of the data-model editor', async () => {
   );
 });
 
+it('places metadata sorting in the explorer header as an icon action', async () => {
+  configureModuleContext({ http: fakeHttp() });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  expect(wrapper.get('[data-testid="icon-button"]').attributes('title')).toBe('调整排序');
+  expect(wrapper.findAll('[data-testid="action-button"]').map((button) => button.text())).not.toContain(
+    '调整排序',
+  );
+});
+
 it('keeps the field editor open while save confirmation is pending', async () => {
   const confirmation = deferred<boolean>();
   vi.mocked(confirmAction).mockReturnValue(confirmation.promise);
@@ -96,7 +112,7 @@ function governanceStubs() {
   return {
     ManagementWorkspace: { template: '<section><slot /></section>' },
     ManagementExplorerColumn: { template: '<section><slot /></section>' },
-    RecordExplorerPanel: { template: '<section><slot /></section>' },
+    RecordExplorerPanel: { template: '<section><slot name="actions" /><slot /></section>' },
     RecordDetailPanel: {
       template: '<section><slot name="status" /><slot /><slot name="actions" /></section>',
     },
@@ -110,6 +126,12 @@ function governanceStubs() {
     UiActionButton: {
       emits: ['click'],
       template: '<button data-testid="action-button" @click="$emit(\'click\')"><slot /></button>',
+    },
+    UiButton: {
+      props: { title: String },
+      emits: ['click'],
+      template:
+        '<button data-testid="icon-button" :title="title" @click="$emit(\'click\')"><slot /></button>',
     },
   };
 }

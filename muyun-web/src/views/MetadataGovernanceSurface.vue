@@ -25,6 +25,7 @@ import type {
 import { createStaticResourceCrudClient, useModuleContext } from '@muyun/web-core';
 import {
   UiActionButton,
+  UiButton,
   UiCheckbox,
   UiEmpty,
   UiInput,
@@ -1038,6 +1039,17 @@ function capabilityTitleOf(capability: string): string {
         @refresh="loadWorkspace"
       >
         <template #actions>
+          <UiButton
+            v-if="!state.fieldEditorOpen.value && !sorting"
+            icon-name="swap-vertical"
+            icon-only
+            size="small"
+            type="text"
+            title="调整排序"
+            aria-label="调整排序"
+            :disabled="saving || loading"
+            @click="startSorting"
+          />
           <label class="metadata-system-fields-toggle">
             <span>系统字段</span>
             <UiSwitch
@@ -1101,12 +1113,6 @@ function capabilityTitleOf(capability: string): string {
           :title="fieldProtectionReason(selectedField!)"
           @click="startEditField(selectedField!, fieldPropertyOf(selectedField!))"
           >编辑</UiActionButton
-        >
-        <UiActionButton
-          v-if="!state.fieldEditorOpen.value && !sorting"
-          :disabled="saving || loading"
-          @click="startSorting"
-          >调整排序</UiActionButton
         >
         <UiActionButton
           v-if="!state.fieldEditorOpen.value"

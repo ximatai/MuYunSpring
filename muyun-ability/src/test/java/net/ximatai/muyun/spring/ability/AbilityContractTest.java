@@ -1445,6 +1445,30 @@ class AbilityContractTest {
     }
 
     @Test
+    void scopedTreeReorderShouldKeepAdditionalScopeOutsideDeclaredSortPartition() {
+        DemoOrganizationService service = new DemoOrganizationService();
+        String firstId = service.insert(scopedOrganization("First", TreeAbility.ROOT_ID, "scope-a"));
+        String secondId = service.insert(scopedOrganization("Second", TreeAbility.ROOT_ID, "scope-a"));
+        String thirdId = service.insert(scopedOrganization("Third", TreeAbility.ROOT_ID, "scope-a"));
+        String otherScopeId = service.insert(scopedOrganization("Other scope", TreeAbility.ROOT_ID, "scope-b"));
+        Integer otherScopeOrder = service.select(otherScopeId).getSortOrder();
+        service.select(firstId).setSortOrder(1);
+        service.select(secondId).setSortOrder(2);
+        service.select(thirdId).setSortOrder(3);
+        service.update(service.select(firstId));
+        service.update(service.select(secondId));
+        service.update(service.select(thirdId));
+
+        service.moveInTree(Criteria.of().eq("scopeKey", "scope-a"), firstId, secondId, thirdId, TreeAbility.ROOT_ID);
+
+        assertThat(service.children(Criteria.of().eq("scopeKey", "scope-a"), TreeAbility.ROOT_ID)
+                        .stream()
+                        .map(DemoOrganization::getId))
+                .containsExactly(secondId, firstId, thirdId);
+        assertThat(service.select(otherScopeId).getSortOrder()).isEqualTo(otherScopeOrder);
+    }
+
+    @Test
     void standardBusinessServiceShouldRouteSharedMutationHooks() {
         StandardDemoBusinessService service = new StandardDemoBusinessService();
         DemoPlainRecord record = new DemoPlainRecord("  alpha  ");
@@ -1629,6 +1653,32 @@ class AbilityContractTest {
         assertThatThrownBy(() -> service.moveBefore(firstChild, secondChild))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("same parent");
+    }
+
+    @Test
+    void treeAbilityShouldRejectCrossPartitionMoveBeforeUpdatingOrder() {
+        ScopedDemoOrganizationService service = new ScopedDemoOrganizationService();
+        String firstId = service.insert(scopedOrganization("First", TreeAbility.ROOT_ID, "scope-a"));
+        String otherPartitionId = service.insert(scopedOrganization("Other partition", TreeAbility.ROOT_ID, "scope-b"));
+        Integer originalOrder = service.select(firstId).getSortOrder();
+
+        assertThatThrownBy(() -> service.moveInTree(firstId, otherPartitionId, null, TreeAbility.ROOT_ID))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("same scope");
+        assertThat(service.select(firstId).getSortOrder()).isEqualTo(originalOrder);
+    }
+
+    @Test
+    void treeAbilityShouldRejectCrossPartitionMoveToAnEmptyParentBeforeChangingParent() {
+        ScopedDemoOrganizationService service = new ScopedDemoOrganizationService();
+        String sourceParentId = service.insert(scopedOrganization("Source parent", TreeAbility.ROOT_ID, "scope-a"));
+        String targetParentId = service.insert(scopedOrganization("Empty target parent", TreeAbility.ROOT_ID, "scope-b"));
+        String childId = service.insert(scopedOrganization("Child", sourceParentId, "scope-a"));
+
+        assertThatThrownBy(() -> service.moveInTree(childId, null, null, targetParentId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("same scope");
+        assertThat(service.select(childId).getParentId()).isEqualTo(sourceParentId);
     }
 
     @Test
@@ -2155,6 +2205,17 @@ class AbilityContractTest {
         @Override
         public void validateSortScope(DemoOrganization left, DemoOrganization right) {
             validateTreeSortScopeByFields(left, right,
+                    "Scoped organization sort can only move records within the same scope", "scopeKey");
+        }
+
+        @Override
+        public List<String> sortPartitionFields() {
+            return List.of("scopeKey");
+        }
+
+        @Override
+        public void validateTreeMoveBusinessPartition(DemoOrganization moving, DemoOrganization targetParent) {
+            validateSortScopeByFields(moving, targetParent,
                     "Scoped organization sort can only move records within the same scope", "scopeKey");
         }
     }

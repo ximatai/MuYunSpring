@@ -11,6 +11,7 @@ import {
 } from './crudRecordListModel';
 import { presentPlatformError } from './platformErrorFeedback';
 import { recycleBinRestoreUnavailableReason, useRecycleBinState } from './recycleBinState';
+import { sortPartitionKey } from './sortPartitionKey';
 
 defineOptions({ name: 'CrudRecordListExplorer' });
 
@@ -40,6 +41,8 @@ const props = withDefaults(
     tagOf?: (record: CrudRecordListBase) => string | undefined;
     mutedOf?: (record: CrudRecordListBase) => boolean;
     mode?: CrudRecordListMode;
+    /** Enables standard flat-list drag ordering when the result is unfiltered. */
+    sorting?: boolean;
   }>(),
   {
     selectedId: undefined,
@@ -59,6 +62,7 @@ const props = withDefaults(
     tagOf: undefined,
     mutedOf: undefined,
     mode: 'normal',
+    sorting: false,
   },
 );
 
@@ -69,9 +73,11 @@ const emit = defineEmits<{
   loaded: [records: CrudRecordListBase[]];
   restored: [];
   recycleBinSummary: [total: number | undefined];
+  sorted: [];
 }>();
 
 const loading = ref(false);
+const sortingRequest = ref(false);
 const records = ref<CrudRecordListBase[]>([]);
 let recordsRequestSeq = 0;
 const recycleBinState = useRecycleBinState({
@@ -89,6 +95,22 @@ const recycleBinItems = computed(
 const recycleBinEnabled = computed(() => hasRecycleBinAbility(props.context));
 
 const listRecords = computed<RecordListExplorerRecord[]>(() => records.value);
+const sortingEnabled = computed(
+  () => props.sorting && props.mode === 'normal' && !sortingRequest.value && !props.keyword.trim(),
+);
+
+/**
+ * Mirrors the module's server-declared sort partition. Page compositions enable ordering but
+ * never need to know its fields; the service remains authoritative for validating each move.
+ */
+function sortPartitionOf(record: CrudRecordListBase) {
+  const runtime = props.context.runtime.snapshot?.();
+  if (!runtime) return undefined;
+  const fields = runtime.sortPartitionFields ?? [];
+  const values = record as Record<string, unknown>;
+  if (fields.some((field) => !Object.prototype.hasOwnProperty.call(values, field))) return undefined;
+  return sortPartitionKey(fields.map((field) => values[field]));
+}
 
 onMounted(loadRecords);
 
@@ -221,6 +243,45 @@ async function handleAction(action: UiRecordInlineAction, record: CrudRecordList
   emit('action', action, record);
 }
 
+async function handleSort(event: {
+  dragRecord: RecordListExplorerRecord;
+  dropRecord: RecordListExplorerRecord;
+  position: -1 | 1;
+}) {
+  if (!sortingEnabled.value) return;
+  const dragId = event.dragRecord.id == null ? undefined : String(event.dragRecord.id);
+  const dropId = event.dropRecord.id == null ? undefined : String(event.dropRecord.id);
+  if (!dragId || !dropId) return;
+  const partition = sortPartitionOf(event.dragRecord as CrudRecordListBase);
+  if (partition === undefined) return;
+  const reordered = records.value.filter((record) => sortPartitionOf(record) === partition);
+  const sourceIndex = reordered.findIndex((record) => String(record.id) === dragId);
+  const targetIndex = reordered.findIndex((record) => String(record.id) === dropId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+  const [moving] = reordered.splice(sourceIndex, 1);
+  const adjustedTargetIndex = reordered.findIndex((record) => String(record.id) === dropId);
+  reordered.splice(event.position < 0 ? adjustedTargetIndex : adjustedTargetIndex + 1, 0, moving);
+  const movedIndex = reordered.indexOf(moving);
+  if (movedIndex === sourceIndex) return;
+  const sort = props.context.abilities.crud().sort;
+  if (!sort) return;
+
+  sortingRequest.value = true;
+  try {
+    await props.context.runtime.ready;
+    await sort(dragId, {
+      previousId: reordered[movedIndex - 1]?.id == null ? null : String(reordered[movedIndex - 1].id),
+      nextId: reordered[movedIndex + 1]?.id == null ? null : String(reordered[movedIndex + 1].id),
+    });
+    emit('sorted');
+    await loadRecords();
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'crud-record-list-explorer', phase: 'action' });
+  } finally {
+    sortingRequest.value = false;
+  }
+}
+
 async function handleRecycleBinAction(action: UiRecordInlineAction, record: CrudRecordListBase) {
   const item = recycleBinItems.value.get(String(record.id ?? ''));
   if (!item) return;
@@ -268,9 +329,12 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       :actions-of="(record) => recordActions(record as CrudRecordListBase)"
       :tag-of="(record) => tagOf?.(record as CrudRecordListBase)"
       :muted-of="(record) => mutedOf?.(record as CrudRecordListBase) ?? record.enabled === false"
+      :sorting="sortingEnabled"
+      :sort-partition-of="sortPartitionOf"
       @select="emit('select', $event as CrudRecordListBase)"
       @deselect="emit('deselect')"
       @action="(action, record) => handleAction(action, record as CrudRecordListBase)"
+      @sort="handleSort"
     />
   </div>
 </template>

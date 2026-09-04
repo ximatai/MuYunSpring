@@ -702,6 +702,8 @@ class StaticModuleDefinitionScannerTest {
             assertThat(byAlias.get("platform.menu_scheme").entities())
                     .extracting(EntityDefinition::alias)
                     .containsExactly("menu_scheme");
+            assertThat(byAlias.get("platform.menu").sortPartitionFields())
+                    .containsExactly("schemeId");
             ResolvedModuleUiDescriptor menuDescriptor =
                     ModuleUiDescriptorCompiler.compile(byAlias.get("platform.menu"));
             assertThat(menuDescriptor.page().template()).isEqualTo(ModulePageTemplate.TREE_MANAGEMENT);

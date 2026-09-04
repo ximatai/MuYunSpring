@@ -91,6 +91,12 @@ public class MeasureUnitConversionRuleService extends AbstractAbilityService<Mea
                 "tenantId", "applicationAlias", "scopeType", "moduleAlias", "contextObjectType", "contextObjectId"));
     }
 
+    @Override
+    public List<String> sortPartitionFields() {
+        return List.of("tenantId", "applicationAlias", "scopeType", "moduleAlias", "contextObjectType",
+                "contextObjectId");
+    }
+
     public List<MeasureUnitConversionRule> applicableRules(MeasureUnitConversionContext context) {
         MeasureUnitConversionContext validContext = normalizeContext(context);
         LocalDateTime operatedAt = validContext.operatedAt() == null ? LocalDateTime.now() : validContext.operatedAt();

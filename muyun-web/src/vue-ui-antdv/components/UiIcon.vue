@@ -59,7 +59,8 @@ export type UiIconName =
   | 'search'
   | 'skin'
   | 'settings'
-  | 'swap';
+  | 'swap'
+  | 'swap-vertical';
 
 const props = defineProps<{
   name: UiIconName;
@@ -94,11 +95,13 @@ const icons = {
   skin: SkinOutlined,
   settings: SettingOutlined,
   swap: SwapOutlined,
+  'swap-vertical': SwapOutlined,
 } as const;
 
 const lucideIconNames = new Set<UiIconName>(['open-in-new', 'pin', 'pin-off']);
 
 const icon = computed(() => icons[props.name]);
+const iconRotate = computed(() => (props.name === 'swap-vertical' ? 90 : undefined));
 const lucideProps = computed(() =>
   lucideIconNames.has(props.name) ? { size: 16, strokeWidth: 1.8 } : undefined,
 );
@@ -107,8 +110,14 @@ const lucideProps = computed(() =>
 <template>
   <component
     :is="icon"
-    :class="[$attrs.class, { 'ui-icon--lucide': lucideIconNames.has(name) }]"
+    :class="[
+      $attrs.class,
+      {
+        'ui-icon--lucide': lucideIconNames.has(name),
+      },
+    ]"
     :style="$attrs.style"
+    :rotate="iconRotate"
     v-bind="lucideProps"
   />
 </template>

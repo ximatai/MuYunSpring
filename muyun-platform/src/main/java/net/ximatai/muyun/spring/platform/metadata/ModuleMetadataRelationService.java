@@ -17,6 +17,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
+import java.util.List;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -127,6 +128,11 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
                 }
             }
         };
+    }
+
+    @Override
+    public List<String> sortPartitionFields() {
+        return List.of("moduleAlias", "relationRole", "parentMetadataId");
     }
 
     @Override

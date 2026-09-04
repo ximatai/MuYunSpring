@@ -13,10 +13,13 @@ import net.ximatai.muyun.spring.common.option.OptionLoad;
 import net.ximatai.muyun.spring.common.option.OptionSourceType;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateBinding;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.ability.SortPartitionBy;
 
 @Getter
 @Setter
 @Table(name = "platform_menu_scheme", comment = "Platform menu scheme")
+@SortPartitionBy(fields = {"tenantId", "scopeType", "organizationId"},
+        message = "Menu scheme sort can only move records within the same scope")
 @InitialDataFields(
         identity = {"alias", "scopeType", "tenantId", "organizationId"},
         operator = {"title", "enabled", "sortOrder"}

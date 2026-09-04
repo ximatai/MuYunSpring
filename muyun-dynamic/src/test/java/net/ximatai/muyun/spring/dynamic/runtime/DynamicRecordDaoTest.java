@@ -1495,6 +1495,30 @@ class DynamicRecordDaoTest {
     }
 
     @Test
+    void shouldRejectDynamicTreeMoveToParentFromAnotherBusinessPartition() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> params = invocation.getArgument(1);
+            if (sql.contains("\"id\" =") && params.containsValue("moving")) {
+                return List.of(partitionRow("moving", "group-a", "root", 100));
+            }
+            if (sql.contains("\"id\" =") && params.containsValue("parent-b")) {
+                return List.of(partitionRow("parent-b", "group-b", "root", 100));
+            }
+            return List.of();
+        });
+        DynamicEntityService entityService = new DynamicEntityService(
+                new DynamicRecordDao(operations, partitionTreeEntity()), "sales.contract");
+
+        assertThatThrownBy(() -> entityService.moveInTree("moving", null, null, "parent-b"))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("same partition: groupId");
+        verify(operations, never()).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
+    }
+
+    @Test
     void shouldResolveDynamicReferenceTitlesAndOptions() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));

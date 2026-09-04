@@ -65,6 +65,11 @@ public class CurrencyService extends AbstractAbilityService<Currency> implements
                         "Currency sort can only move records within the same tenant scope", "tenantId"));
     }
 
+    @Override
+    public List<String> sortPartitionFields() {
+        return List.of("tenantId");
+    }
+
     public Currency resolveCurrency(String currencyCode) {
         String code = requireCurrencyCode(currencyCode);
         for (Currency currency : visibleCurrencyCandidates(code, false)) {

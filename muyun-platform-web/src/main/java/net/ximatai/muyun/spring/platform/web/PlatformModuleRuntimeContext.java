@@ -17,11 +17,29 @@ public record PlatformModuleRuntimeContext(
         String entryExternalUrl,
         String mainEntityAlias,
         Set<EntityCapability> capabilities,
+        List<String> sortPartitionFields,
         Set<String> abilities,
         List<PlatformModuleRuntimeAction> actions,
         Set<NavigatorSourceCapability> navigatorSourceCapabilities,
         ResolvedModuleUiDescriptor uiDescriptor
 ) {
+    /** Source-compatible runtime context constructor before sort partition facts were exposed. */
+    public PlatformModuleRuntimeContext(String moduleAlias,
+                                        String title,
+                                        ModuleKind moduleKind,
+                                        ModuleEntryType entryType,
+                                        String entryRoute,
+                                        String entryExternalUrl,
+                                        String mainEntityAlias,
+                                        Set<EntityCapability> capabilities,
+                                        Set<String> abilities,
+                                        List<PlatformModuleRuntimeAction> actions,
+                                        Set<NavigatorSourceCapability> navigatorSourceCapabilities,
+                                        ResolvedModuleUiDescriptor uiDescriptor) {
+        this(moduleAlias, title, moduleKind, entryType, entryRoute, entryExternalUrl, mainEntityAlias,
+                capabilities, List.of(), abilities, actions, navigatorSourceCapabilities, uiDescriptor);
+    }
+
     public PlatformModuleRuntimeContext(String moduleAlias,
                                         String title,
                                         ModuleKind moduleKind,
@@ -33,7 +51,7 @@ public record PlatformModuleRuntimeContext(
                                         Set<String> abilities,
         List<PlatformModuleRuntimeAction> actions) {
         this(moduleAlias, title, moduleKind, entryType, entryRoute, entryExternalUrl, mainEntityAlias,
-                capabilities, abilities, actions, Set.of(), (ResolvedModuleUiDescriptor) null);
+                capabilities, List.of(), abilities, actions, Set.of(), (ResolvedModuleUiDescriptor) null);
     }
 
     public PlatformModuleRuntimeContext(String moduleAlias,
@@ -48,6 +66,6 @@ public record PlatformModuleRuntimeContext(
                                         List<PlatformModuleRuntimeAction> actions,
                                         ModuleUiDefinition uiDefinition) {
         this(moduleAlias, title, moduleKind, entryType, entryRoute, entryExternalUrl, mainEntityAlias,
-                capabilities, abilities, actions, Set.of(), ModuleUiDescriptorCompiler.compile(uiDefinition));
+                capabilities, List.of(), abilities, actions, Set.of(), ModuleUiDescriptorCompiler.compile(uiDefinition));
     }
 }

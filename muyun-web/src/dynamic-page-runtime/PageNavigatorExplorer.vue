@@ -7,6 +7,7 @@ import {
   TreeRecordExplorer,
   type QueryListRecord,
 } from '@muyun/platform-components';
+import { computed } from 'vue';
 import type { RecordInlineAction, ResolvedPageNavigatorLevelDescriptor } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import { navigatorItemOf, type NavigatorItemRecord } from './pageNavigatorItemModel';
@@ -46,11 +47,13 @@ const emit = defineEmits<{
   action: [action: RecordInlineAction, record: QueryListRecord];
 }>();
 
+const managementAvailable = computed(() => props.level.descriptor.management != null);
+
 function itemOf(record: NavigatorItemRecord) {
   return navigatorItemOf(
     record,
     props.level.descriptor.secondaryField,
-    props.level.descriptor.management != null,
+    managementAvailable.value,
     props.actionsOf,
   );
 }
@@ -58,7 +61,7 @@ function itemOf(record: NavigatorItemRecord) {
 
 <template>
   <RecordExplorerPanel
-    :class="{ 'page-navigator-explorer--readonly': !level.descriptor.management }"
+    :class="{ 'page-navigator-explorer--readonly': !managementAvailable }"
     :title="level.descriptor.title"
     :subtitle="scopeSubtitle"
     :refresh-title="`刷新${level.descriptor.title}${level.tree ? '树' : '列表'}`"
@@ -67,7 +70,7 @@ function itemOf(record: NavigatorItemRecord) {
     @update:search-keyword="emit('update:keyword', $event)"
     @refresh="emit('refresh')"
   >
-    <template v-if="level.descriptor.management" #actions>
+    <template v-if="managementAvailable" #actions>
       <ModuleActionButton
         :context="level.context"
         action-code="create"
@@ -89,7 +92,8 @@ function itemOf(record: NavigatorItemRecord) {
       search-mode="none"
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
-      :actions-of="actionsOf"
+      :actions-of="managementAvailable ? actionsOf : undefined"
+      :sorting="false"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"
@@ -106,7 +110,8 @@ function itemOf(record: NavigatorItemRecord) {
       :navigator-target-level-key="level.descriptor.key"
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
-      :actions-of="actionsOf"
+      :actions-of="managementAvailable ? actionsOf : undefined"
+      :sorting="false"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"

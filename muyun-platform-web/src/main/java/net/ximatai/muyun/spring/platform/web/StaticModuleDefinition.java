@@ -37,6 +37,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     private final List<StaticReferenceDefinition> references;
     private final List<StaticModuleReadProjectionDefinition> readProjections;
     private final Class<?> modelClass;
+    private final List<String> sortPartitionFields;
     private final Map<String, Class<?>> entityModelClasses;
     private final List<RelationProjectionJoinDefinition> projectionJoins;
     private final QueryDescriptor queryDescriptor;
@@ -59,6 +60,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                                    List<StaticReferenceDefinition> references,
                                    List<StaticModuleReadProjectionDefinition> readProjections,
                                    Class<?> modelClass,
+                                   List<String> sortPartitionFields,
                                    Map<String, Class<?>> entityModelClasses,
                                    List<RelationProjectionJoinDefinition> projectionJoins,
                                    QueryDescriptor queryDescriptor,
@@ -93,6 +95,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         pageContextBindings = pageContextBindings == null ? List.of() : List.copyOf(pageContextBindings);
         references = references == null ? List.of() : List.copyOf(references);
         readProjections = readProjections == null ? List.of() : List.copyOf(readProjections);
+        sortPartitionFields = sortPartitionFields == null ? List.of() : List.copyOf(sortPartitionFields);
         projectionJoins = projectionJoins == null ? List.of() : List.copyOf(projectionJoins);
         validateReferences(moduleAlias, references);
         validateReadProjectionOutputFields(moduleAlias, entities, readProjections);
@@ -112,6 +115,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         this.references = references;
         this.readProjections = readProjections;
         this.modelClass = modelClass;
+        this.sortPartitionFields = sortPartitionFields;
         this.entityModelClasses = entityModelClasses == null ? Map.of() : Map.copyOf(entityModelClasses);
         this.projectionJoins = projectionJoins;
         this.queryDescriptor = queryDescriptor;
@@ -135,6 +139,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public List<StaticReferenceDefinition> references() { return references; }
     public List<StaticModuleReadProjectionDefinition> readProjections() { return readProjections; }
     public Class<?> modelClass() { return modelClass; }
+    public List<String> sortPartitionFields() { return sortPartitionFields; }
     public Map<String, Class<?>> entityModelClasses() { return entityModelClasses; }
     public List<RelationProjectionJoinDefinition> projectionJoins() { return projectionJoins; }
     public QueryDescriptor queryDescriptor() { return queryDescriptor; }
@@ -157,6 +162,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public List<StaticReferenceDefinition> getReferences() { return references; }
     public List<StaticModuleReadProjectionDefinition> getReadProjections() { return readProjections; }
     public Class<?> getModelClass() { return modelClass; }
+    public List<String> getSortPartitionFields() { return sortPartitionFields; }
     public Map<String, Class<?>> getEntityModelClasses() { return entityModelClasses; }
     public List<RelationProjectionJoinDefinition> getProjectionJoins() { return projectionJoins; }
     public QueryDescriptor getQueryDescriptor() { return queryDescriptor; }
@@ -183,6 +189,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 && Objects.equals(references, that.references)
                 && Objects.equals(readProjections, that.readProjections)
                 && Objects.equals(modelClass, that.modelClass)
+                && Objects.equals(sortPartitionFields, that.sortPartitionFields)
                 && Objects.equals(entityModelClasses, that.entityModelClasses)
                 && Objects.equals(projectionJoins, that.projectionJoins)
                 && Objects.equals(queryDescriptor, that.queryDescriptor)
@@ -194,7 +201,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public int hashCode() {
         return Objects.hash(applicationAlias, moduleAlias, title, parentModuleAlias, entryType, entryRoute,
                 entryExternalUrl, capabilities, navigatorSourceCapabilities, actions, entities, uiDefinition, pageContextBindings, references, readProjections,
-                modelClass, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
+                modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
                 legacyReadProjectionCompatibility);
     }
 
@@ -216,6 +223,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 + ", references=" + references
                 + ", readProjections=" + readProjections
                 + ", modelClass=" + modelClass
+                + ", sortPartitionFields=" + sortPartitionFields
                 + ", entityModelClasses=" + entityModelClasses
                 + ", projectionJoins=" + projectionJoins
                 + ", queryDescriptor=" + queryDescriptor
@@ -243,6 +251,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 .references(references)
                 .readProjections(readProjections)
                 .modelClass(modelClass)
+                .sortPartitionFields(sortPartitionFields)
                 .entityModelClasses(entityModelClasses)
                 .projectionJoins(projectionJoins)
                 .queryDescriptor(queryDescriptor)
@@ -267,6 +276,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         private List<StaticReferenceDefinition> references = List.of();
         private List<StaticModuleReadProjectionDefinition> readProjections = List.of();
         private Class<?> modelClass;
+        private List<String> sortPartitionFields = List.of();
         private Map<String, Class<?>> entityModelClasses = Map.of();
         private List<RelationProjectionJoinDefinition> projectionJoins = List.of();
         private QueryDescriptor queryDescriptor;
@@ -336,6 +346,11 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
             return this;
         }
 
+        public Builder sortPartitionFields(List<String> sortPartitionFields) {
+            this.sortPartitionFields = sortPartitionFields == null ? List.of() : List.copyOf(sortPartitionFields);
+            return this;
+        }
+
         public Builder entityModelClasses(Map<String, Class<?>> value) {
             this.entityModelClasses = value == null ? Map.of() : Map.copyOf(value);
             return this;
@@ -364,7 +379,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         public StaticModuleDefinition build() {
             return new StaticModuleDefinition(applicationAlias, moduleAlias, title, parentModuleAlias, entryType,
                     entryRoute, entryExternalUrl, capabilities, navigatorSourceCapabilities, actions, entities, uiDefinition, pageContextBindings, references,
-                    readProjections, modelClass, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
+                    readProjections, modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
                     legacyReadProjectionCompatibility);
         }
     }

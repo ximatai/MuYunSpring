@@ -1033,6 +1033,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.equal(/scopedListWorkspace/.test(hostSource), false);
   assert.equal(/selectedScopeRecord/.test(hostSource), false);
   assert.match(navigatorRuntimeSource, /sourceCapabilities\?\.includes\('REFERENCE_TREE'\)/);
+  assert.match(navigatorRuntimeSource, /sortingDisabled: true/);
   assert.match(navigatorExplorerSource, /<TreeRecordExplorer[\s\S]*v-if="ready !== false && level\.tree"/);
   assert.match(navigatorExplorerSource, /search-mode="none"/);
   assert.match(hostSource, /:external-query-values="navigatorListQueryValues"/);

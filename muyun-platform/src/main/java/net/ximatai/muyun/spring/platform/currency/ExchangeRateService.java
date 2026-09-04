@@ -73,6 +73,11 @@ public class ExchangeRateService extends AbstractAbilityService<ExchangeRate> im
                 "tenantId", "fromCurrencyCode", "toCurrencyCode", "rateTypeCode"));
     }
 
+    @Override
+    public List<String> sortPartitionFields() {
+        return List.of("tenantId", "fromCurrencyCode", "toCurrencyCode", "rateTypeCode");
+    }
+
     public ExchangeRate resolveEffectiveRate(String fromCurrencyCode,
                                              String toCurrencyCode,
                                              String rateTypeCode,

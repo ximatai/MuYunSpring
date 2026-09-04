@@ -2027,11 +2027,13 @@ public class DynamicRecordWebController implements
                                 entity.entityAlias(),
                                 entity.title(),
                                 entity.capabilities(),
+                                entity.sortPartitionFields(),
                                 entity.fields(),
                                 entity.formulaRules(),
                                 visibleEntityActions(moduleAlias, entity.entityAlias(), entity.actions()),
                                 entity.views(),
-                                entity.associationViews()
+                                entity.associationViews(),
+                                entity.fileReferences()
                         ))
                         .toList(),
                 descriptor.relations(),

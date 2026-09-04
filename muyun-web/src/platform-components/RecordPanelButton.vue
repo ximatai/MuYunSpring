@@ -15,6 +15,8 @@ withDefaults(
     iconName?: UiIconName;
     /** Fixed square hit area for a compact icon-only panel action. */
     iconOnly?: boolean;
+    /** Lightweight selected state for persistent panel tools such as search and ordering. */
+    selected?: boolean;
   }>(),
   {
     type: 'default',
@@ -26,6 +28,7 @@ withDefaults(
     ariaLabel: undefined,
     iconName: undefined,
     iconOnly: false,
+    selected: false,
   },
 );
 
@@ -43,6 +46,7 @@ const emit = defineEmits<{ click: [event: MouseEvent] }>();
     :aria-label="ariaLabel"
     :icon-name="iconName"
     :icon-only="iconOnly"
+    :selected="selected"
     @click="emit('click', $event)"
   >
     <slot />
