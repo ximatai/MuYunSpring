@@ -65,6 +65,15 @@ public class FieldSpec extends StandardEnabledSortableEntity {
     @ReferenceTo(target = FieldUiControlService.class, cardinality = ReferenceCardinality.MANY)
     private Set<String> uiControlAliases;
 
+    /**
+     * Target storage specifications that preserve existing business values when this specification
+     * is changed. The source specification owns this declaration, so metadata editors, previews
+     * and publishers can share one platform policy instead of carrying their own conversion matrix.
+     */
+    @Column(name = "safe_target_field_spec_aliases", type = ColumnType.JSON_SET,
+            comment = "Data-safe target field specification aliases")
+    private Set<String> safeTargetFieldSpecAliases;
+
     @ReferenceSummary(source = "uiControlAliases", fields = {"title", "alias"})
     private transient List<Map<String, Object>> uiControlSummaries;
 

@@ -169,6 +169,30 @@ public class PlatformDynamicRuntimeRefreshCoordinator {
         return results;
     }
 
+    /** Synchronously activates a deduplicated module set; callers must already be after commit. */
+    public List<DynamicModuleRefreshResult> activateModulesNow(Iterable<String> moduleAliases) {
+        Set<String> distinctAliases = new LinkedHashSet<>();
+        for (String moduleAlias : moduleAliases) {
+            if (moduleAlias != null && !moduleAlias.isBlank()) {
+                distinctAliases.add(PlatformNameRules.requireModuleAlias(moduleAlias));
+            }
+        }
+        List<DynamicModuleRefreshResult> results = new ArrayList<>();
+        for (String moduleAlias : distinctAliases) results.add(refreshService().activateNow(moduleAlias));
+        return results;
+    }
+
+    /** Removes active runtime projections for modules whose MAIN metadata was deleted. */
+    public void deactivateModulesNow(Iterable<String> moduleAliases) {
+        Set<String> distinctAliases = new LinkedHashSet<>();
+        for (String moduleAlias : moduleAliases) {
+            if (moduleAlias != null && !moduleAlias.isBlank()) {
+                distinctAliases.add(PlatformNameRules.requireModuleAlias(moduleAlias));
+            }
+        }
+        for (String moduleAlias : distinctAliases) refreshService().deactivateNow(moduleAlias);
+    }
+
     public List<DynamicModuleRefreshResult> refreshByRelationId(String relationId) {
         ModuleMetadataRelation relation = requireRelation(relationId);
         return refreshByRelation(relation);

@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
+import net.ximatai.muyun.spring.common.schema.PlatformDataScopeSchema;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -42,7 +43,7 @@ public class ModuleMetadataCapabilitySnapshotService {
         boolean hasChildUsage = hasChildUsage(metadata.getId());
         MetadataCapabilityResolution resolution = MetadataCapabilityCatalog.resolve(metadata, relation.getRelationRole(), fields);
         return new ModuleMetadataCapabilitySnapshot(validModuleAlias, relation.getId(), relation.getRelationRole(),
-                systemFields(), List.of(
+                List.of(
                 catalogCapability(EntityCapability.TREE, relation, resolution, hasChildUsage),
                 catalogCapability(EntityCapability.SORT, relation, resolution, hasChildUsage),
                 fieldCapability(EntityCapability.REFERENCE, relation, fields, false,
@@ -54,21 +55,6 @@ public class ModuleMetadataCapabilitySnapshotService {
                         List.of(PlatformAbilityFields.APPROVAL_INSTANCE_FIELD, PlatformAbilityFields.APPROVAL_STATUS_FIELD),
                         "CONTEXT", "审批字段由审批运行态和流程上下文维护。")
         ));
-    }
-
-    private List<ModuleMetadataSystemFieldFact> systemFields() {
-        return List.of(
-                new ModuleMetadataSystemFieldFact("id", "ID", "string"),
-                new ModuleMetadataSystemFieldFact("tenantId", "租户", "string"),
-                new ModuleMetadataSystemFieldFact("version", "版本", "integer"),
-                new ModuleMetadataSystemFieldFact("deleted", "已删除", "boolean"),
-                new ModuleMetadataSystemFieldFact("deletedAt", "删除时间", "datetime"),
-                new ModuleMetadataSystemFieldFact("deletedBy", "删除人", "string"),
-                new ModuleMetadataSystemFieldFact("createdBy", "创建人", "string"),
-                new ModuleMetadataSystemFieldFact("createdAt", "创建时间", "datetime"),
-                new ModuleMetadataSystemFieldFact("updatedBy", "更新人", "string"),
-                new ModuleMetadataSystemFieldFact("updatedAt", "更新时间", "datetime")
-        );
     }
 
     private ModuleMetadataCapabilityFact catalogCapability(EntityCapability capability, ModuleMetadataRelation relation,
@@ -98,7 +84,7 @@ public class ModuleMetadataCapabilitySnapshotService {
         boolean child = relation.getRelationRole() == RelationRole.CHILD;
         return new ModuleMetadataCapabilityFact(EntityCapability.DATA_SCOPE, Boolean.TRUE.equals(metadata.getDataScopeEnabled()), !child,
                 child ? "子实体不能启用模块数据权限范围。" : "数据权限范围由现有元数据配置声明。",
-                List.of(PlatformAbilityFields.AUTH_USER_FIELD, PlatformAbilityFields.AUTH_ORGANIZATION_FIELD), "CONTEXT",
+                PlatformDataScopeSchema.fieldNames(), "CONTEXT",
                 "权限字段由当前用户与组织上下文填充。 ");
     }
 

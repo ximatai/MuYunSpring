@@ -15,6 +15,8 @@ import net.ximatai.muyun.spring.common.option.OptionSourceType;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
 
+import java.util.Set;
+
 @Getter
 @Setter
 @Table(name = "platform_module", comment = "Platform module")
@@ -36,6 +38,20 @@ public class PlatformModule extends StandardEnabledTreeEntity implements Platfor
             defaultVal = @Default(varchar = "static"))
     @OptionField(type = OptionSourceType.ENUM)
     private ModuleKind moduleKind = ModuleKind.STATIC;
+
+    /** Stable management overview pattern for a dynamic module. */
+    @Column(name = "overview_mode", type = ColumnType.VARCHAR, length = 32, comment = "Dynamic module overview mode",
+            defaultVal = @Default(varchar = "list_card"))
+    @OptionField(type = OptionSourceType.ENUM)
+    private DynamicModuleOverviewMode overviewMode = DynamicModuleOverviewMode.LIST_CARD;
+
+    /**
+     * Durable capability intent for a dynamic module's MAIN metadata.  It is consumed when the
+     * model is created; active capability facts remain metadata-owned.
+     */
+    @Column(name = "main_capability_declarations", type = ColumnType.JSON_SET,
+            comment = "Declared capabilities for the module MAIN metadata")
+    private Set<String> mainCapabilityDeclarations;
 
     @Column(name = "entry_type", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Module entry type",
             defaultVal = @Default(varchar = "module"))

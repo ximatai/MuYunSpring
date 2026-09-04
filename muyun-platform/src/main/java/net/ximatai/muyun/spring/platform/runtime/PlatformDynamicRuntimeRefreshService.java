@@ -28,4 +28,8 @@ public class PlatformDynamicRuntimeRefreshService {
     public DynamicModuleRefreshResult activateNow(String moduleAlias) {
         return refresher.activateNow(moduleAlias);
     }
+
+    public void deactivateNow(String moduleAlias) {
+        refresher.deactivateNow(moduleAlias);
+    }
 }

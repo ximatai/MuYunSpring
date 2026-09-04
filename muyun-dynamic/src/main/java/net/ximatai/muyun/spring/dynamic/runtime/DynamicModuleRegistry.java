@@ -40,6 +40,12 @@ public class DynamicModuleRegistry {
         revisions.merge(module.moduleAlias(), 1L, Long::sum);
     }
 
+    /** Removes a runtime definition when its source module no longer has a MAIN entity. */
+    public Optional<ModuleDefinition> unregister(String moduleAlias) {
+        revisions.remove(moduleAlias);
+        return Optional.ofNullable(modules.remove(moduleAlias));
+    }
+
     public Optional<ModuleDefinition> findModule(String moduleAlias) {
         return Optional.ofNullable(modules.get(moduleAlias));
     }

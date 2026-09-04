@@ -46,7 +46,8 @@ class PlatformPageBootstrapWebControllerTest {
                         "organization-list", "enabled-organizations", null),
                 PlatformUiClientType.WEB,
                 new PlatformResolvedPageConfig(List.of(), List.of(), List.of(), List.of(), List.of(
-                        new PlatformActionBlock("organization-list", "action", null, "create", null, "toolbar"),
+                        new PlatformActionBlock("organization-list", "action", null, "create", null, "toolbar",
+                                null, null, null, null, null, null, "PRIMARY"),
                         new PlatformActionBlock("organization-list", "action", null, "delete", null, "toolbar")
                 ), List.of())
         );
@@ -63,6 +64,7 @@ class PlatformPageBootstrapWebControllerTest {
                     .andExpect(jsonPath("$.mainEntityAlias").value("organization"))
                     .andExpect(jsonPath("$.resolvedConfig.actionBlocks.length()").value(1))
                     .andExpect(jsonPath("$.resolvedConfig.actionBlocks[0].actionCode").value("create"))
+                    .andExpect(jsonPath("$.resolvedConfig.actionBlocks[0].importance").value("PRIMARY"))
                     .andExpect(jsonPath("$.openApiPath").value("/iam.organization/openapi"));
         }
 

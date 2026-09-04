@@ -2,6 +2,9 @@ package net.ximatai.muyun.spring.platform.metadata;
 
 import net.ximatai.muyun.spring.platform.initialdata.InitialDataDeclaration;
 import net.ximatai.muyun.spring.platform.initialdata.InitialDataDeclarationProvider;
+import net.ximatai.muyun.spring.platform.initialdata.spi.InitialDataField;
+import net.ximatai.muyun.spring.platform.initialdata.spi.InitialDataRecord;
+import net.ximatai.muyun.spring.ability.initialdata.InitialDataPolicy;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,11 +40,26 @@ public class PlatformFieldCatalogInitialDataDeclarationProvider implements Initi
                 .map(this::uiTypeWithoutDefaultFieldType)
                 .forEach(value -> values.add(InitialDataDeclaration.createIfMissing(uiTypes, value)));
         FieldUiControlPresetCatalog.fieldTypes().forEach(value -> values.add(InitialDataDeclaration.createIfMissing(fieldTypes, value)));
+        FieldUiControlPresetCatalog.fieldTypes().forEach(value -> values.add(reconcileSafeTargetFieldSpecs(value)));
         FieldUiControlPresetCatalog.fieldUiControls().forEach(
                 value -> values.add(InitialDataDeclaration.reconcileManaged(uiTypes, value)));
         FieldUiControlPresetCatalog.properties().forEach(value -> values.add(InitialDataDeclaration.createIfMissing(properties, value)));
         FieldUiControlPresetCatalog.bindings().forEach(value -> values.add(InitialDataDeclaration.createIfMissing(mappings, value)));
         return List.copyOf(values);
+    }
+
+    /**
+     * Adds new platform conversion guarantees to historical installations without replacing an
+     * administrator's other field-spec configuration.
+     */
+    private InitialDataDeclaration<FieldSpec> reconcileSafeTargetFieldSpecs(FieldSpec desired) {
+        InitialDataRecord<FieldSpec> record = InitialDataRecord.of(
+                        "field-spec-safe-targets-" + desired.getId(), InitialDataPolicy.RECONCILE_MANAGED, desired)
+                .identity(InitialDataField.of("id", FieldSpec::getId, FieldSpec::setId))
+                .managed(InitialDataField.of("safeTargetFieldSpecAliases",
+                        FieldSpec::getSafeTargetFieldSpecAliases, FieldSpec::setSafeTargetFieldSpecAliases));
+        return InitialDataDeclaration.of(record, () -> fieldTypes.select(desired.getId()),
+                fieldTypes::insert, fieldTypes::update);
     }
 
     private FieldUiControl uiTypeWithoutDefaultFieldType(FieldUiControl source) {

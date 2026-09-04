@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.orm.MigrationOptions;
 import net.ximatai.muyun.database.core.orm.MigrationResult;
 import net.ximatai.muyun.database.core.orm.SchemaManager;
+import net.ximatai.muyun.database.core.builder.sql.SchemaBuildRules;
 import net.ximatai.muyun.spring.common.schema.PlatformSchemaMigrationPolicy;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
@@ -52,6 +53,15 @@ public class DynamicSchemaService {
 
     public MigrationResult ensureTable(EntityDefinition entity, EntityDefinition previousEntity, MigrationOptions options) {
         return new SchemaManager(operations).ensureTable(tableMapper.toTable(entity, previousEntity), migrationPolicy.resolve(options));
+    }
+
+    /** Removes an empty dynamic entity table after its metadata definition has passed deletion checks. */
+    public void dropTable(EntityDefinition entity) {
+        validator.validateEntity(entity);
+        String table = SchemaBuildRules.qualifiedName(entity.schemaName(), entity.tableName(),
+                operations.getDBInfo().getDatabaseType());
+        operations.execute("DROP TABLE " + table);
+        operations.resetDBInfo();
     }
 
     public Map<String, Boolean> ensureModule(ModuleDefinition module) {

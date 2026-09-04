@@ -26,6 +26,7 @@
 | 字段引用配置         | `MetadataFieldReferenceConfigService`  | `/platform.metadata/{metadataId}/fields/{fieldId}/reference-configs`                      |
 | 字段保护配置         | `MetadataFieldProtectionConfigService` | `/platform.metadata/{metadataId}/fields/{fieldId}/protection-configs`                     |
 | 模块-元数据关系      | `ModuleMetadataRelationService`        | `/platform.module/{moduleAlias}/metadata-relations`                                       |
+| 数据模型统一变更集   | `MetadataModelChangeSet*Service`       | `/platform.module/{moduleAlias}/metadata-model/change-set-preview|change-set-apply`      |
 | 元数据视图           | `MetadataViewService`                  | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/views`                    |
 | 元数据视图字段       | `MetadataViewFieldService`             | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/views/{viewId}/fields`    |
 | 模块字段配置         | `ModuleMetadataFieldService`           | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/fields`                   |
@@ -353,6 +354,8 @@
 
 元数据字段治理读口同样以模块和关系为作用域。字段属性摘要返回当前关系下的有效基础、引用、字典或存量锁定绑定；引用目标字段目录只返回平台已验证可用的匹配键和展示字段候选，不读取目标业务记录。
 
+数据模型编辑只有模块级统一写入口：`change-set-preview` 接收 `relationDrafts`、`relationOrders` 和 `fieldOrders`，并把各节点字段影响、物理 schema 影响与排序影响汇总为一份预检结果；`change-set-apply` 必须携带同一 proposal 的 fingerprint。关系级 change-set preview/apply 不对外暴露。关系排序只能覆盖同一 `parentMetadataId` 下的完整节点集合，字段排序只能覆盖当前 relation 的完整可移动业务字段集合；两者都不能通过拖拽改变父子关系、外键、relation role 或跨实体移动字段。
+
 模块字段配置可声明计量单位消费契约。主数值字段通过 `unitCategoryAlias` 进入单位能力；`unitMode=FIXED` 时使用 `fixedUnitCode`，`unitMode=SELECTABLE` 时绑定同元数据、同 owner 的伴生单位字段 `unitFieldId`。`baseValueFieldId` 绑定同 owner 的影子标准值字段，`baseUnitCategoryAlias` 和 `baseUnitCode` 是归一基准单位，未配置基准分类时默认等于 `unitCategoryAlias`；`unitConversionMode` 表达线性目录换算或业务规则换算，`conversionScopeFieldId` 用于后续记录上下文换算。
 
 模块字段配置也可声明金额消费契约。主金额字段通过 `moneyCurrencyMode` 进入金额能力；`FIXED` 时使用 `moneyFixedCurrencyCode`，`SELECTABLE` 时绑定同元数据、同 owner 的币种伴生字段 `moneyCurrencyFieldId`。`moneyBaseAmountFieldId` 是动态保存时写入的本位金额影子字段；`moneyBaseCurrencyCode` 可固定本位币，未配置时运行态按租户本位币设置解析；`moneyRateTypeCode` 必填；`moneyRateDateFieldId` 可绑定业务日期字段；`moneyExchangeRateFieldId` 可选，用于保存本次折算汇率。
@@ -376,6 +379,8 @@
 | 元数据关系     | `POST`   | `/platform.module/{moduleAlias}/metadata-relations/update/{id}`                                                     | 更新模块元数据关系                                                 |
 | 元数据关系     | `POST`   | `/platform.module/{moduleAlias}/metadata-relations/delete/{id}`                                                     | 删除模块元数据关系                                                 |
 | 元数据关系     | `POST`   | `/platform.module/{moduleAlias}/metadata-relations/sort/{id}`                                                       | 在模块内调整关系顺序                                               |
+| 数据模型变更集 | `POST`   | `/platform.module/{moduleAlias}/metadata-model/change-set-preview`                                                 | 预检整棵既有数据模型树的字段、主实体能力与同级排序；返回聚合字段/schema/order impacts 和 proposal fingerprint |
+| 数据模型变更集 | `POST`   | `/platform.module/{moduleAlias}/metadata-model/change-set-apply`                                                   | 以 `{proposal, proposalFingerprint}` 一次发布整棵模型树草稿；事务内 ensure，提交后只激活模块运行态一次 |
 | 字段属性摘要   | `GET`    | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/field-properties`                                   | 读取关系下每个元数据字段的有效属性与绑定版本                         |
 | 引用目标字段目录 | `GET`    | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/reference-target-field-catalog`                    | 按 `targetModuleAlias` 和可选 `targetMetadataId` 读取匹配键、展示字段候选 |
 | 元数据视图     | `POST`   | `/platform.module/{moduleAlias}/metadata-relations/{relationId}/views/query`                                        | 查询关系下的元数据视图                                             |

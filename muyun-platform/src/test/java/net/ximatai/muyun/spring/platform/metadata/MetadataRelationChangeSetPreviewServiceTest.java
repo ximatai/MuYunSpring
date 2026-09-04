@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.metadata;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -83,6 +84,41 @@ class MetadataRelationChangeSetPreviewServiceTest {
 
         assertThat(result.valid()).isFalse();
         assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIELD_DRAFT");
+    }
+
+    @Test
+    void shouldAllowAnyFieldSpecChangeWhenEntityHasNoData() {
+        MetadataField existing = businessField("note", "note", "string");
+        existing.setVersion(2);
+        Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
+        when(fixture.recordService.count(anyString(), anyString(), any(Criteria.class))).thenReturn(0L);
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                        "field-0", 2, businessField("note", "note", "integer")))));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.plan().fieldMutations().getFirst().field().getFieldSpecAlias()).isEqualTo("integer");
+    }
+
+    @Test
+    void shouldAllowOnlyTextWideningWhenEntityHasData() {
+        MetadataField existing = businessField("note", "note", "string");
+        existing.setVersion(2);
+        Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
+        when(fixture.recordService.count(anyString(), anyString(), any(Criteria.class))).thenReturn(1L);
+        when(fixture.fieldSpecService.allowsDataSafeTarget("string", "text")).thenReturn(true);
+
+        MetadataRelationChangeSetPreview allowed = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                        "field-0", 2, businessField("note", "note", "text")))));
+        MetadataRelationChangeSetPreview rejected = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                        "field-0", 2, businessField("note", "note", "integer")))));
+
+        assertThat(allowed.valid()).isTrue();
+        assertThat(rejected.errors()).extracting(MetadataChangeSetValidationIssue::code)
+                .contains("FIELD_SPEC_CHANGE_WITH_DATA");
     }
 
     @Test
@@ -212,6 +248,7 @@ class MetadataRelationChangeSetPreviewServiceTest {
         MetadataFieldReferenceConfigService referenceConfigService = mock(MetadataFieldReferenceConfigService.class);
         MetadataFieldConfigService fieldConfigService = mock(MetadataFieldConfigService.class);
         ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
+        DynamicRecordService recordService = mock(DynamicRecordService.class);
         PlatformModule module = new PlatformModule();
         module.setAlias("crm.customer");
         module.setModuleKind(ModuleKind.DYNAMIC);
@@ -236,8 +273,8 @@ class MetadataRelationChangeSetPreviewServiceTest {
         when(fieldService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(fields);
         when(fieldSpecService.requireFieldType(anyString())).thenReturn(new FieldSpec());
         return new Fixture(new MetadataRelationChangeSetPreviewService(moduleService, relationService, metadataService, fieldService,
-                fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService), metadataService, fieldService,
-                fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService);
+                fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService, recordService), metadataService, fieldService,
+                fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService, recordService);
     }
 
     private MetadataField businessField(String name, String column, String spec) {
@@ -253,6 +290,7 @@ class MetadataRelationChangeSetPreviewServiceTest {
     private record Fixture(MetadataRelationChangeSetPreviewService service,
                            MetadataService metadataService, MetadataFieldService fieldService,
                            FieldSpecService fieldSpecService, MetadataFieldReferenceConfigService referenceConfigService,
-                           MetadataFieldConfigService fieldConfigService, ModuleMetadataFieldService moduleFieldService) {
+                           MetadataFieldConfigService fieldConfigService, ModuleMetadataFieldService moduleFieldService,
+                           DynamicRecordService recordService) {
     }
 }

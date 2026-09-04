@@ -38,6 +38,11 @@ public class DynamicModuleRuntimeRefresher {
         return new DynamicModuleRefreshResult(module, Map.of(), false);
     }
 
+    /** Drops an installed runtime projection after its dynamic module loses its MAIN entity. */
+    public void deactivateNow(String moduleAlias) {
+        runtime.registry().unregister(moduleAlias);
+    }
+
     public DynamicModuleRefreshResult refresh(ModuleDefinition module, MigrationOptions options) {
         ModuleDefinition previousModule = runtime.registry().findModule(module.moduleAlias()).orElse(null);
         Map<String, MigrationResult> migrations = schemaService.ensureModule(module, previousModule, options);

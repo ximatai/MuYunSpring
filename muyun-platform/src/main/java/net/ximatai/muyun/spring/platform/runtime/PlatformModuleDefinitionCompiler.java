@@ -34,6 +34,7 @@ import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfig;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataService;
+import net.ximatai.muyun.spring.platform.metadata.MetadataSystemFieldCatalog;
 import net.ximatai.muyun.spring.platform.metadata.MetadataView;
 import net.ximatai.muyun.spring.platform.metadata.MetadataViewFieldService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataViewService;
@@ -268,23 +269,28 @@ public class PlatformModuleDefinitionCompiler {
     }
 
     private List<FieldDefinition> fields(List<MetadataField> metadataFields, String relationId) {
+        List<MetadataField> runtimeFields = metadataFields.stream()
+                .filter(field -> !MetadataSystemFieldCatalog.isRuntimeReserved(field))
+                .toList();
         if (moduleFieldService != null) {
             List<ModuleMetadataField> moduleFields = moduleFieldService.listByRelationId(relationId);
             if (!moduleFields.isEmpty()) {
                 List<FieldDefinition> definitions = new ArrayList<>();
                 Set<String> configuredFieldIds = new LinkedHashSet<>();
                 for (ModuleMetadataField moduleField : moduleFields) {
+                    MetadataField field = requireField(moduleField);
+                    if (MetadataSystemFieldCatalog.isRuntimeReserved(field)) continue;
                     configuredFieldIds.add(moduleField.getMetadataFieldId());
-                    definitions.add(fieldDefinitionCompiler.compile(requireField(moduleField), relationId, moduleField));
+                    definitions.add(fieldDefinitionCompiler.compile(field, relationId, moduleField));
                 }
-                metadataFields.stream()
+                runtimeFields.stream()
                         .filter(field -> !configuredFieldIds.contains(field.getId()))
                         .map(field -> fieldDefinitionCompiler.compile(field, relationId))
                         .forEach(definitions::add);
                 return definitions;
             }
         }
-        return metadataFields.stream()
+        return runtimeFields.stream()
                 .map(field -> fieldDefinitionCompiler.compile(field, relationId))
                 .toList();
     }

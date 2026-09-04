@@ -53,6 +53,24 @@ class DynamicModuleRuntimeStartupActivationTaskTest {
         assertThat(task.order()).isGreaterThan(new InitialDataBootstrapTask(mock(InitialDataExecutor.class)).order());
     }
 
+    @Test
+    void shouldKeepStartingWhenOnePublishedModuleCannotBeActivated() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        ModuleMetadataRelationService relationService = mock(ModuleMetadataRelationService.class);
+        PlatformDynamicRuntimeRefreshService refreshService = mock(PlatformDynamicRuntimeRefreshService.class);
+        when(moduleService.listVisibleModules()).thenReturn(List.of(
+                module("education.invalid", ModuleKind.DYNAMIC), module("education.ready", ModuleKind.DYNAMIC)));
+        when(relationService.list(any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of(new ModuleMetadataRelation()));
+        org.mockito.Mockito.doThrow(new IllegalStateException("broken metadata"))
+                .when(refreshService).activateNow("education.invalid");
+
+        new DynamicModuleRuntimeStartupActivationTask(moduleService, relationService, refreshService).run();
+
+        verify(refreshService).activateNow("education.invalid");
+        verify(refreshService).activateNow("education.ready");
+    }
+
     private static PlatformModule module(String alias, ModuleKind kind) {
         PlatformModule module = new PlatformModule();
         module.setAlias(alias);
