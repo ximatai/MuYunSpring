@@ -829,8 +829,23 @@ function handleCloseCurrentTab(fallbackPath: string) {
   const current = startup.value;
   const currentTabKey = activeTabKey.value ?? current?.activeTabKey;
   if (!current || !currentTabKey) return { created: false };
-  const result = closeMenuTab(current.tabs ?? [], currentTabKey, currentTabKey);
+
+  // WorkbenchNavigation keeps a synchronous result contract for consumers,
+  // while confirmation is asynchronous.  Start the guarded close here rather
+  // than directly mutating the tab array so this public entry cannot bypass
+  // workspace draft protection.
+  void closeCurrentTabAfterConfirm(fallbackPath, currentTabKey);
+  return { created: false };
+}
+
+async function closeCurrentTabAfterConfirm(fallbackPath: string, currentTabKey: string) {
+  if (!(await confirmDiscardWorkspaceViewState([currentTabKey]))) return;
+
+  const current = startup.value;
+  if (!current || !(current.tabs ?? []).some((tab) => tab.key === currentTabKey)) return;
+  const result = closeMenuTab(current.tabs ?? [], activeTabKey.value, currentTabKey);
   scheduleTabPageStateDiscard([currentTabKey]);
+  clearWorkspaceViewUnsavedState(currentTabKey);
   if (lockedTabs.value.some((tab) => tab.key === currentTabKey)) {
     updateLockedTabs(removeLockedMenuTabs(lockedTabs.value, [currentTabKey]));
   }

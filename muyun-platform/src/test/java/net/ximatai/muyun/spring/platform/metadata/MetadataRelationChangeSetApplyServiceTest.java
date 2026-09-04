@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import org.junit.jupiter.api.Test;
 
@@ -180,7 +181,7 @@ class MetadataRelationChangeSetApplyServiceTest {
         fixture.metadata.setDataScopeEnabled(true);
         EntityDefinition previous = mock(EntityDefinition.class);
         when(fixture.entityDefinitionCompiler.compile(fixture.metadata)).thenReturn(previous);
-        when(fixture.recordService.count(eq("crm.customer"), eq("customer"), any(Criteria.class))).thenReturn(0L);
+        when(fixture.schemaFacts.countPhysicalRecords(eq("crm.customer"), eq("customer"), any(Criteria.class))).thenReturn(0L);
 
         fixture.service.disableDataScope("crm.customer", "metadata-1");
 
@@ -194,7 +195,7 @@ class MetadataRelationChangeSetApplyServiceTest {
     void shouldRejectDataScopeRemovalWhenBusinessRecordsExist() {
         Fixture fixture = fixture(validPreview("fingerprint"));
         fixture.metadata.setDataScopeEnabled(true);
-        when(fixture.recordService.count(eq("crm.customer"), eq("customer"), any(Criteria.class))).thenReturn(1L);
+        when(fixture.schemaFacts.countPhysicalRecords(eq("crm.customer"), eq("customer"), any(Criteria.class))).thenReturn(1L);
 
         assertThatThrownBy(() -> fixture.service.disableDataScope("crm.customer", "metadata-1"))
                 .isInstanceOf(PlatformException.class).hasMessageContaining("不能停用");
@@ -213,7 +214,7 @@ class MetadataRelationChangeSetApplyServiceTest {
         when(fixture.fieldService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(enabled));
         EntityDefinition previous = mock(EntityDefinition.class);
         when(fixture.entityDefinitionCompiler.compile(fixture.metadata)).thenReturn(previous);
-        when(fixture.recordService.count(eq("crm.customer"), eq("customer"), any(Criteria.class))).thenReturn(0L);
+        when(fixture.schemaFacts.countPhysicalRecords(eq("crm.customer"), eq("customer"), any(Criteria.class))).thenReturn(0L);
 
         fixture.service.disableEnable("crm.customer", "metadata-1");
 
@@ -235,7 +236,7 @@ class MetadataRelationChangeSetApplyServiceTest {
         when(fixture.fieldService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(sort));
         EntityDefinition previous = mock(EntityDefinition.class);
         when(fixture.entityDefinitionCompiler.compile(fixture.metadata)).thenReturn(previous);
-        when(fixture.recordService.count(eq("crm.customer"), eq("customer"), any(Criteria.class))).thenReturn(0L);
+        when(fixture.schemaFacts.countPhysicalRecords(eq("crm.customer"), eq("customer"), any(Criteria.class))).thenReturn(0L);
 
         fixture.service.disableSort("crm.customer", "metadata-1");
 
@@ -256,7 +257,7 @@ class MetadataRelationChangeSetApplyServiceTest {
         when(fixture.fieldService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(parent));
         EntityDefinition previous = mock(EntityDefinition.class);
         when(fixture.entityDefinitionCompiler.compile(fixture.metadata)).thenReturn(previous);
-        when(fixture.recordService.count(eq("crm.customer"), eq("customer"), any(Criteria.class))).thenReturn(0L);
+        when(fixture.schemaFacts.countPhysicalRecords(eq("crm.customer"), eq("customer"), any(Criteria.class))).thenReturn(0L);
 
         fixture.service.disableTree("crm.customer", "metadata-1");
 
@@ -290,6 +291,7 @@ class MetadataRelationChangeSetApplyServiceTest {
         MetadataFieldConfigService fieldConfigService = mock(MetadataFieldConfigService.class);
         PlatformMetadataEntityDefinitionCompiler entityDefinitionCompiler = mock(PlatformMetadataEntityDefinitionCompiler.class);
         DynamicRecordService recordService = mock(DynamicRecordService.class);
+        DynamicSchemaGovernanceFacts schemaFacts = mock(DynamicSchemaGovernanceFacts.class);
         ModuleMetadataRelation relation = new ModuleMetadataRelation();
         relation.setId("main");
         relation.setModuleAlias("crm.customer");
@@ -307,11 +309,13 @@ class MetadataRelationChangeSetApplyServiceTest {
         when(relationService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(relation));
         when(metadataService.select("metadata-1")).thenReturn(metadata);
         when(fieldService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of());
+        when(recordService.schemaGovernanceFacts()).thenReturn(schemaFacts);
+        when(schemaFacts.lockExistingTableForSchemaMutation(anyString(), anyString())).thenReturn(true);
         return new Fixture(new MetadataRelationChangeSetApplyService(previewService, relationService, metadataService, fieldService,
                 schemaEnsureService, refreshCoordinator, snapshotService, referenceConfigService, fieldConfigService,
                 entityDefinitionCompiler, recordService), metadataService,
                 fieldService, schemaEnsureService, refreshCoordinator, metadata, referenceConfigService, fieldConfigService,
-                entityDefinitionCompiler, recordService);
+                entityDefinitionCompiler, recordService, schemaFacts);
     }
 
     private MetadataField field(String fieldName, String columnName) {
@@ -329,6 +333,6 @@ class MetadataRelationChangeSetApplyServiceTest {
                            MetadataFieldReferenceConfigService referenceConfigService,
                            MetadataFieldConfigService fieldConfigService,
                            PlatformMetadataEntityDefinitionCompiler entityDefinitionCompiler,
-                           DynamicRecordService recordService) {
+                           DynamicRecordService recordService, DynamicSchemaGovernanceFacts schemaFacts) {
     }
 }

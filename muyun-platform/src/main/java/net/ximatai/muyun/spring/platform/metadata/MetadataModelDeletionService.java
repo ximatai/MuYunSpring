@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,7 +59,11 @@ public class MetadataModelDeletionService {
             throw new PlatformException("平台字段、能力字段和子实体外键不能删除：" + field.getTitle());
         }
         Metadata metadata = requireMetadata(relation);
-        long values = recordService.count(moduleAlias, metadata.getAlias(), Criteria.of().isNotNull(field.getFieldName()));
+        DynamicSchemaGovernanceFacts schemaFacts = recordService.schemaGovernanceFacts();
+        long values = schemaFacts.lockExistingTableForSchemaMutation(metadata.getSchemaName(), metadata.getTableName())
+                ? schemaFacts.countPhysicalRecords(moduleAlias, metadata.getAlias(),
+                Criteria.of().isNotNull(field.getFieldName()))
+                : 0L;
         if (values > 0) {
             throw new PlatformException("字段“" + field.getTitle() + "”已有 " + values + " 条业务数据，不能删除。");
         }
@@ -79,7 +84,11 @@ public class MetadataModelDeletionService {
         if (relationService.count(Criteria.of().eq("parentMetadataId", metadata.getId()).eq("relationRole", RelationRole.CHILD)) > 0) {
             throw new PlatformException("元数据“" + metadata.getTitle() + "”仍有子元数据，不能删除。");
         }
-        if (recordService.count(moduleAlias, metadata.getAlias(), Criteria.of()) > 0) {
+        DynamicSchemaGovernanceFacts schemaFacts = recordService.schemaGovernanceFacts();
+        long records = schemaFacts.lockExistingTableForSchemaMutation(metadata.getSchemaName(), metadata.getTableName())
+                ? schemaFacts.countPhysicalRecords(moduleAlias, metadata.getAlias(), Criteria.of())
+                : 0L;
+        if (records > 0) {
             throw new PlatformException("元数据“" + metadata.getTitle() + "”已有业务数据，不能删除。");
         }
         List<MetadataField> fields = fieldService.list(Criteria.of().eq("metadataId", metadata.getId()), ALL,

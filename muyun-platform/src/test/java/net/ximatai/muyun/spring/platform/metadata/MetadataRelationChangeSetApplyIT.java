@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunReposito
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
 import net.ximatai.muyun.spring.dynamic.schema.DynamicSchemaService;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
@@ -59,6 +60,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @Autowired private PlatformMetadataEntityDefinitionCompiler entityCompiler;
     @Autowired private PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator;
     @Autowired private DynamicRecordService recordService;
+    @Autowired private DynamicSchemaGovernanceFacts schemaFacts;
     @Autowired private DataSource dataSource;
 
     private String moduleAlias;
@@ -69,6 +71,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @BeforeEach
     void setUp() {
         reset(moduleService, refreshCoordinator, recordService);
+        when(recordService.schemaGovernanceFacts()).thenReturn(schemaFacts);
         schemaEnsureService.failAfterEnsure = false;
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         moduleAlias = "crm.change_" + suffix;
@@ -275,7 +278,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     }
 
     private void recordCountIs(long count) {
-        when(recordService.count(eq(moduleAlias), eq(metadata.getAlias()), any(Criteria.class))).thenReturn(count);
+        when(schemaFacts.countPhysicalRecords(eq(moduleAlias), eq(metadata.getAlias()), any(Criteria.class))).thenReturn(count);
     }
 
     private MetadataRelationChangeSetPreviewCommand proposal(String fieldName, String columnName,
@@ -380,7 +383,12 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         @Bean TestSchemaEnsureService schemaEnsureService(PlatformMetadataEntityDefinitionCompiler compiler, DynamicSchemaService schema) {
             return new TestSchemaEnsureService(compiler, schema);
         }
-        @Bean DynamicRecordService recordService() { return mock(DynamicRecordService.class); }
+        @Bean DynamicSchemaGovernanceFacts schemaFacts() { return mock(DynamicSchemaGovernanceFacts.class); }
+        @Bean DynamicRecordService recordService(DynamicSchemaGovernanceFacts schemaFacts) {
+            DynamicRecordService records = mock(DynamicRecordService.class);
+            when(records.schemaGovernanceFacts()).thenReturn(schemaFacts);
+            return records;
+        }
         @Bean MetadataRelationChangeSetPreviewService previewService(PlatformModuleService modules,
                                                                       ModuleMetadataRelationService relations,
                                                                       MetadataService metadata, MetadataFieldService fields,

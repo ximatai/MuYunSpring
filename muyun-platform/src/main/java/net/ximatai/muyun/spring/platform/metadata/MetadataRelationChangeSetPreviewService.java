@@ -270,7 +270,8 @@ public class MetadataRelationChangeSetPreviewService {
                     "当前环境未配置数据预检，不能修改存储字段规格。");
             return false;
         }
-        long records = recordService.count(context.relation().getModuleAlias(), context.metadata().getAlias(), Criteria.of());
+        long records = recordService.schemaGovernanceFacts().countPhysicalRecords(context.relation().getModuleAlias(), context.metadata().getAlias(),
+                Criteria.of());
         if (records == 0 || fieldSpecService.allowsDataSafeTarget(
                 existing.getFieldSpecAlias(), proposed.getFieldSpecAlias())) return true;
         error(errors, "FIELD_SPEC_CHANGE_WITH_DATA", existing.getFieldName(),

@@ -924,6 +924,63 @@ it('openDirectTab keeps the InstanceKey internal to the workbench tab', () => {
   assert.equal(new URL(tab?.fullPath ?? '', 'http://muyun.local').searchParams.get('InstanceKey'), null);
 });
 
+it('restores one logical workspace tab from public URLs while retaining its instance and current inner tab', () => {
+  const governanceView = {
+    type: 'platform.module.governance',
+    route: '/_platform/workspace/platform.module.governance',
+    moduleAlias: 'platform.module',
+    component: { template: '<div />' },
+    presentations: ['tab'] as const,
+    titleOf: ({ moduleAlias }: { moduleAlias: string }) => `低代码治理：${moduleAlias}`,
+    tabIdentityParamsOf: ({ moduleAlias }: { moduleAlias: string }) => ({ moduleAlias }),
+    parse: (query: Record<string, unknown>) => {
+      const moduleAlias = query.moduleAlias;
+      const moduleTitle = query.moduleTitle;
+      const governanceTab = query.governanceTab;
+      return typeof moduleAlias === 'string' && moduleAlias
+        ? {
+            moduleAlias,
+            ...(typeof moduleTitle === 'string' ? { moduleTitle } : {}),
+            ...(typeof governanceTab === 'string' ? { governanceTab } : {}),
+          }
+        : undefined;
+    },
+  };
+  configureWorkspaceViewContributions('workspace-public-url-restore-test', [governanceView]);
+  try {
+    const state = { session: { currentUser }, menus, tabs: [] };
+    const metadataUrl =
+      '/_platform/workspace/platform.module.governance?workspaceView=platform.module.governance&workspacePresentation=tab&moduleAlias=education.exam&moduleTitle=%E8%80%83%E8%AF%95%E7%AE%A1%E7%90%86&governanceTab=metadata';
+    const metadata = restoreWorkbenchStartupStateFromUrl(state, metadataUrl);
+    const first = metadata.tabs?.[0];
+
+    assert.equal(metadata.tabs?.length, 1);
+    assert.match(first?.instanceKey ?? '', /^[0-9a-f-]{36}$/i);
+    assert.equal(first?.pageDescriptor?.params?.moduleAlias, 'education.exam');
+    assert.notProperty(first?.pageDescriptor?.params ?? {}, 'governanceTab');
+    assert.equal(businessRouteTargetOf(first).query?.governanceTab, 'metadata');
+    assert.equal(new URL(first?.fullPath ?? '', 'http://muyun.local').searchParams.get('InstanceKey'), null);
+
+    const actions = restoreWorkbenchStartupStateFromUrl(
+      metadata,
+      metadataUrl.replace('governanceTab=metadata', 'governanceTab=actions'),
+    );
+    const restored = actions.tabs?.[0];
+
+    assert.equal(actions.tabs?.length, 1);
+    assert.equal(actions.activeTabKey, metadata.activeTabKey);
+    assert.equal(restored?.key, first?.key);
+    assert.equal(restored?.instanceKey, first?.instanceKey);
+    assert.equal(businessRouteTargetOf(restored).query?.governanceTab, 'actions');
+    assert.equal(
+      new URL(restored?.fullPath ?? '', 'http://muyun.local').searchParams.get('InstanceKey'),
+      null,
+    );
+  } finally {
+    configureWorkspaceViewContributions('workspace-public-url-restore-test', []);
+  }
+});
+
 it('restoreWorkbenchStartupStateFromUrl creates direct tab when URL has no menu match', () => {
   const state = {
     session: { currentUser },

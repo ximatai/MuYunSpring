@@ -6,19 +6,55 @@ import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.metadata.DBInfo;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class MetadataModelChangeSetApplyServiceTest {
+    @Test
+    void shouldLockCountAndDropAnEmptyFieldColumnInOneSchemaGovernanceSequence() {
+        DynamicRecordService records = mock(DynamicRecordService.class);
+        DynamicSchemaGovernanceFacts schemaFacts = mock(DynamicSchemaGovernanceFacts.class);
+        FieldSpecService fieldSpecs = mock(FieldSpecService.class);
+        Metadata metadata = new Metadata();
+        metadata.setAlias("exam");
+        metadata.setSchemaName("public");
+        metadata.setTableName("education_exam");
+        MetadataField field = new MetadataField();
+        field.setFieldOwnership(MetadataFieldOwnership.BUSINESS);
+        field.setFieldForm(MetadataFieldForm.PHYSICAL);
+        field.setFieldSpecAlias("integer");
+        field.setColumnName("score");
+        when(records.schemaGovernanceFacts()).thenReturn(schemaFacts);
+        when(schemaFacts.lockExistingTableForSchemaMutation("public", "education_exam")).thenReturn(true);
+        when(schemaFacts.countPhysicalRecords(eq("education.exam"), eq("exam"), any(Criteria.class))).thenReturn(0L);
+        when(schemaFacts.databaseTypeForSchemaMutation()).thenReturn(DBInfo.Type.POSTGRESQL);
+
+        new EmptyMetadataFieldSpecColumnRebuildService(records, fieldSpecs)
+                .rebuildIfEmpty("education.exam", metadata, "string", field);
+
+        InOrder schemaMutation = inOrder(schemaFacts);
+        schemaMutation.verify(schemaFacts).lockExistingTableForSchemaMutation("public", "education_exam");
+        schemaMutation.verify(schemaFacts).countPhysicalRecords(eq("education.exam"), eq("exam"), any(Criteria.class));
+        schemaMutation.verify(schemaFacts).databaseTypeForSchemaMutation();
+        schemaMutation.verify(schemaFacts).executeSchemaMutation(
+                "alter table \"public\".\"education_exam\" drop column \"score\"");
+    }
+
     @Test
     void shouldApplyTreeOrderAndActivateModuleExactlyOnce() {
         MetadataModelChangeSetPreviewService previews = mock(MetadataModelChangeSetPreviewService.class);

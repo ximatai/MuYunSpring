@@ -165,18 +165,25 @@ export function restoreWorkbenchStartupStateFromUrl(
       : descriptor;
   const workspaceDescriptor = restoredWorkspaceViewDescriptor(descriptorWithExplicitMenuTitle);
   const effectiveDescriptor = workspaceDescriptor ?? descriptorWithExplicitMenuTitle;
-  const descriptorForOpen = newInstance ? withPageInstanceKey(effectiveDescriptor) : effectiveDescriptor;
+  const existingTabs = state.tabs ?? [];
+  const existingWorkspaceTab = workspaceDescriptor
+    ? existingWorkspaceTabFor(existingTabs, workspaceDescriptor)
+    : undefined;
+  const descriptorForOpen = workspaceDescriptor
+    ? workspaceDescriptorForRestore(workspaceDescriptor, existingWorkspaceTab)
+    : newInstance
+      ? withPageInstanceKey(effectiveDescriptor)
+      : effectiveDescriptor;
   const menu =
     explicitMenu && menuMatchesDescriptor(explicitMenu, descriptorForOpen, options)
       ? explicitMenu
       : findMenuByDescriptor(state.menus, descriptorForOpen, options);
   const target = menu === explicitMenu ? explicitTarget : menu ? getMenuNavigationTarget(menu) : undefined;
   const tab = workspaceDescriptor
-    ? createDirectTab(workspaceDescriptor, options)
+    ? createDirectTab(descriptorForOpen, options)
     : menu && target && isTabMenuTarget(target)
       ? createRestoredMenuTab(menu, target, descriptorForOpen, options)
       : createDirectTab(descriptorForOpen, options);
-  const existingTabs = state.tabs ?? [];
   const tabs = upsertTab(existingTabs, tab);
 
   return {
@@ -184,6 +191,31 @@ export function restoreWorkbenchStartupStateFromUrl(
     tabs,
     activeTabKey: tab.key,
   };
+}
+
+/**
+ * A public workspace URL has no physical InstanceKey.  When it resolves to a
+ * view already open in this browser session, retain that host key while taking
+ * the URL's current local view state (for example governanceTab).  A newly
+ * restored view receives an internal marker exactly once.
+ */
+function workspaceDescriptorForRestore(
+  descriptor: PageDescriptor,
+  existingTab: MenuTab | undefined,
+): PageDescriptor {
+  return existingTab?.instanceKey
+    ? withPageInstanceKey(descriptor, existingTab.instanceKey)
+    : existingTab
+      ? descriptor
+      : withPageInstanceKey(descriptor);
+}
+
+function existingWorkspaceTabFor(tabs: MenuTab[], descriptor: PageDescriptor): MenuTab | undefined {
+  const identity = tabIdentityKeyOf(descriptor);
+  return tabs.find(
+    (tab) =>
+      tab.pageDescriptor?.pageType === 'business-route' && tabIdentityKeyOf(tab.pageDescriptor) === identity,
+  );
 }
 
 function restoredWorkspaceViewDescriptor(descriptor: PageDescriptor) {

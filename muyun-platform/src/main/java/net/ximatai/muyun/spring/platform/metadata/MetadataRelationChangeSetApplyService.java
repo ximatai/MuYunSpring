@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -138,7 +139,7 @@ public class MetadataRelationChangeSetApplyService {
         Metadata metadata = metadataService.select(metadataId);
         if (metadata == null) throw new PlatformException("Metadata is missing: " + metadataId);
         if (!Boolean.TRUE.equals(metadata.getDataScopeEnabled())) return;
-        long records = recordService.count(moduleAlias, metadata.getAlias(), Criteria.of());
+        long records = lockedPhysicalRecordCount(moduleAlias, metadata);
         if (records > 0) {
             throw new PlatformException("数据权限已用于 " + records + " 条业务数据，不能停用。");
         }
@@ -170,7 +171,7 @@ public class MetadataRelationChangeSetApplyService {
                         && field.getFieldOwnership() == MetadataFieldOwnership.STANDARD)
                 .findFirst()
                 .orElseThrow(() -> new PlatformException("启停能力使用了非标准字段，不能通过模块能力停用。"));
-        long records = recordService.count(moduleAlias, metadata.getAlias(), Criteria.of());
+        long records = lockedPhysicalRecordCount(moduleAlias, metadata);
         if (records > 0) {
             throw new PlatformException("启停能力已用于 " + records + " 条业务数据，不能停用。");
         }
@@ -207,7 +208,7 @@ public class MetadataRelationChangeSetApplyService {
                         && field.getFieldOwnership() == MetadataFieldOwnership.STANDARD)
                 .findFirst()
                 .orElseThrow(() -> new PlatformException("排序能力使用了非标准字段，不能通过模块能力停用。"));
-        long records = recordService.count(moduleAlias, metadata.getAlias(), Criteria.of());
+        long records = lockedPhysicalRecordCount(moduleAlias, metadata);
         if (records > 0) {
             throw new PlatformException("排序能力已用于 " + records + " 条业务数据，不能停用。" );
         }
@@ -244,7 +245,7 @@ public class MetadataRelationChangeSetApplyService {
                         && field.getFieldOwnership() == MetadataFieldOwnership.STANDARD)
                 .findFirst()
                 .orElseThrow(() -> new PlatformException("树结构能力使用了非标准字段，不能通过模块能力停用。"));
-        long records = recordService.count(moduleAlias, metadata.getAlias(), Criteria.of());
+        long records = lockedPhysicalRecordCount(moduleAlias, metadata);
         if (records > 0) {
             throw new PlatformException("树结构能力已用于 " + records + " 条业务数据，不能停用。");
         }
@@ -448,5 +449,17 @@ public class MetadataRelationChangeSetApplyService {
             aliases.add(relation.getModuleAlias());
         }
         return List.copyOf(aliases);
+    }
+
+    private long lockedPhysicalRecordCount(String moduleAlias, Metadata metadata) {
+        DynamicSchemaGovernanceFacts facts = schemaFacts();
+        if (!facts.lockExistingTableForSchemaMutation(metadata.getSchemaName(), metadata.getTableName())) {
+            return 0L;
+        }
+        return facts.countPhysicalRecords(moduleAlias, metadata.getAlias(), Criteria.of());
+    }
+
+    private DynamicSchemaGovernanceFacts schemaFacts() {
+        return recordService.schemaGovernanceFacts();
     }
 }

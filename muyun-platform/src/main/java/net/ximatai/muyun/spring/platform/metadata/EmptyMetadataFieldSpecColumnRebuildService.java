@@ -1,11 +1,11 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
-import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.builder.sql.SchemaBuildRules;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -19,14 +19,11 @@ import java.util.Objects;
  */
 @Service
 public class EmptyMetadataFieldSpecColumnRebuildService {
-    private final IDatabaseOperations<?> operations;
     private final DynamicRecordService recordService;
     private final FieldSpecService fieldSpecService;
 
-    public EmptyMetadataFieldSpecColumnRebuildService(IDatabaseOperations<?> operations,
-                                                       DynamicRecordService recordService,
+    public EmptyMetadataFieldSpecColumnRebuildService(DynamicRecordService recordService,
                                                        FieldSpecService fieldSpecService) {
-        this.operations = Objects.requireNonNull(operations, "operations must not be null");
         this.recordService = Objects.requireNonNull(recordService, "recordService must not be null");
         this.fieldSpecService = Objects.requireNonNull(fieldSpecService, "fieldSpecService must not be null");
     }
@@ -39,7 +36,11 @@ public class EmptyMetadataFieldSpecColumnRebuildService {
             return;
         }
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
-        long records = recordService.count(validModuleAlias, metadata.getAlias(), Criteria.of());
+        DynamicSchemaGovernanceFacts schemaFacts = recordService.schemaGovernanceFacts();
+        if (!schemaFacts.lockExistingTableForSchemaMutation(metadata.getSchemaName(), metadata.getTableName())) {
+            return;
+        }
+        long records = schemaFacts.countPhysicalRecords(validModuleAlias, metadata.getAlias(), Criteria.of());
         if (records > 0) {
             if (fieldSpecService.allowsDataSafeTarget(previousFieldSpecAlias, field.getFieldSpecAlias())) return;
             throw new PlatformException("字段规格变更前实体新增了 " + records + " 条业务数据，请重新预检。");
@@ -47,11 +48,10 @@ public class EmptyMetadataFieldSpecColumnRebuildService {
         String schema = PlatformNameRules.requireDatabaseName(metadata.getSchemaName(), "schemaName");
         String table = PlatformNameRules.requireDatabaseName(metadata.getTableName(), "tableName");
         String column = PlatformNameRules.requireDatabaseName(field.getColumnName(), "columnName");
-        var databaseType = operations.getDBInfo().getDatabaseType();
+        var databaseType = schemaFacts.databaseTypeForSchemaMutation();
         String qualifiedTable = SchemaBuildRules.quoteIdentifier(schema, databaseType)
                 + "." + SchemaBuildRules.quoteIdentifier(table, databaseType);
-        operations.execute("alter table " + qualifiedTable + " drop column "
+        schemaFacts.executeSchemaMutation("alter table " + qualifiedTable + " drop column "
                 + SchemaBuildRules.quoteIdentifier(column, databaseType));
-        operations.resetDBInfo();
     }
 }

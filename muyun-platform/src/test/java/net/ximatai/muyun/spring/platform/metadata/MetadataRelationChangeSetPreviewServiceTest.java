@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -91,7 +92,7 @@ class MetadataRelationChangeSetPreviewServiceTest {
         MetadataField existing = businessField("note", "note", "string");
         existing.setVersion(2);
         Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
-        when(fixture.recordService.count(anyString(), anyString(), any(Criteria.class))).thenReturn(0L);
+        when(fixture.schemaFacts.countPhysicalRecords(anyString(), anyString(), any(Criteria.class))).thenReturn(0L);
 
         MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
                 Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
@@ -106,7 +107,7 @@ class MetadataRelationChangeSetPreviewServiceTest {
         MetadataField existing = businessField("note", "note", "string");
         existing.setVersion(2);
         Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
-        when(fixture.recordService.count(anyString(), anyString(), any(Criteria.class))).thenReturn(1L);
+        when(fixture.schemaFacts.countPhysicalRecords(anyString(), anyString(), any(Criteria.class))).thenReturn(1L);
         when(fixture.fieldSpecService.allowsDataSafeTarget("string", "text")).thenReturn(true);
 
         MetadataRelationChangeSetPreview allowed = fixture.service.preview("crm.customer", "main", command(3,
@@ -249,6 +250,7 @@ class MetadataRelationChangeSetPreviewServiceTest {
         MetadataFieldConfigService fieldConfigService = mock(MetadataFieldConfigService.class);
         ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
         DynamicRecordService recordService = mock(DynamicRecordService.class);
+        DynamicSchemaGovernanceFacts schemaFacts = mock(DynamicSchemaGovernanceFacts.class);
         PlatformModule module = new PlatformModule();
         module.setAlias("crm.customer");
         module.setModuleKind(ModuleKind.DYNAMIC);
@@ -272,9 +274,10 @@ class MetadataRelationChangeSetPreviewServiceTest {
         when(relationService.count(any(Criteria.class))).thenReturn(0L);
         when(fieldService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(fields);
         when(fieldSpecService.requireFieldType(anyString())).thenReturn(new FieldSpec());
+        when(recordService.schemaGovernanceFacts()).thenReturn(schemaFacts);
         return new Fixture(new MetadataRelationChangeSetPreviewService(moduleService, relationService, metadataService, fieldService,
                 fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService, recordService), metadataService, fieldService,
-                fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService, recordService);
+                fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService, recordService, schemaFacts);
     }
 
     private MetadataField businessField(String name, String column, String spec) {
@@ -291,6 +294,6 @@ class MetadataRelationChangeSetPreviewServiceTest {
                            MetadataService metadataService, MetadataFieldService fieldService,
                            FieldSpecService fieldSpecService, MetadataFieldReferenceConfigService referenceConfigService,
                            MetadataFieldConfigService fieldConfigService, ModuleMetadataFieldService moduleFieldService,
-                           DynamicRecordService recordService) {
+                           DynamicRecordService recordService, DynamicSchemaGovernanceFacts schemaFacts) {
     }
 }

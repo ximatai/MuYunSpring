@@ -67,6 +67,7 @@ public class DynamicRecordService {
     private final ActionExecutionPolicyService actionExecutionPolicyService;
     private final DataScopeCriteriaService dataScopeCriteriaService;
     private final DynamicRecordQueryRuntime queryRuntime;
+    private final DynamicSchemaGovernanceFacts schemaGovernanceFacts;
     private final DynamicRecordMutationRuntime mutationRuntime;
     /** Owns relation/reference reads and association-view composition. */
     private final DynamicRecordRelationRuntime relationRuntime;
@@ -109,6 +110,7 @@ public class DynamicRecordService {
                 "dataScopeCriteriaService must not be null");
         this.queryRuntime = new DynamicRecordQueryRuntime(runtime, this.actionExecutionPolicyService,
                 this.dataScopeCriteriaService);
+        this.schemaGovernanceFacts = new DynamicSchemaGovernanceFacts(runtime);
         DynamicRecordMutationCoordinator effectiveMutationCoordinator = mutationCoordinator == null
                 ? DynamicRecordMutationCoordinator.NONE
                 : mutationCoordinator;
@@ -151,6 +153,14 @@ public class DynamicRecordService {
 
     public DynamicEntityOperations entity(String moduleAlias, String entityAlias) {
         return new DynamicEntityOperations(this, moduleAlias, entityAlias);
+    }
+
+    /**
+     * Internal physical-row facts for destructive metadata schema governance.
+     * Normal record queries must continue to use this service's scoped read APIs.
+     */
+    public DynamicSchemaGovernanceFacts schemaGovernanceFacts() {
+        return schemaGovernanceFacts;
     }
 
     /**
