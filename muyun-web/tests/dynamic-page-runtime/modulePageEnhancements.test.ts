@@ -255,18 +255,11 @@ describe('module page enhancements', () => {
 
     expect(
       resolveModulePageEnhancement('platform.module')?.detail?.actions?.map((action) => action.key),
-    ).toEqual(
-      expect.arrayContaining([
-        'module-actions-workspace',
-        'module-ui-orchestration-workspace',
-        'consumer-inspection',
-      ]),
-    );
+    ).toEqual(expect.arrayContaining(['module-actions-workspace', 'consumer-inspection']));
     expect(modulePageWorkspaceViews().map((view) => view.type)).toEqual(
       expect.arrayContaining([
         'platform.module.actions',
         'platform.module.governance',
-        'platform.module.ui-orchestration',
         'platform.module.consumer-inspection',
       ]),
     );

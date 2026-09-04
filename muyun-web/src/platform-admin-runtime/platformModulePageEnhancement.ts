@@ -2,14 +2,12 @@ import type { ModulePageEnhancement, ModulePageWorkspaceView } from '@muyun/dyna
 import type { QueryListRecord } from '@muyun/platform-components';
 import { moduleActionManagementWorkspaceView } from '../views/moduleActionManagementWorkspaceView';
 import { moduleGovernanceWorkspaceView } from '../views/moduleGovernanceWorkspaceView';
-import { uiOrchestrationWorkspaceView } from '../views/uiOrchestrationWorkspaceView';
 
 // Workspace definitions use the platform-workbench's serializable input
 // contract. The enhancement boundary exposes the equivalent dynamic-runtime
 // contract, so adapt them once at this composition edge.
 const moduleActionWorkspaceView = moduleActionManagementWorkspaceView as unknown as ModulePageWorkspaceView;
 const moduleGovernanceWorkspace = moduleGovernanceWorkspaceView as unknown as ModulePageWorkspaceView;
-const uiOrchestrationWorkspace = uiOrchestrationWorkspaceView as unknown as ModulePageWorkspaceView;
 
 /**
  * Frontend composition for the platform-module descriptor page.
@@ -23,7 +21,7 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
   target: { moduleAlias: 'platform.module' },
   // The hand-authored workspace remains an explicit extension for dynamic executor binding;
   // it has no menu identity and is not the general action-management entry.
-  workspaceViews: [moduleGovernanceWorkspace, moduleActionWorkspaceView, uiOrchestrationWorkspace],
+  workspaceViews: [moduleGovernanceWorkspace, moduleActionWorkspaceView],
   detail: {
     actions: [
       {

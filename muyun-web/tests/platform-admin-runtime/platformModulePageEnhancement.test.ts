@@ -83,7 +83,7 @@ describe('platform module page enhancement', () => {
     expect(actions.map((action) => action.title)).toEqual(['动作', '低代码']);
   });
 
-  it('exposes only actions and low-code entry points in the module detail header', () => {
+  it('exposes actions and the governance-backed low-code entry point in the module detail header', () => {
     const actions = platformModulePageEnhancement.detail?.actions ?? [];
     expect(actions.map((action) => action.key)).toEqual([
       'module-actions-workspace',
