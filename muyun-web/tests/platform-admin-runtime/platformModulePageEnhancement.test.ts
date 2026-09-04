@@ -23,7 +23,7 @@ describe('platform module page enhancement', () => {
     });
   });
 
-  it('opens actions as a descriptor-driven page scoped to its governed module', () => {
+  it('opens actions in the shared action-management workspace scoped to its governed module', () => {
     const actions = platformModulePageEnhancement.detail?.actions ?? [];
     const openPage = vi.fn();
     const openWorkspaceTab = vi.fn();
@@ -37,41 +37,22 @@ describe('platform module page enhancement', () => {
         openWorkspaceTab,
       } as never);
     actions
-      .find((action) => action.key === 'module-governance-workspace')
-      ?.run({ record, openWorkspaceTab } as never);
-    actions
-      .find((action) => action.key === 'module-manual-action-binding-workspace')
-      ?.run({ record, openWorkspaceTab } as never);
-    actions
       .find((action) => action.key === 'module-ui-orchestration-workspace')
       ?.run({ record, openWorkspaceTab } as never);
 
-    expect(openPage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        target: { moduleAlias: 'platform.module_action', pageMode: 'LIST' },
-        params: {
-          _muyunNavigatorModuleAlias: 'platform.module',
-          _muyunNavigatorRecordId: 'crm.customer',
-        },
-      }),
-    );
-    expect(openWorkspaceTab).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ type: 'platform.module.governance' }),
-      { moduleAlias: 'crm.customer', moduleTitle: '客户', governanceTab: 'metadata' },
-    );
-    expect(openWorkspaceTab).toHaveBeenNthCalledWith(
-      2,
+    expect(openPage).not.toHaveBeenCalled();
+    expect(openWorkspaceTab).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'platform.module.actions' }),
       { moduleAlias: 'crm.customer', moduleTitle: '客户', moduleKind: 'dynamic' },
     );
-    expect(openWorkspaceTab).toHaveBeenNthCalledWith(
-      3,
-      expect.objectContaining({ type: 'platform.module.ui-orchestration' }),
-      { moduleAlias: 'crm.customer', moduleTitle: '客户' },
+    expect(openWorkspaceTab).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'platform.module.governance' }),
+      { moduleAlias: 'crm.customer', moduleTitle: '客户', governanceTab: 'overview' },
     );
 
-    const [view, input] = openWorkspaceTab.mock.calls[0];
+    const [view, input] = openWorkspaceTab.mock.calls.find(
+      ([workspace]) => workspace.type === 'platform.module.governance',
+    )!;
     const descriptor = createWorkspaceViewDescriptor(
       {
         ...view,
@@ -89,53 +70,24 @@ describe('platform module page enhancement', () => {
     ]).resolve(descriptor);
     expect(restored).toMatchObject({
       view: { type: 'platform.module.governance' },
-      input: { moduleAlias: 'crm.customer', moduleTitle: '客户', governanceTab: 'metadata' },
+      input: { moduleAlias: 'crm.customer', moduleTitle: '客户', governanceTab: 'overview' },
     });
     expect(
       actions
-        .find((action) => action.key === 'module-manual-action-binding-workspace')
+        .find((action) => action.key === 'module-ui-orchestration-workspace')
         ?.state?.({
           id: 'iam.role',
           moduleKind: 'static',
         }),
     ).toEqual({ visible: false });
-    expect(
-      actions
-        .find((action) => action.key === 'module-ui-orchestration-workspace')
-        ?.state?.({ id: 'iam.role', moduleKind: 'static' }),
-    ).toEqual({ visible: false });
+    expect(actions.map((action) => action.title)).toEqual(['动作', '低代码']);
   });
 
-  it('only exposes metadata for dynamic modules and OpenAPI after the authorized catalog has listed it', async () => {
+  it('exposes only actions and low-code entry points in the module detail header', () => {
     const actions = platformModulePageEnhancement.detail?.actions ?? [];
-    const staticRecord = { id: 'iam.role', alias: 'iam.role', moduleKind: 'static' };
-    const documentedRecord = {
-      id: 'crm.customer',
-      alias: 'crm.customer',
-      title: '客户',
-      moduleKind: 'dynamic',
-    };
-    const undocumentedRecord = { id: 'crm.private', alias: 'crm.private', moduleKind: 'dynamic' };
-    const governance = actions.find((action) => action.key === 'module-governance-workspace');
-    const openApi = actions.find((action) => action.key === 'module-openapi-page');
-
-    expect(governance?.state?.(staticRecord)).toEqual({ visible: false });
-    expect(openApi?.state?.(documentedRecord)).toEqual({ visible: false });
-
-    platformModulePageEnhancement.activate?.({
-      module: {
-        http: { request: vi.fn().mockResolvedValue([{ moduleAlias: 'crm.customer' }]) },
-      },
-    } as never);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(openApi?.state?.(documentedRecord)).toEqual({ visible: true });
-    expect(openApi?.state?.(undocumentedRecord)).toEqual({ visible: false });
-    const openPage = vi.fn();
-    openApi?.run({ record: documentedRecord, openPage } as never);
-    expect(openPage).toHaveBeenCalledWith(
-      expect.objectContaining({ target: { route: '/openapi/crm.customer', moduleAlias: 'crm.customer' } }),
-    );
+    expect(actions.map((action) => action.key)).toEqual([
+      'module-actions-workspace',
+      'module-ui-orchestration-workspace',
+    ]);
   });
 });

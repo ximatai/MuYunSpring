@@ -43,6 +43,7 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
       key: `page-action-block:${block.uiConfigId ?? 'entry'}:${block.key ?? block.actionCode}:${index}`,
       actionCode: block.actionCode,
       title: block.title ?? options.context.runtimeAction(block.actionCode)?.title ?? block.actionCode,
+      actionLevel: block.importance?.toLowerCase() as RecordActionItem['actionLevel'],
     })),
   );
   const localEditActionBlocks = computed(() =>
@@ -59,6 +60,7 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
       key: `page-local-edit:${block.uiConfigId ?? 'entry'}:${block.key ?? block.actionCode}:${index}`,
       actionCode: block.actionCode,
       title: block.title ?? options.context.runtimeAction(block.actionCode)?.title ?? block.actionCode,
+      actionLevel: block.importance?.toLowerCase() as RecordActionItem['actionLevel'],
     })),
   );
   const detailPageActions = computed(() => [...supportedDetailActions.value, ...localEditActions.value]);

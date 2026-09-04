@@ -14,6 +14,7 @@ const props = withDefaults(
     searchKeyword?: string;
     searchPlaceholder?: string;
     searchable?: boolean;
+    collapseAction?: boolean;
   }>(),
   {
     refreshTitle: undefined,
@@ -21,6 +22,7 @@ const props = withDefaults(
     searchKeyword: '',
     searchPlaceholder: '搜索名称、编码或 ID',
     searchable: true,
+    collapseAction: true,
   },
 );
 
@@ -88,7 +90,7 @@ async function focusSearchInput() {
             @click="toggleSearch"
           />
           <UiButton
-            v-if="explorerColumn?.collapsible.value && !explorerColumn.collapsed.value"
+            v-if="collapseAction && explorerColumn?.collapsible.value && !explorerColumn.collapsed.value"
             class="record-explorer-panel-action"
             icon-name="menu-collapse"
             icon-only

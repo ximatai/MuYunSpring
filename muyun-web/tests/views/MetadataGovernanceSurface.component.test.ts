@@ -2,10 +2,11 @@ import { flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, expect, it, vi } from 'vitest';
 import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
 import MetadataGovernanceSurface from '@/views/MetadataGovernanceSurface.vue';
+import { confirmAction } from '@muyun/vue-ui-antdv';
 
 vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@muyun/vue-ui-antdv')>()),
-  confirmAction: vi.fn().mockResolvedValue(true),
+  confirmAction: vi.fn(),
 }));
 
 const mounted = new Set<ReturnType<typeof shallowMount>>();
@@ -13,9 +14,10 @@ const mounted = new Set<ReturnType<typeof shallowMount>>();
 afterEach(() => {
   mounted.forEach((wrapper) => wrapper.unmount());
   mounted.clear();
+  vi.clearAllMocks();
 });
 
-it('holds a main-entity capability choice in the local edit session without a direct request', async () => {
+it('keeps main entity capabilities out of the data-model editor', async () => {
   const http = fakeHttp();
   const request = vi.spyOn(http, 'request');
   configureModuleContext({ http });
@@ -27,426 +29,178 @@ it('holds a main-entity capability choice in the local edit session without a di
   await flushPromises();
   await flushPromises();
 
-  const checkbox = wrapper
-    .findAll('[data-testid="capability-checkbox"]')
-    .find((item) => item.text().includes('树结构'));
-  expect(wrapper.text()).toContain('树结构');
-  expect(checkbox?.attributes('data-disabled')).toBe('true');
-
-  const editButton = wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('编辑数据模型'));
-  await editButton?.trigger('click');
-  await flushPromises();
-
-  const editableCheckbox = wrapper
-    .findAll('[data-testid="capability-checkbox"]')
-    .find((item) => item.text().includes('树结构'));
-  expect(editableCheckbox?.attributes('data-disabled')).toBe('false');
-
-  await editableCheckbox?.trigger('click');
-  await flushPromises();
-
-  expect(request.mock.calls.some(([options]) => options.path.includes('capability-change'))).toBe(false);
-  expect(
-    wrapper
-      .findAll('[data-testid="capability-checkbox"]')
-      .find((item) => item.text().includes('树结构'))
-      ?.attributes('data-checked'),
-  ).toBe('true');
-  expect(wrapper.text()).toContain('改动仅保存在当前草稿，尚未写入数据模型。');
-
-  const cancelButton = wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('取消编辑'));
-  await cancelButton?.trigger('click');
-  await flushPromises();
-
-  const readonlyCheckbox = wrapper
-    .findAll('[data-testid="capability-checkbox"]')
-    .find((item) => item.text().includes('树结构'));
-  expect(readonlyCheckbox?.attributes('data-disabled')).toBe('true');
-  expect(readonlyCheckbox?.attributes('data-checked')).toBe('false');
-  expect(wrapper.text()).not.toContain('改动仅保存在当前草稿，尚未写入数据模型。');
-});
-
-it('keeps child capabilities non-interactive and exposes the backend restriction reason', async () => {
-  configureModuleContext({ http: fakeHttp('CHILD') });
-  const wrapper = shallowMount(MetadataGovernanceSurface, {
-    props: { moduleAlias: 'education.exam' },
-    global: { stubs: governanceStubs() },
-  });
-  mounted.add(wrapper);
-  await flushPromises();
-  await flushPromises();
-
-  const checkbox = wrapper
-    .findAll('[data-testid="capability-checkbox"]')
-    .find((item) => item.text().includes('树结构'));
-  expect(checkbox?.attributes('data-disabled')).toBe('true');
-  expect(wrapper.text()).toContain('子实体不能启用该模块保留能力。');
-});
-
-it('treats the runtime lower-case main role as editable', async () => {
-  configureModuleContext({ http: fakeHttp('main') });
-  const wrapper = shallowMount(MetadataGovernanceSurface, {
-    props: { moduleAlias: 'education.exam' },
-    global: { stubs: governanceStubs() },
-  });
-  mounted.add(wrapper);
-  await flushPromises();
-  await flushPromises();
-
-  const editButton = wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('编辑数据模型'));
-  await editButton?.trigger('click');
-  await flushPromises();
-
-  const checkbox = wrapper
-    .findAll('[data-testid="capability-checkbox"]')
-    .find((item) => item.text().includes('树结构'));
-  expect(checkbox?.attributes('data-disabled')).toBe('false');
-});
-
-it('previews then confirms and publishes the same fingerprinted proposal', async () => {
-  const http = fakeHttp();
-  const request = vi.spyOn(http, 'request');
-  configureModuleContext({ http });
-  const wrapper = shallowMount(MetadataGovernanceSurface, {
-    props: { moduleAlias: 'education.exam' },
-    global: { stubs: governanceStubs() },
-  });
-  mounted.add(wrapper);
-  await flushPromises();
-  await flushPromises();
-
-  const editButton = wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('编辑数据模型'));
-  await editButton?.trigger('click');
-  const tree = wrapper
-    .findAll('[data-testid="capability-checkbox"]')
-    .find((item) => item.text().includes('树结构'));
-  await tree?.trigger('click');
-  await flushPromises();
-
-  const publishButton = wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('预检并发布'));
-  await publishButton?.trigger('click');
-  await flushPromises();
-  await flushPromises();
-
-  const previewRequest = request.mock.calls
-    .map(([options]) => options)
-    .find((options) => options.path.endsWith('/change-set-preview'));
-  const applyRequest = request.mock.calls
-    .map(([options]) => options)
-    .find((options) => options.path.endsWith('/change-set-apply'));
-  expect(previewRequest?.method).toBe('POST');
-  expect(applyRequest).toMatchObject({
-    method: 'POST',
-    body: { proposal: previewRequest?.body, proposalFingerprint: 'preview-fingerprint' },
-  });
-});
-
-it('loads the target field catalog and selects its declared defaults for a new module reference', async () => {
-  const http = fakeHttp();
-  const request = vi.spyOn(http, 'request');
-  configureModuleContext({ http });
-  const wrapper = shallowMount(MetadataGovernanceSurface, {
-    props: { moduleAlias: 'education.exam' },
-    global: { stubs: governanceStubs() },
-  });
-  mounted.add(wrapper);
-  await flushPromises();
-  await flushPromises();
-
-  await wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('编辑数据模型'))
-    ?.trigger('click');
-  await wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('新增模块引用'))
-    ?.trigger('click');
-  await flushPromises();
-
-  const inputs = wrapper.findAll('[data-testid="governance-input"]');
-  await inputs.at(4)?.setValue('education.student');
-  await flushPromises();
-  await flushPromises();
-
-  const catalogRequest = request.mock.calls
-    .map(([options]) => options)
-    .find((options) => options.path.includes('/reference-target-field-catalog?'));
-  expect(catalogRequest).toMatchObject({
-    method: 'GET',
-    path: '/platform.module/education.exam/metadata-relations/rel-main/reference-target-field-catalog?targetModuleAlias=education.student',
-  });
-  expect(wrapper.text()).toContain('ID（id）');
-  expect(wrapper.text()).toContain('标题（title）');
-  expect(wrapper.text()).toContain('metadata-student');
-  const selectors = wrapper.findAll('[data-testid="governance-select"]');
-  expect((selectors.at(0)?.element as HTMLSelectElement | undefined)?.value).toBe('id');
-  expect((selectors.at(1)?.element as HTMLSelectElement | undefined)?.value).toBe('title');
-  expect(
-    request.mock.calls.some(([options]) => options.path.includes('targetMetadataId=metadata-student')),
-  ).toBe(true);
-  expect(wrapper.text()).toContain('本期模块引用仅支持单选。');
-  expect(wrapper.text()).not.toContain('多选');
-});
-
-it('clears the resolved metadata binding before loading a different reference target', async () => {
-  const http = fakeHttp();
-  const request = vi.spyOn(http, 'request');
-  configureModuleContext({ http });
-  const wrapper = shallowMount(MetadataGovernanceSurface, {
-    props: { moduleAlias: 'education.exam' },
-    global: { stubs: governanceStubs() },
-  });
-  mounted.add(wrapper);
-  await flushPromises();
-  await flushPromises();
-
-  await wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('编辑数据模型'))
-    ?.trigger('click');
-  await wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('新增模块引用'))
-    ?.trigger('click');
-
-  const targetModuleInput = wrapper.findAll('[data-testid="governance-input"]').at(4);
-  await targetModuleInput?.setValue('education.student');
-  await flushPromises();
-  await flushPromises();
-  expect(wrapper.text()).toContain('metadata-student');
-
-  await targetModuleInput?.setValue('education.teacher');
-  await flushPromises();
-  await flushPromises();
-
-  const teacherCatalogRequests = request.mock.calls
-    .map(([options]) => options.path)
-    .filter((path) => path.includes('targetModuleAlias=education.teacher'));
-  expect(teacherCatalogRequests[0]).toBe(
-    '/platform.module/education.exam/metadata-relations/rel-main/reference-target-field-catalog?targetModuleAlias=education.teacher',
+  expect(wrapper.text()).toContain('＋ 字段');
+  expect(wrapper.text()).toContain('＋ 子元数据');
+  expect(wrapper.find('[data-testid="capability-checkbox"]').exists()).toBe(false);
+  expect(request.mock.calls.map(([options]) => options.path)).not.toContain(
+    '/platform.module/education.exam/metadata-model/change-set-preview',
   );
-  expect(teacherCatalogRequests).not.toContainEqual(expect.stringContaining('metadata-student'));
-  expect(wrapper.text()).toContain('metadata-teacher');
-  expect(wrapper.text()).not.toContain('metadata-student');
 });
 
-it('keeps the current target catalog when an earlier target request fails late', async () => {
-  let rejectStudentCatalog!: (cause: unknown) => void;
-  const studentCatalog = new Promise<never>((_resolve, reject) => {
-    rejectStudentCatalog = reject;
+it('keeps the field editor open while save confirmation is pending', async () => {
+  const confirmation = deferred<boolean>();
+  vi.mocked(confirmAction).mockReturnValue(confirmation.promise);
+  configureModuleContext({ http: fakeHttp() });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
   });
-  const http: HttpClient = {
-    request: <T>(options: HttpRequestOptions) => {
-      if (
-        options.path.includes('targetModuleAlias=education.student') &&
-        !options.path.includes('targetMetadataId=')
-      ) {
-        return studentCatalog as Promise<T>;
-      }
-      return Promise.resolve(responseFor(options) as T);
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  await wrapper.get('[data-testid="model-tree"]').trigger('click');
+  await flushPromises();
+  const edit = wrapper.findAll('[data-testid="action-button"]').find((button) => button.text() === '编辑');
+  await edit?.trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('存储字段规格');
+
+  const save = wrapper.findAll('[data-testid="action-button"]').find((button) => button.text() === '保存');
+  await save?.trigger('click');
+  await flushPromises();
+
+  expect(vi.mocked(confirmAction)).toHaveBeenCalledTimes(1);
+  expect(wrapper.text()).toContain('存储字段规格');
+  confirmation.resolve(false);
+  await flushPromises();
+  expect(wrapper.text()).toContain('存储字段规格');
+});
+
+it('keeps the edited field selected after a successful save refresh', async () => {
+  vi.mocked(confirmAction).mockResolvedValue(true);
+  configureModuleContext({ http: fakeHttp() });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  await wrapper.get('[data-testid="model-tree"]').trigger('click');
+  await flushPromises();
+  const edit = wrapper.findAll('[data-testid="action-button"]').find((button) => button.text() === '编辑');
+  await edit?.trigger('click');
+  await flushPromises();
+  const save = wrapper.findAll('[data-testid="action-button"]').find((button) => button.text() === '保存');
+  await save?.trigger('click');
+  await flushPromises();
+  await flushPromises();
+
+  expect(wrapper.text()).toContain('编辑');
+  expect(wrapper.text()).not.toContain('＋ 字段');
+});
+
+function governanceStubs() {
+  return {
+    ManagementWorkspace: { template: '<section><slot /></section>' },
+    ManagementExplorerColumn: { template: '<section><slot /></section>' },
+    RecordExplorerPanel: { template: '<section><slot /></section>' },
+    RecordDetailPanel: {
+      template: '<section><slot name="status" /><slot /><slot name="actions" /></section>',
+    },
+    RecordFormGrid: { template: '<form><slot /></form>' },
+    UiTree: {
+      props: { nodes: Array },
+      emits: ['select'],
+      template:
+        '<button data-testid="model-tree" @click="$emit(\'select\', nodes[0]?.children?.[0])"><slot /></button>',
+    },
+    UiActionButton: {
+      emits: ['click'],
+      template: '<button data-testid="action-button" @click="$emit(\'click\')"><slot /></button>',
     },
   };
-  configureModuleContext({ http });
-  const wrapper = shallowMount(MetadataGovernanceSurface, {
-    props: { moduleAlias: 'education.exam' },
-    global: { stubs: governanceStubs() },
-  });
-  mounted.add(wrapper);
-  await flushPromises();
-  await flushPromises();
+}
 
-  await wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('编辑数据模型'))
-    ?.trigger('click');
-  await wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('新增模块引用'))
-    ?.trigger('click');
+function fakeHttp(): HttpClient {
+  return {
+    request: <T>(request: HttpRequestOptions) => Promise.resolve(responseFor(request) as T),
+  };
+}
 
-  const targetModuleInput = wrapper.findAll('[data-testid="governance-input"]').at(4);
-  await targetModuleInput?.setValue('education.student');
-  await flushPromises();
-  await targetModuleInput?.setValue('education.teacher');
-  await flushPromises();
-  await flushPromises();
-  expect(wrapper.text()).toContain('metadata-teacher');
-
-  rejectStudentCatalog(new Error('student catalog failed late'));
-  await flushPromises();
-
-  expect(wrapper.text()).toContain('metadata-teacher');
-  expect(wrapper.text()).not.toContain('无法加载“education.student”的目标字段目录。');
-});
-
-it('makes a failed target-field catalog load visible and blocks the reference selectors', async () => {
-  configureModuleContext({ http: fakeHttp('MAIN', true) });
-  const wrapper = shallowMount(MetadataGovernanceSurface, {
-    props: { moduleAlias: 'education.exam' },
-    global: { stubs: governanceStubs() },
-  });
-  mounted.add(wrapper);
-  await flushPromises();
-  await flushPromises();
-  await wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('编辑数据模型'))
-    ?.trigger('click');
-  await wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((item) => item.text().includes('新增模块引用'))
-    ?.trigger('click');
-  await wrapper.findAll('[data-testid="governance-input"]').at(4)?.setValue('education.student');
-  await flushPromises();
-  await flushPromises();
-
-  expect(wrapper.text()).toContain('无法加载“education.student”的目标字段目录。');
-  expect(wrapper.findAll('[data-testid="governance-select"]').at(0)?.attributes('disabled')).toBeDefined();
-  expect(wrapper.findAll('[data-testid="governance-select"]').at(1)?.attributes('disabled')).toBeDefined();
-});
-
-function responseFor(
-  options: HttpRequestOptions,
-  relationRole: 'main' | 'child' | 'MAIN' | 'CHILD' = 'MAIN',
-  failReferenceTargetCatalog = false,
-) {
-  if (options.path === '/platform.module/platform.module/context') {
+function responseFor(options: HttpRequestOptions) {
+  if (options.path === '/platform.module/platform.module/context')
     return { moduleAlias: 'platform.module', capabilities: [], actions: [] };
-  }
-  if (options.path === '/platform.module/education.exam/metadata-relations/query') {
-    return {
-      records: [{ id: 'rel-main', metadataId: 'meta-main', relationRole }],
-      pages: 1,
-      totalKnown: true,
-    };
-  }
-  if (options.path === '/platform.metadata/view/meta-main') {
-    return { id: 'meta-main', alias: 'exam', title: '考试' };
-  }
-  if (options.path === '/platform.metadata/meta-main/fields/query') {
+  if (options.path === '/platform.module/education.exam/metadata-relations/query')
     return {
       records: [
-        { id: 'title', fieldName: 'title', title: '标题', fieldOwnership: 'BUSINESS', fieldForm: 'PHYSICAL' },
+        { id: 'rel-main', metadataId: 'meta-main', relationRole: 'MAIN' },
+        { id: 'rel-child', metadataId: 'meta-child', relationRole: 'CHILD', parentMetadataId: 'meta-main' },
       ],
       pages: 1,
       totalKnown: true,
     };
-  }
-  if (options.path === '/platform.module/education.exam/metadata-relations/rel-main/field-properties') {
-    return [
-      {
-        fieldId: 'title',
-        fieldName: 'title',
-        kind: 'BASIC',
-      },
-    ];
-  }
-  if (
-    options.path.startsWith(
-      '/platform.module/education.exam/metadata-relations/rel-main/reference-target-field-catalog?',
-    )
-  ) {
-    if (failReferenceTargetCatalog) throw new Error('catalog unavailable');
-    const targetModuleAlias = new URLSearchParams(options.path.split('?')[1]).get('targetModuleAlias') ?? '';
-    const targetName = targetModuleAlias.split('.').at(-1);
+  if (options.path === '/platform.metadata/view/meta-main')
+    return { id: 'meta-main', alias: 'exam', title: '考试', version: 3 };
+  if (options.path === '/platform.metadata/view/meta-child')
+    return { id: 'meta-child', alias: 'exam_student', title: '参考学生', version: 2 };
+  if (options.path === '/platform.metadata/meta-main/fields/query')
     return {
-      targetModuleAlias,
-      targetMetadataId: targetName ? `metadata-${targetName}` : undefined,
-      keyFields: [
-        { fieldName: 'id', title: 'ID', selectable: true },
-        { fieldName: 'studentNo', title: '学号', defaultField: true, selectable: true },
+      records: [
+        {
+          id: 'title',
+          fieldName: 'title',
+          columnName: 'title',
+          fieldSpecAlias: 'string',
+          title: '考试名称',
+          fieldOwnership: 'BUSINESS',
+          fieldForm: 'PHYSICAL',
+        },
       ],
-      labelFields: [
-        { fieldName: 'title', title: '标题', selectable: true },
-        { fieldName: 'name', title: '姓名', defaultField: true, selectable: true },
-      ],
+      pages: 1,
+      totalKnown: true,
     };
-  }
-  if (options.path === '/platform.field_spec/query') {
-    return { records: [{ id: 'string', alias: 'string', title: '短文本' }], pages: 1, totalKnown: true };
-  }
-  if (options.path === '/platform.module/education.exam/metadata-relations/rel-main/capabilities') {
+  if (options.path === '/platform.metadata/meta-child/fields/query')
     return {
+      records: [
+        {
+          id: 'student',
+          fieldName: 'studentId',
+          title: '学生',
+          fieldOwnership: 'BUSINESS',
+          fieldForm: 'PHYSICAL',
+        },
+      ],
+      pages: 1,
+      totalKnown: true,
+    };
+  if (options.path.endsWith('/field-properties')) return [];
+  if (options.path.endsWith('/record-count')) return { relationId: 'rel-main', recordCount: 0 };
+  if (options.path.endsWith('/reconcile-system-fields')) return {};
+  if (options.path.endsWith('/capabilities'))
+    return {
+      systemFields: [],
       capabilities: [
         {
           capability: 'TREE',
           enabled: false,
           configurable: true,
-          reason:
-            relationRole === 'CHILD' || relationRole === 'child'
-              ? '子实体不能启用该模块保留能力。'
-              : '能力由已保存字段事实推导。',
-          fieldContributions: ['parentId'],
+          reason: options.path.includes('rel-child') ? '子实体不能启用该模块保留能力。' : '可由主实体声明。',
+          fieldContributions: [],
           defaultKind: 'RUNTIME',
-          defaultDescription: '运行态写入根节点。',
+          defaultDescription: '',
         },
       ],
-      systemFields: [],
     };
-  }
-  if (options.path.endsWith('/change-set-preview')) {
-    return { errors: [], fieldImpacts: [], schemaImpacts: [], proposalFingerprint: 'preview-fingerprint' };
-  }
-  if (options.path.endsWith('/change-set-apply')) return {};
+  if (options.path === '/platform.field_spec/query') return { records: [], pages: 1, totalKnown: true };
+  if (options.path.endsWith('/metadata-model/change-set-preview'))
+    return {
+      errors: [],
+      fieldImpacts: [{ operation: 'UPDATE', fieldName: 'title', columnName: 'title' }],
+      schemaImpacts: [],
+      orderImpacts: [],
+      proposalFingerprint: 'fingerprint',
+    };
+  if (options.path.endsWith('/metadata-model/change-set-apply')) return {};
   throw new Error(`Unexpected request: ${options.path}`);
 }
 
-function governanceStubs() {
-  return {
-    RecordDetailPanel: {
-      name: 'RecordDetailPanel',
-      template: '<section><slot /><slot name="actions" /></section>',
-    },
-    UiActionButton: {
-      name: 'UiActionButton',
-      emits: ['click'],
-      template: '<button data-testid="action-button" @click="$emit(\'click\')"><slot /></button>',
-    },
-    UiCheckbox: {
-      name: 'UiCheckbox',
-      props: { checked: Boolean, disabled: Boolean },
-      emits: ['change'],
-      template:
-        '<button data-testid="capability-checkbox" :data-disabled="String(disabled)" :data-checked="String(checked)" @click="$emit(\'change\', !checked)"><slot /></button>',
-    },
-    RecordModeDrawer: {
-      name: 'RecordModeDrawer',
-      props: { open: Boolean },
-      template: '<section v-if="open"><slot name="form" /><slot name="operation" /></section>',
-    },
-    UiInput: {
-      name: 'UiInput',
-      props: { value: String },
-      emits: ['update:value'],
-      template:
-        '<input data-testid="governance-input" :value="value" @input="$emit(\'update:value\', $event.target.value)" />',
-    },
-    UiSelect: {
-      name: 'UiSelect',
-      props: { value: [String, Number], options: Array, disabled: Boolean },
-      emits: ['update:value'],
-      template:
-        '<select data-testid="governance-select" :value="value" :disabled="disabled" @change="$emit(\'update:value\', $event.target.value)"><option v-for="option in options" :key="String(option.value)" :value="option.value">{{ option.label }}</option></select>',
-    },
-  };
-}
-
-function fakeHttp(
-  relationRole: 'main' | 'child' | 'MAIN' | 'CHILD' = 'MAIN',
-  failReferenceTargetCatalog = false,
-): HttpClient {
-  return {
-    request: <T>(options: HttpRequestOptions) =>
-      Promise.resolve(responseFor(options, relationRole, failReferenceTargetCatalog) as T),
-  };
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
 }

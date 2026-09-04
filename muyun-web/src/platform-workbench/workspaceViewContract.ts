@@ -15,6 +15,11 @@ export interface WorkspaceViewDefinition<TInput extends WorkspaceViewInput> {
   drawerProfile?: WorkspaceDrawerProfile;
   routeTitle?: string;
   titleOf(input: TInput): string;
+  /**
+   * Returns the input fields that identify one workbench tab. Other parsed
+   * input fields remain URL-restorable view state and can change in-place.
+   */
+  tabIdentityParamsOf?(input: TInput): Record<string, RouteQueryValue>;
   parentRouteQueryOf?(input: TInput): Record<string, RouteQueryValue>;
   parse(query: Record<string, RouteQueryValue>): TInput | undefined;
   presentations: readonly WorkspaceViewPresentation[];

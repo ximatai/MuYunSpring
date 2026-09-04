@@ -40,11 +40,12 @@ function handleChange(checked: unknown) {
 <template>
   <ASwitch
     v-if="hasText"
+    v-bind="$attrs"
     :checked="props.checked"
     :disabled="props.disabled"
     :loading="props.loading"
     :size="props.size"
-    :class="[$attrs.class, { 'ui-switch--icon-only': !hasText }]"
+    :class="[$attrs.class, { 'ui-switch--icon-only': !hasText, 'ui-switch--small': props.size === 'small' }]"
     :style="$attrs.style"
     @change="handleChange"
   >
@@ -53,11 +54,12 @@ function handleChange(checked: unknown) {
   </ASwitch>
   <ASwitch
     v-else
+    v-bind="$attrs"
     :checked="props.checked"
     :disabled="props.disabled"
     :loading="props.loading"
     :size="props.size"
-    :class="[$attrs.class, 'ui-switch--icon-only']"
+    :class="[$attrs.class, 'ui-switch--icon-only', { 'ui-switch--small': props.size === 'small' }]"
     :style="$attrs.style"
     @change="handleChange"
   />
@@ -66,5 +68,9 @@ function handleChange(checked: unknown) {
 <style>
 .ui-switch--icon-only.ant-switch {
   width: 44px;
+}
+
+.ui-switch--icon-only.ant-switch.ui-switch--small {
+  width: 28px;
 }
 </style>

@@ -1,12 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import {
-  ModuleActionButton,
-  RecordActionBar,
-  RecordPanelButton,
-  type RecordActionItem,
-  type QueryListRecord,
-} from '@muyun/platform-components';
+import { RecordActionBar, type RecordActionItem, type QueryListRecord } from '@muyun/platform-components';
 import type { ModuleContext } from '@muyun/web-core';
 import type { ModulePageRecordActionContribution } from './modulePageEnhancements';
 
@@ -26,6 +20,11 @@ const props = withDefaults(
     configuredActions?: RecordActionItem[];
     /** Custom record views retain their own operation model. */
     showStandardViewActions?: boolean;
+    /** A workspace is a secondary navigation action, not a business operation. */
+    workspaceAvailable?: boolean;
+    /** Tree cards may add a child from the selected parent. */
+    createChildAvailable?: boolean;
+    createChildDisabled?: boolean;
   }>(),
   {
     record: undefined,
@@ -36,6 +35,9 @@ const props = withDefaults(
     actions: () => [],
     configuredActions: () => [],
     showStandardViewActions: true,
+    workspaceAvailable: false,
+    createChildAvailable: false,
+    createChildDisabled: false,
   },
 );
 
@@ -44,6 +46,8 @@ const emit = defineEmits<{
   save: [];
   edit: [];
   delete: [];
+  openWorkspace: [];
+  createChild: [];
   detailAction: [action: RecordActionItem];
 }>();
 
@@ -58,44 +62,98 @@ const saveAvailable = computed(() => {
 const viewActionsActive = computed(
   () => props.mode === 'view' && !props.recycleBinActive && props.showStandardViewActions,
 );
+const headerActions = computed<RecordActionItem[]>(() => {
+  if (formActive.value) {
+    return [
+      { key: '__platform-cancel', title: '取消', actionLevel: 'standard', disabled: props.saving },
+      {
+        key: '__platform-save',
+        title: props.saving ? '保存中' : '保存',
+        actionLevel: 'primary',
+        loading: props.saving,
+        disabled: !saveAvailable.value,
+      },
+    ];
+  }
+  if (props.mode !== 'view' || props.recycleBinActive) return [];
+  const actions: RecordActionItem[] = [
+    ...(props.workspaceAvailable
+      ? [
+          {
+            key: '__platform-workspace',
+            title: '在新标签页打开',
+            actionLevel: 'secondary' as const,
+            iconName: 'open-in-new' as const,
+          },
+        ]
+      : []),
+    ...props.actions,
+    ...props.configuredActions,
+  ];
+  if (props.createChildAvailable) {
+    actions.push({
+      key: '__platform-create-child',
+      title: '新建子项',
+      actionLevel: 'primary',
+      iconName: 'plus',
+      disabled: props.createChildDisabled,
+    });
+  }
+  if (viewActionsActive.value) {
+    actions.push(
+      {
+        key: '__platform-edit',
+        actionCode: 'update',
+        title: '编辑',
+        actionLevel: 'standard',
+        disabled: !props.record,
+      },
+      {
+        key: '__platform-delete',
+        actionCode: 'delete',
+        title: '删除',
+        actionLevel: 'secondary',
+        danger: true,
+        loading: props.saving,
+        disabled: !props.record,
+      },
+    );
+  }
+  return actions;
+});
+
+function handleAction(action: RecordActionItem) {
+  switch (action.key) {
+    case '__platform-cancel':
+      emit('cancel');
+      return;
+    case '__platform-save':
+      emit('save');
+      return;
+    case '__platform-workspace':
+      emit('openWorkspace');
+      return;
+    case '__platform-create-child':
+      emit('createChild');
+      return;
+    case '__platform-edit':
+      emit('edit');
+      return;
+    case '__platform-delete':
+      emit('delete');
+      return;
+    default:
+      emit('detailAction', action);
+  }
+}
 </script>
 
 <template>
-  <template v-if="formActive">
-    <RecordPanelButton :disabled="saving" @click="emit('cancel')">取消</RecordPanelButton>
-    <RecordPanelButton type="primary" :loading="saving" :disabled="!saveAvailable" @click="emit('save')">
-      {{ saving ? '保存中' : '保存' }}
-    </RecordPanelButton>
-  </template>
-  <template v-else-if="viewActionsActive">
-    <RecordActionBar
-      v-if="recordId && (actions.length > 0 || configuredActions.length > 0)"
-      :context="context"
-      :record-id="recordId"
-      :actions="[...actions, ...configuredActions]"
-      @action="emit('detailAction', $event)"
-    />
-    <ModuleActionButton :context="context" action-code="update" :disabled="!record" @click="emit('edit')">
-      编辑
-    </ModuleActionButton>
-    <ModuleActionButton
-      :context="context"
-      action-code="delete"
-      :loading="saving"
-      danger
-      :disabled="!record"
-      @click="emit('delete')"
-    >
-      删除
-    </ModuleActionButton>
-  </template>
   <RecordActionBar
-    v-else-if="
-      mode === 'view' && !recycleBinActive && recordId && (actions.length > 0 || configuredActions.length > 0)
-    "
+    v-if="headerActions.length"
     :context="context"
     :record-id="recordId"
-    :actions="[...actions, ...configuredActions]"
-    @action="emit('detailAction', $event)"
+    :actions="headerActions"
+    @action="handleAction"
   />
 </template>

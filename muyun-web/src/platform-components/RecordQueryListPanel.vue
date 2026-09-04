@@ -70,6 +70,7 @@ import {
   type RecordQueryListMode,
   type StandardCrudRowActionKey,
 } from './recordQueryListColumnModel';
+import { reconcileSelectedKeys } from './selectionRefresh';
 import { loadOptionFieldItems } from './optionFieldOptionCache';
 
 defineOptions({ name: 'RecordQueryListPanel' });
@@ -563,8 +564,9 @@ async function loadRecords(updateLoading = true) {
     }
     records.value = response.records;
     preloadRecordActionAvailability(response.records);
-    selectedRowKeys.value = selectedRowKeys.value.filter((key) =>
-      response.records.some((record) => recordKey(record) === String(key)),
+    selectedRowKeys.value = reconcileSelectedKeys(
+      selectedRowKeys.value,
+      response.records.map((record) => recordKey(record)),
     );
     total.value = response.total;
     querySummaryValues.value = response.summaries ?? [];

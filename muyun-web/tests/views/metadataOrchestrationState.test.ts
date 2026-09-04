@@ -10,6 +10,7 @@ import {
   isValidFieldDraft,
   isValidFieldPropertyDraft,
   isValidMainMetadataDraft,
+  dataSafeFieldSpecOptions,
   metadataFieldPropertySummary,
   metadataSubtitleOf,
   normalizeFieldDraft,
@@ -209,6 +210,20 @@ it('field spec options skip disabled specs and unnamed values', () => {
   ]);
 
   assert.deepEqual(options, [{ value: 'spec.short_text', label: '短文本' }]);
+});
+
+it('limits populated entities to lossless field-spec changes', () => {
+  const specs = [
+    { id: 'string', alias: 'string', title: '短文本', safeTargetFieldSpecAliases: ['text'] },
+    { id: 'text', alias: 'text', title: '长文本' },
+    { id: 'decimal', alias: 'decimal', title: '小数' },
+  ];
+  assert.deepEqual(dataSafeFieldSpecOptions(specs, 'string'), [
+    { value: 'string', label: '短文本' },
+    { value: 'text', label: '长文本' },
+  ]);
+  assert.deepEqual(dataSafeFieldSpecOptions(specs, 'text'), [{ value: 'text', label: '长文本' }]);
+  assert.deepEqual(dataSafeFieldSpecOptions(specs, 'decimal'), [{ value: 'decimal', label: '小数' }]);
 });
 
 it('uses the catalog title for a human-facing field specification', () => {

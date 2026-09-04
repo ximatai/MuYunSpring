@@ -30,20 +30,28 @@ const layout = computed<PageLayoutMode>(
   () => props.pageDescriptor?.layout ?? (props.route.meta.layout === 'workspace' ? 'workspace' : 'flow'),
 );
 const navigation = useWorkbenchNavigation();
-const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => ({
-  pageType: 'business-route',
-  openMode: 'workbench-route',
-  hostType: 'business-route-host',
-  title: typeof props.route.meta.title === 'string' ? props.route.meta.title : undefined,
-  layout: layout.value,
-  target: {
-    route: props.route.path,
-    moduleAlias: moduleAlias.value || undefined,
-    query: props.route.query,
-  },
-  params: props.route.query,
-  tabPolicy: { identity: 'by-params', closable: true, cacheable: true },
-}));
+const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => {
+  // A workbench tab may intentionally separate identity parameters from
+  // URL-restorable view state. Rebuilding a descriptor from the route would
+  // merge them again and make an in-place workspace navigation lose its owner.
+  if (props.pageDescriptor?.pageType === 'business-route') {
+    return props.pageDescriptor;
+  }
+  return {
+    pageType: 'business-route',
+    openMode: 'workbench-route',
+    hostType: 'business-route-host',
+    title: typeof props.route.meta.title === 'string' ? props.route.meta.title : undefined,
+    layout: layout.value,
+    target: {
+      route: props.route.path,
+      moduleAlias: moduleAlias.value || undefined,
+      query: props.route.query,
+    },
+    params: props.route.query,
+    tabPolicy: { identity: 'by-params', closable: true, cacheable: true },
+  };
+});
 const workspaceView = computed(() => resolveWorkspaceView(workspaceDescriptor.value));
 // Route changes are handled by the workbench cache key. This inner key is only
 // for an explicit page refresh, so ordinary static pages retain reactive route

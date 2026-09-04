@@ -353,9 +353,10 @@ it('standard module runner waits for a complete detail and action availability b
   assert.match(detailActionsSource, /const formActive = computed/);
   assert.match(detailActionsSource, /const saveAvailable = computed/);
   assert.match(detailActionsSource, /props\.mode === 'create' \? 'create' : 'update'/);
-  assert.match(detailActionsSource, /<RecordPanelButton :disabled="saving" @click="emit\('cancel'\)">取消/);
-  assert.match(detailActionsSource, /v-if="formActive"/);
-  assert.match(detailActionsSource, /v-else-if="viewActionsActive"/);
+  assert.match(detailActionsSource, /const headerActions = computed<RecordActionItem\[\]>/);
+  assert.match(detailActionsSource, /actionLevel: 'primary'/);
+  assert.match(detailActionsSource, /actionLevel: 'secondary'/);
+  assert.match(detailActionsSource, /<RecordActionBar/);
   assert.match(hostSource, /@cancel="cancelDetailEditing"/);
   assert.match(hostSource, /function cancelDetailEditing\(\)/);
   assert.match(hostSource, /function cancelDetailEditing\(\)[\s\S]*detail\.cancelEdit\(\)/);
@@ -1065,7 +1066,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /title="改为抽屉展示"/);
   assert.match(hostSource, /icon-name="pin-off"/);
   assert.match(hostSource, /icon-name="pin"/);
-  assert.equal(matchCount(hostSource, /title="在新标签页打开"/g), 4);
+  assert.match(hostSource, /:workspace-available="detailWorkspaceAvailable"/);
   assert.match(hostSource, /<RecordDetailPanel[\s\S]*<template #title-prefix>/);
   assert.match(
     hostSource,
@@ -1233,12 +1234,19 @@ it('production workbench delegates page lifetime to the Vue Router outlet', () =
   assert.notMatch(workbenchSource, /<template v-for="tab in openedTabs"/);
   assert.match(workbenchSource, /<div v-else-if="activeTab" class="tab-panel-host">[\s\S]*?<slot/);
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
-  assert.match(appSource, /<RouterView v-slot="\{ Component, route \}">/);
-  assert.match(appSource, /<KeepAlive :include="cachedTabPageHostNames" :max="pageCacheMax">/);
-  assert.match(appSource, /:is="pageCacheHostFor\(renderedTabKey\)"/);
-  assert.match(appSource, /pageCacheHostNames\.delete\(key\)/);
-  assert.match(appSource, /:key="pageRuntimeCacheKey\(route, renderedTabKey\)"/);
+  assert.match(appSource, /const CachePageHost = defineComponent\(\{[\s\S]*name: 'CachePageHost'/);
+  assert.match(appSource, /props: \{[\s\S]*component: \{ type: Object, required: true \}[\s\S]*route: \{ type: Object, required: true \}[\s\S]*pageDescriptor: \{ type: Object, required: false \}[\s\S]*refreshRevision: \{ type: Number, required: false \}/);
+  assert.match(appSource, /function pageRuntimeCacheKey\(tabKey: string \| undefined\) \{[\s\S]*return `\$\{tabKey \?\? 'unbound'\}:\$\{generation\}`;/);
+  assert.match(appSource, /<KeepAlive :max="pageCacheMax">/);
+  assert.match(appSource, /<component[\s\S]*:is="CachePageHost"[\s\S]*renderedPageRoute\.meta\.cacheable !== false && renderedTabMatchesRoute[\s\S]*:key="pageRuntimeCacheKey\(renderedTabKey\)"/);
+  assert.match(appSource, /renderedPageRoute\.meta\.cacheable !== false && renderedTabMatchesRoute/);
+  assert.match(appSource, /const renderedPageRoute = shallowRef<RouteLocationNormalizedLoaded>\(\)/);
+  assert.match(appSource, /function componentForCommittedRoute\(route: RouteLocationNormalizedLoaded\)/);
+  assert.match(appSource, /renderedPageRoute\.value = snapshotPageRoute\(route\)/);
+  assert.match(appSource, /route\.name === 'workspace-view-route' \? WorkspaceRouteView : component/);
   assert.match(appSource, /:refresh-revision="pageRefreshRevisionFor\(renderedTabKey\)"/);
+  assert.notMatch(appSource, /cachedTabPageHostNames|pageCacheHostFor|pageCacheHostNames|pageCacheHosts/);
+  assert.notMatch(appSource, /pageCacheKey\(route|pageRuntimeCacheKey\(route,/);
   assert.match(workbenchSource, /emit\('refreshPage', activeTabKey\.value\)/);
   assert.notMatch(workbenchSource, /activePageContentKey|pageRefreshRevision/);
   assert.notMatch(appSource, /PlatformAdminRouteOutlet|WorkbenchOutlet/);
@@ -1280,7 +1288,9 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
   assert.match(workspaceViewOutletSource, /provideWorkspaceViewHost/);
   assert.match(workspaceViewOutletSource, /dismissWorkspaceViewDescriptor/);
   assert.match(workspaceViewOutletSource, /tabKeyOf\(props\.descriptor\)/);
-  assert.match(workspaceViewOutletSource, /navigation\.replacePage\(ownerPageKey\.value/);
+  assert.match(workspaceViewOutletSource, /const ownerPageKey = tabKeyOf\(props\.descriptor\)/);
+  assert.match(workspaceViewOutletSource, /replaceQuery\(changes\)/);
+  assert.match(workspaceViewOutletSource, /navigation\.replacePage\(ownerPageKey,/);
   assert.match(workspaceViewsSource, /createWorkspaceViewDescriptor/);
   assert.match(workspaceViewsSource, /createWorkspaceViewRegistry/);
   assert.match(workspaceViewsSource, /重复的工作视图类型/);

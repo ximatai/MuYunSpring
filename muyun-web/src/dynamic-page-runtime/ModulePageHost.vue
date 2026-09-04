@@ -134,6 +134,7 @@ const props = defineProps<{
   descriptor: StandardModulePageDescriptor;
 }>();
 
+
 const currentUser = useCurrentUserContext();
 const baseContext = useModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
@@ -2937,14 +2938,6 @@ function recordTitle(record: QueryListRecord | undefined) {
           />
         </template>
         <template #actions>
-          <RecordPanelButton
-            v-if="detailWorkspaceAvailable"
-            type="text"
-            icon-name="open-in-new"
-            title="在新标签页打开"
-            aria-label="在新标签页打开"
-            @click="openDetailWorkspaceView"
-          />
           <ModuleRecordDetailActions
             :context="context"
             :record="selectedRecord"
@@ -2955,10 +2948,12 @@ function recordTitle(record: QueryListRecord | undefined) {
             :recycle-bin-active="recycleBinDetailActive"
             :actions="enhancementDetailActions"
             :configured-actions="detailPageActions"
+            :workspace-available="detailWorkspaceAvailable"
             @cancel="cancelDetailEditing"
             @save="saveRecord"
             @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
             @delete="selectedRecord && deleteRecord(selectedRecord)"
+            @open-workspace="openDetailWorkspaceView"
             @detail-action="handleDetailAction"
           />
         </template>
@@ -3143,69 +3138,26 @@ function recordTitle(record: QueryListRecord | undefined) {
           </aside>
         </template>
         <template #actions>
-          <template v-if="editorMode !== 'view'">
-            <RecordPanelButton :disabled="saving" @click="closeTreeCardEditor">取消</RecordPanelButton>
-            <RecordPanelButton
-              type="primary"
-              :loading="saving"
-              :disabled="
-                detailLoading ||
-                detailLoadFailed ||
-                context.can(editorMode === 'create' ? 'create' : 'update') !== true
-              "
-              @click="saveRecord"
-            >
-              {{ saving ? '保存中' : '保存' }}
-            </RecordPanelButton>
-          </template>
-          <template v-else>
-            <RecordPanelButton
-              v-if="detailWorkspaceAvailable"
-              type="text"
-              icon-name="open-in-new"
-              title="在新标签页打开"
-              aria-label="在新标签页打开"
-              @click="openDetailWorkspaceView"
-            />
-            <RecordActionBar
-              v-if="
-                selectedRecord?.id != null &&
-                (enhancementDetailActions.length > 0 || detailPageActions.length > 0)
-              "
-              :context="context"
-              :record-id="String(selectedRecord.id)"
-              :actions="[...enhancementDetailActions, ...detailPageActions]"
-              @action="handleDetailAction"
-            />
-            <ModuleActionButton
-              :context="context"
-              action-code="create"
-              :disabled="!selectedRecord"
-              @click="createChildRecord"
-            >
-              新建子项
-            </ModuleActionButton>
-            <ModuleActionButton
-              :context="context"
-              action-code="update"
-              :record-id="selectedRecord?.id == null ? undefined : String(selectedRecord.id)"
-              :disabled="!selectedRecord"
-              @click="selectedRecord && editRecord(selectedRecord, 'restore-view')"
-            >
-              编辑
-            </ModuleActionButton>
-            <ModuleActionButton
-              :context="context"
-              action-code="delete"
-              :record-id="selectedRecord?.id == null ? undefined : String(selectedRecord.id)"
-              :loading="saving"
-              danger
-              :disabled="!selectedRecord"
-              @click="selectedRecord && deleteRecord(selectedRecord)"
-            >
-              删除
-            </ModuleActionButton>
-          </template>
+          <ModuleRecordDetailActions
+            :context="context"
+            :record="selectedRecord"
+            :mode="editorMode"
+            :saving="saving"
+            :detail-loading="detailLoading"
+            :detail-load-failed="detailLoadFailed"
+            :actions="enhancementDetailActions"
+            :configured-actions="detailPageActions"
+            :workspace-available="detailWorkspaceAvailable"
+            create-child-available
+            :create-child-disabled="!selectedRecord || context.can('create') !== true"
+            @cancel="closeTreeCardEditor"
+            @save="saveRecord"
+            @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
+            @delete="selectedRecord && deleteRecord(selectedRecord)"
+            @open-workspace="openDetailWorkspaceView"
+            @create-child="createChildRecord"
+            @detail-action="handleDetailAction"
+          />
         </template>
         <template #status>
           <RecordStatusSwitch

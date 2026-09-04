@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import type { MetadataField, ModuleMetadataRelation } from '@/web-contracts';
 import {
   createMetadataModelEditSession,
+  createMetadataModelWorkspaceEditSession,
   isSessionEditableMetadataField,
   metadataFieldGovernanceKind,
   metadataFieldGovernanceLabel,
@@ -157,4 +158,49 @@ it('stages a reference property with its field and carries the binding through t
     },
   ]);
   expect(JSON.stringify(proposal)).toContain('"projectionMappings":["name:subjectCategoryIdTitle"]');
+});
+
+it('keeps relation and field ordering with every node draft until one module proposal is built', () => {
+  const session = createMetadataModelWorkspaceEditSession();
+  session.begin([
+    {
+      relationId: 'main',
+      metadataId: 'metadata-main',
+      expectedMetadataVersion: 3,
+      fields: [
+        { id: 'title', version: 2, fieldName: 'title', fieldOwnership: 'BUSINESS' },
+        { id: 'date', version: 2, fieldName: 'examDate', fieldOwnership: 'BUSINESS' },
+        { id: 'tenant', version: 2, fieldName: 'tenantId', fieldOwnership: 'PLATFORM' },
+      ],
+      sortableFieldIds: ['title', 'date'],
+      capabilities: [{ capability: 'TREE', enabled: false, selectable: true }],
+    },
+    {
+      relationId: 'child',
+      metadataId: 'metadata-child',
+      parentMetadataId: 'metadata-main',
+      expectedMetadataVersion: 1,
+      fields: [{ id: 'student', fieldName: 'studentId', fieldOwnership: 'BUSINESS' }],
+      capabilities: [{ capability: 'TREE', enabled: false, selectable: false }],
+    },
+  ]);
+
+  session.stageCapability('main', 'TREE', true, true);
+  session.stageFieldOrder('main', ['date', 'title']);
+  session.stageRelationOrder(undefined, ['main']);
+
+  expect(session.fieldsForDisplay('main', []).slice(0, 2)).toMatchObject([{ id: 'date' }, { id: 'title' }]);
+  expect(session.relation('main')?.metadataId).toBe('metadata-main');
+  expect(session.buildProposal()).toEqual({
+    relationDrafts: [
+      {
+        relationId: 'main',
+        expectedMetadataVersion: 3,
+        capabilitySelections: { TREE: true },
+        fieldDrafts: [],
+      },
+    ],
+    relationOrders: [],
+    fieldOrders: [{ relationId: 'main', fieldIds: ['date', 'title'] }],
+  });
 });

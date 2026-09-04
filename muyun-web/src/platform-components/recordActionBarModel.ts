@@ -15,6 +15,8 @@ export interface RecordActionItem {
   disabledReason?: string;
   loading?: boolean;
   primary?: boolean;
+  /** Business importance; the detail shell decides direct display versus “更多”. */
+  actionLevel?: 'primary' | 'standard' | 'secondary';
   danger?: boolean;
   iconName?: UiIconName;
   /** Runtime-only authorization source for actions rendered outside their owning module surface. */
