@@ -176,7 +176,19 @@ public class MenuService extends AbstractAbilityService<Menu> implements
                         net.ximatai.muyun.spring.ability.SortPartitions.byFieldsWithMessage(
                                 "Menu sort can only move records within the same scheme", "schemeId"),
                         net.ximatai.muyun.spring.ability.SortPartitions.byFieldsWithMessage(
-                                "Tree sort can only move records within the same parent", "parentId")));
+                        "Tree sort can only move records within the same parent", "parentId")));
+    }
+
+    @Override
+    public List<String> sortPartitionFields() {
+        return List.of("schemeId");
+    }
+
+    @Override
+    public void validateTreeMoveBusinessPartition(Menu moving, Menu targetParent) {
+        net.ximatai.muyun.spring.ability.SortPartitions.byFieldsWithMessage(
+                "Menu sort can only move records within the same scheme", "schemeId")
+                .requireSamePartition(moving, targetParent);
     }
 
     @Override

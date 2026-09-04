@@ -13,6 +13,7 @@ import {
 import type { ModuleContext } from '@muyun/web-core';
 import type { WebTreeNode } from '@muyun/web-contracts';
 import type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
+import { sortPartitionKey } from './sortPartitionKey';
 import {
   defaultTreeRecordMatches,
   defaultTreeRecordTitle,
@@ -245,7 +246,7 @@ function sortPartitionOf(record: TreeRecordBase): string | undefined {
   const fields = runtime.sortPartitionFields ?? [];
   const values = record as Record<string, unknown>;
   if (fields.some((field) => !Object.prototype.hasOwnProperty.call(values, field))) return undefined;
-  return fields.map((field) => (values[field] == null ? '' : String(values[field]))).join('\u0000');
+  return sortPartitionKey(fields.map((field) => values[field]));
 }
 
 async function handleDropForSort(event: UiTreeDropEvent) {

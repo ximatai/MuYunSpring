@@ -3,12 +3,11 @@ import {
   CrudRecordListExplorer,
   ModuleActionButton,
   RecordExplorerPanel,
-  RecordPanelButton,
   RecordPanelState,
   TreeRecordExplorer,
   type QueryListRecord,
 } from '@muyun/platform-components';
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import type { RecordInlineAction, ResolvedPageNavigatorLevelDescriptor } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import { navigatorItemOf, type NavigatorItemRecord } from './pageNavigatorItemModel';
@@ -19,7 +18,6 @@ type NavigatorLevelRuntime = {
   descriptor: ResolvedPageNavigatorLevelDescriptor;
   context: ModuleContext<QueryListRecord>;
   tree: boolean;
-  sortingDisabled: boolean;
 };
 
 const props = defineProps<{
@@ -49,11 +47,7 @@ const emit = defineEmits<{
   action: [action: RecordInlineAction, record: QueryListRecord];
 }>();
 
-const sorting = ref(false);
 const managementAvailable = computed(() => props.level.descriptor.management != null);
-const sortingAvailable = computed(
-  () => !props.level.sortingDisabled && managementAvailable.value && props.level.context.can('sort') === true,
-);
 
 function itemOf(record: NavigatorItemRecord) {
   return navigatorItemOf(
@@ -76,19 +70,6 @@ function itemOf(record: NavigatorItemRecord) {
     @update:search-keyword="emit('update:keyword', $event)"
     @refresh="emit('refresh')"
   >
-    <template v-if="sortingAvailable" #utility-actions>
-      <RecordPanelButton
-        icon-name="swap-vertical"
-        icon-only
-        size="small"
-        type="text"
-        :selected="sorting"
-        :disabled="Boolean(keyword.trim())"
-        :title="keyword.trim() ? '清空搜索后可调整排序' : sorting ? '结束排序' : '调整排序'"
-        :aria-label="sorting ? '结束排序' : '调整排序'"
-        @click="sorting = !sorting"
-      />
-    </template>
     <template v-if="managementAvailable" #actions>
       <ModuleActionButton
         :context="level.context"
@@ -112,7 +93,7 @@ function itemOf(record: NavigatorItemRecord) {
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
       :actions-of="managementAvailable ? actionsOf : undefined"
-      :sorting="sorting"
+      :sorting="false"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"
@@ -130,7 +111,7 @@ function itemOf(record: NavigatorItemRecord) {
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
       :actions-of="managementAvailable ? actionsOf : undefined"
-      :sorting="sorting"
+      :sorting="false"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"

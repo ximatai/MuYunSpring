@@ -101,9 +101,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
         String oldParentId = moving.getParentId();
         String targetParentId = resolveMoveParentId(moving, previousId, nextId, parentId);
         if (!SortAbility.sameValue(oldParentId, targetParentId)) {
+            validateTreeMoveTarget(moving, targetParentId);
             moving.setParentId(targetParentId);
             validateTreePlacement(moving);
-            validateTreeMoveTarget(moving, targetParentId);
         }
         List<T> siblings = sortedTreeSiblings(moving, null);
         List<String> orderedIds = new ArrayList<>();
@@ -136,9 +136,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
         String oldParentId = moving.getParentId();
         String targetParentId = resolveMoveParentId(scopeCriteria, moving, previousId, nextId, parentId);
         if (!SortAbility.sameValue(oldParentId, targetParentId)) {
+            validateTreeMoveTarget(moving, targetParentId);
             moving.setParentId(targetParentId);
             validateTreePlacementInScope(moving, scopeCriteria, "Tree parent must belong to the same scope");
-            validateTreeMoveTarget(moving, targetParentId);
         }
         List<T> siblings = sortedTreeSiblings(moving, scopeCriteria);
         List<String> orderedIds = new ArrayList<>();
@@ -188,17 +188,22 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
     }
 
     /**
-     * Validates non-tree sort partition fields when a node changes parent. The default static
-     * implementation reads {@link SortPartitionBy}; dynamic runtimes override this hook because
-     * their partition fields come from metadata rather than a Java model annotation.
+     * Validates the business partition independently from the structural tree parent. Services
+     * with a custom sort partition must override this hook; otherwise the model annotation is
+     * used. Dynamic runtimes override the enclosing target hook because their fields come from
+     * metadata rather than a Java model annotation.
      */
+    default void validateTreeMoveBusinessPartition(T moving, T targetParent) {
+        SortPartitions.fromModel(modelClass()).requireSamePartition(moving, targetParent);
+    }
+
     default void validateTreeMoveTarget(T moving, String targetParentId) {
         if (targetParentId == null || targetParentId.isBlank() || ROOT_ID.equals(targetParentId)) {
             return;
         }
         T targetParent = select(targetParentId);
         if (targetParent != null) {
-            SortPartitions.fromModel(modelClass()).requireSamePartition(moving, targetParent);
+            validateTreeMoveBusinessPartition(moving, targetParent);
         }
     }
 

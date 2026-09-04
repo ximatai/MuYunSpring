@@ -269,6 +269,10 @@ public class PlatformModuleRuntimeContextService {
                                              DynamicModuleDescriptor dynamicDescriptor) {
         String staticMainEntityAlias = mainEntityAlias(staticDefinition, null);
         if (staticDefinition.isPresent()) {
+            List<String> declaredFields = staticDefinition.get().sortPartitionFields();
+            if (!declaredFields.isEmpty()) {
+                return declaredFields;
+            }
             return staticDefinition.get().entities().stream()
                     .filter(entity -> entity.alias().equals(staticMainEntityAlias))
                     .findFirst()

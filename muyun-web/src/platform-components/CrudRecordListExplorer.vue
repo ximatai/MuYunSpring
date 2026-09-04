@@ -11,6 +11,7 @@ import {
 } from './crudRecordListModel';
 import { presentPlatformError } from './platformErrorFeedback';
 import { recycleBinRestoreUnavailableReason, useRecycleBinState } from './recycleBinState';
+import { sortPartitionKey } from './sortPartitionKey';
 
 defineOptions({ name: 'CrudRecordListExplorer' });
 
@@ -108,7 +109,7 @@ function sortPartitionOf(record: CrudRecordListBase) {
   const fields = runtime.sortPartitionFields ?? [];
   const values = record as Record<string, unknown>;
   if (fields.some((field) => !Object.prototype.hasOwnProperty.call(values, field))) return undefined;
-  return fields.map((field) => (values[field] == null ? '' : String(values[field]))).join('\u0000');
+  return sortPartitionKey(fields.map((field) => values[field]));
 }
 
 onMounted(loadRecords);
@@ -262,11 +263,13 @@ async function handleSort(event: {
   reordered.splice(event.position < 0 ? adjustedTargetIndex : adjustedTargetIndex + 1, 0, moving);
   const movedIndex = reordered.indexOf(moving);
   if (movedIndex === sourceIndex) return;
+  const sort = props.context.abilities.crud().sort;
+  if (!sort) return;
 
   sortingRequest.value = true;
   try {
     await props.context.runtime.ready;
-    await props.context.abilities.crud().sort(dragId, {
+    await sort(dragId, {
       previousId: reordered[movedIndex - 1]?.id == null ? null : String(reordered[movedIndex - 1].id),
       nextId: reordered[movedIndex + 1]?.id == null ? null : String(reordered[movedIndex + 1].id),
     });

@@ -92,6 +92,20 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
     }
 
     /**
+     * Declares the persisted business fields that can be projected to a client as the
+     * sortable record partition. Custom services whose partition is not described by
+     * {@link SortPartitionBy} must override this method explicitly.
+     */
+    default List<String> sortPartitionFields() {
+        Class<?> type = modelClass();
+        if (type == null || type == Object.class) {
+            return List.of();
+        }
+        SortPartitionBy declaration = type.getAnnotation(SortPartitionBy.class);
+        return declaration == null ? List.of() : List.of(declaration.fields());
+    }
+
+    /**
      * Compatibility projection of {@link #sortPartition()}. Existing services
      * with exceptional partition semantics may override it while being migrated.
      */

@@ -205,7 +205,6 @@ const context: ModuleContext<QueryListRecord> = {
     delete: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).delete(id, request),
     enable: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).enable(id, request),
     disable: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).disable(id, request),
-    sort: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).sort(id, request),
   },
   abilities: {
     ...rawContext.abilities,

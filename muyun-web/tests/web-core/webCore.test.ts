@@ -1357,6 +1357,7 @@ it('navigator reference contexts attach their immutable host level to list and t
     await context.crud.query({ externalQueryValues: { tenantId: 'tenant-a' } });
 
     assert.equal(requests[1].url, 'http://api.local/mr.project/navigator/reference/query');
+    assert.equal(context.crud.sort, undefined);
     assert.deepEqual(await requests[1].json(), {
       externalQueryValues: { tenantId: 'tenant-a' },
       navigatorHostModuleAlias: 'mr.device',

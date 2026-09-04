@@ -98,8 +98,19 @@ describe('CrudRecordListExplorer', () => {
       record: Record<string, unknown>,
     ) => string;
 
-    expect(partitionOf({ tenantId: 'tenant-a', scopeType: 'TENANT', organizationId: undefined })).toBe(
-      'tenant-a\u0000TENANT\u0000',
+    const emptyOrganization = partitionOf({
+      tenantId: 'tenant-a',
+      scopeType: 'TENANT',
+      organizationId: '',
+    });
+    const nullOrganization = partitionOf({
+      tenantId: 'tenant-a',
+      scopeType: 'TENANT',
+      organizationId: null,
+    });
+    expect(emptyOrganization).not.toBe(nullOrganization);
+    expect(partitionOf({ tenantId: 'tenant-a', scopeType: 'TENANT', organizationId: undefined })).not.toBe(
+      emptyOrganization,
     );
     expect(partitionOf({ tenantId: 'tenant-a', scopeType: 'TENANT' })).toBeUndefined();
   });

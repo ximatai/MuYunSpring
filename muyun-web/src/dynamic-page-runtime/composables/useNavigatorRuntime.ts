@@ -236,7 +236,9 @@ export function useNavigatorRuntime(
           tree:
             descriptor.kind === 'TREE' &&
             (sourceCapabilities?.includes('REFERENCE_TREE') ?? navigatorContext.abilities.hasTree() === true),
-          sortingDisabled: descriptor.kind === 'TREE',
+          // REFERENCE query results are scoped projections; the standard sort endpoint cannot
+          // receive that navigator scope, so ordering is disabled for both flat and tree levels.
+          sortingDisabled: true,
         };
       }),
     );
