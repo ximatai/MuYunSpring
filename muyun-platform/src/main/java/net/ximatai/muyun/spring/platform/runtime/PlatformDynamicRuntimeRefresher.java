@@ -34,6 +34,11 @@ public class PlatformDynamicRuntimeRefresher {
         return refresher.activateNow(compiler.compile(moduleAlias));
     }
 
+    /** Removes a runtime projection whose module currently has no MAIN metadata relation. */
+    public void deactivateNow(String moduleAlias) {
+        refresher.deactivateNow(moduleAlias);
+    }
+
     public DynamicModuleRefreshResult refresh(String moduleAlias, MigrationOptions options) {
         ModuleDefinition definition = compiler.compile(moduleAlias);
         return refresher.refresh(definition, options);

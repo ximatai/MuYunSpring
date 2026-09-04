@@ -179,30 +179,30 @@ const pageLayout = usePageLayout();
   padding-left: var(--muyun-management-collapsed-rail-offset, 0px);
 }
 
-.management-workspace--constrained .management-workspace__grid {
+.management-workspace--constrained > .management-workspace__grid {
   height: 100%;
   min-height: 0;
   align-items: stretch;
 }
 
-.management-workspace--detail-surface .management-workspace__grid {
+.management-workspace--detail-surface > .management-workspace__grid {
   grid-template-columns:
     repeat(var(--muyun-management-explorer-count), var(--muyun-management-explorer-width))
     minmax(var(--muyun-management-list-min-width), 1fr)
     minmax(var(--muyun-management-detail-min-width), var(--muyun-management-detail-preferred-width));
 }
 
-.management-workspace--list-surface .management-workspace__grid {
+.management-workspace--list-surface > .management-workspace__grid {
   grid-template-columns:
     repeat(var(--muyun-management-explorer-count), var(--muyun-management-explorer-width))
     minmax(var(--muyun-management-list-min-width), 1fr);
 }
 
-.management-workspace--without-explorer .management-workspace__grid {
+.management-workspace--without-explorer > .management-workspace__grid {
   grid-template-columns: minmax(var(--muyun-management-detail-min-width), 1fr);
 }
 
-.management-workspace--without-explorer.management-workspace--detail-surface .management-workspace__grid {
+.management-workspace--without-explorer.management-workspace--detail-surface > .management-workspace__grid {
   grid-template-columns:
     minmax(var(--muyun-management-list-min-width), 1fr)
     minmax(var(--muyun-management-detail-min-width), var(--muyun-management-detail-preferred-width));
@@ -211,21 +211,21 @@ const pageLayout = usePageLayout();
 /* Composer is deliberately positional: explorer, explorer, then canvas. It is
    not a generic three-column layout. Keep the canvas flexible: it is the
    primary editing surface and must never be forced outside a workbench. */
-.management-workspace--composer .management-workspace__grid {
+.management-workspace--composer > .management-workspace__grid {
   grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(0, 2fr);
 }
 
-.management-workspace--composer .management-workspace__grid > :nth-child(3) {
+.management-workspace--composer > .management-workspace__grid > :nth-child(3) {
   min-width: 0;
 }
 
 @media (max-width: 760px) {
-  .management-workspace--composer .management-workspace__grid {
+  .management-workspace--composer > .management-workspace__grid {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(120px, 0.45fr) minmax(120px, 0.55fr) minmax(0, 1.2fr);
   }
 
-  .management-workspace--composer .management-workspace__grid > :nth-child(3) {
+  .management-workspace--composer > .management-workspace__grid > :nth-child(3) {
     grid-column: auto;
   }
 }
@@ -234,7 +234,7 @@ const pageLayout = usePageLayout();
    desktop minimum widths are intentionally generous, but must not force the
    host to horizontally clip its primary navigation at tablet widths. */
 @media (max-width: 980px) {
-  .management-workspace--list-surface .management-workspace__grid {
+  .management-workspace--list-surface > .management-workspace__grid {
     grid-template-columns:
       repeat(var(--muyun-management-explorer-count), minmax(0, 1fr))
       minmax(0, 1.5fr);
@@ -243,7 +243,7 @@ const pageLayout = usePageLayout();
 }
 
 @media (max-width: 760px) {
-  .management-workspace--list-surface .management-workspace__grid {
+  .management-workspace--list-surface > .management-workspace__grid {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(200px, 0.7fr) minmax(320px, 1fr);
   }

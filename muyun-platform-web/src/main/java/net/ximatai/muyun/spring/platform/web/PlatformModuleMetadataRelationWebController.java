@@ -8,28 +8,28 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMainMetadataCreateCommand;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMainMetadataCreationResult;
+import net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreateCommand;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilitySnapshot;
+import net.ximatai.muyun.spring.platform.metadata.MetadataModelDeletionService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilitySnapshotService;
-import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetPreviewCommand;
-import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetPreview;
-import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetPreviewService;
-import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetApplyCommand;
-import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetApplyService;
-import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetPublishResult;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldPropertySummary;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldPropertySummaryService;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationRecordCount;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationRecordCountService;
 import net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalog;
 import net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalogService;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.web.NestedSortableCrudWebSupport;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.beans.factory.annotation.Autowired;
+
+import java.util.Objects;
 
 @RestController
 @PlatformStaticWebScope(PlatformStaticWebScope.Scope.CUSTOM)
@@ -40,40 +40,24 @@ public class PlatformModuleMetadataRelationWebController
 
     private final ModuleMetadataOrchestrationService orchestrationService;
     private final ModuleMetadataCapabilitySnapshotService capabilitySnapshotService;
-    private final MetadataRelationChangeSetPreviewService changeSetPreviewService;
-    private final MetadataRelationChangeSetApplyService changeSetApplyService;
     private final ModuleMetadataFieldPropertySummaryService propertySummaryService;
     private final ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService;
+    private final MetadataModelDeletionService deletionService;
+    private final ModuleMetadataRelationRecordCountService recordCountService;
 
     public PlatformModuleMetadataRelationWebController(ModuleMetadataOrchestrationService orchestrationService,
                                                        ModuleMetadataCapabilitySnapshotService capabilitySnapshotService,
-                                                       MetadataRelationChangeSetPreviewService changeSetPreviewService,
-                                                       MetadataRelationChangeSetApplyService changeSetApplyService) {
-        this(orchestrationService, capabilitySnapshotService, changeSetPreviewService, changeSetApplyService, null, null);
-    }
-
-    public PlatformModuleMetadataRelationWebController(ModuleMetadataOrchestrationService orchestrationService,
-                                                       ModuleMetadataCapabilitySnapshotService capabilitySnapshotService,
-                                                       MetadataRelationChangeSetPreviewService changeSetPreviewService,
-                                                       MetadataRelationChangeSetApplyService changeSetApplyService,
-                                                       ModuleMetadataFieldPropertySummaryService propertySummaryService) {
-        this(orchestrationService, capabilitySnapshotService, changeSetPreviewService, changeSetApplyService,
-                propertySummaryService, null);
-    }
-
-    @Autowired
-    public PlatformModuleMetadataRelationWebController(ModuleMetadataOrchestrationService orchestrationService,
-                                                       ModuleMetadataCapabilitySnapshotService capabilitySnapshotService,
-                                                       MetadataRelationChangeSetPreviewService changeSetPreviewService,
-                                                       MetadataRelationChangeSetApplyService changeSetApplyService,
                                                        ModuleMetadataFieldPropertySummaryService propertySummaryService,
-                                                       ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService) {
-        this.orchestrationService = orchestrationService;
-        this.capabilitySnapshotService = capabilitySnapshotService;
-        this.changeSetPreviewService = changeSetPreviewService;
-        this.changeSetApplyService = changeSetApplyService;
-        this.propertySummaryService = propertySummaryService;
-        this.referenceTargetFieldCatalogService = referenceTargetFieldCatalogService;
+                                                       ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService,
+                                                       MetadataModelDeletionService deletionService,
+                                                       ModuleMetadataRelationRecordCountService recordCountService) {
+        this.orchestrationService = Objects.requireNonNull(orchestrationService, "orchestrationService must not be null");
+        this.capabilitySnapshotService = Objects.requireNonNull(capabilitySnapshotService, "capabilitySnapshotService must not be null");
+        this.propertySummaryService = Objects.requireNonNull(propertySummaryService, "propertySummaryService must not be null");
+        this.referenceTargetFieldCatalogService = Objects.requireNonNull(referenceTargetFieldCatalogService,
+                "referenceTargetFieldCatalogService must not be null");
+        this.deletionService = Objects.requireNonNull(deletionService, "deletionService must not be null");
+        this.recordCountService = Objects.requireNonNull(recordCountService, "recordCountService must not be null");
     }
 
     @PostMapping("/create-main-metadata")
@@ -84,6 +68,32 @@ public class PlatformModuleMetadataRelationWebController
         return webScope(() -> orchestrationService.createMainMetadata(moduleAlias(request), command));
     }
 
+    @PostMapping("/{relationId}/create-child-metadata")
+    @CustomActionEndpoint(value = "createChildMetadata", title = "创建子元数据",
+            level = PlatformActionLevel.RECORD, dataAuth = false)
+    public ModuleMainMetadataCreationResult createChildMetadata(HttpServletRequest request,
+                                                                @org.springframework.web.bind.annotation.PathVariable String relationId,
+                                                                @RequestBody ModuleChildMetadataCreateCommand command) {
+        return webScope(() -> orchestrationService.createChildMetadata(moduleAlias(request), relationId, command));
+    }
+
+    @DeleteMapping("/{relationId}/fields/{fieldId}")
+    @CustomActionEndpoint(value = "deleteMetadataField", title = "删除元数据字段",
+            level = PlatformActionLevel.RECORD, dataAuth = false)
+    public void deleteField(HttpServletRequest request,
+                            @org.springframework.web.bind.annotation.PathVariable String relationId,
+                            @org.springframework.web.bind.annotation.PathVariable String fieldId) {
+        webScope(() -> { deletionService.deleteField(moduleAlias(request), relationId, fieldId); return null; });
+    }
+
+    @DeleteMapping("/{relationId}")
+    @CustomActionEndpoint(value = "deleteMetadataNode", title = "删除元数据节点",
+            level = PlatformActionLevel.RECORD, dataAuth = false)
+    public void deleteMetadata(HttpServletRequest request,
+                               @org.springframework.web.bind.annotation.PathVariable String relationId) {
+        webScope(() -> { deletionService.deleteMetadata(moduleAlias(request), relationId); return null; });
+    }
+
     @GetMapping("/{relationId}/capabilities")
     @CustomActionEndpoint(value = "viewCapabilitySnapshot", title = "查看元数据能力快照",
             level = PlatformActionLevel.RECORD, dataAuth = false)
@@ -92,22 +102,12 @@ public class PlatformModuleMetadataRelationWebController
         return webScope(() -> capabilitySnapshotService.snapshot(moduleAlias(request), relationId));
     }
 
-    @PostMapping("/{relationId}/change-set-preview")
-    @CustomActionEndpoint(value = "previewMetadataChangeSet", title = "预检元数据变更集",
+    @GetMapping("/{relationId}/record-count")
+    @CustomActionEndpoint(value = "viewMetadataRelationRecordCount", title = "查看元数据关系记录数",
             level = PlatformActionLevel.RECORD, dataAuth = false)
-    public MetadataRelationChangeSetPreview changeSetPreview(HttpServletRequest request,
-                                                              @org.springframework.web.bind.annotation.PathVariable String relationId,
-                                                              @RequestBody MetadataRelationChangeSetPreviewCommand command) {
-        return webScope(() -> changeSetPreview().preview(moduleAlias(request), relationId, command));
-    }
-
-    @PostMapping("/{relationId}/change-set-apply")
-    @CustomActionEndpoint(value = "applyMetadataChangeSet", title = "发布元数据变更集",
-            level = PlatformActionLevel.RECORD, dataAuth = false)
-    public MetadataRelationChangeSetPublishResult applyChangeSet(HttpServletRequest request,
-                                                                  @org.springframework.web.bind.annotation.PathVariable String relationId,
-                                                                  @RequestBody MetadataRelationChangeSetApplyCommand command) {
-        return webScope(() -> changeSetApply().apply(moduleAlias(request), relationId, command));
+    public ModuleMetadataRelationRecordCount recordCount(HttpServletRequest request,
+                                                          @org.springframework.web.bind.annotation.PathVariable String relationId) {
+        return webScope(() -> recordCountService.count(moduleAlias(request), relationId));
     }
 
     @GetMapping("/{relationId}/field-properties")
@@ -115,7 +115,7 @@ public class PlatformModuleMetadataRelationWebController
             level = PlatformActionLevel.RECORD, dataAuth = false)
     public java.util.List<ModuleMetadataFieldPropertySummary> fieldProperties(HttpServletRequest request,
                                                                                 @org.springframework.web.bind.annotation.PathVariable String relationId) {
-        return webScope(() -> propertySummary().list(moduleAlias(request), relationId));
+        return webScope(() -> propertySummaryService.list(moduleAlias(request), relationId));
     }
 
     @GetMapping("/{relationId}/reference-target-field-catalog")
@@ -125,7 +125,7 @@ public class PlatformModuleMetadataRelationWebController
                                                                     @org.springframework.web.bind.annotation.PathVariable String relationId,
                                                                     @org.springframework.web.bind.annotation.RequestParam String targetModuleAlias,
                                                                     @org.springframework.web.bind.annotation.RequestParam(required = false) String targetMetadataId) {
-        return webScope(() -> referenceTargetFieldCatalog().list(moduleAlias(request), relationId,
+        return webScope(() -> referenceTargetFieldCatalogService.list(moduleAlias(request), relationId,
                 targetModuleAlias, targetMetadataId));
     }
 
@@ -153,31 +153,4 @@ public class PlatformModuleMetadataRelationWebController
         return PlatformNameRules.requireModuleAlias(pathVariable(request, "moduleAlias"));
     }
 
-    private MetadataRelationChangeSetPreviewService changeSetPreview() {
-        if (changeSetPreviewService == null) {
-            throw new IllegalStateException("Metadata change-set preview is not configured");
-        }
-        return changeSetPreviewService;
-    }
-
-    private MetadataRelationChangeSetApplyService changeSetApply() {
-        if (changeSetApplyService == null) {
-            throw new IllegalStateException("Metadata change-set apply is not configured");
-        }
-        return changeSetApplyService;
-    }
-
-    private ModuleMetadataFieldPropertySummaryService propertySummary() {
-        if (propertySummaryService == null) {
-            throw new IllegalStateException("Metadata field property summary is not configured");
-        }
-        return propertySummaryService;
-    }
-
-    private ReferenceTargetFieldCatalogService referenceTargetFieldCatalog() {
-        if (referenceTargetFieldCatalogService == null) {
-            throw new IllegalStateException("Reference target field catalog is not configured");
-        }
-        return referenceTargetFieldCatalogService;
-    }
 }

@@ -9,6 +9,7 @@ import {
   pageDescriptorFromUrl,
   pageDescriptorToUrl,
   resolvePageDescriptor,
+  tabIdentityKeyOf,
   tabKeyOf,
   tryPageDescriptorFromUrl,
   withPageInstanceKey,
@@ -29,7 +30,44 @@ it('creates a page instance key without randomUUID on an HTTP-style runtime', ()
     tabPolicy: { identity: 'by-params', closable: true, cacheable: true },
   });
 
-  assert.match(String(descriptor.params?.InstanceKey), /^page-[a-z0-9]+-[a-z0-9]+$/);
+  assertPageType(descriptor, 'business-route');
+  assert.match(String(descriptor.target.query?.InstanceKey), /^page-[a-z0-9]+-[a-z0-9]+$/);
+});
+
+it('keeps workspace tab identity separate from URL state when assigning an instance key', () => {
+  const descriptor = {
+    pageType: 'business-route' as const,
+    openMode: 'workbench-route' as const,
+    hostType: 'business-route-host' as const,
+    target: {
+      route: '/_platform/workspace/platform.module.governance',
+      query: {
+        workspaceView: 'platform.module.governance',
+        workspacePresentation: 'tab',
+        moduleAlias: 'education.exam',
+        moduleTitle: '考试管理',
+        governanceTab: 'metadata',
+      },
+    },
+    params: {
+      workspaceView: 'platform.module.governance',
+      workspacePresentation: 'tab',
+      moduleAlias: 'education.exam',
+    },
+    tabPolicy: { identity: 'by-params' as const },
+  };
+
+  const keyed = withPageInstanceKey(descriptor, 'governance-instance');
+
+  assertPageType(keyed, 'business-route');
+  assert.deepEqual(keyed.params, descriptor.params);
+  assert.equal(tabIdentityKeyOf(keyed), tabIdentityKeyOf(descriptor));
+  assert.equal(keyed.target.query?.governanceTab, 'metadata');
+  assert.equal(keyed.target.query?.InstanceKey, 'governance-instance');
+  assert.equal(
+    pageDescriptorToUrl(keyed),
+    '/_platform/workspace/platform.module.governance?governanceTab=metadata&moduleAlias=education.exam&moduleTitle=%E8%80%83%E8%AF%95%E7%AE%A1%E7%90%86&workspacePresentation=tab&workspaceView=platform.module.governance',
+  );
 });
 
 function assertPageType<T extends PageDescriptor['pageType']>(
@@ -119,6 +157,17 @@ it('keeps dynamic URL state public and rejects the retired technical route', () 
     tryPageDescriptorFromUrl('/crm/customer?InstanceKey=old&recordId=customer-1')?.params?.InstanceKey,
     undefined,
   );
+});
+
+it('does not restore a page instance marker from a public business route URL', () => {
+  const descriptor = tryPageDescriptorFromUrl(
+    '/_platform/workspace/platform.module.governance?InstanceKey=shared-instance&moduleAlias=education.exam',
+  );
+
+  assert.ok(descriptor);
+  assertPageType(descriptor, 'business-route');
+  assert.equal(descriptor.target.query?.InstanceKey, undefined);
+  assert.equal(descriptor.params?.InstanceKey, undefined);
 });
 
 it('getMenuNavigationTarget ignores disabled menus', () => {

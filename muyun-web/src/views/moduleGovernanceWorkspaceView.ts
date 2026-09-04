@@ -1,14 +1,7 @@
 import { defineAsyncComponent } from 'vue';
 import { defineWorkspaceView } from '../platform-admin-runtime/workspaceViewContract';
 
-export const moduleGovernanceTabs = [
-  'overview',
-  'metadata',
-  'capabilities',
-  'actions',
-  'ui',
-  'diagnostics',
-] as const;
+export const moduleGovernanceTabs = ['overview', 'metadata', 'actions', 'ui', 'diagnostics'] as const;
 export type ModuleGovernanceTab = (typeof moduleGovernanceTabs)[number];
 
 export interface ModuleGovernanceWorkspaceViewInput {
@@ -26,7 +19,8 @@ export const moduleGovernanceWorkspaceView = defineWorkspaceView<ModuleGovernanc
   layout: 'workspace',
   routeTitle: '模块管理',
   presentations: ['tab'],
-  titleOf: (input) => `模块治理：${input.moduleTitle ?? input.moduleAlias}`,
+  titleOf: (input) => `低代码治理：${input.moduleTitle ?? input.moduleAlias}`,
+  tabIdentityParamsOf: (input) => ({ moduleAlias: input.moduleAlias }),
   parentRouteQueryOf: () => ({}),
   parse(query) {
     const moduleAlias = query.moduleAlias;

@@ -256,7 +256,11 @@ export function withPageInstanceKey(
   if (pageInstanceKeyOf(descriptor)) return descriptor;
   if (descriptor.pageType === 'platform-route' || descriptor.pageType === 'business-route') {
     const query = { ...(descriptor.target.query ?? descriptor.params), InstanceKey: instanceKey };
-    return { ...descriptor, target: { ...descriptor.target, query }, params: query };
+    // A workspace view intentionally separates logical tab identity (`params`)
+    // from URL-restorable state (`target.query`).  The physical instance marker
+    // belongs only to the latter; copying the full URL query into `params`
+    // would make local state such as `governanceTab` create another tab.
+    return { ...descriptor, target: { ...descriptor.target, query } };
   }
   return { ...descriptor, params: { ...descriptor.params, InstanceKey: instanceKey } };
 }
@@ -504,6 +508,7 @@ export function pageDescriptorFromUrl(
         'pageType',
         'routeName',
         'pageKey',
+        'InstanceKey',
       ]),
     };
     const pageType = stringValue(query.pageType) === 'business-route' ? 'business-route' : 'platform-route';
@@ -541,6 +546,7 @@ export function pageDescriptorFromUrl(
     WORKBENCH_ENTRY_PARAMS_QUERY_KEY,
     WORKBENCH_MENU_ID_QUERY_KEY,
     LEGACY_WORKBENCH_TITLE_QUERY_KEY,
+    'InstanceKey',
   ]);
   const descriptorBase = {
     openMode: 'workbench-route' as const,

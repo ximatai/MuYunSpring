@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, watchEffect } from 'vue';
 import type { ModuleContext } from '@muyun/web-core';
-import { UiActionButton, UiTooltip } from '@muyun/vue-ui-antdv';
+import AdaptiveHeaderActionBar from './AdaptiveHeaderActionBar.vue';
 import { resolveRecordActions, type RecordActionItem } from './recordActionBarModel';
 
 defineOptions({ name: 'RecordActionBar' });
@@ -61,6 +61,14 @@ watchEffect(() => {
 });
 
 const actionAvailabilityReason = '正在校验操作可用性';
+function actionLevelOf(action: RecordActionItem) {
+  if (action.actionLevel) return action.actionLevel;
+  if (action.primary) return 'primary';
+  // Deletion is a platform-standard destructive operation. Business-injected
+  // actions stay standard unless their declaration explicitly assigns a level.
+  const operation = (action.actionCode ?? action.key)?.split('_').at(-1);
+  return operation === 'delete' ? 'secondary' : 'standard';
+}
 const resolvedActions = computed(() => {
   const actions = recordActionAvailabilityLoading.value
     ? props.actions.map((action) =>
@@ -82,45 +90,27 @@ function handleClick(action: RecordActionItem, event: MouseEvent) {
 </script>
 
 <template>
-  <div class="record-action-bar" :class="{ compact: size === 'compact' }">
-    <UiTooltip
-      v-for="action in resolvedActions"
-      :key="action.key"
-      :title="action.disabled ? (action.disabledReason ?? action.reason ?? '') : ''"
-    >
-      <span class="record-action-tooltip-trigger">
-        <UiActionButton
-          :emphasis="
-            action.primary ? 'primary' : size === 'compact' && !action.danger ? 'quiet' : 'secondary'
-          "
-          :disabled="action.disabled"
-          :loading="action.loading"
-          :intent="action.danger ? 'danger' : 'normal'"
-          :density="size === 'compact' ? 'compact' : 'regular'"
-          :icon-name="action.iconName"
-          @click="handleClick(action, $event)"
-        >
-          {{ action.title }}
-        </UiActionButton>
-      </span>
-    </UiTooltip>
-  </div>
+  <AdaptiveHeaderActionBar
+    class="record-action-bar"
+    :class="{ compact: size === 'compact' }"
+    :actions="
+      resolvedActions.map((action) => ({
+        ...action,
+        level: actionLevelOf(action),
+        disabledReason: action.disabledReason ?? action.reason,
+      }))
+    "
+    @action="(action, event) => handleClick(action as RecordActionItem, event)"
+  />
 </template>
 
 <style scoped>
 .record-action-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .record-action-bar.compact {
   gap: 4px;
-}
-
-.record-action-tooltip-trigger {
-  display: inline-flex;
 }
 
 .record-action-bar.compact :deep(.ant-btn) {

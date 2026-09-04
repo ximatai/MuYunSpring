@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.SortPartition;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -97,6 +98,37 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"));
     }
 
+    /**
+     * Main relations have no parent.  Do not express that as an {@code eq(..., null)}
+     * criterion: the database criteria compiler rightfully treats equality parameters as
+     * non-null.  Child relations remain ordered inside their owning parent; the sole main
+     * relation is ordered inside its module/role partition.
+     */
+    @Override
+    public SortPartition<ModuleMetadataRelation> sortPartition() {
+        return new SortPartition<>() {
+            @Override
+            public Criteria criteriaFor(ModuleMetadataRelation relation) {
+                Criteria criteria = Criteria.of()
+                        .eq("moduleAlias", relation.getModuleAlias())
+                        .eq("relationRole", relation.getRelationRole());
+                if (relation.getParentMetadataId() != null) {
+                    criteria.eq("parentMetadataId", relation.getParentMetadataId());
+                }
+                return criteria;
+            }
+
+            @Override
+            public void requireSamePartition(ModuleMetadataRelation left, ModuleMetadataRelation right) {
+                if (!java.util.Objects.equals(left.getModuleAlias(), right.getModuleAlias())
+                        || left.getRelationRole() != right.getRelationRole()
+                        || !java.util.Objects.equals(left.getParentMetadataId(), right.getParentMetadataId())) {
+                    throw new PlatformException("Metadata relations can only be reordered under the same parent metadata");
+                }
+            }
+        };
+    }
+
     @Override
     public void beforeInsert(ModuleMetadataRelation relation) {
         normalizeAndValidate(relation);
@@ -109,7 +141,7 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
 
     @Override
     public void afterChanged(ModuleMetadataRelation relation) {
-        if (runtimeRefreshCoordinator != null) {
+        if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             runtimeRefreshCoordinator.refreshByRelation(relation);
         }
     }

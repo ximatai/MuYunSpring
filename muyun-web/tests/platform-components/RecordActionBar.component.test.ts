@@ -4,6 +4,31 @@ import type { ModuleContext } from '@muyun/web-core';
 import RecordActionBar from '@/platform-components/RecordActionBar.vue';
 
 describe('RecordActionBar', () => {
+  it('keeps system delete secondary while injected business actions default to standard', () => {
+    const wrapper = mount(RecordActionBar, {
+      props: {
+        context: {
+          action: (actionCode: string) => ({ actionCode, available: true }),
+        } as unknown as ModuleContext<unknown>,
+        actions: [
+          { key: 'delete', actionCode: 'delete', title: '删除', danger: true },
+          { key: 'business-action', title: '业务动作', danger: true },
+        ],
+      },
+    });
+
+    const actions = wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).props('actions') as Array<{
+      key: string;
+      level: string;
+    }>;
+    expect(actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'delete', level: 'secondary' }),
+        expect.objectContaining({ key: 'business-action', level: 'standard' }),
+      ]),
+    );
+  });
+
   it('shows a disabled action reason from a hoverable wrapper', async () => {
     vi.useFakeTimers();
     const wrapper = mount(RecordActionBar, {

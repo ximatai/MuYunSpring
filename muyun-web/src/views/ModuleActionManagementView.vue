@@ -16,6 +16,7 @@ import {
   type RecordExplorerItemDescriptor,
   type RecordFormRecord,
 } from '@muyun/platform-components';
+import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import type { PlatformModuleAction } from '@muyun/web-contracts';
 import { createStaticResourceTreeClient, useModuleContext } from '@muyun/web-core';
 import {
@@ -75,6 +76,14 @@ const management = useFlatCrudManagementState({
   canEnableRecord: (record) => record.systemManaged !== true,
 });
 const { selected, draft, mode, reloadKey, saving, cardTitle, canCreate, canEnable } = management;
+const hasUnsavedChanges = computed(() => {
+  if (mode.value === 'view') return false;
+  const baseline = selected.value
+    ? normalizeActionDraft(selected.value, props.moduleAlias)
+    : emptyActionDraft(props.moduleAlias);
+  return JSON.stringify(draft.value) !== JSON.stringify(baseline);
+});
+useWorkspaceViewUnsavedState('模块动作', () => hasUnsavedChanges.value);
 const canCreateManualAction = computed(
   () => props.moduleKind === 'dynamic' && canCreate.value && executorDefinitions.value.length > 0,
 );

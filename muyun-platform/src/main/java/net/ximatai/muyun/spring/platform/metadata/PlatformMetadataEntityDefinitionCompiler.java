@@ -44,7 +44,10 @@ public class PlatformMetadataEntityDefinitionCompiler {
             throw new PlatformException("Metadata schema ensure requires persisted metadata");
         }
         List<MetadataField> metadataFields = metadataFields(metadata.getId());
-        List<FieldDefinition> compiledFields = metadataFields.stream().map(fieldDefinitionCompiler::compile).toList();
+        List<FieldDefinition> compiledFields = metadataFields.stream()
+                .filter(field -> !MetadataSystemFieldCatalog.isRuntimeReserved(field))
+                .map(fieldDefinitionCompiler::compile)
+                .toList();
         MetadataCapabilityResolution capabilityResolution = MetadataCapabilityCatalog.resolve(metadata, RelationRole.MAIN,
                 metadataFields);
         List<FieldDefinition> fields = MetadataCapabilityCatalog.mergeDeclaredMetadataFields(capabilityResolution, compiledFields);

@@ -79,6 +79,11 @@ export function createWorkspaceViewDescriptor<TInput extends WorkspaceViewInput>
     workspacePresentation: presentation,
     ...(input as Record<string, RouteQueryValue>),
   };
+  const identityParams = {
+    workspaceView: view.type,
+    workspacePresentation: presentation,
+    ...(view.tabIdentityParamsOf?.(input) ?? (input as Record<string, RouteQueryValue>)),
+  };
   return {
     pageType: 'business-route',
     openMode: 'workbench-route',
@@ -86,7 +91,7 @@ export function createWorkspaceViewDescriptor<TInput extends WorkspaceViewInput>
     title,
     layout: view.layout,
     target: { route: view.route, moduleAlias: view.moduleAlias, query: params },
-    params,
+    params: identityParams,
     tabPolicy: { identity: 'by-params' },
   };
 }

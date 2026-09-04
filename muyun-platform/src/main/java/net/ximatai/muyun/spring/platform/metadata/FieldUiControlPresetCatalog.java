@@ -52,8 +52,11 @@ public final class FieldUiControlPresetCatalog {
      * module is configured.
      */
     public static List<FieldSpec> fieldTypes() {
+        FieldSpec string = fieldType("string", "短文本", FieldType.STRING, 256, null, null,
+                DynamicQueryOperator.LIKE, "text");
+        string.setSafeTargetFieldSpecAliases(Set.of("text"));
         return List.of(
-                fieldType("string", "短文本", FieldType.STRING, 256, null, null, DynamicQueryOperator.LIKE, "text"),
+                string,
                 fieldType("text", "长文本", FieldType.TEXT, null, null, null, DynamicQueryOperator.LIKE, "textarea"),
                 fieldType("integer", "整数", FieldType.INTEGER, null, null, null, DynamicQueryOperator.EQ, "integer"),
                 fieldType("long", "长整数", FieldType.LONG, null, null, null, DynamicQueryOperator.EQ, "number"),

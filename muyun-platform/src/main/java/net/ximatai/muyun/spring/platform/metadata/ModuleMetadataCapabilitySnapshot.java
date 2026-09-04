@@ -7,7 +7,6 @@ public record ModuleMetadataCapabilitySnapshot(
         String moduleAlias,
         String relationId,
         RelationRole relationRole,
-        List<ModuleMetadataSystemFieldFact> systemFields,
         List<ModuleMetadataCapabilityFact> capabilities
 ) {
 }

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { RecordDetailPanel, RecordRelationTabs } from '@muyun/platform-components';
-import { UiEmpty } from '@muyun/vue-ui-antdv';
+import { computed, ref, watch, type Component } from 'vue';
+import { RecordRelationTabs } from '@muyun/platform-components';
+import { useWorkspaceViewNavigation } from '@muyun/platform-workbench';
+import ModuleActionManagementView from './ModuleActionManagementView.vue';
+import ModuleExperienceProfileOverview from './ModuleExperienceProfileOverview.vue';
 import MetadataOrchestrationView from './MetadataOrchestrationView.vue';
 import PageCompositionWorkspace from './PageCompositionWorkspace.vue';
 import PageCompositionRuntimeDiagnostics from './PageCompositionRuntimeDiagnostics.vue';
@@ -15,11 +17,11 @@ const props = defineProps<{
   governanceTab?: ModuleGovernanceTab;
 }>();
 
-const activeTab = ref<ModuleGovernanceTab>(props.governanceTab ?? 'metadata');
+const activeTab = ref<ModuleGovernanceTab>(props.governanceTab ?? 'overview');
+const navigation = useWorkspaceViewNavigation();
 const tabs: Array<{ key: ModuleGovernanceTab; title: string }> = [
   { key: 'overview', title: '概览' },
   { key: 'metadata', title: '数据模型' },
-  { key: 'capabilities', title: '能力' },
   { key: 'actions', title: '动作' },
   { key: 'ui', title: '页面配置' },
   { key: 'diagnostics', title: '运行与诊断' },
@@ -28,21 +30,32 @@ const tabs: Array<{ key: ModuleGovernanceTab; title: string }> = [
 watch(
   () => props.governanceTab,
   (tab) => {
-    activeTab.value = tab ?? 'metadata';
+    activeTab.value = tab ?? 'overview';
   },
 );
 
-const activeTabTitle = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.title ?? '数据模型');
-const placeholderDescription = computed(() => {
-  if (activeTab.value === 'capabilities') return '能力范围、依赖关系与字段贡献将在此治理。';
-  if (activeTab.value === 'actions') return '模块动作治理将在迁移后接入此处。';
-  if (activeTab.value === 'ui') return '页面编排器正在接入新的页面修订发布链路。';
-  if (activeTab.value === 'diagnostics') return '已发布配置的解析结果与运行诊断将在此展示。';
-  return '模块配置完成度与关键阻塞项将在此汇总。';
+const activePanel = computed<{ component: Component; props: Record<string, unknown> }>(() => {
+  const moduleProps = { moduleAlias: props.moduleAlias, moduleTitle: props.moduleTitle };
+  switch (activeTab.value) {
+    case 'metadata':
+      return { component: MetadataOrchestrationView, props: moduleProps };
+    case 'actions':
+      return { component: ModuleActionManagementView, props: { ...moduleProps, moduleKind: 'dynamic' } };
+    case 'ui':
+      return { component: PageCompositionWorkspace, props: moduleProps };
+    case 'diagnostics':
+      return { component: PageCompositionRuntimeDiagnostics, props: moduleProps };
+    case 'overview':
+    default:
+      return { component: ModuleExperienceProfileOverview, props: moduleProps };
+  }
 });
 
 function selectTab(key: string) {
-  if ((moduleGovernanceTabs as readonly string[]).includes(key)) activeTab.value = key as ModuleGovernanceTab;
+  if (!(moduleGovernanceTabs as readonly string[]).includes(key)) return;
+  const tab = key as ModuleGovernanceTab;
+  activeTab.value = tab;
+  navigation.replaceQuery({ governanceTab: tab });
 }
 </script>
 
@@ -52,32 +65,14 @@ function selectTab(key: string) {
       <RecordRelationTabs :tabs="tabs" :active-key="activeTab" @update:active-key="selectTab" />
     </header>
 
-    <MetadataOrchestrationView
-      v-if="activeTab === 'metadata'"
-      class="module-governance__surface"
-      :module-alias="moduleAlias"
-      :module-title="moduleTitle"
-    />
-    <PageCompositionWorkspace
-      v-else-if="activeTab === 'ui'"
-      class="module-governance__surface"
-      :module-alias="moduleAlias"
-      :module-title="moduleTitle"
-    />
-    <PageCompositionRuntimeDiagnostics
-      v-else-if="activeTab === 'diagnostics'"
-      class="module-governance__surface"
-      :module-alias="moduleAlias"
-      :module-title="moduleTitle"
-    />
-    <RecordDetailPanel
-      v-else
-      class="module-governance__surface"
-      :title="activeTabTitle"
-      :subtitle="moduleTitle ?? moduleAlias"
-    >
-      <UiEmpty :description="placeholderDescription" />
-    </RecordDetailPanel>
+    <KeepAlive :max="moduleGovernanceTabs.length">
+      <component
+        :is="activePanel.component"
+        :key="`${moduleAlias}:${activeTab}`"
+        class="module-governance__surface"
+        v-bind="activePanel.props"
+      />
+    </KeepAlive>
   </section>
 </template>
 

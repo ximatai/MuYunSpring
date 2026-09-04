@@ -14,6 +14,8 @@ export {
   resolveWorkspaceView,
 } from './workspaceViews';
 export { provideWorkspaceViewHost, useWorkspaceViewHost } from './workspaceViewHost';
+export { useWorkspaceViewNavigation } from './workspaceViewNavigation';
+export { useWorkspaceViewUnsavedState } from './useWorkspaceViewUnsavedState';
 export { defineWorkspaceView } from './workspaceViewContract';
 export type { ResolvedWorkspaceView, WorkspaceViewRegistry } from './workspaceViews';
 export type {

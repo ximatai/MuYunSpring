@@ -1,15 +1,22 @@
 <script setup lang="ts">
 import type { BusinessRoutePageDescriptor } from '@muyun/web-contracts';
-import { computed } from 'vue';
+import { computed, onUnmounted } from 'vue';
 import { UiEmpty } from '@muyun/vue-ui-antdv';
 import { tabKeyOf } from './menuNavigation';
 import { useWorkbenchNavigation } from './workbenchNavigation';
 import { provideWorkspaceViewHost } from './workspaceViewHost';
 import { dismissWorkspaceViewDescriptor, resolveWorkspaceView } from './workspaceViews';
+import {
+  clearWorkspaceViewUnsavedState,
+  registerWorkspaceViewUnsavedState,
+} from './workspaceViewUnsavedState';
 
 const props = defineProps<{ descriptor: BusinessRoutePageDescriptor }>();
 const resolvedView = computed(() => resolveWorkspaceView(props.descriptor));
-const ownerPageKey = computed(() => tabKeyOf(props.descriptor));
+// `replacePage` preserves this physical tab key even if URL-restorable view
+// state changes. Keep the original owner rather than recomputing a key from
+// a descriptor that may now describe a different navigation state.
+const ownerPageKey = tabKeyOf(props.descriptor);
 const navigation = useWorkbenchNavigation();
 provideWorkspaceViewHost({
   get presentation() {
@@ -18,17 +25,34 @@ provideWorkspaceViewHost({
   setTitle(title) {
     const normalizedTitle = title.trim();
     if (!normalizedTitle || !navigation || props.descriptor.title === normalizedTitle) return;
-    navigation.replacePage(ownerPageKey.value, { ...props.descriptor, title: normalizedTitle });
+    navigation.replacePage(ownerPageKey, { ...props.descriptor, title: normalizedTitle });
+  },
+  replaceQuery(changes) {
+    if (!navigation) return;
+    const query = { ...(props.descriptor.target.query ?? {}) };
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === undefined) delete query[key];
+      else query[key] = value;
+    }
+    navigation.replacePage(ownerPageKey, {
+      ...props.descriptor,
+      target: { ...props.descriptor.target, query },
+    });
+  },
+  registerUnsavedState(source, isDirty) {
+    return registerWorkspaceViewUnsavedState(ownerPageKey, source, isDirty);
   },
   dismiss() {
     const view = resolvedView.value;
     if (view && navigation)
-      navigation.replacePage(ownerPageKey.value, dismissWorkspaceViewDescriptor(props.descriptor, view.view));
+      navigation.replacePage(ownerPageKey, dismissWorkspaceViewDescriptor(props.descriptor, view.view));
   },
   close() {
-    navigation?.closePage(ownerPageKey.value);
+    navigation?.closePage(ownerPageKey);
   },
 });
+
+onUnmounted(() => clearWorkspaceViewUnsavedState(ownerPageKey));
 </script>
 <template>
   <component

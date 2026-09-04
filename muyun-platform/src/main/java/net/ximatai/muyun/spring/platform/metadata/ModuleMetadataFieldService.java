@@ -150,7 +150,7 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
 
     @Override
     public void afterChanged(ModuleMetadataField moduleField) {
-        if (runtimeRefreshCoordinator != null) {
+        if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             runtimeRefreshCoordinator.refreshByModuleField(moduleField);
         }
     }

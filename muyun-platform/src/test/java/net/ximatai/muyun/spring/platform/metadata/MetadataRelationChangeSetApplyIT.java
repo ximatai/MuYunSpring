@@ -4,6 +4,8 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
 import net.ximatai.muyun.spring.dynamic.schema.DynamicSchemaService;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
@@ -36,6 +38,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 /** Verifies that the real publisher, metadata DAO and PostgreSQL DDL share one transaction. */
 @SpringBootTest(classes = MetadataRelationChangeSetApplyIT.TestApplication.class)
@@ -55,6 +59,8 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @Autowired private TestSchemaEnsureService schemaEnsureService;
     @Autowired private PlatformMetadataEntityDefinitionCompiler entityCompiler;
     @Autowired private PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator;
+    @Autowired private DynamicRecordService recordService;
+    @Autowired private DynamicSchemaGovernanceFacts schemaFacts;
     @Autowired private DataSource dataSource;
 
     private String moduleAlias;
@@ -64,7 +70,8 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        reset(moduleService, refreshCoordinator);
+        reset(moduleService, refreshCoordinator, recordService);
+        when(recordService.schemaGovernanceFacts()).thenReturn(schemaFacts);
         schemaEnsureService.failAfterEnsure = false;
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         moduleAlias = "crm.change_" + suffix;
@@ -86,6 +93,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
             standardString.setTitle("String");
             standardString.setFieldType(FieldType.STRING);
             standardString.setDefaultLength(256);
+            standardString.setSafeTargetFieldSpecAliases(Set.of("text"));
             fieldSpecService.insert(standardString);
         }
         if (fieldSpecService.list(Criteria.of().eq("alias", "boolean")).isEmpty()) {
@@ -101,6 +109,20 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
             integer.setTitle("Integer");
             integer.setFieldType(FieldType.INTEGER);
             fieldSpecService.insert(integer);
+        }
+        if (fieldSpecService.list(Criteria.of().eq("alias", "text")).isEmpty()) {
+            FieldSpec text = new FieldSpec();
+            text.setAlias("text");
+            text.setTitle("Text");
+            text.setFieldType(FieldType.TEXT);
+            fieldSpecService.insert(text);
+        }
+        if (fieldSpecService.list(Criteria.of().eq("alias", "datetime")).isEmpty()) {
+            FieldSpec datetime = new FieldSpec();
+            datetime.setAlias("datetime");
+            datetime.setTitle("DateTime");
+            datetime.setFieldType(FieldType.TIMESTAMP);
+            fieldSpecService.insert(datetime);
         }
 
         metadata = new Metadata();
@@ -173,6 +195,92 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         org.mockito.Mockito.verifyNoInteractions(refreshCoordinator);
     }
 
+    @Test
+    void shouldSwitchFieldSpecAndPhysicalColumnWhenEntityHasNoData() {
+        applyNewStringField("note", "note");
+        MetadataField saved = field("note");
+        recordCountIs(0L);
+
+        applyFieldSpecChange(saved, "text");
+
+        assertThat(field("note").getFieldSpecAlias()).isEqualTo("text");
+        assertThat(columnDataType(metadata.getTableName(), "note")).isEqualTo("text");
+    }
+
+    @Test
+    void shouldAllowTextWideningWhenEntityHasData() {
+        applyNewStringField("description", "description");
+        MetadataField saved = field("description");
+        recordCountIs(1L);
+
+        applyFieldSpecChange(saved, "text");
+
+        assertThat(field("description").getFieldSpecAlias()).isEqualTo("text");
+        assertThat(columnDataType(metadata.getTableName(), "description")).isEqualTo("text");
+    }
+
+    @Test
+    void shouldRejectNonWideningFieldSpecChangeWhenEntityHasData() {
+        applyNewStringField("status", "status");
+        MetadataField saved = field("status");
+        recordCountIs(1L);
+
+        MetadataRelationChangeSetPreview preview = previewService.preview(moduleAlias, relationId,
+                fieldSpecChangeProposal(saved, "integer"));
+
+        assertThat(preview.errors()).extracting(MetadataChangeSetValidationIssue::code)
+                .contains("FIELD_SPEC_CHANGE_WITH_DATA");
+        assertThat(field("status").getFieldSpecAlias()).isEqualTo("string");
+        assertThat(columnDataType(metadata.getTableName(), "status")).isEqualTo("character varying");
+    }
+
+    private void applyNewStringField(String fieldName, String columnName) {
+        MetadataRelationChangeSetPreviewCommand proposal = proposal(fieldName, columnName, "string", false);
+        MetadataRelationChangeSetPreview preview = previewService.preview(moduleAlias, relationId, proposal);
+        assertThat(preview.errors()).isEmpty();
+        applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(proposal, preview.proposalFingerprint()));
+    }
+
+    private void applyFieldSpecChange(MetadataField saved, String fieldSpecAlias) {
+        MetadataRelationChangeSetPreviewCommand proposal = fieldSpecChangeProposal(saved, fieldSpecAlias);
+        MetadataRelationChangeSetPreview preview = previewService.preview(moduleAlias, relationId, proposal);
+        assertThat(preview.errors()).isEmpty();
+        applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(proposal, preview.proposalFingerprint()));
+    }
+
+    private MetadataRelationChangeSetPreviewCommand fieldSpecChangeProposal(MetadataField saved, String fieldSpecAlias) {
+        MetadataField draft = new MetadataField();
+        draft.setFieldName(saved.getFieldName());
+        draft.setColumnName(saved.getColumnName());
+        draft.setFieldSpecAlias(fieldSpecAlias);
+        draft.setFieldOwnership(saved.getFieldOwnership());
+        draft.setFieldForm(saved.getFieldForm());
+        draft.setSystemManaged(saved.getSystemManaged());
+        draft.setTitle(saved.getTitle());
+        draft.setRequired(saved.getRequired());
+        draft.setUniqueField(saved.getUniqueField());
+        draft.setIndexed(saved.getIndexed());
+        draft.setSortableField(saved.getSortableField());
+        draft.setTitleField(saved.getTitleField());
+        draft.setEnabled(saved.getEnabled());
+        draft.setSortOrder(saved.getSortOrder());
+        return new MetadataRelationChangeSetPreviewCommand(metadataService.select(metadata.getId()).getVersion(), Map.of(),
+                List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                        saved.getId(), saved.getVersion(), draft)));
+    }
+
+    private MetadataField field(String fieldName) {
+        return fieldService.list(Criteria.of().eq("metadataId", metadata.getId())).stream()
+                .filter(field -> fieldName.equals(field.getFieldName()))
+                .findFirst().orElseThrow();
+    }
+
+    private void recordCountIs(long count) {
+        when(schemaFacts.countPhysicalRecords(eq(moduleAlias), eq(metadata.getAlias()), any(Criteria.class))).thenReturn(count);
+    }
+
     private MetadataRelationChangeSetPreviewCommand proposal(String fieldName, String columnName,
                                                              String specAlias, boolean enable) {
         MetadataField field = new MetadataField();
@@ -227,6 +335,23 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         }
     }
 
+    private String columnDataType(String table, String column) {
+        try (Connection connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("""
+                     select data_type from information_schema.columns
+                     where table_schema = 'public' and table_name = ? and column_name = ?
+                     """)) {
+            statement.setString(1, table);
+            statement.setString(2, column);
+            try (var result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                return result.getString(1);
+            }
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
     @SpringBootConfiguration
     @EnableAutoConfiguration
     @EnableTransactionManagement
@@ -258,11 +383,18 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         @Bean TestSchemaEnsureService schemaEnsureService(PlatformMetadataEntityDefinitionCompiler compiler, DynamicSchemaService schema) {
             return new TestSchemaEnsureService(compiler, schema);
         }
+        @Bean DynamicSchemaGovernanceFacts schemaFacts() { return mock(DynamicSchemaGovernanceFacts.class); }
+        @Bean DynamicRecordService recordService(DynamicSchemaGovernanceFacts schemaFacts) {
+            DynamicRecordService records = mock(DynamicRecordService.class);
+            when(records.schemaGovernanceFacts()).thenReturn(schemaFacts);
+            return records;
+        }
         @Bean MetadataRelationChangeSetPreviewService previewService(PlatformModuleService modules,
                                                                       ModuleMetadataRelationService relations,
                                                                       MetadataService metadata, MetadataFieldService fields,
-                                                                      FieldSpecService specs) {
-            return new MetadataRelationChangeSetPreviewService(modules, relations, metadata, fields, specs);
+                                                                      FieldSpecService specs, DynamicRecordService records) {
+            return new MetadataRelationChangeSetPreviewService(modules, relations, metadata, fields, specs,
+                    null, null, null, records);
         }
         @Bean ModuleMetadataCapabilitySnapshotService snapshotService(ModuleMetadataRelationService relations,
                                                                        MetadataService metadata, MetadataFieldService fields) {

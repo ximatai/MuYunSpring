@@ -387,7 +387,8 @@ public class PlatformPageBootstrapService {
                     localEditRefreshStrategy(block, type),
                     positiveInteger(block, "width"),
                     positiveInteger(block, "height"),
-                    localEditForm(snapshot, clientType, localEditTargetUiConfigId(block, type), type)
+                    localEditForm(snapshot, clientType, localEditTargetUiConfigId(block, type), type),
+                    text(block, "importance")
             ));
         }
         return resolved;

@@ -34,6 +34,15 @@ public class PlatformMetadataSchemaEnsureService {
         return ensureNow(compiler.compile(metadata));
     }
 
+    /** Reconciles a changed definition with its previous shape, including safe column removal. */
+    public boolean ensureNow(String metadataId, EntityDefinition previousEntity) {
+        return schemaService.ensureTable(compiler.compile(metadataId), previousEntity, null).isChanged();
+    }
+
+    public void dropNow(Metadata metadata) {
+        schemaService.dropTable(compiler.compile(metadata));
+    }
+
     public boolean ensureNow(EntityDefinition entity) {
         return schemaService.ensureTable(entity);
     }

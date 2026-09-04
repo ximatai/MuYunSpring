@@ -161,7 +161,8 @@ class PlatformMetadataServiceContractTest {
     private final ModuleMetadataRelationService relationService =
             new ModuleMetadataRelationService(relationDao, moduleService, metadataService);
     private final ModuleMetadataOrchestrationService orchestrationService =
-            new ModuleMetadataOrchestrationService(moduleService, metadataService, relationService);
+            new ModuleMetadataOrchestrationService(moduleService, metadataService, relationService, fieldService,
+                    schemaEnsureService, runtimeRefreshCoordinator);
     private final ModuleMetadataFieldService moduleFieldService =
             new ModuleMetadataFieldService(moduleFieldDao, relationService, metadataService, fieldService,
                     fieldTypeService, Optional.empty(), Optional.of(runtimeRefreshCoordinator));
@@ -235,6 +236,18 @@ class PlatformMetadataServiceContractTest {
         assertThatThrownBy(() -> fieldService.delete(managed.getId()))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("platform-managed");
+    }
+
+    @Test
+    void shouldRejectBusinessFieldThatConflictsWithCanonicalSystemField() {
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        MetadataField conflicting = field(metadataId, "id", "legacy_id", FieldType.STRING);
+        fieldService.insert(conflicting);
+
+        assertThatThrownBy(() -> MetadataCapabilityManagedFieldMaterializer.materialize(fieldService,
+                metadataService.select(metadataId), java.util.Set.of()))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("平台保留字段定义冲突");
     }
 
     @Test
@@ -464,9 +477,6 @@ class PlatformMetadataServiceContractTest {
         ModuleMetadataCapabilitySnapshot snapshot = new ModuleMetadataCapabilitySnapshotService(
                 relationService, metadataService, fieldService).snapshot("crm.customer", relationId);
 
-        assertThat(snapshot.systemFields()).extracting(ModuleMetadataSystemFieldFact::fieldName)
-                .containsExactly("id", "tenantId", "version", "deleted", "deletedAt", "deletedBy",
-                        "createdBy", "createdAt", "updatedBy", "updatedAt");
         assertThat(snapshot.capabilities()).anySatisfy(fact -> {
             assertThat(fact.capability().name()).isEqualTo("TREE");
             assertThat(fact.enabled()).isTrue();
@@ -481,6 +491,8 @@ class PlatformMetadataServiceContractTest {
             assertThat(fact.capability().name()).isEqualTo("DATA_SCOPE");
             assertThat(fact.enabled()).isTrue();
             assertThat(fact.defaultKind()).isEqualTo("CONTEXT");
+            assertThat(fact.fieldContributions()).containsExactly("authUserId", "authAssigneeIds", "authMemberIds",
+                    "authOrganizationId", "authDepartmentId", "authModuleAlias");
         });
     }
 
@@ -646,6 +658,19 @@ class PlatformMetadataServiceContractTest {
         FieldSpec saved = fieldTypeService.select(id);
         assertThat(saved.getDefaultUiControlAlias()).isEqualTo("text");
         assertThat(saved.getUiControlAliases()).containsExactlyInAnyOrder("text", "select");
+    }
+
+    @Test
+    void shouldUseFieldSpecDeclaredDataSafeTargets() {
+        FieldSpec shortText = fieldType("short_text", FieldType.STRING, 64);
+        shortText.setSafeTargetFieldSpecAliases(java.util.Set.of(" long_text "));
+        fieldTypeService.insert(shortText);
+        fieldTypeService.insert(fieldType("long_text", FieldType.TEXT, null));
+
+        assertThat(fieldTypeService.select("short_text").getSafeTargetFieldSpecAliases())
+                .containsExactly("long_text");
+        assertThat(fieldTypeService.allowsDataSafeTarget("short_text", "long_text")).isTrue();
+        assertThat(fieldTypeService.allowsDataSafeTarget("short_text", "string")).isFalse();
     }
 
     @Test
@@ -1461,6 +1486,52 @@ class PlatformMetadataServiceContractTest {
         assertThat(result.relation().getMetadataId()).isEqualTo(result.metadata().getId());
         assertThat(result.relation().getRelationRole()).isEqualTo(RelationRole.MAIN);
         assertThat(result.relation().getTitle()).isEqualTo("客户");
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", result.metadata().getId()), new PageRequest(0, 100)))
+                .filteredOn(field -> Boolean.TRUE.equals(field.getSystemManaged()))
+                .extracting(MetadataField::getFieldName)
+                .containsExactlyInAnyOrder("id", "tenantId", "version", "deleted", "deletedAt", "deletedBy",
+                        "createdBy", "createdAt", "updatedBy", "updatedAt", "authUserId", "authAssigneeIds",
+                        "authMemberIds", "authOrganizationId", "authDepartmentId", "authModuleAlias");
+        assertThat(metadataEntityDefinitionCompiler.compile(result.metadata()).fields())
+                .extracting(FieldDefinition::fieldName)
+                .doesNotContain("id", "tenantId", "authUserId");
+        verify(schemaEnsureService).ensureNow(org.mockito.ArgumentMatchers.<Metadata>argThat(published ->
+                published != null && result.metadata().getId().equals(published.getId())));
+        verify(runtimeRefreshCoordinator).activateModulesNow(List.of("crm.customer"));
+    }
+
+    @Test
+    void shouldProjectPersistedModuleCapabilitiesWhenMainMetadataIsRebuilt() {
+        PlatformModule module = module("crm.customer", "crm", ModuleKind.DYNAMIC);
+        module.setMainCapabilityDeclarations(java.util.Set.of("TREE", "SORT", "DATA_SCOPE"));
+        moduleService.insert(module);
+
+        ModuleMainMetadataCreationResult result = orchestrationService.createMainMetadata("crm.customer",
+                new ModuleMainMetadataCreateCommand("customer", "客户", null, null, false));
+
+        assertThat(result.metadata().getCapabilityDeclarations()).containsExactlyInAnyOrder("TREE", "SORT");
+        assertThat(result.metadata().getDataScopeEnabled()).isTrue();
+    }
+
+    @Test
+    void shouldPublishChildMetadataSchemaAndRuntimeWithItsParentForeignKey() {
+        moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
+        ModuleMainMetadataCreationResult main = orchestrationService.createMainMetadata("crm.customer",
+                new ModuleMainMetadataCreateCommand("customer", "客户", null, null, false));
+        clearInvocations(schemaEnsureService, runtimeRefreshCoordinator);
+
+        ModuleMainMetadataCreationResult child = orchestrationService.createChildMetadata("crm.customer", main.relation().getId(),
+                new ModuleChildMetadataCreateCommand("contact", "联系人", null, null));
+
+        assertThat(child.relation().getRelationRole()).isEqualTo(RelationRole.CHILD);
+        assertThat(child.relation().getParentMetadataId()).isEqualTo(main.metadata().getId());
+        assertThat(child.relation().getForeignKey()).isEqualTo("customerId");
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", child.metadata().getId()), new PageRequest(0, 100)))
+                .extracting(MetadataField::getFieldName)
+                .contains("customerId");
+        verify(schemaEnsureService).ensureNow(org.mockito.ArgumentMatchers.<Metadata>argThat(published ->
+                published != null && child.metadata().getId().equals(published.getId())));
+        verify(runtimeRefreshCoordinator).activateModulesNow(List.of("crm.customer"));
     }
 
     @Test

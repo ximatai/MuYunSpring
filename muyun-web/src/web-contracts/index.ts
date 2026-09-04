@@ -322,6 +322,8 @@ export interface PageBootstrapActionBlock {
   key?: string;
   actionCode: string;
   title?: string;
+  /** Business importance only; card shells decide direct display or “更多”. */
+  importance?: 'PRIMARY' | 'STANDARD' | 'SECONDARY';
   position?: string;
   targetUiConfigId?: string;
   submitPath?: string;
@@ -1689,6 +1691,7 @@ export interface FieldSpec extends StandardEnabledSortableEntity {
   queryOperators?: string[];
   defaultUiControlAlias?: string;
   uiControlAliases?: string[];
+  safeTargetFieldSpecAliases?: string[];
 }
 
 export interface FieldUiControl extends StandardEnabledSortableEntity {

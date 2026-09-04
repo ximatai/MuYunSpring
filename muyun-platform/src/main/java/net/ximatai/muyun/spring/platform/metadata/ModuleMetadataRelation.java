@@ -12,7 +12,6 @@ import net.ximatai.muyun.spring.common.model.standard.StandardSortableEntity;
 @Getter
 @Setter
 @Table(name = "platform_module_metadata_relation", comment = "Module metadata relation")
-@net.ximatai.muyun.spring.ability.SortPartitionBy(fields = "moduleAlias")
 public class ModuleMetadataRelation extends StandardSortableEntity {
     @Column(name = "module_alias", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "Module alias")
     private String moduleAlias;

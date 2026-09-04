@@ -44,7 +44,7 @@ public class FieldSpecService extends AbstractAbilityService<FieldSpec> implemen
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, FieldSpec.class, java.util.List.of("id", "alias", "title", "fieldType", "defaultLength", "defaultPrecision", "defaultScale", "defaultQueryOperator", "queryOperators", "defaultUiControlAlias", "uiControlAliases", "enabled", "sortOrder", "createdAt", "updatedAt"),
+        return QueryDescriptors.fromModel(MODULE_ALIAS, FieldSpec.class, java.util.List.of("id", "alias", "title", "fieldType", "defaultLength", "defaultPrecision", "defaultScale", "defaultQueryOperator", "queryOperators", "defaultUiControlAlias", "uiControlAliases", "safeTargetFieldSpecAliases", "enabled", "sortOrder", "createdAt", "updatedAt"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"));
     }
 
@@ -89,6 +89,7 @@ public class FieldSpecService extends AbstractAbilityService<FieldSpec> implemen
                 fieldType.getDefaultPrecision(), fieldType.getDefaultScale(), alias);
         normalizeQueryDefinition(fieldType);
         normalizeUiControlAliases(fieldType);
+        normalizeSafeTargetFieldSpecAliases(fieldType);
         rejectDuplicate(fieldType, Criteria.of().eq("alias", alias),
                 "fieldSpecAlias must be unique: " + alias);
     }
@@ -129,6 +130,29 @@ public class FieldSpecService extends AbstractAbilityService<FieldSpec> implemen
                     + fieldType.getDefaultUiControlAlias());
         }
         fieldType.setUiControlAliases(aliases);
+    }
+
+    /** Returns whether a populated entity may change from one specification to another. */
+    public boolean allowsDataSafeTarget(String sourceAlias, String targetAlias) {
+        String source = PlatformNameRules.requireIdentifier(sourceAlias, "sourceFieldSpecAlias");
+        String target = PlatformNameRules.requireIdentifier(targetAlias, "targetFieldSpecAlias");
+        if (source.equals(target)) return true;
+        Set<String> targets = requireFieldType(source).getSafeTargetFieldSpecAliases();
+        return targets != null && targets.contains(target);
+    }
+
+    private void normalizeSafeTargetFieldSpecAliases(FieldSpec fieldType) {
+        if (fieldType.getSafeTargetFieldSpecAliases() == null || fieldType.getSafeTargetFieldSpecAliases().isEmpty()) {
+            fieldType.setSafeTargetFieldSpecAliases(Set.of());
+            return;
+        }
+        Set<String> aliases = new LinkedHashSet<>();
+        for (String alias : fieldType.getSafeTargetFieldSpecAliases()) {
+            String validAlias = PlatformNameRules.requireIdentifier(
+                    alias == null ? null : alias.trim(), "safeTargetFieldSpecAlias");
+            if (!validAlias.equals(fieldType.getAlias())) aliases.add(validAlias);
+        }
+        fieldType.setSafeTargetFieldSpecAliases(aliases);
     }
 
     private void requireFieldUiControl(String alias) {

@@ -8,6 +8,7 @@ import {
   RecordExplorerPanel,
   presentPlatformError,
 } from '@muyun/platform-components';
+import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import { createStaticResourceCrudClient, useModuleContext, type ModuleCrudClient } from '@muyun/web-core';
 import {
   confirmAction,
@@ -143,6 +144,7 @@ const currentUiTreeJson = computed(() => JSON.stringify(state.toManagementUiTree
 const hasUnsavedChanges = computed(() =>
   Boolean(revision.value?.id && savedUiTreeJson.value !== currentUiTreeJson.value),
 );
+useWorkspaceViewUnsavedState('页面配置', () => hasUnsavedChanges.value);
 const isMutating = computed(() => saving.value || publishing.value);
 const unsavedChangeSummary = computed(() =>
   hasUnsavedChanges.value ? summarizeUiTreeChanges(savedUiTreeJson.value, currentUiTreeJson.value) : [],

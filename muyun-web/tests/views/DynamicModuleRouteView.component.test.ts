@@ -57,3 +57,37 @@ it('rebuilds the module runtime instead of passing a cross-module descriptor int
 
   expect(wrapper.get('[data-testid="module-runtime"]').text()).toBe('2:iam.employee');
 });
+
+it('keeps a cached tab bound to its restored descriptor rather than the active route metadata', () => {
+  moduleHostRuntime.instances = 0;
+  const route = ref<PageRoute>({
+    path: '/platform/module',
+    meta: { moduleAlias: 'platform.module', title: '模块管理' },
+    query: {},
+    params: {},
+    matched: [{ path: '/platform/module' }],
+  });
+  // This is the state supplied by StaticRoutePageHost for a cached direct tab.
+  // The browser may currently be showing another route, but the inactive tab
+  // must never construct its module transport from that route's metadata.
+  const descriptor = {
+    pageType: 'dynamic-module' as const,
+    openMode: 'dynamic-runner' as const,
+    hostType: 'module-page-host' as const,
+    target: { moduleAlias: 'crm.customer', pageMode: 'LIST' as const },
+    params: {},
+    tabPolicy: { identity: 'by-target' as const, cacheable: true },
+  };
+  // eslint-disable-next-line vue/one-component-per-file -- local route-context harness.
+  const Harness = defineComponent({
+    setup() {
+      providePageRoute(() => route.value);
+      providePageDescriptor(() => descriptor);
+      return () => h(DynamicModuleRouteView);
+    },
+  });
+
+  const wrapper = mount(Harness);
+
+  expect(wrapper.get('[data-testid="module-runtime"]').text()).toBe('1:crm.customer');
+});

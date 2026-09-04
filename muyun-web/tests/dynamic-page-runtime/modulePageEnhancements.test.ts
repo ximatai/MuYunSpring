@@ -258,9 +258,7 @@ describe('module page enhancements', () => {
     ).toEqual(
       expect.arrayContaining([
         'module-actions-workspace',
-        'module-governance-workspace',
         'module-ui-orchestration-workspace',
-        'module-openapi-page',
         'consumer-inspection',
       ]),
     );
@@ -276,13 +274,7 @@ describe('module page enhancements', () => {
     configureModulePageEnhancements([]);
     expect(
       resolveModulePageEnhancement('platform.module')?.detail?.actions?.map((action) => action.key),
-    ).toEqual([
-      'module-governance-workspace',
-      'module-actions-workspace',
-      'module-manual-action-binding-workspace',
-      'module-ui-orchestration-workspace',
-      'module-openapi-page',
-    ]);
+    ).toEqual(['module-actions-workspace', 'module-ui-orchestration-workspace']);
   });
 
   it('accepts a business record-view presentation that keeps the platform view lifecycle', () => {

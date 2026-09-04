@@ -460,6 +460,15 @@ export function fieldSpecOptionListOf(specs: FieldSpec[]): FieldSpecOption[] {
     .filter((option) => option.value);
 }
 
+/** Filters a populated entity to the source specification's server-declared safe targets. */
+export function dataSafeFieldSpecOptions(specs: FieldSpec[], currentAlias?: string): FieldSpecOption[] {
+  const source = specs.find((spec) => (spec.alias ?? spec.id) === currentAlias);
+  const permittedAliases = new Set(
+    [currentAlias, ...(source?.safeTargetFieldSpecAliases ?? [])].filter(Boolean),
+  );
+  return fieldSpecOptionListOf(specs).filter((option) => permittedAliases.has(option.value));
+}
+
 /** Use the catalog title for human-facing metadata surfaces; aliases remain stable machine identities. */
 export function fieldSpecDisplayLabel(fieldSpecAlias: string | undefined, specs: FieldSpec[]): string {
   if (!fieldSpecAlias) return '';

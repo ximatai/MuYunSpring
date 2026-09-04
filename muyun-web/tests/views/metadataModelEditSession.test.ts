@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import type { MetadataField, ModuleMetadataRelation } from '@/web-contracts';
 import {
-  createMetadataModelEditSession,
+  createMetadataModelWorkspaceEditSession,
   isSessionEditableMetadataField,
   metadataFieldGovernanceKind,
   metadataFieldGovernanceLabel,
@@ -48,113 +48,37 @@ it('classifies field governance ownership before an edit session exposes operati
   expect(isSessionEditableMetadataField(foreignKey, relation, capabilityFields)).toBe(false);
 });
 
-it('keeps field and capability changes local until a future change-set facade applies them', () => {
-  const session = createMetadataModelEditSession();
-  const title: MetadataField = {
-    id: 'title',
-    version: 2,
-    fieldName: 'title',
-    title: '标题',
-    fieldOwnership: 'BUSINESS',
-    fieldForm: 'PHYSICAL',
-  };
-  session.begin(
-    'metadata-1',
-    'relation-1',
-    3,
-    [title],
-    [{ capability: 'TREE', enabled: false, selectable: true }],
-  );
-
-  session.stageField({ ...title, title: '考试标题' });
-  session.stageField({
-    fieldName: 'examDate',
-    title: '考试日期',
-    fieldOwnership: 'BUSINESS',
-    fieldForm: 'PHYSICAL',
-  });
-  session.stageCapability('TREE', true, true);
-
-  expect(session.isDirty.value).toBe(true);
-  expect(session.fieldsForDisplay([])).toEqual([
-    { ...title, title: '考试标题' },
-    { fieldName: 'examDate', title: '考试日期', fieldOwnership: 'BUSINESS', fieldForm: 'PHYSICAL' },
+it('keeps relation and field ordering with every node draft until one module proposal is built', () => {
+  const session = createMetadataModelWorkspaceEditSession();
+  session.begin([
+    {
+      relationId: 'main',
+      metadataId: 'metadata-main',
+      expectedMetadataVersion: 3,
+      fields: [
+        { id: 'title', version: 2, fieldName: 'title', fieldOwnership: 'BUSINESS' },
+        { id: 'date', version: 2, fieldName: 'examDate', fieldOwnership: 'BUSINESS' },
+        { id: 'tenant', version: 2, fieldName: 'tenantId', fieldOwnership: 'PLATFORM' },
+      ],
+      sortableFieldIds: ['title', 'date'],
+    },
+    {
+      relationId: 'child',
+      metadataId: 'metadata-child',
+      parentMetadataId: 'metadata-main',
+      expectedMetadataVersion: 1,
+      fields: [{ id: 'student', fieldName: 'studentId', fieldOwnership: 'BUSINESS' }],
+    },
   ]);
-  expect(session.draft.value?.capabilitySelections).toEqual({ TREE: true });
+
+  session.stageFieldOrder('main', ['date', 'title']);
+  session.stageRelationOrder(undefined, ['main']);
+
+  expect(session.fieldsForDisplay('main', []).slice(0, 2)).toMatchObject([{ id: 'date' }, { id: 'title' }]);
+  expect(session.relation('main')?.metadataId).toBe('metadata-main');
   expect(session.buildProposal()).toEqual({
-    expectedMetadataVersion: 3,
-    capabilitySelections: { TREE: true },
-    fieldDrafts: [
-      {
-        operation: 'UPDATE',
-        fieldId: 'title',
-        expectedFieldVersion: 2,
-        field: { ...title, title: '考试标题' },
-      },
-      {
-        operation: 'ADD',
-        field: {
-          fieldName: 'examDate',
-          title: '考试日期',
-          fieldOwnership: 'BUSINESS',
-          fieldForm: 'PHYSICAL',
-        },
-      },
-    ],
+    relationDrafts: [],
+    relationOrders: [],
+    fieldOrders: [{ relationId: 'main', fieldIds: ['date', 'title'] }],
   });
-
-  session.cancel();
-  expect(session.editing.value).toBe(false);
-});
-
-it('stages a reference property with its field and carries the binding through the one change set', () => {
-  const session = createMetadataModelEditSession();
-  session.begin('metadata-1', 'relation-1', 3, [], [], []);
-
-  session.stageField(
-    {
-      fieldName: 'subjectCategoryId',
-      columnName: 'subject_category_id',
-      fieldSpecAlias: 'string',
-      fieldOwnership: 'BUSINESS',
-      fieldForm: 'PHYSICAL',
-    },
-    {
-      kind: 'MODULE_REFERENCE',
-      referenceConfig: {
-        targetModuleAlias: 'education.subject_category',
-        targetKeyField: 'code',
-        targetLabelField: 'name',
-        cardinality: 'ONE',
-        targetUnavailablePolicy: 'RESTRICT',
-        projectionMappings: ['name:subjectCategoryIdTitle'],
-      },
-    },
-  );
-
-  const proposal = session.buildProposal();
-  expect(proposal?.fieldDrafts).toEqual([
-    {
-      operation: 'ADD',
-      field: {
-        fieldName: 'subjectCategoryId',
-        columnName: 'subject_category_id',
-        fieldSpecAlias: 'string',
-        fieldOwnership: 'BUSINESS',
-        fieldForm: 'PHYSICAL',
-      },
-      property: {
-        kind: 'MODULE_REFERENCE',
-        referenceConfig: {
-          targetModuleAlias: 'education.subject_category',
-          targetKeyField: 'code',
-          targetLabelField: 'name',
-          cardinality: 'ONE',
-          targetUnavailablePolicy: 'RESTRICT',
-          projectionMappings: ['name:subjectCategoryIdTitle'],
-        },
-      },
-    },
-  ]);
-  expect(JSON.stringify(proposal)).toContain('"projectionMappings":["name:subjectCategoryIdTitle"]');
 });

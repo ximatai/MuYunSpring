@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -36,6 +37,7 @@ public class MetadataRelationChangeSetPreviewService {
     private final MetadataFieldReferenceConfigService referenceConfigService;
     private final MetadataFieldConfigService fieldConfigService;
     private final ModuleMetadataFieldService moduleFieldService;
+    private final DynamicRecordService recordService;
 
     public MetadataRelationChangeSetPreviewService(PlatformModuleService moduleService,
                                                    ModuleMetadataRelationService relationService,
@@ -53,7 +55,19 @@ public class MetadataRelationChangeSetPreviewService {
                                                    MetadataFieldReferenceConfigService referenceConfigService,
                                                    MetadataFieldConfigService fieldConfigService) {
         this(moduleService, relationService, metadataService, fieldService, fieldSpecService,
-                referenceConfigService, fieldConfigService, null);
+                referenceConfigService, fieldConfigService, null, null);
+    }
+
+    public MetadataRelationChangeSetPreviewService(PlatformModuleService moduleService,
+                                                   ModuleMetadataRelationService relationService,
+                                                   MetadataService metadataService,
+                                                   MetadataFieldService fieldService,
+                                                   FieldSpecService fieldSpecService,
+                                                   MetadataFieldReferenceConfigService referenceConfigService,
+                                                   MetadataFieldConfigService fieldConfigService,
+                                                   ModuleMetadataFieldService moduleFieldService) {
+        this(moduleService, relationService, metadataService, fieldService, fieldSpecService,
+                referenceConfigService, fieldConfigService, moduleFieldService, null);
     }
 
     @Autowired
@@ -64,7 +78,8 @@ public class MetadataRelationChangeSetPreviewService {
                                                    FieldSpecService fieldSpecService,
                                                    MetadataFieldReferenceConfigService referenceConfigService,
                                                    MetadataFieldConfigService fieldConfigService,
-                                                   ModuleMetadataFieldService moduleFieldService) {
+                                                   ModuleMetadataFieldService moduleFieldService,
+                                                   DynamicRecordService recordService) {
         this.moduleService = moduleService;
         this.relationService = relationService;
         this.metadataService = metadataService;
@@ -73,6 +88,7 @@ public class MetadataRelationChangeSetPreviewService {
         this.referenceConfigService = referenceConfigService;
         this.fieldConfigService = fieldConfigService;
         this.moduleFieldService = moduleFieldService;
+        this.recordService = recordService;
     }
 
     public MetadataRelationChangeSetPreview preview(String moduleAlias, String relationId,
@@ -221,7 +237,6 @@ public class MetadataRelationChangeSetPreviewService {
         MetadataField field = draft.field();
         if (!validateDraftField(field, existing.getFieldName(), errors)) return;
         if (!same(existing.getFieldName(), field.getFieldName()) || !same(existing.getColumnName(), field.getColumnName())
-                || !same(existing.getFieldSpecAlias(), field.getFieldSpecAlias())
                 || !same(existing.getFieldOwnership(), field.getFieldOwnership())
                 || !same(existing.getFieldForm(), field.getFieldForm())
                 || !same(existing.getOwnerFieldId(), field.getOwnerFieldId())
@@ -231,6 +246,8 @@ public class MetadataRelationChangeSetPreviewService {
                     "首批发布仅允许修改业务展示和约束属性，不能修改字段结构、归属或平台管理属性。");
             return;
         }
+        if (!same(existing.getFieldSpecAlias(), field.getFieldSpecAlias())
+                && !validateFieldSpecChange(context, existing, field, errors)) return;
         MetadataField normalized = overlayBusinessAttributes(existing, field);
         MetadataFieldPropertyChangeSetPlan property = propertyPlan(context, normalized, draft.property(), existing, errors);
         if (draft.property() != null && property == null) return;
@@ -238,6 +255,29 @@ public class MetadataRelationChangeSetPreviewService {
         mutations.add(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.UPDATE, fieldId,
                 draft.expectedFieldVersion(), normalized, property));
         impacts.add(new MetadataChangeSetFieldImpact("UPDATE", field.getFieldName(), field.getColumnName(), false, "更新字段元数据。"));
+    }
+
+    /**
+     * A physical specification change is safe on an empty entity.  Once business data exists we
+     * deliberately keep the first-release surface to a widening text conversion only: it neither
+     * truncates values nor changes their runtime meaning.  Other conversions need an explicit
+     * migration policy rather than an optimistic generic cast.
+     */
+    private boolean validateFieldSpecChange(Context context, MetadataField existing, MetadataField proposed,
+                                            List<MetadataChangeSetValidationIssue> errors) {
+        if (recordService == null) {
+            error(errors, "FIELD_SPEC_CHANGE_UNAVAILABLE", existing.getFieldName(),
+                    "当前环境未配置数据预检，不能修改存储字段规格。");
+            return false;
+        }
+        long records = recordService.schemaGovernanceFacts().countPhysicalRecords(context.relation().getModuleAlias(), context.metadata().getAlias(),
+                Criteria.of());
+        if (records == 0 || fieldSpecService.allowsDataSafeTarget(
+                existing.getFieldSpecAlias(), proposed.getFieldSpecAlias())) return true;
+        error(errors, "FIELD_SPEC_CHANGE_WITH_DATA", existing.getFieldName(),
+                "字段“" + existing.getTitle() + "”已有 " + records
+                        + " 条业务数据；目标字段规格不在当前规格声明的数据安全转换范围内。");
+        return false;
     }
 
     private void deleteDraft(Context context, Map<String, MetadataField> fields, MetadataFieldChangeSetDraft draft,
@@ -549,6 +589,7 @@ public class MetadataRelationChangeSetPreviewService {
         result.setId(existing.getId());
         result.setMetadataId(existing.getMetadataId());
         result.setVersion(existing.getVersion());
+        result.setFieldSpecAlias(source.getFieldSpecAlias());
         result.setTitle(source.getTitle());
         result.setRequired(source.getRequired());
         result.setUniqueField(source.getUniqueField());
