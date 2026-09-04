@@ -54,12 +54,24 @@ const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, Capab
       { code: 'TREE', title: '树结构', description: '按父子层级组织记录，便于定位和管理。' },
       { code: 'SORT', title: '排序', description: '按同级顺序展示记录，支持拖拽调整。' },
     ],
-    recommended: [{ code: 'DATA_SCOPE', title: '数据权限', description: '适用于需要按组织、角色或负责人控制数据可见范围的业务。' }],
+    recommended: [
+      {
+        code: 'DATA_SCOPE',
+        title: '数据权限',
+        description: '适用于需要按组织、角色或负责人控制数据可见范围的业务。',
+      },
+    ],
     optional: [{ code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' }],
   },
   LIST_CARD: {
     required: [],
-    recommended: [{ code: 'DATA_SCOPE', title: '数据权限', description: '适用于需要按组织、角色或负责人控制数据可见范围的业务。' }],
+    recommended: [
+      {
+        code: 'DATA_SCOPE',
+        title: '数据权限',
+        description: '适用于需要按组织、角色或负责人控制数据可见范围的业务。',
+      },
+    ],
     optional: [
       { code: 'SORT', title: '排序', description: '允许维护列表展示顺序。' },
       { code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' },
@@ -67,7 +79,13 @@ const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, Capab
   },
   MICRO_LIST_CARD: {
     required: [{ code: 'SORT', title: '排序', description: '微列表按稳定顺序呈现，支持轻量调整展示顺序。' }],
-    recommended: [{ code: 'DATA_SCOPE', title: '数据权限', description: '适用于需要按组织、角色或负责人控制数据可见范围的业务。' }],
+    recommended: [
+      {
+        code: 'DATA_SCOPE',
+        title: '数据权限',
+        description: '适用于需要按组织、角色或负责人控制数据可见范围的业务。',
+      },
+    ],
     optional: [{ code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' }],
   },
 };
@@ -82,7 +100,10 @@ const requiredCapabilities = computed(() => {
     ...requiredCapabilityCodes.value,
   ]);
 });
-const dataScopeChanged = computed(() => selectedCapabilitySet.value.has('DATA_SCOPE') !== profile.value?.mainCapabilities.includes('DATA_SCOPE'));
+const dataScopeChanged = computed(
+  () =>
+    selectedCapabilitySet.value.has('DATA_SCOPE') !== profile.value?.mainCapabilities.includes('DATA_SCOPE'),
+);
 const capabilitySelections = computed<Record<string, boolean>>(() => {
   const current = new Set(profile.value?.mainCapabilities ?? []);
   const desired = new Set(requiredCapabilities.value);
@@ -94,12 +115,17 @@ const capabilitySelections = computed<Record<string, boolean>>(() => {
     .filter(
       (capability) =>
         !desired.has(capability) &&
-        (current.has(capability) || capability === 'TREE' && selectedMode.value !== 'TREE_CARD'),
+        (current.has(capability) || (capability === 'TREE' && selectedMode.value !== 'TREE_CARD')),
     )
     .map((capability) => [capability, false] as const);
   return Object.fromEntries([...additions, ...removals]);
 });
-const isDirty = computed(() => selectedMode.value !== profile.value?.mode || Object.keys(capabilitySelections.value).length > 0 || dataScopeChanged.value);
+const isDirty = computed(
+  () =>
+    selectedMode.value !== profile.value?.mode ||
+    Object.keys(capabilitySelections.value).length > 0 ||
+    dataScopeChanged.value,
+);
 useWorkspaceViewUnsavedState('业务呈现方式', () => isDirty.value);
 const capabilityGroups = computed(() => {
   const facts = profile.value?.mode === selectedMode.value ? profile.value.capabilities : undefined;
@@ -138,7 +164,8 @@ function chooseMode(mode: ExperienceMode) {
 }
 function setCapability(capability: string, checked: boolean) {
   if (!editing.value) return;
-  selectedCapabilities.value = checked ? [...new Set([...selectedCapabilities.value, capability])]
+  selectedCapabilities.value = checked
+    ? [...new Set([...selectedCapabilities.value, capability])]
     : selectedCapabilities.value.filter((code) => code !== capability);
 }
 async function saveProfile() {
@@ -149,9 +176,12 @@ async function saveProfile() {
       method: 'POST',
       path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/overview-mode`,
       body: {
-        overviewMode: modeCode(selectedMode.value), expectedModuleVersion: profile.value?.version,
-        expectedMainMetadataVersion: profile.value?.mainMetadataVersion, capabilitySelections: capabilitySelections.value,
-        ...(dataScopeChanged.value ? { dataScopeEnabled: selectedCapabilitySet.value.has('DATA_SCOPE') } : {}),
+        overviewMode: modeCode(selectedMode.value),
+        expectedMainMetadataVersion: profile.value?.mainMetadataVersion,
+        capabilitySelections: capabilitySelections.value,
+        ...(dataScopeChanged.value
+          ? { dataScopeEnabled: selectedCapabilitySet.value.has('DATA_SCOPE') }
+          : {}),
       },
     });
     profile.value = normalizeProfile(result, selectedMode.value);
@@ -169,7 +199,9 @@ async function saveProfile() {
     saving.value = false;
   }
 }
-function beginEditing() { if (!loading.value && !saving.value) editing.value = true; }
+function beginEditing() {
+  if (!loading.value && !saving.value) editing.value = true;
+}
 function cancelEditing() {
   if (saving.value) return;
   selectedMode.value = profile.value?.mode ?? selectedMode.value;
@@ -198,8 +230,15 @@ function normalizeProfile(value: unknown, fallbackMode: ExperienceMode = 'LIST_C
       : [],
     capabilities: {
       required: normalizeCapabilities(capabilitySource.required ?? capabilitySource.requiredCapabilities),
-      recommended: normalizeCapabilities(capabilitySource.recommended ?? capabilitySource.recommendedCapabilities),
-      optional: normalizeCapabilities(capabilitySource.optional ?? capabilitySource.optionalCapabilities ?? capabilitySource.allowed ?? capabilitySource.allowedCapabilities),
+      recommended: normalizeCapabilities(
+        capabilitySource.recommended ?? capabilitySource.recommendedCapabilities,
+      ),
+      optional: normalizeCapabilities(
+        capabilitySource.optional ??
+          capabilitySource.optionalCapabilities ??
+          capabilitySource.allowed ??
+          capabilitySource.allowedCapabilities,
+      ),
     },
   };
 }
@@ -246,10 +285,20 @@ function normalizeCapabilities(value: unknown): CapabilityFact[] | undefined {
         :disabled="loading"
         data-testid="edit-overview"
         @click="beginEditing"
-      >编辑</UiActionButton>
+        >编辑</UiActionButton
+      >
       <template v-else>
-        <UiActionButton :disabled="saving" data-testid="cancel-overview" @click="cancelEditing">取消</UiActionButton>
-        <UiActionButton emphasis="primary" :disabled="loading" :loading="saving" data-testid="save-overview" @click="saveProfile">保存</UiActionButton>
+        <UiActionButton :disabled="saving" data-testid="cancel-overview" @click="cancelEditing"
+          >取消</UiActionButton
+        >
+        <UiActionButton
+          emphasis="primary"
+          :disabled="loading"
+          :loading="saving"
+          data-testid="save-overview"
+          @click="saveProfile"
+          >保存</UiActionButton
+        >
       </template>
     </template>
     <UiSpin v-if="loading" tip="加载业务呈现方式" />
@@ -301,12 +350,17 @@ function normalizeCapabilities(value: unknown): CapabilityFact[] | undefined {
               "
             />
             <div v-else class="module-experience-capability-list">
-              <div v-for="fact in capabilityGroups[group]" :key="fact.code" class="module-experience-capability">
+              <div
+                v-for="fact in capabilityGroups[group]"
+                :key="fact.code"
+                class="module-experience-capability"
+              >
                 <UiCheckbox
                   :checked="group === 'required' || selectedCapabilitySet.has(fact.code)"
                   :disabled="group === 'required' || !editing || saving"
                   @update:checked="(checked) => setCapability(fact.code, checked)"
-                >{{ fact.title }}</UiCheckbox>
+                  >{{ fact.title }}</UiCheckbox
+                >
                 <span>{{ fact.description }}</span>
               </div>
             </div>
@@ -382,9 +436,20 @@ function normalizeCapabilities(value: unknown): CapabilityFact[] | undefined {
   border-radius: 8px;
   background: var(--muyun-hover-subtle);
 }
-.module-experience-capability-list { display: grid; gap: 10px; }
-.module-experience-capability { display: grid; gap: 4px; }
-.module-experience-capability span, .module-experience-capability small { color: var(--muyun-text-muted); font-size: 12px; line-height: 18px; }
+.module-experience-capability-list {
+  display: grid;
+  gap: 10px;
+}
+.module-experience-capability {
+  display: grid;
+  gap: 4px;
+}
+.module-experience-capability span,
+.module-experience-capability small {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
 @media (max-width: 900px) {
   .module-experience-mode-list,
   .module-experience-capabilities {

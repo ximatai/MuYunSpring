@@ -13,7 +13,6 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilitySnapshot;
 import net.ximatai.muyun.spring.platform.metadata.MetadataModelDeletionService;
-import net.ximatai.muyun.spring.platform.metadata.MetadataSystemFieldReconciliationService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilitySnapshotService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldPropertySummary;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldPropertySummaryService;
@@ -29,7 +28,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.beans.factory.annotation.Autowired;
+
+import java.util.Objects;
 
 @RestController
 @PlatformStaticWebScope(PlatformStaticWebScope.Scope.CUSTOM)
@@ -43,41 +43,21 @@ public class PlatformModuleMetadataRelationWebController
     private final ModuleMetadataFieldPropertySummaryService propertySummaryService;
     private final ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService;
     private final MetadataModelDeletionService deletionService;
-    private final MetadataSystemFieldReconciliationService reconciliationService;
-    private ModuleMetadataRelationRecordCountService recordCountService;
+    private final ModuleMetadataRelationRecordCountService recordCountService;
 
-    public PlatformModuleMetadataRelationWebController(ModuleMetadataOrchestrationService orchestrationService,
-                                                       ModuleMetadataCapabilitySnapshotService capabilitySnapshotService) {
-        this(orchestrationService, capabilitySnapshotService, null, null, null, null);
-    }
-
-    public PlatformModuleMetadataRelationWebController(ModuleMetadataOrchestrationService orchestrationService,
-                                                       ModuleMetadataCapabilitySnapshotService capabilitySnapshotService,
-                                                       ModuleMetadataFieldPropertySummaryService propertySummaryService) {
-        this(orchestrationService, capabilitySnapshotService, propertySummaryService, null, null, null);
-    }
-
-    public PlatformModuleMetadataRelationWebController(ModuleMetadataOrchestrationService orchestrationService,
-                                                       ModuleMetadataCapabilitySnapshotService capabilitySnapshotService,
-                                                       ModuleMetadataFieldPropertySummaryService propertySummaryService,
-                                                       ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService) {
-        this(orchestrationService, capabilitySnapshotService, propertySummaryService,
-                referenceTargetFieldCatalogService, null, null);
-    }
-
-    @Autowired
     public PlatformModuleMetadataRelationWebController(ModuleMetadataOrchestrationService orchestrationService,
                                                        ModuleMetadataCapabilitySnapshotService capabilitySnapshotService,
                                                        ModuleMetadataFieldPropertySummaryService propertySummaryService,
                                                        ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService,
                                                        MetadataModelDeletionService deletionService,
-                                                       MetadataSystemFieldReconciliationService reconciliationService) {
-        this.orchestrationService = orchestrationService;
-        this.capabilitySnapshotService = capabilitySnapshotService;
-        this.propertySummaryService = propertySummaryService;
-        this.referenceTargetFieldCatalogService = referenceTargetFieldCatalogService;
-        this.deletionService = deletionService;
-        this.reconciliationService = reconciliationService;
+                                                       ModuleMetadataRelationRecordCountService recordCountService) {
+        this.orchestrationService = Objects.requireNonNull(orchestrationService, "orchestrationService must not be null");
+        this.capabilitySnapshotService = Objects.requireNonNull(capabilitySnapshotService, "capabilitySnapshotService must not be null");
+        this.propertySummaryService = Objects.requireNonNull(propertySummaryService, "propertySummaryService must not be null");
+        this.referenceTargetFieldCatalogService = Objects.requireNonNull(referenceTargetFieldCatalogService,
+                "referenceTargetFieldCatalogService must not be null");
+        this.deletionService = Objects.requireNonNull(deletionService, "deletionService must not be null");
+        this.recordCountService = Objects.requireNonNull(recordCountService, "recordCountService must not be null");
     }
 
     @PostMapping("/create-main-metadata")
@@ -103,7 +83,7 @@ public class PlatformModuleMetadataRelationWebController
     public void deleteField(HttpServletRequest request,
                             @org.springframework.web.bind.annotation.PathVariable String relationId,
                             @org.springframework.web.bind.annotation.PathVariable String fieldId) {
-        webScope(() -> { deletionService().deleteField(moduleAlias(request), relationId, fieldId); return null; });
+        webScope(() -> { deletionService.deleteField(moduleAlias(request), relationId, fieldId); return null; });
     }
 
     @DeleteMapping("/{relationId}")
@@ -111,15 +91,7 @@ public class PlatformModuleMetadataRelationWebController
             level = PlatformActionLevel.RECORD, dataAuth = false)
     public void deleteMetadata(HttpServletRequest request,
                                @org.springframework.web.bind.annotation.PathVariable String relationId) {
-        webScope(() -> { deletionService().deleteMetadata(moduleAlias(request), relationId); return null; });
-    }
-
-    @PostMapping("/{relationId}/reconcile-system-fields")
-    @CustomActionEndpoint(value = "reconcileMetadataSystemFields", title = "回填元数据系统字段",
-            level = PlatformActionLevel.RECORD, dataAuth = false)
-    public void reconcileSystemFields(HttpServletRequest request,
-                                      @org.springframework.web.bind.annotation.PathVariable String relationId) {
-        webScope(() -> { reconciliationService().reconcile(moduleAlias(request), relationId); return null; });
+        webScope(() -> { deletionService.deleteMetadata(moduleAlias(request), relationId); return null; });
     }
 
     @GetMapping("/{relationId}/capabilities")
@@ -135,7 +107,7 @@ public class PlatformModuleMetadataRelationWebController
             level = PlatformActionLevel.RECORD, dataAuth = false)
     public ModuleMetadataRelationRecordCount recordCount(HttpServletRequest request,
                                                           @org.springframework.web.bind.annotation.PathVariable String relationId) {
-        return webScope(() -> recordCountService().count(moduleAlias(request), relationId));
+        return webScope(() -> recordCountService.count(moduleAlias(request), relationId));
     }
 
     @GetMapping("/{relationId}/field-properties")
@@ -143,7 +115,7 @@ public class PlatformModuleMetadataRelationWebController
             level = PlatformActionLevel.RECORD, dataAuth = false)
     public java.util.List<ModuleMetadataFieldPropertySummary> fieldProperties(HttpServletRequest request,
                                                                                 @org.springframework.web.bind.annotation.PathVariable String relationId) {
-        return webScope(() -> propertySummary().list(moduleAlias(request), relationId));
+        return webScope(() -> propertySummaryService.list(moduleAlias(request), relationId));
     }
 
     @GetMapping("/{relationId}/reference-target-field-catalog")
@@ -153,7 +125,7 @@ public class PlatformModuleMetadataRelationWebController
                                                                     @org.springframework.web.bind.annotation.PathVariable String relationId,
                                                                     @org.springframework.web.bind.annotation.RequestParam String targetModuleAlias,
                                                                     @org.springframework.web.bind.annotation.RequestParam(required = false) String targetMetadataId) {
-        return webScope(() -> referenceTargetFieldCatalog().list(moduleAlias(request), relationId,
+        return webScope(() -> referenceTargetFieldCatalogService.list(moduleAlias(request), relationId,
                 targetModuleAlias, targetMetadataId));
     }
 
@@ -181,39 +153,4 @@ public class PlatformModuleMetadataRelationWebController
         return PlatformNameRules.requireModuleAlias(pathVariable(request, "moduleAlias"));
     }
 
-    private ModuleMetadataFieldPropertySummaryService propertySummary() {
-        if (propertySummaryService == null) {
-            throw new IllegalStateException("Metadata field property summary is not configured");
-        }
-        return propertySummaryService;
-    }
-
-    private ReferenceTargetFieldCatalogService referenceTargetFieldCatalog() {
-        if (referenceTargetFieldCatalogService == null) {
-            throw new IllegalStateException("Reference target field catalog is not configured");
-        }
-        return referenceTargetFieldCatalogService;
-    }
-
-    private MetadataModelDeletionService deletionService() {
-        if (deletionService == null) throw new IllegalStateException("Metadata model deletion is not configured");
-        return deletionService;
-    }
-
-    private MetadataSystemFieldReconciliationService reconciliationService() {
-        if (reconciliationService == null) {
-            throw new IllegalStateException("Metadata system-field reconciliation is not configured");
-        }
-        return reconciliationService;
-    }
-
-    @Autowired
-    void setRecordCountService(ModuleMetadataRelationRecordCountService recordCountService) {
-        this.recordCountService = recordCountService;
-    }
-
-    private ModuleMetadataRelationRecordCountService recordCountService() {
-        if (recordCountService == null) throw new IllegalStateException("Metadata relation record count is not configured");
-        return recordCountService;
-    }
 }

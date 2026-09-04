@@ -134,7 +134,6 @@ const props = defineProps<{
   descriptor: StandardModulePageDescriptor;
 }>();
 
-
 const currentUser = useCurrentUserContext();
 const baseContext = useModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,

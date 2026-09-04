@@ -168,7 +168,6 @@ function responseFor(options: HttpRequestOptions) {
     };
   if (options.path.endsWith('/field-properties')) return [];
   if (options.path.endsWith('/record-count')) return { relationId: 'rel-main', recordCount: 0 };
-  if (options.path.endsWith('/reconcile-system-fields')) return {};
   if (options.path.endsWith('/capabilities'))
     return {
       systemFields: [],

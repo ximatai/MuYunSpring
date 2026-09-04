@@ -31,7 +31,8 @@ class PlatformMetadataModelChangeSetWebControllerTest {
                         "ADD_COLUMN", "public", "exam", "title", "新增业务字段。")),
                 List.of(new net.ximatai.muyun.spring.platform.metadata.MetadataModelChangeSetOrderImpact(
                         "REORDER_FIELDS", "main", null, List.of("field-title"), "调整实体字段顺序。")),
-                List.of(), List.of(), "fingerprint", null);
+                List.of(), List.of(), "fingerprint",
+                new net.ximatai.muyun.spring.platform.metadata.MetadataModelChangeSetPlan(List.of(), List.of(), List.of()));
         when(previews.preview(eq("education.exam"), any())).thenReturn(expected);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new PlatformMetadataModelChangeSetWebController(previews,
                 mock(MetadataModelChangeSetApplyService.class))).build();
@@ -42,7 +43,8 @@ class PlatformMetadataModelChangeSetWebControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fieldImpacts[0].fieldName").value("title"))
                 .andExpect(jsonPath("$.schemaImpacts[0].operation").value("ADD_COLUMN"))
-                .andExpect(jsonPath("$.orderImpacts[0].operation").value("REORDER_FIELDS"));
+                .andExpect(jsonPath("$.orderImpacts[0].operation").value("REORDER_FIELDS"))
+                .andExpect(jsonPath("$.plan").doesNotExist());
 
         verify(previews).preview(eq("education.exam"), any(MetadataModelChangeSetPreviewCommand.class));
     }

@@ -84,10 +84,7 @@ const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
 const metadataClient = createStaticResourceCrudClient<Metadata>(moduleContext.http, '/platform.metadata');
 const state = createMetadataOrchestrationState();
 const editSession = createMetadataModelWorkspaceEditSession();
-useWorkspaceViewUnsavedState(
-  '数据模型',
-  () => editSession.isDirty.value || state.mode.value !== 'view',
-);
+useWorkspaceViewUnsavedState('数据模型', () => editSession.isDirty.value || state.mode.value !== 'view');
 const mainMetadataDraft = state.mainMetadataDraft;
 const fieldDraft = state.fieldDraft;
 const fieldPropertyDraft = state.fieldPropertyDraft;
@@ -237,8 +234,8 @@ const fieldStorageSpecAlias = computed(() =>
 const fieldStorageSpecLabel = computed(() =>
   fieldSpecDisplayLabel(fieldStorageSpecAlias.value, state.fieldSpecs.value),
 );
-const selectedRelationHasBusinessRecords = computed(() =>
-  (recordCountsByRelation.value[selectedRelationId.value ?? ''] ?? 0) > 0,
+const selectedRelationHasBusinessRecords = computed(
+  () => (recordCountsByRelation.value[selectedRelationId.value ?? ''] ?? 0) > 0,
 );
 const editableFieldSpecOptions = computed(() =>
   editorMode.value === 'SIMPLE' && Boolean(fieldDraft.value.id) && selectedRelationHasBusinessRecords.value
@@ -475,14 +472,6 @@ function startNodeEditSession() {
             .filter((field) => fieldSortableInTree(relation, field))
             .map((field) => field.id ?? field.fieldName)
             .filter((fieldId): fieldId is string => Boolean(fieldId)),
-          capabilities: (capabilitiesByRelation.value[relation.id]?.capabilities ?? []).map((fact) => ({
-            capability: fact.capability,
-            enabled: fact.enabled,
-            // Module-level experience profiles own capability selection. Metadata
-            // still consumes these facts to protect their derived standard fields.
-            selectable: false,
-            reason: fact.reason,
-          })),
           fieldProperties: fieldPropertiesByRelation.value[relation.id] ?? [],
         },
       ];

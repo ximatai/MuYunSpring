@@ -5,6 +5,8 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationSer
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldPropertySummaryService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldPropertySummary;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldPropertyKind;
+import net.ximatai.muyun.spring.platform.metadata.MetadataModelDeletionService;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationRecordCountService;
 import net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalog;
 import net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalogService;
 import org.junit.jupiter.api.Test;
@@ -27,7 +29,9 @@ class PlatformModuleMetadataRelationWebControllerTest {
                 MetadataFieldPropertyKind.MODULE_REFERENCE, 2, null, null);
         when(summaries.list("crm.customer", "main")).thenReturn(List.of(expected));
         PlatformModuleMetadataRelationWebController controller = new PlatformModuleMetadataRelationWebController(
-                mock(ModuleMetadataOrchestrationService.class), mock(ModuleMetadataCapabilitySnapshotService.class), summaries);
+                mock(ModuleMetadataOrchestrationService.class), mock(ModuleMetadataCapabilitySnapshotService.class), summaries,
+                mock(ReferenceTargetFieldCatalogService.class), mock(MetadataModelDeletionService.class),
+                mock(ModuleMetadataRelationRecordCountService.class));
 
         assertThat(controller.fieldProperties(request("crm.customer"), "main")).containsExactly(expected);
         verify(summaries).list("crm.customer", "main");
@@ -41,7 +45,8 @@ class PlatformModuleMetadataRelationWebControllerTest {
         when(catalogService.list("crm.customer", "main", "education.student", "student-meta")).thenReturn(expected);
         PlatformModuleMetadataRelationWebController controller = new PlatformModuleMetadataRelationWebController(
                 mock(ModuleMetadataOrchestrationService.class), mock(ModuleMetadataCapabilitySnapshotService.class),
-                mock(ModuleMetadataFieldPropertySummaryService.class), catalogService);
+                mock(ModuleMetadataFieldPropertySummaryService.class), catalogService, mock(MetadataModelDeletionService.class),
+                mock(ModuleMetadataRelationRecordCountService.class));
 
         assertThat(controller.referenceTargetFieldCatalog(request("crm.customer"), "main", "education.student", "student-meta"))
                 .isSameAs(expected);

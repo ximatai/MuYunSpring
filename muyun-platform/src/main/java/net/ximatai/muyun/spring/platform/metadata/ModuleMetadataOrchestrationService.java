@@ -9,7 +9,6 @@ import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,20 +31,6 @@ public class ModuleMetadataOrchestrationService {
     private final PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator;
 
     public ModuleMetadataOrchestrationService(PlatformModuleService moduleService,
-                                              MetadataService metadataService,
-                                              ModuleMetadataRelationService relationService) {
-        this(moduleService, metadataService, relationService, null, null, null);
-    }
-
-    public ModuleMetadataOrchestrationService(PlatformModuleService moduleService,
-                                               MetadataService metadataService,
-                                               ModuleMetadataRelationService relationService,
-                                               MetadataFieldService fieldService) {
-        this(moduleService, metadataService, relationService, fieldService, null, null);
-    }
-
-    @Autowired
-    public ModuleMetadataOrchestrationService(PlatformModuleService moduleService,
                                                MetadataService metadataService,
                                                ModuleMetadataRelationService relationService,
                                                MetadataFieldService fieldService,
@@ -54,9 +39,9 @@ public class ModuleMetadataOrchestrationService {
         this.moduleService = Objects.requireNonNull(moduleService, "moduleService must not be null");
         this.metadataService = Objects.requireNonNull(metadataService, "metadataService must not be null");
         this.relationService = Objects.requireNonNull(relationService, "relationService must not be null");
-        this.fieldService = fieldService;
-        this.schemaEnsureService = schemaEnsureService;
-        this.refreshCoordinator = refreshCoordinator;
+        this.fieldService = Objects.requireNonNull(fieldService, "fieldService must not be null");
+        this.schemaEnsureService = Objects.requireNonNull(schemaEnsureService, "schemaEnsureService must not be null");
+        this.refreshCoordinator = Objects.requireNonNull(refreshCoordinator, "refreshCoordinator must not be null");
     }
 
     @Transactional
@@ -94,9 +79,7 @@ public class ModuleMetadataOrchestrationService {
                 .filter(MetadataCapabilityCatalog::isDeclarable)
                 .collect(java.util.stream.Collectors.toSet())));
         String metadataId = MetadataCapabilityGovernanceMutationContext.run(() -> metadataService.insert(metadata));
-        if (fieldService != null) {
-            MetadataCapabilityManagedFieldMaterializer.materialize(fieldService, metadata, moduleCapabilities);
-        }
+        MetadataCapabilityManagedFieldMaterializer.materialize(fieldService, metadata, moduleCapabilities);
 
         ModuleMetadataRelation relation = new ModuleMetadataRelation();
         relation.setModuleAlias(validModuleAlias);
@@ -129,9 +112,6 @@ public class ModuleMetadataOrchestrationService {
     @Transactional
     public ModuleMainMetadataCreationResult createChildMetadata(String moduleAlias, String parentRelationId,
                                                                  ModuleChildMetadataCreateCommand command) {
-        if (fieldService == null) {
-            throw new IllegalStateException("Child metadata authoring requires MetadataFieldService");
-        }
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         if (command == null) throw new IllegalArgumentException("child metadata create command must not be null");
         PlatformModule module = requireDynamicModule(validModuleAlias);
@@ -185,9 +165,6 @@ public class ModuleMetadataOrchestrationService {
     /** Publishes model creation through the same schema-then-post-commit-runtime boundary as change sets. */
     private void publishCreatedMetadata(Metadata metadata, String moduleAlias) {
         if (metadata == null) throw new PlatformException("Created metadata cannot be reloaded for publication");
-        // Lightweight constructors remain available for isolated metadata authoring tests; production
-        // injection always supplies the publication collaborators.
-        if (schemaEnsureService == null || refreshCoordinator == null) return;
         schemaEnsureService.ensureNow(metadata);
         TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateModulesNow(java.util.List.of(moduleAlias)));
     }

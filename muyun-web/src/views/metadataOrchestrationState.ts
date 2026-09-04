@@ -461,12 +461,11 @@ export function fieldSpecOptionListOf(specs: FieldSpec[]): FieldSpecOption[] {
 }
 
 /** Filters a populated entity to the source specification's server-declared safe targets. */
-export function dataSafeFieldSpecOptions(
-  specs: FieldSpec[],
-  currentAlias?: string,
-): FieldSpecOption[] {
+export function dataSafeFieldSpecOptions(specs: FieldSpec[], currentAlias?: string): FieldSpecOption[] {
   const source = specs.find((spec) => (spec.alias ?? spec.id) === currentAlias);
-  const permittedAliases = new Set([currentAlias, ...(source?.safeTargetFieldSpecAliases ?? [])].filter(Boolean));
+  const permittedAliases = new Set(
+    [currentAlias, ...(source?.safeTargetFieldSpecAliases ?? [])].filter(Boolean),
+  );
   return fieldSpecOptionListOf(specs).filter((option) => permittedAliases.has(option.value));
 }
 

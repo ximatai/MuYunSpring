@@ -33,30 +33,18 @@ public class MetadataModelChangeSetApplyService {
                                               MetadataFieldService fieldService,
                                               PlatformMetadataSchemaEnsureService schemaEnsureService,
                                               PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator,
-                                              ModuleMetadataCapabilitySnapshotService snapshotService) {
-        this(previewService, relationApplyService, relationService, metadataService, fieldService, schemaEnsureService,
-                refreshCoordinator, snapshotService, null);
-    }
-
-    @org.springframework.beans.factory.annotation.Autowired
-    public MetadataModelChangeSetApplyService(MetadataModelChangeSetPreviewService previewService,
-                                              MetadataRelationChangeSetApplyService relationApplyService,
-                                              ModuleMetadataRelationService relationService,
-                                              MetadataService metadataService,
-                                              MetadataFieldService fieldService,
-                                              PlatformMetadataSchemaEnsureService schemaEnsureService,
-                                              PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator,
                                               ModuleMetadataCapabilitySnapshotService snapshotService,
                                               EmptyMetadataFieldSpecColumnRebuildService emptyFieldSpecColumnRebuildService) {
-        this.previewService = previewService;
-        this.relationApplyService = relationApplyService;
-        this.relationService = relationService;
-        this.metadataService = metadataService;
-        this.fieldService = fieldService;
-        this.schemaEnsureService = schemaEnsureService;
-        this.refreshCoordinator = refreshCoordinator;
-        this.snapshotService = snapshotService;
-        this.emptyFieldSpecColumnRebuildService = emptyFieldSpecColumnRebuildService;
+        this.previewService = Objects.requireNonNull(previewService, "previewService must not be null");
+        this.relationApplyService = Objects.requireNonNull(relationApplyService, "relationApplyService must not be null");
+        this.relationService = Objects.requireNonNull(relationService, "relationService must not be null");
+        this.metadataService = Objects.requireNonNull(metadataService, "metadataService must not be null");
+        this.fieldService = Objects.requireNonNull(fieldService, "fieldService must not be null");
+        this.schemaEnsureService = Objects.requireNonNull(schemaEnsureService, "schemaEnsureService must not be null");
+        this.refreshCoordinator = Objects.requireNonNull(refreshCoordinator, "refreshCoordinator must not be null");
+        this.snapshotService = Objects.requireNonNull(snapshotService, "snapshotService must not be null");
+        this.emptyFieldSpecColumnRebuildService = Objects.requireNonNull(emptyFieldSpecColumnRebuildService,
+                "emptyFieldSpecColumnRebuildService must not be null");
     }
 
     @Transactional
@@ -217,7 +205,6 @@ public class MetadataModelChangeSetApplyService {
                                               ModuleMetadataRelation relation,
                                               Metadata metadata,
                                               Map<String, String> previousFieldSpecs) {
-        if (emptyFieldSpecColumnRebuildService == null) return;
         for (MetadataFieldChangeSetPlan mutation : relationPlan.changeSet().fieldMutations()) {
             if (mutation.operation() != MetadataFieldChangeSetDraft.Operation.UPDATE || mutation.fieldId() == null) continue;
             emptyFieldSpecColumnRebuildService.rebuildIfEmpty(relation.getModuleAlias(), metadata,

@@ -1247,7 +1247,6 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
   const component = route.matched.at(-1)?.components?.default as VueComponent | undefined;
   return component ? componentForWorkbenchRoute(route, component) : undefined;
 }
-
 </script>
 
 <template>
@@ -1282,7 +1281,12 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         <KeepAlive :max="pageCacheMax">
           <component
             :is="CachePageHost"
-            v-if="renderedPageRoute && renderedPageComponent && renderedPageRoute.meta.cacheable !== false && renderedTabMatchesRoute"
+            v-if="
+              renderedPageRoute &&
+              renderedPageComponent &&
+              renderedPageRoute.meta.cacheable !== false &&
+              renderedTabMatchesRoute
+            "
             :key="pageRuntimeCacheKey(renderedTabKey)"
             :component="renderedPageComponent"
             :route="renderedPageRoute"
@@ -1291,7 +1295,12 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
           />
         </KeepAlive>
         <StaticRoutePageHost
-          v-if="renderedPageRoute && renderedPageComponent && renderedPageRoute.meta.cacheable === false && renderedTabMatchesRoute"
+          v-if="
+            renderedPageRoute &&
+            renderedPageComponent &&
+            renderedPageRoute.meta.cacheable === false &&
+            renderedTabMatchesRoute
+          "
           :key="pageRuntimeCacheKey(renderedTabKey)"
           :component="renderedPageComponent"
           :route="renderedPageRoute"
@@ -1399,5 +1408,4 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
   font-size: 14px;
   cursor: pointer;
 }
-
 </style>

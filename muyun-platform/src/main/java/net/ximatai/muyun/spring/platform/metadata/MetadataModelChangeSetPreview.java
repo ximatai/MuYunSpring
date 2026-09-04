@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.util.List;
 
 /** Deterministic, side-effect-free preview for the complete dynamic module metadata model. */
@@ -12,7 +13,7 @@ public record MetadataModelChangeSetPreview(
         List<MetadataChangeSetValidationIssue> warnings,
         List<MetadataChangeSetValidationIssue> errors,
         String proposalFingerprint,
-        MetadataModelChangeSetPlan plan
+        @JsonIgnore MetadataModelChangeSetPlan plan
 ) {
     /** Compatibility constructor for callers that do not consume the aggregated impact projection. */
     public MetadataModelChangeSetPreview(String moduleAlias,

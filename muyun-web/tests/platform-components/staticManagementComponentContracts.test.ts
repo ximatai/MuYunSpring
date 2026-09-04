@@ -1235,11 +1235,20 @@ it('production workbench delegates page lifetime to the Vue Router outlet', () =
   assert.match(workbenchSource, /<div v-else-if="activeTab" class="tab-panel-host">[\s\S]*?<slot/);
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
   assert.match(appSource, /const CachePageHost = defineComponent\(\{[\s\S]*name: 'CachePageHost'/);
-  assert.match(appSource, /props: \{[\s\S]*component: \{ type: Object, required: true \}[\s\S]*route: \{ type: Object, required: true \}[\s\S]*pageDescriptor: \{ type: Object, required: false \}[\s\S]*refreshRevision: \{ type: Number, required: false \}/);
-  assert.match(appSource, /function pageRuntimeCacheKey\(tabKey: string \| undefined\) \{[\s\S]*return `\$\{tabKey \?\? 'unbound'\}:\$\{generation\}`;/);
+  assert.match(
+    appSource,
+    /props: \{[\s\S]*component: \{ type: Object, required: true \}[\s\S]*route: \{ type: Object, required: true \}[\s\S]*pageDescriptor: \{ type: Object, required: false \}[\s\S]*refreshRevision: \{ type: Number, required: false \}/,
+  );
+  assert.match(
+    appSource,
+    /function pageRuntimeCacheKey\(tabKey: string \| undefined\) \{[\s\S]*return `\$\{tabKey \?\? 'unbound'\}:\$\{generation\}`;/,
+  );
   assert.match(appSource, /<KeepAlive :max="pageCacheMax">/);
-  assert.match(appSource, /<component[\s\S]*:is="CachePageHost"[\s\S]*renderedPageRoute\.meta\.cacheable !== false && renderedTabMatchesRoute[\s\S]*:key="pageRuntimeCacheKey\(renderedTabKey\)"/);
-  assert.match(appSource, /renderedPageRoute\.meta\.cacheable !== false && renderedTabMatchesRoute/);
+  assert.match(
+    appSource,
+    /<component[\s\S]*:is="CachePageHost"[\s\S]*renderedPageRoute\.meta\.cacheable !== false &&\s*renderedTabMatchesRoute[\s\S]*:key="pageRuntimeCacheKey\(renderedTabKey\)"/,
+  );
+  assert.match(appSource, /renderedPageRoute\.meta\.cacheable !== false &&\s*renderedTabMatchesRoute/);
   assert.match(appSource, /const renderedPageRoute = shallowRef<RouteLocationNormalizedLoaded>\(\)/);
   assert.match(appSource, /function componentForCommittedRoute\(route: RouteLocationNormalizedLoaded\)/);
   assert.match(appSource, /renderedPageRoute\.value = snapshotPageRoute\(route\)/);

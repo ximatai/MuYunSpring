@@ -78,7 +78,9 @@ const management = useFlatCrudManagementState({
 const { selected, draft, mode, reloadKey, saving, cardTitle, canCreate, canEnable } = management;
 const hasUnsavedChanges = computed(() => {
   if (mode.value === 'view') return false;
-  const baseline = selected.value ? normalizeActionDraft(selected.value, props.moduleAlias) : emptyActionDraft(props.moduleAlias);
+  const baseline = selected.value
+    ? normalizeActionDraft(selected.value, props.moduleAlias)
+    : emptyActionDraft(props.moduleAlias);
   return JSON.stringify(draft.value) !== JSON.stringify(baseline);
 });
 useWorkspaceViewUnsavedState('模块动作', () => hasUnsavedChanges.value);

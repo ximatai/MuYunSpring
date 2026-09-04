@@ -76,7 +76,7 @@ class MetadataModelChangeSetApplyServiceTest {
         MetadataModelChangeSetPreviewCommand proposal = new MetadataModelChangeSetPreviewCommand(List.of(), List.of(), List.of());
         when(previews.preview("education.exam", proposal)).thenReturn(preview);
         MetadataModelChangeSetApplyService service = new MetadataModelChangeSetApplyService(previews, relationApply, relations,
-                metadataService, fields, schema, refresh, snapshots);
+                metadataService, fields, schema, refresh, snapshots, mock(EmptyMetadataFieldSpecColumnRebuildService.class));
 
         MetadataModelChangeSetPublishResult result = service.apply("education.exam",
                 new MetadataModelChangeSetApplyCommand(proposal, "fingerprint"));
@@ -108,7 +108,8 @@ class MetadataModelChangeSetApplyServiceTest {
         when(previews.preview("education.exam", proposal)).thenReturn(preview);
         MetadataModelChangeSetApplyService service = new MetadataModelChangeSetApplyService(previews, relationApply, relations,
                 mock(MetadataService.class), mock(MetadataFieldService.class), mock(PlatformMetadataSchemaEnsureService.class),
-                mock(PlatformDynamicRuntimeRefreshCoordinator.class), mock(ModuleMetadataCapabilitySnapshotService.class));
+                mock(PlatformDynamicRuntimeRefreshCoordinator.class), mock(ModuleMetadataCapabilitySnapshotService.class),
+                mock(EmptyMetadataFieldSpecColumnRebuildService.class));
 
         assertThatThrownBy(() -> service.apply("education.exam", new MetadataModelChangeSetApplyCommand(proposal, "fingerprint")))
                 .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
@@ -150,7 +151,7 @@ class MetadataModelChangeSetApplyServiceTest {
         MetadataModelChangeSetApplyService service = new MetadataModelChangeSetApplyService(previews,
                 mock(MetadataRelationChangeSetApplyService.class), relations, mock(MetadataService.class), fields,
                 mock(PlatformMetadataSchemaEnsureService.class), mock(PlatformDynamicRuntimeRefreshCoordinator.class),
-                mock(ModuleMetadataCapabilitySnapshotService.class));
+                mock(ModuleMetadataCapabilitySnapshotService.class), mock(EmptyMetadataFieldSpecColumnRebuildService.class));
 
         assertThatThrownBy(() -> service.apply("education.exam", new MetadataModelChangeSetApplyCommand(proposal, fingerprint)))
                 .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)

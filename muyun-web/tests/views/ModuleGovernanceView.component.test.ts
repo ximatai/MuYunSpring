@@ -32,7 +32,9 @@ describe('ModuleGovernanceView', () => {
   it('keeps the metadata and page-composer tabs governed', async () => {
     const wrapper = mountGovernanceView({ moduleAlias: 'education.exam', governanceTab: 'metadata' });
 
-    expect(wrapper.findComponent(MetadataOrchestrationView).props()).toMatchObject({ moduleAlias: 'education.exam' });
+    expect(wrapper.findComponent(MetadataOrchestrationView).props()).toMatchObject({
+      moduleAlias: 'education.exam',
+    });
     expect(wrapper.findComponent(RecordDetailPanel).exists()).toBe(false);
 
     await wrapper.setProps({ governanceTab: 'ui' });
