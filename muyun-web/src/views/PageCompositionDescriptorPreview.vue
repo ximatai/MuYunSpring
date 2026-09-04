@@ -21,6 +21,7 @@ import type {
   ResolvedViewFieldDescriptor,
 } from '@muyun/web-contracts';
 import type { QueryListRecord, RecordFormFieldValue, RecordFormRecord } from '@muyun/platform-components';
+import { isPageCompositionDrag } from './pageCompositionDragPayload';
 
 defineOptions({ name: 'PageCompositionDescriptorPreview' });
 
@@ -177,7 +178,10 @@ function updateFormField(fieldName: string, value: RecordFormFieldValue) {
 }
 
 function handleExternalDragOver(event: DragEvent) {
-  if (!props.acceptExternalDrop) return;
+  if (!props.acceptExternalDrop || !isPageCompositionDrag(event.dataTransfer)) {
+    externalDragOver.value = false;
+    return;
+  }
   event.preventDefault();
   externalDragOver.value = true;
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
@@ -191,7 +195,10 @@ function handleExternalDragLeave(event: DragEvent) {
 }
 
 function handleExternalDrop(event: DragEvent) {
-  if (!props.acceptExternalDrop) return;
+  if (!props.acceptExternalDrop || !isPageCompositionDrag(event.dataTransfer)) {
+    externalDragOver.value = false;
+    return;
+  }
   event.preventDefault();
   externalDragOver.value = false;
   emit('metadata-drop', previewDropTarget.value, event);

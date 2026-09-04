@@ -3,6 +3,7 @@ import { ref, watch } from 'vue';
 import { VueDraggable } from 'vue-draggable-plus';
 import type { SortableEvent } from 'sortablejs';
 import type { PageComposerField, PageComposerGroup, PageComposerRelation } from './pageCompositionDraftState';
+import { isPageCompositionDrag } from './pageCompositionDragPayload';
 
 defineOptions({ name: 'PageCompositionTree' });
 
@@ -179,7 +180,10 @@ function resolveDropTarget(target: EventTarget | null): ComposerDropTarget | und
 
 function handleExternalDragOver(event: DragEvent) {
   const target = resolveDropTarget(event.target);
-  if (props.disabled || !target) return;
+  if (props.disabled || !target || !isPageCompositionDrag(event.dataTransfer)) {
+    externalDropTarget.value = undefined;
+    return;
+  }
   event.preventDefault();
   externalDropTarget.value = target;
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
@@ -192,7 +196,10 @@ function handleExternalDragLeave(event: DragEvent) {
 
 function handleExternalDrop(event: DragEvent) {
   const target = resolveDropTarget(event.target);
-  if (props.disabled || !target) return;
+  if (props.disabled || !target || !isPageCompositionDrag(event.dataTransfer)) {
+    externalDropTarget.value = undefined;
+    return;
+  }
   event.preventDefault();
   externalDropTarget.value = undefined;
   emit('metadata-drop', target, event);

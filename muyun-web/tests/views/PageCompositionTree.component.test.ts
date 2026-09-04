@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import { VueDraggable } from 'vue-draggable-plus';
 import PageCompositionTree from '@/views/PageCompositionTree.vue';
+import { PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE } from '@/views/pageCompositionDragPayload';
 
 const subject = { id: 'subject', title: '科目', fieldName: 'subject' };
 const examDate = { id: 'exam-date', title: '考试日期', fieldName: 'examDate' };
@@ -148,7 +149,7 @@ describe('PageCompositionTree', () => {
     });
 
     await wrapper.find('[data-composer-field-container="group"]').trigger('drop', {
-      dataTransfer: { dropEffect: 'none' },
+      dataTransfer: { dropEffect: 'none', types: [PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE] },
     });
 
     expect(wrapper.emitted('metadata-drop')?.[0]?.[0]).toEqual({ kind: 'group', groupId: 'group_1' });
@@ -164,12 +165,29 @@ describe('PageCompositionTree', () => {
       },
     });
     const listBranch = wrapper.get('[data-composer-drop-target="list"]');
-    const dataTransfer = { dropEffect: 'none' } as unknown as DataTransfer;
+    const dataTransfer = {
+      dropEffect: 'none',
+      types: [PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE],
+    } as unknown as DataTransfer;
 
     await listBranch.trigger('dragover', { dataTransfer });
     expect(listBranch.classes()).toContain('is-drop-target');
 
     await wrapper.get('.page-composition-tree').trigger('dragleave', { relatedTarget: document.body });
     expect(listBranch.classes()).not.toContain('is-drop-target');
+  });
+
+  it('ignores unrelated external drags', async () => {
+    const wrapper = mount(PageCompositionTree, {
+      props: { listFields: [], formFields: [], formGroups: [], formRelations: [] },
+    });
+    const listBranch = wrapper.get('[data-composer-drop-target="list"]');
+    const dataTransfer = { dropEffect: 'none', types: ['text/plain'] } as unknown as DataTransfer;
+
+    await listBranch.trigger('dragover', { dataTransfer });
+    await listBranch.trigger('drop', { dataTransfer });
+
+    expect(listBranch.classes()).not.toContain('is-drop-target');
+    expect(wrapper.emitted('metadata-drop')).toBeUndefined();
   });
 });

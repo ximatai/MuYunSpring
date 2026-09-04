@@ -23,7 +23,6 @@ const DEFAULT_MIN_LOADING_DURATION_MS = 300;
 
 type UiTreePointerDragSession = {
   owner: symbol;
-  node: UiTreeNode;
   payload?: unknown;
   payloadType?: string;
 };
@@ -43,8 +42,7 @@ const props = withDefaults(
     checkStrictly?: boolean;
     /** Restricts which nodes can be checked without leaking renderer-specific checkbox state. */
     canCheck?: (node: UiTreeNode) => boolean;
-    /** Resolves children only when a non-leaf node is expanded. The result is optional for legacy loaders. */
-    /** Legacy loaders retain the shape `loadChildren?: (node: UiTreeNode) => Promise<void>`. */
+    /** Resolves children only when a non-leaf node is expanded; legacy loaders may return nothing. */
     loadChildren?: (
       node: UiTreeNode,
       request?: UiTreeLoadRequest,
@@ -656,7 +654,6 @@ function handleTitleNativeDragStart(key: unknown, event: DragEvent) {
       internalDragging.value = true;
       activePointerDragSession = {
         owner: treeInstanceId,
-        node,
         ...(props.dragPayloadOf
           ? { payload: props.dragPayloadOf(node), payloadType: props.dragPayloadType }
           : {}),
@@ -783,7 +780,6 @@ function handleDocumentMouseMove(event: MouseEvent) {
       internalDragging.value = true;
       activePointerDragSession = {
         owner: treeInstanceId,
-        node,
         ...(props.dragPayloadOf
           ? { payload: props.dragPayloadOf(node), payloadType: props.dragPayloadType }
           : {}),

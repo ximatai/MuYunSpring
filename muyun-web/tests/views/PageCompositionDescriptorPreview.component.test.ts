@@ -1,6 +1,7 @@
 import { mount, shallowMount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
 import PageCompositionDescriptorPreview from '@/views/PageCompositionDescriptorPreview.vue';
+import { PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE } from '@/views/pageCompositionDragPayload';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@/web-contracts/index.ts';
 
 it('uses the standard list cell semantic component for descriptor list previews', () => {
@@ -51,7 +52,10 @@ it('exposes the active preview mode as an external metadata drop target', async 
     },
     global: { stubs: { UiDataTable: tableStub } },
   });
-  const dataTransfer = { dropEffect: 'none' } as unknown as DataTransfer;
+  const dataTransfer = {
+    dropEffect: 'none',
+    types: [PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE],
+  } as unknown as DataTransfer;
   const preview = wrapper.get('[data-testid="page-composer-list-preview"]');
 
   await preview.trigger('dragover', { dataTransfer });
@@ -59,6 +63,26 @@ it('exposes the active preview mode as an external metadata drop target', async 
 
   expect(wrapper.emitted('metadata-drop')).toHaveLength(1);
   expect(wrapper.emitted('metadata-drop')?.[0]?.[0]).toBe('list');
+});
+
+it('ignores unrelated external drags', async () => {
+  const wrapper = mount(PageCompositionDescriptorPreview, {
+    props: {
+      descriptor: descriptor(),
+      moduleAlias: 'platform.module',
+      mode: 'list',
+      acceptExternalDrop: true,
+    },
+    global: { stubs: { UiDataTable: tableStub } },
+  });
+  const dataTransfer = { dropEffect: 'none', types: ['text/plain'] } as unknown as DataTransfer;
+  const preview = wrapper.get('[data-testid="page-composer-list-preview"]');
+
+  await preview.trigger('dragover', { dataTransfer });
+  await preview.trigger('drop', { dataTransfer });
+
+  expect(wrapper.emitted('metadata-drop')).toBeUndefined();
+  expect(preview.classes()).not.toContain('page-composition-descriptor-preview--drag-over');
 });
 
 it('animates stable list fields into their new descriptor order', async () => {

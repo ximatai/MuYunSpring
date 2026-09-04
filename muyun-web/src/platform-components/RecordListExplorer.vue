@@ -185,6 +185,16 @@ function handleDrop(event: UiTreeDropEvent) {
     emit('sort', { dragRecord, dropRecord, position: event.dropPosition as -1 | 1 });
   }
 }
+
+function handleNodeSelect(node: UiTreeNode) {
+  const record = recordOfNode(node);
+  if (record) handleSelect(record);
+}
+
+function handleNodeAction(action: UiRecordInlineAction, node: UiTreeNode) {
+  const record = recordOfNode(node);
+  if (record) handleAction(action, record);
+}
 </script>
 
 <template>
@@ -198,9 +208,9 @@ function handleDrop(event: UiTreeDropEvent) {
     :draggable="sortingEnabled"
     :can-drag="canDragNode"
     :allow-drop="canDropNode"
-    @select="(node) => recordOfNode(node) && handleSelect(recordOfNode(node)!)"
+    @select="handleNodeSelect"
     @deselect="emit('deselect')"
-    @action="(action, node) => recordOfNode(node) && handleAction(action, recordOfNode(node)!)"
+    @action="handleNodeAction"
     @drop="handleDrop"
   />
 </template>
