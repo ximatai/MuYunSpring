@@ -76,6 +76,30 @@ const previewDescriptor = ref<ResolvedModuleUiDescriptor>();
 const previewLoading = ref(false);
 const previewError = ref<string>();
 const activeMetadataDragPayload = ref<MetadataDragPayload>();
+/**
+ * These fields are materialized for metadata governance but are intentionally omitted from the
+ * dynamic main-entity runtime namespace. Keep this list aligned with
+ * MetadataSystemFieldCatalog.isRuntimeReserved on the server; capability fields such as
+ * `enabled` and `sortOrder` remain valid page fields and must not be filtered here.
+ */
+const runtimeReservedMetadataFieldNames = new Set([
+  'id',
+  'tenantId',
+  'version',
+  'deleted',
+  'deletedAt',
+  'deletedBy',
+  'createdBy',
+  'createdAt',
+  'updatedBy',
+  'updatedAt',
+  'authUserId',
+  'authAssigneeIds',
+  'authMemberIds',
+  'authOrganizationId',
+  'authDepartmentId',
+  'authModuleAlias',
+]);
 let previewRequestSequence = 0;
 let previewDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let workspaceLoadSequence = 0;
@@ -314,7 +338,7 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
     );
     if (requestSequence !== workspaceLoadSequence) return;
     metadataFields.value = fields
-      .filter((field) => field.enabled !== false)
+      .filter((field) => field.enabled !== false && !isRuntimeReservedMetadataField(field))
       .map(toComposerField)
       .filter((field): field is PageComposerField => field != null);
     const directChildren = relations.filter(
@@ -332,7 +356,7 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
         return [
           child.id ?? child.metadataId!,
           childFields
-            .filter((field) => field.enabled !== false)
+            .filter((field) => field.enabled !== false && !isRuntimeReservedMetadataField(field))
             .map(toComposerField)
             .filter((field): field is PageComposerField => field != null),
         ] as const;
@@ -832,6 +856,10 @@ function toComposerField(field: MetadataField): PageComposerField | undefined {
   };
 }
 
+function isRuntimeReservedMetadataField(field: MetadataField) {
+  return field.systemManaged === true && runtimeReservedMetadataFieldNames.has(field.fieldName ?? '');
+}
+
 function addToSelectedSlot(field: PageComposerField) {
   if (isMutating.value) return;
   state.addField(field, selectedSlot.value);
@@ -1029,24 +1057,49 @@ function reorderRelationField(relationId: string, fieldId: string, targetIndex: 
 }
 
 function handleCompositionMetadataDrop(target: ComposerDropTarget, nativeEvent: DragEvent) {
-  if (isMutating.value) return;
+  if (isMutating.value) {
+    activeMetadataDragPayload.value = undefined;
+    return;
+  }
   const metadata = parseMetadataDragPayload(nativeEvent.dataTransfer) ?? activeMetadataDragPayload.value;
+  // A native drag can end outside a valid target, or the browser can expose a malformed
+  // payload. Never let that session leak into the next pointer-fallback drop.
+  activeMetadataDragPayload.value = undefined;
   if (!metadata) return;
   if (metadata.kind === 'field') {
     const field = metadataFields.value.find((candidate) => candidate.id === metadata.fieldId);
     if (!field) return;
     if (target.kind === 'list') state.addField(field, 'list');
     else if (target.kind === 'form') state.addField(field, 'form');
-    else {
-      state.addField(field, 'form');
-      state.moveFormFieldToGroup(field.id, target.groupId);
-    }
+    else placeMetadataFieldInGroup(field, target.groupId);
   } else if (metadata.kind === 'relation' && target.kind === 'form') {
     addRelationById(metadata.relationId);
   } else if (metadata.kind === 'relationField' && target.kind === 'form') {
     addRelationFieldById(metadata.relationId, metadata.fieldId);
   }
-  activeMetadataDragPayload.value = undefined;
+}
+
+/**
+ * A metadata field is a source that may be projected once in the form slot. Dropping it onto a
+ * group therefore means "place it here": use the existing typed move commands when it already
+ * has a form placement, and only add it before moving when it is new to the form.
+ */
+function placeMetadataFieldInGroup(field: PageComposerField, groupId: string) {
+  if (!state.formGroups.value.some((group) => group.id === groupId)) return;
+  const sourceGroup = state.formGroups.value.find((group) =>
+    group.fields.some((candidate) => candidate.id === field.id),
+  );
+  if (sourceGroup) {
+    if (sourceGroup.id !== groupId) state.moveGroupFieldToGroup(sourceGroup.id, field.id, groupId);
+    else state.addField(field, 'form');
+    return;
+  }
+  if (state.formFields.value.some((candidate) => candidate.id === field.id)) {
+    state.moveFormFieldToGroup(field.id, groupId);
+    return;
+  }
+  state.addField(field, 'form');
+  state.moveFormFieldToGroup(field.id, groupId);
 }
 
 function handlePreviewMetadataDrop(target: 'list' | 'form', nativeEvent: DragEvent) {
@@ -1146,8 +1199,25 @@ function selectPreviewField(slot: PageComposerSlot, field: PageComposerField) {
 
 function selectDescriptorPreviewField(slot: PageComposerSlot, fieldName: string, configure = false) {
   const field = fieldsInSlot(slot).find((candidate) => candidate.fieldName === fieldName);
-  if (!field) return;
-  selectPreviewField(slot, field);
+  if (field) {
+    selectPreviewField(slot, field);
+    if (configure) openPropertyDrawer();
+    return;
+  }
+  if (slot !== 'form') return;
+  const group = state.formGroups.value.find((candidate) =>
+    candidate.fields.some((candidateField) => candidateField.fieldName === fieldName),
+  );
+  const groupedField = group?.fields.find((candidate) => candidate.fieldName === fieldName);
+  if (!group || !groupedField) return;
+  selectNode({
+    id: `form:group:${group.id}:field:${groupedField.id}`,
+    kind: 'groupField',
+    title: groupedField.title,
+    slot: 'form',
+    group,
+    field: groupedField,
+  });
   if (configure) openPropertyDrawer();
 }
 

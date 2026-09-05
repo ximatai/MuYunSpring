@@ -86,6 +86,51 @@ describe('CrudRecordListExplorer', () => {
     expect(sortCalls).toEqual([{ id: 'first', request: { previousId: 'second', nextId: null } }]);
   });
 
+  it('persists platform application moves at both flat-list boundaries', async () => {
+    const sortCalls: Array<{ id: string; request: unknown }> = [];
+    const records = [
+      { id: 'application-first', title: '应用一' },
+      { id: 'application-middle', title: '应用二' },
+      { id: 'application-last', title: '应用三' },
+    ];
+    const topBoundaryWrapper = shallowMount(CrudRecordListExplorer, {
+      props: {
+        context: createContext([], records, sortCalls, [], records.length, 'platform.application'),
+        sorting: true,
+      },
+    });
+
+    await flushPromises();
+    topBoundaryWrapper.findComponent({ name: 'RecordListExplorer' }).vm.$emit('sort', {
+      dragRecord: records[2],
+      dropRecord: records[0],
+      position: -1,
+    });
+    await flushPromises();
+    topBoundaryWrapper.unmount();
+
+    const bottomBoundaryWrapper = shallowMount(CrudRecordListExplorer, {
+      props: {
+        context: createContext([], records, sortCalls, [], records.length, 'platform.application'),
+        sorting: true,
+      },
+    });
+    await flushPromises();
+    bottomBoundaryWrapper.findComponent({ name: 'RecordListExplorer' }).vm.$emit('sort', {
+      dragRecord: records[0],
+      dropRecord: records[2],
+      position: 1,
+    });
+    await flushPromises();
+
+    expect(sortCalls).toEqual([
+      { id: 'application-last', request: { previousId: null, nextId: 'application-first' } },
+      { id: 'application-first', request: { previousId: 'application-last', nextId: null } },
+    ]);
+    expect(bottomBoundaryWrapper.emitted('sorted')).toEqual([[]]);
+    bottomBoundaryWrapper.unmount();
+  });
+
   it('derives drop partitions from the module runtime contract', async () => {
     const wrapper = shallowMount(CrudRecordListExplorer, {
       props: {
@@ -145,6 +190,27 @@ describe('CrudRecordListExplorer', () => {
       { id: 'tenant-second', request: { previousId: null, nextId: 'tenant-first' } },
     ]);
   });
+
+  it('disables flat sorting while the application list is filtered', async () => {
+    const wrapper = shallowMount(CrudRecordListExplorer, {
+      props: {
+        context: createContext(
+          [],
+          [{ id: 'application-first', title: '应用一' }],
+          [],
+          [],
+          1,
+          'platform.application',
+        ),
+        sorting: true,
+        keyword: '应用',
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: 'RecordListExplorer' }).props('sorting')).toBe(false);
+  });
 });
 
 function createContext(
@@ -153,6 +219,7 @@ function createContext(
   sortCalls: Array<{ id: string; request: unknown }> = [],
   sortPartitionFields: string[] = [],
   total = records.length,
+  moduleAlias = 'iam.organization',
 ): ModuleContext<{ id: string }> {
   const crud = {
     query: async (request?: WebQueryRequest) => {
@@ -169,7 +236,7 @@ function createContext(
     sort: async (id: string, request: unknown) => sortCalls.push({ id, request }),
   };
   return {
-    moduleAlias: 'iam.organization',
+    moduleAlias,
     runtime: { ready: Promise.resolve({}), snapshot: () => ({ sortPartitionFields }) },
     crud,
     abilities: {

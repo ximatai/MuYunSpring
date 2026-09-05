@@ -6,11 +6,11 @@
 
 MuYun 当前同时存在树、平铺列表和页面编排三类节点交互：
 
-| 场景         | 当前承载                                        | 主要问题                                 |
-| ------------ | ----------------------------------------------- | ---------------------------------------- |
-| 标准树资源   | `UiTree` / `TreeRecordExplorer`                 | 依赖 Ant Tree，拖拽事件需要 adapter 归一 |
-| 标准平铺资源 | `RecordListExplorer` / `CrudRecordListExplorer` | 使用另一套原生列表拖拽协议               |
-| 页面配置编排 | `PageCompositionTree`                           | 多个 Sortable 容器自行处理跨容器移动     |
+| 场景         | 当前承载                                                   | 主要问题                       |
+| ------------ | ---------------------------------------------------------- | ------------------------------ |
+| 标准树资源   | `UiTree` / `TreeRecordExplorer`                            | 统一树展示，领域层保留排序规则 |
+| 标准平铺资源 | `UiTree` / `RecordListExplorer` / `CrudRecordListExplorer` | 统一平铺展示与拖拽协议         |
+| 页面配置编排 | `PageCompositionTree` -> `UiTree`                          | 领域层仍需解释嵌套容器移动语义 |
 
 这些组件的视觉表达相近，但选择、拖拽、跨组件投放、异步节点和状态变化没有统一公共契约。专项目标是形成一个可复用的基础交互能力，同时保留业务组件对领域规则和持久化的所有权。
 
@@ -269,8 +269,9 @@ MuYun public contract
 
 - `RecordListExplorer` 的平铺拖拽改为消费统一 flat adapter；
 - `TreeRecordExplorer` 的树排序改为消费统一 Tree adapter；
-- `PageCompositionTree` 保留页面领域命令，但消费统一跨容器 drop 事件；
-- 左侧元数据树继续作为拖拽源，页面结构树继续作为领域投放目标。
+- `PageCompositionTree` 已迁移为单一 `UiTree` 实例，保留页面领域命令，但消费统一跨容器 drop 事件；
+- 左侧“可用字段”和右侧“页面结构”都消费 `UiTree`，前者作为拖拽源，后者作为领域投放目标。
+- 页面编排的元数据源只暴露运行时可编译字段；平台保留字段（如 `id`、租户和审计字段）仍由元数据治理展示，但不作为页面拖拽源，`enabled`、`sortOrder` 等能力字段按运行时契约保留。
 
 ### 第三阶段：完善平台体验
 

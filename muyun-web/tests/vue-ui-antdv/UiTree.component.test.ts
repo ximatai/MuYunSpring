@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 import UiTree from '@/vue-ui-antdv/components/UiTree.vue';
 
 it('delegates tree checkbox rendering to Ant Tree and exposes a normalized check event', () => {
@@ -132,6 +133,47 @@ it('renders flat nodes with the shared item renderer and independent checkboxes'
   });
 });
 
+it('does not expose disabled flat nodes as drag sources', () => {
+  const locked = { key: 'item:locked', title: '只读项', disabled: true };
+  const wrapper = mount(UiTree, {
+    props: { displayMode: 'flat', nodes: [locked], draggable: true },
+    global: {
+      stubs: {
+        ATree: { name: 'ATree', template: '<div />' },
+        UiRecordExplorerItem: true,
+      },
+    },
+  });
+
+  const item = wrapper.get('[data-ui-tree-key="item:locked"]');
+  expect(item.attributes('draggable')).toBeUndefined();
+  expect(wrapper.emitted('drag-start')).toBeUndefined();
+});
+
+it('passes the public drag predicate to the tree renderer', () => {
+  const movable = { key: 'item:movable', title: '可移动' };
+  const locked = { key: 'item:locked', title: '只读', disabled: true };
+  const wrapper = mount(UiTree, {
+    props: {
+      nodes: [{ key: 'root', title: '根', isLeaf: false, children: [movable, locked] }],
+      draggable: true,
+      canDrag: (node) => node.key === movable.key,
+    },
+    global: {
+      stubs: {
+        ATree: { name: 'ATree', props: ['draggable'], template: '<div />' },
+        UiRecordExplorerItem: true,
+      },
+    },
+  });
+
+  const draggable = wrapper.findComponent({ name: 'ATree' }).props('draggable') as (node: {
+    dataRef: typeof movable | typeof locked;
+  }) => boolean;
+  expect(draggable({ dataRef: movable })).toBe(true);
+  expect(draggable({ dataRef: locked })).toBe(false);
+});
+
 it('keeps flat native drops and same-instance sorting on the shared tree contracts', () => {
   const first = { key: 'item:first', title: '第一项' };
   const second = { key: 'item:second', title: '第二项' };
@@ -250,7 +292,7 @@ it('normalizes adapter drag events before exposing them to page composers', () =
   ).toBe(true);
 });
 
-it('accepts a native payload dropped from another tree without relying on Ant Tree drag state', () => {
+it('accepts a native payload dropped from another tree without relying on Ant Tree drag state', async () => {
   const slot = { key: 'slot:list', title: '列表' };
   const wrapper = mount(UiTree, {
     props: {
@@ -274,11 +316,18 @@ it('accepts a native payload dropped from another tree without relying on Ant Tr
     value: () => ({ top: 0, height: 100 }),
   });
   const dataTransfer = { dropEffect: 'none' } as unknown as DataTransfer;
+  const dragOverEvent = new Event('dragover', { bubbles: true, cancelable: true }) as DragEvent;
+  Object.assign(dragOverEvent, { clientY: 50, dataTransfer });
+  target.dispatchEvent(dragOverEvent);
+  await nextTick();
+  expect(target.classList.contains('ui-tree-node--external-drop-target')).toBe(true);
   const nativeEvent = new Event('drop', { bubbles: true, cancelable: true }) as DragEvent;
   Object.assign(nativeEvent, { clientY: 50, dataTransfer });
   target.dispatchEvent(nativeEvent);
+  await nextTick();
 
   expect(nativeEvent.defaultPrevented).toBe(true);
+  expect(target.classList.contains('ui-tree-node--external-drop-target')).toBe(false);
   expect(wrapper.emitted('external-drop')).toEqual([
     [{ dropNode: slot, dropPosition: 0, dropToGap: false, nativeEvent }],
   ]);
@@ -382,6 +431,48 @@ it('sorts through the platform mouse adapter when native tree drag events are un
     dropPosition: -1,
     dropToGap: true,
   });
+});
+
+it('reports a centered drop on a non-leaf node as an explicit child drop', () => {
+  const parent = { key: 'group:parent', title: '分组', isLeaf: false };
+  const child = { key: 'item:child', title: '字段' };
+  const wrapper = mount(UiTree, {
+    props: { nodes: [parent, child], draggable: true, allowDrop: () => true },
+    global: {
+      stubs: {
+        ATree: {
+          name: 'ATree',
+          props: ['treeData'],
+          template: '<div><slot name="title" v-for="node in treeData" :key="node.key" v-bind="node" /></div>',
+        },
+        UiRecordExplorerItem: true,
+      },
+    },
+    attachTo: document.body,
+  });
+  const source = wrapper.get('[data-ui-tree-key="item:child"]');
+  const target = wrapper.get('[data-ui-tree-key="group:parent"]');
+  Object.defineProperty(target.element, 'getBoundingClientRect', {
+    value: () => ({ top: 0, height: 100 }),
+  });
+
+  source.element.dispatchEvent(
+    new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 20, clientY: 80 }),
+  );
+  target.element.dispatchEvent(
+    new MouseEvent('mousemove', { bubbles: true, buttons: 1, clientX: 20, clientY: 50 }),
+  );
+  target.element.dispatchEvent(
+    new MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 20, clientY: 50 }),
+  );
+
+  expect(wrapper.emitted('drop')?.[0]?.[0]).toMatchObject({
+    dragNode: child,
+    dropNode: parent,
+    dropPosition: 0,
+    dropToGap: false,
+  });
+  wrapper.unmount();
 });
 
 it('does not duplicate a tree drop when the native renderer reports the gesture', () => {

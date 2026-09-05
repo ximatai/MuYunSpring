@@ -137,6 +137,7 @@ const pendingLoads = new Map<string, Promise<void>>();
 let loadRequestSequence = 0;
 const internalDragging = ref(false);
 const nativeTitleDraggingKey = ref<string>();
+const externalDropTargetKey = ref<string>();
 const treeRoot = ref<HTMLElement>();
 const pointerDragging = ref<{
   key: string;
@@ -331,6 +332,19 @@ function treeRenderNodes(nodes: UiTreeNode[]): UiRenderTreeNode[] {
 }
 
 const renderedTreeNodes = computed(() => treeRenderNodes(renderNodes.value));
+const antTreeDraggable = computed<boolean | ((node: unknown) => boolean)>(() => {
+  if (!props.draggable) return false;
+  if (!props.canDrag) return true;
+  return (node: unknown) => {
+    const dataRef = (node as AntTreeNode | undefined)?.dataRef;
+    const treeNode = isUiTreeNode(dataRef)
+      ? dataRef
+      : typeof (node as AntTreeNode | undefined)?.key === 'string'
+        ? findNode(renderNodes.value, String((node as AntTreeNode).key))
+        : undefined;
+    return Boolean(treeNode && props.canDrag?.(treeNode));
+  };
+});
 
 function handleExpand(keys: unknown[], event?: { expanded?: boolean; node?: { key?: unknown } }) {
   const expandedKeys = keys.filter((key): key is string => typeof key === 'string');
@@ -521,6 +535,7 @@ onBeforeUnmount(() => {
   branchAbortControllers.clear();
   pendingLoads.clear();
   if (activePointerDragSession?.owner === treeInstanceId) activePointerDragSession = undefined;
+  externalDropTargetKey.value = undefined;
   previousTreeLayout.clear();
   document.removeEventListener('mousemove', handleDocumentMouseMove);
   document.removeEventListener('mouseup', handleDocumentMouseUp);
@@ -611,7 +626,7 @@ function normalizedDropEvent(event: AntTreeDropEvent): UiTreeDropEvent | undefin
 
 function handleDragStart(event: { node?: AntTreeNode; event?: unknown }) {
   const node = event.node ? unwrapNode(event.node) : undefined;
-  if (node && (!props.canDrag || props.canDrag(node))) {
+  if (node && !node.disabled && (!props.canDrag || props.canDrag(node))) {
     internalDragging.value = true;
     emit('drag-start', { node, nativeEvent: event.event as Event | undefined });
   } else {
@@ -660,7 +675,7 @@ function setDragPayload(node: UiTreeNode, event: DragEvent) {
 function handleTitleNativeDragStart(key: unknown, event: DragEvent) {
   if (typeof key !== 'string') return;
   const node = findNode(renderNodes.value, key);
-  if (!node || (props.canDrag && !props.canDrag(node))) {
+  if (!node || node.disabled || (props.canDrag && !props.canDrag(node))) {
     event.preventDefault();
     return;
   }
@@ -704,7 +719,7 @@ function handleTitlePointerDown(key: unknown, event: MouseEvent) {
 function isTitleDraggable(key: unknown) {
   if (typeof key !== 'string' || !props.draggable) return false;
   const node = findNode(renderNodes.value, key);
-  return Boolean(node && (!props.canDrag || props.canDrag(node)));
+  return Boolean(node && !node.disabled && (!props.canDrag || props.canDrag(node)));
 }
 
 function dropEvent(
@@ -719,11 +734,12 @@ function dropEvent(
   if (!dragNode || !dropNode || !(target instanceof HTMLElement)) return undefined;
   const rect = target.getBoundingClientRect();
   const position = rect.height === 0 ? 0.5 : (clientY - rect.top) / rect.height;
+  const supportsChildDrop = dropNode.isLeaf === false && position >= 0.25 && position <= 0.75;
   return {
     dragNode,
     dropNode,
-    dropPosition: position < 0.5 ? -1 : 1,
-    dropToGap: true,
+    dropPosition: supportsChildDrop ? 0 : position < 0.5 ? -1 : 1,
+    dropToGap: !supportsChildDrop,
   };
 }
 
@@ -758,6 +774,7 @@ function handleTitleDrop(key: unknown, nativeEvent: DragEvent) {
 
 function handleTitleDragEnd() {
   nativeTitleDraggingKey.value = undefined;
+  externalDropTargetKey.value = undefined;
 }
 
 function handleTitleOrExternalDragOver(key: unknown, nativeEvent: DragEvent) {
@@ -883,6 +900,7 @@ function handleDrop(event: AntTreeDropEvent) {
   if (!internalDragging.value && props.allowExternalDrop) {
     const external = externalTreeDropEvent(event);
     if (!external) return;
+    externalDropTargetKey.value = undefined;
     if (props.allowExternalDrop(external)) {
       emit('external-drop', { ...external, nativeEvent: event.event as DragEvent });
     }
@@ -958,23 +976,39 @@ function readDragPayload(dataTransfer: DataTransfer | null) {
 }
 
 function handleExternalDragOver(nativeEvent: DragEvent) {
-  if (internalDragging.value) return;
+  if (internalDragging.value) {
+    externalDropTargetKey.value = undefined;
+    return;
+  }
   const target = externalDropTarget(nativeEvent);
   if (target && (props.allowExternalDrop?.(target) ?? false)) {
     nativeEvent.preventDefault();
+    externalDropTargetKey.value = target.dropNode.key;
     if (nativeEvent.dataTransfer) {
       nativeEvent.dataTransfer.dropEffect = 'copy';
     }
+    return;
   }
+  externalDropTargetKey.value = undefined;
 }
 
 function handleExternalDrop(nativeEvent: DragEvent) {
-  if (internalDragging.value) return;
+  if (internalDragging.value) {
+    externalDropTargetKey.value = undefined;
+    return;
+  }
   const target = externalDropTarget(nativeEvent);
+  externalDropTargetKey.value = undefined;
   if (!target || !(props.allowExternalDrop?.(target) ?? false)) return;
   nativeEvent.preventDefault();
   nativeEvent.stopPropagation();
   emit('external-drop', { ...target, nativeEvent });
+}
+
+function handleExternalDragLeave(nativeEvent: DragEvent) {
+  if (nativeEvent.relatedTarget instanceof Node && treeRoot.value?.contains(nativeEvent.relatedTarget))
+    return;
+  externalDropTargetKey.value = undefined;
 }
 
 function findNode(nodes: UiTreeNode[], key: string): UiTreeNode | undefined {
@@ -1000,6 +1034,7 @@ defineExpose({ loadMore, refreshNode });
     :class="$attrs.class"
     :style="$attrs.style"
     @dragover="handleExternalDragOver"
+    @dragleave="handleExternalDragLeave"
     @drop="handleExternalDrop"
   >
     <TransitionGroup
@@ -1025,6 +1060,7 @@ defineExpose({ loadMore, refreshNode });
             pointerDragging?.active &&
             pointerDragging.drop?.dropNode.key === entry.node.key &&
             pointerDragging.drop.dropPosition === 1,
+          'ui-tree-node--external-drop-target': externalDropTargetKey === entry.node.key,
         }"
         :style="{ '--ui-tree-flat-depth': entry.depth }"
         :data-ui-tree-key="entry.node.key"
@@ -1078,7 +1114,7 @@ defineExpose({ loadMore, refreshNode });
       :check-strictly="checkStrictly"
       :loaded-keys="managesLoadedKeys ? loadedKeys : undefined"
       :load-data="loadChildren || loadStrategy === 'controlled' ? handleLoad : undefined"
-      :draggable="draggable"
+      :draggable="antTreeDraggable as never"
       :allow-drop="draggable ? allowsDrop : undefined"
       @select="handleSelect"
       @expand="handleExpand"
@@ -1087,8 +1123,9 @@ defineExpose({ loadMore, refreshNode });
       @dragend="handleDragEnd"
       @drop="handleDrop"
     >
-      <template #title="{ key, title, secondary, tag, muted, actions }">
+      <template #title="{ key, title, secondary, tag, muted, disabled, actions }">
         <div
+          :class="{ 'ui-tree-node--external-drop-target': externalDropTargetKey === key }"
           :data-ui-tree-key="key"
           :draggable="nativeDragSource && isTitleDraggable(key) ? true : undefined"
           @dblclick.stop="handleTitleDoubleClick(key, $event)"
@@ -1102,9 +1139,10 @@ defineExpose({ loadMore, refreshNode });
             :title="title"
             :secondary="secondary"
             :tag="tag"
-            :muted="muted"
+            :muted="muted || disabled"
             :selected="selectedKeys.includes(key)"
             :actions="actions"
+            :clickable="!disabled"
             @action="handleAction($event, key)"
           />
         </div>
@@ -1177,6 +1215,12 @@ defineExpose({ loadMore, refreshNode });
 
 .ui-tree__flat-list > li.ui-tree-flat-node--dragging {
   opacity: 0.45;
+}
+
+.ui-tree__flat-list > li.ui-tree-node--external-drop-target,
+.ui-tree :deep(.ui-tree-node--external-drop-target) {
+  background: color-mix(in srgb, var(--muyun-primary) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muyun-primary) 70%, transparent);
 }
 
 .ui-tree__flat-list > li:active[draggable='true'] {

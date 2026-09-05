@@ -94,6 +94,15 @@ watch(
   { immediate: true },
 );
 
+watch(
+  () => [props.acceptExternalDrop, props.mode] as const,
+  () => {
+    // A mode/permission change replaces the drop surface. Do not leave the old surface styled
+    // as active when the drag session is still moving through the workspace.
+    externalDragOver.value = false;
+  },
+);
+
 function previewRecord(fields: readonly ResolvedViewFieldDescriptor[]): UiDataTableRecord {
   return {
     id: 'page-composition-preview-record',

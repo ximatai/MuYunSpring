@@ -16,12 +16,32 @@ export function parseMetadataDragPayload(
     dataTransfer?.getData(PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE) || dataTransfer?.getData('text/plain');
   if (!raw) return undefined;
   try {
-    const payload = JSON.parse(raw) as MetadataDragPayload;
-    if (payload.kind === 'field' && payload.fieldId) return payload;
-    if (payload.kind === 'relation' && payload.relationId) return payload;
-    if (payload.kind === 'relationField' && payload.relationId && payload.fieldId) return payload;
+    const payload = JSON.parse(raw) as unknown;
+    if (!payload || typeof payload !== 'object') return undefined;
+    const candidate = payload as Record<string, unknown>;
+    if (candidate.kind === 'field' && nonEmptyString(candidate.fieldId)) {
+      return { kind: 'field', fieldId: candidate.fieldId };
+    }
+    if (candidate.kind === 'relation' && nonEmptyString(candidate.relationId)) {
+      return { kind: 'relation', relationId: candidate.relationId };
+    }
+    if (
+      candidate.kind === 'relationField' &&
+      nonEmptyString(candidate.relationId) &&
+      nonEmptyString(candidate.fieldId)
+    ) {
+      return {
+        kind: 'relationField',
+        relationId: candidate.relationId,
+        fieldId: candidate.fieldId,
+      };
+    }
   } catch {
     // Ignore native drops whose text payload is not created by this composer.
   }
   return undefined;
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }

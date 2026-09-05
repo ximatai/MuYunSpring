@@ -51,7 +51,7 @@ it('record list explorer exposes visible secondary identity text', () => {
   );
   assert.match(treeSource, /const item = props\.itemOf\?\.\(record\)/);
   assert.match(treeSource, /secondary: item\?\.secondary \?\? props\.secondaryOf\?\.\(record\)/);
-  assert.match(uiTreeSource, /#title="\{ key, title, secondary, tag, muted, actions \}"/);
+  assert.match(uiTreeSource, /#title="\{ key, title, secondary, tag, muted(?:, disabled)?, actions \}"/);
   assert.match(uiTreeSource, /:secondary="secondary"/);
 });
 

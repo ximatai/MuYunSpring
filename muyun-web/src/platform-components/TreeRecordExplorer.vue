@@ -263,6 +263,7 @@ async function handleDropForSort(event: UiTreeDropEvent) {
   const adjustedTargetIndex = siblings.indexOf(dropLocation.node);
   siblings.splice(event.dropPosition < 0 ? adjustedTargetIndex : adjustedTargetIndex + 1, 0, moving);
   const movedIndex = siblings.indexOf(moving);
+  if (movedIndex === sourceIndex) return;
   const movingId = moving.record.id == null ? undefined : String(moving.record.id);
   if (!movingId) return;
 
