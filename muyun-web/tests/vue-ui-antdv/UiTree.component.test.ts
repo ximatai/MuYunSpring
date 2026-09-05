@@ -133,6 +133,39 @@ it('renders flat nodes with the shared item renderer and independent checkboxes'
   });
 });
 
+it('keeps the non-empty root drop target visually quiet but accessible', () => {
+  const global = {
+    stubs: {
+      ATree: { name: 'ATree', template: '<div />' },
+      UiRecordExplorerItem: true,
+    },
+  };
+  const populated = mount(UiTree, {
+    props: {
+      nodes: [{ key: 'item:first', title: '第一项' }],
+      allowDrop: () => true,
+    },
+    global,
+  });
+
+  const populatedRoot = populated.get('[data-ui-drop-root]');
+  expect(populatedRoot.text()).toBe('');
+  expect(populatedRoot.attributes('tabindex')).toBe('-1');
+  expect(populatedRoot.attributes('aria-label')).toBe('根层末尾');
+
+  const empty = mount(UiTree, {
+    props: {
+      nodes: [],
+      allowDrop: () => true,
+      emptyDescription: '暂无项目',
+    },
+    global,
+  });
+  const emptyRoot = empty.get('[data-ui-drop-root]');
+  expect(emptyRoot.text()).toBe('暂无项目');
+  expect(emptyRoot.attributes('tabindex')).toBe('0');
+});
+
 afterEach(() => vi.restoreAllMocks());
 const item = (key: string) => ({ key, title: key, isLeaf: true });
 function tree(props: Partial<InstanceType<typeof UiTree>['$props']> = {}) {

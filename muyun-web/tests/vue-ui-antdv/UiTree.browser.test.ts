@@ -32,7 +32,9 @@ it.each(['tree', 'flat'] as const)(
     const wrapper = tree('sort', { displayMode });
     await nextTick();
     await commands.treeGesture(selector('sort', 'b'), selector('sort', 'a'), 0.1, 'hold');
-    expect(wrapper.get('[data-ui-tree-key="a"]').classes()).toContain('ui-tree-node--drop-before');
+    const target = wrapper.get('[data-ui-tree-key="a"]');
+    expect(target.classes()).toContain('ui-tree-node--drop-before');
+    expect(target.get('.ui-tree-node__drop-indicator--before').isVisible()).toBe(true);
     await commands.treeRelease();
     expect(wrapper.emitted('drop')![0][0]).toMatchObject({ target: { position: 'before' } });
     expect(wrapper.emitted('select')).toBeUndefined();
@@ -56,6 +58,24 @@ it.each(['copy', 'move'] as const)(
     expect(destination.find('.ui-tree-node--drop-inside').exists()).toBe(false);
   },
 );
+it('shows root feedback for a cross-tree drop on a non-empty root', async () => {
+  tree('root-source');
+  const destination = tree('root-destination', { allowDrop: () => true });
+  await nextTick();
+
+  await commands.treeGesture(
+    selector('root-source', 'a'),
+    '#root-destination [data-ui-drop-root]',
+    0.5,
+    'hold',
+  );
+
+  const root = destination.get('[data-ui-drop-root]');
+  expect(root.classes()).toContain('ui-tree__root-target--active');
+  await expect.poll(() => getComputedStyle(root.element).opacity).toBe('1');
+  await commands.treeRelease();
+  expect(destination.emitted('drop')![0][0]).toMatchObject({ target: { kind: 'root' } });
+});
 it('moves nested nodes into leaves and empty roots using current permissions at release', async () => {
   const source = tree('nested', {
     nodes: [{ key: 'parent', title: 'Parent', children: [node('child')] }, node('leaf')],

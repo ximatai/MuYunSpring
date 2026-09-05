@@ -346,6 +346,17 @@ function dragClasses(key: string) {
     'ui-tree-node--drop-rejected': active && rejected.value,
   };
 }
+function dropIndicatorClass(key: string) {
+  const target = hovered.value;
+  if (
+    target?.kind !== 'node' ||
+    target.node.key !== key ||
+    rejected.value ||
+    (target.position !== 'before' && target.position !== 'after')
+  )
+    return undefined;
+  return `ui-tree-node__drop-indicator--${target.position}`;
+}
 function keydown(node: UiTreeNode, event: KeyboardEvent) {
   if (event.target !== event.currentTarget) return;
   if (event.key === ' ' && canStartDrag(node.key)) {
@@ -446,6 +457,11 @@ defineExpose({
           @click="selectNode(node)"
           @action="action($event, node.key)"
         />
+        <span
+          v-if="dropIndicatorClass(node.key)"
+          :class="['ui-tree-node__drop-indicator', dropIndicatorClass(node.key)]"
+          aria-hidden="true"
+        />
       </li>
     </ul>
     <ATree
@@ -509,6 +525,11 @@ defineExpose({
               加载更多
             </button>
           </div>
+          <span
+            v-if="dropIndicatorClass(key)"
+            :class="['ui-tree-node__drop-indicator', dropIndicatorClass(key)]"
+            aria-hidden="true"
+          />
         </div>
       </template>
     </ATree>
@@ -516,13 +537,17 @@ defineExpose({
       v-if="allowDrop || treeNodes.length === 0"
       class="ui-tree__root-target"
       data-ui-drop-root
-      tabindex="0"
+      :tabindex="treeNodes.length === 0 ? 0 : -1"
+      :aria-label="treeNodes.length === 0 ? undefined : '根层末尾'"
       :class="{
+        'ui-tree__root-target--active': Boolean(draggingKey || hovered?.kind === 'root'),
+        'ui-tree__root-target--empty': treeNodes.length === 0,
         'ui-tree-node--drop-inside': hovered?.kind === 'root' && !rejected,
         'ui-tree-node--drop-rejected': hovered?.kind === 'root' && rejected,
       }"
     >
-      {{ treeNodes.length === 0 ? emptyDescription : '根层末尾' }}
+      <template v-if="treeNodes.length === 0">{{ emptyDescription }}</template>
+      <span v-else aria-hidden="true" />
     </div>
     <span class="ui-tree__instructions" aria-live="polite">{{
       hovered
@@ -545,9 +570,33 @@ defineExpose({
   clip-path: inset(50%);
 }
 .ui-tree__root-target {
-  padding: 6px;
-  min-height: 28px;
+  height: 8px;
+  margin: 4px 6px 0;
+  padding: 0;
+  border-top: 1px dashed transparent;
   color: var(--muyun-text-muted);
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    border-color 120ms ease;
+}
+.ui-tree__root-target--empty {
+  height: auto;
+  margin: 0;
+  padding: 6px;
+  opacity: 1;
+}
+.ui-tree__root-target--active {
+  opacity: 1;
+  border-top-color: var(--muyun-border-secondary);
+}
+.ui-tree__root-target.ui-tree-node--drop-inside {
+  border-top: 2px solid var(--muyun-primary);
+  outline: none;
+}
+.ui-tree__root-target.ui-tree-node--drop-rejected {
+  border-top-color: var(--muyun-danger-text);
+  outline: none;
 }
 .ui-tree-node--drop-rejected {
   cursor: not-allowed;
@@ -567,6 +616,19 @@ defineExpose({
 .ui-tree :deep(.ant-tree-node-content-wrapper.ant-tree-node-selected),
 .ui-tree :deep(.ant-tree-node-content-wrapper:hover) {
   background: transparent;
+}
+
+/* Flat rows get their full-width hover surface from the <li>. Mirror that
+   surface on Ant Tree's row wrapper so tree and flat modes feel identical. */
+.ui-tree :deep(.ant-tree-treenode) {
+  border-radius: 5px;
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.ui-tree :deep(.ant-tree-treenode:hover) {
+  background: var(--muyun-hover);
 }
 
 .ui-tree-node {
@@ -597,29 +659,24 @@ defineExpose({
     opacity 140ms ease;
 }
 
-.ui-tree-node::before,
-.ui-tree-node::after {
+.ui-tree-node__drop-indicator {
   position: absolute;
   right: 4px;
   left: 4px;
   height: 2px;
+  z-index: 2;
   border-radius: 2px;
-  background: var(--muyun-primary);
-  box-shadow: 0 0 0 2px rgb(22 119 255 / 10%);
-  content: '';
-  opacity: 0;
+  background: var(--muyun-theme-hover, var(--muyun-primary));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--muyun-theme-hover, var(--muyun-primary)) 18%, transparent);
   pointer-events: none;
-  transition: opacity 120ms ease;
 }
 
-.ui-tree-node--drop-before::before {
-  top: -2px;
-  opacity: 1;
+.ui-tree-node__drop-indicator--before {
+  top: 0;
 }
 
-.ui-tree-node--drop-after::after {
-  bottom: -2px;
-  opacity: 1;
+.ui-tree-node__drop-indicator--after {
+  bottom: 0;
 }
 
 .ui-tree-node--draggable {

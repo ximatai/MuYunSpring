@@ -214,7 +214,10 @@ const emit = defineEmits<{
 
 .management-panel-header-actions {
   display: inline-flex;
-  flex: 0 0 auto;
+  /* Give the adaptive action bar the real space left by the title group.
+     Otherwise it sizes to its current content, and measuring a lone 更多
+     button makes the overflow decision self-reinforcing. */
+  flex: 1 1 auto;
   align-items: center;
   justify-content: flex-end;
   gap: var(--muyun-management-panel-header-gap, 8px);
