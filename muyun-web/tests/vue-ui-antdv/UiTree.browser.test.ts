@@ -41,6 +41,20 @@ it.each(['tree', 'flat'] as const)(
     expect(wrapper.find('.ui-tree-node--dragging').exists()).toBe(false);
   },
 );
+it('keeps the tree inside-drop target visibly outlined', async () => {
+  const wrapper = tree('inside-target', { selectedKey: 'b' });
+  await nextTick();
+  await commands.treeGesture(selector('inside-target', 'b'), selector('inside-target', 'a'), 0.5, 'hold');
+
+  expect(wrapper.get('[data-ui-tree-key="b"] .ui-record-explorer-item').classes()).toContain(
+    'ui-record-explorer-item-selected',
+  );
+  const target = wrapper.get('[data-ui-tree-key="a"]');
+  expect(target.classes()).toContain('ui-tree-node--drop-inside');
+  expect(getComputedStyle(target.get('.ui-record-explorer-item').element).boxShadow).not.toBe('none');
+
+  await commands.treeRelease();
+});
 it.each(['copy', 'move'] as const)(
   'carries %s to another tree and cancels a second gesture',
   async (operation) => {

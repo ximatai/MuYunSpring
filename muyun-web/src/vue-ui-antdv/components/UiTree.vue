@@ -700,8 +700,12 @@ defineExpose({
 }
 
 .ui-tree-node--drop-inside {
-  background: color-mix(in srgb, var(--muyun-primary) 7%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muyun-primary) 70%, transparent);
+  background: color-mix(in srgb, var(--muyun-primary, #1677ff) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muyun-primary, #1677ff) 70%, transparent);
+}
+
+.ui-tree-node--drop-inside :deep(.ui-record-explorer-item) {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--muyun-primary, #1677ff) 78%, transparent);
 }
 
 .ui-tree__flat-list > li:focus-within,

@@ -170,8 +170,8 @@ async function focusSearchInput() {
   color: var(--muyun-text-muted);
 }
 
-:deep(.record-explorer-panel-action.ant-btn-text:not(:disabled):hover),
-:deep(.record-explorer-panel-action.ant-btn-text:not(:disabled):focus-visible) {
+:deep(.record-explorer-panel-action.ant-btn-text:not(.ui-button--selected):not(:disabled):hover),
+:deep(.record-explorer-panel-action.ant-btn-text:not(.ui-button--selected):not(:disabled):focus-visible) {
   border-color: var(--muyun-border-subtle);
   background: var(--muyun-hover);
   color: var(--muyun-text);
