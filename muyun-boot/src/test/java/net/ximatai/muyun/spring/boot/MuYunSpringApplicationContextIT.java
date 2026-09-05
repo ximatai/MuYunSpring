@@ -6,6 +6,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.TreeAbility;
@@ -39,6 +40,8 @@ import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategory;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
 import net.ximatai.muyun.spring.iam.tenant.Tenant;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
@@ -129,6 +132,9 @@ class MuYunSpringApplicationContextIT {
 
     @Autowired
     private TenantApplicationService tenantApplicationService;
+
+    @Autowired
+    private DictionaryCategoryService dictionaryCategoryService;
 
     @Autowired
     private StaticDeletionRecoveryResourceResolver staticDeletionRecoveryResourceResolver;
@@ -223,6 +229,68 @@ class MuYunSpringApplicationContextIT {
                 .contains("/platform.measure_unit/categories/enable/{id}",
                         "/platform.measure_unit/categories/{categoryAlias}/units/enable/{id}",
                         "/platform.measure_unit/conversion-rules/enable/{id}");
+    }
+
+    @Test
+    void shouldSortDictionaryCategoryThroughStandardHttpWithNavigatorScope() {
+        DictionaryCategory platform = category("it-sort-platform", "platform", "it_sort_platform", null);
+        DictionaryCategory platformNeighbor = category("it-sort-platform-neighbor", "platform", "it_sort_platform_neighbor", null);
+        DictionaryCategory iam = category("it-sort-iam", "iam", "it_sort_iam", null);
+        PlatformManagedMutationContext.runAsPlatformManaged(() -> {
+            dictionaryCategoryService.insert(platform);
+            dictionaryCategoryService.insert(platformNeighbor);
+            dictionaryCategoryService.insert(iam);
+        });
+
+        String token = issueSuperAdminSessionToken();
+        HttpHeaders headers = bearerHeaders(token);
+        String body = """
+                {"previousId":"%s","parentId":"root","scope":{"externalQueryValues":{"applicationAlias":"platform"},"navigatorHostModuleAlias":"platform.dictionary_category","navigatorTargetLevelKey":"category"}}
+        """.formatted(platformNeighbor.getId());
+        ResponseEntity<JsonNode> sorted = restTemplate.exchange(
+                "/platform.dictionary_category/sort/%s".formatted(platform.getId()), HttpMethod.POST,
+                new HttpEntity<>(body, headers), JsonNode.class);
+
+        assertThat(sorted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(sorted.getBody()).isNotNull();
+        assertThat(sorted.getBody().path("data").asInt()).isEqualTo(1);
+        assertThat(sorted.getBody().path("changes").toString()).contains("platform.dictionary_category");
+
+        List<String> beforeRejectedMove = dictionaryCategoryService.rootCategories("platform").stream()
+                .map(DictionaryCategory::getId).toList();
+        assertThat(beforeRejectedMove.indexOf(platform.getId()))
+                .isEqualTo(beforeRejectedMove.indexOf(platformNeighbor.getId()) + 1);
+        String foreignBody = """
+                {"previousId":"%s","parentId":"root","scope":{"externalQueryValues":{"applicationAlias":"platform"},"navigatorHostModuleAlias":"platform.dictionary_category","navigatorTargetLevelKey":"category"}}
+                """.formatted(iam.getId());
+        ResponseEntity<JsonNode> rejected = restTemplate.exchange(
+                "/platform.dictionary_category/sort/%s".formatted(platform.getId()), HttpMethod.POST,
+                new HttpEntity<>(foreignBody, headers), JsonNode.class);
+        assertThat(rejected.getStatusCode().is4xxClientError()).isTrue();
+        assertThat(dictionaryCategoryService.rootCategories("platform").stream()
+                .map(DictionaryCategory::getId).toList()).isEqualTo(beforeRejectedMove);
+
+        String foreignParentBody = """
+                {"parentId":"%s","scope":{"externalQueryValues":{"applicationAlias":"platform"},"navigatorHostModuleAlias":"platform.dictionary_category","navigatorTargetLevelKey":"category"}}
+                """.formatted(iam.getId());
+        ResponseEntity<JsonNode> parentRejected = restTemplate.exchange(
+                "/platform.dictionary_category/sort/%s".formatted(platform.getId()), HttpMethod.POST,
+                new HttpEntity<>(foreignParentBody, headers), JsonNode.class);
+        assertThat(parentRejected.getStatusCode().is4xxClientError()).isTrue();
+        assertThat(dictionaryCategoryService.rootCategories("platform").stream()
+                .map(DictionaryCategory::getId).toList()).isEqualTo(beforeRejectedMove);
+    }
+
+    private DictionaryCategory category(String id, String applicationAlias, String alias, String parentId) {
+        DictionaryCategory category = new DictionaryCategory();
+        category.setId(id);
+        category.setApplicationAlias(applicationAlias);
+        category.setAlias(alias);
+        category.setCategoryKind(net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryKind.FOLDER);
+        category.setTitle(alias);
+        category.setParentId(parentId);
+        category.setEnabled(true);
+        return category;
     }
 
     @Test

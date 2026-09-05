@@ -1196,11 +1196,10 @@ describe('ModulePageHost', () => {
 
     expect(list.props('externalQueryValues')).toEqual({ tenantId: 'tenant-a' });
     expect(wrapper.findComponent({ name: 'CrudRecordListExplorer' }).exists()).toBe(true);
-    const navigatorActions = wrapper
-      .findAllComponents({ name: 'ModuleActionButton' })
-      .filter((button) => button.props('context').moduleAlias === 'iam.tenant');
+    const navigatorActions = wrapper.findAllComponents({ name: 'NavigatorPanelActions' });
     expect(navigatorActions).toHaveLength(1);
-    expect(navigatorActions[0].props('actionCode')).toBe('create');
+    expect(navigatorActions[0].props('context').moduleAlias).toBe('iam.tenant');
+    expect(navigatorActions[0].props('createAvailable')).toBe(true);
 
     navigator.vm.$emit('deselect');
     await flushPromises();
@@ -1806,7 +1805,6 @@ describe('ModulePageHost', () => {
           moduleAlias: 'iam.position_category',
           capabilities: ['TREE'],
           abilities: ['tree'],
-          navigatorSourceCapabilities: ['REFERENCE_TREE'],
           actions: [
             { actionCode: 'create', authorized: true },
             { actionCode: 'update', authorized: true },
@@ -1915,6 +1913,7 @@ describe('ModulePageHost', () => {
         return Response.json({
           moduleAlias: 'platform.dictionary_category',
           capabilities: ['TREE'],
+          sortPartitionFields: ['applicationAlias'],
           actions: [
             'item_create',
             'item_view',
@@ -1949,6 +1948,7 @@ describe('ModulePageHost', () => {
                 title: '字典项',
                 emptyDescription: '暂无字典项',
                 createTitle: '新建字典项',
+                sortPartitionFields: ['categoryId'],
               },
             }),
             editorContributions: [childEditor('item', 'title')],
@@ -1959,7 +1959,6 @@ describe('ModulePageHost', () => {
         return Response.json({
           moduleAlias: 'platform.dictionary_category',
           capabilities: ['TREE'],
-          navigatorSourceCapabilities: ['REFERENCE_TREE'],
           actions: [],
         });
       }
@@ -2021,6 +2020,7 @@ describe('ModulePageHost', () => {
       .findAllComponents({ name: 'TreeRecordExplorer' })
       .find((explorer) => explorer.props('context').moduleAlias === 'platform.dictionary_category');
     expect(tree).toBeDefined();
+    expect(tree!.props('sortPartitionFields')).toEqual(['categoryId']);
     await (
       tree!.props('context') as { abilities: { tree: () => { tree: () => Promise<unknown> } } }
     ).abilities
@@ -2662,7 +2662,6 @@ describe('ModulePageHost', () => {
         return Response.json({
           moduleAlias: 'platform.application',
           capabilities: [],
-          navigatorSourceCapabilities: ['REFERENCE_QUERY'],
           actions: [],
         });
       }

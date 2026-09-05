@@ -28,6 +28,8 @@ final class StaticModuleOpenApiSchemaFactory {
             schemas.put("WebQueryCriteria", webQueryCriteriaSchema());
             schemas.put("WebSort", webSortSchema());
             schemas.put("RecordActionWebRequest", recordActionWebRequestSchema());
+            schemas.put("TreeSortWebRequest", treeSortRequestSchema());
+            schemas.put("TreeSortScopeRequest", treeSortScopeRequestSchema());
             schemas.put(entitySchemaName + "PageResponse", pageResponseSchema(entitySchemaName));
         }
         schemas.put("PlatformWebError", platformWebErrorSchema());
@@ -129,6 +131,23 @@ final class StaticModuleOpenApiSchemaFactory {
         return new PlatformApiDocument.Schema("RecordActionWebRequest", "object", null, List.of("version"), Map.of(
                 "version", requiredIntegerProperty()
         ), null);
+    }
+
+    private PlatformApiDocument.Schema treeSortRequestSchema() {
+        Map<String, PlatformApiDocument.Property> properties = new LinkedHashMap<>();
+        properties.put("previousId", stringProperty());
+        properties.put("nextId", stringProperty());
+        properties.put("parentId", stringProperty());
+        properties.put("scope", objectProperty("TreeSortScopeRequest"));
+        return new PlatformApiDocument.Schema("TreeSortWebRequest", "object", null, List.of(), properties, null);
+    }
+
+    private PlatformApiDocument.Schema treeSortScopeRequestSchema() {
+        Map<String, PlatformApiDocument.Property> properties = new LinkedHashMap<>();
+        properties.put("externalQueryValues", objectProperty(null));
+        properties.put("navigatorHostModuleAlias", stringProperty());
+        properties.put("navigatorTargetLevelKey", stringProperty());
+        return new PlatformApiDocument.Schema("TreeSortScopeRequest", "object", null, List.of(), properties, null);
     }
 
     private PlatformApiDocument.Schema pageResponseSchema(String itemSchema) {

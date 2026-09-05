@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.openapi.PlatformApiDocument;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult;
@@ -36,7 +37,6 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
-import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
@@ -52,6 +52,9 @@ import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
+import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpoint;
+import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
+import net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
@@ -61,6 +64,8 @@ import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlValueShape;
 import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 
 import java.util.List;
 import java.util.Optional;
@@ -229,7 +234,6 @@ class PlatformModuleRuntimeContextServiceTest {
         when(actionService.listByModuleAliases(List.of("iam.organization"))).thenReturn(List.of());
         StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.organization", "组织管理")
                 .parentModuleAlias(null)
-                .navigatorSourceCapabilities(Set.of(NavigatorSourceCapability.REFERENCE_TREE))
                 .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.VIEW)))
                 .uiDefinition(ModuleUiDefinition.builder("iam.organization")
                         .page(PageTemplates.listDetailCard(page -> page
@@ -247,14 +251,11 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
                 moduleService, actionService, new StaticModuleDefinitionCatalog(List.of(definition)), null,
                 null, null, allowAllPolicy(), List.of(), resolver,
-                moduleAlias -> Set.of(NavigatorSourceCapability.REFERENCE_TREE));
+                (moduleAlias, tree) -> tree);
 
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
                 CurrentUser.tenantUser("user-1", "tenant-admin", "tenant-1", "organization-1"))) {
             PlatformModuleRuntimeContext runtimeContext = service.context("iam.organization");
-
-            assertThat(runtimeContext.navigatorSourceCapabilities())
-                    .containsExactly(NavigatorSourceCapability.REFERENCE_TREE);
 
             assertThat(runtimeContext.uiDescriptor().page()).satisfies(page -> {
                 assertThat(page.navigator()).isNull();
@@ -459,12 +460,16 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
-    void shouldPreferPersistedModuleActionsAndExposeAuthorizationResult() {
+    void shouldMergePersistedModuleActionsWithStaticBaselineAndExposeAuthorizationResult() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
         when(moduleService.resolveVisibleModule("iam.organization"))
                 .thenReturn(module("iam.organization", "组织管理", ModuleKind.STATIC));
         PlatformModuleAction view = action("iam.organization", PlatformAction.VIEW);
+        view.setTitle("持久化标题不应覆盖声明");
+        view.setPermissionActionCode("other");
+        view.setActionAuth(Boolean.FALSE);
+        view.setActionAuthOverride(Boolean.FALSE);
         PlatformModuleAction enable = action("iam.organization", PlatformAction.ENABLE);
         when(actionService.listByModuleAliases(List.of("iam.organization"))).thenReturn(List.of(view, enable));
         ActionExecutionPolicyService policyService = context -> {
@@ -474,7 +479,10 @@ class PlatformModuleRuntimeContextServiceTest {
         };
         StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.organization", "组织管理")
                                                     .parentModuleAlias(null)
-                                                    .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.TREE)))
+                                                    .actions(List.of(
+                                                            StaticModuleActionDefinition.platformAction(PlatformAction.VIEW),
+                                                            StaticModuleActionDefinition.platformAction(PlatformAction.ENABLE),
+                                                            StaticModuleActionDefinition.platformAction(PlatformAction.TREE)))
                                                     .build();
         PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
                 moduleService,
@@ -489,11 +497,14 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformModuleRuntimeContext context = service.context("iam.organization");
 
         assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
-                .containsExactly("view", "enable");
+                .containsExactly("view", "enable", "tree");
         assertThat(context.actions()).filteredOn(action -> "view".equals(action.actionCode()))
                 .singleElement()
                 .satisfies(action -> {
                     assertThat(action.authorized()).isTrue();
+                    assertThat(action.title()).isEqualTo(PlatformAction.VIEW.title());
+                    assertThat(action.permissionActionCode()).isEqualTo(PlatformAction.VIEW.permissionActionCode());
+                    assertThat(action.actionAuth()).isFalse();
                     assertThat(action.authorizationDecision()).isEqualTo(ActionAuthorizationResult.DECISION_ALLOWED);
                 });
         assertThat(context.actions()).filteredOn(action -> "enable".equals(action.actionCode()))
@@ -505,6 +516,113 @@ class PlatformModuleRuntimeContextServiceTest {
                 });
         assertThat(context.capabilities()).contains(EntityCapability.ENABLE);
         assertThat(context.abilities()).contains("enable");
+    }
+
+    @Test
+    void shouldKeepExplicitlyDisabledStaticActionDisabledWhenMergingRuntimeActions() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleService.resolveVisibleModule("iam.organization"))
+                .thenReturn(module("iam.organization", "组织管理", ModuleKind.STATIC));
+        PlatformModuleAction view = action("iam.organization", PlatformAction.VIEW);
+        PlatformModuleAction treeDisabled = action("iam.organization", PlatformAction.TREE);
+        treeDisabled.setEnabled(Boolean.FALSE);
+        when(actionService.listByModuleAliases(List.of("iam.organization")))
+                .thenReturn(List.of(view, treeDisabled));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.organization", "组织管理")
+                                                    .parentModuleAlias(null)
+                                                    .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.TREE)))
+                                                    .build();
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService,
+                actionService,
+                new StaticModuleDefinitionCatalog(List.of(definition)),
+                null,
+                null,
+                null,
+                allowAllPolicy()
+        );
+
+        PlatformModuleRuntimeContext context = service.context("iam.organization");
+
+        assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
+                .isEmpty();
+    }
+
+    @Test
+    void shouldUseOneStaticDeclarationAndGovernanceViewAcrossRuntimeHttpAndOpenApi() throws Exception {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleService.resolveVisibleModule("sales.contract"))
+                .thenReturn(module("sales.contract", "合同", ModuleKind.STATIC));
+        PlatformModuleAction view = action("sales.contract", PlatformAction.VIEW);
+        // Persisted declaration snapshots may be stale; only explicit governance overrides apply.
+        view.setActionAuth(Boolean.FALSE);
+        view.setDataAuth(Boolean.FALSE);
+        view.setPermissionActionCode("stale_permission");
+        view.setDataAuthOverride(Boolean.TRUE);
+        PlatformModuleAction disabledTree = action("sales.contract", PlatformAction.TREE);
+        disabledTree.setEnabled(Boolean.FALSE);
+        when(actionService.listByModuleAliases(List.of("sales.contract")))
+                .thenReturn(List.of(view, disabledTree));
+        when(actionService.findByModuleAliasAndActionCode("sales.contract", "view")).thenReturn(view);
+        when(actionService.findByModuleAliasAndActionCode("sales.contract", "tree"))
+                .thenReturn(disabledTree);
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.contract", "合同")
+                .openApiAvailable(true)
+                .actions(List.of(
+                        StaticModuleActionDefinition.platformAction(PlatformAction.VIEW),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.TREE)))
+                .build();
+        PlatformModuleRuntimeContextService contextService = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, new StaticModuleDefinitionCatalog(List.of(definition)),
+                null, null, null, allowAllPolicy());
+
+        RegisteredWebEndpointCatalog endpointCatalog = new RegisteredWebEndpointCatalog();
+        endpointCatalog.register(registeredEndpoint("sales.contract.view", "view"));
+        endpointCatalog.register(registeredEndpoint("sales.contract.tree", "tree"));
+        ActionEndpointContextResolver resolver = new ActionEndpointContextResolver(actionService);
+        StaticModuleOpenApiGenerator openApi = new StaticModuleOpenApiGenerator(
+                new StaticModuleDefinitionCatalog(List.of(definition)), endpointCatalog, resolver, allowAllPolicy());
+
+        assertThat(contextService.context("sales.contract").actions())
+                .extracting(PlatformModuleRuntimeAction::actionCode)
+                .containsExactly("view");
+        ResolvedWebEndpoint viewEndpoint = endpointCatalog.endpoints().getFirst().definition();
+        var declaredPolicy = PlatformAction.VIEW.executionPolicy();
+        var effectivePolicy = resolver.resolve(viewEndpoint).actionPolicy();
+        assertThat(effectivePolicy.actionAuth()).isEqualTo(declaredPolicy.actionAuth());
+        assertThat(effectivePolicy.permissionActionCode()).isEqualTo(declaredPolicy.permissionActionCode());
+        assertThat(effectivePolicy.dataAuth()).isTrue();
+        assertThat(contextService.context("sales.contract").actions().getFirst().actionAuth())
+                .isEqualTo(effectivePolicy.actionAuth());
+        assertThat(contextService.context("sales.contract").actions().getFirst().permissionActionCode())
+                .isEqualTo(effectivePolicy.permissionActionCode());
+        assertThat(resolver.resolve(new org.springframework.mock.web.MockHttpServletRequest(), viewEndpoint)
+                .actionPolicy()).isEqualTo(effectivePolicy);
+        assertThat(openApi.generate("sales.contract").operations())
+                .extracting(PlatformApiDocument.Operation::actionCode)
+                .containsExactly("view");
+        ResolvedWebEndpoint treeEndpoint = endpointCatalog.endpoints().get(1).definition();
+        assertThatThrownBy(() -> resolver.resolve(treeEndpoint))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("not published");
+    }
+
+    private RegisteredWebEndpoint registeredEndpoint(String endpointId, String actionCode) throws Exception {
+        PlatformAction action = PlatformAction.fromCode(actionCode).orElseThrow();
+        ResolvedWebEndpoint definition = new ResolvedWebEndpoint(endpointId, "sales.contract", actionCode,
+                actionCode, action, RequestMethod.POST, "/sales.contract/" + actionCode,
+                ResolvedWebEndpoint.Source.STATIC_ABILITY);
+        CrossConsumerController controller = new CrossConsumerController();
+        return new RegisteredWebEndpoint(definition,
+                RequestMappingInfo.paths("/sales.contract/" + actionCode).methods(RequestMethod.POST).build(),
+                controller, CrossConsumerController.class.getMethod(actionCode));
+    }
+
+    static class CrossConsumerController {
+        public void view() { }
+        public void tree() { }
     }
 
     @Test

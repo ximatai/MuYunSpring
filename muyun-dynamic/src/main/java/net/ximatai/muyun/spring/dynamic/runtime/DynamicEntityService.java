@@ -556,6 +556,10 @@ public class DynamicEntityService implements
         capabilityRuntimes.tree().moveInTree(id, previousId, nextId, parentId);
     }
 
+    public void moveInTree(Criteria scopeCriteria, String id, String previousId, String nextId, String parentId) {
+        capabilityRuntimes.tree().moveInTree(scopeCriteria, id, previousId, nextId, parentId);
+    }
+
     public List<DynamicRecord> children(String parentId) {
         return capabilityRuntimes.tree().children(parentId).stream()
                 .map(DynamicTreeRecord::record)

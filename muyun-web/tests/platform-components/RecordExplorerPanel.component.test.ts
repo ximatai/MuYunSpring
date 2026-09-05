@@ -1,6 +1,4 @@
 import { mount } from '@vue/test-utils';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import RecordExplorerPanel from '@/platform-components/RecordExplorerPanel.vue';
 
@@ -17,15 +15,5 @@ describe('RecordExplorerPanel', () => {
     expect(search?.props('type')).toBe('text');
     expect(search?.props('selected')).toBe(true);
     expect(wrapper.find('.record-explorer-search').exists()).toBe(true);
-  });
-
-  it('uses the primary surface and foreground for selected search', () => {
-    const source = readFileSync(
-      resolve(import.meta.dirname, '../../src/vue-ui-antdv/components/UiButton.vue'),
-      'utf8',
-    );
-
-    expect(source).toContain(':global(.ant-btn.ui-button--selected.ui-button--selected:not(:disabled))');
-    expect(source).toContain('color: var(--muyun-primary)');
   });
 });

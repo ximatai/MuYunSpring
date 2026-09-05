@@ -104,7 +104,7 @@ public class ActionEndpointContextResolver {
 
     public ActionExecutionContext resolve(HttpServletRequest request, ResolvedWebEndpoint endpoint) {
         requireActionPublished(endpoint.moduleAlias(), endpoint.executionPolicy().actionCode());
-        ActionExecutionPolicy policy = resolvedPolicy(endpoint.moduleAlias(), endpoint.executionPolicy());
+        ActionExecutionPolicy policy = resolvedCompiledPolicy(endpoint.moduleAlias(), endpoint.executionPolicy());
         return ActionExecutionContext.ofPolicy(
                 endpoint.moduleAlias(),
                 policy,
@@ -144,7 +144,7 @@ public class ActionEndpointContextResolver {
                                                 Set<String> recordIds) {
         java.util.Objects.requireNonNull(action, "action must not be null");
         requireActionPublished(moduleAlias, action.actionCode());
-        ActionExecutionPolicy policy = resolvedPolicy(moduleAlias, action.executionPolicy());
+        ActionExecutionPolicy policy = resolvedCompiledPolicy(moduleAlias, action.executionPolicy());
         return ActionExecutionContext.ofPolicy(moduleAlias, policy, recordIds, CurrentUserContext.currentUser());
     }
 
@@ -153,7 +153,7 @@ public class ActionEndpointContextResolver {
         requireActionPublished(endpoint.moduleAlias(), endpoint.executionPolicy().actionCode());
         return ActionExecutionContext.ofPolicy(
                 endpoint.moduleAlias(),
-                resolvedPolicy(endpoint.moduleAlias(), endpoint.executionPolicy()),
+                resolvedCompiledPolicy(endpoint.moduleAlias(), endpoint.executionPolicy()),
                 Set.of(),
                 CurrentUserContext.currentUser()
         );
@@ -216,7 +216,7 @@ public class ActionEndpointContextResolver {
         return null;
     }
 
-    private Optional<ActionExecutionPolicy> registeredPolicy(String moduleAlias, String actionCode) {
+    private Optional<PlatformModuleAction> registeredAction(String moduleAlias, String actionCode) {
         if (moduleActionService == null) {
             return Optional.empty();
         }
@@ -224,7 +224,11 @@ public class ActionEndpointContextResolver {
         if (action == null || Boolean.FALSE.equals(action.getEnabled())) {
             return Optional.empty();
         }
-        return Optional.of(toPolicy(action));
+        return Optional.of(action);
+    }
+
+    private Optional<ActionExecutionPolicy> registeredPolicy(String moduleAlias, String actionCode) {
+        return registeredAction(moduleAlias, actionCode).map(this::toPolicy);
     }
 
     /**
@@ -245,6 +249,21 @@ public class ActionEndpointContextResolver {
 
     private ActionExecutionPolicy resolvedPolicy(String moduleAlias, ActionExecutionPolicy fallback) {
         return registeredPolicy(moduleAlias, fallback.actionCode()).orElse(fallback);
+    }
+
+    private ActionExecutionPolicy resolvedCompiledPolicy(String moduleAlias, ActionExecutionPolicy declaration) {
+        return registeredAction(moduleAlias, declaration.actionCode())
+                .map(configured -> overlay(declaration, configured)).orElse(declaration);
+    }
+
+    static ActionExecutionPolicy overlay(ActionExecutionPolicy declaration, PlatformModuleAction configured) {
+        return new ActionExecutionPolicy(declaration.actionCode(), declaration.level(),
+                configured.getAccessModeOverride() == null ? declaration.accessMode() : ActionAccessMode.valueOf(configured.getAccessModeOverride().name()),
+                configured.getActionAuthOverride() == null ? declaration.actionAuth() : configured.getActionAuthOverride(),
+                configured.getDataAuthOverride() == null ? declaration.dataAuth() : configured.getDataAuthOverride(),
+                configured.getDefaultGrantPolicyOverride() == null ? declaration.defaultGrantPolicy() : configured.getDefaultGrantPolicyOverride(),
+                (configured.getActionAuthOverride() == null ? declaration.actionAuth() : configured.getActionAuthOverride())
+                        ? declaration.inheritActionCode() : null);
     }
 
     private ActionExecutionPolicy toPolicy(PlatformModuleAction action) {

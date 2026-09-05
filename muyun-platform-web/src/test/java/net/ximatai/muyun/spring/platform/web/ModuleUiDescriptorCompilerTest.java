@@ -79,6 +79,41 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldRejectTreeResourceWithoutADeclaredEntity() {
+        ModuleUiDefinition ui = ModuleUiDefinition.builder("demo.category").page(PageTemplates.treeManagement(page -> page
+                .navigator(navigator -> navigator.level("scope", level -> level.microList("demo.category", "分类", "搜索分类")))
+                .treeResource("missing", "scope", "categoryId", resource -> { })
+                .detail(detail -> detail.editor(editor -> editor.field("categoryId"))))).build();
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("demo", "demo.category", "分类")
+                .entities(List.of(new EntityDefinition("category", "demo_category", "Category", List.of())))
+                .uiDefinition(ui)
+                .build();
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition))
+                .hasMessage("tree resource entity is not declared: missing");
+    }
+
+    @Test
+    void shouldPublishAnEmptyPartitionForADeclaredTreeResourceWithoutPartitionFields() {
+        ModuleUiDefinition.Builder uiBuilder = ModuleUiDefinition.builder("demo.category");
+        uiBuilder.page(PageTemplates.treeManagement(page -> page
+                .navigator(navigator -> navigator.level("scope", level -> level.microList("demo.category", "分类", "搜索分类")))
+                .treeResource("item", "scope", "categoryId", resource -> { })
+                .detail(detail -> detail.editor(editor -> editor.field("categoryId")))));
+        uiBuilder.editorContribution("item", editor -> editor.field("item", "categoryId", ignored -> { }));
+        ModuleUiDefinition ui = uiBuilder.build();
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("demo", "demo.category", "分类")
+                .entities(List.of(
+                        new EntityDefinition("category", "demo_category", "Category", List.of()),
+                        new EntityDefinition("item", "demo_item", "Item", List.of(FieldDefinition.string("categoryId", "分类")))))
+                .uiDefinition(ui)
+                .build();
+
+        assertThat(ModuleUiDescriptorCompiler.compile(definition).page().treeResource().sortPartitionFields())
+                .isEmpty();
+    }
+
+    @Test
     void shouldCompileAnExplicitOneReferenceSelectionProjectionForWebUiFormula() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("platform.menu")
                 .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("菜单"))

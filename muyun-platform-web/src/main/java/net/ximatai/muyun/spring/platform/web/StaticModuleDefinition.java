@@ -12,7 +12,6 @@ import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.spring.platform.module.StaticModuleRegistration;
 import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
-import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 
 import java.util.EnumSet;
 import java.util.List;
@@ -29,7 +28,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     private final String entryRoute;
     private final String entryExternalUrl;
     private final Set<EntityCapability> capabilities;
-    private final Set<NavigatorSourceCapability> navigatorSourceCapabilities;
     private final List<StaticModuleActionDefinition> actions;
     private final List<EntityDefinition> entities;
     private final ModuleUiDefinition uiDefinition;
@@ -52,7 +50,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                                    String entryRoute,
                                    String entryExternalUrl,
                                    Set<EntityCapability> capabilities,
-                                   Set<NavigatorSourceCapability> navigatorSourceCapabilities,
                                    List<StaticModuleActionDefinition> actions,
                                    List<EntityDefinition> entities,
                                    ModuleUiDefinition uiDefinition,
@@ -85,7 +82,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
             entryExternalUrl = entryExternalUrl.trim();
         }
         capabilities = normalizeCapabilities(capabilities);
-        navigatorSourceCapabilities = navigatorSourceCapabilities == null ? Set.of() : Set.copyOf(navigatorSourceCapabilities);
         actions = actions == null ? List.of() : List.copyOf(actions);
         entities = entities == null ? List.of() : List.copyOf(entities);
         if (uiDefinition != null && !moduleAlias.equals(uiDefinition.moduleAlias())) {
@@ -107,7 +103,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         this.entryRoute = entryRoute;
         this.entryExternalUrl = entryExternalUrl;
         this.capabilities = capabilities;
-        this.navigatorSourceCapabilities = navigatorSourceCapabilities;
         this.actions = actions;
         this.entities = entities;
         this.uiDefinition = uiDefinition;
@@ -131,7 +126,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public String entryRoute() { return entryRoute; }
     public String entryExternalUrl() { return entryExternalUrl; }
     public Set<EntityCapability> capabilities() { return capabilities; }
-    public Set<NavigatorSourceCapability> navigatorSourceCapabilities() { return navigatorSourceCapabilities; }
     public List<StaticModuleActionDefinition> actions() { return actions; }
     public List<EntityDefinition> entities() { return entities; }
     public ModuleUiDefinition uiDefinition() { return uiDefinition; }
@@ -154,7 +148,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public String getEntryRoute() { return entryRoute; }
     public String getEntryExternalUrl() { return entryExternalUrl; }
     public Set<EntityCapability> getCapabilities() { return capabilities; }
-    public Set<NavigatorSourceCapability> getNavigatorSourceCapabilities() { return navigatorSourceCapabilities; }
     public List<StaticModuleActionDefinition> getActions() { return actions; }
     public List<EntityDefinition> getEntities() { return entities; }
     public ModuleUiDefinition getUiDefinition() { return uiDefinition; }
@@ -181,7 +174,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 && Objects.equals(entryRoute, that.entryRoute)
                 && Objects.equals(entryExternalUrl, that.entryExternalUrl)
                 && Objects.equals(capabilities, that.capabilities)
-                && Objects.equals(navigatorSourceCapabilities, that.navigatorSourceCapabilities)
                 && Objects.equals(actions, that.actions)
                 && Objects.equals(entities, that.entities)
                 && Objects.equals(uiDefinition, that.uiDefinition)
@@ -200,7 +192,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     @Override
     public int hashCode() {
         return Objects.hash(applicationAlias, moduleAlias, title, parentModuleAlias, entryType, entryRoute,
-                entryExternalUrl, capabilities, navigatorSourceCapabilities, actions, entities, uiDefinition, pageContextBindings, references, readProjections,
+                entryExternalUrl, capabilities, actions, entities, uiDefinition, pageContextBindings, references, readProjections,
                 modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
                 legacyReadProjectionCompatibility);
     }
@@ -215,7 +207,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 + ", entryRoute=" + entryRoute
                 + ", entryExternalUrl=" + entryExternalUrl
                 + ", capabilities=" + capabilities
-                + ", navigatorSourceCapabilities=" + navigatorSourceCapabilities
                 + ", actions=" + actions
                 + ", entities=" + entities
                 + ", uiDefinition=" + uiDefinition
@@ -243,7 +234,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 .parentModuleAlias(parentModuleAlias)
                 .entry(entryType, entryRoute, entryExternalUrl)
                 .capabilities(capabilities)
-                .navigatorSourceCapabilities(navigatorSourceCapabilities)
                 .actions(actions)
                 .entities(entities)
                 .uiDefinition(uiDefinition)
@@ -268,7 +258,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         private String entryRoute;
         private String entryExternalUrl;
         private Set<EntityCapability> capabilities = Set.of();
-        private Set<NavigatorSourceCapability> navigatorSourceCapabilities = Set.of();
         private List<StaticModuleActionDefinition> actions = List.of();
         private List<EntityDefinition> entities = List.of();
         private ModuleUiDefinition uiDefinition;
@@ -306,10 +295,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
             return this;
         }
 
-        public Builder navigatorSourceCapabilities(Set<NavigatorSourceCapability> navigatorSourceCapabilities) {
-            this.navigatorSourceCapabilities = navigatorSourceCapabilities;
-            return this;
-        }
 
         public Builder actions(List<StaticModuleActionDefinition> actions) {
             this.actions = actions;
@@ -378,7 +363,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
 
         public StaticModuleDefinition build() {
             return new StaticModuleDefinition(applicationAlias, moduleAlias, title, parentModuleAlias, entryType,
-                    entryRoute, entryExternalUrl, capabilities, navigatorSourceCapabilities, actions, entities, uiDefinition, pageContextBindings, references,
+                    entryRoute, entryExternalUrl, capabilities, actions, entities, uiDefinition, pageContextBindings, references,
                     readProjections, modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
                     legacyReadProjectionCompatibility);
         }

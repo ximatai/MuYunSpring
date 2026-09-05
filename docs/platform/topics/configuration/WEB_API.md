@@ -133,7 +133,7 @@
 | 字典类目 | `POST` | `/platform.dictionary_category/update/{id}`                                                                         | 更新字典类目                                          |
 | 字典类目 | `POST` | `/platform.dictionary_category/delete/{id}`                                                                         | 删除字典类目                                          |
 | 字典类目 | `POST` | `/platform.dictionary_category/enable/{id}`、`/disable/{id}`                                                        | 启用或停用字典类目                                    |
-| 字典类目 | `POST` | `/platform.dictionary_category/sort/{id}`                                                                           | 在同一应用和父类目范围内调整类目顺序                  |
+| 字典类目 | `POST` | `/platform.dictionary_category/sort/{id}`                                                                           | 在同一应用内调整顺序，或移动到目录类目下                |
 | 字典类目 | `POST` | `/platform.application/{applicationAlias}/dictionary-categories/query`                                              | 查询应用下的字典类目                                  |
 | 字典类目 | `GET`  | `/platform.application/{applicationAlias}/dictionary-categories/tree`                                               | 获取应用下的字典类目树，可用 `flat=true` 返回扁平列表 |
 | 字典类目 | `GET`  | `/platform.application/{applicationAlias}/dictionary-categories/tree/{id}`                                          | 获取指定类目下的子树                                  |
@@ -142,7 +142,7 @@
 | 字典类目 | `POST` | `/platform.application/{applicationAlias}/dictionary-categories/update/{id}`                                        | 更新字典类目，并保持应用归属不跨应用                  |
 | 字典类目 | `POST` | `/platform.application/{applicationAlias}/dictionary-categories/delete/{id}`                                        | 删除字典类目                                          |
 | 字典类目 | `POST` | `/platform.application/{applicationAlias}/dictionary-categories/enable/{id}`、`/disable/{id}`                       | 启用或停用字典类目                                    |
-| 字典类目 | `POST` | `/platform.application/{applicationAlias}/dictionary-categories/sort/{id}`                                          | 在同一应用和父类目范围内调整类目顺序                  |
+| 字典类目 | `POST` | `/platform.application/{applicationAlias}/dictionary-categories/sort/{id}`                                          | 在同一应用内调整顺序，或移动到目录类目下                |
 | 字典项目 | `POST` | `/platform.dictionary_category/categories/{categoryId}/items/query`                                                 | 查询类目下的字典项目                                  |
 | 字典项目 | `GET`  | `/platform.dictionary_category/categories/{categoryId}/items/tree`                                                  | 获取类目下的项目树，可用 `flat=true` 返回扁平列表     |
 | 字典项目 | `GET`  | `/platform.dictionary_category/categories/{categoryId}/items/tree/{id}`                                             | 获取指定项目下的子树                                  |
@@ -161,6 +161,8 @@
 | 字典项目 | `POST` | `/platform.application/{applicationAlias}/dictionary-categories/{categoryAlias}/items/delete/{id}`                  | 删除字典项目                                          |
 | 字典项目 | `POST` | `/platform.application/{applicationAlias}/dictionary-categories/{categoryAlias}/items/enable/{id}`、`/disable/{id}` | 启用或停用字典项目                                    |
 | 字典项目 | `POST` | `/platform.application/{applicationAlias}/dictionary-categories/{categoryAlias}/items/sort/{id}`                    | 在同一类目和父项目范围内调整项目顺序                  |
+
+字典类目导航拖拽使用同一 `POST /platform.dictionary_category/sort/{id}`，请求中的 `previousId`、`nextId`、`parentId` 表达位置，`scope.externalQueryValues.applicationAlias` 表达应用范围；在宿主导航中同时携带 `scope.navigatorHostModuleAlias` 与 `scope.navigatorTargetLevelKey`，由服务端校验导航归属并解析范围。排序仍要求 `SORT` 动作权限，引用读取权限不授予写权限。
 
 ## 计量单位
 

@@ -45,7 +45,13 @@ export interface ModuleTreeClient<TRecord> extends ModuleCrudClient<TRecord> {
   tree(request?: WebQueryRequest): Promise<WebListResponse<WebTreeNode<TRecord>>>;
   treeFlat(options?: { rootId?: string; includeSelf?: boolean }): Promise<WebListResponse<TRecord>>;
   subtree(id: string, options?: { includeSelf?: boolean }): Promise<WebListResponse<WebTreeNode<TRecord>>>;
-  sort(id: string, request: TreeSortRequest): Promise<StaticCountMutationResult>;
+  sort(id: string, request: TreeSortRequest, options?: TreeSortOptions): Promise<StaticCountMutationResult>;
+}
+
+export interface TreeSortOptions {
+  externalQueryValues?: Record<string, unknown>;
+  navigatorHostModuleAlias?: string;
+  navigatorTargetLevelKey?: string;
 }
 
 export interface ModuleEnableClient {
@@ -226,6 +232,7 @@ export function createNavigatorReferenceTreeClient<TRecord>(
 ): ModuleTreeClient<TRecord> {
   const normal = createNavigatorReferenceCrudClient<TRecord>(http, options);
   const modulePath = modulePathOf(options.moduleAlias);
+  const standardTree = createModuleTreeClient<TRecord>(http, options);
   return {
     ...normal,
     tree: (request) =>
@@ -236,7 +243,17 @@ export function createNavigatorReferenceTreeClient<TRecord>(
       }),
     treeFlat: () => Promise.reject(new Error('Navigator reference tree does not expose flat traversal')),
     subtree: () => Promise.reject(new Error('Navigator reference tree does not expose subtree traversal')),
-    sort: () => Promise.reject(new Error('Navigator reference tree is read-only')),
+    sort: (id, request, sortOptions) => {
+      const query = navigatorReferenceRequest(
+        {
+          externalQueryValues: sortOptions?.externalQueryValues,
+          navigatorHostModuleAlias: sortOptions?.navigatorHostModuleAlias,
+          navigatorTargetLevelKey: sortOptions?.navigatorTargetLevelKey,
+        },
+        options.navigatorReference,
+      );
+      return standardTree.sort(id, request, query);
+    },
   };
 }
 
@@ -291,12 +308,18 @@ export function createStaticResourceTreeClient<TRecord>(
         path: `${modulePath}/tree/${encodeURIComponent(id)}`,
         query,
       }),
-    sort: async (id, request) =>
+    sort: async (id, request, scope) =>
       normalizeCountMutationResponse(
         await http.request<StaticCountMutationResult>({
           method: 'POST',
           path: `${modulePath}/sort/${encodeURIComponent(id)}`,
-          body: request,
+          body:
+            scope &&
+            (Object.keys(scope.externalQueryValues ?? {}).length > 0 ||
+              scope.navigatorHostModuleAlias ||
+              scope.navigatorTargetLevelKey)
+              ? { ...request, scope }
+              : request,
         }),
       ),
   };

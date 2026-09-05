@@ -101,7 +101,7 @@ public final class ModuleUiDescriptorCompiler {
         ResolvedModuleUiDescriptor descriptor = compileResolved(uiDefinition, ModuleKind.STATIC, definition.title(),
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
                         staticRecordLabelField(definition), Map.copyOf(fieldTypes), FieldControlDescriptorCatalog.standard(),
-                        false, Map.of(), Map.of());
+                        false, Map.of(), Map.of(), sortPartitionFieldsByEntity(definition.entities()));
         descriptor = withPageContextBindings(descriptor, definition.pageContextBindings());
         List<ResolvedPageDetailEditorContribution> resolvedContributions = uiDefinition.editorContributions().stream()
                 .map(contribution -> {
@@ -235,6 +235,23 @@ public final class ModuleUiDescriptorCompiler {
             Map<String, ResolvedFieldControlDescriptor> fieldControls,
             Map<ViewFieldRef, ResolvedOptionFieldDescriptor> relationOptionFields,
             Map<ViewFieldRef, ResolvedReferenceFieldDescriptor> relationReferenceFields) {
+        return compileDynamicRelationEditors(definition, moduleKind, title, optionFields, referenceFields,
+                defaultRecordLabelField, fieldTypes, fieldControls, relationOptionFields, relationReferenceFields,
+                Map.of());
+    }
+
+    static ResolvedModuleUiDescriptor compileDynamicRelationEditors(
+            ModuleUiDefinition definition,
+            ModuleKind moduleKind,
+            String title,
+            Map<String, ResolvedOptionFieldDescriptor> optionFields,
+            Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
+            String defaultRecordLabelField,
+            Map<ViewFieldRef, FieldValueType> fieldTypes,
+            Map<String, ResolvedFieldControlDescriptor> fieldControls,
+            Map<ViewFieldRef, ResolvedOptionFieldDescriptor> relationOptionFields,
+            Map<ViewFieldRef, ResolvedReferenceFieldDescriptor> relationReferenceFields,
+            Map<String, List<String>> sortPartitionFieldsByEntity) {
         if (fieldControls == null) {
             throw new IllegalArgumentException("resolved field controls must not be null");
         }
@@ -242,7 +259,8 @@ public final class ModuleUiDescriptorCompiler {
                 referenceFields == null ? Map.of() : referenceFields, Map.of(), defaultRecordLabelField,
                 fieldTypes == null ? Map.of() : fieldTypes, Map.copyOf(fieldControls), true,
                 relationOptionFields == null ? Map.of() : Map.copyOf(relationOptionFields),
-                relationReferenceFields == null ? Map.of() : Map.copyOf(relationReferenceFields));
+                relationReferenceFields == null ? Map.of() : Map.copyOf(relationReferenceFields),
+                sortPartitionFieldsByEntity == null ? Map.of() : Map.copyOf(sortPartitionFieldsByEntity));
     }
 
     private static ResolvedModuleUiDescriptor compileResolved(ModuleUiDefinition definition,
@@ -275,6 +293,24 @@ public final class ModuleUiDescriptorCompiler {
                                                               boolean compileEditorContributions,
                                                               Map<ViewFieldRef, ResolvedOptionFieldDescriptor> relationOptionFields,
                                                               Map<ViewFieldRef, ResolvedReferenceFieldDescriptor> relationReferenceFields) {
+        return compileResolved(definition, moduleKind, title, optionFields, referenceFields, referenceSummaryFields,
+                defaultRecordLabelField, fieldTypes, fieldControls, compileEditorContributions,
+                relationOptionFields, relationReferenceFields, Map.of());
+    }
+
+    private static ResolvedModuleUiDescriptor compileResolved(ModuleUiDefinition definition,
+                                                              ModuleKind moduleKind,
+                                                              String title,
+                                                              Map<String, ResolvedOptionFieldDescriptor> optionFields,
+                                                              Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
+                                                              Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
+                                                              String defaultRecordLabelField,
+                                                              Map<ViewFieldRef, FieldValueType> fieldTypes,
+                                                              Map<String, ResolvedFieldControlDescriptor> fieldControls,
+                                                              boolean compileEditorContributions,
+                                                              Map<ViewFieldRef, ResolvedOptionFieldDescriptor> relationOptionFields,
+                                                              Map<ViewFieldRef, ResolvedReferenceFieldDescriptor> relationReferenceFields,
+                                                              Map<String, List<String>> sortPartitionFieldsByEntity) {
         return new ResolvedModuleUiDescriptor(
                 ResolvedModuleUiDescriptor.SCHEMA_VERSION,
                 definition.moduleAlias(),
@@ -285,7 +321,8 @@ public final class ModuleUiDescriptorCompiler {
                         .toList(),
                 defaultRecordLabelField,
                 List.of(),
-                compilePage(definition.page(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
+                compilePage(definition.page(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls,
+                        sortPartitionFieldsByEntity),
                 definition.defaultEditor() == null ? null : compileView(definition.defaultEditor(), optionFields,
                         referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                 definition.editorSurfaces().stream().map(surface ->
@@ -563,7 +600,8 @@ public final class ModuleUiDescriptorCompiler {
                                                             Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                                             Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
                                                             Map<ViewFieldRef, FieldValueType> fieldTypes,
-                                                            Map<String, ResolvedFieldControlDescriptor> fieldControls) {
+                                                            Map<String, ResolvedFieldControlDescriptor> fieldControls,
+                                                            Map<String, List<String>> sortPartitionFieldsByEntity) {
         if (page == null) return null;
         return switch (page) {
             case FlatManagementPageDefinition flat -> {
@@ -606,7 +644,8 @@ public final class ModuleUiDescriptorCompiler {
                 validateTreeResource(tree.treeResource(), tree.navigator());
                 yield new ResolvedModulePageDescriptor(tree.template(), null,
                         ResolvedPageNavigatorDescriptor.from(tree.navigator()), null,
-                        ResolvedPageTreeResourceDescriptor.from(tree.treeResource()),
+                        ResolvedPageTreeResourceDescriptor.from(tree.treeResource(),
+                                sortPartitionFields(tree.treeResource(), sortPartitionFieldsByEntity)),
                         detail(tree.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
                         List.copyOf(tree.traits().values()));
             }
@@ -656,6 +695,25 @@ public final class ModuleUiDescriptorCompiler {
             throw new IllegalArgumentException("tree resource editor must declare its scope field: resource="
                     + resource + ", field=" + page.treeResource().scopeField());
         }
+    }
+
+    private static Map<String, List<String>> sortPartitionFieldsByEntity(List<EntityDefinition> entities) {
+        if (entities == null || entities.isEmpty()) return Map.of();
+        Map<String, List<String>> result = new LinkedHashMap<>();
+        for (EntityDefinition entity : entities) {
+            result.put(entity.alias(), entity.sortPartitionFields());
+        }
+        return Map.copyOf(result);
+    }
+
+    private static List<String> sortPartitionFields(PageTreeResourceDefinition resource,
+                                                    Map<String, List<String>> sortPartitionFieldsByEntity) {
+        if (resource == null) return List.of();
+        List<String> fields = sortPartitionFieldsByEntity.get(resource.resource());
+        if (fields == null) {
+            throw new IllegalArgumentException("tree resource entity is not declared: " + resource.resource());
+        }
+        return fields;
     }
 
     private static void validateListRelationExpansions(ResolvedModulePageDescriptor page,

@@ -135,6 +135,8 @@ public class StaticAbilityWebEndpointRegistrar implements SmartInitializingSingl
         requireAnchoredStandardProjections(compiledProjectionBeans);
         registerStaticModuleOpenApiEndpoints();
         registerExplicitControllerEndpoints();
+        applicationContext.getBeanProvider(net.ximatai.muyun.spring.platform.web.PlatformPageNavigatorSourceCapabilityResolver.class)
+                .ifAvailable(net.ximatai.muyun.spring.platform.web.PlatformPageNavigatorSourceCapabilityResolver::validateStaticSources);
     }
 
     private void suppressDisabledDefaultControllerMappings() {

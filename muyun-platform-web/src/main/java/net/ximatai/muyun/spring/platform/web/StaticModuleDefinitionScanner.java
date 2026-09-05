@@ -41,7 +41,6 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
-import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.annotation.AnnotationUtils;
@@ -158,7 +157,6 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .parentModuleAlias(module.parent().isBlank() ? null : module.parent())
                 .entry(entryType(module), module.route(), module.externalUrl())
                 .capabilities(capabilities)
-                .navigatorSourceCapabilities(navigatorSourceCapabilities(beanClass))
                 .actions(actions(bean, beanClass, capabilities))
                 .entities(entities)
                 .uiDefinition(uiDefinition(bean, module))
@@ -217,18 +215,6 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
         capabilities.addAll(serviceCapabilities);
         return java.util.Set.copyOf(capabilities);
-    }
-
-    private Set<NavigatorSourceCapability> navigatorSourceCapabilities(Class<?> beanClass) {
-        java.util.EnumSet<NavigatorSourceCapability> capabilities =
-                java.util.EnumSet.noneOf(NavigatorSourceCapability.class);
-        if (NavigatorReferenceWeb.class.isAssignableFrom(beanClass)) {
-            capabilities.add(NavigatorSourceCapability.REFERENCE_QUERY);
-        }
-        if (NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
-            capabilities.add(NavigatorSourceCapability.REFERENCE_TREE);
-        }
-        return Set.copyOf(capabilities);
     }
 
     private Class<?> modelClass(Object bean) {

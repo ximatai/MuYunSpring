@@ -83,6 +83,46 @@ class ScopedTreeWebTest {
     }
 
     @Test
+    void shouldCarryNavigatorQueryContextThroughStandardTreeSortCommand() {
+        ScopedTreeService service = new ScopedTreeService();
+        ScopedTreeController controller = new ScopedTreeController(service);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        WebQueryRequest query = new WebQueryRequest(null, null, List.of(), null, java.util.Map.of(),
+                List.of(), null, null, java.util.Map.of("tenantId", "tenant_a"), null, null, List.of(), null);
+
+        try (TenantContext.Scope ignored = TenantContext.system("tree sort query test")) {
+            controller.sort(request, "moving", new TreeSortWebRequest("previous", null,
+                    TreeAbility.ROOT_ID, new TreeSortScopeRequest(query.externalQueryValues(),
+                            query.navigatorHostModuleAlias(), query.navigatorTargetLevelKey())));
+        }
+
+        assertThat(controller.observedTenantId).isEqualTo("tenant_a");
+    }
+
+    @Test
+    void shouldRejectScopeWithoutAnExecutingProjectionEvenWhenAResolverExists() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        NavigatorReferenceQueryContextResolver resolver = mock(NavigatorReferenceQueryContextResolver.class);
+        TreeSortScopeRequest scope = new TreeSortScopeRequest(java.util.Map.of("tenantId", "tenant_a"), null, null);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> TreeWebProjectionPolicy.bindTreeSortScope(
+                request, "demo.tree", scope, resolver, false))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unsupported");
+        org.mockito.Mockito.verifyNoInteractions(resolver);
+        assertThat(TreeWebQuerySupport.externalQueryText(request, "tenantId")).isNull();
+    }
+
+    @Test
+    void shouldRejectNavigatorIdentityWithoutItsServerResolver() {
+        TreeSortScopeRequest scope = new TreeSortScopeRequest(java.util.Map.of(), "demo.host", "tree");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> TreeWebProjectionPolicy.bindTreeSortScope(
+                new MockHttpServletRequest(), "demo.tree", scope, null, true))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("context resolver");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                new TreeSortScopeRequest(java.util.Map.of(), "demo.host", null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("both");
+    }
+
+    @Test
     void shouldNotTreatPostTreeQueryParametersAsExternalCriteria() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addParameter("tenantId", "forged-tenant");

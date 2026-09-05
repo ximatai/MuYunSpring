@@ -1242,6 +1242,8 @@ export interface ResolvedPageTreeResourceDescriptor {
   title: string;
   emptyDescription: string;
   createTitle: string;
+  /** Persisted fields that define the resource's own server-authoritative sort partition. */
+  sortPartitionFields: string[];
 }
 
 export interface ResolvedUiActionConfirmationDescriptor {

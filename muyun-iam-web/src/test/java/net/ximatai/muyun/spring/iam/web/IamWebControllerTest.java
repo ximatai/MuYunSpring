@@ -1858,8 +1858,7 @@ class IamWebControllerTest {
                         net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE,
                         net.ximatai.muyun.spring.common.platform.EntityCapability.SORT,
                         net.ximatai.muyun.spring.common.platform.EntityCapability.RECYCLE_BIN))
-                .navigatorSourceCapabilities(java.util.Set.of(
-                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE))
+
                 .actions(java.util.Arrays.stream(net.ximatai.muyun.spring.common.platform.PlatformAction.values())
                         .map(net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition::platformAction).toList())
                 .entities(List.of(new StaticEntityDefinitionCompiler().compile("position_category",

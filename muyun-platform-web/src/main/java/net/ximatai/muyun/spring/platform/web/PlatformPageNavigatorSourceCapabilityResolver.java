@@ -6,8 +6,8 @@ import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
-import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import net.ximatai.muyun.spring.platform.ui.PageNavigatorSourceCapabilityResolver;
+import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -20,29 +20,63 @@ import java.util.stream.Collectors;
 public class PlatformPageNavigatorSourceCapabilityResolver implements PageNavigatorSourceCapabilityResolver {
     private final StaticModuleDefinitionCatalog staticModuleCatalog;
     private final DynamicRecordService dynamicRecordService;
+    private final RegisteredWebEndpointCatalog endpointCatalog;
 
     @Autowired
     public PlatformPageNavigatorSourceCapabilityResolver(StaticModuleDefinitionCatalog staticModuleCatalog,
-                                                          ObjectProvider<DynamicRecordService> dynamicRecordService) {
-        this(staticModuleCatalog, dynamicRecordService == null ? null : dynamicRecordService.getIfAvailable());
+                                                          ObjectProvider<DynamicRecordService> dynamicRecordService,
+                                                          ObjectProvider<RegisteredWebEndpointCatalog> endpointCatalog) {
+        this(staticModuleCatalog, dynamicRecordService == null ? null : dynamicRecordService.getIfAvailable(),
+                endpointCatalog == null ? null : endpointCatalog.getIfAvailable());
     }
 
     public PlatformPageNavigatorSourceCapabilityResolver(StaticModuleDefinitionCatalog staticModuleCatalog) {
-        this(staticModuleCatalog, (DynamicRecordService) null);
+        this(staticModuleCatalog, (DynamicRecordService) null, (RegisteredWebEndpointCatalog) null);
     }
 
     PlatformPageNavigatorSourceCapabilityResolver(StaticModuleDefinitionCatalog staticModuleCatalog,
                                                    DynamicRecordService dynamicRecordService) {
+        this(staticModuleCatalog, dynamicRecordService, null);
+    }
+
+    PlatformPageNavigatorSourceCapabilityResolver(StaticModuleDefinitionCatalog staticModuleCatalog,
+                                                   DynamicRecordService dynamicRecordService,
+                                                   RegisteredWebEndpointCatalog endpointCatalog) {
         this.staticModuleCatalog = staticModuleCatalog;
         this.dynamicRecordService = dynamicRecordService;
+        this.endpointCatalog = endpointCatalog;
     }
 
     @Override
-    public Set<NavigatorSourceCapability> capabilities(String moduleAlias) {
+    public boolean supports(String moduleAlias, boolean tree) {
         String validAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
-        return staticModuleCatalog.find(validAlias)
-                .map(StaticModuleDefinition::navigatorSourceCapabilities)
-                .orElseGet(() -> dynamicNavigatorSourceCapabilities(validAlias));
+        if (staticModuleCatalog.find(validAlias).isPresent()) {
+            return endpointCatalog != null && endpointCatalog.endpoints().stream()
+                    .filter(endpoint -> validAlias.equals(endpoint.definition().moduleAlias()))
+                    .filter(endpoint -> endpoint.definition().action() == net.ximatai.muyun.spring.common.platform.PlatformAction.REFERENCE)
+                    .filter(endpoint -> endpoint.definition().method() == org.springframework.web.bind.annotation.RequestMethod.POST)
+                    .anyMatch(endpoint -> endpoint.definition().path().equals("/" + validAlias
+                            + (tree ? "/navigator/reference/tree/query" : "/navigator/reference/query")));
+        }
+        return dynamicNavigatorSupports(validAlias, tree);
+    }
+
+    /** Validates static page sources after the endpoint registrar has populated its catalog. */
+    public void validateStaticSources() {
+        for (StaticModuleDefinition definition : staticModuleCatalog.definitions()) {
+            PageNavigatorDefinition navigator = StaticPageNavigatorSourceValidator.navigator(definition.uiDefinition());
+            if (navigator == null) continue;
+            for (PageNavigatorLevelDefinition level : navigator.levels()) {
+                // Dynamic modules may be published after startup; their sources are checked at publication/runtime.
+                if (staticModuleCatalog.find(level.sourceModuleAlias()).isEmpty()) continue;
+                boolean tree = level.kind() == PageNavigatorKind.TREE;
+                if (!supports(level.sourceModuleAlias(), tree)) {
+                    throw new IllegalStateException("navigator source endpoint is unavailable: page="
+                            + definition.moduleAlias() + ", level=" + level.key() + ", source="
+                            + level.sourceModuleAlias() + ", tree=" + tree);
+                }
+            }
+        }
     }
 
     @Override
@@ -77,26 +111,21 @@ public class PlatformPageNavigatorSourceCapabilityResolver implements PageNaviga
         return detail != null && detail.editor() != null;
     }
 
-    private Set<NavigatorSourceCapability> dynamicNavigatorSourceCapabilities(String moduleAlias) {
-        if (dynamicRecordService == null) return Set.of();
+    private boolean dynamicNavigatorSupports(String moduleAlias, boolean tree) {
+        if (dynamicRecordService == null) return false;
         DynamicModuleDescriptor descriptor;
         try {
             descriptor = dynamicRecordService.describe(moduleAlias);
         } catch (ModuleDefinitionException ignored) {
             // An alias with neither a static definition nor a published dynamic descriptor simply
             // does not expose a navigator projection.
-            return Set.of();
+            return false;
         }
         DynamicEntityDescriptor mainEntity = descriptor.entities().stream()
                 .filter(entity -> entity.entityAlias().equals(descriptor.mainEntityAlias()))
                 .findFirst()
                 .orElse(null);
-        if (mainEntity == null || !mainEntity.capabilities().contains(EntityCapability.REFERENCE.name())) {
-            return Set.of();
-        }
-        if (mainEntity.capabilities().contains(EntityCapability.TREE.name())) {
-            return Set.of(NavigatorSourceCapability.REFERENCE_QUERY, NavigatorSourceCapability.REFERENCE_TREE);
-        }
-        return Set.of(NavigatorSourceCapability.REFERENCE_QUERY);
+        return mainEntity != null && mainEntity.capabilities().contains(EntityCapability.REFERENCE.name())
+                && (!tree || mainEntity.capabilities().contains(EntityCapability.TREE.name()));
     }
 }

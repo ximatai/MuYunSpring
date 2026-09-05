@@ -40,6 +40,29 @@ class DictionaryServiceContractTest {
     }
 
     @Test
+    void shouldRejectCategoryUnderDictionaryCategory() {
+        String dictionaryId = categoryService.insert(category("crm", "customer_status",
+                DictionaryCategoryKind.DICTIONARY, TreeAbility.ROOT_ID));
+
+        assertThatThrownBy(() -> categoryService.insert(category("crm", "invalid_child",
+                DictionaryCategoryKind.FOLDER, dictionaryId)))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("parent must be a folder");
+    }
+
+    @Test
+    void shouldRejectMovingCategoryUnderDictionaryCategory() {
+        String dictionaryId = categoryService.insert(category("crm", "customer_status",
+                DictionaryCategoryKind.DICTIONARY, TreeAbility.ROOT_ID));
+        String folderId = categoryService.insert(category("crm", "base",
+                DictionaryCategoryKind.FOLDER, TreeAbility.ROOT_ID));
+
+        assertThatThrownBy(() -> categoryService.moveInTree(folderId, null, null, dictionaryId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("parent must be a folder");
+    }
+
+    @Test
     void shouldRejectDuplicateCategoryAliasWithinApplication() {
         categoryService.insert(category("crm", "customer_status", DictionaryCategoryKind.DICTIONARY, TreeAbility.ROOT_ID));
 

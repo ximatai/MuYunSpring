@@ -1339,7 +1339,6 @@ it('navigator reference contexts attach their immutable host level to list and t
     if (request.url.endsWith('/reference-context')) {
       return Response.json({
         ...runtimeContext(),
-        navigatorSourceCapabilities: ['REFERENCE_QUERY', 'REFERENCE_TREE'],
       });
     }
     return Response.json({ records: [] });
@@ -1367,6 +1366,51 @@ it('navigator reference contexts attach their immutable host level to list and t
     globalThis.fetch = originalFetch;
   }
 });
+
+it.each([false, true])(
+  'navigator tree contexts retain scope while sorting through the standard endpoint',
+  async (useTreeWrapper) => {
+    const requests: Array<{ path: string; body?: unknown }> = [];
+    const http: HttpClient = {
+      async request(options) {
+        requests.push(options);
+        if (options.path.endsWith('/reference-context')) return runtimeContext() as never;
+        return 1 as never;
+      },
+    };
+    const options = {
+      http,
+      moduleAlias: 'mr.project',
+      runtimeAccess: 'REFERENCE' as const,
+      navigatorReference: { hostModuleAlias: 'mr.device', targetLevelKey: 'project' },
+    };
+    const context = createModuleContext(options);
+    await context.runtime.ready;
+    const tree = useTreeWrapper ? createModuleTreeContext(options).tree : context.abilities.tree();
+    await tree.sort(
+      'record/a',
+      { parentId: 'root', nextId: 'next' },
+      {
+        externalQueryValues: { tenantId: 'tenant-a' },
+        navigatorHostModuleAlias: 'forged',
+        navigatorTargetLevelKey: 'forged',
+      },
+    );
+    expect(requests.at(-1)).toEqual({
+      method: 'POST',
+      path: '/mr.project/sort/record%2Fa',
+      body: {
+        parentId: 'root',
+        nextId: 'next',
+        scope: {
+          externalQueryValues: { tenantId: 'tenant-a' },
+          navigatorHostModuleAlias: 'mr.device',
+          navigatorTargetLevelKey: 'project',
+        },
+      },
+    });
+  },
+);
 
 it('module runtime authorization updates Vue computed state after context loads', async () => {
   const originalFetch = globalThis.fetch;

@@ -15,13 +15,20 @@ import type {
 import { createModuleContext, type HttpClient, type ModuleContext } from '@muyun/web-core';
 import { navigatorEntrySelectionOf, type NavigatorEntrySelection } from '../navigatorEntrySelection';
 
+export interface NavigatorSortViewState {
+  visible: boolean;
+  enabled: boolean;
+  active?: boolean;
+  disabledReason?: string;
+}
+
 /** Runtime state that belongs to the page/navigator session rather than to a Vue host. */
 export interface NavigatorLevelRuntime {
   descriptor: ResolvedPageNavigatorLevelDescriptor;
   context: ModuleContext<QueryListRecord>;
   tree: boolean;
-  /** REFERENCE tree transport does not expose the module's normal sort endpoint. */
-  sortingDisabled: boolean;
+  /** Resolved navigator actions consumed by the page surfaces. */
+  sort: NavigatorSortViewState;
 }
 
 export interface NavigatorEntrySelectionChange {
@@ -223,22 +230,19 @@ export function useNavigatorRuntime(
           },
         });
         await navigatorContext.runtime.ready;
-        const requiredCapability = descriptor.kind === 'TREE' ? 'REFERENCE_TREE' : 'REFERENCE_QUERY';
-        const sourceCapabilities = navigatorContext.runtime.snapshot()?.navigatorSourceCapabilities;
-        if (sourceCapabilities !== undefined && !sourceCapabilities.includes(requiredCapability)) {
-          throw new Error(
-            `导航源能力不可用：层级 ${descriptor.key} 引用模块 ${descriptor.sourceModuleAlias}，缺少 ${requiredCapability}`,
-          );
-        }
+        const sortAvailable =
+          descriptor.kind === 'TREE' &&
+          descriptor.management != null &&
+          navigatorContext.abilities.hasTree() === true &&
+          navigatorContext.can('sort') === true;
         return {
           descriptor,
           context: navigatorContext,
-          tree:
-            descriptor.kind === 'TREE' &&
-            (sourceCapabilities?.includes('REFERENCE_TREE') ?? navigatorContext.abilities.hasTree() === true),
-          // REFERENCE query results are scoped projections; the standard sort endpoint cannot
-          // receive that navigator scope, so ordering is disabled for both flat and tree levels.
-          sortingDisabled: true,
+          tree: descriptor.kind === 'TREE' && navigatorContext.abilities.hasTree() === true,
+          sort: {
+            visible: sortAvailable,
+            enabled: sortAvailable,
+          },
         };
       }),
     );

@@ -488,7 +488,7 @@ class ManagedDetailRelationGatewayWebTest {
         action.setActionLevel(EntityActionLevel.RECORD);
         action.setAccessMode(EntityActionAccessMode.AUTH_REQUIRED);
         action.setActionAuth(Boolean.TRUE);
-        action.setDataAuth(dataAuth);
+        action.setDataAuthOverride(dataAuth);
         action.setDefaultGrantPolicy(ActionDefaultGrantPolicy.NONE);
         action.setEnabled(Boolean.TRUE);
         return action;

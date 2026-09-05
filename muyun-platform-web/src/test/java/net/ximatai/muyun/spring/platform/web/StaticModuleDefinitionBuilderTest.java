@@ -2,7 +2,6 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
-import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
@@ -54,15 +53,7 @@ class StaticModuleDefinitionBuilderTest {
                         .build())
                 .build();
 
-        assertThatThrownBy(() -> StaticPageNavigatorSourceValidator.validate(java.util.List.of(source, page)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("page=sales.contract")
-                .hasMessageContaining("level=customer")
-                .hasMessageContaining("source=sales.customer")
-                .hasMessageContaining("required=REFERENCE_QUERY");
-
-        assertThatCode(() -> StaticPageNavigatorSourceValidator.validate(java.util.List.of(
-                source.toBuilder().navigatorSourceCapabilities(Set.of(NavigatorSourceCapability.REFERENCE_QUERY)).build(),
-                page))).doesNotThrowAnyException();
+        assertThatCode(() -> StaticPageNavigatorSourceValidator.validate(java.util.List.of(source, page)))
+                .doesNotThrowAnyException();
     }
 }

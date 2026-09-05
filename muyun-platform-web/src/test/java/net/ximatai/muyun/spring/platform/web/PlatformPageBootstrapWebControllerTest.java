@@ -54,8 +54,8 @@ class PlatformPageBootstrapWebControllerTest {
         when(bootstrapService.bootstrapByMenu("menu-1", PlatformUiClientType.WEB)).thenReturn(bootstrap);
         when(runtimeContextService.context("iam.organization")).thenReturn(new PlatformModuleRuntimeContext(
                 "iam.organization", "组织管理", ModuleKind.STATIC, ModuleEntryType.ROUTE, null, null,
-                "organization", Set.of(EntityCapability.CRUD), Set.of("crud"), List.of(
-                        action("create", true), action("delete", false))));
+                "organization", Set.of(EntityCapability.CRUD), List.of(), Set.of("crud"), List.of(
+                        action("create", true), action("delete", false)), null));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
             mvc.perform(get("/platform.menu/menu-1/entry"))
@@ -87,7 +87,7 @@ class PlatformPageBootstrapWebControllerTest {
         when(bootstrapService.bootstrapByMenu("menu-1", PlatformUiClientType.WEB)).thenReturn(bootstrap);
         when(runtimeContextService.context("mr.knowledge_file")).thenReturn(new PlatformModuleRuntimeContext(
                 "mr.knowledge_file", "知识库管理", ModuleKind.STATIC, ModuleEntryType.ROUTE, null, null,
-                "knowledgeFile", Set.of(EntityCapability.CRUD), Set.of("crud"), List.of()));
+                "knowledgeFile", Set.of(EntityCapability.CRUD), List.of(), Set.of("crud"), List.of(), null));
 
         try (TenantContext.Scope ignored = TenantContext.system("system menu bootstrap")) {
             mvc.perform(get("/platform.menu/menu-1/entry"))
