@@ -21,7 +21,7 @@ import {
   UiTabs,
   UiTree,
   type UiTabItem,
-  type UiTreeDragEvent,
+  type UiTreeNodeEvent,
   type UiTreeNode,
 } from '@muyun/vue-ui-antdv';
 import type {
@@ -75,7 +75,6 @@ const savedUiTreeJson = ref<string>();
 const previewDescriptor = ref<ResolvedModuleUiDescriptor>();
 const previewLoading = ref(false);
 const previewError = ref<string>();
-const activeMetadataDragPayload = ref<MetadataDragPayload>();
 /**
  * These fields are materialized for metadata governance but are intentionally omitted from the
  * dynamic main-entity runtime namespace. Keep this list aligned with
@@ -740,6 +739,7 @@ type PersistedUiTree = {
     slot?: PageComposerSlot;
     fields?: Array<string | PersistedUiField>;
     relations?: PersistedUiRelation[];
+    groups?: Array<{ fields?: Array<string | PersistedUiField> }>;
   }>;
 };
 
@@ -809,7 +809,11 @@ function parsePersistedUiTree(treeJson: string | undefined) {
     quickSearchPlaceholder =
       typeof tree.props?.list?.searchPlaceholder === 'string' ? tree.props.list.searchPlaceholder : undefined;
     for (const slot of ['list', 'form'] as PageComposerSlot[]) {
-      const fields = tree.nodes?.find((node) => node.slot === slot)?.fields ?? [];
+      const node = tree.nodes?.find((node) => node.slot === slot);
+      const fields = [
+        ...(node?.fields ?? []),
+        ...(node?.groups ?? []).flatMap((group) => group.fields ?? []),
+      ];
       fieldsBySlot.set(
         slot,
         fields.flatMap((entry) => {
@@ -927,7 +931,7 @@ function addSelectedChildMetadataField() {
   );
 }
 
-function handleMetadataDoubleClick(event: UiTreeDragEvent) {
+function handleMetadataDoubleClick(event: UiTreeNodeEvent) {
   const field = fieldOfMetadataNode(event.node);
   if (field) addToSelectedSlot(field);
   else if (event.node.key.startsWith('metadata:relation-field:')) addSelectedChildMetadataField();
@@ -1003,13 +1007,6 @@ function selectUiTreeKey(key: string) {
     });
 }
 
-function handleMetadataDragStart(event: UiTreeDragEvent) {
-  if (isMutating.value) return;
-  const payload = metadataDragPayload(event.node);
-  if (!payload) return;
-  activeMetadataDragPayload.value = payload;
-}
-
 function canDragMetadataNode(node: UiTreeNode) {
   return !isMutating.value && metadataDragPayload(node) != null;
 }
@@ -1056,22 +1053,26 @@ function reorderRelationField(relationId: string, fieldId: string, targetIndex: 
   if (!isMutating.value) state.moveFormRelationField(relationId, fieldId, targetIndex);
 }
 
-function handleCompositionMetadataDrop(target: ComposerDropTarget, nativeEvent: DragEvent) {
-  if (isMutating.value) {
-    activeMetadataDragPayload.value = undefined;
-    return;
-  }
-  const metadata = parseMetadataDragPayload(nativeEvent.dataTransfer) ?? activeMetadataDragPayload.value;
-  // A native drag can end outside a valid target, or the browser can expose a malformed
-  // payload. Never let that session leak into the next pointer-fallback drop.
-  activeMetadataDragPayload.value = undefined;
+function handleCompositionMetadataDrop(target: ComposerDropTarget, payload: unknown) {
+  if (isMutating.value) return;
+  const metadata = parseMetadataDragPayload(payload);
   if (!metadata) return;
   if (metadata.kind === 'field') {
     const field = metadataFields.value.find((candidate) => candidate.id === metadata.fieldId);
     if (!field) return;
-    if (target.kind === 'list') state.addField(field, 'list');
-    else if (target.kind === 'form') state.addField(field, 'form');
-    else placeMetadataFieldInGroup(field, target.groupId);
+    if (target.kind === 'group') placeMetadataFieldInGroup(field, target.groupId, target.index);
+    else {
+      const slot = target.kind;
+      const sourceGroup =
+        slot === 'form' &&
+        state.formGroups.value.find((group) => group.fields.some((item) => item.id === field.id));
+      if (sourceGroup && target.index !== undefined)
+        state.moveGroupFieldToForm(sourceGroup.id, field.id, target.index);
+      else {
+        state.addField(field, slot, target.index);
+        if (target.index !== undefined) state.moveField(field.id, slot, slot, target.index);
+      }
+    }
   } else if (metadata.kind === 'relation' && target.kind === 'form') {
     addRelationById(metadata.relationId);
   } else if (metadata.kind === 'relationField' && target.kind === 'form') {
@@ -1084,26 +1085,28 @@ function handleCompositionMetadataDrop(target: ComposerDropTarget, nativeEvent: 
  * group therefore means "place it here": use the existing typed move commands when it already
  * has a form placement, and only add it before moving when it is new to the form.
  */
-function placeMetadataFieldInGroup(field: PageComposerField, groupId: string) {
+function placeMetadataFieldInGroup(field: PageComposerField, groupId: string, targetIndex?: number) {
   if (!state.formGroups.value.some((group) => group.id === groupId)) return;
   const sourceGroup = state.formGroups.value.find((group) =>
     group.fields.some((candidate) => candidate.id === field.id),
   );
   if (sourceGroup) {
-    if (sourceGroup.id !== groupId) state.moveGroupFieldToGroup(sourceGroup.id, field.id, groupId);
+    if (sourceGroup.id !== groupId)
+      state.moveGroupFieldToGroup(sourceGroup.id, field.id, groupId, targetIndex);
+    else if (targetIndex !== undefined) state.moveGroupField(groupId, field.id, targetIndex);
     else state.addField(field, 'form');
     return;
   }
   if (state.formFields.value.some((candidate) => candidate.id === field.id)) {
-    state.moveFormFieldToGroup(field.id, groupId);
+    state.moveFormFieldToGroup(field.id, groupId, targetIndex);
     return;
   }
   state.addField(field, 'form');
-  state.moveFormFieldToGroup(field.id, groupId);
+  state.moveFormFieldToGroup(field.id, groupId, targetIndex);
 }
 
-function handlePreviewMetadataDrop(target: 'list' | 'form', nativeEvent: DragEvent) {
-  handleCompositionMetadataDrop({ kind: target }, nativeEvent);
+function handlePreviewMetadataDrop(target: 'list' | 'form', payload: unknown) {
+  handleCompositionMetadataDrop({ kind: target }, payload);
 }
 
 function metadataDragPayload(node: UiTreeNode): MetadataDragPayload | undefined {
@@ -1338,13 +1341,12 @@ function applyPropertyDraft() {
             :nodes="metadataTreeNodes"
             :selected-key="selectedMetadataTreeKey"
             :draggable="!isMutating"
-            :native-drag-source="true"
+            :drag-operations="['copy']"
             :drag-payload-type="PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE"
             :drag-payload-of="metadataDragPayload"
             :can-drag="canDragMetadataNode"
             :allow-drop="() => false"
             @select="selectMetadataNode"
-            @drag-start="handleMetadataDragStart"
             @double-click="handleMetadataDoubleClick"
           />
           <div class="metadata-tree__selection" aria-live="polite">

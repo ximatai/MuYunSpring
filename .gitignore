@@ -22,3 +22,6 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .DS_Store
+
+muyun-web/test-results/
+muyun-web/.vitest-attachments/

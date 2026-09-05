@@ -5,7 +5,14 @@ import {
   createScopedTreeModuleContext,
   presentPlatformError,
 } from '@muyun/platform-components';
-import { UiButton, UiSpin, UiTree, type UiTreeNode } from '@muyun/vue-ui-antdv';
+import {
+  UiButton,
+  UiSpin,
+  UiTree,
+  useTreeData,
+  type UiTreeLoadRequest,
+  type UiTreeNode,
+} from '@muyun/vue-ui-antdv';
 import type { Organization, Tenant, WebTreeNode } from '@muyun/web-contracts';
 import { useModuleContext } from '@muyun/web-core';
 import type { ModulePageNavigatorExtensionContext } from '@muyun/dynamic-page-runtime';
@@ -29,8 +36,6 @@ const treeReloadKey = ref(0);
 const tenants = new Map<string, Tenant>();
 const organizations = new Map<string, Organization>();
 const organizationTenantIds = new Map<string, string>();
-/** A collapse invalidates every in-flight response for that tenant. */
-const organizationLoadGenerations = new Map<string, number>();
 const TENANT_ROOT_PAGE_SIZE = 100;
 let tenantLoadRevision = 0;
 let tenantSearchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -41,7 +46,13 @@ const currentUserTenant = computed<Tenant | undefined>(() => {
   if (currentUser?.value?.system === true || !tenantId) return undefined;
   return { id: tenantId, title: tenantId, alias: tenantId, enabled: true } as Tenant;
 });
-const visibleNodes = computed(() => nodes.value);
+const branchData = useTreeData({
+  nodes: () => nodes.value,
+  loader: () => loadChildren,
+  version: () => treeReloadKey.value,
+});
+const visibleNodes = branchData.nodes;
+const branchStates = branchData.states;
 const selectedTreeKey = computed(() => props.context.selectionKey);
 
 watch(
@@ -131,12 +142,9 @@ function tenantNode(tenant: Tenant): UiTreeNode {
   };
 }
 
-async function loadChildren(node: UiTreeNode) {
+async function loadChildren(node: UiTreeNode, request: UiTreeLoadRequest) {
   const tenantId = tenantIdFromKey(node.key);
-  if (!tenantId) return;
-  const tenant = tenants.get(tenantId);
-  if (!tenant) return;
-  const generation = nextOrganizationLoadGeneration(tenantId);
+  if (!tenantId || !tenants.has(tenantId)) throw new Error('租户已失效');
   try {
     const scopedContext = createScopedTreeModuleContext(organizationContext, {
       scopeFieldName: 'tenantId',
@@ -145,23 +153,16 @@ async function loadChildren(node: UiTreeNode) {
     });
     await scopedContext.runtime.ready;
     const response = await scopedContext.abilities.tree().tree();
-    if (organizationLoadGenerations.get(tenantId) !== generation) return;
-    const currentNode = findNode(nodes.value, node.key);
-    if (!currentNode) return;
-    replaceNode(node.key, {
-      ...currentNode,
-      children: uniqueOrganizationNodes(response.records, tenantId),
-    });
+    request.signal.throwIfAborted();
+    return {
+      mode: 'replace' as const,
+      nodes: uniqueOrganizationNodes(response.records, tenantId),
+      hasMore: false,
+    };
   } catch (cause) {
-    presentPlatformError(cause, { source: 'role-scope-tree', phase: 'load' });
+    if (!request.signal.aborted) presentPlatformError(cause, { source: 'role-scope-tree', phase: 'load' });
     throw cause;
   }
-}
-
-function nextOrganizationLoadGeneration(tenantId: string) {
-  const next = (organizationLoadGenerations.get(tenantId) ?? 0) + 1;
-  organizationLoadGenerations.set(tenantId, next);
-  return next;
 }
 
 function uniqueOrganizationNodes(records: WebTreeNode<Organization>[], tenantId: string): UiTreeNode[] {
@@ -225,31 +226,6 @@ function clearSelection() {
   }
 }
 
-/** Collapsing a tenant deliberately releases its organization snapshot; its next expansion re-reads the range. */
-function unloadChildren(node: UiTreeNode) {
-  const tenantId = tenantIdFromKey(node.key);
-  if (!tenantId) return;
-  nextOrganizationLoadGeneration(tenantId);
-  replaceNode(node.key, { ...node, children: undefined });
-}
-
-function replaceNode(key: string, replacement: UiTreeNode) {
-  const replace = (items: UiTreeNode[]): UiTreeNode[] =>
-    items.map((item) =>
-      item.key === key ? replacement : item.children ? { ...item, children: replace(item.children) } : item,
-    );
-  nodes.value = replace(nodes.value);
-}
-
-function findNode(items: UiTreeNode[], key: string): UiTreeNode | undefined {
-  for (const item of items) {
-    if (item.key === key) return item;
-    const child = item.children ? findNode(item.children, key) : undefined;
-    if (child) return child;
-  }
-  return undefined;
-}
-
 function tenantIdFromKey(key: string) {
   return key.startsWith('tenant:') ? key.slice('tenant:'.length) : undefined;
 }
@@ -282,11 +258,19 @@ function organizationTitle(organization: Organization | undefined) {
       :nodes="visibleNodes"
       :selected-key="selectedTreeKey"
       :reload-key="treeReloadKey"
-      :load-children="loadChildren"
+      load-strategy="controlled"
       reload-on-reexpand
+      :branch-states="branchStates"
+      @load-request="
+        branchData.request(
+          $event.node.key,
+          $event.reason,
+          branchData.stateOf($event.node.key).status === 'error',
+        )
+      "
       @select="handleSelect"
       @deselect="clearSelection"
-      @unload-children="unloadChildren"
+      @unload-children="branchData.release($event.key)"
     />
     <template v-if="canBrowseTenants && hasMoreTenants" #footer>
       <UiButton type="text" icon-name="reload" :loading="loadingMore" @click="loadTenants({ append: true })">

@@ -58,8 +58,10 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
     @click="emit('click')"
   >
     <span class="ui-record-explorer-item-main">
-      <span class="ui-record-explorer-item-title">{{ title }}</span>
-      <span v-if="secondary" class="ui-record-explorer-item-secondary">{{ secondary }}</span>
+      <span class="ui-record-explorer-item-title" :title="title">{{ title }}</span>
+      <span v-if="secondary" class="ui-record-explorer-item-secondary" :title="secondary">{{
+        secondary
+      }}</span>
       <span v-if="tag" class="ui-record-explorer-item-tag">{{ tag }}</span>
     </span>
     <span v-if="actions?.length" class="ui-record-explorer-item-actions">
@@ -89,6 +91,7 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  overflow: hidden;
   width: 100%;
   min-height: 24px;
   padding: 0 4px;
@@ -102,9 +105,13 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
   cursor: pointer;
 }
 
-.ui-record-explorer-item-clickable:hover,
-.ui-record-explorer-item-selected {
+.ui-record-explorer-item-clickable:hover {
   background: var(--muyun-hover);
+}
+
+.ui-record-explorer-item-selected,
+.ui-record-explorer-item-selected:hover {
+  background: color-mix(in srgb, var(--muyun-primary) 10%, transparent);
 }
 
 .ui-record-explorer-item-muted {
@@ -117,10 +124,12 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .ui-record-explorer-item-title {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
+  max-width: 100%;
   overflow: hidden;
   color: inherit;
   font-size: inherit;

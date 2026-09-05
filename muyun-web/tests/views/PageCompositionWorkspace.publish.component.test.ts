@@ -200,16 +200,76 @@ describe('PageCompositionWorkspace publication flow', () => {
     const pageTree = wrapper.findComponent(PageCompositionTree);
     const metadataField = treeNode(metadataTree.props('nodes'), 'metadata:field:field-title');
     expect(metadataField).toBeDefined();
-    expect(metadataTree.props('nativeDragSource')).toBe(true);
+    expect(metadataTree.props('dragOperations')).toEqual(['copy']);
 
-    metadataTree.vm.$emit('drag-start', { node: metadataField, nativeEvent: undefined });
-    pageTree.vm.$emit('metadata-drop', { kind: 'list' }, { dataTransfer: undefined });
+    pageTree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
     await flushPromises();
 
     expect(pageTree.props('listFields')).toMatchObject([{ id: 'field-title', title: '考试名称' }]);
   });
 
-  it('uses the native payload when the tree fallback session is unavailable', async () => {
+  it.each(['list', 'form', 'group'] as const)(
+    'inserts and reorders metadata fields at the indicated %s position',
+    async (kind) => {
+      configureModuleContext({
+        http: publicationFlowHttp(
+          [],
+          JSON.stringify({
+            template: 'management',
+            templateVersion: 1,
+            nodes: [
+              {
+                slot: kind === 'list' ? 'list' : 'form',
+                fields: kind === 'group' ? [] : ['other'],
+                ...(kind === 'group'
+                  ? { groups: [{ group: 'target', title: '目标分组', fields: ['other'] }] }
+                  : {}),
+              },
+            ],
+          }),
+          [
+            {
+              id: 'field-title',
+              fieldName: 'title',
+              title: '考试名称',
+              fieldOwnership: 'BUSINESS',
+              fieldForm: 'PHYSICAL',
+            },
+            {
+              id: 'field-other',
+              fieldName: 'other',
+              title: '其他字段',
+              fieldOwnership: 'BUSINESS',
+              fieldForm: 'PHYSICAL',
+            },
+          ],
+        ),
+      });
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam' },
+        global: { stubs: workspaceStubs() },
+      });
+      await flushPromises();
+      await flushPromises();
+      const pageTree = wrapper.findComponent(PageCompositionTree);
+      const target = kind === 'group' ? { kind, groupId: 'target' } : { kind };
+      const fields = () =>
+        kind === 'group'
+          ? pageTree.props('formGroups')[0].fields
+          : pageTree.props(kind === 'list' ? 'listFields' : 'formFields');
+
+      pageTree.vm.$emit('metadata-drop', { ...target, index: 0 }, metadataDrop());
+      await flushPromises();
+      expect(fields().map((field: { id: string }) => field.id)).toEqual(['field-title', 'field-other']);
+
+      pageTree.vm.$emit('metadata-drop', { ...target, index: 1 }, metadataDrop());
+      await flushPromises();
+      expect(fields().map((field: { id: string }) => field.id)).toEqual(['field-other', 'field-title']);
+      wrapper.unmount();
+    },
+  );
+
+  it('rejects missing and malformed drops even after a prior metadata drag', async () => {
     configureModuleContext({ http: publicationFlowHttp([]) });
     const wrapper = mount(PageCompositionWorkspace, {
       props: { moduleAlias: 'education.exam' },
@@ -217,18 +277,21 @@ describe('PageCompositionWorkspace publication flow', () => {
     });
     await flushPromises();
     await flushPromises();
-
+    const metadataTree = wrapper.findComponent({ name: 'UiTree' });
     const pageTree = wrapper.findComponent(PageCompositionTree);
-    const payload = JSON.stringify({ kind: 'field', fieldId: 'field-title' });
-    const dataTransfer = {
-      types: ['application/x-muyun-page-composer', 'text/plain'],
-      getData: (type: string) => (type === 'text/plain' ? payload : payload),
-    } as unknown as DataTransfer;
-
-    pageTree.vm.$emit('metadata-drop', { kind: 'list' }, { dataTransfer });
-    await flushPromises();
-
-    expect(pageTree.props('listFields')).toMatchObject([{ id: 'field-title', title: '考试名称' }]);
+    metadataTree.vm.$emit('drag-start', {
+      node: treeNode(metadataTree.props('nodes'), 'metadata:field:field-title'),
+    });
+    for (const dataTransfer of [
+      undefined,
+      { getData: () => '{' },
+      { getData: () => '{"kind":"field","fieldId":{}}' },
+    ]) {
+      pageTree.vm.$emit('metadata-drop', { kind: 'list' }, { dataTransfer });
+      await flushPromises();
+      expect(pageTree.props('listFields')).toEqual([]);
+    }
+    wrapper.unmount();
   });
 
   it('accepts a metadata field dropped directly onto the active preview and updates the draft slot', async () => {
@@ -249,8 +312,7 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(metadataField).toBeDefined();
     expect(preview.exists()).toBe(true);
 
-    metadataTree.vm.$emit('drag-start', { node: metadataField, nativeEvent: undefined });
-    preview.vm.$emit('metadata-drop', 'list', { dataTransfer: undefined });
+    preview.vm.$emit('metadata-drop', 'list', metadataDrop());
     await flushPromises();
 
     expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toMatchObject([
@@ -292,14 +354,50 @@ describe('PageCompositionWorkspace publication flow', () => {
     const metadataField = treeNode(metadataTree.props('nodes'), 'metadata:field:field-title');
     expect(metadataField).toBeDefined();
 
-    metadataTree.vm.$emit('drag-start', { node: metadataField, nativeEvent: undefined });
-    pageTree.vm.$emit('metadata-drop', { kind: 'group', groupId: 'target' }, { dataTransfer: undefined });
+    pageTree.vm.$emit('metadata-drop', { kind: 'group', groupId: 'target' }, metadataDrop());
     await flushPromises();
 
     expect(pageTree.props('formGroups')).toMatchObject([
       { id: 'source', fields: [] },
       { id: 'target', fields: [{ id: 'field-title' }] },
     ]);
+  });
+
+  it('removes a grouped field through the toolbar and reports a removal', async () => {
+    configureModuleContext({
+      http: publicationFlowHttp(
+        [],
+        JSON.stringify({
+          template: 'management',
+          templateVersion: 1,
+          nodes: [
+            { slot: 'list', fields: ['title'] },
+            { slot: 'form', fields: [], groups: [{ group: 'target', title: '目标分组', fields: ['title'] }] },
+          ],
+        }),
+      ),
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+    const tree = wrapper.findComponent(PageCompositionTree);
+    tree.vm.$emit('select', 'ui:group-field:form:target:field-title');
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '移除')!
+      .trigger('click');
+    await flushPromises();
+
+    expect(tree.props('formGroups')).toMatchObject([{ id: 'target', fields: [] }]);
+    expect(tree.props('formFields')).toEqual([]);
+    expect(tree.props('listFields')).toMatchObject([{ id: 'field-title' }]);
+    expect(wrapper.text()).toContain('移除 1 个字段');
+    expect(wrapper.text()).not.toContain('新增 1 个字段');
+    wrapper.unmount();
   });
 
   it('sends the dropped draft to the live preview resolver', async () => {
@@ -321,8 +419,7 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(metadataField).toBeDefined();
     const before = requests.filter((request) => request.path.endsWith('/preview')).length;
 
-    metadataTree.vm.$emit('drag-start', { node: metadataField, nativeEvent: undefined });
-    preview.vm.$emit('metadata-drop', 'list', { dataTransfer: undefined });
+    preview.vm.$emit('metadata-drop', 'list', metadataDrop());
 
     await vi.waitFor(
       () => {
@@ -679,10 +776,14 @@ function workspaceStubs() {
     UiTabs: { template: '<div><slot /></div>' },
     UiTree: {
       name: 'UiTree',
-      props: { nodes: Array, nativeDragSource: Boolean },
+      props: { nodes: Array, dragOperations: Array },
       emits: ['drag-start', 'external-drop'],
       template: '<div>{{ JSON.stringify(nodes) }}</div>',
     },
     UiEmpty: { template: '<div><slot /></div>' },
   };
+}
+
+function metadataDrop() {
+  return { kind: 'field', fieldId: 'field-title' };
 }

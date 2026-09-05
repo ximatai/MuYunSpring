@@ -67,8 +67,8 @@ export interface UiTreeNode {
   children?: UiTreeNode[];
 }
 
-/** Adapter-neutral tree drag event. The node remains a UI contract, not an Ant Tree node. */
-export interface UiTreeDragEvent {
+/** Adapter-neutral node activation event. The node remains a UI contract, not an Ant Tree node. */
+export interface UiTreeNodeEvent {
   node: UiTreeNode;
   nativeEvent?: Event;
 }
@@ -86,41 +86,52 @@ export interface UiTreeCheckEvent {
 export type UiTreeLoadStrategy = 'managed' | 'controlled';
 export type UiTreeLoadReason = 'expand' | 'refresh' | 'load-more';
 
-/** A renderer-neutral lazy-load request. The signal is aborted when the branch becomes stale. */
-export interface UiTreeLoadRequest {
+export interface UiTreeLoadIntent {
   node: UiTreeNode;
   reason: UiTreeLoadReason;
   cursor?: string;
+}
+
+/** Only the owner of the request creates and releases its cancellation signal. */
+export interface UiTreeLoadRequest extends UiTreeLoadIntent {
   requestId: string;
   signal: AbortSignal;
 }
 
-/** Managed loaders can replace a branch or append a page without knowing the renderer. */
 export interface UiTreeLoadResult {
   mode: 'replace' | 'append';
   nodes: UiTreeNode[];
   nextCursor?: string;
+  hasMore: boolean;
+}
+
+export interface UiTreeBranchState {
+  status: 'idle' | 'loading' | 'loaded' | 'error';
   hasMore?: boolean;
+  cursor?: string;
+  error?: string;
+  failedRequest?: UiTreeLoadIntent;
 }
 
-/** A normalized drop target and relative position for tree editors. */
-export interface UiTreeDropEvent {
-  dragNode: UiTreeNode;
-  dropNode: UiTreeNode;
-  dropPosition: -1 | 0 | 1;
-  dropToGap: boolean;
-  nativeEvent?: Event;
-}
-
-/** A native payload dropped from outside the current tree instance. */
-export interface UiTreeExternalDropEvent {
-  dropNode: UiTreeNode;
-  dropPosition: -1 | 0 | 1;
-  dropToGap: boolean;
+export type UiDropPosition = 'before' | 'after' | 'inside';
+export type UiDropOperation = 'copy' | 'move';
+export interface UiDragSource {
+  instanceId: string;
+  node: UiTreeNode;
+  operations: readonly UiDropOperation[];
   payload?: unknown;
   payloadType?: string;
-  nativeEvent: DragEvent;
 }
+export type UiDropTarget = {
+  instanceId: string;
+} & ({ kind: 'node'; node: UiTreeNode; position: UiDropPosition } | { kind: 'root'; position: 'inside' });
+export interface UiTreeDropEvent {
+  source: UiDragSource;
+  target: UiDropTarget;
+  operation: UiDropOperation;
+  nativeEvent?: Event;
+}
+export type UiTreeChangeReason = 'interaction' | 'filter' | 'reset';
 
 export interface UiConfirmOptions {
   title: string;

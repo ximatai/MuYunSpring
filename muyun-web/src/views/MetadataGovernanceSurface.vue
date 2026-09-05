@@ -992,10 +992,11 @@ function allowMetadataModelDrop(event: UiTreeDropEvent) {
 }
 
 function handleMetadataModelDrop(event: UiTreeDropEvent) {
+  if (event.target.kind !== 'node') return;
   if (!allowMetadataModelDrop(event)) return;
-  const drag = event.dragNode as MetadataModelTreeNode;
-  const drop = event.dropNode as MetadataModelTreeNode;
-  if (!drag.relationId || !drop.relationId || !event.dropToGap || event.dropPosition === 0) return;
+  const drag = event.source.node as MetadataModelTreeNode;
+  const drop = event.target.node as MetadataModelTreeNode;
+  if (!drag.relationId || !drop.relationId || event.target.position === 'inside') return;
   if (drag.modelKind === 'FIELD') {
     const relationId = drag.relationId;
     const relation = state.relations.value.find((item) => item.id === relationId);
@@ -1003,7 +1004,12 @@ function handleMetadataModelDrop(event: UiTreeDropEvent) {
     const fields = editSession
       .fieldsForDisplay(relationId, fieldsByRelation.value[relationId] ?? [])
       .filter((field) => fieldSortableInTree(relation, field));
-    const order = reorderedIds(fields, drag.fieldId!, drop.fieldId!, event.dropPosition);
+    const order = reorderedIds(
+      fields,
+      drag.fieldId!,
+      drop.fieldId!,
+      event.target.position === 'before' ? -1 : 1,
+    );
     editSession.stageFieldOrder(relationId, order);
     return;
   }
@@ -1011,7 +1017,12 @@ function handleMetadataModelDrop(event: UiTreeDropEvent) {
   const siblings = state.relations.value
     .filter((item) => item.parentMetadataId === relation?.parentMetadataId)
     .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
-  const order = reorderedIds(siblings, drag.relationId, drop.relationId, event.dropPosition);
+  const order = reorderedIds(
+    siblings,
+    drag.relationId,
+    drop.relationId,
+    event.target.position === 'before' ? -1 : 1,
+  );
   editSession.stageRelationOrder(relation?.parentMetadataId, order);
 }
 

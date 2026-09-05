@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import {
-  UiTree,
-  type UiTreeDropEvent,
-  type UiTreeExternalDropEvent,
-  type UiTreeNode,
-} from '@muyun/vue-ui-antdv';
+import { UiTree, type UiTreeDropEvent, type UiTreeNode } from '@muyun/vue-ui-antdv';
 import type { PageComposerField, PageComposerGroup, PageComposerRelation } from './pageCompositionDraftState';
-import { PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE, isPageCompositionDrag } from './pageCompositionDragPayload';
+import {
+  PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+  type MetadataDragPayload,
+  parseMetadataDragPayload,
+} from './pageCompositionDragPayload';
 
 defineOptions({ name: 'PageCompositionTree' });
 
@@ -39,10 +38,14 @@ const emit = defineEmits<{
   ];
   'reorder-group': [groupId: string, targetIndex: number];
   'reorder-relation-field': [relationId: string, fieldId: string, targetIndex: number];
-  'metadata-drop': [target: ComposerDropTarget, nativeEvent: DragEvent];
+  'metadata-drop': [target: ComposerDropTarget, payload: MetadataDragPayload];
 }>();
 
-export type ComposerDropTarget = { kind: 'list' } | { kind: 'form' } | { kind: 'group'; groupId: string };
+export type ComposerDropTarget = (
+  | { kind: 'list' }
+  | { kind: 'form' }
+  | { kind: 'group'; groupId: string }
+) & { index?: number };
 
 type ComposerNodeRef =
   | { kind: 'root' }
@@ -65,7 +68,7 @@ const treeNodes = computed<UiTreeNode[]>(() => {
     key: `ui:group:form:${group.id}`,
     title: group.title,
     secondary: group.fields.length ? `${group.fields.length} 个字段` : '空分组 · 可拖入字段',
-    isLeaf: false,
+    isLeaf: group.fields.length === 0,
     children: group.fields.map((field) => groupFieldNode(group.id, field)),
   }));
   const relationNodes = props.formRelations.map((relation) => ({
@@ -98,7 +101,7 @@ const treeNodes = computed<UiTreeNode[]>(() => {
               key: 'ui:slot:list:fields',
               title: '列表展示字段',
               secondary: props.listFields.length ? '拖拽调整顺序' : '拖动字段到此处',
-              isLeaf: false,
+              isLeaf: listFieldNodes.length === 0,
               children: listFieldNodes,
             },
           ],
@@ -128,6 +131,7 @@ const treeNodes = computed<UiTreeNode[]>(() => {
   ];
 });
 
+let previousKeys = new Set<string>();
 watch(
   treeNodes,
   (nodes) => {
@@ -141,7 +145,10 @@ watch(
       ...props.formGroups.map((group) => `ui:group:form:${group.id}`),
     ];
     const current = expandedKeys.value.filter((key) => available.has(key));
-    expandedKeys.value = [...new Set([...current, ...defaults.filter((key) => available.has(key))])];
+    expandedKeys.value = [
+      ...new Set([...current, ...defaults.filter((key) => available.has(key) && !previousKeys.has(key))]),
+    ];
+    previousKeys = available;
   },
   { immediate: true },
 );
@@ -214,12 +221,18 @@ function canDragNode(node: UiTreeNode) {
   return Boolean(parsed && ['field', 'groupField', 'group', 'relationField'].includes(parsed.kind));
 }
 
-function allowDrop(event: Pick<UiTreeDropEvent, 'dragNode' | 'dropNode' | 'dropPosition' | 'dropToGap'>) {
-  if (props.disabled) return false;
-  const source = parseNode(event.dragNode.key);
-  const target = parseNode(event.dropNode.key);
+function allowDrop(event: UiTreeDropEvent) {
+  if (event.source.instanceId !== event.target.instanceId) return allowExternalDrop(event);
+  if (event.target.kind !== 'node') return false;
+  if (props.disabled || event.operation !== 'move') return false;
+  const source = parseNode(event.source.node.key);
+  const target = parseNode(event.target.node.key);
   if (!source || !target || source.kind === 'root' || source.kind === 'template') return false;
-  if (event.dragNode.key === event.dropNode.key) return false;
+  if (target.kind === 'group' && source.kind !== 'group' && event.target.position !== 'inside') return false;
+  const fieldTarget = ['field', 'groupField', 'relationField'].includes(target.kind);
+  if (fieldTarget && event.target.position === 'inside') return false;
+  if (!fieldTarget && target.kind !== 'group' && event.target.position !== 'inside') return false;
+  if (event.source.node.key === event.target.node.key) return false;
   if (source.kind === 'field' && source.slot === 'list') {
     return (target.kind === 'fieldGroup' && target.slot === 'list') || isFieldTarget(target, 'list');
   }
@@ -240,7 +253,7 @@ function allowDrop(event: Pick<UiTreeDropEvent, 'dragNode' | 'dropNode' | 'dropP
     );
   }
   if (source.kind === 'group')
-    return target.kind === 'groups' || (target.kind === 'group' && event.dropToGap);
+    return target.kind === 'groups' || (target.kind === 'group' && event.target.position !== 'inside');
   if (source.kind === 'relationField') {
     return (
       (target.kind === 'relation' && target.relationId === source.relationId) ||
@@ -255,9 +268,14 @@ function isFieldTarget(target: ComposerNodeRef, slot: 'list' | 'form') {
 }
 
 function handleDrop(event: UiTreeDropEvent) {
+  if (event.source.instanceId !== event.target.instanceId) {
+    handleExternalDrop(event);
+    return;
+  }
+  if (event.target.kind !== 'node') return;
   if (!allowDrop(event)) return;
-  const source = parseNode(event.dragNode.key);
-  const target = parseNode(event.dropNode.key);
+  const source = parseNode(event.source.node.key);
+  const target = parseNode(event.target.node.key);
   if (!source || !target) return;
 
   if (source.kind === 'field' && source.slot === 'list') {
@@ -361,21 +379,31 @@ function insertionIndex(
   ids: string[],
   sourceId: string,
   targetId: string | undefined,
-  event: Pick<UiTreeDropEvent, 'dropPosition' | 'dropToGap'>,
+  event: UiTreeDropEvent,
 ) {
   const sourceIndex = ids.indexOf(sourceId);
   const targetIndex = targetId === undefined ? ids.length : ids.indexOf(targetId);
   if (targetIndex < 0) return undefined;
-  if (!event.dropToGap || event.dropPosition === 0) return ids.length;
-  let index = targetIndex + (event.dropPosition === 1 ? 1 : 0);
+  if (event.target.position === 'inside') return ids.length;
+  let index = targetIndex + (event.target.position === 'after' ? 1 : 0);
   if (sourceIndex >= 0 && sourceIndex < index) index -= 1;
   return Math.max(0, Math.min(index, ids.length));
 }
 
-function allowExternalDrop(event: Omit<UiTreeExternalDropEvent, 'nativeEvent'>) {
-  const target = composerDropTarget(event.dropNode);
+function allowExternalDrop(event: UiTreeDropEvent) {
+  if (event.operation !== 'copy') return false;
+  if (event.target.kind !== 'node') return false;
+  const target = composerDropTarget(event.target.node);
   if (!target || props.disabled) return false;
-  return !event.payloadType || event.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE;
+  const parsed = parseNode(event.target.node.key);
+  if (event.target.position !== 'inside' && parsed?.kind !== 'field' && parsed?.kind !== 'groupField')
+    return false;
+  const metadata = parseMetadataDragPayload(event.source.payload);
+  return (
+    event.source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE &&
+    !!metadata &&
+    (metadata.kind === 'field' || target.kind === 'form')
+  );
 }
 
 function composerDropTarget(node: UiTreeNode): ComposerDropTarget | undefined {
@@ -400,15 +428,32 @@ function composerDropTarget(node: UiTreeNode): ComposerDropTarget | undefined {
   return undefined;
 }
 
-function handleExternalDrop(event: UiTreeExternalDropEvent) {
-  const target = composerDropTarget(event.dropNode);
+function handleExternalDrop(event: UiTreeDropEvent) {
+  if (event.target.kind !== 'node') return;
+  const target = composerDropTarget(event.target.node);
   if (!target || props.disabled) return;
+  if (!allowExternalDrop(event)) return;
+  const parsed = parseNode(event.target.node.key);
+  const metadata = parseMetadataDragPayload(event.source.payload);
   if (
-    (event.payloadType && event.payloadType !== PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE) ||
-    !isPageCompositionDrag(event.nativeEvent.dataTransfer)
-  )
-    return;
-  emit('metadata-drop', target, event.nativeEvent);
+    event.target.position !== 'inside' &&
+    metadata?.kind === 'field' &&
+    (parsed?.kind === 'field' || parsed?.kind === 'groupField')
+  ) {
+    const fields =
+      target.kind === 'list'
+        ? props.listFields
+        : target.kind === 'form'
+          ? props.formFields
+          : (props.formGroups.find((group) => group.id === target.groupId)?.fields ?? []);
+    target.index = insertionIndex(
+      fields.map((field) => field.id),
+      metadata.fieldId,
+      parsed.fieldId,
+      event,
+    );
+  }
+  if (metadata) emit('metadata-drop', target, metadata);
 }
 </script>
 
@@ -422,12 +467,12 @@ function handleExternalDrop(event: UiTreeExternalDropEvent) {
       :draggable="!disabled"
       :can-drag="canDragNode"
       :allow-drop="allowDrop"
-      :allow-external-drop="allowExternalDrop"
-      :drag-payload-type="PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE"
+      :drop-operation="
+        (source) => (source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE ? 'copy' : 'move')
+      "
       @select="select"
       @double-click="doubleClick"
       @drop="handleDrop"
-      @external-drop="handleExternalDrop"
     />
   </div>
 </template>

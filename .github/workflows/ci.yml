@@ -147,6 +147,11 @@ jobs:
         if: needs.changes.outputs.frontend == 'true'
         run: npm run format:check --prefix muyun-web
 
+      - name: Install Chromium for Vitest
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: muyun-web
+        run: npx playwright install --with-deps chromium
+
       - name: Run tests
         if: needs.changes.outputs.frontend == 'true'
         run: npm run test --prefix muyun-web

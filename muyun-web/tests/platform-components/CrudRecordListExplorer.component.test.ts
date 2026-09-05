@@ -246,3 +246,19 @@ function createContext(
     can: () => false,
   } as unknown as ModuleContext<{ id: string }>;
 }
+it('keeps the list mounted during a sort refresh and retains rows if that refresh fails', async () => {
+  const context = createContext([], [{ id: 'first' }, { id: 'second' }]);
+  const wrapper = shallowMount(CrudRecordListExplorer, { props: { context, sorting: true } });
+  await flushPromises();
+  const list = wrapper.findComponent({ name: 'RecordListExplorer' });
+  const element = list.element;
+  context.crud.query = async () => {
+    throw new Error('read unavailable');
+  };
+  list.vm.$emit('sort', { dragRecord: { id: 'first' }, dropRecord: { id: 'second' }, position: 1 });
+  await flushPromises();
+  expect(wrapper.findComponent({ name: 'RecordListExplorer' }).element).toBe(element);
+  expect(wrapper.findComponent({ name: 'RecordListExplorer' }).props('records')).toHaveLength(2);
+  expect(wrapper.emitted('sorted')).toEqual([[]]);
+  expect(wrapper.findComponent({ name: 'UiButton' }).exists()).toBe(true);
+});

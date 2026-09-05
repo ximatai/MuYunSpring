@@ -120,6 +120,22 @@ describe('pageCompositionDraftState', () => {
     expect(state.formFields.value.map((field) => field.id)).toEqual(['title']);
   });
 
+  it('removes a grouped field from the form while retaining its list placement and group', () => {
+    const state = createPageCompositionDraftState();
+    state.addField(title, 'list');
+    state.addField(title, 'form');
+    state.addFormGroup();
+    const group = state.formGroups.value[0];
+    state.moveFormFieldToGroup(title.id, group.id);
+    state.removeSelectedField();
+
+    expect(state.formGroups.value).toMatchObject([{ id: group.id, fields: [] }]);
+    expect(state.formFields.value).toEqual([]);
+    expect(state.listFields.value).toEqual([title]);
+    expect(state.selectedNodeId.value).toBe(`form:group:${group.id}`);
+    expect(state.toManagementUiTree().nodes[1]).toMatchObject({ fields: [], groups: [{ fields: [] }] });
+  });
+
   it('reorders form groups as first-class page components', () => {
     const state = createPageCompositionDraftState();
     state.addFormGroup();

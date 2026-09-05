@@ -31,6 +31,8 @@ import {
   UiInput,
   UiSpin,
   UiTree,
+  useTreeData,
+  type UiTreeLoadRequest,
   type UiTreeNode,
   confirmAction,
 } from '@muyun/vue-ui-antdv';
@@ -125,13 +127,20 @@ const isDrawerWorkspaceView = computed(
 );
 const shouldRenderRoleDetailDrawer = computed(() => !isWorkspaceView.value || isDrawerWorkspaceView.value);
 const scopeTreeNodes = ref<UiTreeNode[]>([]);
+const scopeBranchData = useTreeData({
+  nodes: () => scopeTreeNodes.value,
+  loader: () => loadScopeTreeChildren,
+  version: () => scopeTreeNodes.value,
+});
+const scopeBranchStates = scopeBranchData.states;
+
 const scopeTreeExpandedKeys = ref<string[]>([]);
 const scopeTreeLoading = ref(false);
 const scopeTenants = new Map<string, Tenant>();
 const scopeOrganizations = new Map<string, Organization>();
 const scopeOrganizationTenantIds = new Map<string, string>();
 const visibleScopeTreeNodes = computed(() =>
-  filterScopeTreeNodes(scopeTreeNodes.value, tenantSearchKeyword.value),
+  filterScopeTreeNodes(scopeBranchData.nodes.value, tenantSearchKeyword.value),
 );
 const canSelectPlatformScope = computed(() => currentUser?.value?.system === true);
 const canBrowseTenants = computed(() => currentUser?.value?.system === true);
@@ -541,11 +550,10 @@ function tenantTreeNode(tenant: Tenant): UiTreeNode {
   };
 }
 
-async function loadScopeTreeChildren(node: UiTreeNode) {
+async function loadScopeTreeChildren(node: UiTreeNode, request: UiTreeLoadRequest) {
   const tenantId = tenantIdFromNodeKey(node.key);
-  if (!tenantId || node.children !== undefined) return;
-  const tenant = scopeTenants.get(tenantId);
-  if (!tenant) return;
+  const tenant = tenantId ? scopeTenants.get(tenantId) : undefined;
+  if (!tenantId || !tenant) throw new Error('租户已失效');
   try {
     const scopedContext = createScopedTreeModuleContext(organizationContext, {
       scopeFieldName: 'tenantId',
@@ -554,13 +562,14 @@ async function loadScopeTreeChildren(node: UiTreeNode) {
     });
     await scopedContext.runtime.ready;
     const response = await scopedContext.abilities.tree().tree();
+    request.signal.throwIfAborted();
     const children = [
       tenantRootTreeNode(tenant),
       ...response.records.map((record) => organizationTreeNode(record, tenantId)),
     ];
-    replaceScopeTreeNode(node.key, { ...node, children });
+    return { mode: 'replace' as const, nodes: children, hasMore: false };
   } catch (cause) {
-    presentPlatformError(cause, { source: 'role-management', phase: 'load' });
+    if (!request.signal.aborted) presentPlatformError(cause, { source: 'role-management', phase: 'load' });
     throw cause;
   }
 }
@@ -611,14 +620,6 @@ function handleScopeTreeSelect(node: UiTreeNode) {
     selectedTenant.value = scopeTenants.get(organizationTenantId);
     selectOrganizationScope(organization);
   }
-}
-
-function replaceScopeTreeNode(key: string, replacement: UiTreeNode) {
-  const replace = (nodes: UiTreeNode[]): UiTreeNode[] =>
-    nodes.map((node) =>
-      node.key === key ? replacement : node.children ? { ...node, children: replace(node.children) } : node,
-    );
-  scopeTreeNodes.value = replace(scopeTreeNodes.value);
 }
 
 function tenantNodeKey(id: string | undefined) {
@@ -1431,7 +1432,15 @@ function parseRoleIds(value: unknown) {
               ? organizationNodeKey(selectedScope.id)
               : undefined
         "
-        :load-children="loadScopeTreeChildren"
+        load-strategy="controlled"
+        :branch-states="scopeBranchStates"
+        @load-request="
+          scopeBranchData.request(
+            $event.node.key,
+            $event.reason,
+            scopeBranchData.stateOf($event.node.key).status === 'error',
+          )
+        "
         @select="handleScopeTreeSelect"
         @deselect="clearScopeSelection"
       />

@@ -20,6 +20,7 @@ const UiTreeStub = {
     'allowDrop',
     'allowExternalDrop',
     'dragPayloadType',
+    'dropOperation',
   ],
   template: '<div data-testid="ui-tree-stub" />',
 };
@@ -58,7 +59,19 @@ function dropEvent(
   dropPosition: -1 | 0 | 1,
   dropToGap = true,
 ) {
-  return { dragNode, dropNode, dropPosition, dropToGap };
+  return {
+    source: { instanceId: 'tree', node: dragNode, operations: ['move'] as const },
+    target: {
+      instanceId: 'tree',
+      kind: 'node' as const,
+      node: dropNode,
+      position: (!dropToGap || dropPosition === 0 ? 'inside' : dropPosition < 0 ? 'before' : 'after') as
+        | 'inside'
+        | 'before'
+        | 'after',
+    },
+    operation: 'move' as const,
+  };
 }
 
 describe('PageCompositionTree', () => {
@@ -75,7 +88,10 @@ describe('PageCompositionTree', () => {
     const nodes = tree.props('nodes') as TestNode[];
 
     expect(tree.props('draggable')).toBe(true);
-    expect(tree.props('dragPayloadType')).toBe(PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE);
+    expect(tree.props('dragPayloadType')).toBeUndefined();
+    const operation = tree.props('dropOperation') as (source: { payloadType?: string }) => string;
+    expect(operation({ payloadType: PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE })).toBe('copy');
+    expect(operation({})).toBe('move');
     expect(findNode(nodes, 'ui:template:list:quick-search')).toBeTruthy();
     expect(findNode(nodes, 'ui:slot:list:fields')).toMatchObject({
       title: '列表展示字段',
@@ -202,61 +218,58 @@ describe('PageCompositionTree', () => {
     expect(canDrag({ key: 'ui:template:list:quick-search', title: '快速查询' })).toBe(false);
   });
 
-  it('accepts metadata dropped onto an empty group through the shared external-drop contract', async () => {
+  it('accepts a validated metadata payload into an empty group', () => {
     const wrapper = mountTree({
-      formGroups: [{ id: 'group_1', groupCode: 'group_1', title: '基础信息', fields: [] }],
+      formGroups: [{ id: 'group_1', groupCode: 'group_1', title: '分组', fields: [] }],
     });
     const tree = uiTree(wrapper);
-    const group = findNode(tree.props('nodes') as TestNode[], 'ui:group:form:group_1')!;
-    const allowExternalDrop = tree.props('allowExternalDrop') as (event: {
-      dropNode: typeof group;
-      payloadType?: string;
-      dropPosition: -1 | 0 | 1;
-      dropToGap: boolean;
-    }) => boolean;
-    const nativeEvent = {
-      dataTransfer: { types: [PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE] },
-    } as unknown as DragEvent;
-
-    expect(allowExternalDrop({ dropNode: group, dropPosition: 0, dropToGap: false })).toBe(true);
-    tree.vm.$emit('external-drop', {
-      dropNode: group,
-      dropPosition: 0,
-      dropToGap: false,
-      payloadType: PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
-      nativeEvent,
-    });
-    await wrapper.vm.$nextTick();
-
-    expect(wrapper.emitted('metadata-drop')).toEqual([[{ kind: 'group', groupId: 'group_1' }, nativeEvent]]);
+    const group = findNode(tree.props('nodes'), 'ui:group:form:group_1')!;
+    const event = metadataEvent(group, 'inside');
+    expect(tree.props('allowDrop')(event)).toBe(true);
+    tree.vm.$emit('drop', event);
+    expect(wrapper.emitted('metadata-drop')).toEqual([
+      [{ kind: 'group', groupId: 'group_1' }, event.source.payload],
+    ]);
   });
-
-  it('rejects unrelated external payloads at the shared tree boundary', async () => {
-    const wrapper = mountTree({ listFields: [] });
-    const tree = uiTree(wrapper);
-    const list = findNode(tree.props('nodes') as TestNode[], 'ui:slot:list')!;
-    const allowExternalDrop = tree.props('allowExternalDrop') as (event: {
-      dropNode: typeof list;
-      payloadType?: string;
-      dropPosition: -1 | 0 | 1;
-      dropToGap: boolean;
-    }) => boolean;
+  it('rejects malformed and unrelated external payloads', () => {
+    const tree = uiTree(mountTree({}));
+    const list = findNode(tree.props('nodes'), 'ui:slot:list')!;
+    const event = metadataEvent(list, 'inside');
     expect(
-      allowExternalDrop({
-        dropNode: list,
-        dropPosition: 0,
-        dropToGap: false,
-        payloadType: 'text/plain',
+      tree.props('allowDrop')({ ...event, source: { ...event.source, payloadType: 'text/plain' } }),
+    ).toBe(false);
+    expect(
+      tree.props('allowDrop')({
+        ...event,
+        source: { ...event.source, payload: { kind: 'field', fieldId: {} } },
       }),
     ).toBe(false);
+    expect(parseMetadataDragPayload({ kind: 'field', fieldId: {} })).toBeUndefined();
   });
+});
 
-  it('rejects malformed metadata payloads instead of treating truthy values as ids', () => {
-    const dataTransfer = {
-      types: [PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE],
-      getData: () => JSON.stringify({ kind: 'field', fieldId: { value: 'subject' } }),
-    } as unknown as DataTransfer;
-
-    expect(parseMetadataDragPayload(dataTransfer)).toBeUndefined();
+function metadataEvent(node: TestNode, position: 'before' | 'after' | 'inside') {
+  return {
+    source: {
+      instanceId: 'metadata',
+      node: { key: 'new-field', title: 'New' },
+      operations: ['copy'],
+      payloadType: PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+      payload: { kind: 'field', fieldId: 'new-field' },
+    },
+    target: { instanceId: 'page', kind: 'node', node, position },
+    operation: 'copy',
+  };
+}
+it('preserves external field insertion index for a group', () => {
+  const wrapper = mountTree({
+    formGroups: [{ id: 'group_1', groupCode: 'group_1', title: '分组', fields: [subject, examDate] }],
   });
+  const tree = uiTree(wrapper);
+  const target = findNode(tree.props('nodes'), 'ui:group-field:form:group_1:exam-date')!;
+  const event = metadataEvent(target, 'before');
+  tree.vm.$emit('drop', event);
+  expect(wrapper.emitted('metadata-drop')).toEqual([
+    [{ kind: 'group', groupId: 'group_1', index: 1 }, event.source.payload],
+  ]);
 });
