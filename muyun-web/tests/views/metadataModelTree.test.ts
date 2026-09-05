@@ -62,15 +62,27 @@ it('admits only same-parent same-kind gap reorders', () => {
     parentRelationId: 'main',
     draggable: true,
   };
-  expect(canReorderMetadataModelTree({ dragNode: fieldLeft, dropNode: fieldRight, dropToGap: true })).toBe(
-    true,
-  );
-  expect(canReorderMetadataModelTree({ dragNode: fieldLeft, dropNode: metadata, dropToGap: true })).toBe(
-    false,
-  );
-  expect(canReorderMetadataModelTree({ dragNode: fieldLeft, dropNode: fieldRight, dropToGap: false })).toBe(
-    false,
-  );
+  expect(
+    canReorderMetadataModelTree({
+      source: { instanceId: 'tree', node: fieldLeft, operations: ['move'] as const },
+      target: { instanceId: 'tree', kind: 'node' as const, node: fieldRight, position: 'after' as const },
+      operation: 'move' as const,
+    }),
+  ).toBe(true);
+  expect(
+    canReorderMetadataModelTree({
+      source: { instanceId: 'tree', node: fieldLeft, operations: ['move'] as const },
+      target: { instanceId: 'tree', kind: 'node' as const, node: metadata, position: 'after' as const },
+      operation: 'move' as const,
+    }),
+  ).toBe(false);
+  expect(
+    canReorderMetadataModelTree({
+      source: { instanceId: 'tree', node: fieldLeft, operations: ['move'] as const },
+      target: { instanceId: 'tree', kind: 'node' as const, node: fieldRight, position: 'inside' as const },
+      operation: 'move' as const,
+    }),
+  ).toBe(false);
 });
 
 it('moves an identifier only within its semantic sibling sequence', () => {

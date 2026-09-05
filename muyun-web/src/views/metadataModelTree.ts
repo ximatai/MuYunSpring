@@ -127,13 +127,17 @@ export function parseMetadataModelTreeKey(
 }
 
 /** Only same-parent gap drops are legal. Dropping "on" a node would imply changing model structure. */
-export function canReorderMetadataModelTree(
-  event: Pick<UiTreeDropEvent, 'dragNode' | 'dropNode' | 'dropToGap'>,
-): boolean {
-  const drag = event.dragNode as MetadataModelTreeNode;
-  const drop = event.dropNode as MetadataModelTreeNode;
+export function canReorderMetadataModelTree(event: UiTreeDropEvent): boolean {
+  if (
+    event.target.kind !== 'node' ||
+    event.source.instanceId !== event.target.instanceId ||
+    event.operation !== 'move'
+  )
+    return false;
+  const drag = event.source.node as MetadataModelTreeNode;
+  const drop = event.target.node as MetadataModelTreeNode;
   return Boolean(
-    event.dropToGap &&
+    event.target.position !== 'inside' &&
     drag.draggable &&
     drop.draggable &&
     drag.modelKind === drop.modelKind &&

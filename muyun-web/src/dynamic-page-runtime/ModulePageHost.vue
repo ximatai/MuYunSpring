@@ -2124,6 +2124,12 @@ function clearTreeRecordSelection() {
   editingRecord.value = undefined;
 }
 
+function handleTreeSorted() {
+  if (selectedTreeRecord.value && editorMode.value === 'view' && !saving.value) {
+    void openRecord(selectedTreeRecord.value, 'view');
+  }
+}
+
 function handleTreeLoaded(records: unknown[]) {
   setCardAssistantRecords(records as QueryListRecord[]);
   if (selectedTreeRecord.value || editorMode.value !== 'view') return;
@@ -3238,6 +3244,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             @select="selectTreeRecord"
             @deselect="clearTreeRecordSelection"
             @loaded="handleTreeLoaded"
+            @sorted="handleTreeSorted"
           />
           <RecordPanelState v-else :description="mainTreeScopeDescription" />
         </RecordExplorerPanel>

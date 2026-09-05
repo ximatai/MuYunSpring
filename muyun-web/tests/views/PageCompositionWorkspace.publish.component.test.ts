@@ -138,6 +138,55 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(wrapper.text()).toContain('学生姓名');
   });
 
+  it('keeps runtime-reserved metadata out of page composition sources', async () => {
+    configureModuleContext({
+      http: publicationFlowHttp([], initialTree(), [
+        {
+          id: 'field-id',
+          fieldName: 'id',
+          title: 'ID',
+          fieldOwnership: 'STANDARD',
+          systemManaged: true,
+        },
+        {
+          id: 'field-tenant',
+          fieldName: 'tenantId',
+          title: '租户',
+          fieldOwnership: 'STANDARD',
+          systemManaged: true,
+        },
+        {
+          id: 'field-enabled',
+          fieldName: 'enabled',
+          title: '启用',
+          fieldOwnership: 'STANDARD',
+          systemManaged: true,
+        },
+        {
+          id: 'field-title',
+          fieldName: 'title',
+          title: '考试名称',
+          fieldOwnership: 'BUSINESS',
+          fieldForm: 'PHYSICAL',
+        },
+      ]),
+    });
+
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const metadataTree = wrapper.findComponent({ name: 'UiTree' });
+    const nodes = metadataTree.props('nodes');
+    expect(treeNode(nodes, 'metadata:field:field-id')).toBeUndefined();
+    expect(treeNode(nodes, 'metadata:field:field-tenant')).toBeUndefined();
+    expect(treeNode(nodes, 'metadata:field:field-enabled')).toBeDefined();
+    expect(treeNode(nodes, 'metadata:field:field-title')).toBeDefined();
+  });
+
   it('accepts a metadata field through the dedicated composer-tree drop contract', async () => {
     configureModuleContext({ http: publicationFlowHttp([]) });
     const wrapper = mount(PageCompositionWorkspace, {
@@ -151,13 +200,98 @@ describe('PageCompositionWorkspace publication flow', () => {
     const pageTree = wrapper.findComponent(PageCompositionTree);
     const metadataField = treeNode(metadataTree.props('nodes'), 'metadata:field:field-title');
     expect(metadataField).toBeDefined();
-    expect(metadataTree.props('nativeDragSource')).toBe(true);
+    expect(metadataTree.props('dragOperations')).toEqual(['copy']);
 
-    metadataTree.vm.$emit('drag-start', { node: metadataField, nativeEvent: undefined });
-    pageTree.vm.$emit('metadata-drop', { kind: 'list' }, { dataTransfer: undefined });
+    pageTree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
     await flushPromises();
 
     expect(pageTree.props('listFields')).toMatchObject([{ id: 'field-title', title: '考试名称' }]);
+  });
+
+  it.each(['list', 'form', 'group'] as const)(
+    'inserts and reorders metadata fields at the indicated %s position',
+    async (kind) => {
+      configureModuleContext({
+        http: publicationFlowHttp(
+          [],
+          JSON.stringify({
+            template: 'management',
+            templateVersion: 1,
+            nodes: [
+              {
+                slot: kind === 'list' ? 'list' : 'form',
+                fields: kind === 'group' ? [] : ['other'],
+                ...(kind === 'group'
+                  ? { groups: [{ group: 'target', title: '目标分组', fields: ['other'] }] }
+                  : {}),
+              },
+            ],
+          }),
+          [
+            {
+              id: 'field-title',
+              fieldName: 'title',
+              title: '考试名称',
+              fieldOwnership: 'BUSINESS',
+              fieldForm: 'PHYSICAL',
+            },
+            {
+              id: 'field-other',
+              fieldName: 'other',
+              title: '其他字段',
+              fieldOwnership: 'BUSINESS',
+              fieldForm: 'PHYSICAL',
+            },
+          ],
+        ),
+      });
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam' },
+        global: { stubs: workspaceStubs() },
+      });
+      await flushPromises();
+      await flushPromises();
+      const pageTree = wrapper.findComponent(PageCompositionTree);
+      const target = kind === 'group' ? { kind, groupId: 'target' } : { kind };
+      const fields = () =>
+        kind === 'group'
+          ? pageTree.props('formGroups')[0].fields
+          : pageTree.props(kind === 'list' ? 'listFields' : 'formFields');
+
+      pageTree.vm.$emit('metadata-drop', { ...target, index: 0 }, metadataDrop());
+      await flushPromises();
+      expect(fields().map((field: { id: string }) => field.id)).toEqual(['field-title', 'field-other']);
+
+      pageTree.vm.$emit('metadata-drop', { ...target, index: 1 }, metadataDrop());
+      await flushPromises();
+      expect(fields().map((field: { id: string }) => field.id)).toEqual(['field-other', 'field-title']);
+      wrapper.unmount();
+    },
+  );
+
+  it('rejects missing and malformed drops even after a prior metadata drag', async () => {
+    configureModuleContext({ http: publicationFlowHttp([]) });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+    const metadataTree = wrapper.findComponent({ name: 'UiTree' });
+    const pageTree = wrapper.findComponent(PageCompositionTree);
+    metadataTree.vm.$emit('drag-start', {
+      node: treeNode(metadataTree.props('nodes'), 'metadata:field:field-title'),
+    });
+    for (const dataTransfer of [
+      undefined,
+      { getData: () => '{' },
+      { getData: () => '{"kind":"field","fieldId":{}}' },
+    ]) {
+      pageTree.vm.$emit('metadata-drop', { kind: 'list' }, { dataTransfer });
+      await flushPromises();
+      expect(pageTree.props('listFields')).toEqual([]);
+    }
+    wrapper.unmount();
   });
 
   it('accepts a metadata field dropped directly onto the active preview and updates the draft slot', async () => {
@@ -178,14 +312,123 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(metadataField).toBeDefined();
     expect(preview.exists()).toBe(true);
 
-    metadataTree.vm.$emit('drag-start', { node: metadataField, nativeEvent: undefined });
-    preview.vm.$emit('metadata-drop', 'list', { dataTransfer: undefined });
+    preview.vm.$emit('metadata-drop', 'list', metadataDrop());
     await flushPromises();
 
     expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toMatchObject([
       { id: 'field-title', title: '考试名称' },
     ]);
     expect(wrapper.text()).toContain('列表预览');
+  });
+
+  it('repositions an already placed form field when dropped onto another group', async () => {
+    configureModuleContext({
+      http: publicationFlowHttp(
+        [],
+        JSON.stringify({
+          template: 'management',
+          templateVersion: 1,
+          nodes: [
+            {
+              slot: 'form',
+              title: '详情 / 表单',
+              fields: [],
+              groups: [
+                { group: 'source', title: '来源分组', fields: ['title'] },
+                { group: 'target', title: '目标分组', fields: [] },
+              ],
+            },
+          ],
+        }),
+      ),
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const metadataTree = wrapper.findComponent({ name: 'UiTree' });
+    const pageTree = wrapper.findComponent(PageCompositionTree);
+    const metadataField = treeNode(metadataTree.props('nodes'), 'metadata:field:field-title');
+    expect(metadataField).toBeDefined();
+
+    pageTree.vm.$emit('metadata-drop', { kind: 'group', groupId: 'target' }, metadataDrop());
+    await flushPromises();
+
+    expect(pageTree.props('formGroups')).toMatchObject([
+      { id: 'source', fields: [] },
+      { id: 'target', fields: [{ id: 'field-title' }] },
+    ]);
+  });
+
+  it('removes a grouped field through the toolbar and reports a removal', async () => {
+    configureModuleContext({
+      http: publicationFlowHttp(
+        [],
+        JSON.stringify({
+          template: 'management',
+          templateVersion: 1,
+          nodes: [
+            { slot: 'list', fields: ['title'] },
+            { slot: 'form', fields: [], groups: [{ group: 'target', title: '目标分组', fields: ['title'] }] },
+          ],
+        }),
+      ),
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+    const tree = wrapper.findComponent(PageCompositionTree);
+    tree.vm.$emit('select', 'ui:group-field:form:target:field-title');
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '移除')!
+      .trigger('click');
+    await flushPromises();
+
+    expect(tree.props('formGroups')).toMatchObject([{ id: 'target', fields: [] }]);
+    expect(tree.props('formFields')).toEqual([]);
+    expect(tree.props('listFields')).toMatchObject([{ id: 'field-title' }]);
+    expect(wrapper.text()).toContain('移除 1 个字段');
+    expect(wrapper.text()).not.toContain('新增 1 个字段');
+    wrapper.unmount();
+  });
+
+  it('sends the dropped draft to the live preview resolver', async () => {
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({ http: publicationFlowHttp(requests) });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const metadataTree = wrapper.findComponent({ name: 'UiTree' });
+    await vi.waitFor(() =>
+      expect(wrapper.findComponent(PageCompositionDescriptorPreview).exists()).toBe(true),
+    );
+    const preview = wrapper.findComponent(PageCompositionDescriptorPreview);
+    const metadataField = treeNode(metadataTree.props('nodes'), 'metadata:field:field-title');
+    expect(metadataField).toBeDefined();
+    const before = requests.filter((request) => request.path.endsWith('/preview')).length;
+
+    preview.vm.$emit('metadata-drop', 'list', metadataDrop());
+
+    await vi.waitFor(
+      () => {
+        const previewRequests = requests.filter((request) => request.path.endsWith('/preview'));
+        expect(previewRequests.length).toBeGreaterThan(before);
+        expect(JSON.stringify(previewRequests.at(-1)?.body)).toContain('title');
+      },
+      { timeout: 1000 },
+    );
   });
 
   it('rehydrates persisted page structure into the editor tree and preview state', async () => {
@@ -237,6 +480,63 @@ describe('PageCompositionWorkspace publication flow', () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it('selects a grouped field when the live preview reports its runtime field name', async () => {
+    configureModuleContext({
+      http: publicationFlowHttp(
+        [],
+        JSON.stringify({
+          template: 'management',
+          templateVersion: 1,
+          nodes: [
+            {
+              slot: 'form',
+              title: '详情 / 表单',
+              fields: [],
+              groups: [{ group: 'basic', title: '基础信息', fields: ['title'] }],
+            },
+          ],
+        }),
+        undefined,
+        {
+          schemaVersion: '1',
+          moduleAlias: 'education.exam',
+          page: {
+            template: 'FLAT_MANAGEMENT',
+            detail: {
+              emptyDescription: '暂无详情',
+              createTitle: '新建',
+              editor: {
+                viewCode: 'editor',
+                viewKind: 'FORM',
+                fields: [{ fieldRef: { fieldName: 'title' }, label: '考试名称', uiType: 'input' }],
+              },
+            },
+          },
+        },
+      ),
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const pageTree = wrapper.findComponent(PageCompositionTree);
+    pageTree.vm.$emit('select', 'ui:group-field:form:basic:field-title');
+    await flushPromises();
+    await vi.waitFor(() =>
+      expect(wrapper.findComponent(PageCompositionDescriptorPreview).exists()).toBe(true),
+    );
+    const preview = wrapper.findComponent(PageCompositionDescriptorPreview);
+    expect(preview.props('mode')).toBe('edit');
+
+    preview.vm.$emit('selectField', 'form', 'title');
+    await flushPromises();
+
+    expect(pageTree.props('selectedKey')).toBe('ui:group-field:form:basic:field-title');
   });
 
   it('keeps first-class group ordering available as a visible fallback to drag sorting', async () => {
@@ -294,19 +594,55 @@ function page(records: unknown[]) {
   return { records, pages: 1, totalKnown: true };
 }
 
-function publicationFlowHttp(requests: HttpRequestOptions[], draftTree = initialTree()): HttpClient {
+type MetadataFieldFixture = {
+  id: string;
+  fieldName: string;
+  title: string;
+  fieldOwnership: string;
+  fieldForm?: string;
+  systemManaged?: boolean;
+};
+
+function publicationFlowHttp(
+  requests: HttpRequestOptions[],
+  draftTree = initialTree(),
+  mainFields: MetadataFieldFixture[] = [
+    {
+      id: 'field-title',
+      fieldName: 'title',
+      title: '考试名称',
+      fieldOwnership: 'BUSINESS',
+      fieldForm: 'PHYSICAL',
+    },
+  ],
+  previewDescriptor: unknown = {},
+): HttpClient {
   let published = false;
   return {
     request: <T>(options: HttpRequestOptions) => {
       requests.push(options);
-      const response = responseFor(options, published, draftTree);
+      const response = responseFor(options, published, draftTree, mainFields, previewDescriptor);
       if (options.path === '/platform.presentation_publish/revisions/revision-1/publish') published = true;
       return Promise.resolve(response as T);
     },
   };
 }
 
-function responseFor(options: HttpRequestOptions, published: boolean, draftTree = initialTree()) {
+function responseFor(
+  options: HttpRequestOptions,
+  published: boolean,
+  draftTree = initialTree(),
+  mainFields: MetadataFieldFixture[] = [
+    {
+      id: 'field-title',
+      fieldName: 'title',
+      title: '考试名称',
+      fieldOwnership: 'BUSINESS',
+      fieldForm: 'PHYSICAL',
+    },
+  ],
+  previewDescriptor: unknown = {},
+) {
   if (options.path === '/platform.module/platform.module/context') {
     return { moduleAlias: 'platform.module', capabilities: [], actions: [] };
   }
@@ -328,15 +664,7 @@ function responseFor(options: HttpRequestOptions, published: boolean, draftTree 
   }
   if (options.path === '/platform.metadata/metadata-1/fields/query') {
     return {
-      records: [
-        {
-          id: 'field-title',
-          fieldName: 'title',
-          title: '考试名称',
-          fieldOwnership: 'BUSINESS',
-          fieldForm: 'PHYSICAL',
-        },
-      ],
+      records: mainFields,
       pages: 1,
       totalKnown: true,
     };
@@ -414,7 +742,12 @@ function responseFor(options: HttpRequestOptions, published: boolean, draftTree 
   }
   if (options.path === '/platform.presentation_publish/revisions/revision-1/publish') return 1;
   if (options.path === '/platform.presentation-variant/variant-1/revisions/revision-1/preview') {
-    return { pageId: 'page-1', variantId: 'variant-1', revisionId: 'revision-1', uiDescriptor: {} };
+    return {
+      pageId: 'page-1',
+      variantId: 'variant-1',
+      revisionId: 'revision-1',
+      uiDescriptor: previewDescriptor,
+    };
   }
   throw new Error(`Unexpected request: ${options.method ?? 'GET'} ${options.path}`);
 }
@@ -443,10 +776,14 @@ function workspaceStubs() {
     UiTabs: { template: '<div><slot /></div>' },
     UiTree: {
       name: 'UiTree',
-      props: { nodes: Array, nativeDragSource: Boolean },
+      props: { nodes: Array, dragOperations: Array },
       emits: ['drag-start', 'external-drop'],
       template: '<div>{{ JSON.stringify(nodes) }}</div>',
     },
     UiEmpty: { template: '<div><slot /></div>' },
   };
+}
+
+function metadataDrop() {
+  return { kind: 'field', fieldId: 'field-title' };
 }

@@ -51,7 +51,7 @@ it('record list explorer exposes visible secondary identity text', () => {
   );
   assert.match(treeSource, /const item = props\.itemOf\?\.\(record\)/);
   assert.match(treeSource, /secondary: item\?\.secondary \?\? props\.secondaryOf\?\.\(record\)/);
-  assert.match(uiTreeSource, /#title="\{ key, title, secondary, tag, muted, actions \}"/);
+  assert.match(uiTreeSource, /#title="\{ key, title, secondary, tag, muted(?:, disabled)?, actions \}"/);
   assert.match(uiTreeSource, /:secondary="secondary"/);
 });
 
@@ -227,8 +227,7 @@ it('record containers delegate chain errors to page feedback', () => {
   assert.match(treeSource, /emit\('loaded', \[\]\)/);
   assert.match(crudListSource, /records\.value = \[\]/);
   assert.match(crudListSource, /emit\('loaded', \[\]\)/);
-  assert.notMatch(treeSource, /loadError/);
-  assert.notMatch(crudListSource, /loadError/);
+
   assert.notMatch(treeSource, /UiError/);
   assert.notMatch(crudListSource, /UiError/);
   assert.notMatch(layoutSource, /actionError/);
@@ -506,14 +505,16 @@ it('role scope navigation uses the platform tree with deferred children', () => 
   const treeSource = readSource('src/vue-ui-antdv/components/UiTree.vue');
 
   assert.match(roleSource, /<UiTree/);
-  assert.match(roleSource, /:load-children="loadScopeTreeChildren"/);
+  assert.match(roleSource, /load-strategy="controlled"/);
+  assert.match(roleSource, /:branch-states="scopeBranchStates"/);
+  assert.match(roleSource, /useTreeData/);
   assert.match(roleSource, /tenantRootTreeNode/);
   assert.match(roleSource, /organizationTreeNode/);
   assert.match(roleSource, /createScopedTreeModuleContext/);
-  assert.match(treeSource, /loadChildren\?: \(\n\s+node: UiTreeNode,\n\s+request\?: UiTreeLoadRequest,/);
+  assert.match(treeSource, /useTreeLoader/);
   assert.match(treeSource, /loadStrategy\?: UiTreeLoadStrategy/);
   assert.match(treeSource, /event\?\.expanded/);
-  assert.match(treeSource, /nativeDragSource\?: boolean/);
+  assert.notMatch(treeSource, /nativeDragSource/);
 });
 
 it('application scope switcher remains a platform component for legacy scoped pages', () => {

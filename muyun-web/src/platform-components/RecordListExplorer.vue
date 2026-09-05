@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
   UiEmpty,
   UiTree,
   type UiRecordInlineAction,
   type UiTreeDropEvent,
+  type UiTreeChangeReason,
   type UiTreeNode,
 } from '@muyun/vue-ui-antdv';
 import type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
@@ -27,6 +28,7 @@ const props = withDefaults(
     /** Provides the stable unique identity used by selection, Vue keys and drag commands. */
     keyOf?: (record: RecordListExplorerRecord) => string | undefined;
     keyword?: string;
+    changeReason?: UiTreeChangeReason;
     emptyDescription?: string;
     titleOf?: (record: RecordListExplorerRecord) => string;
     codeOf?: (record: RecordListExplorerRecord) => string | undefined;
@@ -44,6 +46,7 @@ const props = withDefaults(
     selectedId: undefined,
     keyOf: undefined,
     keyword: '',
+    changeReason: 'interaction',
     emptyDescription: '暂无记录',
     titleOf: undefined,
     codeOf: undefined,
@@ -67,6 +70,17 @@ const emit = defineEmits<{
 }>();
 
 const normalizedKeyword = computed(() => props.keyword.trim().toLowerCase());
+const filterChanged = ref(false);
+watch(normalizedKeyword, () => {
+  filterChanged.value = true;
+});
+watch(
+  () => props.records,
+  () => {
+    filterChanged.value = false;
+  },
+);
+
 const sortingEnabled = computed(() => props.sorting && !normalizedKeyword.value);
 const filteredRecords = computed(() => {
   if (!normalizedKeyword.value) {
@@ -172,14 +186,20 @@ function sameSortPartition(left: RecordListExplorerRecord, right: RecordListExpl
   return leftPartition !== undefined && leftPartition === rightPartition;
 }
 
-function canDropNode(event: Pick<UiTreeDropEvent, 'dragNode' | 'dropNode' | 'dropPosition' | 'dropToGap'>) {
-  if (!sortingEnabled.value || !event.dropToGap || event.dropPosition === 0) return false;
-  const dragRecord = recordOfNode(event.dragNode);
-  const dropRecord = recordOfNode(event.dropNode);
+function canDropNode(event: UiTreeDropEvent) {
+  if (
+    event.target.kind !== 'node' ||
+    event.source.instanceId !== event.target.instanceId ||
+    event.operation !== 'move'
+  )
+    return false;
+  if (!sortingEnabled.value || event.target.position === 'inside') return false;
+  const dragRecord = recordOfNode(event.source.node);
+  const dropRecord = recordOfNode(event.target.node);
   return Boolean(
     dragRecord &&
     dropRecord &&
-    event.dragNode.key !== event.dropNode.key &&
+    event.source.node.key !== event.target.node.key &&
     sameSortPartition(dragRecord, dropRecord),
   );
 }
@@ -189,11 +209,16 @@ function canDragNode(node: UiTreeNode) {
 }
 
 function handleDrop(event: UiTreeDropEvent) {
+  if (event.target.kind !== 'node') return;
   if (!canDropNode(event)) return;
-  const dragRecord = recordOfNode(event.dragNode);
-  const dropRecord = recordOfNode(event.dropNode);
+  const dragRecord = recordOfNode(event.source.node);
+  const dropRecord = recordOfNode(event.target.node);
   if (dragRecord && dropRecord) {
-    emit('sort', { dragRecord, dropRecord, position: event.dropPosition as -1 | 1 });
+    emit('sort', {
+      dragRecord,
+      dropRecord,
+      position: (event.target.position === 'before' ? -1 : 1) as -1 | 1,
+    });
   }
 }
 
@@ -215,6 +240,7 @@ function handleNodeAction(action: UiRecordInlineAction, node: UiTreeNode) {
     class="record-list-explorer"
     display-mode="flat"
     :nodes="treeNodes"
+    :change-reason="normalizedKeyword || filterChanged ? 'filter' : changeReason"
     :selected-key="selectedId"
     :draggable="sortingEnabled"
     :can-drag="canDragNode"

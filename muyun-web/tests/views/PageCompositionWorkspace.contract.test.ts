@@ -10,6 +10,8 @@ it('keeps management quick search as a constrained template component', () => {
   const draftStateSource = readSource('src/views/pageCompositionDraftState.ts');
 
   assert.match(treeSource, /ui:template:list:quick-search/);
+  assert.match(treeSource, /<UiTree/);
+  assert.ok(!/VueDraggable|SortableEvent|vue-draggable-plus/.test(treeSource));
   assert.match(treeSource, /快速查询/);
   assert.match(treeSource, /可配置占位提示/);
   assert.match(workspaceSource, /selectedQuickSearch\.value \? '配置：快速查询占位提示'/);

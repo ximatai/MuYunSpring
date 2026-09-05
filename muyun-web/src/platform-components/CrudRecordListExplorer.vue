@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { confirmAction, UiSpin, type UiRecordInlineAction } from '@muyun/vue-ui-antdv';
+import {
+  confirmAction,
+  UiSpin,
+  UiButton,
+  type UiTreeChangeReason,
+  type UiRecordInlineAction,
+} from '@muyun/vue-ui-antdv';
 import { canQueryRecycleBin, hasRecycleBinAbility, type ModuleContext } from '@muyun/web-core';
 import RecordListExplorer, { type RecordListExplorerRecord } from './RecordListExplorer.vue';
 import type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
@@ -77,6 +83,8 @@ const emit = defineEmits<{
 }>();
 
 const loading = ref(false);
+const loadError = ref(false);
+const changeReason = ref<UiTreeChangeReason>('reset');
 const sortingRequest = ref(false);
 const records = ref<CrudRecordListBase[]>([]);
 let recordsRequestSeq = 0;
@@ -96,7 +104,12 @@ const recycleBinEnabled = computed(() => hasRecycleBinAbility(props.context));
 
 const listRecords = computed<RecordListExplorerRecord[]>(() => records.value);
 const sortingEnabled = computed(
-  () => props.sorting && props.mode === 'normal' && !sortingRequest.value && !props.keyword.trim(),
+  () =>
+    props.sorting &&
+    props.mode === 'normal' &&
+    !loading.value &&
+    !sortingRequest.value &&
+    !props.keyword.trim(),
 );
 
 /**
@@ -143,9 +156,11 @@ watch(
   () => loadRecords(),
 );
 
-async function loadRecords() {
+async function loadRecords(reason: UiTreeChangeReason = 'reset') {
   const requestSeq = ++recordsRequestSeq;
   loading.value = true;
+  loadError.value = false;
+  if (reason === 'reset') records.value = [];
   try {
     await props.context.runtime.ready;
     if (props.mode === 'recycleBin') {
@@ -168,13 +183,17 @@ async function loadRecords() {
         : {}),
     });
     if (requestSeq !== recordsRequestSeq) return;
+    changeReason.value = reason;
     records.value = response.records;
     emit('loaded', response.records);
     if (canQueryRecycleBin(props.context)) void recycleBinState.refreshSummary();
   } catch (cause) {
     if (requestSeq !== recordsRequestSeq) return;
-    records.value = [];
-    emit('loaded', []);
+    loadError.value = true;
+    if (reason === 'reset') {
+      records.value = [];
+      emit('loaded', []);
+    }
     presentPlatformError(cause, { source: 'crud-record-list-explorer', phase: 'load' });
   } finally {
     if (requestSeq === recordsRequestSeq) loading.value = false;
@@ -267,14 +286,17 @@ async function handleSort(event: {
   if (!sort) return;
 
   sortingRequest.value = true;
+  const context = props.context;
+  const scopeVersion = recordsRequestSeq;
   try {
     await props.context.runtime.ready;
     await sort(dragId, {
       previousId: reordered[movedIndex - 1]?.id == null ? null : String(reordered[movedIndex - 1].id),
       nextId: reordered[movedIndex + 1]?.id == null ? null : String(reordered[movedIndex + 1].id),
     });
+    if (context !== props.context || scopeVersion !== recordsRequestSeq) return;
+    await loadRecords('interaction');
     emit('sorted');
-    await loadRecords();
   } catch (cause) {
     presentPlatformError(cause, { source: 'crud-record-list-explorer', phase: 'action' });
   } finally {
@@ -315,10 +337,12 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
 
 <template>
   <div class="crud-record-list-explorer">
-    <UiSpin v-if="loading" :tip="loadingTip" />
+    <UiButton v-if="loadError" type="text" @click="loadRecords()">重新加载</UiButton>
+    <UiSpin v-if="loading && records.length === 0" :tip="loadingTip" />
     <RecordListExplorer
       v-else
       :records="listRecords"
+      :change-reason="changeReason"
       :selected-id="selectedId"
       :key-of="(record) => record.id"
       :keyword="keyword"

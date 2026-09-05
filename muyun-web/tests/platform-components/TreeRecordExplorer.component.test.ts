@@ -117,15 +117,19 @@ it('persists same-parent vertical drops through the standard tree sort contract'
   const tree = wrapper.findComponent({ name: 'UiTree' });
   assert.isTrue(tree.props('draggable'));
   tree.vm.$emit('drop', {
-    dragNode: { key: 'first', title: 'first' },
-    dropNode: { key: 'second', title: 'second' },
-    dropPosition: 1,
-    dropToGap: true,
+    source: { instanceId: 'tree', node: { key: 'first', title: 'first' }, operations: ['move'] as const },
+    target: {
+      instanceId: 'tree',
+      kind: 'node' as const,
+      node: { key: 'second', title: 'second' },
+      position: 'after' as const,
+    },
+    operation: 'move' as const,
   });
   await flushPromises();
 
   assert.deepEqual(sortCalls, [
-    { id: 'first', request: { previousId: 'second', nextId: null, parentId: null } },
+    { id: 'first', request: { previousId: 'second', nextId: null, parentId: 'root' } },
   ]);
   assert.deepEqual(wrapper.emitted('sorted'), [[]]);
   wrapper.unmount();
@@ -160,14 +164,238 @@ it('rejects tree drops across a runtime-declared sort partition', async () => {
 
   await flushPromises();
   wrapper.findComponent({ name: 'UiTree' }).vm.$emit('drop', {
-    dragNode: { key: 'first' },
-    dropNode: { key: 'second' },
-    dropPosition: 1,
-    dropToGap: true,
+    source: { instanceId: 'tree', node: { key: 'first' }, operations: ['move'] as const },
+    target: {
+      instanceId: 'tree',
+      kind: 'node' as const,
+      node: { key: 'second' },
+      position: 'after' as const,
+    },
+    operation: 'move' as const,
   });
   await flushPromises();
 
   assert.deepEqual(sortCalls, []);
+  wrapper.unmount();
+});
+
+it('chooses tree sort neighbors only within the runtime partition', async () => {
+  const sortCalls: Array<{ id: string; request: unknown }> = [];
+  const records = ['first', 'foreign', 'second', 'last'].map((id) => ({
+    record: { id, title: id, scope: id === 'foreign' ? 'b' : 'a' },
+    children: [],
+  }));
+  const context = {
+    moduleAlias: 'iam.organization',
+    runtime: { ready: Promise.resolve(), snapshot: () => ({ sortPartitionFields: ['scope'] }) },
+    abilities: {
+      tree: () => ({
+        tree: async () => ({ records }),
+        sort: async (id: string, request: unknown) => sortCalls.push({ id, request }),
+      }),
+    },
+  } as unknown as ModuleContext<TreeRecordBase>;
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context, sorting: true, searchMode: 'none' },
+    global: { stubs: { UiSpin: true, UiEmpty: true, UiTree: { name: 'UiTree', template: '<div />' } } },
+  });
+  await flushPromises();
+  wrapper.findComponent({ name: 'UiTree' }).vm.$emit('drop', {
+    source: { instanceId: 'tree', node: { key: 'last' }, operations: ['move'] as const },
+    target: {
+      instanceId: 'tree',
+      kind: 'node' as const,
+      node: { key: 'second' },
+      position: 'before' as const,
+    },
+    operation: 'move' as const,
+  });
+  await flushPromises();
+  assert.deepEqual(sortCalls, [
+    { id: 'last', request: { previousId: 'first', nextId: 'second', parentId: 'root' } },
+  ]);
+  wrapper.unmount();
+});
+
+it('does not persist a same-parent drop that leaves the tree order unchanged', async () => {
+  const sortCalls: unknown[] = [];
+  const records = [
+    { record: { id: 'first', title: 'first' }, children: [] },
+    { record: { id: 'second', title: 'second' }, children: [] },
+  ];
+  const context = {
+    moduleAlias: 'iam.organization',
+    runtime: { ready: Promise.resolve(), snapshot: () => ({ sortPartitionFields: [] }) },
+    abilities: {
+      tree: () => ({
+        tree: async () => ({ records }),
+        sort: async (...args: unknown[]) => sortCalls.push(args),
+      }),
+    },
+  } as unknown as ModuleContext<TreeRecordBase>;
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context, sorting: true, searchMode: 'none' },
+    global: {
+      stubs: {
+        UiSpin: { template: '<div />' },
+        UiEmpty: { template: '<div />' },
+        UiTree: { name: 'UiTree', template: '<div />' },
+      },
+    },
+  });
+
+  await flushPromises();
+  wrapper.findComponent({ name: 'UiTree' }).vm.$emit('drop', {
+    source: { instanceId: 'tree', node: { key: 'first' }, operations: ['move'] as const },
+    target: {
+      instanceId: 'tree',
+      kind: 'node' as const,
+      node: { key: 'second' },
+      position: 'before' as const,
+    },
+    operation: 'move' as const,
+  });
+  await flushPromises();
+
+  assert.deepEqual(sortCalls, []);
+  assert.isUndefined(wrapper.emitted('sorted'));
+  wrapper.unmount();
+});
+
+it('persists module sibling moves with the parent and correct boundary neighbors', async () => {
+  const sortCalls: Array<{ id: string; request: unknown }> = [];
+  const records = [
+    {
+      record: { id: 'platform-application', title: '平台应用' },
+      children: [
+        { record: { id: 'module-first', title: '第一个模块' }, children: [] },
+        { record: { id: 'module-last', title: '最后一个模块' }, children: [] },
+      ],
+    },
+  ];
+  const context = {
+    moduleAlias: 'platform.module',
+    runtime: { ready: Promise.resolve(), snapshot: () => ({ sortPartitionFields: [] }) },
+    abilities: {
+      tree: () => ({
+        tree: async () => ({ records }),
+        sort: async (id: string, request: unknown) => sortCalls.push({ id, request }),
+      }),
+    },
+  } as unknown as ModuleContext<TreeRecordBase>;
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context, sorting: true, searchMode: 'none' },
+    global: {
+      stubs: {
+        UiSpin: { template: '<div />' },
+        UiEmpty: { template: '<div />' },
+        UiTree: {
+          name: 'UiTree',
+          props: ['nodes', 'draggable', 'canDrag', 'allowDrop'],
+          template: '<div />',
+        },
+      },
+    },
+  });
+
+  await flushPromises();
+  const tree = wrapper.findComponent({ name: 'UiTree' });
+  assert.isTrue(tree.props('draggable'));
+  const allowDrop = tree.props('allowDrop') as (event: unknown) => boolean;
+  const event = (overrides: Record<string, unknown> = {}) => ({
+    source: { instanceId: 'tree', node: { key: 'module-last' }, operations: ['move'] as const },
+    target: {
+      instanceId: 'tree',
+      kind: 'node' as const,
+      node: { key: 'module-first' },
+      position: 'before' as const,
+    },
+    operation: 'move' as const,
+    ...overrides,
+  });
+
+  assert.isTrue(allowDrop(event()));
+  assert.isTrue(
+    allowDrop(
+      event({
+        target: { kind: 'node', instanceId: 'tree', node: { key: 'module-first' }, position: 'inside' },
+      }),
+    ),
+  );
+  assert.isFalse(
+    allowDrop(
+      event({
+        target: { kind: 'node', instanceId: 'tree', node: { key: 'module-last' }, position: 'inside' },
+      }),
+    ),
+  );
+  assert.isTrue(
+    allowDrop(
+      event({
+        target: {
+          kind: 'node',
+          instanceId: 'tree',
+          node: { key: 'platform-application' },
+          position: 'before',
+        },
+      }),
+    ),
+  );
+
+  tree.vm.$emit('drop', event());
+  await flushPromises();
+
+  assert.deepEqual(sortCalls, [
+    {
+      id: 'module-last',
+      request: { previousId: null, nextId: 'module-first', parentId: 'platform-application' },
+    },
+  ]);
+  assert.deepEqual(wrapper.emitted('sorted'), [[]]);
+  wrapper.unmount();
+});
+
+it('disables tree sorting while the tree is filtered', async () => {
+  const requests: Array<ReturnType<typeof deferredTreeResponse>> = [];
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context: createTreeContext(requests), sorting: true, keyword: '匹配', searchMode: 'none' },
+    global: {
+      stubs: {
+        UiSpin: { template: '<div />' },
+        UiEmpty: { template: '<div />' },
+        UiTree: {
+          name: 'UiTree',
+          props: ['nodes', 'draggable', 'allowDrop'],
+          template: '<div />',
+        },
+      },
+    },
+  });
+
+  await flushPromises();
+  requests[0].resolve({
+    records: [
+      { record: { id: 'first', title: '匹配节点' }, children: [] },
+      { record: { id: 'second', title: '其他节点' }, children: [] },
+    ],
+  });
+  await flushPromises();
+
+  const tree = wrapper.findComponent({ name: 'UiTree' });
+  assert.isFalse(tree.props('draggable'));
+  const allowDrop = tree.props('allowDrop') as (event: unknown) => boolean;
+  assert.isFalse(
+    allowDrop({
+      source: { instanceId: 'tree', node: { key: 'first' }, operations: ['move'] as const },
+      target: {
+        instanceId: 'tree',
+        kind: 'node' as const,
+        node: { key: 'first' },
+        position: 'after' as const,
+      },
+      operation: 'move' as const,
+    }),
+  );
   wrapper.unmount();
 });
 
@@ -219,3 +447,93 @@ function deferredTreeResponse() {
 function treeResponse(title: string) {
   return { records: [{ record: { id: title, title }, children: [] }] };
 }
+
+it('aligns parent changes, root placement and cycle guards with the tree move protocol', async () => {
+  const calls: unknown[] = [];
+  type Node = { record: { id: string; title: string; parentId: string; tenantId: string }; children: Node[] };
+  const node = (id: string, parentId: string, tenantId = 'a'): Node => ({
+    record: { id, title: id, parentId, tenantId },
+    children: [],
+  });
+  const first = node('first', 'root');
+  const child = node('child', 'first');
+  const grandchild = node('grandchild', 'child');
+  child.children.push(grandchild);
+  first.children.push(child);
+  const second = node('second', 'root');
+  const foreign = node('foreign', 'root', 'b');
+  const context = {
+    runtime: {
+      ready: Promise.resolve(),
+      snapshot: () => ({ sortPartitionFields: ['parentId', 'tenantId'] }),
+    },
+    abilities: {
+      tree: () => ({
+        tree: async () => ({ records: [first, second, foreign] }),
+        sort: async (id: string, request: unknown) => {
+          calls.push({ id, request });
+        },
+      }),
+    },
+  } as unknown as ModuleContext<TreeRecordBase>;
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context, sorting: true, searchMode: 'none' },
+    global: {
+      stubs: {
+        UiSpin: true,
+        UiEmpty: true,
+        UiTree: {
+          name: 'UiTree',
+          props: ['nodes', 'allowDrop'],
+          template: '<div />',
+        },
+      },
+    },
+  });
+  await flushPromises();
+  const tree = wrapper.findComponent({ name: 'UiTree' });
+  const drop = (source: string, target: string, position: -1 | 0 | 1) => ({
+    source: { instanceId: 'tree', node: { key: source }, operations: ['move'] as const },
+    target: {
+      instanceId: 'tree',
+      kind: 'node' as const,
+      node: { key: target },
+      position: (position === 0 ? 'inside' : position < 0 ? 'before' : 'after') as
+        | 'inside'
+        | 'before'
+        | 'after',
+    },
+    operation: 'move' as const,
+  });
+  assert.isTrue(tree.props('nodes')[1].isLeaf);
+  for (const event of [
+    drop('first', 'first', 0),
+    drop('first', 'grandchild', 0),
+    drop('first', 'grandchild', 1),
+    drop('child', 'foreign', 0),
+  ]) {
+    assert.isFalse(tree.props('allowDrop')(event));
+    wrapper.findComponent({ name: 'UiTree' }).vm.$emit('drop', event);
+    await flushPromises();
+  }
+  assert.deepEqual(calls, []);
+  for (const event of [
+    drop('child', 'second', 0),
+    drop('child', 'second', -1),
+    drop('second', 'child', -1),
+    drop('second', 'first', 0),
+  ]) {
+    assert.isTrue(tree.props('allowDrop')(event));
+    wrapper.findComponent({ name: 'UiTree' }).vm.$emit('drop', event);
+    await flushPromises();
+  }
+  assert.deepEqual(calls, [
+    { id: 'child', request: { previousId: null, nextId: null, parentId: 'second' } },
+    { id: 'child', request: { previousId: 'first', nextId: 'second', parentId: 'root' } },
+    { id: 'second', request: { previousId: null, nextId: 'child', parentId: 'first' } },
+    { id: 'second', request: { previousId: 'child', nextId: null, parentId: 'first' } },
+  ]);
+  await wrapper.setProps({ keyword: 'child' });
+  assert.isFalse(tree.props('allowDrop')(drop('child', 'second', 0)));
+  wrapper.unmount();
+});

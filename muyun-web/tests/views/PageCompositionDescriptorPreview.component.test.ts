@@ -1,5 +1,6 @@
 import { mount, shallowMount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
+import UiTree from '@/vue-ui-antdv/components/UiTree.vue';
 import PageCompositionDescriptorPreview from '@/views/PageCompositionDescriptorPreview.vue';
 import { PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE } from '@/views/pageCompositionDragPayload';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@/web-contracts/index.ts';
@@ -35,6 +36,7 @@ it('uses the standard list cell semantic component for descriptor list previews'
 
 it('supports list keyboard actions for field inspection and configuration', async () => {
   const list = mount(PageCompositionDescriptorPreview, {
+    attachTo: document.body,
     props: { descriptor: descriptor(), moduleAlias: 'platform.module', mode: 'list' },
     global: { stubs: { UiDataTable: tableStub } },
   });
@@ -44,6 +46,7 @@ it('supports list keyboard actions for field inspection and configuration', asyn
 
 it('exposes the active preview mode as an external metadata drop target', async () => {
   const wrapper = mount(PageCompositionDescriptorPreview, {
+    attachTo: document.body,
     props: {
       descriptor: descriptor(),
       moduleAlias: 'platform.module',
@@ -52,21 +55,28 @@ it('exposes the active preview mode as an external metadata drop target', async 
     },
     global: { stubs: { UiDataTable: tableStub } },
   });
-  const dataTransfer = {
-    dropEffect: 'none',
-    types: [PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE],
-  } as unknown as DataTransfer;
+  const source = mount(UiTree, {
+    global: { stubs: { UiDataTable: tableStub } },
+    attachTo: document.body,
+    props: {
+      nodes: [{ key: 'field', title: 'Field' }],
+      draggable: true,
+      dragOperations: ['copy'],
+      dragPayloadType: PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+      dragPayloadOf: () => ({ kind: 'field', fieldId: 'field' }),
+    },
+  });
   const preview = wrapper.get('[data-testid="page-composer-list-preview"]');
-
-  await preview.trigger('dragover', { dataTransfer });
-  await preview.trigger('drop', { dataTransfer });
-
+  await source.get('[data-ui-tree-key]').trigger('mousedown', { button: 0 });
+  await preview.trigger('mousemove', { buttons: 1, clientX: 30, clientY: 30 });
+  await preview.trigger('mouseup', { clientX: 30, clientY: 30 });
   expect(wrapper.emitted('metadata-drop')).toHaveLength(1);
   expect(wrapper.emitted('metadata-drop')?.[0]?.[0]).toBe('list');
 });
 
 it('ignores unrelated external drags', async () => {
   const wrapper = mount(PageCompositionDescriptorPreview, {
+    attachTo: document.body,
     props: {
       descriptor: descriptor(),
       moduleAlias: 'platform.module',
@@ -75,11 +85,21 @@ it('ignores unrelated external drags', async () => {
     },
     global: { stubs: { UiDataTable: tableStub } },
   });
-  const dataTransfer = { dropEffect: 'none', types: ['text/plain'] } as unknown as DataTransfer;
+  const source = mount(UiTree, {
+    global: { stubs: { UiDataTable: tableStub } },
+    attachTo: document.body,
+    props: {
+      nodes: [{ key: 'unrelated', title: 'Other' }],
+      draggable: true,
+      dragOperations: ['copy'],
+      dragPayloadType: 'text/plain',
+      dragPayloadOf: () => ({ text: 'not metadata' }),
+    },
+  });
   const preview = wrapper.get('[data-testid="page-composer-list-preview"]');
-
-  await preview.trigger('dragover', { dataTransfer });
-  await preview.trigger('drop', { dataTransfer });
+  await source.get('[data-ui-tree-key]').trigger('mousedown', { button: 0 });
+  await preview.trigger('mousemove', { buttons: 1, clientX: 30, clientY: 30 });
+  await preview.trigger('mouseup', { clientX: 30, clientY: 30 });
 
   expect(wrapper.emitted('metadata-drop')).toBeUndefined();
   expect(preview.classes()).not.toContain('page-composition-descriptor-preview--drag-over');
@@ -109,6 +129,7 @@ it('animates stable list fields into their new descriptor order', async () => {
   }) as typeof window.requestAnimationFrame;
   try {
     const wrapper = mount(PageCompositionDescriptorPreview, {
+      attachTo: document.body,
       props: { descriptor: descriptor(), moduleAlias: 'platform.module', mode: 'list' },
       global: { stubs: { UiDataTable: tableStub } },
     });
@@ -154,6 +175,7 @@ it('falls back to CSS transforms when the browser has no Web Animations API', as
   }) as typeof window.requestAnimationFrame;
   try {
     const wrapper = mount(PageCompositionDescriptorPreview, {
+      attachTo: document.body,
       props: { descriptor: descriptor(), moduleAlias: 'platform.module', mode: 'list' },
       global: { stubs: { UiDataTable: tableStub } },
     });
@@ -223,6 +245,7 @@ it('renders a detail relation projection as a standard descriptor-driven table',
 
 it('renders an editable local child-table preview from the server-resolved projection', async () => {
   const wrapper = mount(PageCompositionDescriptorPreview, {
+    attachTo: document.body,
     props: { descriptor: descriptorWithRelation(), moduleAlias: 'platform.module', mode: 'edit' },
     global: { stubs: { UiDataTable: tableStub } },
   });
@@ -361,3 +384,57 @@ function descriptorWithRelation(): ResolvedModuleUiDescriptor {
   };
   return { ...value, detailRelations: [relation] };
 }
+
+it.each(['tree', 'flat'] as const)(
+  'bridges %s metadata dragging to preview hover, cancellation and drop',
+  async (displayMode) => {
+    const source = mount(UiTree, {
+      attachTo: document.body,
+      props: {
+        displayMode,
+        nodes: [{ key: 'field', title: '字段' }],
+        draggable: true,
+        dragOperations: ['copy'],
+        dragPayloadType: PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+        dragPayloadOf: () => ({ kind: 'field', fieldId: 'field' }),
+      },
+    });
+    const preview = mount(PageCompositionDescriptorPreview, {
+      attachTo: document.body,
+      props: {
+        descriptor: descriptor(),
+        moduleAlias: 'platform.module',
+        mode: 'list',
+        acceptExternalDrop: true,
+      },
+      global: { stubs: { UiDataTable: tableStub } },
+    });
+    const target = preview.get('[data-testid="page-composer-list-preview"]');
+    const original = document.elementFromPoint;
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target.element });
+    try {
+      const node = source.get('[data-ui-tree-key="field"]');
+      for (const cancel of [true, false]) {
+        await node.trigger('mousedown', { button: 0, clientX: 0, clientY: 0 });
+        await target.trigger('mousemove', { buttons: 1, clientX: 200, clientY: 100 });
+        expect(target.classes()).toContain('page-composition-descriptor-preview--drag-over');
+        if (cancel) {
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+          await preview.vm.$nextTick();
+          expect(target.classes()).not.toContain('page-composition-descriptor-preview--drag-over');
+        }
+        await target.trigger('mouseup', { button: 0, clientX: 200, clientY: 100 });
+        expect(preview.emitted('metadata-drop')?.length ?? 0).toBe(cancel ? 0 : 1);
+      }
+      expect(target.classes()).not.toContain('page-composition-descriptor-preview--drag-over');
+      expect(preview.emitted('metadata-drop')![0][1]).toEqual({
+        kind: 'field',
+        fieldId: 'field',
+      });
+    } finally {
+      Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: original });
+      source.unmount();
+      preview.unmount();
+    }
+  },
+);

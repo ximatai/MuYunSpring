@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUpdate, onUpdated, ref, watch } from 'vue';
+import { computed, onBeforeUpdate, onUpdated, ref, watch, useId } from 'vue';
 import {
   RecordFormFields,
   RecordDetailFields,
@@ -10,6 +10,7 @@ import {
 } from '@muyun/platform-components';
 import {
   UiDataTable,
+  useUiDropTarget,
   UiEmpty,
   UiInput,
   type UiDataTableColumn,
@@ -21,7 +22,11 @@ import type {
   ResolvedViewFieldDescriptor,
 } from '@muyun/web-contracts';
 import type { QueryListRecord, RecordFormFieldValue, RecordFormRecord } from '@muyun/platform-components';
-import { isPageCompositionDrag } from './pageCompositionDragPayload';
+import {
+  parseMetadataDragPayload,
+  PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+  type MetadataDragPayload,
+} from './pageCompositionDragPayload';
 
 defineOptions({ name: 'PageCompositionDescriptorPreview' });
 
@@ -41,7 +46,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   selectField: [slot: PreviewSlot, fieldName: string];
   configureField: [slot: PreviewSlot, fieldName: string];
-  'metadata-drop': [target: PreviewSlot, nativeEvent: DragEvent];
+  'metadata-drop': [target: PreviewSlot, payload: MetadataDragPayload];
 }>();
 
 const listColumns = computed(() => resolveRecordQueryListColumns(props.descriptor.page?.list?.fields));
@@ -79,7 +84,29 @@ const isEditEmpty = computed(() => isFormEmpty.value && detailRelations.value.le
 const previewDropTarget = computed<PreviewSlot>(() =>
   props.mode === 'list' || props.mode === 'query' ? 'list' : 'form',
 );
-const externalDragOver = ref(false);
+const dropInstanceId = useId();
+const {
+  hovered,
+  rejected,
+  clear: clearDropFeedback,
+} = useUiDropTarget(previewRoot, {
+  resolve: () => ({ instanceId: dropInstanceId, kind: 'root', position: 'inside' }),
+  allow: (event) => {
+    const payload = parseMetadataDragPayload(event.source.payload);
+    return (
+      !!props.acceptExternalDrop &&
+      event.source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE &&
+      !!payload &&
+      (payload.kind === 'field' || previewDropTarget.value === 'form')
+    );
+  },
+  operation: () => 'copy',
+  drop: (event) => {
+    const payload = parseMetadataDragPayload(event.source.payload);
+    if (payload) emit('metadata-drop', previewDropTarget.value, payload);
+  },
+});
+const externalDragOver = computed(() => !!hovered.value && !rejected.value);
 
 watch(
   () => props.descriptor,
@@ -92,6 +119,15 @@ watch(
     );
   },
   { immediate: true },
+);
+
+watch(
+  () => [props.acceptExternalDrop, props.mode] as const,
+  () => {
+    // A mode/permission change replaces the drop surface. Do not leave the old surface styled
+    // as active when the drag session is still moving through the workspace.
+    clearDropFeedback();
+  },
 );
 
 function previewRecord(fields: readonly ResolvedViewFieldDescriptor[]): UiDataTableRecord {
@@ -177,33 +213,6 @@ function updateFormField(fieldName: string, value: RecordFormFieldValue) {
   formRecord.value = { ...formRecord.value, [fieldName]: value };
 }
 
-function handleExternalDragOver(event: DragEvent) {
-  if (!props.acceptExternalDrop || !isPageCompositionDrag(event.dataTransfer)) {
-    externalDragOver.value = false;
-    return;
-  }
-  event.preventDefault();
-  externalDragOver.value = true;
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-}
-
-function handleExternalDragLeave(event: DragEvent) {
-  if (event.relatedTarget instanceof Node && (event.currentTarget as Element).contains(event.relatedTarget)) {
-    return;
-  }
-  externalDragOver.value = false;
-}
-
-function handleExternalDrop(event: DragEvent) {
-  if (!props.acceptExternalDrop || !isPageCompositionDrag(event.dataTransfer)) {
-    externalDragOver.value = false;
-    return;
-  }
-  event.preventDefault();
-  externalDragOver.value = false;
-  emit('metadata-drop', previewDropTarget.value, event);
-}
-
 function layoutKeyOf(element: HTMLElement) {
   return element.dataset.pageCompositionLayoutKey;
 }
@@ -274,10 +283,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     class="page-composition-descriptor-preview"
     :class="{ 'page-composition-descriptor-preview--drag-over': externalDragOver }"
     data-testid="page-composer-list-preview"
+    data-ui-drop-root
+    tabindex="0"
     data-composer-drop-target="list"
-    @dragover="handleExternalDragOver"
-    @dragleave="handleExternalDragLeave"
-    @drop="handleExternalDrop"
   >
     <header class="page-composition-descriptor-preview__toolbar">
       <strong>列表预览</strong>
@@ -331,10 +339,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     class="page-composition-descriptor-preview"
     :class="{ 'page-composition-descriptor-preview--drag-over': externalDragOver }"
     data-testid="page-composer-query-preview"
+    data-ui-drop-root
+    tabindex="0"
     data-composer-drop-target="list"
-    @dragover="handleExternalDragOver"
-    @dragleave="handleExternalDragLeave"
-    @drop="handleExternalDrop"
   >
     <header class="page-composition-descriptor-preview__toolbar">
       <strong>查询预览</strong>
@@ -351,10 +358,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     class="page-composition-descriptor-preview"
     :class="{ 'page-composition-descriptor-preview--drag-over': externalDragOver }"
     data-testid="page-composer-detail-preview"
+    data-ui-drop-root
+    tabindex="0"
     data-composer-drop-target="form"
-    @dragover="handleExternalDragOver"
-    @dragleave="handleExternalDragLeave"
-    @drop="handleExternalDrop"
   >
     <header class="page-composition-descriptor-preview__toolbar">
       <strong>详情预览</strong>
@@ -411,25 +417,24 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     class="page-composition-descriptor-preview"
     :class="{ 'page-composition-descriptor-preview--drag-over': externalDragOver }"
     data-testid="page-composer-edit-preview"
+    data-ui-drop-root
+    tabindex="0"
     data-composer-drop-target="form"
-    @dragover="handleExternalDragOver"
-    @dragleave="handleExternalDragLeave"
-    @drop="handleExternalDrop"
   >
     <header class="page-composition-descriptor-preview__toolbar">
       <strong>编辑预览</strong>
     </header>
     <UiEmpty v-if="isEditEmpty" description="当前草稿尚未配置编辑字段或关联子表" />
-    <RecordFormFields
-      v-if="!isFormEmpty"
-      class="page-composition-descriptor-preview__form"
-      :record="formRecord"
-      :fields="formFields"
-      :field-names="formFieldNames"
-      :form-session-key="`page-composer:${moduleAlias}`"
-      layout-transition-prefix="edit"
-      @update:field="updateFormField"
-    />
+    <div v-if="!isFormEmpty" class="page-composition-descriptor-preview__form">
+      <RecordFormFields
+        :record="formRecord"
+        :fields="formFields"
+        :field-names="formFieldNames"
+        :form-session-key="`page-composer:${moduleAlias}`"
+        layout-transition-prefix="edit"
+        @update:field="updateFormField"
+      />
+    </div>
     <section
       v-for="relation in detailRelations"
       :key="relation.code"

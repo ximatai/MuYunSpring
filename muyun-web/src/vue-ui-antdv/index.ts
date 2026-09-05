@@ -68,8 +68,14 @@ export type {
   UiTabItem,
   UiTreeCheckEvent,
   UiTreeDisplayMode,
-  UiTreeDragEvent,
-  UiTreeExternalDropEvent,
+  UiTreeNodeEvent,
+  UiDragSource,
+  UiDropTarget,
+  UiDropPosition,
+  UiDropOperation,
+  UiTreeBranchState,
+  UiTreeLoadIntent,
+  UiTreeChangeReason,
   UiTreeLoadReason,
   UiTreeLoadRequest,
   UiTreeLoadResult,
@@ -78,3 +84,7 @@ export type {
   UiTreeNodeAction,
   UiTreeDropEvent,
 } from './types';
+
+export { useUiDropTarget } from './useUiTreeDrag';
+
+export { useTreeLoader as useTreeData } from './useTreeLoader';

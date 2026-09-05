@@ -327,7 +327,12 @@ export function createPageCompositionDraftState() {
     const node = selectedNode.value;
     if (node?.group) {
       if (node.kind === 'groupField' && node.field) {
-        moveGroupFieldToForm(node.group.id, node.field.id);
+        formGroups.value = formGroups.value.map((group) =>
+          group.id === node.group?.id
+            ? { ...group, fields: group.fields.filter((field) => field.id !== node.field?.id) }
+            : group,
+        );
+        selectedNodeId.value = `form:group:${node.group.id}`;
         return;
       }
       formGroups.value = formGroups.value.filter((group) => group.id !== node.group?.id);

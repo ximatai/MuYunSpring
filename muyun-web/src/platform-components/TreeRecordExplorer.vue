@@ -9,6 +9,7 @@ import {
   type UiRecordInlineAction,
   type UiTreeDropEvent,
   type UiTreeNode,
+  type UiTreeChangeReason,
 } from '@muyun/vue-ui-antdv';
 import type { ModuleContext } from '@muyun/web-core';
 import type { WebTreeNode } from '@muyun/web-contracts';
@@ -52,7 +53,7 @@ const props = withDefaults(
     filterOption?: (record: TreeRecordBase, normalizedKeyword: string) => boolean;
     tagOf?: (record: TreeRecordBase) => string | undefined;
     mutedOf?: (record: TreeRecordBase) => boolean;
-    /** Enables same-parent drag ordering through the module's standard tree sort contract. */
+    /** Enables sibling ordering and parent changes through the module's standard tree sort contract. */
     sorting?: boolean;
   }>(),
   {
@@ -88,6 +89,8 @@ const emit = defineEmits<{
 }>();
 
 const loading = ref(false);
+const treeChangeReason = ref<UiTreeChangeReason>('reset');
+const loadError = ref(false);
 const sortingRequest = ref(false);
 const localKeyword = ref('');
 const searchExpanded = ref(false);
@@ -139,14 +142,20 @@ watch(
 );
 
 watch(effectiveKeyword, () => {
+  treeChangeReason.value = 'filter';
   if (effectiveKeyword.value.trim()) {
     expandedKeys.value = filteredTree.value.flatMap(expandAllTreeRecords);
   }
 });
 
-async function loadTree() {
+async function loadTree(reason: UiTreeChangeReason = 'reset', expandParentId?: string) {
   const requestSeq = ++treeRequestSeq;
+  if (reason === 'reset') {
+    tree.value = [];
+    expandedKeys.value = [];
+  }
   loading.value = true;
+  loadError.value = false;
   try {
     await props.context.runtime.ready;
     const treeCapability = props.context.abilities.tree();
@@ -171,16 +180,33 @@ async function loadTree() {
     if (requestSeq !== treeRequestSeq) {
       return;
     }
+    treeChangeReason.value = reason;
     tree.value = response.records;
-    expandedKeys.value = firstTwoTreeLevels(response.records);
+    const keys = new Set(flattenTreeRecords(response.records).map((record) => String(record.id)));
+    expandedKeys.value =
+      reason === 'interaction'
+        ? expandedKeys.value.filter((key) => keys.has(key))
+        : firstTwoTreeLevels(response.records);
+    if (expandParentId && expandParentId !== 'root') {
+      let entry = locateTreeNode(expandParentId);
+      const path: string[] = [];
+      while (entry) {
+        path.push(String(entry.node.record.id));
+        entry = entry.parent ? locateTreeNode(String(entry.parent.record.id)) : undefined;
+      }
+      expandedKeys.value = [...new Set([...expandedKeys.value, ...path])];
+    }
     emit('loaded', flattenTreeRecords(response.records));
   } catch (cause) {
     if (requestSeq !== treeRequestSeq) {
       return;
     }
-    tree.value = [];
-    expandedKeys.value = [];
-    emit('loaded', []);
+    loadError.value = true;
+    if (reason === 'reset') {
+      tree.value = [];
+      expandedKeys.value = [];
+      emit('loaded', []);
+    }
     presentPlatformError(cause, { source: 'tree-record-explorer', phase: 'load' });
   } finally {
     if (requestSeq === treeRequestSeq) {
@@ -218,22 +244,8 @@ function handleAction(action: UiRecordInlineAction, node: UiTreeNode) {
   }
 }
 
-function canDropForSort(
-  event: Pick<UiTreeDropEvent, 'dragNode' | 'dropNode' | 'dropPosition' | 'dropToGap'>,
-) {
-  if (!dragOrderingEnabled.value || !event.dropToGap || event.dropPosition === 0) return false;
-  const dragLocation = locateTreeNode(String(event.dragNode.key));
-  const dropLocation = locateTreeNode(String(event.dropNode.key));
-  const dragPartition = dragLocation && sortPartitionOf(dragLocation.node.record);
-  const dropPartition = dropLocation && sortPartitionOf(dropLocation.node.record);
-  return Boolean(
-    dragLocation &&
-    dropLocation &&
-    dragLocation.parent === dropLocation.parent &&
-    dragLocation.node !== dropLocation.node &&
-    dragPartition !== undefined &&
-    dragPartition === dropPartition,
-  );
+function canDropForSort(event: UiTreeDropEvent) {
+  return resolveTreeMove(event) !== undefined;
 }
 
 function canDragForSort() {
@@ -243,40 +255,66 @@ function canDragForSort() {
 function sortPartitionOf(record: TreeRecordBase): string | undefined {
   const runtime = props.context.runtime.snapshot?.();
   if (!runtime) return undefined;
-  const fields = runtime.sortPartitionFields ?? [];
+  // Parent is the destination of a tree move, not an immutable business partition.
+  const fields = (runtime.sortPartitionFields ?? []).filter((field) => field !== 'parentId');
   const values = record as Record<string, unknown>;
   if (fields.some((field) => !Object.prototype.hasOwnProperty.call(values, field))) return undefined;
   return sortPartitionKey(fields.map((field) => values[field]));
 }
 
+function resolveTreeMove(event: UiTreeDropEvent) {
+  if (
+    !dragOrderingEnabled.value ||
+    event.source.instanceId !== event.target.instanceId ||
+    event.operation !== 'move'
+  )
+    return undefined;
+  const source = locateTreeNode(String(event.source.node.key));
+  const target = event.target.kind === 'node' ? locateTreeNode(String(event.target.node.key)) : undefined;
+  if (!source || (event.target.kind === 'node' && !target) || source.node === target?.node) return undefined;
+  const inside = event.target.position === 'inside';
+  const parent = inside ? target?.node : target?.parent;
+  // Reject cycles before offering a drop indicator or issuing a mutation.
+  for (let ancestor = parent; ancestor; ) {
+    if (ancestor === source.node) return undefined;
+    ancestor = locateTreeNode(String(ancestor.record.id))?.parent;
+  }
+  const partition = sortPartitionOf(source.node.record);
+  if (partition === undefined || (target && sortPartitionOf(target.node.record) !== partition))
+    return undefined;
+  if (parent && sortPartitionOf(parent.record) !== partition) return undefined;
+  const siblings = (target ? (inside ? target.node.children : target.siblings) : tree.value).filter(
+    (node) => node !== source.node && sortPartitionOf(node.record) === partition,
+  );
+  const targetIndex = inside ? siblings.length : target ? siblings.indexOf(target.node) : -1;
+  if (targetIndex < 0) return undefined;
+  const index = targetIndex + (!inside && event.target.position === 'after' ? 1 : 0);
+  const currentSiblings = source.siblings.filter((node) => sortPartitionOf(node.record) === partition);
+  if (source.parent === parent && currentSiblings.indexOf(source.node) === index) return undefined;
+  const id = source.node.record.id;
+  if (id == null) return undefined;
+  return {
+    id: String(id),
+    request: {
+      previousId: siblings[index - 1]?.record.id == null ? null : String(siblings[index - 1].record.id),
+      nextId: siblings[index]?.record.id == null ? null : String(siblings[index].record.id),
+      parentId: parent?.record.id == null ? 'root' : String(parent.record.id),
+    },
+  };
+}
+
 async function handleDropForSort(event: UiTreeDropEvent) {
-  if (!canDropForSort(event)) return;
-  const dragLocation = locateTreeNode(String(event.dragNode.key));
-  const dropLocation = locateTreeNode(String(event.dropNode.key));
-  if (!dragLocation || !dropLocation) return;
-
-  const siblings = [...dragLocation.siblings];
-  const sourceIndex = siblings.indexOf(dragLocation.node);
-  const targetIndex = siblings.indexOf(dropLocation.node);
-  if (sourceIndex < 0 || targetIndex < 0) return;
-  const [moving] = siblings.splice(sourceIndex, 1);
-  const adjustedTargetIndex = siblings.indexOf(dropLocation.node);
-  siblings.splice(event.dropPosition < 0 ? adjustedTargetIndex : adjustedTargetIndex + 1, 0, moving);
-  const movedIndex = siblings.indexOf(moving);
-  const movingId = moving.record.id == null ? undefined : String(moving.record.id);
-  if (!movingId) return;
-
+  const move = resolveTreeMove(event);
+  if (!move) return;
   sortingRequest.value = true;
+  const context = props.context;
+  const scopeVersion = treeRequestSeq;
   try {
-    await props.context.runtime.ready;
-    await props.context.abilities.tree().sort(movingId, {
-      previousId:
-        siblings[movedIndex - 1]?.record.id == null ? null : String(siblings[movedIndex - 1].record.id),
-      nextId: siblings[movedIndex + 1]?.record.id == null ? null : String(siblings[movedIndex + 1].record.id),
-      parentId: dragLocation.parent?.record.id == null ? null : String(dragLocation.parent.record.id),
-    });
+    await context.runtime.ready;
+    await context.abilities.tree().sort(move.id, move.request);
+    if (context !== props.context || scopeVersion !== treeRequestSeq) return;
+    await loadTree('interaction', move.request.parentId);
     emit('sorted');
-    await loadTree();
   } catch (cause) {
     presentPlatformError(cause, { source: 'tree-record-explorer', phase: 'action' });
   } finally {
@@ -344,6 +382,7 @@ function toUiTreeNode(node: WebTreeNode<TreeRecordBase>): UiTreeNode {
     tag: item?.tag ?? props.tagOf?.(record) ?? (record.enabled === false ? '停用' : undefined),
     muted: item?.muted ?? props.mutedOf?.(record) ?? record.enabled === false,
     actions: item?.actions ?? props.actionsOf?.(record),
+    isLeaf: node.children.length === 0,
     children: node.children.map(toUiTreeNode),
   };
 }
@@ -373,12 +412,14 @@ defineExpose({ openSearch, toggleSearch });
         />
       </div>
     </Transition>
-    <UiSpin v-if="loading" :tip="loadingTip" />
+    <UiButton v-if="loadError" type="text" @click="loadTree()">重新加载</UiButton>
+    <UiSpin v-if="loading && nodes.length === 0" :tip="loadingTip" />
     <UiEmpty v-else-if="nodes.length === 0" :description="emptyDescription" />
     <UiTree
       v-else
       v-model:expanded-keys="expandedKeys"
       :nodes="nodes"
+      :change-reason="effectiveKeyword.trim() ? 'filter' : treeChangeReason"
       :selected-key="selectedId"
       :draggable="dragOrderingEnabled"
       :can-drag="canDragForSort"
