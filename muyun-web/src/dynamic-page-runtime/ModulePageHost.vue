@@ -108,6 +108,7 @@ import ModulePageListExpansionSurface from './ModulePageListExpansionSurface.vue
 import ModulePageRecordContent from './ModulePageRecordContent.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
+import NavigatorPanelActions from './NavigatorPanelActions.vue';
 import { shouldHideSingleResultNavigator } from './navigatorVisibility';
 import { type RecordDetailTransitionOptions, useRecordDetailController } from './recordDetailController';
 import {
@@ -1752,10 +1753,6 @@ function navigatorManagementAvailable(level: NavigatorLevelRuntime) {
   return level.descriptor.management != null;
 }
 
-function navigatorSortingAvailable(level: NavigatorLevelRuntime) {
-  return !level.sortingDisabled && navigatorManagementAvailable(level) && level.context.can('sort') === true;
-}
-
 function navigatorInlineActions(level: NavigatorLevelRuntime, record: NavigatorRecord): RecordInlineAction[] {
   if (!navigatorManagementAvailable(level)) return [];
   const actions: RecordInlineAction[] = [];
@@ -2580,39 +2577,21 @@ function recordTitle(record: QueryListRecord | undefined) {
           <template
             v-if="
               navigatorManagementAvailable(navigatorLevelAt(index)!) ||
-              navigatorSortingAvailable(navigatorLevelAt(index)!)
+              navigatorLevelAt(index)!.sort.available
             "
             #actions
           >
-            <RecordPanelButton
-              v-if="navigatorSortingAvailable(navigatorLevelAt(index)!)"
-              icon-name="swap-vertical"
-              icon-only
-              size="small"
-              type="text"
-              :selected="navigatorSorting(navigatorLevelAt(index)!)"
-              :disabled="Boolean(scopeSearchKeyword.trim())"
-              :title="
-                scopeSearchKeyword.trim()
-                  ? '清空搜索后可调整排序'
-                  : navigatorSorting(navigatorLevelAt(index)!)
-                    ? '结束排序'
-                    : '调整排序'
-              "
-              :aria-label="navigatorSorting(navigatorLevelAt(index)!) ? '结束排序' : '调整排序'"
-              @click="toggleNavigatorSorting(navigatorLevelAt(index)!)"
-            />
-            <ModuleActionButton
-              v-if="navigatorManagementAvailable(navigatorLevelAt(index)!)"
+            <NavigatorPanelActions
               :context="navigatorLevelAt(index)!.context"
-              action-code="create"
-              icon-only
-              :disabled="!navigatorManagementScopeReady(navigatorLevelAt(index)!)"
-              :title="
-                navigatorManagementScopeDisabledReason(navigatorLevelAt(index)!) ??
-                `新建${navigatorLevelAt(index)!.descriptor.title}`
-              "
-              @click="createNavigatorRecord(navigatorLevelAt(index)!)"
+              :title="navigatorLevelAt(index)!.descriptor.title"
+              :keyword="scopeSearchKeyword"
+              :sort="navigatorLevelAt(index)!.sort"
+              :sorting="navigatorSorting(navigatorLevelAt(index)!)"
+              :create-available="navigatorManagementAvailable(navigatorLevelAt(index)!)"
+              :create-disabled="!navigatorManagementScopeReady(navigatorLevelAt(index)!)"
+              :create-disabled-reason="navigatorManagementScopeDisabledReason(navigatorLevelAt(index)!)"
+              @create="createNavigatorRecord(navigatorLevelAt(index)!)"
+              @toggle-sorting="toggleNavigatorSorting(navigatorLevelAt(index)!)"
             />
           </template>
           <TreeRecordExplorer
@@ -2866,33 +2845,18 @@ function recordTitle(record: QueryListRecord | undefined) {
           @update:search-keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
         >
-          <template v-if="navigatorManagementAvailable(level) || navigatorSortingAvailable(level)" #actions>
-            <RecordPanelButton
-              v-if="navigatorSortingAvailable(level)"
-              icon-name="swap-vertical"
-              icon-only
-              size="small"
-              type="text"
-              :selected="navigatorSorting(level)"
-              :disabled="Boolean(scopeSearchKeyword.trim())"
-              :title="
-                scopeSearchKeyword.trim()
-                  ? '清空搜索后可调整排序'
-                  : navigatorSorting(level)
-                    ? '结束排序'
-                    : '调整排序'
-              "
-              :aria-label="navigatorSorting(level) ? '结束排序' : '调整排序'"
-              @click="toggleNavigatorSorting(level)"
-            />
-            <ModuleActionButton
-              v-if="navigatorManagementAvailable(level)"
+          <template v-if="navigatorManagementAvailable(level) || level.sort.available" #actions>
+            <NavigatorPanelActions
               :context="level.context"
-              action-code="create"
-              icon-only
-              :disabled="!navigatorManagementScopeReady(level)"
-              :title="navigatorManagementScopeDisabledReason(level) ?? `新建${level.descriptor.title}`"
-              @click="createNavigatorRecord(level)"
+              :title="level.descriptor.title"
+              :keyword="scopeSearchKeyword"
+              :sort="level.sort"
+              :sorting="navigatorSorting(level)"
+              :create-available="navigatorManagementAvailable(level)"
+              :create-disabled="!navigatorManagementScopeReady(level)"
+              :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
+              @create="createNavigatorRecord(level)"
+              @toggle-sorting="toggleNavigatorSorting(level)"
             />
           </template>
           <TreeRecordExplorer
@@ -3154,6 +3118,8 @@ function recordTitle(record: QueryListRecord | undefined) {
           :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
           :scope-subtitle="navigatorPanelScopeContext(level.descriptor.key)"
           :actions-of="(record) => navigatorInlineActions(level, record)"
+          :sorting="navigatorSorting(level)"
+          :sort="level.sort"
           @update:keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
           @create="createNavigatorRecord(level)"
@@ -3161,6 +3127,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           @select="selectNavigatorRecord(level.descriptor.key, $event)"
           @deselect="clearNavigatorRecord(level.descriptor.key)"
           @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
+          @toggle-sorting="toggleNavigatorSorting(level)"
         >
           <template #editor>
             <NavigatorManagementEditor

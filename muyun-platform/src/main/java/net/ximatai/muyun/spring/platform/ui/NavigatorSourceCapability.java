@@ -8,5 +8,6 @@ package net.ximatai.muyun.spring.platform.ui;
  */
 public enum NavigatorSourceCapability {
     REFERENCE_QUERY,
-    REFERENCE_TREE
+    REFERENCE_TREE,
+    REFERENCE_TREE_SORT
 }

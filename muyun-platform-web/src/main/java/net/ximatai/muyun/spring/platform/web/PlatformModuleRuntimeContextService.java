@@ -1011,19 +1011,34 @@ public class PlatformModuleRuntimeContextService {
         if (moduleKind == ModuleKind.DYNAMIC && dynamicDescriptor != null) {
             return dynamicActions(moduleAlias, dynamicDescriptor, persisted);
         }
-        List<PlatformModuleAction> enabledPersisted = persisted.stream()
-                .filter(action -> Boolean.TRUE.equals(action.getEnabled()))
-                .toList();
-        if (!enabledPersisted.isEmpty()) {
-            return enabledPersisted.stream()
-                    .map(action -> runtimeAction(action, policy(action)))
-                    .toList();
+        return staticActionsWithPersistedOverrides(moduleAlias, staticDefinition, persisted);
+    }
+
+    /**
+     * Static actions are the module capability baseline. Persisted rows override that baseline by
+     * action code; this keeps newly added static capabilities visible without erasing explicit
+     * disables or custom persisted actions.
+     */
+    private List<PlatformModuleRuntimeAction> staticActionsWithPersistedOverrides(
+            String moduleAlias,
+            Optional<StaticModuleDefinition> staticDefinition,
+            List<PlatformModuleAction> persisted) {
+        if (persisted.isEmpty()) {
+            return staticDefinition.map(definition -> definition.actions().stream()
+                    .map(action -> runtimeAction(definition.moduleAlias(), action))
+                    .toList()).orElse(List.of());
         }
-        return staticDefinition
-                .map(definition -> definition.actions().stream()
-                        .map(action -> runtimeAction(definition.moduleAlias(), action))
-                        .toList())
-                .orElse(List.of());
+        LinkedHashMap<String, PlatformModuleRuntimeAction> actions = new LinkedHashMap<>();
+        Set<String> configuredCodes = persisted.stream()
+                .map(PlatformModuleAction::getActionCode)
+                .collect(java.util.stream.Collectors.toSet());
+        persisted.stream()
+                .filter(action -> Boolean.TRUE.equals(action.getEnabled()))
+                .forEach(action -> actions.put(action.getActionCode(), runtimeAction(action, policy(action))));
+        staticDefinition.ifPresent(definition -> definition.actions().stream()
+                .filter(action -> !configuredCodes.contains(action.actionCode()))
+                .forEach(action -> actions.put(action.actionCode(), runtimeAction(moduleAlias, action))));
+        return List.copyOf(actions.values());
     }
 
     private List<PlatformModuleRuntimeAction> dynamicActions(String moduleAlias,

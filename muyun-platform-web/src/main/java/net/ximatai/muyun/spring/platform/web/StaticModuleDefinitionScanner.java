@@ -22,6 +22,7 @@ import net.ximatai.muyun.spring.web.QueryViewWeb;
 import net.ximatai.muyun.spring.web.ReferenceWeb;
 import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
 import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
+import net.ximatai.muyun.spring.web.NavigatorReferenceTreeSortWeb;
 import net.ximatai.muyun.spring.web.ScopedWeb;
 import net.ximatai.muyun.spring.web.SortWeb;
 import net.ximatai.muyun.spring.web.TreeWeb;
@@ -227,6 +228,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
         if (NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
             capabilities.add(NavigatorSourceCapability.REFERENCE_TREE);
+        }
+        if (NavigatorReferenceTreeSortWeb.class.isAssignableFrom(beanClass)) {
+            capabilities.add(NavigatorSourceCapability.REFERENCE_TREE_SORT);
         }
         return Set.copyOf(capabilities);
     }
@@ -773,6 +777,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 || NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
             addPlatformUnlessDisabled(actions, PlatformAction.REFERENCE, disabledActions);
         }
+        if (NavigatorReferenceTreeSortWeb.class.isAssignableFrom(beanClass)) {
+            addPlatformUnlessDisabled(actions, PlatformAction.SORT, disabledActions);
+        }
     }
 
     private void addPlatformUnlessDisabled(Map<String, StaticModuleActionDefinition> actions,
@@ -814,6 +821,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 || NavigatorReferenceWeb.class.isAssignableFrom(beanClass)
                 || NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
             addContributionPlatform(actions, contribution, PlatformAction.REFERENCE);
+        }
+        if (NavigatorReferenceTreeSortWeb.class.isAssignableFrom(beanClass)) {
+            addContributionPlatform(actions, contribution, PlatformAction.SORT);
         }
     }
 

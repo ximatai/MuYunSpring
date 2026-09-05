@@ -1,24 +1,18 @@
 <script setup lang="ts">
 import {
   CrudRecordListExplorer,
-  ModuleActionButton,
   RecordExplorerPanel,
   RecordPanelState,
   TreeRecordExplorer,
   type QueryListRecord,
 } from '@muyun/platform-components';
 import { computed } from 'vue';
-import type { RecordInlineAction, ResolvedPageNavigatorLevelDescriptor } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+import type { RecordInlineAction } from '@muyun/web-contracts';
+import NavigatorPanelActions from './NavigatorPanelActions.vue';
+import type { NavigatorLevelRuntime } from './composables/useNavigatorRuntime';
 import { navigatorItemOf, type NavigatorItemRecord } from './pageNavigatorItemModel';
 
 defineOptions({ name: 'PageNavigatorExplorer' });
-
-type NavigatorLevelRuntime = {
-  descriptor: ResolvedPageNavigatorLevelDescriptor;
-  context: ModuleContext<QueryListRecord>;
-  tree: boolean;
-};
 
 const props = defineProps<{
   level: NavigatorLevelRuntime;
@@ -35,6 +29,7 @@ const props = defineProps<{
   /** Human-readable context supplied by an upstream navigator selection. */
   scopeSubtitle?: string;
   actionsOf?: (record: { id?: string }) => RecordInlineAction[];
+  sorting?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -45,6 +40,7 @@ const emit = defineEmits<{
   deselect: [];
   loaded: [records: QueryListRecord[]];
   action: [action: RecordInlineAction, record: QueryListRecord];
+  'toggle-sorting': [];
 }>();
 
 const managementAvailable = computed(() => props.level.descriptor.management != null);
@@ -70,14 +66,18 @@ function itemOf(record: NavigatorItemRecord) {
     @update:search-keyword="emit('update:keyword', $event)"
     @refresh="emit('refresh')"
   >
-    <template v-if="managementAvailable" #actions>
-      <ModuleActionButton
+    <template v-if="managementAvailable || level.sort.available" #actions>
+      <NavigatorPanelActions
         :context="level.context"
-        action-code="create"
-        icon-only
-        :disabled="createDisabled"
-        :title="createDisabled ? createDisabledReason : `新建${level.descriptor.title}`"
-        @click="emit('create')"
+        :title="level.descriptor.title"
+        :keyword="keyword"
+        :sort="level.sort"
+        :sorting="sorting"
+        :create-available="managementAvailable"
+        :create-disabled="createDisabled"
+        :create-disabled-reason="createDisabledReason"
+        @create="emit('create')"
+        @toggle-sorting="emit('toggle-sorting')"
       />
     </template>
     <TreeRecordExplorer
@@ -93,7 +93,7 @@ function itemOf(record: NavigatorItemRecord) {
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
       :actions-of="managementAvailable ? actionsOf : undefined"
-      :sorting="false"
+      :sorting="sorting"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"
@@ -111,7 +111,7 @@ function itemOf(record: NavigatorItemRecord) {
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
       :actions-of="managementAvailable ? actionsOf : undefined"
-      :sorting="false"
+      :sorting="sorting"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"

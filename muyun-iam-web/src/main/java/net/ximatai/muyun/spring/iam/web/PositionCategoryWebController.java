@@ -15,6 +15,7 @@ import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
 import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
+import net.ximatai.muyun.spring.web.NavigatorReferenceTreeSortWeb;
 import net.ximatai.muyun.spring.iam.position.PositionCategory;
 import net.ximatai.muyun.spring.iam.position.PositionCategoryService;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,6 +32,7 @@ public class PositionCategoryWebController extends WebSupport<PositionCategorySe
         CrudWeb<PositionCategory, PositionCategoryService>,
         NavigatorReferenceWeb<PositionCategory, PositionCategoryService>,
         NavigatorReferenceTreeWeb<PositionCategory, PositionCategoryService>,
+        NavigatorReferenceTreeSortWeb<PositionCategory, PositionCategoryService>,
         ScopedTreeWebProjectionPolicy<PositionCategory, PositionCategoryService>,
         MutationTenantScopeResolver<PositionCategory>,
         StaticModuleUiContributor {

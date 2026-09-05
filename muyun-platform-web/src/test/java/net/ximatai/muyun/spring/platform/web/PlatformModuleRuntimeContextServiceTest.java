@@ -459,7 +459,7 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
-    void shouldPreferPersistedModuleActionsAndExposeAuthorizationResult() {
+    void shouldMergePersistedModuleActionsWithStaticBaselineAndExposeAuthorizationResult() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
         when(moduleService.resolveVisibleModule("iam.organization"))
@@ -489,7 +489,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformModuleRuntimeContext context = service.context("iam.organization");
 
         assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
-                .containsExactly("view", "enable");
+                .containsExactly("view", "enable", "tree");
         assertThat(context.actions()).filteredOn(action -> "view".equals(action.actionCode()))
                 .singleElement()
                 .satisfies(action -> {
@@ -505,6 +505,37 @@ class PlatformModuleRuntimeContextServiceTest {
                 });
         assertThat(context.capabilities()).contains(EntityCapability.ENABLE);
         assertThat(context.abilities()).contains("enable");
+    }
+
+    @Test
+    void shouldKeepExplicitlyDisabledStaticActionDisabledWhenMergingRuntimeActions() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleService.resolveVisibleModule("iam.organization"))
+                .thenReturn(module("iam.organization", "组织管理", ModuleKind.STATIC));
+        PlatformModuleAction view = action("iam.organization", PlatformAction.VIEW);
+        PlatformModuleAction treeDisabled = action("iam.organization", PlatformAction.TREE);
+        treeDisabled.setEnabled(Boolean.FALSE);
+        when(actionService.listByModuleAliases(List.of("iam.organization")))
+                .thenReturn(List.of(view, treeDisabled));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.organization", "组织管理")
+                                                    .parentModuleAlias(null)
+                                                    .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.TREE)))
+                                                    .build();
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService,
+                actionService,
+                new StaticModuleDefinitionCatalog(List.of(definition)),
+                null,
+                null,
+                null,
+                allowAllPolicy()
+        );
+
+        PlatformModuleRuntimeContext context = service.context("iam.organization");
+
+        assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
+                .containsExactly("view");
     }
 
     @Test

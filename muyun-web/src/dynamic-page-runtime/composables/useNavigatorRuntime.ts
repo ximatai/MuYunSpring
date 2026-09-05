@@ -20,8 +20,10 @@ export interface NavigatorLevelRuntime {
   descriptor: ResolvedPageNavigatorLevelDescriptor;
   context: ModuleContext<QueryListRecord>;
   tree: boolean;
-  /** REFERENCE tree transport does not expose the module's normal sort endpoint. */
-  sortingDisabled: boolean;
+  /** Resolved navigator actions consumed by the page surfaces. */
+  sort: {
+    available: boolean;
+  };
 }
 
 export interface NavigatorEntrySelectionChange {
@@ -236,9 +238,13 @@ export function useNavigatorRuntime(
           tree:
             descriptor.kind === 'TREE' &&
             (sourceCapabilities?.includes('REFERENCE_TREE') ?? navigatorContext.abilities.hasTree() === true),
-          // REFERENCE query results are scoped projections; the standard sort endpoint cannot
-          // receive that navigator scope, so ordering is disabled for both flat and tree levels.
-          sortingDisabled: true,
+          sort: {
+            available:
+              descriptor.kind === 'TREE' &&
+              descriptor.management != null &&
+              (sourceCapabilities?.includes('REFERENCE_TREE_SORT') ?? false) &&
+              navigatorContext.can('sort') === true,
+          },
         };
       }),
     );

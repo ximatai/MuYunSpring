@@ -6,6 +6,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import jakarta.servlet.http.HttpServletRequest;
 import net.ximatai.muyun.spring.web.NestedEnabledTreeCrudWebSupport;
 import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
+import net.ximatai.muyun.spring.web.NavigatorReferenceTreeSortWeb;
 import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
@@ -27,6 +28,7 @@ import java.util.Objects;
 public class DictionaryCategoryWebController
         extends NestedEnabledTreeCrudWebSupport<DictionaryCategory, DictionaryCategoryService>
         implements NavigatorReferenceTreeWeb<DictionaryCategory, DictionaryCategoryService>,
+        NavigatorReferenceTreeSortWeb<DictionaryCategory, DictionaryCategoryService>,
         StaticModuleUiContributor {
 
     @Override

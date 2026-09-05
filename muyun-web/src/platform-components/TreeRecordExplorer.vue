@@ -311,7 +311,11 @@ async function handleDropForSort(event: UiTreeDropEvent) {
   const scopeVersion = treeRequestSeq;
   try {
     await context.runtime.ready;
-    await context.abilities.tree().sort(move.id, move.request);
+    await context.abilities.tree().sort(move.id, move.request, {
+      externalQueryValues: props.externalQueryValues,
+      navigatorHostModuleAlias: props.navigatorHostModuleAlias,
+      navigatorTargetLevelKey: props.navigatorTargetLevelKey,
+    });
     if (context !== props.context || scopeVersion !== treeRequestSeq) return;
     await loadTree('interaction', move.request.parentId);
     emit('sorted');

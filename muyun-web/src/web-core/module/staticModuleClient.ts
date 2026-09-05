@@ -45,7 +45,13 @@ export interface ModuleTreeClient<TRecord> extends ModuleCrudClient<TRecord> {
   tree(request?: WebQueryRequest): Promise<WebListResponse<WebTreeNode<TRecord>>>;
   treeFlat(options?: { rootId?: string; includeSelf?: boolean }): Promise<WebListResponse<TRecord>>;
   subtree(id: string, options?: { includeSelf?: boolean }): Promise<WebListResponse<WebTreeNode<TRecord>>>;
-  sort(id: string, request: TreeSortRequest): Promise<StaticCountMutationResult>;
+  sort(id: string, request: TreeSortRequest, options?: TreeSortOptions): Promise<StaticCountMutationResult>;
+}
+
+export interface TreeSortOptions {
+  externalQueryValues?: Record<string, unknown>;
+  navigatorHostModuleAlias?: string;
+  navigatorTargetLevelKey?: string;
 }
 
 export interface ModuleEnableClient {
@@ -236,7 +242,23 @@ export function createNavigatorReferenceTreeClient<TRecord>(
       }),
     treeFlat: () => Promise.reject(new Error('Navigator reference tree does not expose flat traversal')),
     subtree: () => Promise.reject(new Error('Navigator reference tree does not expose subtree traversal')),
-    sort: () => Promise.reject(new Error('Navigator reference tree is read-only')),
+    sort: (id, request, sortOptions) => {
+      const query = navigatorReferenceRequest(
+        {
+          externalQueryValues: sortOptions?.externalQueryValues,
+          navigatorHostModuleAlias: sortOptions?.navigatorHostModuleAlias,
+          navigatorTargetLevelKey: sortOptions?.navigatorTargetLevelKey,
+        },
+        options.navigatorReference,
+      );
+      return http
+        .request<StaticCountMutationResult>({
+          method: 'POST',
+          path: `${modulePath}/navigator/reference/tree/sort/${encodeURIComponent(id)}`,
+          body: { sort: request, query },
+        })
+        .then(normalizeCountMutationResponse);
+    },
   };
 }
 

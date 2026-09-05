@@ -302,7 +302,8 @@ class StaticModuleDefinitionScannerTest {
             });
             assertThat(byAlias.get("iam.position_category").navigatorSourceCapabilities()).containsExactlyInAnyOrder(
                     net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY,
-                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE);
+                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE,
+                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE_SORT);
             assertThat(byAlias.get("iam.department")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("部门管理");
