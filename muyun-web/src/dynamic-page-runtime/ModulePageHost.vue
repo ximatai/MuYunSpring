@@ -3230,6 +3230,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :reload-key="treeReloadKey"
             :keyword="treeSearchKeyword"
             :sorting="mainTreeSorting"
+            :sort-partition-fields="runtimePage?.treeResource?.sortPartitionFields"
             :external-query-values="runtimePage?.treeResource ? undefined : navigatorListQueryValues"
             search-mode="none"
             search-trigger="external"

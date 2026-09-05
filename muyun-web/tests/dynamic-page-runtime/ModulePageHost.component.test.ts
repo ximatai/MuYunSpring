@@ -67,6 +67,10 @@ it('places tree sorting between the explorer search affordance and create action
     /<template #actions>[\s\S]*?<RecordPanelButton[\s\S]*?icon-name="swap-vertical"[\s\S]*?<ModuleActionButton/,
   );
   assert.match(source, /<TreeRecordExplorer[\s\S]*?:sorting="mainTreeSorting"/);
+  assert.match(
+    source,
+    /<TreeRecordExplorer[\s\S]*?:sort-partition-fields="runtimePage\?\.treeResource\?\.sortPartitionFields"/,
+  );
   assert.match(source, /mainTreeScopeReady && context\.can\('sort'\) === true/);
   assert.match(source, /treeSearchKeyword\.trim\(\)[\s\S]*清空搜索后可调整排序/);
 });

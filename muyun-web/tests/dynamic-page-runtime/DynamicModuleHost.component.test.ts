@@ -1948,6 +1948,7 @@ describe('ModulePageHost', () => {
                 title: '字典项',
                 emptyDescription: '暂无字典项',
                 createTitle: '新建字典项',
+                sortPartitionFields: ['categoryId'],
               },
             }),
             editorContributions: [childEditor('item', 'title')],
@@ -2020,6 +2021,7 @@ describe('ModulePageHost', () => {
       .findAllComponents({ name: 'TreeRecordExplorer' })
       .find((explorer) => explorer.props('context').moduleAlias === 'platform.dictionary_category');
     expect(tree).toBeDefined();
+    expect(tree!.props('sortPartitionFields')).toEqual(['categoryId']);
     await (
       tree!.props('context') as { abilities: { tree: () => { tree: () => Promise<unknown> } } }
     ).abilities

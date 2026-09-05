@@ -61,6 +61,7 @@ import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -514,9 +515,15 @@ public class PlatformModuleRuntimeContextService {
                 withDynamicRelationEditors(definition, relationTargets), ModuleKind.DYNAMIC, title,
                 optionFields, referenceFields,
                 dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard(),
-                relationOptionFields, relationReferenceFields);
+                relationOptionFields, relationReferenceFields, dynamicSortPartitionFields(dynamicDescriptor));
         return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()))
                 .withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));
+    }
+
+    private Map<String, List<String>> dynamicSortPartitionFields(DynamicModuleDescriptor descriptor) {
+        Map<String, List<String>> result = new LinkedHashMap<>();
+        descriptor.entities().forEach(entity -> result.put(entity.entityAlias(), entity.sortPartitionFields()));
+        return Map.copyOf(result);
     }
 
     private List<net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor> dynamicDetailRelations(

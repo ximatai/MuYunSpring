@@ -780,6 +780,7 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(resource.scopeRecordField()).isEqualTo("categoryKind");
                 assertThat(resource.scopeRecordEquals()).isEqualTo("dictionary");
                 assertThat(resource.title()).isEqualTo("字典项");
+                assertThat(resource.sortPartitionFields()).containsExactly("categoryId");
             });
             assertThat(dictionaryDescriptor.page().detail().editor()).satisfies(view -> {
                 assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);

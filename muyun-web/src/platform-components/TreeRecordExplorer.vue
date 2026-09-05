@@ -55,6 +55,8 @@ const props = withDefaults(
     mutedOf?: (record: TreeRecordBase) => boolean;
     /** Optional business rule for nodes that may receive a dragged child. */
     canDropInside?: (record: Readonly<Record<string, unknown>>) => boolean;
+    /** Resource-level partition metadata; falls back to the hosting module runtime. */
+    sortPartitionFields?: string[];
     /** Enables sibling ordering and parent changes through the module's standard tree sort contract. */
     sorting?: boolean;
   }>(),
@@ -79,6 +81,7 @@ const props = withDefaults(
     tagOf: undefined,
     mutedOf: undefined,
     canDropInside: undefined,
+    sortPartitionFields: undefined,
     sorting: false,
   },
 );
@@ -259,7 +262,9 @@ function sortPartitionOf(record: TreeRecordBase): string | undefined {
   const runtime = props.context.runtime.snapshot?.();
   if (!runtime) return undefined;
   // Parent is the destination of a tree move, not an immutable business partition.
-  const fields = (runtime.sortPartitionFields ?? []).filter((field) => field !== 'parentId');
+  const fields = (props.sortPartitionFields ?? runtime.sortPartitionFields ?? []).filter(
+    (field) => field !== 'parentId',
+  );
   const values = record as Record<string, unknown>;
   if (fields.some((field) => !Object.prototype.hasOwnProperty.call(values, field))) return undefined;
   return sortPartitionKey(fields.map((field) => values[field]));
