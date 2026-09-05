@@ -15,15 +15,20 @@ import type {
 import { createModuleContext, type HttpClient, type ModuleContext } from '@muyun/web-core';
 import { navigatorEntrySelectionOf, type NavigatorEntrySelection } from '../navigatorEntrySelection';
 
+export interface NavigatorSortViewState {
+  visible: boolean;
+  enabled: boolean;
+  active?: boolean;
+  disabledReason?: string;
+}
+
 /** Runtime state that belongs to the page/navigator session rather than to a Vue host. */
 export interface NavigatorLevelRuntime {
   descriptor: ResolvedPageNavigatorLevelDescriptor;
   context: ModuleContext<QueryListRecord>;
   tree: boolean;
   /** Resolved navigator actions consumed by the page surfaces. */
-  sort: {
-    available: boolean;
-  };
+  sort: NavigatorSortViewState;
 }
 
 export interface NavigatorEntrySelectionChange {
@@ -232,6 +237,11 @@ export function useNavigatorRuntime(
             `导航源能力不可用：层级 ${descriptor.key} 引用模块 ${descriptor.sourceModuleAlias}，缺少 ${requiredCapability}`,
           );
         }
+        const sortAvailable =
+          descriptor.kind === 'TREE' &&
+          descriptor.management != null &&
+          (sourceCapabilities?.includes('REFERENCE_TREE_SORT') ?? false) &&
+          navigatorContext.can('sort') === true;
         return {
           descriptor,
           context: navigatorContext,
@@ -239,11 +249,8 @@ export function useNavigatorRuntime(
             descriptor.kind === 'TREE' &&
             (sourceCapabilities?.includes('REFERENCE_TREE') ?? navigatorContext.abilities.hasTree() === true),
           sort: {
-            available:
-              descriptor.kind === 'TREE' &&
-              descriptor.management != null &&
-              (sourceCapabilities?.includes('REFERENCE_TREE_SORT') ?? false) &&
-              navigatorContext.can('sort') === true,
+            visible: sortAvailable,
+            enabled: sortAvailable,
           },
         };
       }),

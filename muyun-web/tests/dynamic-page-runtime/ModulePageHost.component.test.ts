@@ -92,10 +92,10 @@ it('exposes sortable navigator lists through the navigator module capability', (
   );
 
   assert.match(source, /import NavigatorPanelActions from '\.\/NavigatorPanelActions\.vue'/);
-  assert.match(source, /<NavigatorPanelActions[\s\S]*:sort="level\.sort"/);
+  assert.match(source, /<NavigatorPanelActions[\s\S]*:sort="navigatorSortState\(level\)"/);
   assert.match(source, /<CrudRecordListExplorer[\s\S]*?:sorting="navigatorSorting\(level\)"/);
   assert.match(source, /:sorting="navigatorSorting\(navigatorLevelAt\(index\)!\)"/);
-  assert.match(source, /navigatorLevelAt\(index\)!\.sort\.available/);
+  assert.match(source, /navigatorLevelAt\(index\)!\.sort\.visible/);
 });
 
 it('declares cancellation destinations from the detail entry context', () => {

@@ -119,7 +119,11 @@ import {
 } from './pageContextRuntime';
 import { FormComputeCoordinator } from './formComputeCoordinator';
 import { useModulePageBootstrap } from './composables/useModulePageBootstrap';
-import { useNavigatorRuntime, type NavigatorLevelRuntime } from './composables/useNavigatorRuntime';
+import {
+  useNavigatorRuntime,
+  type NavigatorLevelRuntime,
+  type NavigatorSortViewState,
+} from './composables/useNavigatorRuntime';
 import { useModulePageActions } from './composables/useModulePageActions';
 import { useRecordEditingSession } from './composables/useRecordEditingSession';
 import { useModulePageListSession } from './composables/useModulePageListSession';
@@ -1663,6 +1667,17 @@ function navigatorSorting(level: NavigatorLevelRuntime): boolean {
   return navigatorSortingKeys.value[level.descriptor.key] === true;
 }
 
+function navigatorSortState(level: NavigatorLevelRuntime): NavigatorSortViewState {
+  const active = navigatorSorting(level);
+  const disabledReason = scopeSearchKeyword.value.trim() ? '清空搜索后可调整排序' : undefined;
+  return {
+    ...level.sort,
+    active,
+    enabled: level.sort.enabled && disabledReason === undefined,
+    disabledReason,
+  };
+}
+
 function toggleNavigatorSorting(level: NavigatorLevelRuntime) {
   const key = level.descriptor.key;
   navigatorSortingKeys.value = {
@@ -2576,17 +2591,14 @@ function recordTitle(record: QueryListRecord | undefined) {
         >
           <template
             v-if="
-              navigatorManagementAvailable(navigatorLevelAt(index)!) ||
-              navigatorLevelAt(index)!.sort.available
+              navigatorManagementAvailable(navigatorLevelAt(index)!) || navigatorLevelAt(index)!.sort.visible
             "
             #actions
           >
             <NavigatorPanelActions
               :context="navigatorLevelAt(index)!.context"
               :title="navigatorLevelAt(index)!.descriptor.title"
-              :keyword="scopeSearchKeyword"
-              :sort="navigatorLevelAt(index)!.sort"
-              :sorting="navigatorSorting(navigatorLevelAt(index)!)"
+              :sort="navigatorSortState(navigatorLevelAt(index)!)"
               :create-available="navigatorManagementAvailable(navigatorLevelAt(index)!)"
               :create-disabled="!navigatorManagementScopeReady(navigatorLevelAt(index)!)"
               :create-disabled-reason="navigatorManagementScopeDisabledReason(navigatorLevelAt(index)!)"
@@ -2845,13 +2857,11 @@ function recordTitle(record: QueryListRecord | undefined) {
           @update:search-keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
         >
-          <template v-if="navigatorManagementAvailable(level) || level.sort.available" #actions>
+          <template v-if="navigatorManagementAvailable(level) || level.sort.visible" #actions>
             <NavigatorPanelActions
               :context="level.context"
               :title="level.descriptor.title"
-              :keyword="scopeSearchKeyword"
-              :sort="level.sort"
-              :sorting="navigatorSorting(level)"
+              :sort="navigatorSortState(level)"
               :create-available="navigatorManagementAvailable(level)"
               :create-disabled="!navigatorManagementScopeReady(level)"
               :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
@@ -3118,8 +3128,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
           :scope-subtitle="navigatorPanelScopeContext(level.descriptor.key)"
           :actions-of="(record) => navigatorInlineActions(level, record)"
-          :sorting="navigatorSorting(level)"
-          :sort="level.sort"
+          :sort="navigatorSortState(level)"
           @update:keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
           @create="createNavigatorRecord(level)"

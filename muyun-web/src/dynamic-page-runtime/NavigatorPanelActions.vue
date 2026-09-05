@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ModuleActionButton, RecordPanelButton } from '@muyun/platform-components';
 import type { ModuleContext } from '@muyun/web-core';
+import type { NavigatorSortViewState } from './composables/useNavigatorRuntime';
 
 defineOptions({ name: 'NavigatorPanelActions' });
 
@@ -8,11 +9,7 @@ withDefaults(
   defineProps<{
     context: ModuleContext<unknown>;
     title: string;
-    keyword: string;
-    sort: {
-      available: boolean;
-    };
-    sorting: boolean;
+    sort: NavigatorSortViewState;
     createAvailable: boolean;
     createDisabled?: boolean;
     createDisabledReason?: string;
@@ -31,15 +28,15 @@ const emit = defineEmits<{
 
 <template>
   <RecordPanelButton
-    v-if="sort.available"
+    v-if="sort.visible"
     icon-name="swap-vertical"
     icon-only
     size="small"
     type="text"
-    :selected="sorting"
-    :disabled="Boolean(keyword.trim())"
-    :title="keyword.trim() ? '清空搜索后可调整排序' : sorting ? '结束排序' : '调整排序'"
-    :aria-label="sorting ? '结束排序' : '调整排序'"
+    :selected="sort.active"
+    :disabled="!sort.enabled"
+    :title="sort.disabledReason ?? (sort.active ? '结束排序' : '调整排序')"
+    :aria-label="sort.active ? '结束排序' : '调整排序'"
     @click="emit('toggle-sorting')"
   />
   <ModuleActionButton

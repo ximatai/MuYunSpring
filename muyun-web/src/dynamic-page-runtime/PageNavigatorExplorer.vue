@@ -9,7 +9,7 @@ import {
 import { computed } from 'vue';
 import type { RecordInlineAction } from '@muyun/web-contracts';
 import NavigatorPanelActions from './NavigatorPanelActions.vue';
-import type { NavigatorLevelRuntime } from './composables/useNavigatorRuntime';
+import type { NavigatorLevelRuntime, NavigatorSortViewState } from './composables/useNavigatorRuntime';
 import { navigatorItemOf, type NavigatorItemRecord } from './pageNavigatorItemModel';
 
 defineOptions({ name: 'PageNavigatorExplorer' });
@@ -19,6 +19,7 @@ const props = defineProps<{
   selectedId?: string;
   reloadKey: number;
   keyword: string;
+  sort: NavigatorSortViewState;
   externalQueryValues?: Record<string, unknown>;
   navigatorHostModuleAlias: string;
   /** Whether this navigator's upstream selection scope is available. */
@@ -29,7 +30,6 @@ const props = defineProps<{
   /** Human-readable context supplied by an upstream navigator selection. */
   scopeSubtitle?: string;
   actionsOf?: (record: { id?: string }) => RecordInlineAction[];
-  sorting?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -66,13 +66,11 @@ function itemOf(record: NavigatorItemRecord) {
     @update:search-keyword="emit('update:keyword', $event)"
     @refresh="emit('refresh')"
   >
-    <template v-if="managementAvailable || level.sort.available" #actions>
+    <template v-if="managementAvailable || sort.visible" #actions>
       <NavigatorPanelActions
         :context="level.context"
         :title="level.descriptor.title"
-        :keyword="keyword"
-        :sort="level.sort"
-        :sorting="sorting"
+        :sort="sort"
         :create-available="managementAvailable"
         :create-disabled="createDisabled"
         :create-disabled-reason="createDisabledReason"
@@ -93,7 +91,7 @@ function itemOf(record: NavigatorItemRecord) {
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
       :actions-of="managementAvailable ? actionsOf : undefined"
-      :sorting="sorting"
+      :sorting="sort.active"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"
@@ -111,7 +109,7 @@ function itemOf(record: NavigatorItemRecord) {
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
       :actions-of="managementAvailable ? actionsOf : undefined"
-      :sorting="sorting"
+      :sorting="sort.active"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"
