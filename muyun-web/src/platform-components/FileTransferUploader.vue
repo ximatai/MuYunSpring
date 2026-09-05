@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
-import { UiButton } from '@muyun/vue-ui-antdv';
+import { UiButton, UiIcon } from '@muyun/vue-ui-antdv';
 import type { UiIconName } from '@muyun/vue-ui-antdv';
 import {
   performBrowserFileTransferUpload,
@@ -415,8 +415,20 @@ function stateText(item: UploadItem) {
     </div>
     <div v-if="visibleItems.length" class="file-transfer-uploader__list" aria-live="polite">
       <div v-for="item in visibleItems" :key="item.id" class="file-transfer-uploader__item">
-        <div class="file-transfer-uploader__name" :title="item.file.name">{{ item.file.name }}</div>
-        <div class="file-transfer-uploader__state" :class="`is-${item.state}`">{{ stateText(item) }}</div>
+        <div class="file-transfer-uploader__file">
+          <span
+            v-if="item.state === 'completed'"
+            class="file-transfer-uploader__completed-icon"
+            role="img"
+            aria-label="上传完成"
+          >
+            <UiIcon name="check" />
+          </span>
+          <div class="file-transfer-uploader__name" :title="item.file.name">{{ item.file.name }}</div>
+        </div>
+        <div class="file-transfer-uploader__state" :class="`is-${item.state}`">
+          <template v-if="item.state !== 'completed'">{{ stateText(item) }}</template>
+        </div>
         <div class="file-transfer-uploader__actions">
           <UiButton v-if="item.state === 'ready'" type="link" @click="upload(item)"> 上传 </UiButton>
           <UiButton
@@ -436,12 +448,15 @@ function stateText(item: UploadItem) {
           </UiButton>
           <UiButton
             v-else-if="!['confirming', 'completed'].includes(item.state) || allowCompletedRemoval"
+            class="file-transfer-uploader__remove-button"
             type="link"
             danger
+            icon-name="close"
+            icon-only
+            aria-label="从上传列表移除"
+            title="从上传列表移除"
             @click="remove(item)"
-          >
-            移除
-          </UiButton>
+          />
         </div>
       </div>
     </div>
@@ -520,16 +535,31 @@ function stateText(item: UploadItem) {
 }
 .file-transfer-uploader__list {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 .file-transfer-uploader__item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--ant-color-border-secondary);
-  border-radius: 6px;
+  min-height: 46px;
+  padding: 9px 10px 9px 14px;
+  background: var(--muyun-theme-soft);
+  border: 1px solid var(--muyun-theme-border);
+  border-radius: 8px;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+.file-transfer-uploader__item:hover {
+  background: var(--muyun-theme-focus);
+  border-color: var(--muyun-theme-base);
+}
+.file-transfer-uploader__file {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
 }
 .file-transfer-uploader__name {
   overflow: hidden;
@@ -545,6 +575,34 @@ function stateText(item: UploadItem) {
 }
 .file-transfer-uploader__state.is-completed {
   color: var(--ant-color-success);
+}
+.file-transfer-uploader__completed-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  color: var(--muyun-theme-on-base);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  background: var(--ant-color-success);
+  border-radius: 50%;
+}
+:deep(.ant-btn.file-transfer-uploader__remove-button) {
+  color: var(--ant-color-text-secondary);
+  background: var(--muyun-support-disabled);
+  border-radius: 50%;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+:deep(.ant-btn.file-transfer-uploader__remove-button:hover),
+:deep(.ant-btn.file-transfer-uploader__remove-button:focus-visible) {
+  color: var(--ant-color-error);
+  background: color-mix(in srgb, var(--ant-color-error) 12%, transparent);
+  transform: scale(1.06);
 }
 .file-transfer-uploader__actions {
   display: flex;
