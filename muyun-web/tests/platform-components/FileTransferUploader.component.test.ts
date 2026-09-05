@@ -74,4 +74,26 @@ describe('FileTransferUploader', () => {
 
     expect(uploadFile).not.toHaveBeenCalled();
   });
+
+  it('uses an accessible success icon and compact list-removal action after upload', async () => {
+    const wrapper = mount(FileTransferUploader, {
+      props: {
+        uploadFile: async (file) => ({ file, payload: { id: 'file-1' }, response: { id: 'file-1' } }),
+      },
+    });
+    const file = new File(['content'], 'summary.pdf', { type: 'application/pdf' });
+    const input = wrapper.get('input[type="file"]');
+
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [file] });
+    await input.trigger('change');
+    await vi.waitFor(() => expect(wrapper.find('[aria-label="上传完成"]').exists()).toBe(true));
+
+    expect(wrapper.find('.file-transfer-uploader__completed-icon svg').exists()).toBe(true);
+    const remove = wrapper.get('.file-transfer-uploader__remove-button');
+    expect(remove.attributes('aria-label')).toBe('从上传列表移除');
+    expect(remove.attributes('title')).toBe('从上传列表移除');
+    expect(remove.classes()).toContain('ui-button--icon-only');
+    await remove.trigger('click');
+    expect(wrapper.find('.file-transfer-uploader__item').exists()).toBe(false);
+  });
 });
