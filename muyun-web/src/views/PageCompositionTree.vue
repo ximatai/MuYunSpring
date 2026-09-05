@@ -239,7 +239,8 @@ function allowDrop(event: Pick<UiTreeDropEvent, 'dragNode' | 'dropNode' | 'dropP
       target.kind === 'groupField'
     );
   }
-  if (source.kind === 'group') return target.kind === 'groups' || target.kind === 'group';
+  if (source.kind === 'group')
+    return target.kind === 'groups' || (target.kind === 'group' && event.dropToGap);
   if (source.kind === 'relationField') {
     return (
       (target.kind === 'relation' && target.relationId === source.relationId) ||

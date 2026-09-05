@@ -176,6 +176,22 @@ describe('PageCompositionTree', () => {
     expect(wrapper.emitted('move-group-field-to-group')).toEqual([['group_1', 'subject', 'group_2', 0]]);
   });
 
+  it('does not allow a group to become a child of another group', () => {
+    const wrapper = mountTree({
+      formGroups: [
+        { id: 'group_1', groupCode: 'group_1', title: '基础信息', fields: [] },
+        { id: 'group_2', groupCode: 'group_2', title: '补充信息', fields: [] },
+      ],
+    });
+    const tree = uiTree(wrapper);
+    const allowDrop = tree.props('allowDrop') as (event: ReturnType<typeof dropEvent>) => boolean;
+    const groupOne = findNode(tree.props('nodes') as TestNode[], 'ui:group:form:group_1')!;
+    const groupTwo = findNode(tree.props('nodes') as TestNode[], 'ui:group:form:group_2')!;
+
+    expect(allowDrop(dropEvent(groupTwo, groupOne, 0, false))).toBe(false);
+    expect(allowDrop(dropEvent(groupTwo, groupOne, -1))).toBe(true);
+  });
+
   it('exposes only sortable page nodes to the shared drag predicate', () => {
     const wrapper = mountTree({ listFields: [subject] });
     const tree = uiTree(wrapper);
