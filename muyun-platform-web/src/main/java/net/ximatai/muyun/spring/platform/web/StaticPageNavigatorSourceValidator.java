@@ -1,7 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
-import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import net.ximatai.muyun.spring.platform.ui.PageCapabilityContractValidator;
 
 import java.util.List;
@@ -10,10 +9,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/**
- * Validates static navigator sources eagerly. Sources not declared by the static catalog may be
- * published dynamic modules, so their capability is validated by the unified runtime resolver.
- */
+/** Validates static page-owned contracts before the registered endpoint catalog exists. */
 final class StaticPageNavigatorSourceValidator {
     private StaticPageNavigatorSourceValidator() {
     }
@@ -26,25 +22,12 @@ final class StaticPageNavigatorSourceValidator {
             PageNavigatorDefinition navigator = navigator(definition.uiDefinition());
             if (navigator == null) continue;
             for (PageNavigatorLevelDefinition level : navigator.levels()) {
-                NavigatorSourceCapability required = level.kind() == PageNavigatorKind.TREE
-                        ? NavigatorSourceCapability.REFERENCE_TREE
-                        : NavigatorSourceCapability.REFERENCE_QUERY;
-                StaticModuleDefinition source = modules.get(level.sourceModuleAlias());
-                if (source != null && !source.navigatorSourceCapabilities().contains(required)) {
-                    throw new IllegalStateException("navigator source capability is unavailable: page="
-                            + definition.moduleAlias() + ", level=" + level.key() + ", source="
-                            + level.sourceModuleAlias() + ", required=" + required);
-                }
-                validateNavigatorManagement(definition, level, source);
+                validateNavigatorManagement(definition, level, modules.get(level.sourceModuleAlias()));
             }
         }
     }
 
-    /**
-     * Validates only facts which are owned by the page's own module. Cross-module sources are
-     * deliberately handled below, where the static catalog can prove their projection, actions
-     * and editor contracts without relying on a request-time failure.
-     */
+    /** Cross-module read endpoint facts are validated after endpoint registration by the resolver. */
     private static void validatePageCapabilities(StaticModuleDefinition definition) {
         ModulePageDefinition page = definition.uiDefinition() == null ? null : definition.uiDefinition().page();
         if (page == null) return;
@@ -154,7 +137,7 @@ final class StaticPageNavigatorSourceValidator {
         };
     }
 
-    private static PageNavigatorDefinition navigator(ModuleUiDefinition definition) {
+    static PageNavigatorDefinition navigator(ModuleUiDefinition definition) {
         if (definition == null || definition.page() == null) return null;
         return switch (definition.page()) {
             case FlatManagementPageDefinition page -> page.navigator();

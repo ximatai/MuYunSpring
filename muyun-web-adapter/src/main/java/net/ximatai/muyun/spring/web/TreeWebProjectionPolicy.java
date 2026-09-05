@@ -17,6 +17,24 @@ import java.util.Set;
 public interface TreeWebProjectionPolicy<T extends EntityContract & TreeCapable, S extends TreeAbility<T>>
         extends ScopedWeb<S> {
 
+    /** Binds the scope-only sort context after the concrete tree projection has opted in. */
+    static void bindTreeSortScope(HttpServletRequest request, String moduleAlias,
+                                  TreeSortScopeRequest scope,
+                                  NavigatorReferenceQueryContextResolver resolver,
+                                  boolean supported) {
+        if (scope == null) return;
+        if (!supported) {
+            throw new IllegalArgumentException("tree sort scope unsupported by tree projection");
+        }
+        if (scope.navigatorHostModuleAlias() != null && !scope.navigatorHostModuleAlias().isBlank()
+                && resolver == null) {
+            throw new IllegalArgumentException("navigator tree sort scope requires a context resolver");
+        }
+        WebQueryRequest query = scope.toQueryRequest();
+        TreeWebQuerySupport.bind(request, resolver == null ? query
+                : resolver.normalizeRequest(moduleAlias, query));
+    }
+
     default void moveTree(HttpServletRequest request, String id, TreeSortWebRequest sortRequest) {
         service().moveInTree(id, sortRequest.previousId(), sortRequest.nextId(), sortRequest.parentId());
     }

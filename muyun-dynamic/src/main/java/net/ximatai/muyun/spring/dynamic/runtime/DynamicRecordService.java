@@ -811,6 +811,13 @@ public class DynamicRecordService {
                 RuntimeMutationSource.ACTION, traceId);
     }
 
+    public void moveInTreeFromAction(String moduleAlias, String entityAlias, String id,
+                                     String previousId, String nextId, String parentId,
+                                     Criteria sortScope, String traceId) {
+        mutationRuntime.moveInTree(moduleAlias, entityAlias, id, previousId, nextId, parentId,
+                sortScope, RuntimeMutationSource.ACTION, traceId);
+    }
+
     public List<DynamicRecord> children(String moduleAlias, String entityAlias, String parentId) {
         return queryRuntime.children(moduleAlias, entityAlias, parentId);
     }

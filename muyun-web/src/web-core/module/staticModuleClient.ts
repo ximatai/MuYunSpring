@@ -232,6 +232,7 @@ export function createNavigatorReferenceTreeClient<TRecord>(
 ): ModuleTreeClient<TRecord> {
   const normal = createNavigatorReferenceCrudClient<TRecord>(http, options);
   const modulePath = modulePathOf(options.moduleAlias);
+  const standardTree = createModuleTreeClient<TRecord>(http, options);
   return {
     ...normal,
     tree: (request) =>
@@ -251,13 +252,7 @@ export function createNavigatorReferenceTreeClient<TRecord>(
         },
         options.navigatorReference,
       );
-      return http
-        .request<StaticCountMutationResult>({
-          method: 'POST',
-          path: `${modulePath}/navigator/reference/tree/sort/${encodeURIComponent(id)}`,
-          body: { sort: request, query },
-        })
-        .then(normalizeCountMutationResponse);
+      return standardTree.sort(id, request, query);
     },
   };
 }
@@ -313,12 +308,18 @@ export function createStaticResourceTreeClient<TRecord>(
         path: `${modulePath}/tree/${encodeURIComponent(id)}`,
         query,
       }),
-    sort: async (id, request) =>
+    sort: async (id, request, scope) =>
       normalizeCountMutationResponse(
         await http.request<StaticCountMutationResult>({
           method: 'POST',
           path: `${modulePath}/sort/${encodeURIComponent(id)}`,
-          body: request,
+          body:
+            scope &&
+            (Object.keys(scope.externalQueryValues ?? {}).length > 0 ||
+              scope.navigatorHostModuleAlias ||
+              scope.navigatorTargetLevelKey)
+              ? { ...request, scope }
+              : request,
         }),
       ),
   };

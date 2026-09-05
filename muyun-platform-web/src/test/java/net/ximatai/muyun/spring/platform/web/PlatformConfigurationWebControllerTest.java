@@ -8,6 +8,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryRequest;
 import net.ximatai.muyun.spring.platform.web.ActionEndpointContextResolver;
@@ -136,9 +137,15 @@ class PlatformConfigurationWebControllerTest {
 
     private static final class AbilityAwareHandlerMapping extends RequestMappingHandlerMapping {
         private final ObjectMapper objectMapper;
+        private final RegisteredWebEndpointCatalog endpoints;
 
         private AbilityAwareHandlerMapping(ObjectMapper objectMapper) {
+            this(objectMapper, new RegisteredWebEndpointCatalog());
+        }
+
+        private AbilityAwareHandlerMapping(ObjectMapper objectMapper, RegisteredWebEndpointCatalog endpoints) {
             this.objectMapper = objectMapper;
+            this.endpoints = endpoints;
         }
 
         @Override
@@ -150,7 +157,7 @@ class PlatformConfigurationWebControllerTest {
             new StaticAbilityWebEndpointRegistrar(
                     obtainApplicationContext(),
                     this,
-                    new RegisteredWebEndpointCatalog(),
+                    endpoints,
                     provider,
                     objectMapper
             ).afterSingletonsInstantiated();
@@ -992,10 +999,10 @@ class PlatformConfigurationWebControllerTest {
         when(service.select("category-1")).thenReturn(dictionaryCategory("category-1", "platform", "common", null));
 
         MockMvc mvc = abilityAwareMvc(controller);
-        mvc.perform(post("/platform.application/platform/dictionary-categories/sort/category-1")
+        mvc.perform(post("/platform.dictionary_category/sort/category-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"parentId":"root"}
+                                {"parentId":"root","scope":{"externalQueryValues":{"applicationAlias":"platform"}}}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(1));
@@ -1003,6 +1010,34 @@ class PlatformConfigurationWebControllerTest {
         ArgumentCaptor<Criteria> criteria = ArgumentCaptor.forClass(Criteria.class);
         verify(service).moveInTree(criteria.capture(), eq("category-1"), eq(null), eq(null), eq("root"));
         assertClause(criteria.getValue(), "applicationAlias", "platform");
+    }
+
+    @Test
+    void shouldRejectStandardSortWhenActionPolicyDoesNotGrantSort() throws Exception {
+        DictionaryCategoryService service = mock(DictionaryCategoryService.class);
+        DictionaryCategoryWebController controller = new DictionaryCategoryWebController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService policy = context -> {
+            if (PlatformAction.SORT.code().equals(context.actionCode())) {
+                throw new PlatformException("ACTION_NOT_AUTHORIZED", 403, "sort forbidden");
+            }
+        };
+
+        RegisteredWebEndpointCatalog endpoints = new RegisteredWebEndpointCatalog();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .setCustomHandlerMapping(() -> new AbilityAwareHandlerMapping(applicationObjectMapper(), endpoints))
+                .addInterceptors(new ActionEndpointInterceptor(policy, new ActionEndpointContextResolver(), null, endpoints))
+                .setControllerAdvice(new PlatformWebExceptionHandler())
+                .build();
+        mvc.perform(post("/platform.dictionary_category/navigator/reference/tree/query")
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/platform.dictionary_category/sort/category-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"parentId\":\"root\"}"))
+                .andExpect(status().isForbidden());
+
+        verify(service, org.mockito.Mockito.never()).moveInTree(any(Criteria.class), any(), any(), any(), any());
     }
 
     @Test
@@ -1023,6 +1058,8 @@ class PlatformConfigurationWebControllerTest {
         when(service.children(any(Criteria.class), eq("item-2"))).thenReturn(List.of());
         when(service.insert(any(DictionaryItem.class))).thenReturn("item-1");
         when(service.select("item-1")).thenReturn(root);
+        when(service.selectInScope(any(Criteria.class), eq("item-1"))).thenReturn(root);
+        when(service.selectInScope(any(Criteria.class), eq("item-2"))).thenReturn(child);
 
         MockMvc mvc = abilityAwareMvc(controller);
         mvc.perform(post("/platform.application/platform/dictionary-categories/status/items/query")
@@ -1551,8 +1588,7 @@ class PlatformConfigurationWebControllerTest {
                 java.util.Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.CRUD,
                         net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE,
                         net.ximatai.muyun.spring.common.platform.EntityCapability.RECYCLE_BIN))
-                .toBuilder().navigatorSourceCapabilities(java.util.Set.of(
-                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY)).build();
+                .toBuilder().build();
         StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(module, application));
         return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
                 new StaticRecordReadProjectionService(catalog));
@@ -1568,8 +1604,7 @@ class PlatformConfigurationWebControllerTest {
         StaticModuleDefinition module = staticDefinition("platform", PlatformModuleService.MODULE_ALIAS, "模块",
                 PlatformModule.class, null,
                 java.util.Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.CRUD))
-                .toBuilder().navigatorSourceCapabilities(java.util.Set.of(
-                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY)).build();
+                .toBuilder().build();
         StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(action, module));
         return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
                 new StaticRecordReadProjectionService(catalog));

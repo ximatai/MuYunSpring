@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.event.RuntimeEvent;
 import net.ximatai.muyun.spring.ability.deletion.DeletionContext;
 import net.ximatai.muyun.spring.ability.deletion.DeletionMode;
 import net.ximatai.muyun.spring.ability.deletion.DeletionNode;
@@ -23,6 +24,11 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePoli
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
+import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityAssociationViewDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition;
@@ -159,6 +165,112 @@ class DynamicSchemaServiceIT {
         assertChildReferenceDeletionPolicy(ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY);
     }
 
+    @Test
+    void shouldMoveOnlyRecordsInsideDynamicTreeActionCriteriaScopeOnRealDatabase() {
+        List<RuntimeEvent> events = new ArrayList<>();
+        DynamicRecordRuntime runtime = DynamicRecordRuntime.builder(operations)
+                .eventPublisher(events::add).build();
+        new DynamicModuleRuntimeRefresher(schemaService, runtime).refresh(invoiceModule());
+        events.clear();
+        DynamicRecordService service = new DynamicRecordService(runtime);
+        DynamicEntityService invoices = runtime.entityService("sales.invoice", "invoice");
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-tree-action-" + suffix)) {
+            String parent = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "P-" + suffix).setValue("title", "Parent"));
+            String a1 = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "A1-" + suffix).setValue("title", "First").setValue("parentId", parent));
+            String a2 = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "A2-" + suffix).setValue("title", "Second").setValue("parentId", parent));
+            String b1 = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "B1-" + suffix).setValue("title", "Outside").setValue("parentId", parent));
+            // Exhaust the gap so TreeAbility must reorder the scoped sibling set.
+            invoices.update(invoices.select(a2).setValue("sortOrder", Integer.MAX_VALUE));
+            DynamicRecord bBefore = invoices.select(b1);
+            List<String> before = invoices.children(parent).stream().map(DynamicRecord::getId).toList();
+            Criteria scope = Criteria.of().in("code", List.of("P-" + suffix, "A1-" + suffix, "A2-" + suffix));
+
+            service.moveInTreeFromAction("sales.invoice", "invoice", a1, a2, null, parent, scope, "tree-scope-it");
+
+            assertThat(invoices.children(parent).stream().map(DynamicRecord::getId).toList())
+                    .isNotEqualTo(before);
+            assertThat(invoices.children(scope, parent)).extracting(DynamicRecord::getId).containsExactly(a2, a1);
+            DynamicRecord bAfter = invoices.select(b1);
+            assertThat(bAfter.getValue("sortOrder")).isEqualTo(bBefore.getValue("sortOrder"));
+            assertThat(bAfter.getVersion()).isEqualTo(bBefore.getVersion());
+            assertThat(events).singleElement().satisfies(event -> {
+                assertThat(event.moduleAlias()).isEqualTo("sales.invoice");
+                assertThat(event.recordId()).isEqualTo(a1);
+                assertThat(event.traceId()).isEqualTo("tree-scope-it");
+                assertThat(event.eventType().name()).isEqualTo("AFTER_UPDATE");
+                assertThat(event.payload()).containsEntry("operation", "moveInTree");
+            });
+        }
+    }
+
+    @Test
+    void shouldRejectEveryOutOfScopeDynamicTreeSortArgumentWithoutMutationOrEvent() {
+        List<RuntimeEvent> events = new ArrayList<>();
+        DynamicRecordRuntime runtime = DynamicRecordRuntime.builder(operations).eventPublisher(events::add).build();
+        new DynamicModuleRuntimeRefresher(schemaService, runtime).refresh(invoiceModule());
+        events.clear();
+        DynamicRecordService service = new DynamicRecordService(runtime);
+        DynamicEntityService invoices = runtime.entityService("sales.invoice", "invoice");
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-tree-boundary-" + suffix)) {
+            String parent = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "P-" + suffix).setValue("title", "Parent"));
+            String moving = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "M-" + suffix).setValue("title", "Moving").setValue("parentId", parent));
+            String previous = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "N-" + suffix).setValue("title", "Neighbor").setValue("parentId", parent));
+            String foreignParent = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "FP-" + suffix).setValue("title", "Foreign parent"));
+            String foreignMoving = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "FM-" + suffix).setValue("title", "Foreign moving").setValue("parentId", foreignParent));
+            String foreignPrevious = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "FN-" + suffix).setValue("title", "Foreign previous").setValue("parentId", foreignParent));
+            List<String> snapshot = treeSnapshot(invoices);
+            Criteria scope = Criteria.of().in("code", List.of("P-" + suffix, "M-" + suffix, "N-" + suffix));
+            List<Runnable> attempts = List.of(
+                    () -> service.moveInTreeFromAction("sales.invoice", "invoice", foreignMoving, previous, null, parent, scope, "boundary"),
+                    () -> service.moveInTreeFromAction("sales.invoice", "invoice", moving, foreignPrevious, null, parent, scope, "boundary"),
+                    () -> service.moveInTreeFromAction("sales.invoice", "invoice", moving, previous, foreignMoving, parent, scope, "boundary"),
+                    () -> service.moveInTreeFromAction("sales.invoice", "invoice", moving, null, null, foreignParent, scope, "boundary"));
+            for (Runnable attempt : attempts) {
+                assertThatThrownBy(attempt::run).isInstanceOf(PlatformException.class).hasMessageContaining("outside tree sort scope");
+                assertThat(treeSnapshot(invoices)).isEqualTo(snapshot);
+                assertThat(events).isEmpty();
+            }
+        }
+    }
+
+    private List<String> treeSnapshot(DynamicEntityService invoices) {
+        return invoices.list(Criteria.of(), PageRequest.of(1, Integer.MAX_VALUE), Sort.asc("id"))
+                .stream().map(record -> record.getId() + ":" + record.getValue("parentId") + ":"
+                        + record.getValue("sortOrder") + ":" + record.getVersion()).toList();
+    }
+
+    @Test
+    void shouldRejectDynamicTreeSortWhenSortDataScopeDeniesRecords() {
+        List<RuntimeEvent> events = new ArrayList<>();
+        DynamicRecordRuntime runtime = DynamicRecordRuntime.builder(operations).eventPublisher(events::add).build();
+        new DynamicModuleRuntimeRefresher(schemaService, runtime).refresh(invoiceModule());
+        events.clear();
+        DynamicEntityService invoices = runtime.entityService("sales.invoice", "invoice");
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-sort-data-scope-" + suffix)) {
+            String parent = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "DSP-" + suffix).setValue("title", "Parent"));
+            String moving = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "DSM-" + suffix).setValue("title", "Moving").setValue("parentId", parent));
+            String neighbor = invoices.insert(runtime.newRecord("sales.invoice", "invoice").setValue("code", "DSN-" + suffix).setValue("title", "Neighbor").setValue("parentId", parent));
+            List<String> before = treeSnapshot(invoices);
+            DataScopeCriteriaService denySort = new DataScopeCriteriaService() {
+                @Override public DataScopeCriteriaResult resolveReadScope(String module, String action, Criteria criteria, java.util.Optional<CurrentUser> user) {
+                    return DataScopeCriteriaResult.restricted(Criteria.of().eq("code", "never"));
+                }
+                @Override public DataScopeCriteriaResult resolveReadScope(String module, ActionExecutionPolicy policy, Criteria criteria, java.util.Optional<CurrentUser> user) {
+                    return DataScopeCriteriaResult.restricted(Criteria.of().eq("code", "never"));
+                }
+            };
+            DynamicRecordService scoped = new DynamicRecordService(runtime, new AllowAllActionExecutionPolicyService(), denySort);
+            assertThatThrownBy(() -> scoped.moveInTreeFromAction("sales.invoice", "invoice", moving,
+                    neighbor, null, parent, Criteria.of().in("code", List.of("DSP-" + suffix, "DSM-" + suffix, "DSN-" + suffix)), "data-scope"))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("record data permission denied");
+            assertThat(treeSnapshot(invoices)).isEqualTo(before);
+            assertThat(events).isEmpty();
+        }
+    }
+
     private void assertChildReferenceDeletionPolicy(ReferenceTargetUnavailablePolicy policy) {
         String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String moduleAlias = "sales.deletion_" + suffix;
@@ -269,12 +381,20 @@ class DynamicSchemaServiceIT {
                     .setValue("code", "INV-OTHER-CHILD")
                     .setValue("title", "Other child")
                     .setValue("parentId", anotherRootId));
+            List<String> rootOrderBeforeRejectedMove = invoiceService.sortedList(Criteria.of().eq("parentId", rootId))
+                    .stream().map(DynamicRecord::getId).toList();
+            List<String> otherOrderBeforeRejectedMove = invoiceService.sortedList(Criteria.of().eq("parentId", anotherRootId))
+                    .stream().map(DynamicRecord::getId).toList();
             assertThatThrownBy(() -> invoiceService.moveBefore(firstChildId, anotherChildId))
                     .isInstanceOf(PlatformException.class)
                     .hasMessageContaining("same parent");
             assertThatThrownBy(() -> invoiceService.reorder(List.of(firstChildId)))
                     .isInstanceOf(PlatformException.class)
                     .hasMessageContaining("complete scope");
+            assertThat(invoiceService.sortedList(Criteria.of().eq("parentId", rootId)).stream()
+                    .map(DynamicRecord::getId).toList()).isEqualTo(rootOrderBeforeRejectedMove);
+            assertThat(invoiceService.sortedList(Criteria.of().eq("parentId", anotherRootId)).stream()
+                    .map(DynamicRecord::getId).toList()).isEqualTo(otherOrderBeforeRejectedMove);
 
             invoiceService.reorder(List.of(secondChildId, firstChildId));
             assertThat(invoiceService.sortedList(Criteria.of().eq("parentId", rootId)).stream().map(DynamicRecord::getId))
@@ -994,7 +1114,8 @@ class DynamicSchemaServiceIT {
                         FieldDefinition.parentId(),
                         FieldDefinition.sortOrder()
                 )
-        ).withCapabilities(EntityCapability.CRUD, EntityCapability.TREE, EntityCapability.SORT, EntityCapability.REFERENCE);
+        ).withCapabilities(EntityCapability.CRUD, EntityCapability.TREE, EntityCapability.SORT,
+                EntityCapability.REFERENCE, EntityCapability.DATA_SCOPE);
     }
 
     private EntityDefinition invoiceLineEntity() {

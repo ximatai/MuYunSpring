@@ -162,6 +162,8 @@
 | 字典项目 | `POST` | `/platform.application/{applicationAlias}/dictionary-categories/{categoryAlias}/items/enable/{id}`、`/disable/{id}` | 启用或停用字典项目                                    |
 | 字典项目 | `POST` | `/platform.application/{applicationAlias}/dictionary-categories/{categoryAlias}/items/sort/{id}`                    | 在同一类目和父项目范围内调整项目顺序                  |
 
+字典类目导航拖拽使用同一 `POST /platform.dictionary_category/sort/{id}`，请求中的 `previousId`、`nextId`、`parentId` 表达位置，`scope.externalQueryValues.applicationAlias` 表达应用范围；在宿主导航中同时携带 `scope.navigatorHostModuleAlias` 与 `scope.navigatorTargetLevelKey`，由服务端校验导航归属并解析范围。排序仍要求 `SORT` 动作权限，引用读取权限不授予写权限。
+
 ## 计量单位
 
 计量单位主数据以共享单位库为主：`tenantId` 为空表示平台全局公开，`tenantId` 有值表示租户公开。共享入口固定把 `applicationAlias` 绑定为 `platform`，由平台配置管理员代管全局和租户公开单位；应用路径继续保留为兼容入口和应用视角消费入口，仍承担计量单位静态模块定义注册。运行态字段消费按“租户公开优先、平台全局公开兜底”解析，共享单位库优先于历史应用路径配置，应用路径只作为兼容兜底。

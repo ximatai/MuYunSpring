@@ -150,6 +150,11 @@ public final class StaticAbilityOperationRuntime {
             throw new IllegalArgumentException("tree sort requires previousId, nextId, or parentId");
         }
         return MutationTenantScopeExecutor.forExistingRecord(scope, id, () -> scope.webScope(() -> {
+            if (sort.scope() != null) {
+                TreeWebProjectionPolicy.bindTreeSortScope(request, scope.webScopeName(), sort.scope(),
+                        scope.navigatorReferenceQueryContextResolver(),
+                        scope.target.anchor() instanceof ScopedTreeWebProjectionPolicy<?, ?>);
+            }
             TreeWebProjectionPolicy policy = treePolicy(scope);
             requireProjectionRecord(scope, request, PlatformAction.SORT, id);
             if (hasText(sort.previousId())) {
@@ -650,6 +655,11 @@ public final class StaticAbilityOperationRuntime {
         @Override
         public String webScopeName() {
             return target.moduleAlias();
+        }
+
+        @Override
+        public NavigatorReferenceQueryContextResolver navigatorReferenceQueryContextResolver() {
+            return target.anchor() instanceof ScopedWeb<?> scoped ? scoped.navigatorReferenceQueryContextResolver() : null;
         }
 
         @Override

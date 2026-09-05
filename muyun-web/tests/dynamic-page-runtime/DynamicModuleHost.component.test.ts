@@ -1805,7 +1805,6 @@ describe('ModulePageHost', () => {
           moduleAlias: 'iam.position_category',
           capabilities: ['TREE'],
           abilities: ['tree'],
-          navigatorSourceCapabilities: ['REFERENCE_TREE', 'REFERENCE_TREE_SORT'],
           actions: [
             { actionCode: 'create', authorized: true },
             { actionCode: 'update', authorized: true },
@@ -1914,6 +1913,7 @@ describe('ModulePageHost', () => {
         return Response.json({
           moduleAlias: 'platform.dictionary_category',
           capabilities: ['TREE'],
+          sortPartitionFields: ['applicationAlias'],
           actions: [
             'item_create',
             'item_view',
@@ -1959,7 +1959,6 @@ describe('ModulePageHost', () => {
         return Response.json({
           moduleAlias: 'platform.dictionary_category',
           capabilities: ['TREE'],
-          navigatorSourceCapabilities: ['REFERENCE_TREE', 'REFERENCE_TREE_SORT'],
           actions: [],
         });
       }
@@ -2663,7 +2662,6 @@ describe('ModulePageHost', () => {
         return Response.json({
           moduleAlias: 'platform.application',
           capabilities: [],
-          navigatorSourceCapabilities: ['REFERENCE_QUERY'],
           actions: [],
         });
       }

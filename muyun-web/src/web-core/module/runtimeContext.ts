@@ -55,8 +55,6 @@ export interface ModuleRuntimeContext {
   sortPartitionFields?: string[];
   abilities?: string[];
   actions: ModuleRuntimeAction[];
-  /** Read-only projections this module deliberately exposes for page navigation. */
-  navigatorSourceCapabilities?: Array<'REFERENCE_QUERY' | 'REFERENCE_TREE' | 'REFERENCE_TREE_SORT'>;
   uiDescriptor?: ResolvedModuleUiDescriptor;
 }
 

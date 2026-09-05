@@ -3,7 +3,6 @@ package net.ximatai.muyun.spring.platform.web;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
-import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -86,7 +85,7 @@ class StaticPageCapabilityValidatorTest {
         return StaticModuleDefinition.builder("catalog", alias, alias)
                 .capabilities(capabilities)
                 .actions(actions)
-                .navigatorSourceCapabilities(Set.of(NavigatorSourceCapability.REFERENCE_QUERY))
+
                 .uiDefinition(ui)
                 .build();
     }

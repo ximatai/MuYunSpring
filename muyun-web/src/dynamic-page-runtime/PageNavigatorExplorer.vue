@@ -89,6 +89,7 @@ function itemOf(record: NavigatorItemRecord) {
       :external-query-values="externalQueryValues"
       :navigator-host-module-alias="navigatorHostModuleAlias"
       :navigator-target-level-key="level.descriptor.key"
+      :sort-partition-fields="level.context.runtime?.snapshot?.()?.sortPartitionFields"
       search-mode="none"
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"

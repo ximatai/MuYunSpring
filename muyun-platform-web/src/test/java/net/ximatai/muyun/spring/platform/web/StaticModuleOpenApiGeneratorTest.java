@@ -72,6 +72,10 @@ class StaticModuleOpenApiGeneratorTest {
         assertThat(document.operations().getFirst().permissionCode()).isEqualTo(
                 PlatformPermissionCode.action("education.teacher",
                         PlatformAction.permissionActionCodeOf(PlatformAction.QUERY.code())));
+        assertThat(document.schemas().get("TreeSortWebRequest").properties())
+                .containsKey("scope");
+        assertThat(document.schemas().get("TreeSortScopeRequest").properties())
+                .containsKeys("externalQueryValues", "navigatorHostModuleAlias", "navigatorTargetLevelKey");
         assertThat(document.operations().getFirst().errorCodes())
                 .contains(PlatformErrorCodes.VALIDATION_FAILED, PlatformErrorCodes.INTERNAL_ERROR);
         assertThat(document.errors()).containsKeys(PlatformErrorCodes.VALIDATION_FAILED,

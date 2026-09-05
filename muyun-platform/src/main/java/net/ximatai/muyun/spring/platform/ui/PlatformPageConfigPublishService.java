@@ -288,13 +288,11 @@ public class PlatformPageConfigPublishService {
         // page host exists, so source-projection validation belongs to the optional delivery adapter.
         if (navigatorSourceCapabilityResolver == null) return;
         for (PlatformPageNavigatorLevel level : navigator.levels()) {
-            NavigatorSourceCapability required = "TREE".equals(level.kind())
-                    ? NavigatorSourceCapability.REFERENCE_TREE
-                    : NavigatorSourceCapability.REFERENCE_QUERY;
-            if (!navigatorSourceCapabilityResolver.supports(level.sourceModuleAlias(), required)) {
+            boolean tree = "TREE".equals(level.kind());
+            if (!navigatorSourceCapabilityResolver.supports(level.sourceModuleAlias(), tree)) {
                 throw new PlatformException("Navigator source capability is unavailable: page="
                         + uiSet.getModuleAlias() + ", uiConfig=" + uiConfig.getId() + ", level=" + level.key()
-                        + ", source=" + level.sourceModuleAlias() + ", required=" + required);
+                        + ", source=" + level.sourceModuleAlias() + ", tree=" + tree);
             }
             PlatformPageNavigatorManagement management = level.management();
             if (management != null) {

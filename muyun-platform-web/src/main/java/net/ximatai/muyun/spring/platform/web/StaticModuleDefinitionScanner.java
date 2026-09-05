@@ -22,7 +22,6 @@ import net.ximatai.muyun.spring.web.QueryViewWeb;
 import net.ximatai.muyun.spring.web.ReferenceWeb;
 import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
 import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
-import net.ximatai.muyun.spring.web.NavigatorReferenceTreeSortWeb;
 import net.ximatai.muyun.spring.web.ScopedWeb;
 import net.ximatai.muyun.spring.web.SortWeb;
 import net.ximatai.muyun.spring.web.TreeWeb;
@@ -42,7 +41,6 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.StaticEntityDefinitionCompiler;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
-import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.annotation.AnnotationUtils;
@@ -159,7 +157,6 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .parentModuleAlias(module.parent().isBlank() ? null : module.parent())
                 .entry(entryType(module), module.route(), module.externalUrl())
                 .capabilities(capabilities)
-                .navigatorSourceCapabilities(navigatorSourceCapabilities(beanClass))
                 .actions(actions(bean, beanClass, capabilities))
                 .entities(entities)
                 .uiDefinition(uiDefinition(bean, module))
@@ -218,21 +215,6 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
         capabilities.addAll(serviceCapabilities);
         return java.util.Set.copyOf(capabilities);
-    }
-
-    private Set<NavigatorSourceCapability> navigatorSourceCapabilities(Class<?> beanClass) {
-        java.util.EnumSet<NavigatorSourceCapability> capabilities =
-                java.util.EnumSet.noneOf(NavigatorSourceCapability.class);
-        if (NavigatorReferenceWeb.class.isAssignableFrom(beanClass)) {
-            capabilities.add(NavigatorSourceCapability.REFERENCE_QUERY);
-        }
-        if (NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
-            capabilities.add(NavigatorSourceCapability.REFERENCE_TREE);
-        }
-        if (NavigatorReferenceTreeSortWeb.class.isAssignableFrom(beanClass)) {
-            capabilities.add(NavigatorSourceCapability.REFERENCE_TREE_SORT);
-        }
-        return Set.copyOf(capabilities);
     }
 
     private Class<?> modelClass(Object bean) {
@@ -777,9 +759,6 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 || NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
             addPlatformUnlessDisabled(actions, PlatformAction.REFERENCE, disabledActions);
         }
-        if (NavigatorReferenceTreeSortWeb.class.isAssignableFrom(beanClass)) {
-            addPlatformUnlessDisabled(actions, PlatformAction.SORT, disabledActions);
-        }
     }
 
     private void addPlatformUnlessDisabled(Map<String, StaticModuleActionDefinition> actions,
@@ -821,9 +800,6 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 || NavigatorReferenceWeb.class.isAssignableFrom(beanClass)
                 || NavigatorReferenceTreeWeb.class.isAssignableFrom(beanClass)) {
             addContributionPlatform(actions, contribution, PlatformAction.REFERENCE);
-        }
-        if (NavigatorReferenceTreeSortWeb.class.isAssignableFrom(beanClass)) {
-            addContributionPlatform(actions, contribution, PlatformAction.SORT);
         }
     }
 

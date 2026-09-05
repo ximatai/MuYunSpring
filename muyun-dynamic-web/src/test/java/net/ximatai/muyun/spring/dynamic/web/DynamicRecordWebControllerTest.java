@@ -2580,7 +2580,87 @@ class DynamicRecordWebControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").value(1));
 
-        verify(service).moveInTreeFromAction(eq(MODULE), eq(ENTITY), eq("A"), eq("B"), eq(null), eq("P"), anyString());
+        verify(service).moveInTreeFromAction(eq(MODULE), eq(ENTITY), eq("A"), eq("B"), eq(null), eq("P"),
+                any(Criteria.class), anyString());
+    }
+
+    @Test
+    void shouldResolveRequiredListScopeForDynamicTreeSort() throws Exception {
+        when(mainEntity.describe()).thenReturn(DynamicEntityDescriptor.from(treeEntity()));
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan(List.of(
+                PageContextBindingDefinition.navigatorList("tenant", "tenantId", NavigatorListQueryMode.REQUIRED_SCOPE)))));
+        MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .executionPlans(catalog).build())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+
+        plannedMvc.perform(post("/{moduleAlias}/sort/{recordId}", MODULE, "A")
+                        .contentType("application/json")
+                        .content("{\"previousId\":\"B\",\"scope\":{\"externalQueryValues\":{\"tenantId\":\"tenant_a\"}}}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Criteria> captured = ArgumentCaptor.forClass(Criteria.class);
+        verify(service).moveInTreeFromAction(eq(MODULE), eq(ENTITY), eq("A"), eq("B"), eq(null), eq(null),
+                captured.capture(), eq(null));
+        assertThat(captured.getValue().getRoot().getEntries()).hasSize(1);
+        assertThat(((net.ximatai.muyun.database.core.orm.CriteriaClause) captured.getValue().getRoot()
+                .getEntries().getFirst().getNode()).getField()).isEqualTo("tenantId");
+        assertThat(((net.ximatai.muyun.database.core.orm.CriteriaClause) captured.getValue().getRoot()
+                .getEntries().getFirst().getNode()).getValues()).containsExactly("tenant_a");
+
+        plannedMvc.perform(post("/{moduleAlias}/sort/{recordId}", MODULE, "A")
+                        .contentType("application/json")
+                        .content("{\"previousId\":\"B\"}"))
+                .andExpect(status().isBadRequest());
+
+        plannedMvc.perform(post("/{moduleAlias}/sort/{recordId}", MODULE, "A")
+                        .contentType("application/json")
+                        .content("{\"previousId\":\"B\",\"scope\":{}}"))
+                .andExpect(status().isBadRequest());
+        verify(service, times(1)).moveInTreeFromAction(eq(MODULE), eq(ENTITY), eq("A"), eq("B"), eq(null), eq(null),
+                any(Criteria.class), eq(null));
+    }
+
+    @Test
+    void shouldResolveNavigatorScopeAndRejectWrongTargetForDynamicTreeSort() throws Exception {
+        String hostModule = "mr.device";
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan()));
+        catalog.replaceDynamicPlan(hostModule, java.util.Optional.of(installedNavigatorHostPlan(hostModule, List.of(
+                PageContextBindingDefinition.navigatorToNavigator("tenant", "project", "tenantId")))));
+        when(mainEntity.describe()).thenReturn(DynamicEntityDescriptor.from(treeEntity()));
+        MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .executionPlans(catalog).build())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+
+        plannedMvc.perform(post("/{moduleAlias}/sort/{recordId}", MODULE, "A")
+                        .contentType("application/json")
+                        .content("""
+                                {"previousId":"B","scope":{"externalQueryValues":{"tenantId":"tenant_a"},
+                                 "navigatorHostModuleAlias":"mr.device","navigatorTargetLevelKey":"project"}}
+                                """))
+                .andExpect(status().isOk());
+        ArgumentCaptor<Criteria> captured = ArgumentCaptor.forClass(Criteria.class);
+        verify(service).moveInTreeFromAction(eq(MODULE), eq(ENTITY), eq("A"), eq("B"), eq(null), eq(null),
+                captured.capture(), eq(null));
+        assertThat(captured.getValue().getRoot().getEntries()).hasSize(1);
+        assertThat(((net.ximatai.muyun.database.core.orm.CriteriaClause) captured.getValue().getRoot()
+                .getEntries().getFirst().getNode()).getValues()).containsExactly("tenant_a");
+
+        plannedMvc.perform(post("/{moduleAlias}/sort/{recordId}", MODULE, "A")
+                        .contentType("application/json")
+                        .content("{\"previousId\":\"B\",\"scope\":{\"navigatorHostModuleAlias\":\"mr.device\",\"navigatorTargetLevelKey\":\"tenant\"}}"))
+                .andExpect(status().isBadRequest());
+        verify(service, times(1)).moveInTreeFromAction(eq(MODULE), eq(ENTITY), eq("A"), eq("B"), eq(null), eq(null),
+                any(Criteria.class), eq(null));
     }
 
     @Test

@@ -1243,7 +1243,7 @@ export interface ResolvedPageTreeResourceDescriptor {
   emptyDescription: string;
   createTitle: string;
   /** Persisted fields that define the resource's own server-authoritative sort partition. */
-  sortPartitionFields?: string[];
+  sortPartitionFields: string[];
 }
 
 export interface ResolvedUiActionConfirmationDescriptor {

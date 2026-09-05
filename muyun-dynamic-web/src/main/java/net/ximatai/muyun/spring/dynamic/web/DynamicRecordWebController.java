@@ -35,6 +35,7 @@ import net.ximatai.muyun.spring.platform.web.ModuleQueryTemplatePlan;
 import net.ximatai.muyun.spring.web.EnableWeb;
 import net.ximatai.muyun.spring.web.ReferenceWeb;
 import net.ximatai.muyun.spring.web.TreeSortWebRequest;
+import net.ximatai.muyun.spring.web.TreeSortScopeRequest;
 import net.ximatai.muyun.spring.web.TreeWeb;
 import net.ximatai.muyun.spring.web.WebListResponse;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
@@ -65,6 +66,7 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.web.PlatformWebPathRules;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -1522,8 +1524,31 @@ public class DynamicRecordWebController implements
             TreeSortWebRequest normalized = request == null ? new TreeSortWebRequest(null, null, null) : request;
             String moduleAlias = DynamicWebRequest.moduleAlias();
             return DynamicCapabilityWebActionAdapter.sort(recordService, service(), moduleAlias, mainEntityAlias(moduleAlias), id,
-                    normalized, net.ximatai.muyun.spring.common.web.RequestTraceContext.currentTraceId().orElse(null));
+                    normalized, treeSortScopeCriteria(moduleAlias, normalized.scope()),
+                    net.ximatai.muyun.spring.common.web.RequestTraceContext.currentTraceId().orElse(null));
         });
+    }
+
+    private Criteria treeSortScopeCriteria(String moduleAlias, TreeSortScopeRequest scope) {
+        if (scope == null) {
+            if (executionPlanCatalog == null || !service().describe().capabilities().contains(EntityCapability.TREE.name())) {
+                return Criteria.of();
+            }
+            return PageContextScopePolicy.criteria(
+                    navigatorQueryBindings(moduleAlias, null, PageContextTarget.LIST_QUERY), Map.of(), false);
+        }
+        if (executionPlanCatalog == null) {
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED,
+                    "Tree sort scope requires a published execution plan");
+        }
+        List<PageContextBindingDefinition> bindings;
+        if (hasText(scope.navigatorHostModuleAlias())) {
+            WebQueryRequest query = scope.toQueryRequest();
+            bindings = navigatorReferenceBindings(moduleAlias, query);
+            return PageContextScopePolicy.criteria(bindings, scope.externalQueryValues(), true);
+        }
+        bindings = navigatorQueryBindings(moduleAlias, null, PageContextTarget.LIST_QUERY);
+        return PageContextScopePolicy.criteria(bindings, scope.externalQueryValues(), false);
     }
 
     @GetMapping("/describe")

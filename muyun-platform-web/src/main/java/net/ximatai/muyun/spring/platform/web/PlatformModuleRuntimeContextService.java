@@ -47,7 +47,6 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshotService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPublishedPageComposition;
 import net.ximatai.muyun.spring.platform.ui.PlatformResolvedPageConfig;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiClientType;
-import net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability;
 import net.ximatai.muyun.spring.platform.ui.PageNavigatorSourceCapabilityResolver;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService;
@@ -241,9 +240,6 @@ public class PlatformModuleRuntimeContextService {
         String title = title(module, staticDefinition, dynamicDescriptor, validModuleAlias);
         ResolvedModuleUiDescriptor uiDescriptor = uiDescriptor(validModuleAlias, moduleKind, title, staticDefinition,
                 dynamicDescriptor);
-        Set<NavigatorSourceCapability> navigatorSourceCapabilities = navigatorSourceCapabilityResolver == null
-                ? Set.of()
-                : navigatorSourceCapabilityResolver.capabilities(validModuleAlias);
         return new PlatformModuleRuntimeContext(
                 validModuleAlias,
                 title,
@@ -256,7 +252,6 @@ public class PlatformModuleRuntimeContextService {
                 sortPartitionFields(staticDefinition, dynamicDescriptor),
                 abilityCodes(capabilities),
                 actions,
-                navigatorSourceCapabilities,
                 uiDescriptor
         );
     }
@@ -763,13 +758,11 @@ public class PlatformModuleRuntimeContextService {
                                                      ResolvedPageNavigatorDescriptor navigator) {
         if (navigator == null || navigatorSourceCapabilityResolver == null) return;
         for (ResolvedPageNavigatorLevelDescriptor level : navigator.levels()) {
-            NavigatorSourceCapability required = level.kind() == PageNavigatorKind.TREE
-                    ? NavigatorSourceCapability.REFERENCE_TREE
-                    : NavigatorSourceCapability.REFERENCE_QUERY;
-            if (!navigatorSourceCapabilityResolver.supports(level.sourceModuleAlias(), required)) {
+            boolean tree = level.kind() == PageNavigatorKind.TREE;
+            if (!navigatorSourceCapabilityResolver.supports(level.sourceModuleAlias(), tree)) {
                 throw new PlatformException(PlatformErrorCodes.CONFIG_MISSING, 409,
                         "Navigator source capability is unavailable: page=" + pageModuleAlias + ", level="
-                                + level.key() + ", source=" + level.sourceModuleAlias() + ", required=" + required);
+                                + level.key() + ", source=" + level.sourceModuleAlias() + ", tree=" + tree);
             }
         }
     }
@@ -1023,29 +1016,30 @@ public class PlatformModuleRuntimeContextService {
 
     /**
      * Static actions are the module capability baseline. Persisted rows override that baseline by
-     * action code; this keeps newly added static capabilities visible without erasing explicit
-     * disables or custom persisted actions.
+     * action code. Persisted rows only carry enablement and governance overrides; declaration
+     * metadata remains the static module's executable fact source.
      */
     private List<PlatformModuleRuntimeAction> staticActionsWithPersistedOverrides(
             String moduleAlias,
             Optional<StaticModuleDefinition> staticDefinition,
             List<PlatformModuleAction> persisted) {
-        if (persisted.isEmpty()) {
-            return staticDefinition.map(definition -> definition.actions().stream()
-                    .map(action -> runtimeAction(definition.moduleAlias(), action))
-                    .toList()).orElse(List.of());
+        if (staticDefinition.isEmpty()) {
+            return List.of();
         }
-        LinkedHashMap<String, PlatformModuleRuntimeAction> actions = new LinkedHashMap<>();
-        Set<String> configuredCodes = persisted.stream()
-                .map(PlatformModuleAction::getActionCode)
-                .collect(java.util.stream.Collectors.toSet());
-        persisted.stream()
-                .filter(action -> Boolean.TRUE.equals(action.getEnabled()))
-                .forEach(action -> actions.put(action.getActionCode(), runtimeAction(action, policy(action))));
-        staticDefinition.ifPresent(definition -> definition.actions().stream()
-                .filter(action -> !configuredCodes.contains(action.actionCode()))
-                .forEach(action -> actions.put(action.actionCode(), runtimeAction(moduleAlias, action))));
-        return List.copyOf(actions.values());
+        Map<String, PlatformModuleAction> persistedByCode = persisted.stream()
+                .collect(java.util.stream.Collectors.toMap(PlatformModuleAction::getActionCode,
+                        action -> action, (first, ignored) -> first));
+        return staticDefinition.get().actions().stream()
+                .map(declared -> {
+                    PlatformModuleAction configured = persistedByCode.get(declared.actionCode());
+                    if (configured != null && Boolean.FALSE.equals(configured.getEnabled())) {
+                        return null;
+                    }
+                    return runtimeAction(moduleAlias, declared,
+                            configured == null ? policy(declared) : policy(declared, configured));
+                })
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     private List<PlatformModuleRuntimeAction> dynamicActions(String moduleAlias,
@@ -1085,7 +1079,12 @@ public class PlatformModuleRuntimeContextService {
     }
 
     private PlatformModuleRuntimeAction runtimeAction(String moduleAlias, StaticModuleActionDefinition action) {
-        ActionExecutionPolicy policy = policy(action);
+        return runtimeAction(moduleAlias, action, policy(action));
+    }
+
+    private PlatformModuleRuntimeAction runtimeAction(String moduleAlias,
+                                                      StaticModuleActionDefinition action,
+                                                      ActionExecutionPolicy policy) {
         Authorization authorization = authorize(moduleAlias, policy);
         return new PlatformModuleRuntimeAction(
                 action.actionCode(),
@@ -1149,6 +1148,12 @@ public class PlatformModuleRuntimeContextService {
                 action.defaultGrantPolicy(),
                 inheritActionCode(action.actionCode(), action.permissionActionCode(), action.actionAuth())
         );
+    }
+
+    /** Applies persisted governance fields while retaining static declaration facts. */
+    private ActionExecutionPolicy policy(StaticModuleActionDefinition declaration,
+                                         PlatformModuleAction configured) {
+        return ActionEndpointContextResolver.overlay(policy(declaration), configured);
     }
 
     private ActionExecutionPolicy policy(DynamicActionDescriptor action) {

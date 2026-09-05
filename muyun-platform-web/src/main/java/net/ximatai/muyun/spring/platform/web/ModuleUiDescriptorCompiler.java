@@ -709,7 +709,11 @@ public final class ModuleUiDescriptorCompiler {
     private static List<String> sortPartitionFields(PageTreeResourceDefinition resource,
                                                     Map<String, List<String>> sortPartitionFieldsByEntity) {
         if (resource == null) return List.of();
-        return sortPartitionFieldsByEntity.getOrDefault(resource.resource(), List.of());
+        List<String> fields = sortPartitionFieldsByEntity.get(resource.resource());
+        if (fields == null) {
+            throw new IllegalArgumentException("tree resource entity is not declared: " + resource.resource());
+        }
+        return fields;
     }
 
     private static void validateListRelationExpansions(ResolvedModulePageDescriptor page,

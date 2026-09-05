@@ -67,10 +67,6 @@ it('places tree sorting between the explorer search affordance and create action
     /<template #actions>[\s\S]*?<RecordPanelButton[\s\S]*?icon-name="swap-vertical"[\s\S]*?<ModuleActionButton/,
   );
   assert.match(source, /<TreeRecordExplorer[\s\S]*?:sorting="mainTreeSorting"/);
-  assert.match(
-    source,
-    /<TreeRecordExplorer[\s\S]*?:sort-partition-fields="runtimePage\?\.treeResource\?\.sortPartitionFields"/,
-  );
   assert.match(source, /mainTreeScopeReady && context\.can\('sort'\) === true/);
   assert.match(source, /treeSearchKeyword\.trim\(\)[\s\S]*清空搜索后可调整排序/);
 });
@@ -97,8 +93,8 @@ it('exposes sortable navigator lists through the navigator module capability', (
 
   assert.match(source, /import NavigatorPanelActions from '\.\/NavigatorPanelActions\.vue'/);
   assert.match(source, /<NavigatorPanelActions[\s\S]*:sort="navigatorSortState\(level\)"/);
-  assert.match(source, /<CrudRecordListExplorer[\s\S]*?:sorting="navigatorSorting\(level\)"/);
-  assert.match(source, /:sorting="navigatorSorting\(navigatorLevelAt\(index\)!\)"/);
+  assert.match(source, /<CrudRecordListExplorer[\s\S]*?:sorting="navigatorSortState\(level\)\.active"/);
+  assert.match(source, /:sorting="navigatorSortState\(navigatorLevelAt\(index\)!\)\.active"/);
   assert.match(source, /navigatorLevelAt\(index\)!\.sort\.visible/);
 });
 

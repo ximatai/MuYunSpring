@@ -29,6 +29,7 @@ final class DynamicOpenApiSchemaFactory {
         schemas.put("WebSort", sortSchema("WebSort"));
         schemas.put("SortWebRequest", sortRequestSchema());
         schemas.put("TreeSortWebRequest", treeSortRequestSchema());
+        schemas.put("TreeSortScopeRequest", treeSortScopeRequestSchema());
         schemas.put("DynamicExchangeTemplateRequest", exchangeTemplateRequestSchema());
         schemas.put("DynamicSelectedExportRequest", selectedExportRequestSchema());
         schemas.put("DynamicImportParseRequest", importParseRequestSchema());
@@ -554,7 +555,16 @@ final class DynamicOpenApiSchemaFactory {
         properties.put("previousId", stringProperty(true));
         properties.put("nextId", stringProperty(true));
         properties.put("parentId", stringProperty(true));
+        properties.put("scope", objectProperty("TreeSortScopeRequest"));
         return new DynamicOpenApiDocument.Schema("TreeSortWebRequest", "object", null, List.of(), properties, null);
+    }
+
+    private DynamicOpenApiDocument.Schema treeSortScopeRequestSchema() {
+        Map<String, DynamicOpenApiDocument.Property> properties = new LinkedHashMap<>();
+        properties.put("externalQueryValues", objectProperty("object"));
+        properties.put("navigatorHostModuleAlias", stringProperty(true));
+        properties.put("navigatorTargetLevelKey", stringProperty(true));
+        return new DynamicOpenApiDocument.Schema("TreeSortScopeRequest", "object", null, List.of(), properties, null);
     }
 
     private DynamicOpenApiDocument.Schema importParseRequestSchema() {

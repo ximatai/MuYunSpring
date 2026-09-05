@@ -75,7 +75,12 @@ export function createModuleContext<TRecord>(options: ModuleContextOptions): Mod
 
 export function createModuleTreeContext<TRecord>(options: ModuleContextOptions): ModuleTreeContext<TRecord> {
   const http = resolveModuleHttpClient(options);
-  return moduleTreeContextOf<TRecord>(http, options.moduleAlias, options.runtimeAccess);
+  return moduleTreeContextOf<TRecord>(
+    http,
+    options.moduleAlias,
+    options.runtimeAccess,
+    options.navigatorReference,
+  );
 }
 
 export function useModuleContext<TRecord>(
@@ -185,8 +190,9 @@ function moduleTreeContextOf<TRecord>(
   http: HttpClient,
   moduleAlias: string,
   runtimeAccess: 'MENU' | 'REFERENCE' = 'MENU',
+  navigatorReference?: NavigatorReferenceRequestContext,
 ): ModuleTreeContext<TRecord> {
-  const context = moduleContextOf<TRecord>(http, moduleAlias, runtimeAccess);
+  const context = moduleContextOf<TRecord>(http, moduleAlias, runtimeAccess, navigatorReference);
   return {
     ...context,
     tree: runtimeCheckedTreeClient(context),
@@ -210,7 +216,7 @@ function runtimeCheckedTreeClient<TRecord>(context: ModuleContext<TRecord>): Mod
     tree: async (request) => (await tree()).tree(request),
     treeFlat: async (options) => (await tree()).treeFlat(options),
     subtree: async (id, options) => (await tree()).subtree(id, options),
-    sort: async (id, request) => (await tree()).sort(id, request),
+    sort: async (id, request, options) => (await tree()).sort(id, request, options),
   };
 }
 

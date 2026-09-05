@@ -1,17 +1,8 @@
 package net.ximatai.muyun.spring.platform.ui;
 
-import net.ximatai.muyun.spring.common.util.PlatformNameRules;
-
-import java.util.Set;
-
-/** Resolves the navigator read projections currently exposed by a module. */
-@FunctionalInterface
+/** Resolves whether a module exposes the requested navigator read shape. */
 public interface PageNavigatorSourceCapabilityResolver {
-    Set<NavigatorSourceCapability> capabilities(String moduleAlias);
-
-    default boolean supports(String moduleAlias, NavigatorSourceCapability capability) {
-        return capabilities(PlatformNameRules.requireModuleAlias(moduleAlias)).contains(capability);
-    }
+    boolean supports(String moduleAlias, boolean tree);
 
     /**
      * Whether the source's currently published contract can serve the requested in-place management UI.
@@ -22,6 +13,6 @@ public interface PageNavigatorSourceCapabilityResolver {
     }
 
     static PageNavigatorSourceCapabilityResolver unavailable() {
-        return moduleAlias -> Set.of();
+        return (moduleAlias, tree) -> false;
     }
 }

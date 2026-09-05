@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution;
 import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 import net.ximatai.muyun.spring.dynamic.capability.DynamicCapabilityWebActionExecution;
@@ -15,8 +16,11 @@ final class DynamicCapabilityWebActionAdapter {
     }
 
     static int sort(DynamicRecordService records, DynamicEntityOperations target, String moduleAlias, String entityAlias,
-                    String id, TreeSortWebRequest request, String traceId) {
+                    String id, TreeSortWebRequest request, Criteria sortScope, String traceId) {
         TreeSortWebRequest normalized = request == null ? new TreeSortWebRequest(null, null, null) : request;
+        if (normalized.scope() != null && !target.describe().capabilities().contains("TREE")) {
+            throw new IllegalArgumentException("tree sort scope requires TREE capability");
+        }
         CapabilityActionContribution owner = CapabilityModuleRegistry.defaultRegistry()
                 .dynamicWebActionOwner(PlatformAction.SORT, target.describe().capabilities())
                 .orElseThrow(() -> new IllegalStateException("SORT capability action is not registered"));
@@ -40,7 +44,8 @@ final class DynamicCapabilityWebActionAdapter {
 
                     @Override
                     public void moveInTree(String recordId, String previousId, String nextId, String parentId) {
-                        records.moveInTreeFromAction(moduleAlias, entityAlias, recordId, previousId, nextId, parentId, traceId);
+                        records.moveInTreeFromAction(moduleAlias, entityAlias, recordId, previousId, nextId, parentId,
+                                sortScope == null ? Criteria.of() : sortScope, traceId);
                     }
                 }, PlatformAction.SORT,
                         new DynamicCapabilityWebSortRequest(id, normalized.previousId(), normalized.nextId(), normalized.parentId()));

@@ -99,7 +99,7 @@ it('persists same-parent vertical drops through the standard tree sort contract'
     },
   } as unknown as ModuleContext<TreeRecordBase>;
   const wrapper = mount(TreeRecordExplorer, {
-    props: { context, sorting: true, searchMode: 'none' },
+    props: { context, sorting: true, sortPartitionFields: [], searchMode: 'none' },
     global: {
       stubs: {
         UiSpin: { template: '<div />' },
@@ -135,6 +135,43 @@ it('persists same-parent vertical drops through the standard tree sort contract'
   wrapper.unmount();
 });
 
+it('enables tree dragging only after the resource sort partition contract resolves', async () => {
+  const requests: Array<ReturnType<typeof deferredTreeResponse>> = [];
+  const context = createTreeContext(requests);
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context, sorting: true, searchMode: 'none' },
+    global: {
+      stubs: {
+        UiSpin: true,
+        UiEmpty: true,
+        UiTree: {
+          name: 'UiTree',
+          props: ['draggable', 'canDrag', 'allowDrop'],
+          template: '<div />',
+        },
+      },
+    },
+  });
+
+  await flushPromises();
+  requests[0].resolve(treeResponse('first'));
+  await flushPromises();
+  const tree = wrapper.findComponent({ name: 'UiTree' });
+  assert.isFalse(tree.props('draggable'));
+  assert.isFalse((tree.props('canDrag') as () => boolean)());
+
+  await wrapper.setProps({ sortPartitionFields: [] });
+  assert.isTrue(tree.props('draggable'));
+  assert.isTrue((tree.props('canDrag') as () => boolean)());
+
+  await wrapper.setProps({ keyword: 'first', searchMode: 'always' });
+  await flushPromises();
+  const filteredTree = wrapper.findComponent({ name: 'UiTree' });
+  assert.isFalse(filteredTree.props('draggable'));
+  assert.isFalse((filteredTree.props('canDrag') as () => boolean)());
+  wrapper.unmount();
+});
+
 it('rejects inside drops for business-disallowed tree parents', async () => {
   const records = [
     { record: { id: 'folder', title: 'folder', categoryKind: 'folder' }, children: [] },
@@ -155,6 +192,7 @@ it('rejects inside drops for business-disallowed tree parents', async () => {
     props: {
       context,
       sorting: true,
+      sortPartitionFields: [],
       searchMode: 'none',
       canDropInside: (record) => record.categoryKind === 'folder',
     },
@@ -205,7 +243,7 @@ it('rejects tree drops across a runtime-declared sort partition', async () => {
     },
   } as unknown as ModuleContext<TreeRecordBase>;
   const wrapper = mount(TreeRecordExplorer, {
-    props: { context, sorting: true, searchMode: 'none' },
+    props: { context, sorting: true, sortPartitionFields: ['scope'], searchMode: 'none' },
     global: {
       stubs: {
         UiSpin: { template: '<div />' },
@@ -304,7 +342,7 @@ it('chooses tree sort neighbors only within the runtime partition', async () => 
     },
   } as unknown as ModuleContext<TreeRecordBase>;
   const wrapper = mount(TreeRecordExplorer, {
-    props: { context, sorting: true, searchMode: 'none' },
+    props: { context, sorting: true, sortPartitionFields: ['scope'], searchMode: 'none' },
     global: { stubs: { UiSpin: true, UiEmpty: true, UiTree: { name: 'UiTree', template: '<div />' } } },
   });
   await flushPromises();
@@ -342,7 +380,7 @@ it('does not persist a same-parent drop that leaves the tree order unchanged', a
     },
   } as unknown as ModuleContext<TreeRecordBase>;
   const wrapper = mount(TreeRecordExplorer, {
-    props: { context, sorting: true, searchMode: 'none' },
+    props: { context, sorting: true, sortPartitionFields: [], searchMode: 'none' },
     global: {
       stubs: {
         UiSpin: { template: '<div />' },
@@ -392,7 +430,7 @@ it('persists module sibling moves with the parent and correct boundary neighbors
     },
   } as unknown as ModuleContext<TreeRecordBase>;
   const wrapper = mount(TreeRecordExplorer, {
-    props: { context, sorting: true, searchMode: 'none' },
+    props: { context, sorting: true, sortPartitionFields: [], searchMode: 'none' },
     global: {
       stubs: {
         UiSpin: { template: '<div />' },
@@ -585,7 +623,7 @@ it('aligns parent changes, root placement and cycle guards with the tree move pr
     },
   } as unknown as ModuleContext<TreeRecordBase>;
   const wrapper = mount(TreeRecordExplorer, {
-    props: { context, sorting: true, searchMode: 'none' },
+    props: { context, sorting: true, sortPartitionFields: ['tenantId'], searchMode: 'none' },
     global: {
       stubs: {
         UiSpin: true,

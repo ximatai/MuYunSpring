@@ -205,7 +205,7 @@ final class DynamicRecordMutationRuntime {
                  RuntimeMutationSource source, String traceId) {
         Set<String> ids = ids(orderedIds);
         DataScopeCriteriaResult scope = requiresSortScope(source)
-                ? sortMutationScope(moduleAlias, entityAlias, ids, ignored -> ids)
+                ? sortMutationScope(moduleAlias, entityAlias, ids, Criteria.of(), () -> ids)
                 : DataScopeCriteriaResult.unrestricted(Criteria.of());
         withTenantScope(scope, () -> {
             entityService(moduleAlias, entityAlias).reorder(orderedIds);
@@ -217,8 +217,8 @@ final class DynamicRecordMutationRuntime {
     void moveBefore(String moduleAlias, String entityAlias, String id, String beforeId,
                     RuntimeMutationSource source, String traceId) {
         DataScopeCriteriaResult scope = requiresSortScope(source)
-                ? sortMutationScope(moduleAlias, entityAlias, ids(Arrays.asList(id, beforeId)),
-                ignored -> sortScopeRecordIds(moduleAlias, entityAlias, id, beforeId))
+                ? sortMutationScope(moduleAlias, entityAlias, ids(Arrays.asList(id, beforeId)), Criteria.of(),
+                () -> sortScopeRecordIds(moduleAlias, entityAlias, id, beforeId))
                 : DataScopeCriteriaResult.unrestricted(Criteria.of());
         withTenantScope(scope, () -> {
             entityService(moduleAlias, entityAlias).moveBefore(id, beforeId);
@@ -230,8 +230,8 @@ final class DynamicRecordMutationRuntime {
     void moveAfter(String moduleAlias, String entityAlias, String id, String afterId,
                    RuntimeMutationSource source, String traceId) {
         DataScopeCriteriaResult scope = requiresSortScope(source)
-                ? sortMutationScope(moduleAlias, entityAlias, ids(Arrays.asList(id, afterId)),
-                ignored -> sortScopeRecordIds(moduleAlias, entityAlias, id, afterId))
+                ? sortMutationScope(moduleAlias, entityAlias, ids(Arrays.asList(id, afterId)), Criteria.of(),
+                () -> sortScopeRecordIds(moduleAlias, entityAlias, id, afterId))
                 : DataScopeCriteriaResult.unrestricted(Criteria.of());
         withTenantScope(scope, () -> {
             entityService(moduleAlias, entityAlias).moveAfter(id, afterId);
@@ -242,12 +242,17 @@ final class DynamicRecordMutationRuntime {
 
     void moveInTree(String moduleAlias, String entityAlias, String id, String previousId, String nextId,
                     String parentId, RuntimeMutationSource source, String traceId) {
+        moveInTree(moduleAlias, entityAlias, id, previousId, nextId, parentId, Criteria.of(), source, traceId);
+    }
+
+    void moveInTree(String moduleAlias, String entityAlias, String id, String previousId, String nextId,
+                    String parentId, Criteria sortScope, RuntimeMutationSource source, String traceId) {
         DataScopeCriteriaResult scope = requiresSortScope(source)
-                ? sortMutationScope(moduleAlias, entityAlias, treeExplicitIds(id, previousId, nextId, parentId),
-                ignored -> treeSortScopeRecordIds(moduleAlias, entityAlias, id, previousId, nextId, parentId))
+                ? sortMutationScope(moduleAlias, entityAlias, treeExplicitIds(id, previousId, nextId, parentId), sortScope,
+                () -> treeSortScopeRecordIds(moduleAlias, entityAlias, id, previousId, nextId, parentId, sortScope))
                 : DataScopeCriteriaResult.unrestricted(Criteria.of());
         withTenantScope(scope, () -> {
-            entityService(moduleAlias, entityAlias).moveInTree(id, previousId, nextId, parentId);
+            entityService(moduleAlias, entityAlias).moveInTree(sortScope, id, previousId, nextId, parentId);
             return null;
         });
         eventPublisher.movedInTree(eventContext(moduleAlias, entityAlias, source, traceId),
@@ -339,12 +344,30 @@ final class DynamicRecordMutationRuntime {
     }
 
     private DataScopeCriteriaResult sortMutationScope(String module, String entity, Set<String> explicitIds,
-                                                       java.util.function.Function<DataScopeCriteriaResult, Set<String>> collector) {
+                                                       Criteria sortScope,
+                                                       Supplier<Set<String>> collector) {
         actionPolicy.requireRecordAction(ActionExecutionContext.ofPlatformAction(module, PlatformAction.SORT,
                 explicitIds, CurrentUserContext.currentUser()));
         DataScopeCriteriaResult explicitScope = requireRecordScope(module, entity, PlatformAction.SORT, explicitIds);
-        Set<String> allIds = withTenantScope(explicitScope, () -> collector.apply(explicitScope));
+        Set<String> allIds = withTenantScope(explicitScope, () -> {
+            requirePageSortScope(module, entity, sortScope, explicitIds);
+            return collector.get();
+        });
         return requireRecordScope(module, entity, PlatformAction.SORT, allIds);
+    }
+
+    private void requirePageSortScope(String module, String entity, Criteria sortScope,
+                                      Set<String> explicitIds) {
+        // Reject out-of-scope placement records before collecting affected siblings.
+        if (sortScope == null || sortScope.isEmpty() || explicitIds.isEmpty()) return;
+        DynamicEntityService service = entityService(module, entity);
+        Criteria idsCriteria = explicitIds.size() == 1 ? Criteria.of().eq("id", explicitIds.iterator().next())
+                : Criteria.of().in("id", List.copyOf(explicitIds));
+        long visible = service.list(and(sortScope, idsCriteria), new PageRequest(0, explicitIds.size())).stream()
+                .map(DynamicRecord::getId).filter(explicitIds::contains).distinct().count();
+        if (visible != explicitIds.size()) {
+            throw new PlatformException("record is outside tree sort scope: " + module + "." + entity);
+        }
     }
 
     private DataScopeCriteriaResult requireRecordScope(String module, String entity, PlatformAction action,
@@ -390,7 +413,7 @@ final class DynamicRecordMutationRuntime {
     }
 
     private Set<String> treeSortScopeRecordIds(String module, String entity, String id, String previousId,
-                                                String nextId, String parentId) {
+                                                String nextId, String parentId, Criteria sortScope) {
         Set<String> result = new LinkedHashSet<>(ids(Arrays.asList(id, previousId, nextId)));
         DynamicEntityService service = entityService(module, entity);
         DynamicRecord moving = service.select(id);
@@ -403,7 +426,15 @@ final class DynamicRecordMutationRuntime {
         if (targetParent == null) targetParent = normalizeParent(moving.parentId());
         if (targetParent == null) targetParent = TreeAbility.ROOT_ID;
         if (!TreeAbility.ROOT_ID.equals(targetParent)) result.add(targetParent);
-        service.children(targetParent).stream().map(DynamicRecord::getId).forEach(result::add);
+        service.children(sortScope, targetParent).stream()
+                .map(DynamicRecord::getId).forEach(result::add);
+        return result;
+    }
+
+    private Criteria and(Criteria left, Criteria right) {
+        Criteria result = Criteria.of();
+        if (left != null && !left.isEmpty()) result.andGroup(left.getRoot());
+        if (right != null && !right.isEmpty()) result.andGroup(right.getRoot());
         return result;
     }
 

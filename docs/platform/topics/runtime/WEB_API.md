@@ -43,6 +43,8 @@
 | `GET`  | `/{moduleAlias}/tree`         | 查询树根节点；支持 `flat` 输出平铺树；仅树能力可用时出现。         |
 | `GET`  | `/{moduleAlias}/tree/{id}`    | 查询指定节点树；支持 `flat` 和 `includeSelf`；仅树能力可用时出现。 |
 
+树排序请求使用 `previousId`、`nextId`、`parentId` 表达位置，可通过 `scope.externalQueryValues` 提供页面范围值；导航来源同时提交 `scope.navigatorHostModuleAlias` 和 `scope.navigatorTargetLevelKey`。服务端按已编译的页面绑定解析范围，校验导航归属、必填范围和参与移动的记录，并沿标准 `SORT` 权限、租户、树能力及变更事件链路执行。普通列表排序不接受树范围参数。
+
 ## 引用解析
 
 | 方法   | URL                                             | 功能                                     |

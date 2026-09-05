@@ -11,10 +11,6 @@ public record ResolvedPageTreeResourceDescriptor(String resource, String scopeNa
         sortPartitionFields = sortPartitionFields == null ? List.of() : List.copyOf(sortPartitionFields);
     }
 
-    static ResolvedPageTreeResourceDescriptor from(PageTreeResourceDefinition definition) {
-        return from(definition, List.of());
-    }
-
     static ResolvedPageTreeResourceDescriptor from(PageTreeResourceDefinition definition,
                                                    List<String> sortPartitionFields) {
         if (definition == null) return null;

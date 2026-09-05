@@ -336,7 +336,9 @@ class DynamicOpenApiGeneratorTest {
                 .satisfies(operation -> assertThat(operation.requestSchema()).isEqualTo("TreeSortWebRequest"));
         assertThat(tree.schemas().get("TreeSortWebRequest").properties())
                 .containsKeys("previousId", "nextId", "parentId")
+                .containsKey("scope")
                 .doesNotContainKey("orderedIds");
+        assertThat(tree.schemas()).containsKey("TreeSortScopeRequest");
     }
 
     @Test

@@ -230,24 +230,15 @@ export function useNavigatorRuntime(
           },
         });
         await navigatorContext.runtime.ready;
-        const requiredCapability = descriptor.kind === 'TREE' ? 'REFERENCE_TREE' : 'REFERENCE_QUERY';
-        const sourceCapabilities = navigatorContext.runtime.snapshot()?.navigatorSourceCapabilities;
-        if (sourceCapabilities !== undefined && !sourceCapabilities.includes(requiredCapability)) {
-          throw new Error(
-            `导航源能力不可用：层级 ${descriptor.key} 引用模块 ${descriptor.sourceModuleAlias}，缺少 ${requiredCapability}`,
-          );
-        }
         const sortAvailable =
           descriptor.kind === 'TREE' &&
           descriptor.management != null &&
-          (sourceCapabilities?.includes('REFERENCE_TREE_SORT') ?? false) &&
+          navigatorContext.abilities.hasTree() === true &&
           navigatorContext.can('sort') === true;
         return {
           descriptor,
           context: navigatorContext,
-          tree:
-            descriptor.kind === 'TREE' &&
-            (sourceCapabilities?.includes('REFERENCE_TREE') ?? navigatorContext.abilities.hasTree() === true),
+          tree: descriptor.kind === 'TREE' && navigatorContext.abilities.hasTree() === true,
           sort: {
             visible: sortAvailable,
             enabled: sortAvailable,

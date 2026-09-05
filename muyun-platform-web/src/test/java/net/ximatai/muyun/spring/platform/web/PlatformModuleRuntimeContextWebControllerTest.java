@@ -42,14 +42,15 @@ class PlatformModuleRuntimeContextWebControllerTest {
                 null,
                 "organization",
                 Set.of(EntityCapability.CRUD, EntityCapability.TREE),
+                List.of("parentId"),
                 Set.of("crud", "tree"),
                 List.of(),
-                ModuleUiDefinition.builder("iam.organization")
+                ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("iam.organization")
                         .page(PageTemplates.listDetailCard(page -> page
                                 .list(list -> list.fields(fields -> fields.field("title", field -> field.label("组织名称"))))
                                 .detail(detail -> detail.editor(fields -> fields.field("title")))
                                 .traits(traits -> traits.operations(operations -> operations.standardCrud()))))
-                        .build()
+                        .build())
         ));
         MockMvc mvc = mvc(service);
 

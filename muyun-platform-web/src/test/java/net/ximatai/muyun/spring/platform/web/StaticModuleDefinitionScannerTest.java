@@ -163,10 +163,6 @@ class StaticModuleDefinitionScannerTest {
                     .filter(candidate -> PlatformModuleService.MODULE_ALIAS.equals(candidate.moduleAlias()))
                     .findFirst()
                     .orElseThrow();
-
-            assertThat(definition.navigatorSourceCapabilities()).containsExactlyInAnyOrder(
-                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY,
-                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE);
             assertThat(definition.uiDefinition().page()).isInstanceOf(TreeManagementPageDefinition.class);
 
             ResolvedModulePageDescriptor page = ModuleUiDescriptorCompiler.compile(definition).page();
@@ -283,8 +279,6 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactly("menu", "create", "view", "update", "delete", "query",
                                 "sort", "enable", "disable", "recycleBinQuery", "recycleBinRestore", "reference");
-                assertThat(definition.navigatorSourceCapabilities())
-                        .containsExactly(net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY);
             });
             assertThat(byAlias.get("iam.organization")).satisfies(definition -> {
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
@@ -293,17 +287,10 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.title()).isEqualTo("机构管理");
                 assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
                 assertThat(definition.entryRoute()).isBlank();
-                assertThat(definition.navigatorSourceCapabilities()).containsExactlyInAnyOrder(
-                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY,
-                        net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE);
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactly("menu", "create", "view", "update", "delete", "query",
                                 "tree", "sort", "enable", "disable", "reference");
             });
-            assertThat(byAlias.get("iam.position_category").navigatorSourceCapabilities()).containsExactlyInAnyOrder(
-                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_QUERY,
-                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE,
-                    net.ximatai.muyun.spring.platform.ui.NavigatorSourceCapability.REFERENCE_TREE_SORT);
             assertThat(byAlias.get("iam.department")).satisfies(definition -> {
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("部门管理");

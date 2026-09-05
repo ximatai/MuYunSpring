@@ -1685,10 +1685,12 @@ function navigatorSorting(level: NavigatorLevelRuntime): boolean {
 
 function navigatorSortState(level: NavigatorLevelRuntime): NavigatorSortViewState {
   const active = navigatorSorting(level);
-  const disabledReason = scopeSearchKeyword.value.trim() ? '清空搜索后可调整排序' : undefined;
+  const disabledReason = scopeSearchKeyword.value.trim()
+    ? '清空搜索后可调整排序'
+    : navigatorManagementScopeDisabledReason(level);
   return {
     ...level.sort,
-    active,
+    active: active && level.sort.enabled && disabledReason === undefined,
     enabled: level.sort.enabled && disabledReason === undefined,
     disabledReason,
   };
@@ -2633,10 +2635,12 @@ function recordTitle(record: QueryListRecord | undefined) {
             :reload-key="navigatorReloadKey(navigatorLevelAt(index)!.descriptor.key)"
             :keyword="scopeSearchKeyword"
             :external-query-values="navigatorExplorerQueryValues(navigatorLevelAt(index)!.descriptor.key)"
+            :sort-partition-fields="navigatorLevelAt(index)!.context.runtime.snapshot()?.sortPartitionFields"
             search-mode="none"
             :empty-description="`暂无${navigatorLevelAt(index)!.descriptor.title}`"
             :actions-of="(record) => navigatorInlineActions(navigatorLevelAt(index)!, record)"
-            :sorting="navigatorSorting(navigatorLevelAt(index)!)"
+            :can-drop-inside="navigatorTreeParentPolicy(navigatorLevelAt(index)!)?.canUseAsParent"
+            :sorting="navigatorSortState(navigatorLevelAt(index)!).active"
             @loaded="handleNavigatorLoaded(navigatorLevelAt(index)!, $event)"
             @select="selectNavigatorRecord(navigatorLevelAt(index)!.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(navigatorLevelAt(index)!.descriptor.key)"
@@ -2657,7 +2661,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :external-query-values="navigatorExplorerQueryValues(navigatorLevelAt(index)!.descriptor.key)"
             :empty-description="`暂无${navigatorLevelAt(index)!.descriptor.title}`"
             :actions-of="(record) => navigatorInlineActions(navigatorLevelAt(index)!, record)"
-            :sorting="navigatorSorting(navigatorLevelAt(index)!)"
+            :sorting="navigatorSortState(navigatorLevelAt(index)!).active"
             @loaded="handleNavigatorLoaded(navigatorLevelAt(index)!, $event)"
             @select="selectNavigatorRecord(navigatorLevelAt(index)!.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(navigatorLevelAt(index)!.descriptor.key)"
@@ -2897,10 +2901,12 @@ function recordTitle(record: QueryListRecord | undefined) {
             :keyword="scopeSearchKeyword"
             :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
             :navigator-host-module-alias="context.moduleAlias"
+            :sort-partition-fields="level.context.runtime.snapshot()?.sortPartitionFields"
             search-mode="none"
             :empty-description="`暂无${level.descriptor.title}`"
             :actions-of="(record) => navigatorInlineActions(level, record)"
-            :sorting="navigatorSorting(level)"
+            :can-drop-inside="navigatorTreeParentPolicy(level)?.canUseAsParent"
+            :sorting="navigatorSortState(level).active"
             @loaded="handleNavigatorLoaded(level, $event)"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(level.descriptor.key)"
@@ -2920,7 +2926,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :navigator-host-module-alias="context.moduleAlias"
             :empty-description="`暂无${level.descriptor.title}`"
             :actions-of="(record) => navigatorInlineActions(level, record)"
-            :sorting="navigatorSorting(level)"
+            :sorting="navigatorSortState(level).active"
             @loaded="handleNavigatorLoaded(level, $event)"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(level.descriptor.key)"
@@ -3230,7 +3236,11 @@ function recordTitle(record: QueryListRecord | undefined) {
             :reload-key="treeReloadKey"
             :keyword="treeSearchKeyword"
             :sorting="mainTreeSorting"
-            :sort-partition-fields="runtimePage?.treeResource?.sortPartitionFields"
+            :sort-partition-fields="
+              runtimePage?.treeResource
+                ? runtimePage.treeResource.sortPartitionFields
+                : context.runtime.snapshot()?.sortPartitionFields
+            "
             :external-query-values="runtimePage?.treeResource ? undefined : navigatorListQueryValues"
             search-mode="none"
             search-trigger="external"

@@ -536,7 +536,7 @@ class PlatformUiConfigurationServiceContractTest {
         DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
         PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
                 uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
-                recordService, moduleAlias -> Set.of(NavigatorSourceCapability.REFERENCE_QUERY));
+                recordService, (moduleAlias, tree) -> !tree);
 
         assertThatThrownBy(() -> verifyingPublishService.publishUiConfig(uiConfigId))
                 .isInstanceOf(PlatformException.class)
@@ -665,7 +665,7 @@ class PlatformUiConfigurationServiceContractTest {
         DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
         PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
                 uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
-                recordService, moduleAlias -> java.util.Set.of());
+                recordService, (moduleAlias, tree) -> false);
 
         assertThatThrownBy(() -> verifyingPublishService.publishUiConfig(uiConfigId))
                 .isInstanceOf(PlatformException.class)
@@ -673,7 +673,7 @@ class PlatformUiConfigurationServiceContractTest {
                 .hasMessageContaining("uiConfig=" + uiConfigId)
                 .hasMessageContaining("level=customer")
                 .hasMessageContaining("source=crm.customer")
-                .hasMessageContaining("required=REFERENCE_QUERY");
+                .hasMessageContaining("tree=false");
     }
 
     @Test

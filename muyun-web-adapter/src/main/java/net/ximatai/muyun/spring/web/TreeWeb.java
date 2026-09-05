@@ -27,6 +27,8 @@ public interface TreeWeb<T extends EntityContract & TreeCapable, S extends TreeA
         return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() -> {
             TreeSortWebRequest normalized = request == null ? new TreeSortWebRequest(null, null, null) : request;
             requireSortInput(normalized);
+            TreeWebProjectionPolicy.bindTreeSortScope(httpRequest, webScopeName(), normalized.scope(),
+                    navigatorReferenceQueryContextResolver(), this instanceof ScopedTreeWebProjectionPolicy<?, ?>);
             requireTreeSortScope(httpRequest, id, normalized);
             return StaticStandardMutationSupport.sorted(this, () -> {
                 moveTree(httpRequest, id, normalized);

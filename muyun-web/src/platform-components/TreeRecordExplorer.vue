@@ -55,7 +55,7 @@ const props = withDefaults(
     mutedOf?: (record: TreeRecordBase) => boolean;
     /** Optional business rule for nodes that may receive a dragged child. */
     canDropInside?: (record: Readonly<Record<string, unknown>>) => boolean;
-    /** Resource-level partition metadata; falls back to the hosting module runtime. */
+    /** Resource-level partition metadata resolved by the page descriptor. */
     sortPartitionFields?: string[];
     /** Enables sibling ordering and parent changes through the module's standard tree sort contract. */
     sorting?: boolean;
@@ -126,7 +126,12 @@ const filteredTree = computed(() =>
 const nodes = computed(() => filteredTree.value.map(toUiTreeNode));
 const records = computed(() => flattenTreeRecords(tree.value));
 const dragOrderingEnabled = computed(
-  () => props.sorting && !sortingRequest.value && !loading.value && !effectiveKeyword.value.trim(),
+  () =>
+    props.sorting &&
+    props.sortPartitionFields !== undefined &&
+    !sortingRequest.value &&
+    !loading.value &&
+    !effectiveKeyword.value.trim(),
 );
 
 onMounted(loadTree);
@@ -259,12 +264,12 @@ function canDragForSort() {
 }
 
 function sortPartitionOf(record: TreeRecordBase): string | undefined {
-  const runtime = props.context.runtime.snapshot?.();
-  if (!runtime) return undefined;
+  // A sortable tree must receive its resource/entity partition from the page contract.
+  // An omitted value means the contract is unresolved; an explicit empty list means one
+  // unpartitioned sequence.
+  if (props.sortPartitionFields === undefined) return undefined;
   // Parent is the destination of a tree move, not an immutable business partition.
-  const fields = (props.sortPartitionFields ?? runtime.sortPartitionFields ?? []).filter(
-    (field) => field !== 'parentId',
-  );
+  const fields = props.sortPartitionFields.filter((field) => field !== 'parentId');
   const values = record as Record<string, unknown>;
   if (fields.some((field) => !Object.prototype.hasOwnProperty.call(values, field))) return undefined;
   return sortPartitionKey(fields.map((field) => values[field]));
