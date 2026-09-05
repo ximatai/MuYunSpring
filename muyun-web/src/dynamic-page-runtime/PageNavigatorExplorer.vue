@@ -10,6 +10,7 @@ import { computed } from 'vue';
 import type { RecordInlineAction } from '@muyun/web-contracts';
 import NavigatorPanelActions from './NavigatorPanelActions.vue';
 import type { NavigatorLevelRuntime, NavigatorSortViewState } from './composables/useNavigatorRuntime';
+import type { ModulePageNavigatorTreeParentPolicy } from './modulePageEnhancements';
 import { navigatorItemOf, type NavigatorItemRecord } from './pageNavigatorItemModel';
 
 defineOptions({ name: 'PageNavigatorExplorer' });
@@ -29,6 +30,7 @@ const props = defineProps<{
   createDisabledReason?: string;
   /** Human-readable context supplied by an upstream navigator selection. */
   scopeSubtitle?: string;
+  treeParentPolicy?: ModulePageNavigatorTreeParentPolicy;
   actionsOf?: (record: { id?: string }) => RecordInlineAction[];
 }>();
 
@@ -91,6 +93,7 @@ function itemOf(record: NavigatorItemRecord) {
       :empty-description="`暂无${level.descriptor.title}`"
       :item-of="itemOf"
       :actions-of="managementAvailable ? actionsOf : undefined"
+      :can-drop-inside="treeParentPolicy?.canUseAsParent"
       :sorting="sort.active"
       @loaded="emit('loaded', $event as QueryListRecord[])"
       @select="emit('select', $event as QueryListRecord)"

@@ -58,6 +58,18 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
   },
 };
 
+/** Dictionary categories use folders as the only valid category parent. */
+export const dictionaryCategoryPageEnhancement: ModulePageEnhancement = {
+  id: 'dictionary-category-tree-parent-policy',
+  target: { moduleAlias: 'platform.dictionary_category' },
+  navigator: {
+    treeParentPolicy: {
+      canUseAsParent: (record) => record.categoryKind === 'folder',
+      rejectionMessage: '字典类目只能挂在目录下',
+    },
+  },
+};
+
 /**
  * Action management has no menu identity of its own. Its standard CRUD page is
  * entered from exactly one governed platform module, which is the hidden and

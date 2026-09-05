@@ -52,6 +52,7 @@ export type {
   ModulePageEnhancementRegistry,
   ModulePageEnhancementTarget,
   ModulePageNavigatorEnhancement,
+  ModulePageNavigatorTreeParentPolicy,
   ModulePageNavigatorExtension,
   ModulePageNavigatorExtensionContext,
   ModulePageNavigatorSelection,

@@ -8,7 +8,10 @@ import {
   resolveModulePageEnhancement,
 } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 import { createWorkspaceViewDescriptor } from '@/platform-workbench/workspaceViews.ts';
-import { platformModulePageEnhancement } from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
+import {
+  dictionaryCategoryPageEnhancement,
+  platformModulePageEnhancement,
+} from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
 import { passwordPolicyPageEnhancement } from '@/platform-admin-runtime/passwordPolicyPageEnhancement.ts';
 import { tenantModulePageEnhancement } from '@/platform-admin-runtime/tenantModulePageEnhancement.ts';
 import { userModulePageEnhancement } from '@/platform-admin-runtime/userModulePageEnhancement.ts';
@@ -18,6 +21,7 @@ describe('module page enhancements', () => {
     configureModulePageEnhancements([]);
     configureModulePageEnhancementContributions('platform-admin-runtime', [
       platformModulePageEnhancement,
+      dictionaryCategoryPageEnhancement,
       passwordPolicyPageEnhancement,
       tenantModulePageEnhancement,
       userModulePageEnhancement,
@@ -56,6 +60,26 @@ describe('module page enhancements', () => {
       navigator: { hidden: true, bypassListScope: true },
     });
     expect(registry.resolve('iam.user', undefined, 'platform.menu.module.iam.user')).toMatchObject(fallback);
+  });
+
+  it('retains a navigator tree parent policy from a page contribution', () => {
+    const registry = createModulePageEnhancementRegistry([
+      {
+        id: 'dictionary-category-parent-policy',
+        target: { moduleAlias: 'platform.dictionary_category' },
+        navigator: {
+          treeParentPolicy: {
+            canUseAsParent: (record) => record.categoryKind === 'folder',
+            rejectionMessage: '字典类目只能挂在目录下',
+          },
+        },
+      },
+    ]);
+
+    const policy = registry.resolve('platform.dictionary_category')?.navigator?.treeParentPolicy;
+    expect(policy?.canUseAsParent({ categoryKind: 'folder' })).toBe(true);
+    expect(policy?.canUseAsParent({ categoryKind: 'dictionary' })).toBe(false);
+    expect(policy?.rejectionMessage).toBe('字典类目只能挂在目录下');
   });
 
   it('composes independent target contributions and rejects duplicate contribution identities', () => {

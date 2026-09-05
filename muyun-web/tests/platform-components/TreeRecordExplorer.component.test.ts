@@ -135,6 +135,59 @@ it('persists same-parent vertical drops through the standard tree sort contract'
   wrapper.unmount();
 });
 
+it('rejects inside drops for business-disallowed tree parents', async () => {
+  const records = [
+    { record: { id: 'folder', title: 'folder', categoryKind: 'folder' }, children: [] },
+    { record: { id: 'dictionary', title: 'dictionary', categoryKind: 'dictionary' }, children: [] },
+    { record: { id: 'moving', title: 'moving', categoryKind: 'folder' }, children: [] },
+  ];
+  const context = {
+    moduleAlias: 'platform.dictionary_category',
+    runtime: { ready: Promise.resolve(), snapshot: () => ({ sortPartitionFields: [] }) },
+    abilities: {
+      tree: () => ({
+        tree: async () => ({ records }),
+        sort: async () => 1,
+      }),
+    },
+  } as unknown as ModuleContext<TreeRecordBase>;
+  const wrapper = mount(TreeRecordExplorer, {
+    props: {
+      context,
+      sorting: true,
+      searchMode: 'none',
+      canDropInside: (record) => record.categoryKind === 'folder',
+    },
+    global: {
+      stubs: {
+        UiSpin: { template: '<div />' },
+        UiEmpty: { template: '<div />' },
+        UiTree: { name: 'UiTree', props: ['allowDrop'], template: '<div />' },
+      },
+    },
+  });
+
+  await flushPromises();
+  const allowDrop = wrapper.findComponent({ name: 'UiTree' }).props('allowDrop') as (
+    event: unknown,
+  ) => boolean;
+  const event = (target: string, position: 'inside' | 'before') => ({
+    source: { instanceId: 'tree', node: { key: 'moving' }, operations: ['move'] as const },
+    target: {
+      instanceId: 'tree',
+      kind: 'node' as const,
+      node: { key: target },
+      position,
+    },
+    operation: 'move' as const,
+  });
+
+  assert.isFalse(allowDrop(event('dictionary', 'inside')));
+  assert.isTrue(allowDrop(event('folder', 'inside')));
+  assert.isTrue(allowDrop(event('dictionary', 'before')));
+  wrapper.unmount();
+});
+
 it('rejects tree drops across a runtime-declared sort partition', async () => {
   const sortCalls: Array<{ id: string; request: unknown }> = [];
   const records = [

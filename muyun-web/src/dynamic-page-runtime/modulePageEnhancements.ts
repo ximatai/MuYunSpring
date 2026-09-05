@@ -73,6 +73,8 @@ export interface ModulePageStandardActionsEnhancement {
 export interface ModulePageNavigatorEnhancement {
   /** Hides descriptor navigators when this entry is not navigated by their business scope. */
   hidden?: boolean;
+  /** Business-owned parent admission for a navigator tree; sibling sorting remains standard. */
+  treeParentPolicy?: ModulePageNavigatorTreeParentPolicy;
   /**
    * One application-owned navigator surface mounted beside descriptor navigators.
    *
@@ -91,6 +93,11 @@ export interface ModulePageNavigatorEnhancement {
    * navigator rendering and request lifecycle; this hook contributes only typed list conditions.
    */
   emptyListScope?(context: ModulePageEmptyNavigatorScopeContext): readonly WebQueryCondition[] | undefined;
+}
+
+export interface ModulePageNavigatorTreeParentPolicy {
+  canUseAsParent(record: Readonly<Record<string, unknown>>): boolean;
+  rejectionMessage: string;
 }
 
 export interface ModulePageNavigatorExtension {
@@ -675,6 +682,7 @@ function composeModulePageEnhancements(
       if (!contribution) return resolved;
       return {
         hidden: resolved?.hidden || contribution.hidden,
+        treeParentPolicy: contribution.treeParentPolicy ?? resolved?.treeParentPolicy,
         extension: contribution.extension ?? resolved?.extension,
         lockedEntry: contribution.lockedEntry ?? resolved?.lockedEntry,
         bypassListScope: resolved?.bypassListScope || contribution.bypassListScope,

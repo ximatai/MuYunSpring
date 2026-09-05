@@ -53,6 +53,8 @@ const props = withDefaults(
     filterOption?: (record: TreeRecordBase, normalizedKeyword: string) => boolean;
     tagOf?: (record: TreeRecordBase) => string | undefined;
     mutedOf?: (record: TreeRecordBase) => boolean;
+    /** Optional business rule for nodes that may receive a dragged child. */
+    canDropInside?: (record: Readonly<Record<string, unknown>>) => boolean;
     /** Enables sibling ordering and parent changes through the module's standard tree sort contract. */
     sorting?: boolean;
   }>(),
@@ -76,6 +78,7 @@ const props = withDefaults(
     filterOption: undefined,
     tagOf: undefined,
     mutedOf: undefined,
+    canDropInside: undefined,
     sorting: false,
   },
 );
@@ -274,6 +277,13 @@ function resolveTreeMove(event: UiTreeDropEvent) {
   if (!source || (event.target.kind === 'node' && !target) || source.node === target?.node) return undefined;
   const inside = event.target.position === 'inside';
   const parent = inside ? target?.node : target?.parent;
+  if (
+    inside &&
+    target &&
+    props.canDropInside &&
+    !props.canDropInside(target.node.record as Readonly<Record<string, unknown>>)
+  )
+    return undefined;
   // Reject cycles before offering a drop indicator or issuing a mutation.
   for (let ancestor = parent; ancestor; ) {
     if (ancestor === source.node) return undefined;

@@ -14,6 +14,7 @@ it('follows the navigator runtime ordering capability', () => {
   assert.match(source, /<NavigatorPanelActions[\s\S]*:sort="sort"/);
   assert.match(source, /<CrudRecordListExplorer[\s\S]*?:sorting="sort\.active"/);
   assert.match(source, /<TreeRecordExplorer[\s\S]*?:sorting="sort\.active"/);
+  assert.match(source, /<TreeRecordExplorer[\s\S]*?:can-drop-inside="treeParentPolicy\?\.canUseAsParent"/);
   assert.match(source, /const managementAvailable = computed\([\s\S]*descriptor\.management != null/);
   assert.match(source, /v-if="managementAvailable \|\| sort\.visible" #actions/);
   assert.match(source, /'toggle-sorting': \[\]/);

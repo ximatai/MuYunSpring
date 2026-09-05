@@ -137,8 +137,17 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
     }
 
     private void validateParentApplication(DictionaryCategory category) {
-        validateTreePlacementInScope(category, applicationScope(category.getApplicationAlias()),
+        Criteria scope = applicationScope(category.getApplicationAlias());
+        validateTreePlacementInScope(category, scope,
                 "Dictionary category parent must belong to the same application");
+        String parentId = category.getParentId();
+        if (parentId == null || parentId.isBlank() || TreeAbility.ROOT_ID.equals(parentId)) {
+            return;
+        }
+        DictionaryCategory parent = selectInScope(scope, parentId);
+        if (parent != null && parent.getCategoryKind() != DictionaryCategoryKind.FOLDER) {
+            throw new PlatformException("Dictionary category parent must be a folder: " + parentId);
+        }
     }
 
     private void validateImmutableIdentity(DictionaryCategory category) {

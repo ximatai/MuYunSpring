@@ -545,7 +545,8 @@ const navigatorManagementPickerConfigs = computed<Record<string, RecordFormField
           })
         ).records;
       },
-      constraints: parentRecordConstraints(
+      constraints: navigatorParentConstraints(
+        level,
         navigatorManagementDetail.draft.value?.id == null
           ? undefined
           : String(navigatorManagementDetail.draft.value.id),
@@ -779,6 +780,21 @@ function navigatorLevelIndex(slotIndex: number) {
 }
 function navigatorLevelAt(slotIndex: number) {
   return visibleNavigatorLevels.value[navigatorLevelIndex(slotIndex)];
+}
+function navigatorTreeParentPolicy(level: NavigatorLevelRuntime) {
+  return resolveModulePageEnhancement(level.context.moduleAlias)?.navigator?.treeParentPolicy;
+}
+function navigatorParentConstraints(level: NavigatorLevelRuntime, currentId?: string) {
+  const constraints = parentRecordConstraints<RecordPickerRecord>(currentId);
+  const policy = navigatorTreeParentPolicy(level);
+  if (policy) {
+    constraints.push({
+      code: 'tree-parent-policy',
+      message: policy.rejectionMessage,
+      test: (record) => policy.canUseAsParent(record as Readonly<Record<string, unknown>>),
+    });
+  }
+  return constraints;
 }
 function isLockedNavigator(levelKey: string): boolean {
   return navigatorEntryPolicy.value.lockedEntry?.navigatorKey === levelKey;
@@ -3127,6 +3143,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :create-disabled="!navigatorManagementScopeReady(level)"
           :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
           :scope-subtitle="navigatorPanelScopeContext(level.descriptor.key)"
+          :tree-parent-policy="navigatorTreeParentPolicy(level)"
           :actions-of="(record) => navigatorInlineActions(level, record)"
           :sort="navigatorSortState(level)"
           @update:keyword="scopeSearchKeyword = $event"

@@ -4,11 +4,20 @@ import {
   createWorkspaceViewRegistry,
 } from '@/platform-workbench/workspaceViews.ts';
 import {
+  dictionaryCategoryPageEnhancement,
   platformModuleActionPageEnhancement,
   platformModulePageEnhancement,
 } from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
 
 describe('platform module page enhancement', () => {
+  it('limits dictionary category parents to folders', () => {
+    const policy = dictionaryCategoryPageEnhancement.navigator?.treeParentPolicy;
+
+    expect(policy?.canUseAsParent({ categoryKind: 'folder' })).toBe(true);
+    expect(policy?.canUseAsParent({ categoryKind: 'dictionary' })).toBe(false);
+    expect(policy?.rejectionMessage).toBe('字典类目只能挂在目录下');
+  });
+
   it('declares action management as a hidden, locked child page of one module', () => {
     expect(platformModuleActionPageEnhancement).toMatchObject({
       target: { moduleAlias: 'platform.module_action' },
