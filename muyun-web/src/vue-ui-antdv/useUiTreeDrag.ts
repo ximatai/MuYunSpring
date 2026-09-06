@@ -8,6 +8,7 @@ interface Surface {
     y: number,
     position?: UiDropPosition,
     source?: UiDragSource,
+    x?: number,
   ) => UiDropTarget | undefined;
   allow: (event: UiTreeDropEvent) => boolean;
   operation?: (source: UiDragSource) => UiDropOperation;
@@ -39,6 +40,19 @@ function hubFor(document: Document) {
   return hub;
 }
 
+function canFocusDropTarget(element: HTMLElement) {
+  if (element.closest('[inert], [hidden], [aria-hidden="true"], [aria-disabled="true"]')) return false;
+  if (element.matches(':disabled')) return false;
+  if (!element.hasAttribute('tabindex') && !element.matches('a[href],button,input,textarea,select'))
+    return false;
+  for (let ancestor: HTMLElement | null = element; ancestor; ancestor = ancestor.parentElement) {
+    const style = getComputedStyle(ancestor);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse')
+      return false;
+  }
+  return true;
+}
+
 function createHub(document: Document) {
   const surfaces = new Set<Surface>();
   const session = shallowRef<Session>();
@@ -68,7 +82,7 @@ function createHub(document: Document) {
       if (item !== surface) item.feedback();
     });
     if (!surface) return;
-    const target = surface.resolve(origin, state.y, state.position, source);
+    const target = surface.resolve(origin, state.y, state.position, source, state.x);
     if (!target) {
       surface.feedback();
       return;
@@ -117,16 +131,25 @@ function createHub(document: Document) {
     const state = session.value;
     if (!state || state.keyboard || !state.started) return;
     let element = document.elementFromPoint?.(state.x, state.y);
+    let scrolledX = false;
+    let scrolledY = false;
     for (let parent = element; parent; parent = parent.parentElement) {
       const style = getComputedStyle(parent);
-      if (!/(auto|scroll)/.test(style.overflowY) || parent.scrollHeight <= parent.clientHeight) continue;
       const rect = parent.getBoundingClientRect();
-      const dy = state.y < rect.top + 28 ? -10 : state.y > rect.bottom - 28 ? 10 : 0;
-      if (dy) {
+      if (!scrolledX && /(auto|scroll)/.test(style.overflowX) && parent.scrollWidth > parent.clientWidth) {
+        const dx = state.x < rect.left + 28 ? -10 : state.x > rect.right - 28 ? 10 : 0;
+        const before = parent.scrollLeft;
+        parent.scrollLeft += dx;
+        scrolledX = parent.scrollLeft !== before;
+      }
+      if (!scrolledY && /(auto|scroll)/.test(style.overflowY) && parent.scrollHeight > parent.clientHeight) {
+        const dy = state.y < rect.top + 28 ? -10 : state.y > rect.bottom - 28 ? 10 : 0;
         const before = parent.scrollTop;
         parent.scrollTop += dy;
-        if (parent.scrollTop !== before) break;
+        scrolledY = parent.scrollTop !== before;
       }
+      // Each axis scrolls its nearest movable ancestor; an exhausted inner scrollport may yield outward.
+      if (scrolledX && scrolledY) break;
     }
     element = document.elementFromPoint?.(state.x, state.y);
     if (element) targetAt(element);
@@ -169,6 +192,7 @@ function createHub(document: Document) {
       return;
     }
     const state = session.value;
+    state.x = event.clientX;
     state.y = event.clientY;
     targetAt(hit(event), event);
     commit(event);
@@ -191,8 +215,14 @@ function createHub(document: Document) {
     event.stopImmediatePropagation();
     const targets = [
       ...document.querySelectorAll<HTMLElement>('[data-ui-drop-key], [data-ui-drop-root]'),
-    ].filter((element) => [...surfaces].some((surface) => surface.root.contains(element)));
-    const index = targets.indexOf(document.activeElement as HTMLElement);
+    ].filter(
+      (element) =>
+        [...surfaces].some((surface) => surface.root.contains(element)) && canFocusDropTarget(element),
+    );
+    const focusedTarget = document.activeElement?.closest<HTMLElement>(
+      '[data-ui-drop-key], [data-ui-drop-root]',
+    );
+    const index = targets.indexOf(focusedTarget as HTMLElement);
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
       targets[(index + (event.key === 'ArrowDown' ? 1 : -1) + targets.length) % targets.length]?.focus();
     }

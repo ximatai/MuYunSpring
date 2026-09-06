@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import UiIcon from './UiIcon.vue';
+import UiDropdown from './UiDropdown.vue';
 import type { UiRecordInlineAction } from '../types';
 
 defineOptions({ name: 'UiRecordExplorerItem', inheritAttrs: false });
@@ -38,6 +39,11 @@ function handleAction(event: MouseEvent, action: UiRecordInlineAction) {
   emit('action', action);
 }
 
+function handleMenuAction(action: UiRecordInlineAction, key: string) {
+  const item = action.items?.find((candidate) => candidate.key === key);
+  if (!action.disabled && item && !item.disabled) emit('action', item);
+}
+
 function actionFallbackLabel(action: UiRecordInlineAction) {
   return action.title.trim().slice(0, 1);
 }
@@ -64,23 +70,51 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
       }}</span>
       <span v-if="tag" class="ui-record-explorer-item-tag">{{ tag }}</span>
     </span>
-    <span v-if="actions?.length" class="ui-record-explorer-item-actions">
-      <button
-        v-for="action in actions"
-        :key="action.key"
-        class="ui-record-explorer-item-action"
-        :class="{ danger: action.danger, 'show-label': action.showLabel }"
-        :title="action.disabled ? (action.disabledReason ?? action.title) : action.title"
-        :aria-label="action.disabled ? (action.disabledReason ?? action.title) : action.title"
-        :disabled="action.disabled"
-        type="button"
-        @click="handleAction($event, action)"
-      >
-        <UiIcon v-if="action.iconName && !action.showLabel" :name="action.iconName" />
-        <span v-else class="ui-record-explorer-item-action-label">
-          {{ action.showLabel ? action.title : actionFallbackLabel(action) }}
-        </span>
-      </button>
+    <span
+      v-if="actions?.length"
+      class="ui-record-explorer-item-actions"
+      @mousedown.stop
+      @dblclick.stop
+      @keydown.stop
+    >
+      <template v-for="action in actions" :key="action.key">
+        <UiDropdown
+          v-if="action.items?.length && !action.disabled"
+          v-slot="{ toggle }"
+          :items="action.items"
+          @select="handleMenuAction(action, $event)"
+        >
+          <button
+            class="ui-record-explorer-item-action"
+            :class="{ danger: action.danger, 'show-label': action.showLabel }"
+            :title="action.title"
+            :aria-label="action.title"
+            aria-haspopup="menu"
+            type="button"
+            @click.stop="toggle"
+          >
+            <UiIcon v-if="action.iconName && !action.showLabel" :name="action.iconName" />
+            <span v-else class="ui-record-explorer-item-action-label">{{
+              action.showLabel ? action.title : actionFallbackLabel(action)
+            }}</span>
+          </button>
+        </UiDropdown>
+        <button
+          v-else
+          class="ui-record-explorer-item-action"
+          :class="{ danger: action.danger, 'show-label': action.showLabel }"
+          :title="action.disabled ? (action.disabledReason ?? action.title) : action.title"
+          :aria-label="action.disabled ? (action.disabledReason ?? action.title) : action.title"
+          :disabled="action.disabled"
+          type="button"
+          @click="handleAction($event, action)"
+        >
+          <UiIcon v-if="action.iconName && !action.showLabel" :name="action.iconName" />
+          <span v-else class="ui-record-explorer-item-action-label">{{
+            action.showLabel ? action.title : actionFallbackLabel(action)
+          }}</span>
+        </button>
+      </template>
     </span>
   </span>
 </template>

@@ -41,7 +41,7 @@ public class ConfigurationReferenceDeletionGuard {
                         ConfigurationReferenceContributor contributor, String referenceId) {
         ConfigurationReference reference = contributor.reference();
         throw new PlatformException(PlatformErrorCodes.RESOURCE_IN_USE, 409,
-                "该" + target.resourceName() + "仍有" + reference.resourceName() + "，不能删除",
+                "该" + target.resourceName() + "仍有" + contributor.describeReference(referenceId) + "，不能删除",
                 ErrorScope.module(target.moduleAlias()).action("delete"),
                 List.of(ErrorTarget.record(targetId).module(target.moduleAlias())),
                 Map.of(target.detailKey(), targetId,

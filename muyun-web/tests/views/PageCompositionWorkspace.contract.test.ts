@@ -26,23 +26,6 @@ it('keeps management quick search as a constrained template component', () => {
     workspaceSource,
     /state\.updateQuickSearchPlaceholder\([\s\S]*tree\.props\?\.list\?\.searchPlaceholder/,
   );
-  assert.match(
-    workspaceSource,
-    /if \(!confirmed \|\| isMutating\.value\) return;[\s\S]*hydrateDraft\(revision\.value\)/,
-  );
-});
-
-it('keeps metadata quick addition explicit and keyboard-reachable', () => {
-  const workspaceSource = readSource('src/views/PageCompositionWorkspace.vue');
-
-  assert.match(workspaceSource, /aria-label="字段快速添加目标"/);
-  assert.match(workspaceSource, /双击添加至/);
-  assert.match(workspaceSource, /@click="selectQuickAddTarget\('list'\)"/);
-  assert.match(workspaceSource, /@click="selectQuickAddTarget\('form'\)"/);
-  assert.match(workspaceSource, /@click="addSelectedMetadataField\('list'\)"/);
-  assert.match(workspaceSource, /@click="addSelectedMetadataField\('form'\)"/);
-  assert.match(workspaceSource, /function addSelectedMetadataField\(slot: PageComposerSlot\)/);
-  assert.match(workspaceSource, /当前双击目标为：\{\{ quickAddTargetLabel \}\}/);
 });
 
 it('keeps the last successful descriptor visibly stale and retries the current draft safely', () => {

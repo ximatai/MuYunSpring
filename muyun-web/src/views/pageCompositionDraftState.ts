@@ -8,6 +8,8 @@ export interface PageComposerField {
   id: string;
   title: string;
   fieldName: string;
+  /** Editor-only source diagnostic; never serialized into the page declaration. */
+  unavailable?: boolean;
   fieldSpecAlias?: string;
   required?: boolean;
   /** Page-node presentation only; metadata field facts are never copied or edited here. */
@@ -26,6 +28,7 @@ export interface PageComposerFieldProperties {
 export interface PageComposerRelation {
   id: string;
   relationCode: string;
+  unavailable?: boolean;
   title: string;
   /** The child-list projection is explicit: unplaced child fields do not appear at runtime. */
   fields: PageComposerField[];
@@ -179,6 +182,15 @@ export function createPageCompositionDraftState() {
     }
     selectedNodeId.value = `form:relation:${relation.id}`;
     previewMode.value = 'detail';
+  }
+
+  function moveFormRelation(relationId: string, targetIndex: number) {
+    const relation = formRelations.value.find((item) => item.id === relationId);
+    if (!relation) return;
+    const remaining = formRelations.value.filter((item) => item.id !== relationId);
+    remaining.splice(Math.max(0, Math.min(targetIndex, remaining.length)), 0, relation);
+    formRelations.value = remaining;
+    selectedNodeId.value = `form:relation:${relationId}`;
   }
 
   function addFormGroup() {
@@ -531,6 +543,7 @@ export function createPageCompositionDraftState() {
     moveGroupFieldToGroup,
     updateFormGroup,
     moveFormGroup,
+    moveFormRelation,
     addFormRelationField,
     moveFormRelationField,
     removeSelectedField,

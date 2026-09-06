@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.JsonNode;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldCompanionRules;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
@@ -72,10 +73,15 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
         if (values == null || values.isNull()) {
             return record;
         }
+        // Shared page forms submit declared child relations alongside ordinary fields.
+        List<String> flatRelations = !root.has("values") && Objects.equals(mainEntityAlias, entityAlias)
+                ? childRelations(moduleAlias, record).stream().map(DynamicRelationDescriptor::code)
+                        .filter(code -> acceptsFlatRelation(record, code)).toList()
+                : List.of();
         Iterator<Map.Entry<String, JsonNode>> fields = values.properties().iterator();
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> field = fields.next();
-            if (isEnvelopeField(field.getKey())) {
+            if (isEnvelopeField(field.getKey()) || flatRelations.contains(field.getKey())) {
                 continue;
             }
             try (JsonParser valueParser = field.getValue().traverse(parser.getCodec())) {
@@ -179,19 +185,14 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
                               JsonParser parser,
                               DeserializationContext context) throws IOException {
         JsonNode children = root.get("children");
-        if (children == null || children.isNull()) {
-            return;
-        }
-        if (!children.isObject()) {
+        if (children != null && !children.isNull() && !children.isObject()) {
             throw new IllegalArgumentException("dynamic record children must be object");
         }
-        List<DynamicRelationDescriptor> childRelations = recordService.relations(moduleAlias).stream()
-                .filter(relation -> Objects.equals(record.getEntity().alias(), relation.parentEntityAlias()))
-                .toList();
+        List<DynamicRelationDescriptor> childRelations = childRelations(moduleAlias, record);
         List<String> knownRelations = childRelations.stream()
                 .map(DynamicRelationDescriptor::code)
                 .toList();
-        Iterator<String> relationCodes = children.fieldNames();
+        Iterator<String> relationCodes = children == null ? java.util.Collections.emptyIterator() : children.fieldNames();
         while (relationCodes.hasNext()) {
             String relationCode = relationCodes.next();
             if (!knownRelations.contains(relationCode)) {
@@ -199,7 +200,13 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
             }
         }
         for (DynamicRelationDescriptor relation : childRelations) {
-            JsonNode relationRows = children.get(relation.code());
+            JsonNode relationRows = children == null ? null : children.get(relation.code());
+            if (acceptsFlatRelation(record, relation.code()) && root.has(relation.code())) {
+                if (relationRows != null) {
+                    throw new IllegalArgumentException("dynamic child relation submitted twice: " + relation.code());
+                }
+                relationRows = root.get(relation.code());
+            }
             if (relationRows == null || relationRows.isNull()) {
                 continue;
             }
@@ -212,6 +219,19 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
             }
             record.setChildren(relation.code(), rows);
         }
+    }
+
+    /** Explicit children remain unambiguous when a relation shares a record property name. */
+    private boolean acceptsFlatRelation(DynamicRecord record, String relationCode) {
+        return !isEnvelopeField(relationCode)
+                && FieldCompanionRules.recordFields(record.getEntity()).stream()
+                        .noneMatch(field -> relationCode.equals(field.fieldName()));
+    }
+
+    private List<DynamicRelationDescriptor> childRelations(String moduleAlias, DynamicRecord record) {
+        return recordService.relations(moduleAlias).stream()
+                .filter(relation -> Objects.equals(record.getEntity().alias(), relation.parentEntityAlias()))
+                .toList();
     }
 
     private boolean isEnvelopeField(String fieldName) {

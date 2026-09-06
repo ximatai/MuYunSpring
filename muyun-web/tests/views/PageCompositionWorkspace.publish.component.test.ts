@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
+import { AppError, configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
 import PageCompositionDescriptorPreview from '@/views/PageCompositionDescriptorPreview.vue';
 import PageCompositionWorkspace from '@/views/PageCompositionWorkspace.vue';
 import PageCompositionTree from '@/views/PageCompositionTree.vue';
@@ -68,6 +68,196 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(vi.mocked(confirmAction)).toHaveBeenCalledTimes(1);
   });
 
+  it.each([true, false])(
+    'keeps the acknowledged publication state when reloading fails (next draft created: %s)',
+    async (createNext) => {
+      const requests: HttpRequestOptions[] = [];
+      const http = publicationFlowHttp(requests);
+      const original = http.request;
+      let published = false;
+      vi.spyOn(http, 'request').mockImplementation((request) => {
+        if (published && request.path.endsWith('/pages/query')) return Promise.reject(new Error('刷新失败'));
+        if (published && request.path.endsWith('/revisions/insert') && !createNext)
+          return Promise.reject(new Error('创建草稿失败'));
+        if (published && request.path.endsWith('/revisions/query'))
+          return Promise.resolve(page([{ id: 'revision-1', revisionNo: 1, status: 'published' }])) as never;
+        if (request.path.endsWith('/publish')) published = true;
+        if (request.path.endsWith('/update/revision-2')) {
+          requests.push(request);
+          return Promise.resolve({ ...(request.body as object), id: 'revision-2' }) as never;
+        }
+        return original(request);
+      });
+      configureModuleContext({ http });
+      vi.mocked(confirmAction).mockResolvedValue(true);
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam' },
+        global: { stubs: workspaceStubs() },
+      });
+      try {
+        await flushPromises();
+        const button = (name: string) => wrapper.findAll('button').find((item) => item.text() === name);
+        await button('发布草稿')!.trigger('click');
+        await flushPromises();
+        expect(wrapper.text()).toContain('最近发布 v1');
+        expect(wrapper.text()).not.toContain('草稿 v1');
+        if (createNext) {
+          expect(wrapper.text()).toContain('草稿 v2');
+          wrapper
+            .findComponent(PageCompositionTree)
+            .vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+          await flushPromises();
+          await button('保存草稿')!.trigger('click');
+          await flushPromises();
+          expect(requests.some((request) => request.path.endsWith('/update/revision-2'))).toBe(true);
+        } else {
+          expect(button('保存草稿')).toBeUndefined();
+          expect(button('发布草稿')).toBeUndefined();
+          expect(button('基于已发布版本创建草稿')).toBeDefined();
+        }
+      } finally {
+        wrapper.unmount();
+      }
+    },
+  );
+
+  it.each(['保存草稿', '发布草稿'])(
+    'preserves local edits after a conflict from %s and explicitly reloads the latest snapshot',
+    async (action) => {
+      const requests: HttpRequestOptions[] = [];
+      const http = publicationFlowHttp(requests);
+      const original = http.request;
+      let failReload = false;
+      vi.spyOn(http, 'request').mockImplementation((request) => {
+        if (request.path.endsWith('/update/revision-1')) {
+          requests.push(request);
+          return Promise.reject(
+            new AppError('数据已被更新，请刷新后重试', { code: 'CONFLICT_VERSION', status: 409 }),
+          );
+        }
+        if (failReload && request.path.endsWith('/pages/query')) return Promise.reject(new Error('读取失败'));
+        return original(request);
+      });
+      configureModuleContext({ http });
+      vi.mocked(confirmAction).mockResolvedValue(true);
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam' },
+        global: { stubs: workspaceStubs() },
+      });
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      const button = (name: string) => wrapper.findAll('button').find((item) => item.text() === name)!;
+      tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+      await flushPromises();
+      await button(action).trigger('click');
+      await flushPromises();
+      expect(wrapper.get('[role="alert"]').text()).toContain('本地修改已保留');
+      expect(tree.props('listFields')).toHaveLength(1);
+      expect(wrapper.text()).toContain('未保存更改');
+      expect(button('保存草稿').attributes('disabled')).toBeDefined();
+      expect(button('发布草稿').attributes('disabled')).toBeDefined();
+      expect(requests.some((request) => request.path.endsWith('/publish'))).toBe(false);
+      expect(requests.filter((request) => request.path.endsWith('/update/revision-1'))).toHaveLength(1);
+
+      vi.mocked(confirmAction).mockResolvedValue(false);
+      await button('加载最新草稿').trigger('click');
+      await flushPromises();
+      expect(tree.props('listFields')).toHaveLength(1);
+      failReload = true;
+      vi.mocked(confirmAction).mockResolvedValue(true);
+      await button('加载最新草稿').trigger('click');
+      await flushPromises();
+      expect(tree.props('listFields')).toHaveLength(1);
+      expect(wrapper.get('[role="alert"]').text()).toContain('本地修改已保留');
+      failReload = false;
+      await button('加载最新草稿').trigger('click');
+      await flushPromises();
+      expect(tree.props('listFields')).toEqual([]);
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('未保存更改');
+      expect(button('发布草稿').attributes('disabled')).toBeUndefined();
+      wrapper.unmount();
+    },
+  );
+
+  it('discards local edits only after confirmation and preserves them when cancelled', async () => {
+    configureModuleContext({ http: publicationFlowHttp([]) });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    const tree = wrapper.findComponent(PageCompositionTree);
+    tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+    await flushPromises();
+    const discard = () => wrapper.findAll('button').find((item) => item.text() === '放弃本次更改')!;
+    vi.mocked(confirmAction).mockResolvedValue(false);
+    await discard().trigger('click');
+    await flushPromises();
+    expect(tree.props('listFields')).toHaveLength(1);
+    expect(wrapper.text()).toContain('未保存更改');
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    await discard().trigger('click');
+    await flushPromises();
+    expect(tree.props('listFields')).toEqual([]);
+    expect(wrapper.text()).not.toContain('未保存更改');
+    wrapper.unmount();
+  });
+
+  it.each(['success', 'conflict'] as const)(
+    'ignores a late save %s after switching modules',
+    async (outcome) => {
+      const requests: HttpRequestOptions[] = [];
+      const http = publicationFlowHttp(requests);
+      const original = http.request;
+      const pending = deferred<unknown>();
+      let saveBody: unknown;
+      vi.spyOn(http, 'request').mockImplementation((request) => {
+        if (request.path.endsWith('/update/revision-1')) {
+          saveBody = request.body;
+          return pending.promise.then((result) => {
+            if (result instanceof Error) throw result;
+            return result;
+          }) as never;
+        }
+        return original({ ...request, path: request.path.replace('education.next', 'education.exam') });
+      });
+      configureModuleContext({ http });
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam' },
+        global: { stubs: workspaceStubs() },
+      });
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+      await flushPromises();
+      await wrapper
+        .findAll('button')
+        .find((item) => item.text() === '保存草稿')!
+        .trigger('click');
+      await flushPromises();
+      expect(saveBody).toBeDefined();
+      await wrapper.setProps({ moduleAlias: 'education.next' });
+      await flushPromises();
+      pending.resolve(
+        outcome === 'conflict'
+          ? new AppError('旧模块冲突', { code: 'CONFLICT_VERSION', status: 409 })
+          : { ...(saveBody as object), id: 'old-revision', version: 2 },
+      );
+      await flushPromises();
+      expect(tree.props('listFields')).toEqual([]);
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('未保存更改');
+      expect(
+        wrapper
+          .findAll('button')
+          .find((item) => item.text() === '发布草稿')!
+          .attributes('disabled'),
+      ).toBeUndefined();
+      wrapper.unmount();
+    },
+  );
+
   it('ignores an older module load after the workspace switches modules', async () => {
     const requests: HttpRequestOptions[] = [];
     const oldRelations = deferred<unknown>();
@@ -134,7 +324,7 @@ describe('PageCompositionWorkspace publication flow', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('参考学生');
-    expect(wrapper.text()).toContain('子实体 · 拖入详情创建关联列表');
+    expect(wrapper.text()).toContain('子表');
     expect(wrapper.text()).toContain('学生姓名');
   });
 
@@ -312,13 +502,17 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(metadataField).toBeDefined();
     expect(preview.exists()).toBe(true);
 
-    preview.vm.$emit('metadata-drop', 'list', metadataDrop());
+    preview.vm.$emit(
+      'placement-drop',
+      { kind: 'metadata', metadata: metadataDrop() },
+      { container: { kind: 'list' }, position: 'inside' },
+    );
     await flushPromises();
 
     expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toMatchObject([
       { id: 'field-title', title: '考试名称' },
     ]);
-    expect(wrapper.text()).toContain('列表预览');
+    expect(wrapper.findComponent(PageCompositionDescriptorPreview).props('mode')).toBe('list');
   });
 
   it('repositions an already placed form field when dropped onto another group', async () => {
@@ -363,7 +557,7 @@ describe('PageCompositionWorkspace publication flow', () => {
     ]);
   });
 
-  it('removes a grouped field through the toolbar and reports a removal', async () => {
+  it('removes a grouped field through its node action and reports a removal', async () => {
     configureModuleContext({
       http: publicationFlowHttp(
         [],
@@ -384,12 +578,7 @@ describe('PageCompositionWorkspace publication flow', () => {
     await flushPromises();
     await flushPromises();
     const tree = wrapper.findComponent(PageCompositionTree);
-    tree.vm.$emit('select', 'ui:group-field:form:target:field-title');
-    await flushPromises();
-    await wrapper
-      .findAll('button')
-      .find((button) => button.text() === '移除')!
-      .trigger('click');
+    tree.vm.$emit('node-action', 'remove', 'ui:group-field:form:target:field-title');
     await flushPromises();
 
     expect(tree.props('formGroups')).toMatchObject([{ id: 'target', fields: [] }]);
@@ -398,6 +587,176 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(wrapper.text()).toContain('移除 1 个字段');
     expect(wrapper.text()).not.toContain('新增 1 个字段');
     wrapper.unmount();
+  });
+
+  it('updates properties directly in the local draft and blocks invalid widths across selection changes', async () => {
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({ http: publicationFlowHttp(requests) });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+      tree.vm.$emit('node-action', 'configure', 'ui:field:list:field-title');
+      await flushPromises();
+      const input = (title: string) =>
+        wrapper
+          .findAll('label')
+          .find((label) => label.text().startsWith(title))!
+          .get('input');
+      const button = (title: string) => wrapper.findAll('button').find((button) => button.text() === title)!;
+      await input('展示标题').setValue('自定义标题');
+      await input('列宽').setValue('bad width');
+      expect(tree.props('listFields')[0].properties).toEqual({ label: '自定义标题', width: 'bad width' });
+      expect(
+        requests.some((request) => request.path.includes('/update/') || request.path.endsWith('/publish')),
+      ).toBe(false);
+      expect(wrapper.text()).not.toContain('应用到草稿');
+      tree.vm.$emit('select', 'ui:template:list:quick-search');
+      await flushPromises();
+      expect(button('保存草稿').attributes('disabled')).toBeDefined();
+      expect(button('发布草稿').attributes('disabled')).toBeDefined();
+      await button('自定义标题').trigger('click');
+      expect((input('列宽').element as HTMLInputElement).value).toBe('bad width');
+      await input('列宽').setValue('160px');
+      expect(button('保存草稿').attributes('disabled')).toBeUndefined();
+      tree.vm.$emit('node-action', 'configure', 'ui:template:list:quick-search');
+      await flushPromises();
+      await input('搜索占位提示').setValue('搜索考试');
+      await button('保存草稿').trigger('click');
+      await flushPromises();
+      const saved = requests.find((request) => request.path.endsWith('/update/revision-1'))!.body as {
+        uiTreeJson: string;
+      };
+      const treeJson = JSON.parse(saved.uiTreeJson);
+      expect(treeJson.props.list.searchPlaceholder).toBe('搜索考试');
+      expect(treeJson.nodes[0].fields[0].props).toEqual({ label: '自定义标题', width: '160px' });
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it.each(['ui:group:form:basic', 'ui:relation:form:relation-participant'])(
+    'undoes removal of %s with its fields and properties, and expires undo after further edits',
+    async (key) => {
+      const draft = JSON.stringify({
+        template: 'management',
+        templateVersion: 1,
+        nodes: [
+          { slot: 'list', fields: [] },
+          {
+            slot: 'form',
+            fields: [],
+            groups: [
+              {
+                group: 'basic',
+                title: '基础信息',
+                fields: [{ field: 'title', props: { label: '标题', readOnly: true } }],
+              },
+            ],
+            relations: [{ relation: '参考学生', fields: ['studentName'] }],
+          },
+        ],
+      });
+      configureModuleContext({ http: publicationFlowHttp([], draft) });
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam' },
+        global: { stubs: workspaceStubs() },
+      });
+      try {
+        await flushPromises();
+        const tree = wrapper.findComponent(PageCompositionTree);
+        const before = JSON.stringify({
+          groups: tree.props('formGroups'),
+          relations: tree.props('formRelations'),
+        });
+        tree.vm.$emit('node-action', 'remove', key);
+        await flushPromises();
+        const undo = () => wrapper.findAll('button').find((button) => button.text() === '撤销移除');
+        expect(undo()).toBeDefined();
+        await undo()!.trigger('click');
+        expect(
+          JSON.stringify({ groups: tree.props('formGroups'), relations: tree.props('formRelations') }),
+        ).toBe(before);
+        expect(wrapper.text()).not.toContain('未保存更改');
+        tree.vm.$emit('node-action', 'remove', key);
+        await flushPromises();
+        tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+        await flushPromises();
+        expect(undo()).toBeUndefined();
+      } finally {
+        wrapper.unmount();
+      }
+    },
+  );
+
+  it('undoes a local removal even before the page has been initialized', async () => {
+    const http = publicationFlowHttp([]);
+    const original = http.request;
+    vi.spyOn(http, 'request').mockImplementation((request) =>
+      request.path.endsWith('/pages/query') ? (Promise.resolve(page([])) as never) : original(request),
+    );
+    configureModuleContext({ http });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+      tree.vm.$emit('node-action', 'remove', 'ui:field:list:field-title');
+      await flushPromises();
+      expect(tree.props('listFields')).toEqual([]);
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === '撤销移除')!
+        .trigger('click');
+      expect(tree.props('listFields')).toHaveLength(1);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('adds source fields to explicit destinations through node actions without changing metadata', async () => {
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({ http: publicationFlowHttp(requests) });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const source = wrapper.findComponent({ name: 'UiTree' });
+      const tree = wrapper.findComponent(PageCompositionTree);
+      const field = treeNode(source.props('nodes'), 'metadata:field:field-title');
+      source.vm.$emit('action', { key: 'add-list' }, field);
+      await flushPromises();
+      expect(tree.props('listFields')).toHaveLength(1);
+      expect(tree.props('formFields')).toEqual([]);
+      source.vm.$emit('action', { key: 'add-form' }, field);
+      source.vm.$emit(
+        'action',
+        { key: 'add-form' },
+        treeNode(source.props('nodes'), 'metadata:relation-field:relation-participant:field-student-name'),
+      );
+      await flushPromises();
+      expect(tree.props('formFields')).toHaveLength(1);
+      expect(tree.props('formRelations')[0].fields).toMatchObject([{ fieldName: 'studentName' }]);
+      expect(
+        requests.filter(
+          (request) =>
+            request.path.includes('/insert') ||
+            request.path.includes('/update') ||
+            request.path.includes('/delete'),
+        ),
+      ).toEqual([]);
+    } finally {
+      wrapper.unmount();
+    }
   });
 
   it('sends the dropped draft to the live preview resolver', async () => {
@@ -419,7 +778,11 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(metadataField).toBeDefined();
     const before = requests.filter((request) => request.path.endsWith('/preview')).length;
 
-    preview.vm.$emit('metadata-drop', 'list', metadataDrop());
+    preview.vm.$emit(
+      'placement-drop',
+      { kind: 'metadata', metadata: metadataDrop() },
+      { container: { kind: 'list' }, position: 'inside' },
+    );
 
     await vi.waitFor(
       () => {
@@ -539,7 +902,7 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(pageTree.props('selectedKey')).toBe('ui:group-field:form:basic:field-title');
   });
 
-  it('keeps first-class group ordering available as a visible fallback to drag sorting', async () => {
+  it('adds groups at the form node and applies tree ordering', async () => {
     configureModuleContext({ http: publicationFlowHttp([]) });
     const wrapper = mount(PageCompositionWorkspace, {
       props: { moduleAlias: 'education.exam' },
@@ -549,22 +912,117 @@ describe('PageCompositionWorkspace publication flow', () => {
     await flushPromises();
 
     const pageTree = wrapper.findComponent(PageCompositionTree);
-    pageTree.vm.$emit('select', 'ui:slot:form');
+    pageTree.vm.$emit('node-action', 'add-group', 'ui:slot:form');
+    pageTree.vm.$emit('node-action', 'add-group', 'ui:groups:form');
     await flushPromises();
-    const addGroup = wrapper.findAll('button').find((button) => button.text() === '添加分组');
-    await addGroup?.trigger('click');
-    await addGroup?.trigger('click');
-    pageTree.vm.$emit('select', 'ui:group:form:group_2');
+    pageTree.vm.$emit('reorder-group', 'group_2', 0);
     await flushPromises();
-
-    expect(wrapper.text()).toContain('已选：分组 2');
-    const moveUp = wrapper.findAll('button').find((button) => button.text() === '上移分组');
-    await moveUp?.trigger('click');
 
     expect((pageTree.props('formGroups') as Array<{ id: string }>).map((group) => group.id)).toEqual([
       'group_2',
       'group_1',
     ]);
+  });
+  it('retains unavailable fields in every slot and saves only explicit repairs', async () => {
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({
+      http: publicationFlowHttp(
+        requests,
+        JSON.stringify({
+          template: 'management',
+          templateVersion: 1,
+          nodes: [
+            { slot: 'list', fields: [{ field: 'lost', props: { label: '旧字段' } }] },
+            {
+              slot: 'form',
+              fields: [],
+              groups: [{ group: 'basic', title: '分组', fields: ['lost'] }],
+              relations: [{ relation: '参考学生', fields: ['lostChild'] }],
+            },
+          ],
+        }),
+      ),
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      expect(tree.props('listFields')).toMatchObject([
+        { fieldName: 'lost', unavailable: true, properties: { label: '旧字段' } },
+      ]);
+      expect(tree.props('formGroups')[0].fields).toMatchObject([{ fieldName: 'lost', unavailable: true }]);
+      expect(tree.props('formRelations')[0].fields).toMatchObject([
+        { fieldName: 'lostChild', unavailable: true },
+      ]);
+      expect(tree.text()).toContain('来源失效');
+      const button = (text: string) =>
+        wrapper.findAll('[data-testid="publish-button"]').find((item) => item.text() === text)!;
+      expect(button('发布草稿').attributes('disabled')).toBeDefined();
+      tree.vm.$emit('node-action', 'remove', 'ui:field:list:missing_lost');
+      await flushPromises();
+      await button('保存草稿').trigger('click');
+      await flushPromises();
+      const saved = requests.find((request) => request.path.endsWith('/update/revision-1'))?.body as {
+        uiTreeJson: string;
+      };
+      const declaration = JSON.parse(saved.uiTreeJson);
+      expect(declaration.nodes[0].fields).toEqual([]);
+      expect(declaration.nodes[1].groups[0].fields).toEqual(['lost']);
+      expect(declaration.nodes[1].relations[0].fields).toEqual(['lostChild']);
+      expect(saved.uiTreeJson).not.toContain('unavailable');
+      expect(button('发布草稿').attributes('disabled')).toBeDefined();
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('refreshes source facts in place while preserving local page changes and detecting lost sources', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const fields = [
+      {
+        id: 'field-title',
+        fieldName: 'title',
+        title: '考试名称',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      },
+    ];
+    const http = publicationFlowHttp(requests, initialTree(), fields);
+    configureModuleContext({ http });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const composer = wrapper.findComponent(PageCompositionTree);
+      composer.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+      await flushPromises();
+      const source = wrapper.findAllComponents({ name: 'UiTree' })[0]!;
+      const sourceInstance = source.vm;
+      const pending = deferred<unknown>();
+      const original = http.request;
+      vi.spyOn(http, 'request').mockImplementation((request) =>
+        request.path === '/platform.metadata/metadata-1/fields/query'
+          ? (pending.promise as never)
+          : original(request),
+      );
+      wrapper.findAllComponents({ name: 'RecordExplorerPanel' })[0]!.vm.$emit('refresh');
+      await flushPromises();
+      expect(wrapper.findAllComponents({ name: 'UiTree' })[0]!.vm).toBe(sourceInstance);
+      expect(composer.props('listFields')).toHaveLength(1);
+      pending.resolve(page([]));
+      await flushPromises();
+      expect(wrapper.findAllComponents({ name: 'UiTree' })[0]!.vm).toBe(sourceInstance);
+      expect(composer.props('listFields')).toMatchObject([{ fieldName: 'title', unavailable: true }]);
+      expect(wrapper.text()).toContain('未保存更改');
+      expect(wrapper.text()).toContain('来源失效');
+    } finally {
+      wrapper.unmount();
+    }
   });
 });
 
@@ -760,7 +1218,10 @@ function workspaceStubs() {
   return {
     ManagementWorkspace: { template: '<div><slot /></div>' },
     ManagementExplorerColumn: { template: '<div><slot /></div>' },
-    RecordExplorerPanel: { template: '<div><slot /><slot name="header-actions" /></div>' },
+    RecordExplorerPanel: {
+      name: 'RecordExplorerPanel',
+      template: '<div><slot /><slot name="header-actions" /><slot name="footer" /></div>',
+    },
     RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
     RecordDetailDrawer: { template: '<aside><slot /></aside>' },
     UiButton: {
@@ -769,8 +1230,13 @@ function workspaceStubs() {
       template:
         '<button data-testid="publish-button" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
     },
-    UiInput: { template: '<input />' },
-    UiSelect: { template: '<select />' },
+    UiInput: {
+      props: ['value', 'disabled'],
+      emits: ['update:value'],
+      template:
+        '<input :value="value" :disabled="disabled" @input="$emit(\'update:value\', $event.target.value)" />',
+    },
+    UiSelect: { props: ['options', 'value', 'disabled'], template: '<select :disabled="disabled" />' },
     UiSpin: { template: '<span><slot /></span>' },
     UiSwitch: { template: '<button><slot /></button>' },
     UiTabs: { template: '<div><slot /></div>' },

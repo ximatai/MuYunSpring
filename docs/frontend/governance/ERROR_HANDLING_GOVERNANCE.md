@@ -373,7 +373,7 @@ function resolveGlobalErrorPresentation(
 ): GlobalErrorPresentation;
 ```
 
-当前不建设全局 UI store 或复杂 adapter。等 workbench UI 需要真实 toast、modal、page-error 编排时，再基于 `GlobalErrorPresentation` 接入具体 UI 组件。
+管理工作台已通过 `presentPlatformError` 将 `GlobalErrorPresentation` 接入真实消息提示；当前除静默与登录跳转外，主要使用同一消息出口。modal、page-error 与字段/子表定位仍须按真实场景接管，不能把基础提示已接入等同于所有展示槽位均已实现。
 
 后续专题或页面自行提供特殊 handler：
 
@@ -439,12 +439,12 @@ function tryHandleImportError(
 
 ## 专项收尾结论
 
-当前错误治理专项先暂停在基础契约层，不继续扩展业务 UI：
+错误治理已有基础契约和管理工作台消息出口，剩余能力按真实业务场景接入：
 
-1. 已完成：后端统一 envelope、`traceId` 响应头、平台错误码基础集合、`PlatformErrors` 工厂契约、前端 `AppError`、HTTP 失败归一、全局展示槽位判定和登录特殊链路。
-2. 不继续提前建设：全局错误 store、toast/modal/page-error adapter、动态表单字段错误 handler、查重确认弹窗、导入结果面板和工作流动作区提示。
+1. 已完成：后端统一 envelope、`traceId` 响应头、平台错误码基础集合、`PlatformErrors` 工厂契约、前端 `AppError`、HTTP 失败归一、全局展示槽位判定、登录特殊链路及管理工作台消息提示。
+2. 尚未完整交付：按展示槽位区分的 modal/page-error adapter、动态字段/子表错误定位，以及查重、导入和工作流动作区的专题接管。
 3. 触发后再建设：对应前端页面或运行器进入真实开发，且能够明确错误展示位置、消费规则和“已处理后不再全局兜底”的返回契约。
-4. 如果先进入 workbench 全局通知建设，先接通用 toast/modal/page-error adapter，再接业务特殊 handler。
+4. 后续展示与特殊 handler 复用既有 `presentPlatformError` 和 `GlobalErrorPresentation`，不再建立平行消息出口。
 5. 后端持续约束：新增字段级校验优先使用 `PlatformErrors.validation(...)`，新增业务动作失败优先使用 `BusinessExceptions`；历史 `new PlatformException(message)` 按业务链路逐步迁移，不做无差别批量重判。
 
 跨专题剩余债务记录在 [技术债记录](../../TECHNICAL_DEBT.md) 的 `DD-004`；本文件保留具体错误契约和触发条件。

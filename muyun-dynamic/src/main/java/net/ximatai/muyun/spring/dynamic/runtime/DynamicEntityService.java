@@ -1031,7 +1031,7 @@ public class DynamicEntityService implements
         DynamicEntityService childService = relationServiceResolver.apply(plan.childEntityAlias());
         ChildRelation<DynamicRecord, DynamicRecord> childRelation = new ChildRelation<>(
                 plan.relationCode(), childService,
-                (child, parentId) -> child.putPlatformValue(plan.childForeignKeyField(), parentId),
+                (child, parentId) -> child.bindAggregateParent(plan.childForeignKeyField(), parentId),
                 plan.childForeignKeyField(),
                 parent -> parent.getChildren(plan.relationCode()),
                 child -> {

@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { UiTree, type UiTreeDropEvent, type UiTreeNode } from '@muyun/vue-ui-antdv';
+import {
+  UiTree,
+  type UiRecordInlineAction,
+  type UiTreeDropEvent,
+  type UiTreeNode,
+} from '@muyun/vue-ui-antdv';
 import type { PageComposerField, PageComposerGroup, PageComposerRelation } from './pageCompositionDraftState';
 import {
   PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
@@ -25,6 +30,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   select: [key: string];
   'double-click': [key: string];
+  'node-action': [action: ComposerNodeAction, key: string];
   'reorder-list-field': [fieldId: string, targetIndex: number];
   'reorder-form-field': [fieldId: string, targetIndex: number];
   'move-form-field-to-group': [fieldId: string, groupId: string, targetIndex: number];
@@ -41,10 +47,13 @@ const emit = defineEmits<{
   'metadata-drop': [target: ComposerDropTarget, payload: MetadataDragPayload];
 }>();
 
+type ComposerNodeAction = 'configure' | 'remove' | 'add-group';
+
 export type ComposerDropTarget = (
   | { kind: 'list' }
   | { kind: 'form' }
   | { kind: 'group'; groupId: string }
+  | { kind: 'relation'; relationId: string }
 ) & { index?: number };
 
 type ComposerNodeRef =
@@ -69,13 +78,17 @@ const treeNodes = computed<UiTreeNode[]>(() => {
     title: group.title,
     secondary: group.fields.length ? `${group.fields.length} 个字段` : '空分组 · 可拖入字段',
     isLeaf: group.fields.length === 0,
+    actions: nodeActions('configure', 'remove'),
     children: group.fields.map((field) => groupFieldNode(group.id, field)),
   }));
   const relationNodes = props.formRelations.map((relation) => ({
     key: `ui:relation:form:${relation.id}`,
     title: relation.title,
     secondary: relation.fields.length ? `${relation.fields.length} 个展示字段` : '尚未选择字段',
+    tag: relation.unavailable ? '来源失效' : undefined,
+    muted: relation.unavailable,
     isLeaf: relation.fields.length === 0,
+    actions: nodeActions('remove'),
     children: relation.fields.map((field) => relationFieldNode(relation.id, field)),
   }));
 
@@ -95,6 +108,7 @@ const treeNodes = computed<UiTreeNode[]>(() => {
               key: 'ui:template:list:quick-search',
               title: '快速查询',
               secondary: '可配置占位提示',
+              actions: nodeActions('configure'),
               isLeaf: true,
             },
             {
@@ -109,6 +123,7 @@ const treeNodes = computed<UiTreeNode[]>(() => {
         {
           key: 'ui:slot:form',
           title: '详情 / 表单',
+          actions: nodeActions('add-group'),
           isLeaf: false,
           children: [
             ...formFieldNodes,
@@ -118,6 +133,7 @@ const treeNodes = computed<UiTreeNode[]>(() => {
                     key: 'ui:groups:form',
                     title: '表单分组',
                     secondary: '拖拽字段到分组',
+                    actions: nodeActions('add-group'),
                     isLeaf: false,
                     children: groupNodes,
                   },
@@ -158,6 +174,9 @@ function fieldNode(slot: 'list' | 'form', field: PageComposerField): UiTreeNode 
     key: `ui:field:${slot}:${field.id}`,
     title: field.properties?.label ?? field.title,
     secondary: field.fieldName,
+    tag: field.unavailable ? '来源失效' : undefined,
+    muted: field.unavailable,
+    actions: nodeActions('configure', 'remove'),
     isLeaf: true,
   };
 }
@@ -167,6 +186,9 @@ function groupFieldNode(groupId: string, field: PageComposerField): UiTreeNode {
     key: `ui:group-field:form:${groupId}:${field.id}`,
     title: field.properties?.label ?? field.title,
     secondary: field.fieldName,
+    tag: field.unavailable ? '来源失效' : undefined,
+    muted: field.unavailable,
+    actions: nodeActions('configure', 'remove'),
     isLeaf: true,
   };
 }
@@ -176,12 +198,31 @@ function relationFieldNode(relationId: string, field: PageComposerField): UiTree
     key: `ui:relation-field:form:${relationId}:${field.id}`,
     title: field.title,
     secondary: field.fieldName,
+    tag: field.unavailable ? '来源失效' : undefined,
+    muted: field.unavailable,
+    actions: nodeActions('remove'),
     isLeaf: true,
   };
 }
 
 function flattenNodes(nodes: UiTreeNode[]): UiTreeNode[] {
   return nodes.flatMap((node) => [node, ...(node.children ? flattenNodes(node.children) : [])]);
+}
+
+function nodeActions(...keys: ComposerNodeAction[]): UiRecordInlineAction[] {
+  const definitions: Record<ComposerNodeAction, UiRecordInlineAction> = {
+    configure: { key: 'configure', title: '配置', iconName: 'edit' },
+    remove: { key: 'remove', title: '移除', iconName: 'delete', danger: true },
+    'add-group': { key: 'add-group', title: '添加分组', iconName: 'plus' },
+  };
+  return keys.map((key) => ({ ...definitions[key], disabled: props.disabled }));
+}
+
+function handleNodeAction(action: UiRecordInlineAction, node: UiTreeNode) {
+  if (props.disabled || action.disabled) return;
+  const current = flattenNodes(treeNodes.value).find((candidate) => candidate.key === node.key);
+  if (!current?.actions?.some((candidate) => candidate.key === action.key && !candidate.disabled)) return;
+  emit('node-action', action.key as ComposerNodeAction, node.key);
 }
 
 function parseNode(key: string): ComposerNodeRef | undefined {
@@ -396,13 +437,26 @@ function allowExternalDrop(event: UiTreeDropEvent) {
   const target = composerDropTarget(event.target.node);
   if (!target || props.disabled) return false;
   const parsed = parseNode(event.target.node.key);
-  if (event.target.position !== 'inside' && parsed?.kind !== 'field' && parsed?.kind !== 'groupField')
+  if (
+    parsed &&
+    ['field', 'groupField', 'relationField'].includes(parsed.kind) &&
+    event.target.position === 'inside'
+  )
+    return false;
+  if (
+    event.target.position !== 'inside' &&
+    parsed?.kind !== 'field' &&
+    parsed?.kind !== 'groupField' &&
+    parsed?.kind !== 'relationField'
+  )
     return false;
   const metadata = parseMetadataDragPayload(event.source.payload);
   return (
     event.source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE &&
     !!metadata &&
-    (metadata.kind === 'field' || target.kind === 'form')
+    (target.kind === 'relation'
+      ? metadata.kind === 'relationField' && metadata.relationId === target.relationId
+      : metadata.kind === 'field' || target.kind === 'form')
   );
 }
 
@@ -418,13 +472,13 @@ function composerDropTarget(node: UiTreeNode): ComposerDropTarget | undefined {
   if (
     (parsed.kind === 'slot' && parsed.slot === 'form') ||
     (parsed.kind === 'field' && parsed.slot === 'form') ||
-    parsed.kind === 'groups' ||
-    parsed.kind === 'relation' ||
-    parsed.kind === 'relationField'
+    parsed.kind === 'groups'
   )
     return { kind: 'form' };
   if (parsed.kind === 'group' || parsed.kind === 'groupField')
     return { kind: 'group', groupId: parsed.groupId };
+  if (parsed.kind === 'relation' || parsed.kind === 'relationField')
+    return { kind: 'relation', relationId: parsed.relationId };
   return undefined;
 }
 
@@ -435,9 +489,22 @@ function handleExternalDrop(event: UiTreeDropEvent) {
   if (!allowExternalDrop(event)) return;
   const parsed = parseNode(event.target.node.key);
   const metadata = parseMetadataDragPayload(event.source.payload);
+  if (target.kind === 'relation' && metadata?.kind === 'relationField') {
+    const fields = props.formRelations.find((relation) => relation.id === target.relationId)?.fields ?? [];
+    target.index =
+      event.target.position === 'inside'
+        ? fields.filter((field) => field.id !== metadata.fieldId).length
+        : insertionIndex(
+            fields.map((field) => field.id),
+            metadata.fieldId,
+            parsed?.kind === 'relationField' ? parsed.fieldId : undefined,
+            event,
+          );
+  }
   if (
     event.target.position !== 'inside' &&
     metadata?.kind === 'field' &&
+    target.kind !== 'relation' &&
     (parsed?.kind === 'field' || parsed?.kind === 'groupField')
   ) {
     const fields =
@@ -472,6 +539,7 @@ function handleExternalDrop(event: UiTreeDropEvent) {
       "
       @select="select"
       @double-click="doubleClick"
+      @action="handleNodeAction"
       @drop="handleDrop"
     />
   </div>

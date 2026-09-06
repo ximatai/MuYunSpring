@@ -158,6 +158,8 @@ export interface WebTreeNode<T> {
  * them to their own icon implementations.
  */
 export interface RecordInlineAction {
+  /** Optional single-level menu, rendered in the same stable inline action slot. */
+  items?: Array<Pick<RecordInlineAction, 'key' | 'title' | 'disabled' | 'danger'>>;
   key: string;
   /** Standard record action whose availability is resolved for the rendered record. */
   actionCode?: string;

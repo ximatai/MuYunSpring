@@ -164,6 +164,7 @@ function configureField(field: RecordFormFieldState) {
       @keydown.enter="selectField(field)"
       @keydown.space.prevent="configureField(field)"
     >
+      <slot name="field-actions" :field="field" />
       <dt>{{ field.label }}</dt>
       <dd>
         <RecordStatusTag

@@ -429,6 +429,101 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldRoundTripFlatPageFormWithDeclaredChildRelations() throws Exception {
+        when(service.relations(MODULE)).thenReturn(List.of(
+                new DynamicRelationDescriptor("lines", ENTITY, "contract_line", "contractId", false, false)));
+        when(service.newRecord(MODULE, "contract_line")).thenAnswer(ignored -> new DynamicRecord(lineEntity()));
+        DynamicRecord saved = new DynamicRecord(entity()).setValue("code", "C-001");
+        saved.setId("contract-1");
+        when(mainEntity.insert(any(DynamicRecord.class))).thenReturn("contract-1");
+        when(mainEntity.select("contract-1")).thenReturn(saved);
+        when(mainEntity.update(any(DynamicRecord.class))).thenReturn(1);
+
+        mvc.perform(post("/{moduleAlias}/insert", MODULE).contentType("application/json")
+                        .content(json(Map.of("code", "C-001", "lines", List.of(
+                                Map.of("lineNo", "L-001", "lineAmount", "7.25"))))))
+                .andExpect(status().isCreated());
+        ArgumentCaptor<DynamicRecord> inserted = ArgumentCaptor.forClass(DynamicRecord.class);
+        verify(mainEntity).insert(inserted.capture());
+        assertThat(inserted.getValue().getValue("code")).isEqualTo("C-001");
+        assertThat(inserted.getValue().getChildren("lines")).singleElement().satisfies(line -> {
+            assertThat(line.getValue("lineNo")).isEqualTo("L-001");
+            assertThat(line.getValue("lineAmount")).isEqualTo(new BigDecimal("7.25"));
+        });
+
+        mvc.perform(post("/{moduleAlias}/update/{recordId}", MODULE, "contract-1")
+                        .contentType("application/json")
+                        .content(json(Map.of("version", 3, "lines", List.of()))))
+                .andExpect(status().isOk());
+        ArgumentCaptor<DynamicRecord> updated = ArgumentCaptor.forClass(DynamicRecord.class);
+        verify(mainEntity).update(updated.capture());
+        assertThat(updated.getValue().getVersion()).isEqualTo(3);
+        assertThat(updated.getValue().getChildren()).containsKey("lines");
+        assertThat(updated.getValue().getChildren("lines")).isEmpty();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"code", "id", "version", "values", "children"})
+    void shouldPreserveEnvelopeFieldsWhenChildRelationUsesTheSameName(String relationCode) throws Exception {
+        when(service.relations(MODULE)).thenReturn(List.of(
+                new DynamicRelationDescriptor(relationCode, ENTITY, "contract_line", "contractId", false, false)));
+        when(service.newRecord(MODULE, "contract_line")).thenAnswer(ignored -> new DynamicRecord(lineEntity()));
+        when(mainEntity.insert(any(DynamicRecord.class))).thenReturn("contract-1");
+        DynamicRecord saved = new DynamicRecord(entity()).setValue("code", "C-001");
+        saved.setId("contract-1");
+        when(mainEntity.select("contract-1")).thenReturn(saved);
+
+        mvc.perform(post("/{moduleAlias}/insert", MODULE).contentType("application/json")
+                        .content(json(Map.of("id", "contract-1", "version", 3,
+                                "values", Map.of("code", "C-001"),
+                                "children", Map.of(relationCode, List.of(Map.of("lineNo", "L-001")))))))
+                .andExpect(status().isCreated());
+        ArgumentCaptor<DynamicRecord> inserted = ArgumentCaptor.forClass(DynamicRecord.class);
+        verify(mainEntity).insert(inserted.capture());
+        assertThat(inserted.getValue().getId()).isEqualTo("contract-1");
+        assertThat(inserted.getValue().getVersion()).isEqualTo(3);
+        assertThat(inserted.getValue().getValue("code")).isEqualTo("C-001");
+        assertThat(inserted.getValue().getChildren(relationCode)).singleElement()
+                .satisfies(line -> assertThat(line.getValue("lineNo")).isEqualTo("L-001"));
+    }
+
+    @Test
+    void shouldKeepFlatBusinessFieldDistinctFromSameNamedExplicitChildRelation() throws Exception {
+        when(service.relations(MODULE)).thenReturn(List.of(
+                new DynamicRelationDescriptor("code", ENTITY, "contract_line", "contractId", false, false)));
+        when(mainEntity.update(any(DynamicRecord.class))).thenReturn(1);
+        DynamicRecord saved = new DynamicRecord(entity()).setValue("code", "C-002");
+        saved.setId("contract-1");
+        when(mainEntity.select("contract-1")).thenReturn(saved);
+
+        mvc.perform(post("/{moduleAlias}/update/{recordId}", MODULE, "contract-1")
+                        .contentType("application/json")
+                        .content(json(Map.of("version", 3, "code", "C-002", "children", Map.of("code", List.of())))))
+                .andExpect(status().isOk());
+        ArgumentCaptor<DynamicRecord> updated = ArgumentCaptor.forClass(DynamicRecord.class);
+        verify(mainEntity).update(updated.capture());
+        assertThat(updated.getValue().getValue("code")).isEqualTo("C-002");
+        assertThat(updated.getValue().getChildren()).containsKey("code");
+        assertThat(updated.getValue().getChildren("code")).isEmpty();
+    }
+
+    @Test
+    void shouldRejectMalformedOrAmbiguousFlatChildRelations() throws Exception {
+        when(service.relations(MODULE)).thenReturn(List.of(
+                new DynamicRelationDescriptor("lines", ENTITY, "contract_line", "contractId", false, false)));
+        mvc.perform(post("/{moduleAlias}/insert", MODULE).contentType("application/json")
+                        .content(json(Map.of("code", "C-001", "lines", Map.of()))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("dynamic child relation must be array: lines"));
+        mvc.perform(post("/{moduleAlias}/insert", MODULE).contentType("application/json")
+                        .content(json(Map.of("code", "C-001", "lines", List.of(),
+                                "children", Map.of("lines", List.of())))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("dynamic child relation submitted twice: lines"));
+        verify(mainEntity, never()).insert(any(DynamicRecord.class));
+    }
+
+    @Test
     void shouldPreserveLosslessLongAndDecimalTextWireValuesThroughDynamicRecordHttpContract() throws Exception {
         EntityDefinition numericEntity = new EntityDefinition(ENTITY, "sales_contract", "Contract", List.of(
                 FieldDefinition.string("code", "Code").length(64).required(),

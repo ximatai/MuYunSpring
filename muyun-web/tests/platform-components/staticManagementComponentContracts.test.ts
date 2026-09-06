@@ -458,12 +458,12 @@ it('management workspace consumes the page layout contract for constrained deskt
   assert.match(workspaceSource, /@media \(max-width: 760px\)[\s\S]*?grid-template-columns: 1fr/);
   assert.match(
     workspaceSource,
-    /management-workspace--composer[\s\S]*?grid-template-columns: minmax\(180px, 0\.8fr\) minmax\(220px, 1fr\) minmax\(0, 2fr\)/,
+    /management-workspace--composer[\s\S]*?grid-template-columns: var\(--muyun-management-composer-columns\)/,
   );
   assert.notMatch(workspaceSource, /@media \(max-width: 1180px\)[\s\S]*?management-workspace--composer/);
   assert.match(
     workspaceSource,
-    /@media \(max-width: 760px\)[\s\S]*?management-workspace--composer[\s\S]*?grid-template-rows: minmax\(120px, 0\.45fr\) minmax\(120px, 0\.55fr\) minmax\(0, 1\.2fr\)/,
+    /@media \(max-width: 760px\)[\s\S]*?management-workspace--composer[\s\S]*?grid-template-rows: var\(--muyun-management-composer-rows\)/,
   );
   assert.match(workspaceSource, /min-width: 0/);
   assert.match(indexSource, /export \{ default as ManagementWorkspace \}/);
