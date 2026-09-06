@@ -162,7 +162,7 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
     @Override
     public void afterChanged(ModuleMetadataRelation relation) {
         if (eventPublisher != null) {
-            eventPublisher.publishEvent(new MetadataChangedEvent(relation.getMetadataId(), relation.getModuleAlias()));
+            eventPublisher.publishEvent(new MetadataChangedEvent(relation.getMetadataId(), relation.getModuleAlias(), relation.getTenantId()));
         }
         if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             runtimeRefreshCoordinator.refreshByRelation(relation);

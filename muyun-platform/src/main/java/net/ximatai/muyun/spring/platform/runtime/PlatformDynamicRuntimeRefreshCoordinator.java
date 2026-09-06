@@ -25,6 +25,8 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -85,8 +87,8 @@ public class PlatformDynamicRuntimeRefreshCoordinator {
             try (TenantContext.Scope ignored = systemReason == null
                     ? TenantContext.use(tenantId) : TenantContext.system(systemReason)) {
                 if (!relationService().list(Criteria.of().eq("moduleAlias", alias)
-                        .eq("relationRole", RelationRole.MAIN), new PageRequest(0, 1)).isEmpty()) {
-                    refreshService().activateNow(alias);
+                        .eq("relationRole", RelationRole.MAIN).isNull("tenantId"), new PageRequest(0, 1)).isEmpty()) {
+                    activateOnceNow(alias);
                 }
             }
         });
@@ -183,7 +185,7 @@ public class PlatformDynamicRuntimeRefreshCoordinator {
             }
         }
         List<DynamicModuleRefreshResult> results = new ArrayList<>();
-        for (String moduleAlias : moduleAliases) results.add(refreshService().activateNow(moduleAlias));
+        for (String moduleAlias : moduleAliases) results.add(activateOnceNow(moduleAlias));
         return results;
     }
 
@@ -196,8 +198,40 @@ public class PlatformDynamicRuntimeRefreshCoordinator {
             }
         }
         List<DynamicModuleRefreshResult> results = new ArrayList<>();
-        for (String moduleAlias : distinctAliases) results.add(refreshService().activateNow(moduleAlias));
+        for (String moduleAlias : distinctAliases) results.add(activateOnceNow(moduleAlias));
         return results;
+    }
+
+    /**
+     * Metadata and presentation can both publish activation callbacks in one transaction.
+     * At commit they observe the same final configuration, so compile each module only once.
+     * The memo belongs to Spring's synchronization list and expires with that transaction.
+     */
+    private DynamicModuleRefreshResult activateOnceNow(String moduleAlias) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()
+                || !TransactionSynchronizationManager.isSynchronizationActive()) {
+            return refreshService().activateNow(moduleAlias);
+        }
+        ActivationMemo memo = TransactionSynchronizationManager.getSynchronizations().stream()
+                .filter(ActivationMemo.class::isInstance).map(ActivationMemo.class::cast)
+                .filter(candidate -> candidate.owner == this).findFirst().orElseGet(() -> {
+                    ActivationMemo created = new ActivationMemo(this);
+                    TransactionSynchronizationManager.registerSynchronization(created);
+                    return created;
+                });
+        if (!memo.results.containsKey(moduleAlias)) {
+            memo.results.put(moduleAlias, refreshService().activateNow(moduleAlias));
+        }
+        return memo.results.get(moduleAlias);
+    }
+
+    private static final class ActivationMemo implements TransactionSynchronization {
+        private final PlatformDynamicRuntimeRefreshCoordinator owner;
+        private final java.util.Map<String, DynamicModuleRefreshResult> results = new java.util.LinkedHashMap<>();
+
+        private ActivationMemo(PlatformDynamicRuntimeRefreshCoordinator owner) {
+            this.owner = owner;
+        }
     }
 
     /** Removes active runtime projections for modules whose MAIN metadata was deleted. */

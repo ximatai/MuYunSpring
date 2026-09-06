@@ -42,6 +42,53 @@ class DynamicModuleActionRefreshContractTest {
     });
 
     @Test
+    void shouldRequireGlobalMainMetadataBeforeActivatingGlobalActions() {
+        TestMemoryDao<ModuleMetadataRelation> dao = new TestMemoryDao<>();
+        ModuleMetadataRelation main = new ModuleMetadataRelation();
+        main.setId("main-relation");
+        main.setModuleAlias("education.project");
+        main.setRelationRole(net.ximatai.muyun.spring.platform.metadata.RelationRole.MAIN);
+        main.setTenantId("tenant-owner");
+        main.setDeleted(false);
+        dao.insert(main);
+        ModuleMetadataRelationService scopedRelations = new ModuleMetadataRelationService(dao, modules,
+                mock(net.ximatai.muyun.spring.platform.metadata.MetadataService.class));
+        var scopedCoordinator = new PlatformDynamicRuntimeRefreshCoordinator(runtime, scopedRelations,
+                mock(ModuleMetadataFieldService.class), mock(MetadataViewService.class));
+
+        scopedCoordinator.refreshConfiguredModule(main.getModuleAlias());
+        verifyNoInteractions(runtime);
+        main.setTenantId(null);
+        scopedCoordinator.refreshConfiguredModule(main.getModuleAlias());
+        verify(runtime).activateNow(main.getModuleAlias());
+    }
+
+    @Test
+    void shouldActivateOnceForMetadataAndModuleCallbacksAndResetForTheNextTransaction() {
+        PlatformModule module = module();
+        ModuleMetadataRelation main = new ModuleMetadataRelation();
+        main.setModuleAlias(module.getAlias());
+        when(relations.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(main));
+        when(relations.list(any(Criteria.class), any(PageRequest.class),
+                any(net.ximatai.muyun.database.core.orm.Sort.class))).thenReturn(List.of(main));
+
+        for (int transaction = 0; transaction < 2; transaction++) {
+            transactions.executeWithoutResult(status -> {
+                net.ximatai.muyun.spring.ability.TransactionScopeSupport.afterCommitOrNow(
+                        () -> coordinator.activateByMetadataIdNow("main-metadata"));
+                coordinator.refreshConfiguredModule(module.getAlias());
+                coordinator.refreshConfiguredModule(module.getAlias());
+                net.ximatai.muyun.spring.ability.TransactionScopeSupport.afterCommitOrNow(
+                        () -> coordinator.activateModulesNow(List.of(module.getAlias(), "education.other")));
+            });
+        }
+
+        verify(runtime, times(2)).activateNow(module.getAlias());
+        verify(runtime, times(2)).activateNow("education.other");
+        verifyNoMoreInteractions(runtime);
+    }
+
+    @Test
     void shouldRefreshCompleteCatalogueOnceAfterCommitInCapturedSystemScope() {
         PlatformModule module = module();
         when(relations.list(any(Criteria.class), any(PageRequest.class)))

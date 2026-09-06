@@ -88,7 +88,7 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
     @Override
     public void afterChanged(PlatformModule module) {
         if (eventPublisher != null && module != null && module.getModuleKind() == ModuleKind.DYNAMIC) {
-            eventPublisher.publishEvent(new DynamicModuleChangedEvent(module.getAlias()));
+            eventPublisher.publishEvent(new DynamicModuleChangedEvent(module.getAlias(), module.getTenantId()));
         }
     }
 

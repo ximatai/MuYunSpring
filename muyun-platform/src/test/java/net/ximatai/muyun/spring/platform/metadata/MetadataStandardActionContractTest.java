@@ -40,6 +40,18 @@ class MetadataStandardActionContractTest {
     }
 
     @Test
+    void shouldIgnoreTenantOwnedMetadataAndRelationFacts() {
+        Metadata model = main(Set.of("ENABLE"));
+        ModuleActionContributionRegistrar contributions = mock(ModuleActionContributionRegistrar.class);
+        DynamicModuleStandardActionRegistrar isolated = new DynamicModuleStandardActionRegistrar(modules, contributions,
+                beans.getBeanProvider(ModuleMetadataRelationService.class), beans.getBeanProvider(MetadataService.class),
+                beans.getBeanProvider(MetadataFieldService.class));
+        isolated.reconcile(new MetadataChangedEvent(model.getId(), null, "tenant-a"));
+        isolated.reconcile(new MetadataChangedEvent(model.getId(), "education.project", "tenant-a"));
+        org.mockito.Mockito.verifyNoInteractions(contributions);
+    }
+
+    @Test
     void shouldSynchronizeDirectGovernedMetadataChangesDespiteRuntimeSuppression() {
         Metadata model = main(Set.of());
         updateCapabilities(model, Set.of("ENABLE"));

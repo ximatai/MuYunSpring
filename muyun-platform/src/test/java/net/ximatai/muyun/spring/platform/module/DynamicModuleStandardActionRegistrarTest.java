@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.module;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import org.junit.jupiter.api.Test;
 
@@ -10,6 +11,61 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DynamicModuleStandardActionRegistrarTest {
+    @Test
+    void shouldKeepTenantOwnedModuleMutationsOutOfGlobalActionCatalogue() {
+        java.util.concurrent.atomic.AtomicReference<DynamicModuleStandardActionRegistrar> listener =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.List<DynamicModuleChangedEvent> events = new java.util.ArrayList<>();
+        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {
+            if (event instanceof DynamicModuleChangedEvent changed) {
+                events.add(changed);
+                listener.get().reconcile(changed);
+            }
+        });
+        PlatformModuleActionService actions = new PlatformModuleActionService(new TestMemoryDao<>(), modules);
+        DynamicModuleStandardActionRegistrar registrar = new DynamicModuleStandardActionRegistrar(modules,
+                new ModuleActionContributionRegistrar(actions));
+        listener.set(registrar);
+        PlatformModule module = new PlatformModule();
+        module.setAlias("education.tenant_project");
+        module.setApplicationAlias("education");
+        module.setModuleKind(ModuleKind.DYNAMIC);
+        module.setTitle("租户项目");
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            modules.insert(module);
+            module.setTitle("租户项目更新");
+            modules.update(module);
+            assertThat(modules.select(module.getAlias()).getTitle()).isEqualTo("租户项目更新");
+            assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+        }
+        // Even direct restoration in system scope must not promote tenant definitions.
+        registrar.register(module);
+        assertThat(events).hasSize(2).allSatisfy(event -> assertThat(event.tenantId()).isEqualTo("tenant-a"));
+        assertThat(actions.list(Criteria.of())).isEmpty();
+    }
+
+    @Test
+    void shouldUseDefinitionOwnerRatherThanCallerTenantForGlobalModuleEvents() {
+        java.util.concurrent.atomic.AtomicReference<DynamicModuleStandardActionRegistrar> listener =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {
+            if (event instanceof DynamicModuleChangedEvent changed) listener.get().reconcile(changed);
+        });
+        PlatformModuleActionService actions = new PlatformModuleActionService(new TestMemoryDao<>(), modules);
+        listener.set(new DynamicModuleStandardActionRegistrar(modules, new ModuleActionContributionRegistrar(actions)));
+        PlatformModule module = new PlatformModule();
+        module.setAlias("education.global_project");
+        module.setApplicationAlias("education");
+        module.setModuleKind(ModuleKind.DYNAMIC);
+        module.setTitle("共享项目");
+        modules.insert(module);
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-request")) {
+            modules.afterChanged(module);
+            assertThat(TenantContext.currentTenantId()).contains("tenant-request");
+        }
+        assertThat(actions.list(Criteria.of())).hasSize(7);
+    }
+
     @Test
     void shouldRegisterOnlyRuntimeSupportedStandardActionsForDynamicModule() {
         PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>());

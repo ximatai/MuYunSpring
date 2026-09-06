@@ -141,7 +141,7 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
 
     @Override
     public void afterChanged(Metadata metadata) {
-        if (eventPublisher != null) eventPublisher.publishEvent(new MetadataChangedEvent(metadata.getId(), null));
+        if (eventPublisher != null) eventPublisher.publishEvent(new MetadataChangedEvent(metadata.getId(), null, metadata.getTenantId()));
         PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator = runtimeRefreshCoordinator();
         if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             runtimeRefreshCoordinator.refreshByMetadataId(metadata.getId());
