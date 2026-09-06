@@ -128,7 +128,8 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
 }
 
 .ui-record-explorer-item-title {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   color: inherit;
@@ -140,6 +141,7 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
 
 .ui-record-explorer-item-secondary {
   flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   color: var(--muyun-text-muted);
   font-size: 12px;
@@ -150,6 +152,7 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
 
 .ui-record-explorer-item-tag {
   flex: 0 0 auto;
+  white-space: nowrap;
   padding: 1px 5px;
   border: 1px solid var(--muyun-border);
   border-radius: 4px;

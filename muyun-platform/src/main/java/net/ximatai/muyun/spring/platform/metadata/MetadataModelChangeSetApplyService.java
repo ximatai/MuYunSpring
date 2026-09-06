@@ -171,11 +171,7 @@ public class MetadataModelChangeSetApplyService {
     }
 
     private boolean movable(MetadataField field, ModuleMetadataRelation relation) {
-        return field != null && Objects.equals(field.getMetadataId(), relation.getMetadataId())
-                && !Boolean.TRUE.equals(field.getSystemManaged())
-                && field.getFieldOwnership() == MetadataFieldOwnership.BUSINESS
-                && !Objects.equals(relation.getForeignKey(), field.getFieldName())
-                && !Objects.equals(relation.getForeignKey(), field.getColumnName());
+        return field != null && Objects.equals(field.getMetadataId(), relation.getMetadataId());
     }
 
     private Map<String, String> previousFieldSpecs(MetadataModelChangeSetPlan plan) {

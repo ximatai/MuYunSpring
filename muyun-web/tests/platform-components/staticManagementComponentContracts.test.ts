@@ -414,7 +414,7 @@ it('record explorer regions pass constrained height through to tree and list scr
   );
   assert.match(panelSource, /\.record-explorer-panel-content :slotted\(\*\) \{[\s\S]*flex: 1 1 auto;/);
   assert.match(treeSource, /\.tree-record-explorer \{[\s\S]*flex: 1 1 auto;/);
-  assert.match(treeSource, /\.ant-tree\) \{[\s\S]*overflow: auto;/);
+  // Scroll ownership is verified through real long-content interaction in RecordExplorerPanel.browser.test.ts.
   assert.match(crudListSource, /\.crud-record-list-explorer \{[\s\S]*flex: 1 1 auto;/);
   assert.match(crudListSource, /:deep\(\.record-list-explorer\) \{[\s\S]*flex: 1 1 auto;/);
 });

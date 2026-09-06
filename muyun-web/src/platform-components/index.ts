@@ -54,6 +54,7 @@ export { default as RecordExplorerPanel } from './RecordExplorerPanel.vue';
 export { default as RecordExplorerCreateButton } from './RecordExplorerCreateButton.vue';
 export type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
 export { default as RecordFormFields } from './RecordFormFields.vue';
+export { default as RecordFieldLabel } from './RecordFieldLabel.vue';
 export { default as RecordFormGrid } from './RecordFormGrid.vue';
 export { default as RecordFileReferenceTransfer } from './RecordFileReferenceTransfer.vue';
 export { default as RecordListExplorer } from './RecordListExplorer.vue';

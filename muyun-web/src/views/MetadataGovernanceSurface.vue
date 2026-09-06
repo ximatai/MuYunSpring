@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { pinyin } from 'pinyin-pro';
+import { generatedFieldName, generatedMetadataAlias, physicalNameOf } from './metadataNaming';
 import {
   ManagementExplorerColumn,
   ManagementWorkspace,
@@ -8,6 +8,7 @@ import {
   RecordDetailFields,
   RecordContentSectionHeading,
   RecordFormGrid,
+  RecordFieldLabel,
   RecordExplorerPanel,
   reconcileSelectedKey,
   handlePlatformActionSuccess,
@@ -85,13 +86,13 @@ const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
 const metadataClient = createStaticResourceCrudClient<Metadata>(moduleContext.http, '/platform.metadata');
 const state = createMetadataOrchestrationState();
 const editSession = createMetadataModelWorkspaceEditSession();
+const sorting = ref(false);
 useWorkspaceViewUnsavedState('数据模型', () => editSession.isDirty.value || state.mode.value !== 'view');
 const mainMetadataDraft = state.mainMetadataDraft;
 const fieldDraft = state.fieldDraft;
 const fieldPropertyDraft = state.fieldPropertyDraft;
 const loading = ref(false);
 const saving = ref(false);
-const sorting = ref(false);
 const showSystemFields = ref(false);
 const capabilitySnapshot = ref<ModuleMetadataCapabilitySnapshot>();
 const fieldProperties = ref<MetadataFieldPropertySummary[]>([]);
@@ -108,6 +109,32 @@ const editorModeOptions: UiRadioOption[] = [
   { value: 'ADVANCED', label: '高级模式' },
 ];
 const childMetadataDraft = ref<ChildMetadataDraft>({ alias: '', title: '' });
+const childAliasManuallyEdited = ref(false);
+const childValidationAttempted = ref(false);
+const creatingChildMetadata = computed(
+  () => state.fieldEditorOpen.value && !fieldDraft.value.id && childNodeType.value === 'CHILD_METADATA',
+);
+watch(
+  () => childMetadataDraft.value.title,
+  (title) => {
+    if (!childAliasManuallyEdited.value)
+      childMetadataDraft.value.alias = generatedMetadataAlias(
+        title,
+        63 - (props.moduleAlias.split('.')[0]?.length ?? 0) - 1,
+      );
+  },
+);
+function updateChildAlias(alias: string) {
+  childAliasManuallyEdited.value = true;
+  childMetadataDraft.value.alias = alias;
+}
+const childAliasError = computed(() => {
+  const alias = childMetadataDraft.value.alias.trim();
+  if (!alias) return '请填写子实体标识';
+  if (!/^[a-z][a-z0-9_]{0,62}$/.test(alias))
+    return '标识须以小写字母开头，仅含小写字母、数字或下划线，最多 63 个字符';
+  return undefined;
+});
 
 type ModuleMetadataCapabilityFact = {
   capability: string;
@@ -216,9 +243,14 @@ const metadataTreeNodes = computed(() =>
         .filter((relation): relation is ModuleMetadataRelation & { id: string } => Boolean(relation.id))
         .map((relation) => [
           relation.id,
-          // The navigator is a persisted-model view. A staged field participates in the pending
-          // change-set only; it must not look like a saved metadata field before confirmation.
-          visibleFields(fieldsByRelation.value[relation.id] ?? []),
+          // Preview ordering in the tree; field creation drafts stay in the editor until applied.
+          visibleFields(
+            sorting.value && !state.fieldEditorOpen.value
+              ? editSession
+                  .fieldsForDisplay(relation.id, fieldsByRelation.value[relation.id] ?? [])
+                  .map((field, index) => ({ ...field, sortOrder: index }))
+              : (fieldsByRelation.value[relation.id] ?? []),
+          ),
         ]),
     ),
     fieldLocked: (relation, field) => fieldProtectionReasonFor(relation, field) !== undefined,
@@ -310,7 +342,13 @@ function updateReferenceTargetModuleAlias(targetModuleAlias: string) {
 
 watch(
   () => props.moduleAlias,
-  () => void loadWorkspace(),
+  () => {
+    state.handleRelationsLoaded([]);
+    fieldsByRelation.value = {};
+    expandedTreeKeys.value = [];
+    selectedTreeKey.value = undefined;
+    void loadWorkspace();
+  },
   { immediate: true },
 );
 
@@ -346,15 +384,15 @@ async function loadWorkspace() {
   const selectionBeforeRefresh = selectedTreeKey.value;
   loading.value = true;
   try {
-    state.handleRelationsLoaded(await loadAllRecords(relationPath('/query')));
-    await Promise.all(
-      state.relations.value.map(async (relation) => {
-        if (!relation.metadataId) return;
-        state.handleMetadataLoaded(await metadataClient.view(relation.metadataId));
-      }),
+    const moduleAlias = props.moduleAlias;
+    const relations = await loadAllRecords<ModuleMetadataRelation>(relationPath('/query'));
+    const metadata = await Promise.all(
+      relations.map(async (relation) =>
+        relation.metadataId ? metadataClient.view(relation.metadataId) : undefined,
+      ),
     );
     const loaded = await Promise.all(
-      state.relations.value.map(async (relation) => {
+      relations.map(async (relation) => {
         if (!relation.id || !relation.metadataId) return undefined;
         const [fields, properties, capabilities, recordCount] = await Promise.all([
           loadAllRecords<MetadataField>(
@@ -376,6 +414,11 @@ async function loadWorkspace() {
         return { relationId: relation.id, fields, properties, capabilities, recordCount };
       }),
     );
+    if (moduleAlias !== props.moduleAlias) return;
+    state.handleRelationsLoaded(relations);
+    metadata.forEach((item) => {
+      if (item) state.handleMetadataLoaded(item);
+    });
     fieldsByRelation.value = Object.fromEntries(
       loaded
         .filter((item): item is NonNullable<typeof item> => Boolean(item))
@@ -396,7 +439,8 @@ async function loadWorkspace() {
         .filter((item): item is NonNullable<typeof item> => Boolean(item))
         .map((item) => [item.relationId, item.recordCount.recordCount]),
     );
-    restoreTreeSelection(selectionBeforeRefresh);
+    restoreTreeSelection(selectedTreeKey.value ?? selectionBeforeRefresh);
+    if (sorting.value && !state.fieldEditorOpen.value && !state.mainEditorOpen.value) startNodeEditSession();
   } catch (cause) {
     presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
   } finally {
@@ -409,17 +453,21 @@ function restoreTreeSelection(previousKey: string | undefined) {
   const parsed = previousKey ? parseMetadataModelTreeKey(previousKey) : undefined;
   const relationId = parsed?.relationId ?? state.selectedRelation.value?.id;
   if (!relationId) return;
-  const relation = state.relations.value.find((item) => item.id === relationId);
-  if (!relation) return;
-  if (state.selectRelation(relation)) hydrateSelectedRelation(relationId);
-  else hydrateSelectedRelation(relationId);
+  const relation =
+    state.relations.value.find((item) => item.id === relationId) ?? state.selectedRelation.value;
+  if (!relation?.id) {
+    selectedTreeKey.value = undefined;
+    return;
+  }
+  if (state.selectRelation(relation)) hydrateSelectedRelation(relation.id);
+  else hydrateSelectedRelation(relation.id);
 
   selectedTreeKey.value = reconcileSelectedKey(
     previousKey,
     metadataTreeKeys(metadataTreeNodes.value),
-    metadataNodeKey(relationId),
+    metadataNodeKey(relation.id),
   );
-  const relationKey = metadataNodeKey(relationId);
+  const relationKey = metadataNodeKey(relation.id);
   expandedTreeKeys.value = [...new Set([...expandedTreeKeys.value, relationKey])];
 }
 
@@ -495,12 +543,16 @@ function startCreateMainMetadata() {
 
 function startCreateChildNode() {
   childNodeType.value = 'FIELD';
+  childAliasManuallyEdited.value = false;
+  childValidationAttempted.value = false;
   childMetadataDraft.value = { alias: '', title: '' };
   startCreateField();
 }
 
 function startCreateChildMetadataNode() {
   childNodeType.value = 'CHILD_METADATA';
+  childAliasManuallyEdited.value = false;
+  childValidationAttempted.value = false;
   childMetadataDraft.value = { alias: '', title: '' };
   startCreateField();
 }
@@ -514,15 +566,24 @@ function startEditField(field: MetadataField, property: MetadataFieldPropertyDra
 function cancelNodeEditor() {
   state.cancelEditor();
   editSession.cancel();
-  sorting.value = false;
+  if (sorting.value) startNodeEditSession();
 }
 
-function startSorting() {
-  startNodeEditSession();
-  sorting.value = true;
+function toggleSorting() {
+  if (saving.value) return;
+  if (sorting.value) {
+    editSession.cancel();
+    sorting.value = false;
+  } else {
+    startNodeEditSession();
+    sorting.value = true;
+  }
 }
 
-async function previewAndApply(operationName = '保存数据模型') {
+async function previewAndApply(
+  operationName = '保存数据模型',
+  mode: 'confirm' | 'immediate-order' = 'confirm',
+) {
   const proposal = editSession.buildProposal();
   if (!proposal) {
     presentPlatformMessage('当前草稿包含首批不支持的删除操作；请取消编辑后重新调整。', {
@@ -547,6 +608,7 @@ async function previewAndApply(operationName = '保存数据模型') {
     }
     const impacts = metadataChangeConfirmationText(preview);
     if (
+      mode === 'confirm' &&
       !(await confirmAction({
         title: `确认${operationName}`,
         content: impacts || '将保存当前配置。',
@@ -562,10 +624,24 @@ async function previewAndApply(operationName = '保存数据模型') {
         proposalFingerprint: preview.proposalFingerprint,
       },
     });
-    editSession.cancel();
-    state.cancelEditor();
-    sorting.value = false;
-    await loadWorkspace();
+    if (mode === 'immediate-order') {
+      // The write is committed. Keep its order even if the subsequent read fails.
+      retainCommittedOrder(proposal);
+      try {
+        await synchronizeOrder(proposal);
+      } catch (cause) {
+        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
+        presentPlatformMessage('排序已保存，但最新数据同步失败；请使用数据模型的刷新操作重试。', {
+          source: 'metadata-orchestration',
+          phase: 'load',
+        });
+        return;
+      }
+    } else {
+      editSession.cancel();
+      state.cancelEditor();
+      await loadWorkspace();
+    }
     await handlePlatformActionSuccess(
       { success: true, message: `${operationName}成功并已同步生效` },
       { source: 'metadata-orchestration' },
@@ -573,8 +649,52 @@ async function previewAndApply(operationName = '保存数据模型') {
   } catch (cause) {
     presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'action' });
   } finally {
+    if (mode === 'immediate-order') startNodeEditSession();
     saving.value = false;
   }
+}
+
+/** Retain only the committed order; authoritative versions still come from the read API. */
+function retainCommittedOrder(proposal: MetadataModelChangeSetProposal) {
+  for (const { relationIds } of proposal.relationOrders) {
+    state.relations.value = state.relations.value.map((relation) => {
+      const index = relationIds.indexOf(relation.id!);
+      return index < 0 ? relation : { ...relation, sortOrder: index };
+    });
+  }
+  const fields = { ...fieldsByRelation.value };
+  for (const { relationId, fieldIds } of proposal.fieldOrders) {
+    const byId = new Map((fields[relationId] ?? []).map((field) => [field.id, field]));
+    fields[relationId] = fieldIds.flatMap((id, sortOrder) => {
+      const field = byId.get(id);
+      return field ? [{ ...field, sortOrder }] : [];
+    });
+  }
+  fieldsByRelation.value = fields;
+  if (selectedRelationId.value) hydrateSelectedRelation(selectedRelationId.value);
+}
+
+/** Refresh only records touched by ordering, keeping the tree and navigation state mounted. */
+async function synchronizeOrder(proposal: MetadataModelChangeSetProposal) {
+  const [relations, fields] = await Promise.all([
+    proposal.relationOrders.length > 0
+      ? loadAllRecords<ModuleMetadataRelation>(relationPath('/query'))
+      : Promise.resolve(undefined),
+    Promise.all(
+      proposal.fieldOrders.map(async ({ relationId }) => {
+        const relation = state.relations.value.find((item) => item.id === relationId);
+        if (!relation?.metadataId) throw new Error('排序节点已失效，请刷新数据模型。');
+        const records = await loadAllRecords<MetadataField>(
+          `/platform.metadata/${encodeURIComponent(relation.metadataId)}/fields/query`,
+        );
+        return [relationId, records] as const;
+      }),
+    ),
+  ]);
+  if (relations) state.relations.value = relations;
+  fieldsByRelation.value = { ...fieldsByRelation.value, ...Object.fromEntries(fields) };
+  const selectedFields = fields.find(([relationId]) => relationId === selectedRelationId.value)?.[1];
+  if (selectedFields) state.handleFieldsLoaded(selectedFields);
 }
 
 function metadataChangeConfirmationText(preview: MetadataChangeSetPreview): string {
@@ -588,37 +708,6 @@ function metadataChangeConfirmationText(preview: MetadataChangeSetPreview): stri
   if (preview.orderImpacts.length > 0) return '保存当前排序调整。';
   if (preview.schemaImpacts.length > 0) return '同步数据库结构变更。';
   return '';
-}
-
-function physicalNameOf(fieldName?: string): string {
-  return (fieldName ?? '')
-    .trim()
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .toLowerCase();
-}
-
-function generatedFieldName(title?: string): string {
-  const normalized = (title ?? '').trim();
-  if (/[\u3400-\u9fff]/.test(normalized)) {
-    const [first, ...rest] = pinyin(normalized, { toneType: 'none', type: 'array' })
-      .map((part) => part.replace(/[^a-zA-Z0-9]/g, ''))
-      .filter(Boolean);
-    if (first)
-      return `${first.toLowerCase()}${rest.map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`).join('')}`;
-  }
-  const ascii = normalized
-    .normalize('NFKD')
-    .replace(/[^a-zA-Z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .toLowerCase();
-  if (ascii) {
-    const [first, ...rest] = ascii.split('_').filter(Boolean);
-    return `${first}${rest.map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join('')}`;
-  }
-  let hash = 0;
-  for (const character of normalized) hash = ((hash << 5) - hash + character.codePointAt(0)!) | 0;
-  const suffix = Math.abs(hash).toString(36);
-  return `field${suffix.charAt(0).toUpperCase()}${suffix.slice(1)}`;
 }
 
 function stageFieldDraft() {
@@ -671,8 +760,10 @@ async function createChildMetadata() {
   const relationId = selectedRelationId.value;
   const alias = childMetadataDraft.value.alias.trim();
   const title = childMetadataDraft.value.title.trim();
-  if (!relationId || !alias || !title) {
-    presentPlatformMessage('请填写子实体 alias 和名称', {
+  childValidationAttempted.value = true;
+  if (!relationId || childAliasError.value || !title) {
+    if (title && childAliasError.value) editorMode.value = 'ADVANCED';
+    presentPlatformMessage(!title ? '请填写子实体名称' : (childAliasError.value ?? '请选择父实体'), {
       source: 'metadata-orchestration',
       phase: 'validation',
     });
@@ -745,15 +836,26 @@ async function deleteSelectedNode() {
     // During dynamic-runtime activation the relation read model can briefly
     // return its pre-delete snapshot, so do not reload it into this workspace.
     if (!deletingField) {
+      const parentMetadataId = state.selectedRelation.value?.parentMetadataId;
       state.handleRelationsLoaded(state.relations.value.filter((relation) => relation.id !== relationId));
-      fieldsByRelation.value = {};
-      fieldPropertiesByRelation.value = {};
-      capabilitiesByRelation.value = {};
-      fieldProperties.value = [];
-      capabilitySnapshot.value = undefined;
-      selectedTreeKey.value = undefined;
+      const parent = state.relations.value.find((relation) => relation.metadataId === parentMetadataId);
+      if (parent?.id) state.focusRelation(parent.id);
+      for (const map of [
+        fieldsByRelation,
+        fieldPropertiesByRelation,
+        capabilitiesByRelation,
+        recordCountsByRelation,
+      ]) {
+        const remaining = { ...map.value };
+        delete remaining[relationId];
+        map.value = remaining as typeof map.value;
+      }
       editSession.cancel();
       state.cancelEditor();
+      const remainingRelation = state.selectedRelation.value;
+      selectedTreeKey.value = remainingRelation?.id ? metadataNodeKey(remainingRelation.id) : undefined;
+      if (remainingRelation?.id) hydrateSelectedRelation(remainingRelation.id);
+      if (sorting.value) startNodeEditSession();
     } else {
       await loadWorkspace();
     }
@@ -954,12 +1056,8 @@ function fieldProtectionReasonFor(
   );
 }
 
-function fieldSortableInTree(relation: ModuleMetadataRelation, field: MetadataField): boolean {
-  return (
-    Boolean(field.id) &&
-    metadataFieldGovernanceKind(field, relation, capabilityFieldNamesFor(relation)) === 'BUSINESS' &&
-    propertyForRelationField(relation, field).kind !== 'LEGACY_LOCKED'
-  );
+function fieldSortableInTree(_relation: ModuleMetadataRelation, field: MetadataField): boolean {
+  return Boolean(field.id);
 }
 
 function propertyForRelationField(
@@ -984,11 +1082,17 @@ function capabilityFieldNamesFor(relation: ModuleMetadataRelation | undefined) {
 }
 
 function canDragMetadataNode(node: UiTreeNode): boolean {
-  return editSession.editing.value && (node as MetadataModelTreeNode).draggable === true;
+  return (
+    sorting.value &&
+    !saving.value &&
+    !loading.value &&
+    !state.fieldEditorOpen.value &&
+    (node as MetadataModelTreeNode).draggable === true
+  );
 }
 
 function allowMetadataModelDrop(event: UiTreeDropEvent) {
-  return editSession.editing.value && canReorderMetadataModelTree(event);
+  return sorting.value && !saving.value && !state.fieldEditorOpen.value && canReorderMetadataModelTree(event);
 }
 
 function handleMetadataModelDrop(event: UiTreeDropEvent) {
@@ -1005,18 +1109,27 @@ function handleMetadataModelDrop(event: UiTreeDropEvent) {
       .fieldsForDisplay(relationId, fieldsByRelation.value[relationId] ?? [])
       .filter((field) => fieldSortableInTree(relation, field));
     const order = reorderedIds(
-      fields,
+      visibleFields(fields),
       drag.fieldId!,
       drop.fieldId!,
       event.target.position === 'before' ? -1 : 1,
     );
-    editSession.stageFieldOrder(relationId, order);
+    const visibleIds = new Set(order);
+    let position = 0;
+    editSession.stageFieldOrder(
+      relationId,
+      fields.map((field) => (visibleIds.has(field.id!) ? order[position++]! : field.id!)),
+    );
+    if (editSession.isDirty.value) void previewAndApply('排序', 'immediate-order');
     return;
   }
   const relation = state.relations.value.find((item) => item.id === drag.relationId);
   const siblings = state.relations.value
     .filter((item) => item.parentMetadataId === relation?.parentMetadataId)
-    .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
+    .sort((left, right) => {
+      const staged = editSession.relationOrder.value[relation?.parentMetadataId ?? ''] ?? [];
+      return staged.indexOf(left.id!) - staged.indexOf(right.id!);
+    });
   const order = reorderedIds(
     siblings,
     drag.relationId,
@@ -1024,6 +1137,7 @@ function handleMetadataModelDrop(event: UiTreeDropEvent) {
     event.target.position === 'before' ? -1 : 1,
   );
   editSession.stageRelationOrder(relation?.parentMetadataId, order);
+  if (editSession.isDirty.value) void previewAndApply('排序', 'immediate-order');
 }
 
 function capabilityTitleOf(capability: string): string {
@@ -1041,25 +1155,34 @@ function capabilityTitleOf(capability: string): string {
 </script>
 
 <template>
-  <ManagementWorkspace class="metadata-model-workspace" layout="default" :explorer-count="1" list-surface>
+  <ManagementWorkspace
+    class="metadata-model-workspace"
+    layout="default"
+    :explorer-count="1"
+    :editing="state.fieldEditorOpen.value || state.mainEditorOpen.value"
+    :sorting-request="saving && sorting && !state.fieldEditorOpen.value"
+    list-surface
+  >
     <ManagementExplorerColumn title="数据模型" collapsible :has-selection="Boolean(selectedTreeKey)">
       <RecordExplorerPanel
         title="数据模型"
         :searchable="false"
         :collapse-action="false"
+        :refresh-disabled="saving"
         @refresh="loadWorkspace"
       >
         <template #actions>
           <UiButton
-            v-if="!state.fieldEditorOpen.value && !sorting"
+            v-if="!state.fieldEditorOpen.value"
             icon-name="swap-vertical"
             icon-only
             size="small"
             type="text"
-            title="调整排序"
-            aria-label="调整排序"
+            :title="sorting ? '结束排序' : '调整排序'"
+            :aria-label="sorting ? '结束排序' : '调整排序'"
+            :selected="sorting"
             :disabled="saving || loading"
-            @click="startSorting"
+            @click="toggleSorting"
           />
           <label class="metadata-system-fields-toggle">
             <span>系统字段</span>
@@ -1071,13 +1194,13 @@ function capabilityTitleOf(capability: string): string {
             />
           </label>
         </template>
-        <UiSpin v-if="loading" tip="加载数据模型" />
+        <UiSpin v-if="loading && metadataTreeNodes.length === 0" tip="加载数据模型" />
         <UiTree
           v-else
           v-model:expanded-keys="expandedTreeKeys"
           :nodes="metadataTreeNodes"
           :selected-key="selectedTreeKey"
-          :draggable="editSession.editing.value"
+          :draggable="sorting && !saving && !loading && !state.fieldEditorOpen.value"
           :can-drag="canDragMetadataNode"
           :allow-drop="allowMetadataModelDrop"
           @select="selectMetadataTreeNode"
@@ -1090,11 +1213,19 @@ function capabilityTitleOf(capability: string): string {
       v-if="state.selectedMetadata.value && state.selectedRelation.value"
       class="module-tree-card"
       :title="
-        selectedNodeIsField
-          ? (selectedField?.title ?? '字段')
-          : (state.selectedMetadata.value.title ?? '元数据')
+        creatingChildMetadata
+          ? '新增子实体'
+          : selectedNodeIsField
+            ? (selectedField?.title ?? '字段')
+            : (state.selectedMetadata.value.title ?? '元数据')
       "
-      :subtitle="selectedNodeIsField ? selectedField?.fieldName : state.selectedMetadata.value.alias"
+      :subtitle="
+        creatingChildMetadata
+          ? `所属实体：${state.selectedMetadata.value.title}`
+          : selectedNodeIsField
+            ? selectedField?.fieldName
+            : state.selectedMetadata.value.alias
+      "
     >
       <template v-if="state.fieldEditorOpen.value" #status>
         <UiRadioGroup v-model:value="editorMode" :options="editorModeOptions" size="small" />
@@ -1103,13 +1234,7 @@ function capabilityTitleOf(capability: string): string {
         <template v-if="state.fieldEditorOpen.value">
           <UiActionButton :disabled="saving" @click="cancelNodeEditor">取消</UiActionButton>
           <UiActionButton emphasis="primary" :loading="saving" @click="stageFieldDraft">
-            保存
-          </UiActionButton>
-        </template>
-        <template v-else-if="sorting">
-          <UiActionButton :disabled="saving" @click="cancelNodeEditor">取消</UiActionButton>
-          <UiActionButton emphasis="primary" :loading="saving" @click="previewAndApply('保存排序')">
-            保存排序
+            {{ creatingChildMetadata ? '创建' : '保存' }}
           </UiActionButton>
         </template>
         <template v-else-if="!selectedNodeIsField">
@@ -1120,7 +1245,7 @@ function capabilityTitleOf(capability: string): string {
         </template>
         <UiActionButton
           v-else
-          :disabled="!fieldEditableInSession(selectedField!)"
+          :disabled="saving || !fieldEditableInSession(selectedField!)"
           :title="fieldProtectionReason(selectedField!)"
           @click="startEditField(selectedField!, fieldPropertyOf(selectedField!))"
           >编辑</UiActionButton
@@ -1140,12 +1265,32 @@ function capabilityTitleOf(capability: string): string {
         <RecordFormGrid @submit.prevent="stageFieldDraft">
           <template v-if="!fieldDraft.id && childNodeType === 'CHILD_METADATA'">
             <label v-if="editorMode === 'ADVANCED' || Boolean(fieldDraft.id)">
-              <span>子实体 alias</span>
-              <UiInput v-model:value="childMetadataDraft.alias" placeholder="例如 exam_participant" />
+              <RecordFieldLabel required>子实体标识（alias）</RecordFieldLabel>
+              <UiInput
+                :value="childMetadataDraft.alias"
+                required
+                placeholder="例如 exam_participant"
+                @update:value="updateChildAlias"
+              />
+              <span
+                v-if="childValidationAttempted && childAliasError"
+                class="metadata-field-error"
+                role="alert"
+                >{{ childAliasError }}</span
+              >
             </label>
             <label>
-              <span>子实体名称</span>
-              <UiInput v-model:value="childMetadataDraft.title" placeholder="例如 参考学生" />
+              <RecordFieldLabel required>子实体名称</RecordFieldLabel>
+              <UiInput v-model:value="childMetadataDraft.title" required placeholder="例如 参考学生" />
+              <span
+                v-if="childValidationAttempted && !childMetadataDraft.title.trim()"
+                class="metadata-field-error"
+                role="alert"
+                >请填写子实体名称</span
+              >
+              <span v-if="editorMode === 'SIMPLE' && childMetadataDraft.alias" class="metadata-alias-hint"
+                >标识：{{ childMetadataDraft.alias }}</span
+              >
             </label>
             <label v-if="editorMode === 'ADVANCED'">
               <span>Schema（可选）</span>
@@ -1158,7 +1303,7 @@ function capabilityTitleOf(capability: string): string {
           </template>
           <template v-else>
             <label v-if="editorMode === 'ADVANCED' || Boolean(fieldDraft.id)">
-              <span>字段名称</span>
+              <RecordFieldLabel required>字段名称</RecordFieldLabel>
               <UiInput
                 v-model:value="fieldDraft.fieldName"
                 :disabled="Boolean(fieldDraft.id)"
@@ -1166,7 +1311,7 @@ function capabilityTitleOf(capability: string): string {
               />
             </label>
             <label v-if="editorMode === 'ADVANCED'">
-              <span>物理列名</span>
+              <RecordFieldLabel required>物理列名</RecordFieldLabel>
               <UiInput
                 v-model:value="fieldDraft.columnName"
                 :disabled="Boolean(fieldDraft.id)"
@@ -1187,7 +1332,7 @@ function capabilityTitleOf(capability: string): string {
               />
             </label>
             <label>
-              <span>存储字段规格</span>
+              <RecordFieldLabel required>存储字段规格</RecordFieldLabel>
               <UiSelect
                 v-if="fieldPropertyEditorKind === 'BASIC'"
                 v-model:value="fieldDraft.fieldSpecAlias"
@@ -1386,12 +1531,12 @@ function capabilityTitleOf(capability: string): string {
       <section v-if="state.mainEditorOpen.value" class="metadata-inline-editor">
         <RecordFormGrid @submit.prevent="createMainMetadata">
           <label v-if="editorMode === 'ADVANCED'">
-            <span>实体 alias</span>
-            <UiInput v-model:value="mainMetadataDraft.alias" placeholder="例如 customer" />
+            <RecordFieldLabel required>实体 alias</RecordFieldLabel>
+            <UiInput v-model:value="mainMetadataDraft.alias" required placeholder="例如 customer" />
           </label>
           <label>
-            <span>实体名称</span>
-            <UiInput v-model:value="mainMetadataDraft.title" placeholder="例如 客户" />
+            <RecordFieldLabel required>实体名称</RecordFieldLabel>
+            <UiInput v-model:value="mainMetadataDraft.title" required placeholder="例如 客户" />
           </label>
           <label v-if="editorMode === 'ADVANCED'">
             <span>Schema（可选）</span>
@@ -1409,6 +1554,14 @@ function capabilityTitleOf(capability: string): string {
 </template>
 
 <style scoped>
+.metadata-field-error {
+  color: var(--muyun-danger-base);
+}
+.metadata-alias-hint {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+
 .metadata-toolbar {
   display: flex;
   align-items: center;

@@ -191,9 +191,9 @@ public class MetadataModelChangeSetPreviewService {
                 continue;
             }
             List<MetadataField> fields = fieldService.list(Criteria.of().eq("metadataId", relation.getMetadataId()), ALL);
-            List<MetadataField> movable = fields.stream().filter(field -> movable(field, relation)).toList();
+            List<MetadataField> movable = fields;
             if (!sameIds(order.fieldIds(), movable.stream().map(MetadataField::getId).toList())) {
-                error(errors, "INVALID_FIELD_ORDER", order.relationId(), "字段排序必须覆盖当前实体全部可移动业务字段，不能移动平台字段或子表外键。");
+                error(errors, "INVALID_FIELD_ORDER", order.relationId(), "字段排序必须完整覆盖当前实体的所有字段。");
                 continue;
             }
             if (order.fieldIds().stream().anyMatch(mutationFieldIds::contains)) {
@@ -214,13 +214,6 @@ public class MetadataModelChangeSetPreviewService {
                     List.copyOf(entries)));
         }
         return List.copyOf(result);
-    }
-
-    private boolean movable(MetadataField field, ModuleMetadataRelation relation) {
-        return !Boolean.TRUE.equals(field.getSystemManaged())
-                && field.getFieldOwnership() == MetadataFieldOwnership.BUSINESS
-                && !Objects.equals(relation.getForeignKey(), field.getFieldName())
-                && !Objects.equals(relation.getForeignKey(), field.getColumnName());
     }
 
     private boolean sameIds(List<String> proposed, List<String> expected) {

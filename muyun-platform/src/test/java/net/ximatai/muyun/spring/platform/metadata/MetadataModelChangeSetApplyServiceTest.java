@@ -90,6 +90,45 @@ class MetadataModelChangeSetApplyServiceTest {
     }
 
     @Test
+    void shouldApplySystemFieldDisplayOrderWithoutSchemaGovernance() {
+        MetadataModelChangeSetPreviewService previews = mock(MetadataModelChangeSetPreviewService.class);
+        MetadataRelationChangeSetApplyService relationApply = mock(MetadataRelationChangeSetApplyService.class);
+        ModuleMetadataRelationService relations = mock(ModuleMetadataRelationService.class);
+        MetadataFieldService fields = mock(MetadataFieldService.class);
+        PlatformMetadataSchemaEnsureService schema = mock(PlatformMetadataSchemaEnsureService.class);
+        EmptyMetadataFieldSpecColumnRebuildService rebuild = mock(EmptyMetadataFieldSpecColumnRebuildService.class);
+        ModuleMetadataCapabilitySnapshotService snapshots = mock(ModuleMetadataCapabilitySnapshotService.class);
+        when(snapshots.snapshot("education.exam", "child")).thenReturn(mock(ModuleMetadataCapabilitySnapshot.class));
+        ModuleMetadataRelation relation = relation();
+        relation.setModuleAlias("education.exam");
+        when(relations.select("child")).thenReturn(relation);
+        MetadataField field = new MetadataField();
+        field.setId("score");
+        field.setSystemManaged(true);
+        field.setMetadataId("metadata-child");
+        field.setFieldName("score");
+        field.setColumnName("score");
+        field.setFieldOwnership(MetadataFieldOwnership.STANDARD);
+        field.setVersion(3);
+        when(fields.select("score")).thenReturn(field);
+        MetadataModelChangeSetPlan plan = new MetadataModelChangeSetPlan(List.of(), List.of(), List.of(
+                new MetadataModelFieldOrderPlan("child", "education.exam", 2, "metadata-child", RelationRole.CHILD,
+                        "parent", null, List.of(new MetadataModelFieldOrderPlan.Entry("score", 3, 100)))));
+        MetadataModelChangeSetPreviewCommand proposal = new MetadataModelChangeSetPreviewCommand(List.of(), List.of(), List.of());
+        when(previews.preview("education.exam", proposal)).thenReturn(new MetadataModelChangeSetPreview(
+                "education.exam", List.of(), List.of(), List.of(), "fingerprint", plan));
+        MetadataModelChangeSetApplyService service = new MetadataModelChangeSetApplyService(previews, relationApply, relations,
+                mock(MetadataService.class), fields, schema, mock(PlatformDynamicRuntimeRefreshCoordinator.class),
+                snapshots, rebuild);
+
+        service.apply("education.exam", new MetadataModelChangeSetApplyCommand(proposal, "fingerprint"));
+
+        assertThat(field.getSortOrder()).isEqualTo(100);
+        verify(fields).update(field);
+        org.mockito.Mockito.verifyNoInteractions(schema, rebuild, relationApply);
+    }
+
+    @Test
     void shouldRejectRelationPlanWhenItsTopologyScopeChangedAfterPreview() {
         MetadataModelChangeSetPreviewService previews = mock(MetadataModelChangeSetPreviewService.class);
         MetadataRelationChangeSetApplyService relationApply = mock(MetadataRelationChangeSetApplyService.class);

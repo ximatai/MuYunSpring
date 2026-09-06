@@ -177,10 +177,10 @@ it('scrolls a long flat list during a held drag and commits once at the new hit 
     displayMode: 'flat',
     nodes: Array.from({ length: 100 }, (_, i) => node(String(i))),
   });
-  const container = wrapper.get('ul').element as HTMLElement;
+  const container = wrapper.element as HTMLElement;
   container.style.height = '140px';
   await nextTick();
-  await commands.treeScrollGesture(selector('scroll', '0'), '#scroll ul');
+  await commands.treeScrollGesture(selector('scroll', '0'), '#scroll');
   await expect.poll(() => container.scrollTop).toBeGreaterThan(0);
   await commands.treeRelease();
   expect(wrapper.emitted('drop')).toHaveLength(1);

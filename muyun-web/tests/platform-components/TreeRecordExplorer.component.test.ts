@@ -33,6 +33,37 @@ it('ignores stale tree responses after the explorer reloads', async () => {
   wrapper.unmount();
 });
 
+it('keeps loaded nodes mounted during mutation reloads', async () => {
+  const requests: Array<ReturnType<typeof deferredTreeResponse>> = [];
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context: createTreeContext(requests), reloadKey: 0, searchMode: 'none' },
+    global: {
+      stubs: {
+        UiSpin: { template: '<div class="spin" />' },
+        UiTree: {
+          name: 'UiTree',
+          props: ['nodes'],
+          template: '<div class="tree">{{ nodes[0]?.title }}</div>',
+        },
+      },
+    },
+  });
+  await flushPromises();
+  requests[0].resolve(treeResponse('existing'));
+  await flushPromises();
+  const tree = wrapper.findComponent({ name: 'UiTree' }).vm;
+  await wrapper.setProps({ reloadKey: 1 });
+  await flushPromises();
+  assert.equal(wrapper.findComponent({ name: 'UiTree' }).vm, tree);
+  assert.equal(wrapper.find('.spin').exists(), false);
+  assert.equal(wrapper.find('.tree').text(), 'existing');
+  requests[1].resolve(treeResponse('updated'));
+  await flushPromises();
+  assert.equal(wrapper.findComponent({ name: 'UiTree' }).vm, tree);
+  assert.equal(wrapper.find('.tree').text(), 'updated');
+  wrapper.unmount();
+});
+
 it('passes upstream navigator criteria to the server-side tree query', async () => {
   const requests: Array<ReturnType<typeof deferredTreeResponse>> = [];
   const treeRequests: unknown[] = [];

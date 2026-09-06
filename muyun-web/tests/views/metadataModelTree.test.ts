@@ -34,7 +34,7 @@ it('projects metadata branches and field leaves directly below the explorer titl
     expect.objectContaining({ key: 'metadata-model:field:main:title', modelKind: 'FIELD', draggable: true }),
     expect.objectContaining({ key: 'metadata-model:relation:child', modelKind: 'METADATA' }),
   ]);
-  expect(tree[0].children?.[1].children?.[0]).toMatchObject({ draggable: false, muted: true });
+  expect(tree[0].children?.[1].children?.[0]).toMatchObject({ draggable: true, muted: true });
 });
 
 it('admits only same-parent same-kind gap reorders', () => {

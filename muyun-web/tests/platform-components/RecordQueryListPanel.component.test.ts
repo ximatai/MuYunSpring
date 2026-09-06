@@ -1,3 +1,5 @@
+import { computed, ref } from 'vue';
+import { WORKSPACE_NAVIGATION_DISABLED } from '@/platform-components/managementWorkspaceContext';
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import RecordQueryListPanel, {
@@ -8,6 +10,21 @@ import type { ModuleContext } from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
 
 describe('RecordQueryListPanel', () => {
+  it('disables the complete list surface while its workspace is editing', async () => {
+    const editing = ref(true);
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context: createContext({ id: '1' }), title: '记录', columns: [] },
+      global: { provide: { [WORKSPACE_NAVIGATION_DISABLED as symbol]: computed(() => editing.value) } },
+    });
+    await flushPromises();
+    expect(wrapper.attributes('inert')).toBeDefined();
+    expect(wrapper.attributes('aria-disabled')).toBe('true');
+    editing.value = false;
+    await flushPromises();
+    expect(wrapper.attributes('inert')).toBeUndefined();
+    wrapper.unmount();
+  });
+
   it('does not load options for a reference column that only has a companion title field', async () => {
     const request = vi.fn();
     const context = createContext({

@@ -561,6 +561,8 @@ defineExpose({
 <style scoped>
 .ui-tree {
   position: relative;
+  min-height: 0;
+  overflow: auto;
 }
 .ui-tree__instructions {
   position: absolute;
@@ -613,6 +615,10 @@ defineExpose({
 }
 
 /* Tree and Flat share the row component's selection and hover surface. */
+.ui-tree :deep(.ant-tree-node-content-wrapper) {
+  min-width: 0;
+}
+
 .ui-tree :deep(.ant-tree-node-content-wrapper.ant-tree-node-selected),
 .ui-tree :deep(.ant-tree-node-content-wrapper:hover) {
   background: transparent;
@@ -641,7 +647,6 @@ defineExpose({
   min-width: 0;
   margin: 0;
   padding: 0;
-  overflow: auto;
   list-style: none;
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, provide, reactive } from 'vue';
+import { computed, provide, reactive, ref } from 'vue';
 import {
   collapsedExplorerTabHeight,
   MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT,
@@ -7,6 +7,9 @@ import {
 } from './managementWorkspaceLayout';
 import {
   MANAGEMENT_WORKSPACE_CONTEXT,
+  WORKSPACE_NAVIGATION_DISABLED,
+  WORKSPACE_SORTING_BUSY,
+  WORKSPACE_SORT_ACTIVITY,
   type ManagementWorkspaceExplorerRegistration,
 } from './managementWorkspaceContext';
 import { usePageLayout } from './pageLayoutContext';
@@ -21,6 +24,10 @@ const props = withDefaults(
      * precede the primary canvas child.
      */
     layout?: 'default' | 'composer';
+    /** Locks navigation while the workspace detail is being edited; sorting stays independent. */
+    editing?: boolean;
+    /** Actual request state for specialized sorting surfaces. */
+    sortingRequest?: boolean;
     /** Number of explorer columns shown before the detail workspace. */
     explorerCount?: number;
     /** Whether the final workspace is a list plus an independently sized detail surface. */
@@ -34,6 +41,17 @@ const props = withDefaults(
     detailSurface: false,
     listSurface: false,
   },
+);
+
+const activeSortRequests = ref(0);
+const sortingBusy = computed(() => props.sortingRequest === true || activeSortRequests.value > 0);
+provide(WORKSPACE_SORTING_BUSY, sortingBusy);
+provide(WORKSPACE_SORT_ACTIVITY, (active) => {
+  activeSortRequests.value += active ? 1 : -1;
+});
+provide(
+  WORKSPACE_NAVIGATION_DISABLED,
+  computed(() => props.editing === true || sortingBusy.value),
 );
 
 const explorerCount = computed(() => Math.max(0, Math.trunc(props.explorerCount)));

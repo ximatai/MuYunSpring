@@ -33,7 +33,11 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <ManagementWorkspace class="static-management-page" :explorer-count="navigatorCount + 1">
+  <ManagementWorkspace
+    class="static-management-page"
+    :explorer-count="navigatorCount + 1"
+    :editing="mode !== 'view'"
+  >
     <ManagementExplorerColumn v-for="index in navigatorCount" :key="index">
       <slot name="navigator" :index="index - 1" />
     </ManagementExplorerColumn>
