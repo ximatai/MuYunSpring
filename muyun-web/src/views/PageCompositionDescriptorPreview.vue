@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUpdate, onUpdated, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onBeforeUpdate, onUpdated, ref, watch } from 'vue';
 import {
   RecordFormFields,
   RecordDetailFields,
@@ -300,7 +300,28 @@ function layoutKeyOf(element: HTMLElement) {
   return element.dataset.pageCompositionLayoutKey;
 }
 
+// Hover feedback and sample input update the component too, but do not change its composition.
+const layoutInputs = computed(() => [
+  props.mode,
+  listColumns.value,
+  detailFields.value,
+  formFields.value,
+  formSections.value,
+  detailRelations.value,
+]);
+let renderedLayout = layoutInputs.value;
+let layoutChanged = false;
+const layoutAnimations = new Map<HTMLElement, Animation>();
+function cancelLayoutAnimations() {
+  layoutAnimations.forEach((animation) => animation.cancel());
+  layoutAnimations.clear();
+}
+onBeforeUnmount(cancelLayoutAnimations);
+
 onBeforeUpdate(() => {
+  layoutChanged = renderedLayout !== layoutInputs.value;
+  renderedLayout = layoutInputs.value;
+  if (!layoutChanged) return;
   previousLayout.clear();
   previewRoot.value
     ?.querySelectorAll<HTMLElement>('[data-page-composition-layout-key]')
@@ -308,38 +329,41 @@ onBeforeUpdate(() => {
       const key = layoutKeyOf(element);
       if (key) previousLayout.set(key, element.getBoundingClientRect());
     });
+  // Capture the current visual position before removing a superseded composition animation.
+  cancelLayoutAnimations();
 });
 
 onUpdated(() => {
+  if (!layoutChanged) return;
+  layoutChanged = false;
   if (typeof window === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
     return;
-  const animateLayout = () => {
-    previewRoot.value
-      ?.querySelectorAll<HTMLElement>('[data-page-composition-layout-key]')
-      .forEach((element) => {
-        const key = layoutKeyOf(element);
-        const previous = key ? previousLayout.get(key) : undefined;
-        if (!previous) return;
-        const current = element.getBoundingClientRect();
-        const x = previous.left - current.left;
-        const y = previous.top - current.top;
-        if (Math.abs(x) < 1 && Math.abs(y) < 1) return;
-        animateLayoutElement(element, x, y);
-      });
-  };
-  if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(animateLayout);
-  else animateLayout();
+  // Vue has patched the children here. Start FLIP in this same update, so a new tree order is never
+  // exposed as stationary for a frame before its delayed animation starts underneath a second drag.
+  previewRoot.value
+    ?.querySelectorAll<HTMLElement>('[data-page-composition-layout-key]')
+    .forEach((element) => {
+      const key = layoutKeyOf(element);
+      const previous = key ? previousLayout.get(key) : undefined;
+      if (!previous) return;
+      const current = element.getBoundingClientRect();
+      const x = previous.left - current.left;
+      const y = previous.top - current.top;
+      if (Math.abs(x) < 1 && Math.abs(y) < 1) return;
+      animateLayoutElement(element, x, y);
+    });
 });
 
 function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   if (typeof element.animate === 'function') {
-    element.animate(
+    const animation = element.animate(
       [
         { transform: `translate(${x}px, ${y}px)`, opacity: 0.72 },
         { transform: 'translate(0, 0)', opacity: 1 },
       ],
       { duration: 300, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
     );
+    if (animation) layoutAnimations.set(element, animation);
     return;
   }
   const originalTransition = element.style.transition;

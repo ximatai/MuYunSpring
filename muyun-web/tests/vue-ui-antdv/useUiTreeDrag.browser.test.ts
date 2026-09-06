@@ -8,6 +8,50 @@ import { useUiDropTarget } from '@/vue-ui-antdv/useUiTreeDrag';
 import type { UiTreeDropEvent } from '@/vue-ui-antdv/types';
 import 'ant-design-vue/dist/reset.css';
 
+it.each(['visibility: hidden', 'display: none'])(
+  'moves keyboard dragging from A to C past a collapsed B using %s',
+  async (hiddenStyle) => {
+    const drops: UiTreeDropEvent[] = [];
+    const Fixture = defineComponent({
+      setup() {
+        const root = ref<HTMLElement>();
+        useUiDropTarget(root, {
+          resolve: () => ({
+            instanceId: 'preview',
+            kind: 'node',
+            node: { key: 'preview-field', title: '预览字段' },
+            position: 'before',
+          }),
+          allow: () => true,
+          drop: (event) => drops.push(event),
+        });
+        return () =>
+          h('div', [
+            h(UiTree, { nodes: [{ key: 'source', title: '可用字段' }], draggable: true }),
+            h('div', { style: hiddenStyle }, [
+              h(UiTree, { nodes: [{ key: 'hidden', title: '已收起的页面结构' }], draggable: true }),
+            ]),
+            h('div', { ref: root, tabindex: 0, 'data-ui-drop-key': 'preview-field' }, '预览字段'),
+          ]);
+      },
+    });
+    const wrapper = mount(Fixture, { attachTo: document.body });
+    try {
+      await nextTick();
+      const source = wrapper.get('[data-ui-tree-key="source"]').element as HTMLElement;
+      source.focus();
+      source.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      source.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(document.activeElement).toBe(wrapper.get('[data-ui-drop-key="preview-field"]').element);
+      document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      expect(drops).toHaveLength(1);
+      expect(drops[0].target).toMatchObject({ kind: 'node', node: { key: 'preview-field' } });
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
+
 it.each(['right', 'left'] as const)(
   'scrolls wide columns toward the %s edge and resolves the newly visible column at release',
   async (edge) => {

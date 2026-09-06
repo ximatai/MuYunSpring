@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.JsonNode;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldCompanionRules;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
@@ -74,7 +75,8 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
         }
         // Shared page forms submit declared child relations alongside ordinary fields.
         List<String> flatRelations = !root.has("values") && Objects.equals(mainEntityAlias, entityAlias)
-                ? childRelations(moduleAlias, record).stream().map(DynamicRelationDescriptor::code).toList()
+                ? childRelations(moduleAlias, record).stream().map(DynamicRelationDescriptor::code)
+                        .filter(code -> acceptsFlatRelation(record, code)).toList()
                 : List.of();
         Iterator<Map.Entry<String, JsonNode>> fields = values.properties().iterator();
         while (fields.hasNext()) {
@@ -199,7 +201,7 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
         }
         for (DynamicRelationDescriptor relation : childRelations) {
             JsonNode relationRows = children == null ? null : children.get(relation.code());
-            if (root.has(relation.code())) {
+            if (acceptsFlatRelation(record, relation.code()) && root.has(relation.code())) {
                 if (relationRows != null) {
                     throw new IllegalArgumentException("dynamic child relation submitted twice: " + relation.code());
                 }
@@ -217,6 +219,13 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
             }
             record.setChildren(relation.code(), rows);
         }
+    }
+
+    /** Explicit children remain unambiguous when a relation shares a record property name. */
+    private boolean acceptsFlatRelation(DynamicRecord record, String relationCode) {
+        return !isEnvelopeField(relationCode)
+                && FieldCompanionRules.recordFields(record.getEntity()).stream()
+                        .noneMatch(field -> relationCode.equals(field.fieldName()));
     }
 
     private List<DynamicRelationDescriptor> childRelations(String moduleAlias, DynamicRecord record) {

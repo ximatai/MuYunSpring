@@ -40,6 +40,19 @@ function hubFor(document: Document) {
   return hub;
 }
 
+function canFocusDropTarget(element: HTMLElement) {
+  if (element.closest('[inert], [hidden], [aria-hidden="true"], [aria-disabled="true"]')) return false;
+  if (element.matches(':disabled')) return false;
+  if (!element.hasAttribute('tabindex') && !element.matches('a[href],button,input,textarea,select'))
+    return false;
+  for (let ancestor: HTMLElement | null = element; ancestor; ancestor = ancestor.parentElement) {
+    const style = getComputedStyle(ancestor);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse')
+      return false;
+  }
+  return true;
+}
+
 function createHub(document: Document) {
   const surfaces = new Set<Surface>();
   const session = shallowRef<Session>();
@@ -202,7 +215,10 @@ function createHub(document: Document) {
     event.stopImmediatePropagation();
     const targets = [
       ...document.querySelectorAll<HTMLElement>('[data-ui-drop-key], [data-ui-drop-root]'),
-    ].filter((element) => [...surfaces].some((surface) => surface.root.contains(element)));
+    ].filter(
+      (element) =>
+        [...surfaces].some((surface) => surface.root.contains(element)) && canFocusDropTarget(element),
+    );
     const focusedTarget = document.activeElement?.closest<HTMLElement>(
       '[data-ui-drop-key], [data-ui-drop-root]',
     );

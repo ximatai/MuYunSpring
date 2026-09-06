@@ -68,6 +68,59 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(vi.mocked(confirmAction)).toHaveBeenCalledTimes(1);
   });
 
+  it.each([true, false])(
+    'keeps the acknowledged publication state when reloading fails (next draft created: %s)',
+    async (createNext) => {
+      const requests: HttpRequestOptions[] = [];
+      const http = publicationFlowHttp(requests);
+      const original = http.request;
+      let published = false;
+      vi.spyOn(http, 'request').mockImplementation((request) => {
+        if (published && request.path.endsWith('/pages/query')) return Promise.reject(new Error('刷新失败'));
+        if (published && request.path.endsWith('/revisions/insert') && !createNext)
+          return Promise.reject(new Error('创建草稿失败'));
+        if (published && request.path.endsWith('/revisions/query'))
+          return Promise.resolve(page([{ id: 'revision-1', revisionNo: 1, status: 'published' }])) as never;
+        if (request.path.endsWith('/publish')) published = true;
+        if (request.path.endsWith('/update/revision-2')) {
+          requests.push(request);
+          return Promise.resolve({ ...(request.body as object), id: 'revision-2' }) as never;
+        }
+        return original(request);
+      });
+      configureModuleContext({ http });
+      vi.mocked(confirmAction).mockResolvedValue(true);
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam' },
+        global: { stubs: workspaceStubs() },
+      });
+      try {
+        await flushPromises();
+        const button = (name: string) => wrapper.findAll('button').find((item) => item.text() === name);
+        await button('发布草稿')!.trigger('click');
+        await flushPromises();
+        expect(wrapper.text()).toContain('最近发布 v1');
+        expect(wrapper.text()).not.toContain('草稿 v1');
+        if (createNext) {
+          expect(wrapper.text()).toContain('草稿 v2');
+          wrapper
+            .findComponent(PageCompositionTree)
+            .vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+          await flushPromises();
+          await button('保存草稿')!.trigger('click');
+          await flushPromises();
+          expect(requests.some((request) => request.path.endsWith('/update/revision-2'))).toBe(true);
+        } else {
+          expect(button('保存草稿')).toBeUndefined();
+          expect(button('发布草稿')).toBeUndefined();
+          expect(button('基于已发布版本创建草稿')).toBeDefined();
+        }
+      } finally {
+        wrapper.unmount();
+      }
+    },
+  );
+
   it.each(['保存草稿', '发布草稿'])(
     'preserves local edits after a conflict from %s and explicitly reloads the latest snapshot',
     async (action) => {

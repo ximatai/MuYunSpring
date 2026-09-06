@@ -217,8 +217,7 @@ const mainEntityTitle = computed(
 );
 const compositionSubtitle = computed(() => {
   if (!page.value) return '尚未初始化页面定义';
-  if (!revision.value) return '尚无可编辑草稿';
-  return `Web · 全局 · 草稿 v${revision.value.revisionNo} · 最近发布 ${publishedRevision.value ? `v${publishedRevision.value.revisionNo}` : '无'}`;
+  return `Web · 全局 · ${revision.value ? `草稿 v${revision.value.revisionNo}` : '尚无可编辑草稿'} · 最近发布 ${publishedRevision.value ? `v${publishedRevision.value.revisionNo}` : '无'}`;
 });
 const metadataTreeNodes = computed<UiTreeNode[]>(() => [
   {
@@ -836,8 +835,22 @@ async function publishDraft() {
       method: 'POST',
       path: `/platform.presentation_publish/revisions/${encodeURIComponent(publicationCandidate.id!)}/publish`,
     });
+    if (current()) {
+      // A successful publication makes this revision immutable, even if the following read fails.
+      publishedRevision.value = {
+        ...publicationCandidate,
+        status: pageCompositionTransport.publishedRevision,
+      };
+      revision.value = undefined;
+      removedDraft.value = undefined;
+      propertyDrawerOpen.value = false;
+    }
     try {
-      await createFollowUpDraft(variantId, publicationCandidate, treeJsonToPublish);
+      const nextDraft = await createFollowUpDraft(variantId, publicationCandidate, treeJsonToPublish);
+      if (current()) {
+        revision.value = nextDraft;
+        hydrateDraft(nextDraft);
+      }
     } catch {
       if (!current()) return;
       await loadComposition();
@@ -880,15 +893,17 @@ async function createFollowUpDraft(
   uiTreeJson: string,
 ) {
   const revisions = await loadAllFromClient(revisionClient(variantId));
-  await revisionClient(variantId).insert({
-    revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
-    templateAlias: publishedRevision.templateAlias ?? 'management',
-    templateVersion: publishedRevision.templateVersion ?? 1,
-    uiTreeJson,
-    status: pageCompositionTransport.draftRevision,
-    title: `基于 v${publishedRevision.revisionNo ?? 1} 的草稿`,
-    enabled: true,
-  });
+  return (
+    await revisionClient(variantId).insert({
+      revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
+      templateAlias: publishedRevision.templateAlias ?? 'management',
+      templateVersion: publishedRevision.templateVersion ?? 1,
+      uiTreeJson,
+      status: pageCompositionTransport.draftRevision,
+      title: `基于 v${publishedRevision.revisionNo ?? 1} 的草稿`,
+      enabled: true,
+    })
+  ).record;
 }
 
 function latestRevision(revisions: PresentationRevision[]) {
