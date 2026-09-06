@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionStatus;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationTemplateCatalog;
+import net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -17,6 +18,45 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PageRevisionModuleUiDefinitionAdapterTest {
+    @Test
+    void shouldCompileEachDynamicOverviewModeToItsPageTemplate() {
+        PlatformPresentationRevision revision = revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"考试列表","fields":["title"]},
+                  {"slot":"form","title":"编辑考试","fields":["title"]}
+                ]}
+                """);
+
+        ModuleUiDefinition tree = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision,
+                new DynamicPageCompilationContext(DynamicModuleOverviewMode.TREE_CARD,
+                        Map.of("title", "考试名称"), java.util.Set.of(), Map.of()));
+        ModuleUiDefinition list = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision,
+                new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                        Map.of("title", "考试名称"), java.util.Set.of(), Map.of()));
+        ModuleUiDefinition micro = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision,
+                new DynamicPageCompilationContext(DynamicModuleOverviewMode.MICRO_LIST_CARD,
+                        Map.of("title", "考试名称"), java.util.Set.of(), Map.of()));
+
+        assertThat(tree.page()).isInstanceOf(TreeManagementPageDefinition.class);
+        assertThat(list.page()).isInstanceOf(ListDetailCardPageDefinition.class);
+        assertThat(micro.page()).isInstanceOf(FlatManagementPageDefinition.class);
+        assertThat(((FlatManagementPageDefinition) micro.page()).explorer().title()).isEqualTo("考试列表");
+    }
+
+    @Test
+    void shouldRetainDynamicRequiredFieldFactInThePublishedForm() {
+        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"考试列表","fields":["title"]},
+                  {"slot":"form","title":"编辑考试","fields":["title"]}
+                ]}
+                """), new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                Map.of("title", "考试名称"), java.util.Set.of("title"), Map.of()));
+
+        ViewFieldDefinition field = ((ListDetailCardPageDefinition) definition.page()).detail().editor().fields().getFirst();
+        assertThat(field.required().constant()).isTrue();
+    }
+
     @Test
     void shouldCompilePublishedManagementTreeToListDetailCardDefinition() {
         ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""

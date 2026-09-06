@@ -533,6 +533,7 @@ public final class ModuleUiDescriptorCompiler {
         List<ResolvedDetailRelationListField> fields = selected.stream()
                 .map(field -> new ResolvedDetailRelationListField(field.fieldRef().fieldName(), field.label(),
                         null, field.fieldControl() == null ? null : field.fieldControl().alias(),
+                        field.valueType() == null ? null : field.valueType().name(),
                         relationColumnWidth(field.width()), field.align(), field.maxDisplayLines()))
                 .toList();
         return new ResolvedDetailRelationListProjection(null, fields);
@@ -1640,6 +1641,13 @@ public final class ModuleUiDescriptorCompiler {
             values.add(card.list().list());
             if (card.detail().display() != null) values.add(card.detail().display());
             if (card.detail().editor() != null) values.add(card.detail().editor());
+        } else if (definition.page() instanceof TreeManagementPageDefinition tree) {
+            // A contributed tree owns its editor through editorContributions. A normal module tree
+            // owns the right-hand detail itself and therefore needs its page editor in model facts.
+            if (tree.treeResource() == null) {
+                if (tree.detail().display() != null) values.add(tree.detail().display());
+                if (tree.detail().editor() != null) values.add(tree.detail().editor());
+            }
         }
         definition.editorContributions().stream()
                 .map(PageDetailEditorContribution::editor)

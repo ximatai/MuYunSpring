@@ -104,6 +104,7 @@ const selectedTreeKey = ref<string>();
 const expandedTreeKeys = ref<string[]>([]);
 const childNodeType = ref<'FIELD' | 'CHILD_METADATA'>('FIELD');
 const editorMode = ref<'SIMPLE' | 'ADVANCED'>('SIMPLE');
+const stagedNewFieldKey = ref<string>();
 const editorModeOptions: UiRadioOption[] = [
   { value: 'SIMPLE', label: '简单模式' },
   { value: 'ADVANCED', label: '高级模式' },
@@ -530,6 +531,7 @@ function startNodeEditSession() {
 
 function startCreateField(kind: MetadataFieldPropertyDraft['kind'] = 'BASIC') {
   editorMode.value = 'SIMPLE';
+  stagedNewFieldKey.value = undefined;
   startNodeEditSession();
   state.startCreateField(kind);
 }
@@ -559,11 +561,13 @@ function startCreateChildMetadataNode() {
 
 function startEditField(field: MetadataField, property: MetadataFieldPropertyDraft) {
   editorMode.value = 'SIMPLE';
+  stagedNewFieldKey.value = undefined;
   startNodeEditSession();
   state.startEditField(field, property);
 }
 
 function cancelNodeEditor() {
+  stagedNewFieldKey.value = undefined;
   state.cancelEditor();
   editSession.cancel();
   if (sorting.value) startNodeEditSession();
@@ -752,7 +756,9 @@ function stageFieldDraft() {
     relationId,
     { ...draft, fieldOwnership: 'BUSINESS', fieldForm: 'PHYSICAL' },
     property,
+    stagedNewFieldKey.value,
   );
+  if (!draft.id) stagedNewFieldKey.value = draft.fieldName;
   void previewAndApply('保存字段');
 }
 

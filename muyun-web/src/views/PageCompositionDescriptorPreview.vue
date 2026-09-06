@@ -12,6 +12,8 @@ import {
   UiDataTable,
   UiEmpty,
   UiInput,
+  UiSwitch,
+  UiTextArea,
   type UiDataTableColumn,
   type UiDataTableRecord,
 } from '@muyun/vue-ui-antdv';
@@ -257,10 +259,7 @@ function relationRecord(relation: ResolvedDetailRelationDescriptor): UiDataTable
   return {
     id: `page-composition-relation-preview:${relation.code}`,
     ...Object.fromEntries(
-      (relation.listProjection?.fields ?? []).map((field) => [
-        field.fieldName,
-        relationPreviewValue(field.fieldName, field.title),
-      ]),
+      (relation.listProjection?.fields ?? []).map((field) => [field.fieldName, relationPreviewValue(field)]),
     ),
   };
 }
@@ -273,7 +272,7 @@ function updateRelationEditorField(
   relation: ResolvedDetailRelationDescriptor,
   rowId: unknown,
   fieldName: string,
-  value: string,
+  value: unknown,
 ) {
   relationEditorRecords.value = {
     ...relationEditorRecords.value,
@@ -283,9 +282,32 @@ function updateRelationEditorField(
   };
 }
 
-function relationPreviewValue(fieldName: string, title?: string) {
-  if (/(score|grade|amount|count|number)$/i.test(fieldName)) return 96;
-  return `示例${title ?? fieldName}`;
+function relationPreviewValue(field: { fieldName: string; title?: string; valueType?: string }) {
+  if (relationEditorControlField(field) === 'switch') return true;
+  if (relationEditorControlField(field) === 'number') return 96;
+  if (relationEditorControlField(field) === 'date') return '2026-09-06';
+  if (/(score|grade|amount|count|number)$/i.test(field.fieldName)) return 96;
+  return `示例${field.title ?? field.fieldName}`;
+}
+
+function relationEditorControlField(field: { fieldUiControlAlias?: string; valueType?: string }) {
+  const alias = field.fieldUiControlAlias?.trim().toLowerCase();
+  if (alias === 'switch') return 'switch';
+  if (alias === 'textarea') return 'textarea';
+  if (alias === 'date') return 'date';
+  if (alias === 'datetime' || alias === 'date_time_with_time_zone') return 'datetime';
+  if (['number', 'integer', 'amount', 'percentage'].includes(alias ?? '')) return 'number';
+  if (field.valueType === 'BOOLEAN') return 'switch';
+  if (field.valueType === 'DATE') return 'date';
+  if (field.valueType === 'TIMESTAMP' || field.valueType === 'ZONED_TIMESTAMP') return 'datetime';
+  if (['INTEGER', 'LONG', 'DECIMAL'].includes(field.valueType ?? '')) return 'number';
+  return 'text';
+}
+
+function relationEditorControl(relation: ResolvedDetailRelationDescriptor, field: { key: string }) {
+  return relationEditorControlField(
+    relation.listProjection?.fields.find((candidate) => candidate.fieldName === field.key) ?? {},
+  );
 }
 
 function isSelected(slot: PreviewSlot, fieldName: string) {
@@ -740,8 +762,31 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           </template>
           <template #cell="{ column, record }">
             <div :data-page-composition-layout-key="`edit:relation:${relation.code}:field:${column.key}`">
-              <UiInput
+              <UiSwitch
+                v-if="relationEditorControl(relation, column) === 'switch'"
+                :checked="record[column.key] === true"
+                :aria-label="`${relation.title ?? relation.code}：${column.title}`"
+                @change="(value) => updateRelationEditorField(relation, record.id, column.key, value)"
+              />
+              <UiTextArea
+                v-else-if="relationEditorControl(relation, column) === 'textarea'"
                 :value="String(record[column.key] ?? '')"
+                :aria-label="`${relation.title ?? relation.code}：${column.title}`"
+                @update:value="(value) => updateRelationEditorField(relation, record.id, column.key, value)"
+              />
+              <UiInput
+                v-else
+                :value="String(record[column.key] ?? '')"
+                :type="
+                  relationEditorControl(relation, column) === 'number'
+                    ? 'number'
+                    : relationEditorControl(relation, column) === 'date'
+                      ? 'date'
+                      : relationEditorControl(relation, column) === 'datetime'
+                        ? 'datetime-local'
+                        : 'text'
+                "
+                :step="relationEditorControl(relation, column) === 'number' ? 'any' : undefined"
                 :aria-label="`${relation.title ?? relation.code}：${column.title}`"
                 @update:value="(value) => updateRelationEditorField(relation, record.id, column.key, value)"
               />

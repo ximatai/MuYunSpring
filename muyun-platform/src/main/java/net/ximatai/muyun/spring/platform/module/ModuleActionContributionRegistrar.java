@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -13,6 +14,7 @@ import java.util.Objects;
 import java.util.Set;
 
 @Service
+@Transactional
 public class ModuleActionContributionRegistrar {
     private final PlatformModuleActionService actionService;
 
@@ -28,6 +30,15 @@ public class ModuleActionContributionRegistrar {
     }
 
     public void registerAll(List<ModuleActionContribution> contributions) {
+        registerAll(contributions, true);
+    }
+
+    /** Startup restores runtime projections after all declaration contributors have completed. */
+    public void registerAllWithoutRuntimeRefresh(List<ModuleActionContribution> contributions) {
+        registerAll(contributions, false);
+    }
+
+    private void registerAll(List<ModuleActionContribution> contributions, boolean refreshRuntime) {
         if (contributions == null || contributions.isEmpty()) {
             return;
         }
@@ -38,22 +49,30 @@ public class ModuleActionContributionRegistrar {
             return;
         }
         try (TenantContext.Scope ignored = TenantContext.system("register contributed module action")) {
+            Set<String> changedModules = new LinkedHashSet<>();
             Map<ContributionSource, List<ModuleActionContribution>> bySource = validContributions.stream()
                     .collect(java.util.stream.Collectors.groupingBy(
                             contribution -> new ContributionSource(contribution.sourceType(), contribution.sourceId()),
                             LinkedHashMap::new,
                             java.util.stream.Collectors.toList()));
-            PlatformManagedMutationContext.runAsPlatformManaged(() -> {
+            actionService.runWithoutRuntimeRefresh(() -> PlatformManagedMutationContext.runAsPlatformManaged(() -> {
                 for (List<ModuleActionContribution> sourceContributions : bySource.values()) {
                     sourceContributions.forEach(this::validateContribution);
-                    disableStaleActions(sourceContributions);
-                    sourceContributions.forEach(this::upsert);
+                    disableStaleActions(sourceContributions, changedModules);
+                    sourceContributions.forEach(contribution -> {
+                        if (upsert(contribution)) changedModules.add(contribution.moduleAlias());
+                    });
                 }
-            });
+            }));
+            if (refreshRuntime) {
+                // Module presentation can change even when its action declarations remain identical.
+                validContributions.forEach(contribution -> changedModules.add(contribution.moduleAlias()));
+                changedModules.forEach(actionService::refreshDynamicModuleRuntime);
+            }
         }
     }
 
-    private void upsert(ModuleActionContribution contribution) {
+    private boolean upsert(ModuleActionContribution contribution) {
         PlatformModuleAction action = actionService.findByModuleAliasAndActionCode(
                 contribution.moduleAlias(), contribution.actionCode());
         if (action == null) {
@@ -63,6 +82,8 @@ public class ModuleActionContributionRegistrar {
         } else if (!sameContribution(action, contribution)) {
             throw new PlatformException("module action contribution conflicts with existing action: "
                     + contribution.moduleAlias() + "." + contribution.actionCode());
+        } else if (contribution.equals(declaration(action))) {
+            return false;
         }
         apply(action, contribution);
         if (action.getId() == null || action.getId().isBlank()) {
@@ -70,6 +91,7 @@ public class ModuleActionContributionRegistrar {
         } else {
             actionService.update(action);
         }
+        return true;
     }
 
     public void disableBySource(ModuleActionSourceType sourceType, String sourceId) {
@@ -123,7 +145,7 @@ public class ModuleActionContributionRegistrar {
         }
     }
 
-    private void disableStaleActions(List<ModuleActionContribution> contributions) {
+    private void disableStaleActions(List<ModuleActionContribution> contributions, Set<String> changedModules) {
         if (contributions == null || contributions.isEmpty()) {
             return;
         }
@@ -132,12 +154,23 @@ public class ModuleActionContributionRegistrar {
                 .map(ModuleActionContribution::actionCode)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         for (PlatformModuleAction action : actionService.listBySource(first.sourceType(), first.sourceId())) {
-            if (currentActionCodes.contains(action.getActionCode())) {
+            if (currentActionCodes.contains(action.getActionCode()) || Boolean.FALSE.equals(action.getEnabled())) {
                 continue;
             }
             action.setEnabled(Boolean.FALSE);
             actionService.update(action);
+            changedModules.add(action.getModuleAlias());
         }
+    }
+
+    private ModuleActionContribution declaration(PlatformModuleAction action) {
+        return new ModuleActionContribution(action.getModuleAlias(), action.getEntityAlias(), action.getActionCode(),
+                action.getPermissionActionCode(), action.getTitle(), action.getCategory(), action.getActionLevel(),
+                action.getAccessMode(), Boolean.TRUE.equals(action.getActionAuth()), Boolean.TRUE.equals(action.getDataAuth()),
+                action.getDefaultGrantPolicy(), action.getAvailableExpression(), action.getUnavailableMessage(),
+                action.getExecutorType(), action.getExecutorKey(), action.getSourceType(), action.getSourceId(),
+                action.getSourceVersionId(), action.getBindingType(), action.getBindingId(), action.getBindingAlias(),
+                Boolean.TRUE.equals(action.getEnabled()));
     }
 
     private boolean sameContribution(PlatformModuleAction action, ModuleActionContribution contribution) {

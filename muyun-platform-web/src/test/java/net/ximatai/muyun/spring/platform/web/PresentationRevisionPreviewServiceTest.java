@@ -37,9 +37,7 @@ class PresentationRevisionPreviewServiceTest {
         when(variantService.requireVisibleVariant("variant-1")).thenReturn(variant);
         when(revisionService.requireVisibleRevision("variant-1", "revision-2")).thenReturn(revision);
         when(pageService.requireVisiblePage("page-1")).thenReturn(page);
-        when(runtimeContexts.dynamicMainFieldTitles("education.exam"))
-                .thenReturn(java.util.Map.of("title", "考试名称", "examDate", "考试日期"));
-        when(runtimeContexts.previewDynamicPageDescriptor(any(), any())).thenReturn(descriptor);
+        when(runtimeContexts.previewDynamicPageDescriptor(any(), any(), any())).thenReturn(descriptor);
         PresentationRevisionPreviewService service = new PresentationRevisionPreviewService(variantService, revisionService,
                 pageService, new PlatformPresentationTemplateCatalog(), runtimeContexts);
 
@@ -55,37 +53,7 @@ class PresentationRevisionPreviewServiceTest {
         assertThat(result.variantId()).isEqualTo("variant-1");
         assertThat(result.revisionId()).isEqualTo("revision-2");
         assertThat(result.uiDescriptor()).isSameAs(descriptor);
-        verify(runtimeContexts).previewDynamicPageDescriptor(eq("education.exam"), any(ModuleUiDefinition.class));
-    }
-
-    @Test
-    void shouldPassTheValidatedListSearchPlaceholderIntoThePreviewDefinition() {
-        PlatformPresentationVariantService variantService = mock(PlatformPresentationVariantService.class);
-        PlatformPresentationRevisionService revisionService = mock(PlatformPresentationRevisionService.class);
-        PlatformPageDefinitionService pageService = mock(PlatformPageDefinitionService.class);
-        PlatformModuleRuntimeContextService runtimeContexts = mock(PlatformModuleRuntimeContextService.class);
-        when(variantService.requireVisibleVariant("variant-1")).thenReturn(variant());
-        when(revisionService.requireVisibleRevision("variant-1", "revision-2")).thenReturn(revision());
-        when(pageService.requireVisiblePage("page-1")).thenReturn(page());
-        when(runtimeContexts.dynamicMainFieldTitles("education.exam")).thenReturn(java.util.Map.of("title", "考试名称"));
-        when(runtimeContexts.previewDynamicPageDescriptor(any(), any())).thenReturn(mock(ResolvedModuleUiDescriptor.class));
-        PresentationRevisionPreviewService service = new PresentationRevisionPreviewService(variantService, revisionService,
-                pageService, new PlatformPresentationTemplateCatalog(), runtimeContexts);
-
-        service.preview("variant-1", "revision-2", new PresentationRevisionPreviewRequest("""
-                {"template":"management","templateVersion":1,
-                 "props":{"list":{"searchPlaceholder":"搜索考试"}},
-                 "nodes":[
-                   {"slot":"list","title":"考试列表","fields":["title"]},
-                   {"slot":"form","title":"编辑考试","fields":["title"]}
-                 ]}
-                """));
-
-        org.mockito.ArgumentCaptor<ModuleUiDefinition> definition = org.mockito.ArgumentCaptor
-                .forClass(ModuleUiDefinition.class);
-        verify(runtimeContexts).previewDynamicPageDescriptor(eq("education.exam"), definition.capture());
-        assertThat(((ListDetailCardPageDefinition) definition.getValue().page()).list().searchPlaceholder())
-                .isEqualTo("搜索考试");
+        verify(runtimeContexts).previewDynamicPageDescriptor(eq(page), eq(revision), org.mockito.ArgumentMatchers.contains("examDate"));
     }
 
     @Test

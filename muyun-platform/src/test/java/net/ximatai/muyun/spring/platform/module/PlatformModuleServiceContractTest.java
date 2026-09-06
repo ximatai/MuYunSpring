@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -23,6 +24,8 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class PlatformModuleServiceContractTest {
     @Test
@@ -278,6 +281,18 @@ class PlatformModuleServiceContractTest {
                 .hasValueSatisfying(decision -> assertThat(decision.reason()).isEqualTo("平台托管记录不可删除"));
         assertThat(service.ordinaryRecordActionAvailability("disable", managed)).isEmpty();
         assertThat(service.ordinaryRecordActionAvailability("sort", managed)).isEmpty();
+    }
+
+    @Test
+    void shouldPublishDynamicModuleChangeForImmediateActionCatalogueReconciliation() {
+        ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
+        PlatformModuleService service = new PlatformModuleService(new ModuleMemoryDao(), publisher);
+        PlatformModule module = module("education.project", "education");
+        module.setModuleKind(ModuleKind.DYNAMIC);
+
+        service.insert(module);
+
+        verify(publisher).publishEvent(new DynamicModuleChangedEvent("education.project"));
     }
 
     private PlatformModule module(String alias, String applicationAlias) {

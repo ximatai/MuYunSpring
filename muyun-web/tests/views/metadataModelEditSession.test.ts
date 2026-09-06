@@ -82,3 +82,23 @@ it('keeps relation and field ordering with every node draft until one module pro
     fieldOrders: [{ relationId: 'main', fieldIds: ['date', 'title'] }],
   });
 });
+
+it('replaces an unsaved field when a failed preview is corrected with a new technical name', () => {
+  const session = createMetadataModelWorkspaceEditSession();
+  session.begin([
+    { relationId: 'main', metadataId: 'metadata-main', expectedMetadataVersion: 1, fields: [] },
+  ]);
+
+  session.stageField('main', { fieldName: 'taskName', columnName: 'task_name', fieldSpecAlias: 'string' });
+  session.stageField(
+    'main',
+    { fieldName: 'title', columnName: 'title', fieldSpecAlias: 'string' },
+    undefined,
+    'taskName',
+  );
+
+  expect(session.fieldsForDisplay('main', [])).toMatchObject([{ fieldName: 'title', columnName: 'title' }]);
+  expect(session.buildProposal()?.relationDrafts[0]?.fieldDrafts).toMatchObject([
+    { operation: 'ADD', field: { fieldName: 'title', columnName: 'title' } },
+  ]);
+});

@@ -236,11 +236,13 @@ export function createNavigatorReferenceTreeClient<TRecord>(
   return {
     ...normal,
     tree: (request) =>
-      http.request<WebListResponse<WebTreeNode<TRecord>>>({
-        method: 'POST',
-        path: `${modulePath}/navigator/reference/tree/query`,
-        body: navigatorReferenceRequest(request, options.navigatorReference),
-      }),
+      http
+        .request<WebListResponse<WebTreeNode<TRecord>>>({
+          method: 'POST',
+          path: `${modulePath}/navigator/reference/tree/query`,
+          body: navigatorReferenceRequest(request, options.navigatorReference),
+        })
+        .then(normalizeModuleTreeResponse),
     treeFlat: () => Promise.reject(new Error('Navigator reference tree does not expose flat traversal')),
     subtree: () => Promise.reject(new Error('Navigator reference tree does not expose subtree traversal')),
     sort: (id, request, sortOptions) => {
@@ -284,30 +286,38 @@ export function createStaticResourceTreeClient<TRecord>(
     ...crud,
     tree: (request) =>
       request
-        ? http.request<WebListResponse<WebTreeNode<TRecord>>>({
-            method: 'POST',
-            path: `${modulePath}/tree/query`,
-            body: request,
-          })
-        : http.request<WebListResponse<WebTreeNode<TRecord>>>({
-            path: `${modulePath}/tree`,
-          }),
+        ? http
+            .request<WebListResponse<WebTreeNode<TRecord>>>({
+              method: 'POST',
+              path: `${modulePath}/tree/query`,
+              body: request,
+            })
+            .then(normalizeModuleTreeResponse)
+        : http
+            .request<WebListResponse<WebTreeNode<TRecord>>>({
+              path: `${modulePath}/tree`,
+            })
+            .then(normalizeModuleTreeResponse),
     treeFlat: (options) => {
       const rootId = options?.rootId;
       const path = rootId ? `${modulePath}/tree/${encodeURIComponent(rootId)}` : `${modulePath}/tree`;
-      return http.request<WebListResponse<TRecord>>({
-        path,
-        query: {
-          flat: true,
-          includeSelf: options?.includeSelf,
-        },
-      });
+      return http
+        .request<WebListResponse<TRecord>>({
+          path,
+          query: {
+            flat: true,
+            includeSelf: options?.includeSelf,
+          },
+        })
+        .then(normalizeModuleListResponse);
     },
     subtree: (id, query) =>
-      http.request<WebListResponse<WebTreeNode<TRecord>>>({
-        path: `${modulePath}/tree/${encodeURIComponent(id)}`,
-        query,
-      }),
+      http
+        .request<WebListResponse<WebTreeNode<TRecord>>>({
+          path: `${modulePath}/tree/${encodeURIComponent(id)}`,
+          query,
+        })
+        .then(normalizeModuleTreeResponse),
     sort: async (id, request, scope) =>
       normalizeCountMutationResponse(
         await http.request<StaticCountMutationResult>({
@@ -397,6 +407,32 @@ export function normalizeModulePageResponse<TRecord>(
   return {
     ...response,
     records: response.records.map(normalizeModuleRecord),
+  };
+}
+
+function normalizeModuleListResponse<TRecord>(response: WebListResponse<TRecord>): WebListResponse<TRecord> {
+  if (!Array.isArray(response.records)) return response;
+  return {
+    ...response,
+    records: response.records.map(normalizeModuleRecord),
+  };
+}
+
+function normalizeModuleTreeResponse<TRecord>(
+  response: WebListResponse<WebTreeNode<TRecord>>,
+): WebListResponse<WebTreeNode<TRecord>> {
+  if (!Array.isArray(response.records)) return response;
+  return {
+    ...response,
+    records: response.records.map(normalizeModuleTreeNode),
+  };
+}
+
+function normalizeModuleTreeNode<TRecord>(node: WebTreeNode<TRecord>): WebTreeNode<TRecord> {
+  return {
+    ...node,
+    record: normalizeModuleRecord(node.record),
+    children: (node.children ?? []).map(normalizeModuleTreeNode),
   };
 }
 

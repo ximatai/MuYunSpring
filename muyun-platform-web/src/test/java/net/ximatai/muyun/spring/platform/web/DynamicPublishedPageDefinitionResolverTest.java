@@ -15,6 +15,9 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionResolver;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionStatus;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationTemplateCatalog;
+import net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode;
+import net.ximatai.muyun.spring.platform.module.PlatformModule;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -30,8 +33,9 @@ class DynamicPublishedPageDefinitionResolverTest {
     void shouldCompileOnlyTheMainEntityChildAssociationWhenCodesOverlapAcrossEntities() {
         PlatformPageDefinitionService pageService = mock(PlatformPageDefinitionService.class);
         PlatformPresentationRevisionResolver revisionResolver = mock(PlatformPresentationRevisionResolver.class);
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
         DynamicPublishedPageDefinitionResolver resolver = new DynamicPublishedPageDefinitionResolver(
-                pageService, revisionResolver);
+                pageService, revisionResolver, moduleService);
         PlatformPageDefinition page = page();
         PlatformPresentationRevision revision = revision();
         DynamicModuleDescriptor module = new DynamicModuleDescriptor(
@@ -51,6 +55,9 @@ class DynamicPublishedPageDefinitionResolverTest {
                 .thenReturn(Optional.of(page));
         when(revisionResolver.resolve("page-exam", PlatformPresentationClientType.WEB, null, null))
                 .thenReturn(Optional.of(revision));
+        PlatformModule platformModule = new PlatformModule();
+        platformModule.setOverviewMode(DynamicModuleOverviewMode.LIST_CARD);
+        when(moduleService.resolveVisibleModule("education.exam")).thenReturn(platformModule);
 
         ModuleUiDefinition definition = resolver.resolveWebGlobal(module).orElseThrow().definition();
 

@@ -182,7 +182,7 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
         verify(refreshCoordinator).refreshByFormulaRule(formulaRule);
         verify(refreshCoordinator).refreshByMetadataView(view);
         verify(refreshCoordinator).refreshByMetadataViewField(viewField);
-        verify(refreshCoordinator).refreshByModuleAction(action);
+        verify(refreshCoordinator).refreshConfiguredModule(action.getModuleAlias());
     }
 
     @Test
@@ -200,7 +200,7 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
         PlatformModuleAction action = action("platform.code_issue_log");
         actionHook.afterChanged(action);
 
-        verify(refreshCoordinator, never()).refreshByModuleAction(action);
+        verify(refreshCoordinator, never()).refreshConfiguredModule(action.getModuleAlias());
     }
 
     @Test

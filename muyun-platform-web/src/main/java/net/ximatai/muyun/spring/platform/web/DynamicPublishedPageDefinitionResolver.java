@@ -6,9 +6,11 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationClientType;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionResolver;
+import net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode;
+import net.ximatai.muyun.spring.platform.module.PlatformModule;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import org.springframework.stereotype.Service;
 
-import java.util.LinkedHashMap;
 import java.util.Optional;
 
 /** Resolves the first executable page-composition source for dynamic modules.
@@ -23,11 +25,14 @@ public class DynamicPublishedPageDefinitionResolver {
 
     private final PlatformPageDefinitionService pageService;
     private final PlatformPresentationRevisionResolver revisionResolver;
+    private final PlatformModuleService moduleService;
 
     public DynamicPublishedPageDefinitionResolver(PlatformPageDefinitionService pageService,
-                                                  PlatformPresentationRevisionResolver revisionResolver) {
+                                                  PlatformPresentationRevisionResolver revisionResolver,
+                                                  PlatformModuleService moduleService) {
         this.pageService = pageService;
         this.revisionResolver = revisionResolver;
+        this.moduleService = moduleService;
     }
 
     public Optional<ResolvedPublishedPage> resolveWebGlobal(DynamicModuleDescriptor module) {
@@ -40,16 +45,11 @@ public class DynamicPublishedPageDefinitionResolver {
     private ModuleUiDefinition compile(PlatformPageDefinition page,
                                        PlatformPresentationRevision revision,
                                        DynamicModuleDescriptor module) {
+        PlatformModule platformModule = moduleService.resolveVisibleModule(module.moduleAlias());
+        DynamicModuleOverviewMode overviewMode = platformModule == null
+                ? DynamicModuleOverviewMode.LIST_CARD : platformModule.getOverviewMode();
         return PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page, revision,
-                module.entities().stream().filter(entity -> module.mainEntityAlias().equals(entity.entityAlias()))
-                        .findFirst().map(entity -> entity.fields().stream()
-                                .collect(java.util.stream.Collectors.toMap(
-                                        net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::fieldName,
-                                        net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::title,
-                                        (left, right) -> left, LinkedHashMap::new)))
-                        .orElseThrow(() -> new IllegalStateException(
-                                "dynamic runtime has no main entity: " + module.moduleAlias())),
-                DynamicPageAssociationCatalog.mainEntityChildAssociations(module));
+                DynamicPageCompilationContext.from(module, overviewMode));
     }
 
     /** The exact page revision used to compile a global Web runtime surface. */

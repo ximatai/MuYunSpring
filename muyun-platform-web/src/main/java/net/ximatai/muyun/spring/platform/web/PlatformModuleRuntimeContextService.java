@@ -20,6 +20,8 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.platform.attachment.FileReferenceFieldPolicy;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor;
@@ -283,56 +285,21 @@ public class PlatformModuleRuntimeContextService {
                 .orElse(List.of());
     }
 
-    /**
-     * Compiles a validated, transient dynamic page definition without installing it into the
-     * runtime. This is deliberately separate from {@link #context(String)} so preview cannot
-     * affect published-page selection, cached execution plans, or descriptor visibility.
-     */
-    public ResolvedModuleUiDescriptor previewDynamicPageDescriptor(String moduleAlias,
-                                                                    ModuleUiDefinition definition) {
-        String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
+    /** Compiles a transient tree against one runtime snapshot without installing a published plan. */
+    public ResolvedModuleUiDescriptor previewDynamicPageDescriptor(PlatformPageDefinition page,
+                                                                    PlatformPresentationRevision revision,
+                                                                    String uiTreeJson) {
+        String validModuleAlias = PlatformNameRules.requireModuleAlias(page.getModuleAlias());
         PlatformModule module = moduleService.resolveVisibleModule(validModuleAlias);
         DynamicModuleDescriptor dynamicDescriptor = dynamicDescriptor(module, validModuleAlias);
         if (module == null || module.getModuleKind() != ModuleKind.DYNAMIC || dynamicDescriptor == null) {
             throw new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
                     "dynamic module runtime context not found: " + validModuleAlias);
         }
-        if (definition == null || !validModuleAlias.equals(definition.moduleAlias())) {
-            throw new IllegalArgumentException("preview page definition must belong to dynamic module: " + validModuleAlias);
-        }
+        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page, revision,
+                uiTreeJson, DynamicPageCompilationContext.from(dynamicDescriptor, module.getOverviewMode()));
         return compileDynamicPageDescriptor(validModuleAlias, title(module, Optional.empty(), dynamicDescriptor,
                 validModuleAlias), dynamicDescriptor, definition);
-    }
-
-    /** Returns installed dynamic main-field facts used by page-tree validation and descriptor labels. */
-    public java.util.Map<String, String> dynamicMainFieldTitles(String moduleAlias) {
-        String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
-        PlatformModule module = moduleService.resolveVisibleModule(validModuleAlias);
-        DynamicModuleDescriptor dynamicDescriptor = dynamicDescriptor(module, validModuleAlias);
-        if (module == null || module.getModuleKind() != ModuleKind.DYNAMIC || dynamicDescriptor == null) {
-            throw new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
-                    "dynamic module runtime context not found: " + validModuleAlias);
-        }
-        return dynamicDescriptor.entities().stream()
-                .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias()))
-                .findFirst().map(entity -> entity.fields().stream().collect(java.util.stream.Collectors.toMap(
-                        net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::fieldName,
-                        net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::title,
-                        (left, right) -> left, LinkedHashMap::new)))
-                .orElseThrow(() -> new IllegalStateException("dynamic runtime has no main entity: " + validModuleAlias));
-    }
-
-    /** Association views are dynamic runtime facts; page revisions may only select from this catalog. */
-    public java.util.Map<String, net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor>
-    dynamicAssociationViews(String moduleAlias) {
-        String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
-        PlatformModule module = moduleService.resolveVisibleModule(validModuleAlias);
-        DynamicModuleDescriptor dynamicDescriptor = dynamicDescriptor(module, validModuleAlias);
-        if (module == null || module.getModuleKind() != ModuleKind.DYNAMIC || dynamicDescriptor == null) {
-            throw new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
-                    "dynamic module runtime context not found: " + validModuleAlias);
-        }
-        return DynamicPageAssociationCatalog.mainEntityChildAssociations(dynamicDescriptor);
     }
 
     /**
@@ -657,7 +624,8 @@ public class PlatformModuleRuntimeContextService {
         for (DynamicFieldDescriptor field : target.fields()) {
             fields.put(field.fieldName(), new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField(
                     field.fieldName(), field.title(), field.storageForm() == null ? null : field.storageForm().name(),
-                    null, null, null, null));
+                    null, field.type() == null ? null : FieldValueType.from(field.type()).name(),
+                    null, null, null));
             if (field.reference() == null) continue;
             for (var projection : field.reference().projections()) {
                 fields.putIfAbsent(projection.outputField(),
@@ -855,7 +823,7 @@ public class PlatformModuleRuntimeContextService {
                                                                 projection.targetField(), projection.outputField()))
                                                         .toList()),
                                         (left, right) -> left)),
-                        this::referencePickerMode))
+                        ignored -> ReferencePickerMode.TREE))
                 .orElseGet(java.util.Map::of);
     }
 
