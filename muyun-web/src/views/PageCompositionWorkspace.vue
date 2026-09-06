@@ -102,6 +102,8 @@ const runtimeReservedMetadataFieldNames = new Set([
 let previewRequestSequence = 0;
 let previewDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let workspaceLoadSequence = 0;
+let metadataLoadSequence = 0;
+const draftParseError = ref<string>();
 
 const previewTabs: UiTabItem[] = [
   { key: 'list', title: '列表预览' },
@@ -173,7 +175,22 @@ const hasUnsavedChanges = computed(() =>
   Boolean(revision.value?.id && savedUiTreeJson.value !== currentUiTreeJson.value),
 );
 useWorkspaceViewUnsavedState('页面配置', () => hasUnsavedChanges.value);
-const isMutating = computed(() => saving.value || publishing.value);
+const isMutating = computed(() => saving.value || publishing.value || loading.value);
+const unavailableSources = computed(() =>
+  [
+    ...state.listFields.value,
+    ...state.formFields.value,
+    ...state.formGroups.value.flatMap((group) => group.fields),
+    ...state.formRelations.value.flatMap((relation) => relation.fields),
+  ]
+    .filter((field) => field.unavailable)
+    .map((field) => field.fieldName)
+    .concat(
+      state.formRelations.value
+        .filter((relation) => relation.unavailable)
+        .map((relation) => relation.relationCode),
+    ),
+);
 const unsavedChangeSummary = computed(() =>
   hasUnsavedChanges.value ? summarizeUiTreeChanges(savedUiTreeJson.value, currentUiTreeJson.value) : [],
 );
@@ -237,12 +254,19 @@ watch(
   () => props.moduleAlias,
   () => {
     resetPreviewDescriptor();
+    relation.value = undefined;
+    metadataRelations.value = [];
+    metadataFields.value = [];
+    childMetadataFields.value = new Map();
+    revision.value = undefined;
+    variant.value = undefined;
+    draftParseError.value = undefined;
     void loadWorkspace();
   },
   { immediate: true },
 );
 
-watch([currentUiTreeJson, () => variant.value?.id, () => revision.value?.id], () =>
+watch([currentUiTreeJson, unavailableSources, () => variant.value?.id, () => revision.value?.id], () =>
   schedulePreviewDescriptor(),
 );
 
@@ -318,56 +342,58 @@ async function loadWorkspace() {
 }
 
 async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleAlias = props.moduleAlias) {
+  const metadataSequence = ++metadataLoadSequence;
+  const current = () =>
+    requestSequence === workspaceLoadSequence && metadataSequence === metadataLoadSequence;
   loading.value = true;
-  relation.value = undefined;
-  metadataRelations.value = [];
-  metadataFields.value = [];
-  childMetadataFields.value = new Map();
   try {
     const relations = await loadAll<ModuleMetadataRelation>(
       `/platform.module/${encodeURIComponent(moduleAlias)}/metadata-relations/query`,
     );
-    if (requestSequence !== workspaceLoadSequence) return;
-    metadataRelations.value = relations;
+    if (!current()) return;
     const main = relations.find((item) => item.relationRole === 'main' || item.relationRole === 'MAIN');
-    relation.value = main;
-    if (!main?.metadataId) return;
-    const fields = await loadAll<MetadataField>(
-      `/platform.metadata/${encodeURIComponent(main.metadataId)}/fields/query`,
-    );
-    if (requestSequence !== workspaceLoadSequence) return;
-    metadataFields.value = fields
-      .filter((field) => field.enabled !== false && !isRuntimeReservedMetadataField(field))
-      .map(toComposerField)
-      .filter((field): field is PageComposerField => field != null);
+    const toFields = (fields: MetadataField[]) =>
+      fields
+        .filter((field) => field.enabled !== false && !isRuntimeReservedMetadataField(field))
+        .map(toComposerField)
+        .filter((field): field is PageComposerField => field != null);
+    const fields = main?.metadataId
+      ? await loadAll<MetadataField>(`/platform.metadata/${encodeURIComponent(main.metadataId)}/fields/query`)
+      : [];
+    if (!current()) return;
     const directChildren = relations.filter(
       (candidate) =>
-        candidate.relationRole !== 'main' &&
-        candidate.relationRole !== 'MAIN' &&
-        candidate.parentMetadataId === main.metadataId &&
-        Boolean(candidate.metadataId),
+        main?.metadataId && candidate.parentMetadataId === main.metadataId && Boolean(candidate.metadataId),
     );
     const childFieldEntries = await Promise.all(
-      directChildren.map(async (child) => {
-        const childFields = await loadAll<MetadataField>(
-          `/platform.metadata/${encodeURIComponent(child.metadataId!)}/fields/query`,
-        );
-        return [
-          child.id ?? child.metadataId!,
-          childFields
-            .filter((field) => field.enabled !== false && !isRuntimeReservedMetadataField(field))
-            .map(toComposerField)
-            .filter((field): field is PageComposerField => field != null),
-        ] as const;
-      }),
+      directChildren.map(
+        async (child) =>
+          [
+            child.id ?? child.metadataId!,
+            toFields(
+              await loadAll<MetadataField>(
+                `/platform.metadata/${encodeURIComponent(child.metadataId!)}/fields/query`,
+              ),
+            ),
+          ] as const,
+      ),
     );
-    if (requestSequence !== workspaceLoadSequence) return;
+    if (!current()) return;
+    // Install a complete catalogue together. Refresh never empties the navigator or loses local edits.
+    const treeJson = currentUiTreeJson.value;
+    const selected = state.selectedNodeId.value;
+    relation.value = main;
+    metadataRelations.value = relations;
+    metadataFields.value = toFields(fields);
     childMetadataFields.value = new Map(childFieldEntries);
+    if (revision.value && !draftParseError.value) {
+      hydrateDraft({ ...revision.value, uiTreeJson: treeJson }, false);
+      if (state.nodes.value.some((node) => node.id === selected)) state.selectedNodeId.value = selected;
+    }
   } catch (cause) {
-    if (requestSequence === workspaceLoadSequence)
-      presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+    if (current()) presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
   } finally {
-    if (requestSequence === workspaceLoadSequence) loading.value = false;
+    if (current()) loading.value = false;
   }
 }
 
@@ -460,6 +486,11 @@ function schedulePreviewDescriptor() {
   }
   const requestSequence = ++previewRequestSequence;
   if (previewDebounceTimer) clearTimeout(previewDebounceTimer);
+  if (unavailableSources.value.length || draftParseError.value) {
+    previewLoading.value = false;
+    previewError.value = draftParseError.value ?? '页面包含失效来源，请移除标记节点并重新选择可用字段。';
+    return;
+  }
   previewLoading.value = true;
   previewError.value = undefined;
   const uiTreeJson = currentUiTreeJson.value;
@@ -505,7 +536,7 @@ async function loadAllFromClient<T>(
   return response.records;
 }
 
-function hydrateDraft(current: PresentationRevision | undefined) {
+function hydrateDraft(current: PresentationRevision | undefined, markSaved = true) {
   if (!current?.uiTreeJson) return;
   try {
     const tree = JSON.parse(current.uiTreeJson) as {
@@ -529,7 +560,15 @@ function hydrateDraft(current: PresentationRevision | undefined) {
     ): PageComposerField | undefined => {
       const fieldName = typeof entry === 'string' ? entry : entry.field;
       const source = fieldName ? fieldsByName.get(fieldName) : undefined;
-      if (!source) return undefined;
+      if (!fieldName) return undefined;
+      if (!source)
+        return {
+          id: `missing_${fieldName}`,
+          title: fieldName,
+          fieldName,
+          unavailable: true,
+          properties: typeof entry === 'string' ? undefined : entry.props,
+        };
       return typeof entry === 'string' || !entry.props
         ? { ...source }
         : { ...source, properties: entry.props };
@@ -551,6 +590,7 @@ function hydrateDraft(current: PresentationRevision | undefined) {
           {
             id: relation?.id ?? relationCode,
             relationCode,
+            unavailable: !relation,
             title: entry.title?.trim() || relation?.title || relation?.relationAlias || relationCode,
             fields: (entry.fields ?? []).flatMap((fieldName) => {
               const childField = relation
@@ -558,7 +598,16 @@ function hydrateDraft(current: PresentationRevision | undefined) {
                     .get(relation.id ?? relation.metadataId ?? '')
                     ?.find((candidate) => candidate.fieldName === fieldName)
                 : undefined;
-              return childField ? [{ ...childField }] : [];
+              return [
+                {
+                  ...(childField ?? {
+                    id: `missing_${fieldName}`,
+                    fieldName,
+                    title: fieldName,
+                    unavailable: true,
+                  }),
+                },
+              ];
             }),
           },
         ];
@@ -581,9 +630,10 @@ function hydrateDraft(current: PresentationRevision | undefined) {
     state.updateQuickSearchPlaceholder(
       typeof tree.props?.list?.searchPlaceholder === 'string' ? tree.props.list.searchPlaceholder : undefined,
     );
-    savedUiTreeJson.value = currentUiTreeJson.value;
+    if (markSaved) savedUiTreeJson.value = currentUiTreeJson.value;
+    draftParseError.value = undefined;
   } catch {
-    // Publication validates the persisted tree. A malformed draft should remain editable as an empty local tree.
+    draftParseError.value = '草稿结构无法解析，当前内容不会覆盖已保存配置。请修复该修订后重新加载。';
   }
 }
 
@@ -643,7 +693,14 @@ async function saveDraft(
   allowDuringPublish = false,
   treeJsonToPersist = currentUiTreeJson.value,
 ): Promise<boolean> {
-  if (saving.value || (!allowDuringPublish && publishing.value) || !revision.value?.id || !variant.value?.id)
+  if (
+    draftParseError.value ||
+    loading.value ||
+    saving.value ||
+    (!allowDuringPublish && publishing.value) ||
+    !revision.value?.id ||
+    !variant.value?.id
+  )
     return false;
   saving.value = true;
   try {
@@ -664,7 +721,8 @@ async function saveDraft(
 }
 
 async function publishDraft() {
-  if (isMutating.value || !revision.value?.id) return;
+  if (isMutating.value || unavailableSources.value.length || draftParseError.value || !revision.value?.id)
+    return;
   const confirmed = await confirmAction({
     title: '发布页面修订',
     content: `将发布“${page.value?.title ?? '管理页'}”的草稿 v${revision.value.revisionNo}，目标为 Web · 全局，模板为 ${revision.value.templateAlias ?? 'management'} v${revision.value.templateVersion ?? 1}。发布会先保存并校验页面结构，随后替换该目标当前的已发布修订。是否继续？`,
@@ -1312,9 +1370,10 @@ function applyPropertyDraft() {
         v-model:search-keyword="fieldKeyword"
         title="可用字段"
         search-placeholder="搜索字段"
+        :refresh-disabled="isMutating"
         @refresh="loadMetadataTree"
       >
-        <UiSpin v-if="loading" tip="加载主实体字段" />
+        <UiSpin v-if="loading && !relation" tip="加载主实体字段" />
         <UiEmpty v-else-if="!relation" description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体" />
         <div v-else class="metadata-tree" data-testid="page-composer-metadata-tree">
           <div class="metadata-tree__quick-add" aria-label="字段快速添加目标">
@@ -1511,12 +1570,27 @@ function applyPropertyDraft() {
             <UiButton v-if="hasUnsavedChanges" :disabled="isMutating" @click="discardUnsavedChanges">
               放弃本次更改
             </UiButton>
-            <UiButton type="primary" :loading="publishing" :disabled="isMutating" @click="publishDraft">
+            <UiButton
+              type="primary"
+              :loading="publishing"
+              :disabled="isMutating || unavailableSources.length > 0 || Boolean(draftParseError)"
+              @click="publishDraft"
+            >
               发布草稿
             </UiButton>
           </template>
         </div>
       </template>
+      <p
+        v-if="unavailableSources.length || draftParseError"
+        class="page-composition-source-error"
+        role="alert"
+      >
+        {{
+          draftParseError ??
+          `来源失效：${[...new Set(unavailableSources)].join('、')}。配置已保留，请在编排树中移除标记节点并重新选择；修正后才能发布。`
+        }}
+      </p>
       <div v-if="revision && hasUnsavedChanges" class="page-composition-status" aria-live="polite">
         未保存更改
       </div>
@@ -1650,6 +1724,9 @@ function applyPropertyDraft() {
 </template>
 
 <style scoped>
+.page-composition-source-error {
+  color: var(--muyun-danger-base);
+}
 .page-composition-workspace {
   min-height: 0;
   height: 100%;

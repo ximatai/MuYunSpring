@@ -75,6 +75,8 @@ const treeNodes = computed<UiTreeNode[]>(() => {
     key: `ui:relation:form:${relation.id}`,
     title: relation.title,
     secondary: relation.fields.length ? `${relation.fields.length} 个展示字段` : '尚未选择字段',
+    tag: relation.unavailable ? '来源失效' : undefined,
+    muted: relation.unavailable,
     isLeaf: relation.fields.length === 0,
     children: relation.fields.map((field) => relationFieldNode(relation.id, field)),
   }));
@@ -158,6 +160,8 @@ function fieldNode(slot: 'list' | 'form', field: PageComposerField): UiTreeNode 
     key: `ui:field:${slot}:${field.id}`,
     title: field.properties?.label ?? field.title,
     secondary: field.fieldName,
+    tag: field.unavailable ? '来源失效' : undefined,
+    muted: field.unavailable,
     isLeaf: true,
   };
 }
@@ -167,6 +171,8 @@ function groupFieldNode(groupId: string, field: PageComposerField): UiTreeNode {
     key: `ui:group-field:form:${groupId}:${field.id}`,
     title: field.properties?.label ?? field.title,
     secondary: field.fieldName,
+    tag: field.unavailable ? '来源失效' : undefined,
+    muted: field.unavailable,
     isLeaf: true,
   };
 }
@@ -176,6 +182,8 @@ function relationFieldNode(relationId: string, field: PageComposerField): UiTree
     key: `ui:relation-field:form:${relationId}:${field.id}`,
     title: field.title,
     secondary: field.fieldName,
+    tag: field.unavailable ? '来源失效' : undefined,
+    muted: field.unavailable,
     isLeaf: true,
   };
 }

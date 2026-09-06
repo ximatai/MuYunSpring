@@ -135,6 +135,34 @@ class DynamicRecordWebMvcSliceTest {
     }
 
     @Test
+    void shouldReadDeclaredEmbeddedChildrenWithoutParentAutoPopulation() throws Exception {
+        var embedded = new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor(
+                "lines", "Lines", false, MODULE, ENTITY, MODULE, "contract_line", "contractId",
+                null, null, null, null, true, "lines", null, List.of(), null);
+        var descriptor = ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder(MODULE).build(),
+                ModuleKind.DYNAMIC, "Contract").withDetailRelations(List.of(embedded));
+        var plan = new ModuleExecutionPlan(MODULE, "test", descriptor,
+                new ResolvedModuleReadModel(MODULE, ENTITY, List.of()), List.of());
+        when(executionPlanCatalog.find(MODULE)).thenReturn(Optional.of(plan));
+        DynamicRecord parent = new DynamicRecord(entity()).setValue("code", "C-001");
+        parent.setId("contract-1");
+        DynamicRecord child = new DynamicRecord(new EntityDefinition("contract_line", "contract_line", "Line",
+                List.of(FieldDefinition.string("description", "Description"))))
+                .setValue("description", "Persisted child");
+        child.setId("line-1");
+        DynamicEntityOperations mainEntity = mock(DynamicEntityOperations.class);
+        when(recordService.mainEntity(MODULE)).thenReturn(mainEntity);
+        when(mainEntity.select("contract-1")).thenReturn(parent);
+        when(recordService.aggregateChildrenForView(MODULE, "contract-1", "lines")).thenReturn(List.of(child));
+
+        mvc.perform(get("/{moduleAlias}/view/{recordId}", MODULE, "contract-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.children.lines[0].values.description").value("Persisted child"));
+        assertThat(parent.getChildren()).isEmpty();
+        verify(recordService).aggregateChildrenForView(MODULE, "contract-1", "lines");
+    }
+
+    @Test
     void shouldNotCaptureRootFileLikePathInRealMvcMapping() throws Exception {
         mvc.perform(get("/openapi.json"))
                 .andExpect(status().isNotFound());

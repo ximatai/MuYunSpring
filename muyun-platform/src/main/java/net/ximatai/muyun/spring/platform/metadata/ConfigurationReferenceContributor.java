@@ -8,5 +8,10 @@ public interface ConfigurationReferenceContributor {
 
     ConfigurationReference reference();
 
+    /** Human-readable identity supplied by the domain that owns the referenced configuration. */
+    default String describeReference(String referenceId) {
+        return reference().resourceName();
+    }
+
     Optional<String> findReferenceId(String targetId);
 }

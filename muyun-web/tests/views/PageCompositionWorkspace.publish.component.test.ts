@@ -566,6 +566,108 @@ describe('PageCompositionWorkspace publication flow', () => {
       'group_1',
     ]);
   });
+  it('retains unavailable fields in every slot and saves only explicit repairs', async () => {
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({
+      http: publicationFlowHttp(
+        requests,
+        JSON.stringify({
+          template: 'management',
+          templateVersion: 1,
+          nodes: [
+            { slot: 'list', fields: [{ field: 'lost', props: { label: '旧字段' } }] },
+            {
+              slot: 'form',
+              fields: [],
+              groups: [{ group: 'basic', title: '分组', fields: ['lost'] }],
+              relations: [{ relation: '参考学生', fields: ['lostChild'] }],
+            },
+          ],
+        }),
+      ),
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      expect(tree.props('listFields')).toMatchObject([
+        { fieldName: 'lost', unavailable: true, properties: { label: '旧字段' } },
+      ]);
+      expect(tree.props('formGroups')[0].fields).toMatchObject([{ fieldName: 'lost', unavailable: true }]);
+      expect(tree.props('formRelations')[0].fields).toMatchObject([
+        { fieldName: 'lostChild', unavailable: true },
+      ]);
+      expect(tree.text()).toContain('来源失效');
+      const button = (text: string) =>
+        wrapper.findAll('[data-testid="publish-button"]').find((item) => item.text() === text)!;
+      expect(button('发布草稿').attributes('disabled')).toBeDefined();
+      tree.vm.$emit('select', 'ui:field:list:missing_lost');
+      await flushPromises();
+      await button('移除').trigger('click');
+      await button('保存草稿').trigger('click');
+      await flushPromises();
+      const saved = requests.find((request) => request.path.endsWith('/update/revision-1'))?.body as {
+        uiTreeJson: string;
+      };
+      const declaration = JSON.parse(saved.uiTreeJson);
+      expect(declaration.nodes[0].fields).toEqual([]);
+      expect(declaration.nodes[1].groups[0].fields).toEqual(['lost']);
+      expect(declaration.nodes[1].relations[0].fields).toEqual(['lostChild']);
+      expect(saved.uiTreeJson).not.toContain('unavailable');
+      expect(button('发布草稿').attributes('disabled')).toBeDefined();
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('refreshes source facts in place while preserving local page changes and detecting lost sources', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const fields = [
+      {
+        id: 'field-title',
+        fieldName: 'title',
+        title: '考试名称',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      },
+    ];
+    const http = publicationFlowHttp(requests, initialTree(), fields);
+    configureModuleContext({ http });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const composer = wrapper.findComponent(PageCompositionTree);
+      composer.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+      await flushPromises();
+      const source = wrapper.findAllComponents({ name: 'UiTree' })[0]!;
+      const sourceInstance = source.vm;
+      const pending = deferred<unknown>();
+      const original = http.request;
+      vi.spyOn(http, 'request').mockImplementation((request) =>
+        request.path === '/platform.metadata/metadata-1/fields/query'
+          ? (pending.promise as never)
+          : original(request),
+      );
+      wrapper.findAllComponents({ name: 'RecordExplorerPanel' })[0]!.vm.$emit('refresh');
+      await flushPromises();
+      expect(wrapper.findAllComponents({ name: 'UiTree' })[0]!.vm).toBe(sourceInstance);
+      expect(composer.props('listFields')).toHaveLength(1);
+      pending.resolve(page([]));
+      await flushPromises();
+      expect(wrapper.findAllComponents({ name: 'UiTree' })[0]!.vm).toBe(sourceInstance);
+      expect(composer.props('listFields')).toMatchObject([{ fieldName: 'title', unavailable: true }]);
+      expect(wrapper.text()).toContain('未保存更改');
+      expect(wrapper.text()).toContain('来源失效');
+    } finally {
+      wrapper.unmount();
+    }
+  });
 });
 
 function treeNode(nodes: unknown, key: string): { key: string; title: string } | undefined {
@@ -760,7 +862,10 @@ function workspaceStubs() {
   return {
     ManagementWorkspace: { template: '<div><slot /></div>' },
     ManagementExplorerColumn: { template: '<div><slot /></div>' },
-    RecordExplorerPanel: { template: '<div><slot /><slot name="header-actions" /></div>' },
+    RecordExplorerPanel: {
+      name: 'RecordExplorerPanel',
+      template: '<div><slot /><slot name="header-actions" /></div>',
+    },
     RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
     RecordDetailDrawer: { template: '<aside><slot /></aside>' },
     UiButton: {

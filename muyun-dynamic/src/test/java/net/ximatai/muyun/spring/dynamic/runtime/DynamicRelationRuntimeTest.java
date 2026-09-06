@@ -142,6 +142,36 @@ class DynamicRelationRuntimeTest {
     }
 
     @Test
+    void shouldTreatEchoedParentKeyAsAggregateOwnershipWithoutReferenceCapability() {
+        IDatabaseOperations<Object> operations = operations();
+        stubInvoiceRows(operations);
+        EntityDefinition parent = new EntityDefinition("invoice", "app_invoice", "Invoice",
+                List.of(FieldDefinition.string("title", "Title")));
+        EntityDefinition child = new EntityDefinition("invoice_line", "app_invoice_line", "Line",
+                List.of(FieldDefinition.string("invoiceId", "Invoice").column("invoice_id").required(),
+                        FieldDefinition.string("title", "Title")));
+        ModuleDefinition module = ModuleDefinition.builder(MODULE, "Invoice")
+                .entities(List.of(parent, child))
+                .relations(List.of(EntityRelationDefinition.child("lines", "invoice", "invoice_line", "invoiceId")))
+                .references(List.of(EntityReferenceDefinition.to("invoice_line", "invoiceId",
+                        ReferenceTarget.of(MODULE, "invoice"))))
+                .build();
+        DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(module);
+        DynamicRecord record = runtime.newRecord(MODULE, "invoice");
+        record.setId("invoice-1");
+        DynamicRecord line = runtime.newRecord(MODULE, "invoice_line")
+                .setValue("invoiceId", "invoice-1").setValue("title", "Updated line");
+        line.setId("line-1");
+        record.setChildren("lines", List.of(line));
+
+        runtime.entityService(MODULE, "invoice").update(record);
+
+        assertThat(line.getValue("invoiceId")).isEqualTo("invoice-1");
+        assertThat(line.isExplicitlySet("invoiceId")).isFalse();
+        assertThat(line.isExplicitlySet("title")).isTrue();
+    }
+
+    @Test
     void shouldApplyDynamicChildFormulaBeforeChildRowsAreInserted() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.insertItem(eq(SCHEMA), anyString(), anyMap(), eq("id")))

@@ -1,12 +1,27 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
 import net.ximatai.muyun.spring.dynamic.schema.DynamicSchemaService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionDao;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageContractType;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationVariant;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationVariantDao;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationVariantService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionDao;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionStatus;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationClientType;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationScopeType;
+import net.ximatai.muyun.spring.platform.ui.PresentationConfigurationReferences;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleDao;
@@ -65,6 +80,10 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @Autowired private net.ximatai.muyun.database.core.IDatabaseOperations<?> operations;
     @Autowired private ModuleMetadataOrchestrationService orchestration;
     @Autowired private MetadataModelDeletionService deletion;
+
+    @Autowired private PlatformPageDefinitionDao pageDao;
+    @Autowired private PlatformPresentationVariantDao variantDao;
+    @Autowired private PlatformPresentationRevisionDao revisionDao;
 
     private String moduleAlias;
     private String relationId;
@@ -318,6 +337,81 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         assertThat(columnDataType(metadata.getTableName(), "status")).isEqualTo("character varying");
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"list", "form", "group"})
+    void shouldProtectPersistedPageFieldsUntilActiveRevisionsReleaseThem(String placement) {
+        applyNewStringField("pageField", "page_field");
+        MetadataField field = field("pageField");
+        String fields = "\"fields\":[{\"field\":\"pageField\",\"props\":{\"label\":\"自定义标题\"}}]";
+        PlatformPresentationRevision revision = pageRevision("{\"template\":\"management\",\"templateVersion\":1,\"nodes\":["
+                + (placement.equals("group") ? "{\"slot\":\"form\",\"groups\":[{\"group\":\"basic\",\"title\":\"基本信息\"," + fields + "}]}"
+                    : "{\"slot\":\"" + placement + "\"," + fields + "}") + "]}");
+        for (PlatformPresentationRevisionStatus status : List.of(PlatformPresentationRevisionStatus.DRAFT,
+                PlatformPresentationRevisionStatus.PUBLISHED)) {
+            revision.setStatus(status);
+            revisionDao.updateByIdAndVersion(revision, revision.getVersion());
+            assertThatThrownBy(() -> deletion.deleteField(moduleAlias, relationId, field.getId()))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("页面配置验证").hasMessageContaining("修订 v1");
+            assertThat(fieldService.select(field.getId())).isNotNull();
+            assertThat(columnExists(metadata.getTableName(), "page_field")).isTrue();
+        }
+        revision.setStatus(PlatformPresentationRevisionStatus.ARCHIVED);
+        revisionDao.updateByIdAndVersion(revision, revision.getVersion());
+        deletion.deleteField(moduleAlias, relationId, field.getId());
+        assertThat(fieldService.select(field.getId())).isNull();
+        assertThat(columnExists(metadata.getTableName(), "page_field")).isFalse();
+    }
+
+    @Test
+    void shouldProtectDirectChildAssociationEvenWithoutBusinessFields() {
+        var child = orchestration.createChildMetadata(moduleAlias, relationId,
+                new ModuleChildMetadataCreateCommand("page_child_" + UUID.randomUUID().toString().substring(0, 8), "页面子实体", null, null));
+        pageRevision("{\"template\":\"management\",\"templateVersion\":1,\"nodes\":[{\"slot\":\"form\",\"relations\":[{\"relation\":\""
+                + child.relation().getRelationAlias() + "\",\"fields\":[]}]}]}");
+        assertThatThrownBy(() -> deletion.deleteMetadata(moduleAlias, child.relation().getId()))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("页面配置验证");
+        assertThat(relationService.select(child.relation().getId())).isNotNull();
+        assertThat(columnExists(child.metadata().getTableName(), "id")).isTrue();
+    }
+
+    @Test
+    void shouldIgnoreNamesInDisplayPropertiesAndProtectTheStablePageAnchor() {
+        applyNewStringField("pageField", "page_field");
+        MetadataField field = field("pageField");
+        pageRevision("{\"template\":\"management\",\"templateVersion\":1,\"nodes\":[{\"slot\":\"list\",\"title\":\"pageField\",\"fields\":[]}]}");
+        deletion.deleteField(moduleAlias, relationId, field.getId());
+        assertThat(fieldService.select(field.getId())).isNull();
+        assertThatThrownBy(() -> relationService.delete(relationId, relationService.select(relationId).getVersion()))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("页面配置验证").hasMessageContaining("主实体绑定");
+    }
+
+    private PlatformPresentationRevision pageRevision(String tree) {
+        PlatformPageDefinition page = new PlatformPageDefinition();
+        page.setId(UUID.randomUUID().toString().replace("-", ""));
+        page.setModuleAlias(moduleAlias);
+        page.setAlias("management");
+        page.setTitle("页面配置验证");
+        page.setContractType(PlatformPageContractType.MANAGEMENT);
+        page.setMainRelationId(relationId);
+        pageDao.insert(page);
+        PlatformPresentationVariant variant = new PlatformPresentationVariant();
+        variant.setId(UUID.randomUUID().toString().replace("-", ""));
+        variant.setPageId(page.getId());
+        variant.setTitle("全局 Web");
+        variant.setClientType(PlatformPresentationClientType.WEB);
+        variant.setScopeType(PlatformPresentationScopeType.GLOBAL);
+        variantDao.insert(variant);
+        PlatformPresentationRevision revision = new PlatformPresentationRevision();
+        revision.setId(UUID.randomUUID().toString().replace("-", ""));
+        revision.setVariantId(variant.getId());
+        revision.setTitle("测试草稿");
+        revision.setRevisionNo(1);
+        revision.setTemplateAlias("management");
+        revision.setUiTreeJson(tree);
+        revisionDao.insert(revision);
+        return revision;
+    }
+
     private void applyNewStringField(String fieldName, String columnName) {
         MetadataRelationChangeSetPreviewCommand proposal = proposal(fieldName, columnName, "string", false);
         MetadataRelationChangeSetPreview preview = previewService.preview(moduleAlias, relationId, proposal);
@@ -439,8 +533,9 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     @EnableTransactionManagement
+    @org.springframework.context.annotation.Import({PresentationConfigurationReferences.class, ConfigurationReferenceDeletionGuard.class})
     @EnableMuYunRepositories(basePackageClasses = {FieldSpecDao.class, MetadataDao.class, MetadataFieldDao.class,
-            ModuleMetadataRelationDao.class, PlatformModuleDao.class})
+            ModuleMetadataRelationDao.class, PlatformModuleDao.class, PlatformPageDefinitionDao.class})
     static class TestApplication {
         @Bean DataSource dataSource() { return DataSourceBuilder.create().url(postgres.getJdbcUrl())
                 .username(postgres.getUsername()).password(postgres.getPassword())
@@ -460,10 +555,27 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         @Bean MetadataService metadataService(MetadataDao dao) { return new MetadataService(dao); }
         @Bean PlatformModuleService moduleService() { return mock(PlatformModuleService.class); }
         @Bean ModuleMetadataRelationService relationService(ModuleMetadataRelationDao dao, PlatformModuleService modules,
-                                                            MetadataService metadata) { return new ModuleMetadataRelationService(dao, modules, metadata); }
-        @Bean MetadataFieldService fieldService(MetadataFieldDao dao, MetadataService metadata, FieldSpecService specs) {
-            return new MetadataFieldService(dao, metadata, specs);
+                                                            MetadataService metadata, org.springframework.beans.factory.ObjectProvider<ConfigurationReferenceDeletionGuard> guard) {
+            return new ModuleMetadataRelationService(dao, modules, metadata, java.util.Optional.empty(), guard);
         }
+        @Bean MetadataFieldService fieldService(MetadataFieldDao dao, MetadataService metadata, FieldSpecService specs,
+                org.springframework.beans.factory.ObjectProvider<ConfigurationReferenceDeletionGuard> guard) {
+            var empty = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+            return new MetadataFieldService(dao, metadata, specs,
+                    empty.getBeanProvider(PlatformDynamicRuntimeRefreshCoordinator.class),
+                    empty.getBeanProvider(PlatformMetadataSchemaEnsureService.class), guard,
+                    empty.getBeanProvider(ModuleMetadataRelationService.class), empty.getBeanProvider(PlatformModuleService.class));
+        }
+        @Bean PlatformPageDefinitionService pageService(PlatformPageDefinitionDao dao, PlatformModuleService modules, ModuleMetadataRelationService relations) {
+            return new PlatformPageDefinitionService(dao, modules, relations);
+        }
+        @Bean PlatformPresentationVariantService variantService(PlatformPresentationVariantDao dao, PlatformPageDefinitionService pages) {
+            return new PlatformPresentationVariantService(dao, pages);
+        }
+        @Bean PlatformPresentationRevisionService revisionService(PlatformPresentationRevisionDao dao, PlatformPresentationVariantService variants) {
+            return new PlatformPresentationRevisionService(dao, variants);
+        }
+        @Bean ModuleMetadataFieldService moduleFieldService() { return mock(ModuleMetadataFieldService.class); }
         @Bean MetadataFieldConfigService metadataFieldConfigService() { return mock(MetadataFieldConfigService.class); }
         @Bean MetadataFieldDefinitionCompiler fieldCompiler(FieldSpecService specs, MetadataFieldConfigService configs) {
             return new MetadataFieldDefinitionCompiler(specs, configs);

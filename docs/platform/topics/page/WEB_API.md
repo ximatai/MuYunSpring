@@ -72,3 +72,9 @@
 | `/{moduleAlias}/generation/confirm`                                                      | 记录联动。 |
 | `/{moduleAlias}/code/preview`                                                            | 编码规则。 |
 | `/{moduleAlias}/exchange/template`、`/{moduleAlias}/import/*`、`/{moduleAlias}/export/*` | 数据交换。 |
+
+## 主子记录提交
+
+公共表单以扁平记录提交普通字段和已声明的直接子关系（关系别名对应子记录数组）。动态 Web 边界按关系目录将子数组归入 `DynamicRecord.children`，与既有 `values` / `children` 请求结构复用相同的校验、事务与聚合保存链路。同一关系不能同时出现在根层与 `children` 中；未声明字段、未知关系和非数组子记录继续拒绝。更新时省略关系表示不改动，空数组表示清空，`id` 与 `version` 保留各自原有语义。
+
+页面声明的内嵌子表在详情与保存响应中通过聚合 VIEW 链路读取，不依赖关系是否开启 service 级自动装载。子记录回传的父关联键由聚合关系重新绑定并接管，归属校验继续生效；普通主子记录更新不要求父实体启用引用展示能力。

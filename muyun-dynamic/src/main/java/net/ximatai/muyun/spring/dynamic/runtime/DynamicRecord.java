@@ -496,6 +496,12 @@ public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapabl
         putPlatformValue(fieldCode, value);
     }
 
+    /** Aggregate ownership is supplied by ChildRelation, even when a form echoes the stored key. */
+    void bindAggregateParent(String fieldCode, String parentId) {
+        putPlatformValue(fieldCode, parentId);
+        explicitFields.remove(fieldCode);
+    }
+
     void putPlatformValue(String fieldCode, Object value) {
         FieldDefinition field = fields.get(fieldCode);
         if (field == null) {

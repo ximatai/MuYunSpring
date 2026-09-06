@@ -718,11 +718,9 @@ public class DynamicRecordWebController implements
     }
 
     /**
-     * The aggregate returned by the standard detail endpoint contains child records selected by
-     * the parent aggregate service. Those records have not passed their own dynamic read pipeline,
-     * so enrich only execution-plan declared embedded relations here, before transport
-     * serialization. This preserves the normal aggregate ownership and avoids serializer-side
-     * database access.
+     * Load only execution-plan declared embedded relations through the aggregate VIEW pipeline.
+     * Page delivery must not depend on a relation opting into service-level auto-population.
+     * This preserves aggregate ownership and avoids serializer-side database access.
      */
     @Override
     @GetMapping("/view/{id}")
@@ -744,8 +742,6 @@ public class DynamicRecordWebController implements
 
     private void enrichEmbeddedRelation(DynamicRecord parent,
                                         String relationCode) {
-        List<DynamicRecord> embedded = parent.getChildren(relationCode);
-        if (embedded == null || embedded.isEmpty()) return;
         // The parent has already passed VIEW authorisation. Re-enter the aggregate relation read
         // rather than a child QUERY path so VIEW and QUERY scopes cannot silently diverge.
         parent.setChildren(relationCode, recordService.aggregateChildrenForView(
