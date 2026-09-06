@@ -461,6 +461,8 @@ export interface ResolvedDetailRelationListField {
   title?: string;
   fieldForm?: string;
   fieldUiControlAlias?: string;
+  /** Source-neutral scalar value fact used by relation previews and portable list renderers. */
+  valueType?: ViewFieldValueType | string;
   width?: number;
   align?: 'left' | 'center' | 'right' | string;
   maxDisplayLines?: number;

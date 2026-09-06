@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionStatus;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationTemplateCatalog;
+import net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -96,12 +97,40 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         return fromRevision(page, revision, uiTreeJson, mainEntityFieldTitles, associations, false);
     }
 
+    public static ModuleUiDefinition fromPublishedRevision(PlatformPageDefinition page,
+                                                           PlatformPresentationRevision revision,
+                                                           DynamicPageCompilationContext context) {
+        return fromRevision(page, revision, revision == null ? null : revision.getUiTreeJson(),
+                context.mainFieldTitles(), context.associations(), true, context.overviewMode(),
+                context.requiredMainFields());
+    }
+
+    public static ModuleUiDefinition fromPreviewRevision(PlatformPageDefinition page,
+                                                         PlatformPresentationRevision revision,
+                                                         String uiTreeJson,
+                                                         DynamicPageCompilationContext context) {
+        return fromRevision(page, revision, uiTreeJson, context.mainFieldTitles(), context.associations(), false,
+                context.overviewMode(), context.requiredMainFields());
+    }
+
     private static ModuleUiDefinition fromRevision(PlatformPageDefinition page,
                                                    PlatformPresentationRevision revision,
                                                    String uiTreeJson,
                                                    Map<String, String> mainEntityFieldTitles,
                                                    Map<String, DynamicAssociationViewDescriptor> associations,
                                                    boolean requirePublished) {
+        return fromRevision(page, revision, uiTreeJson, mainEntityFieldTitles, associations, requirePublished,
+                DynamicModuleOverviewMode.LIST_CARD, Set.of());
+    }
+
+    private static ModuleUiDefinition fromRevision(PlatformPageDefinition page,
+                                                   PlatformPresentationRevision revision,
+                                                   String uiTreeJson,
+                                                   Map<String, String> mainEntityFieldTitles,
+                                                   Map<String, DynamicAssociationViewDescriptor> associations,
+                                                   boolean requirePublished,
+                                                   DynamicModuleOverviewMode overviewMode,
+                                                   Set<String> requiredMainFieldNames) {
         if (page == null) {
             throw new IllegalArgumentException("page definition must not be null");
         }
@@ -123,18 +152,26 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         }
         Map<String, String> fieldTitles = fieldTitles(mainEntityFieldTitles);
         Set<String> knownFields = knownMainFields(fieldTitles.keySet());
+        Set<String> requiredFields = requiredMainFieldNames == null ? Set.of() : Set.copyOf(requiredMainFieldNames);
         Composition composition = composition(revision.getId(), uiTreeJson);
         Slot list = requireSlot(composition.slots(), "list", revision.getId());
         Slot form = requireSlot(composition.slots(), "form", revision.getId());
-        return new ModuleUiDefinition(page.getModuleAlias(), List.of(),
-                new ListDetailCardPageDefinition(null,
-                        new PageListDefinition(composition.listSearchPlaceholder() == null ? list.title()
-                                : composition.listSearchPlaceholder(),
-                                view(ModuleUiViewCodes.DEFAULT_LIST, ModuleViewKind.LIST,
-                                list, knownFields, fieldTitles)),
-                        new PageDetailDefinition(null, form.title(), null,
-                                view(ModuleUiViewCodes.DEFAULT_FORM, ModuleViewKind.FORM, form, knownFields, fieldTitles)),
-                        new PageTraitsDefinition(null)),
+        ViewDefinition listView = view(ModuleUiViewCodes.DEFAULT_LIST, ModuleViewKind.LIST,
+                list, knownFields, fieldTitles, requiredFields);
+        PageDetailDefinition detail = new PageDetailDefinition(null, form.title(), null,
+                view(ModuleUiViewCodes.DEFAULT_FORM, ModuleViewKind.FORM, form, knownFields, fieldTitles, requiredFields));
+        String searchPlaceholder = composition.listSearchPlaceholder() == null ? list.title()
+                : composition.listSearchPlaceholder();
+        ModulePageDefinition pageDefinition = switch (overviewMode == null
+                ? DynamicModuleOverviewMode.LIST_CARD : overviewMode) {
+            case TREE_CARD -> new TreeManagementPageDefinition(null, null, detail, new PageTraitsDefinition(null));
+            case MICRO_LIST_CARD -> new FlatManagementPageDefinition(null,
+                    new PageExplorerDefinition(list.title(), searchPlaceholder, null, null, null, "title", null, false),
+                    detail, new PageTraitsDefinition(null));
+            case LIST_CARD -> new ListDetailCardPageDefinition(null,
+                    new PageListDefinition(searchPlaceholder, listView), detail, new PageTraitsDefinition(null));
+        };
+        return new ModuleUiDefinition(page.getModuleAlias(), List.of(), pageDefinition,
                 null, List.of(), List.of(), detailRelations(form, associations));
     }
 
@@ -157,14 +194,14 @@ public final class PageRevisionModuleUiDefinitionAdapter {
     }
 
     private static ViewDefinition view(String viewCode, ModuleViewKind viewKind, Slot slot, Set<String> knownFields,
-                                       Map<String, String> fieldTitles) {
+                                       Map<String, String> fieldTitles, Set<String> requiredFields) {
         List<ViewFieldDefinition> fields = slot.fields().stream()
-                .map(field -> field(field, slot.slot(), knownFields, fieldTitles))
+                .map(field -> field(field, slot.slot(), knownFields, fieldTitles, requiredFields))
                 .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
         List<FormGroupDefinition> groups = "form".equals(slot.slot())
                 ? slot.groups().stream().map(group -> {
                     List<ViewFieldDefinition> groupFields = group.fields().stream()
-                            .map(field -> field(field, slot.slot(), knownFields, fieldTitles)).toList();
+                            .map(field -> field(field, slot.slot(), knownFields, fieldTitles, requiredFields)).toList();
                     fields.addAll(groupFields);
                     return new FormGroupDefinition(group.code(), group.title(), group.subtitle(), groupFields);
                 }).toList()
@@ -174,7 +211,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
     }
 
     private static ViewFieldDefinition field(FieldNode field, String slot, Set<String> knownFields,
-                                             Map<String, String> fieldTitles) {
+                                             Map<String, String> fieldTitles, Set<String> requiredFields) {
         if (field.name() == null || field.name().isBlank()) {
             throw new IllegalArgumentException("management " + slot + " slot contains a blank field");
         }
@@ -184,6 +221,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                     + normalized);
         }
         ViewFieldDefinition.Builder builder = ViewFieldDefinition.field(normalized);
+        if (requiredFields.contains(normalized)) builder.required();
         String label = field.label() == null ? fieldTitles.get(normalized) : field.label();
         if (label != null) {
             builder.label(label);

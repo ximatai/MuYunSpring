@@ -48,11 +48,8 @@ public class PresentationRevisionPreviewService {
                 revision.getTemplateVersion(), variant.getClientType(), page.getContractType());
         templateCatalog.validateUiTree(request.uiTreeJson(), template);
 
-        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page, revision,
-                request.uiTreeJson(), runtimeContextService.dynamicMainFieldTitles(page.getModuleAlias()),
-                runtimeContextService.dynamicAssociationViews(page.getModuleAlias()));
-        ResolvedModuleUiDescriptor descriptor = runtimeContextService.previewDynamicPageDescriptor(page.getModuleAlias(),
-                definition);
+        ResolvedModuleUiDescriptor descriptor = runtimeContextService.previewDynamicPageDescriptor(page, revision,
+                request.uiTreeJson());
         return new PresentationRevisionPreview(page.getId(), variant.getId(), revision.getId(), descriptor);
     }
 }

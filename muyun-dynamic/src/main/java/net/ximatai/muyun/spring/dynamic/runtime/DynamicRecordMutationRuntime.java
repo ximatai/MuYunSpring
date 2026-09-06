@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.dynamic.runtime;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.id.Ids;
@@ -194,7 +195,10 @@ final class DynamicRecordMutationRuntime {
         DataScopeCriteriaResult scope = source == RuntimeMutationSource.BUSINESS
                 ? requireBusinessMutation(moduleAlias, entityAlias, PlatformAction.DISABLE, ids(id))
                 : DataScopeCriteriaResult.unrestricted(Criteria.of());
-        int updated = withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).disable(id, expectedVersion));
+        int updated = withTenantScope(scope, () -> {
+            runtime.validateReferenceTargetUnavailable(ReferenceTarget.of(moduleAlias, entityAlias), id);
+            return entityService(moduleAlias, entityAlias).disable(id, expectedVersion);
+        });
         if (updated > 0) {
             eventPublisher.disabled(eventContext(moduleAlias, entityAlias, source, traceId), id);
         }

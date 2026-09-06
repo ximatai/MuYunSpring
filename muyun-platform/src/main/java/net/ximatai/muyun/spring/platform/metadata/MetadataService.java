@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCo
 import net.ximatai.muyun.spring.platform.application.ApplicationReferenceContributor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashSet;
@@ -35,6 +36,7 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
     private final Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator;
     private final ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider;
     private final ObjectProvider<ModuleMetadataRelationService> relationServiceProvider;
+    private final ApplicationEventPublisher eventPublisher;
 
     public MetadataService(BaseDao<Metadata, String> metadataDao) {
         this(metadataDao, provider(null), Optional.empty(), provider(null), provider(null));
@@ -55,13 +57,24 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
                 provider(null), provider(null));
     }
 
-    @Autowired
     public MetadataService(BaseDao<Metadata, String> metadataDao,
                            ObjectProvider<PlatformMetadataSchemaEnsureService> schemaEnsureServiceProvider,
                            Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator,
                            ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider,
                            ObjectProvider<ModuleMetadataRelationService> relationServiceProvider) {
+        this(metadataDao, schemaEnsureServiceProvider, runtimeRefreshCoordinator, referenceGuardProvider,
+                relationServiceProvider, null);
+    }
+
+    @Autowired
+    public MetadataService(BaseDao<Metadata, String> metadataDao,
+                           ObjectProvider<PlatformMetadataSchemaEnsureService> schemaEnsureServiceProvider,
+                           Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator,
+                           ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider,
+                           ObjectProvider<ModuleMetadataRelationService> relationServiceProvider,
+                           ApplicationEventPublisher eventPublisher) {
         super(MODULE_ALIAS, Metadata.class, metadataDao);
+        this.eventPublisher = eventPublisher;
         this.schemaEnsureServiceProvider = Objects.requireNonNull(schemaEnsureServiceProvider,
                 "schemaEnsureServiceProvider must not be null");
         this.runtimeRefreshCoordinator = Objects.requireNonNull(runtimeRefreshCoordinator,
@@ -128,6 +141,7 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
 
     @Override
     public void afterChanged(Metadata metadata) {
+        if (eventPublisher != null) eventPublisher.publishEvent(new MetadataChangedEvent(metadata.getId(), null));
         PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator = runtimeRefreshCoordinator();
         if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             runtimeRefreshCoordinator.refreshByMetadataId(metadata.getId());

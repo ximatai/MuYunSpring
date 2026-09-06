@@ -54,6 +54,10 @@ public class DynamicModuleOverviewModeService {
     @Transactional
     public DynamicModuleOverviewModeSnapshot save(String moduleAlias, DynamicModuleOverviewModeSaveCommand command) {
         if (command == null || command.overviewMode() == null) throw new IllegalArgumentException("dynamic module overview mode is required");
+        // Presentation modes own their non-negotiable capability contracts.  Merge them before
+        // touching MAIN metadata, otherwise a direct caller can pass TREE_CARD without TREE/SORT
+        // and leave the durable metadata/action catalogue behind the selected presentation.
+        command = withRequiredCapabilities(command);
         PlatformModule module = requireDynamicModule(moduleAlias);
         MainMetadata main = mainMetadata(module.getAlias(), module);
         // Before a MAIN model exists this write only changes durable module intent. Runtime/schema
@@ -70,11 +74,11 @@ public class DynamicModuleOverviewModeService {
             effectiveCapabilities.add(EntityCapability.DATA_SCOPE);
         }
         persistCapabilityIntent(module, effectiveCapabilities);
-        effectiveCapabilities = requiredBy(command.overviewMode(), effectiveCapabilities);
         validate(command.overviewMode(), effectiveCapabilities);
         module.setOverviewMode(command.overviewMode());
         moduleService.update(module);
-        return snapshot(moduleService.select(module.getAlias()));
+        PlatformModule updated = moduleService.select(module.getAlias());
+        return snapshot(updated);
     }
 
     private DynamicModuleOverviewModeSnapshot snapshot(PlatformModule module) {
@@ -174,7 +178,7 @@ public class DynamicModuleOverviewModeService {
         return result;
     }
 
-    private Set<EntityCapability> requiredBy(DynamicModuleOverviewMode mode, Set<EntityCapability> capabilities) {
+    private static Set<EntityCapability> requiredBy(DynamicModuleOverviewMode mode, Set<EntityCapability> capabilities) {
         Set<EntityCapability> result = new java.util.LinkedHashSet<>(capabilities);
         if (mode == DynamicModuleOverviewMode.TREE_CARD) {
             result.add(EntityCapability.TREE);
@@ -182,6 +186,16 @@ public class DynamicModuleOverviewModeService {
         }
         if (mode == DynamicModuleOverviewMode.MICRO_LIST_CARD) result.add(EntityCapability.SORT);
         return result;
+    }
+
+    static DynamicModuleOverviewModeSaveCommand withRequiredCapabilities(DynamicModuleOverviewModeSaveCommand command) {
+        Set<EntityCapability> required = requiredBy(command.overviewMode(), Set.of());
+        if (required.isEmpty()) return command;
+        Map<EntityCapability, Boolean> selections = new java.util.LinkedHashMap<>();
+        if (command.capabilitySelections() != null) selections.putAll(command.capabilitySelections());
+        required.forEach(capability -> selections.put(capability, Boolean.TRUE));
+        return new DynamicModuleOverviewModeSaveCommand(command.overviewMode(), command.expectedMainMetadataVersion(),
+                Map.copyOf(selections), command.dataScopeEnabled());
     }
 
     private Set<EntityCapability> configuredCapabilities(PlatformModule module) {

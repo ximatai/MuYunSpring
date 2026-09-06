@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -34,6 +35,7 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
     private final PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator;
     private final ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider;
     private final ObjectProvider<MetadataFieldService> metadataFieldServiceProvider;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ModuleMetadataRelationService(BaseDao<ModuleMetadataRelation, String> relationDao,
                                          PlatformModuleService moduleService,
@@ -65,14 +67,26 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
         this(relationDao, moduleService, metadataService, runtimeRefreshCoordinator, referenceGuardProvider, provider(null));
     }
 
-    @Autowired
     public ModuleMetadataRelationService(BaseDao<ModuleMetadataRelation, String> relationDao,
                                          PlatformModuleService moduleService,
                                          MetadataService metadataService,
                                          Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator,
                                          ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider,
                                          ObjectProvider<MetadataFieldService> metadataFieldServiceProvider) {
+        this(relationDao, moduleService, metadataService, runtimeRefreshCoordinator, referenceGuardProvider,
+                metadataFieldServiceProvider, null);
+    }
+
+    @Autowired
+    public ModuleMetadataRelationService(BaseDao<ModuleMetadataRelation, String> relationDao,
+                                         PlatformModuleService moduleService,
+                                         MetadataService metadataService,
+                                         Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator,
+                                         ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider,
+                                         ObjectProvider<MetadataFieldService> metadataFieldServiceProvider,
+                                         ApplicationEventPublisher eventPublisher) {
         super(MODULE_ALIAS, ModuleMetadataRelation.class, relationDao);
+        this.eventPublisher = eventPublisher;
         this.moduleService = moduleService;
         this.metadataService = metadataService;
         this.runtimeRefreshCoordinator = runtimeRefreshCoordinator.orElse(null);
@@ -147,6 +161,9 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
 
     @Override
     public void afterChanged(ModuleMetadataRelation relation) {
+        if (eventPublisher != null) {
+            eventPublisher.publishEvent(new MetadataChangedEvent(relation.getMetadataId(), relation.getModuleAlias()));
+        }
         if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             runtimeRefreshCoordinator.refreshByRelation(relation);
         }

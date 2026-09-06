@@ -13,6 +13,8 @@ import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.application.ApplicationReferenceContributor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -34,9 +36,17 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
         ApplicationReferenceContributor {
 
     public static final String MODULE_ALIAS = "platform.module";
+    private final ApplicationEventPublisher eventPublisher;
 
     public PlatformModuleService(BaseDao<PlatformModule, String> moduleDao) {
+        this(moduleDao, null);
+    }
+
+    @Autowired
+    public PlatformModuleService(BaseDao<PlatformModule, String> moduleDao,
+                                 ApplicationEventPublisher eventPublisher) {
         super(MODULE_ALIAS, PlatformModule.class, moduleDao);
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -73,6 +83,13 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
     @Override
     public void beforeUpdate(PlatformModule module) {
         normalizeAndValidate(module);
+    }
+
+    @Override
+    public void afterChanged(PlatformModule module) {
+        if (eventPublisher != null && module != null && module.getModuleKind() == ModuleKind.DYNAMIC) {
+            eventPublisher.publishEvent(new DynamicModuleChangedEvent(module.getAlias()));
+        }
     }
 
     @Override

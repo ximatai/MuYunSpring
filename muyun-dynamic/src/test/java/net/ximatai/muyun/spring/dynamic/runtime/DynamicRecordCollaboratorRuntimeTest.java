@@ -6,14 +6,19 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
+import net.ximatai.muyun.spring.ability.reference.ReferenceIntegrityPolicy;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService;
+import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
@@ -42,6 +47,7 @@ import static org.mockito.Mockito.when;
  */
 class DynamicRecordCollaboratorRuntimeTest {
     private static final String MODULE = "sales.contract";
+    private static final String WAREHOUSE_MODULE = "sales.warehouse";
     private static final String SCHEMA = "public";
 
     @Test
@@ -78,6 +84,31 @@ class DynamicRecordCollaboratorRuntimeTest {
                 .hasMessage("create denied");
 
         verify(operations, never()).insertItem(anyString(), anyString(), anyMap(), anyString());
+    }
+
+    @Test
+    void mutationRuntimeRejectsDisablingTargetWithRestrictDynamicReferences() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
+                "id", "purchase-1",
+                "warehouse_id", "warehouse-1",
+                "version", 0,
+                "deleted", false
+        )));
+        DynamicRecordRuntime runtime = runtime(operations, warehouseModule(), DynamicActionTransactionOperator.none())
+                .register(restrictingPurchaseModule());
+        DynamicRecordMutationRuntime mutations = new DynamicRecordMutationRuntime(runtime,
+                new DynamicRecordEventPublisher(RuntimeEventPublisher.noop()),
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService(),
+                new AllowAllDataScopeCriteriaService(), DynamicRecordMutationCoordinator.NONE, null);
+
+        assertThatThrownBy(() -> mutations.disable(WAREHOUSE_MODULE, "warehouse", "warehouse-1", 0,
+                RuntimeMutationSource.SYSTEM, "trace-1"))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("cannot make reference target unavailable")
+                .hasMessageContaining("sales.warehouse.warehouse");
+
+        verify(operations, never()).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
     }
 
     @Test
@@ -157,6 +188,26 @@ class DynamicRecordCollaboratorRuntimeTest {
         return ModuleDefinition.builder(MODULE, "Contract")
                 .entities(List.of(contractEntity()))
                 .actions(List.of(export))
+                .build();
+    }
+
+    private ModuleDefinition warehouseModule() {
+        EntityDefinition warehouse = new EntityDefinition("warehouse", "app_warehouse", "Warehouse",
+                List.of(
+                        FieldDefinition.string("name", "Name").length(64).required(),
+                        FieldDefinition.enabled()
+                )).withCapabilities(EntityCapability.CRUD, EntityCapability.ENABLE);
+        return new ModuleDefinition(WAREHOUSE_MODULE, "Warehouse", List.of(warehouse));
+    }
+
+    private ModuleDefinition restrictingPurchaseModule() {
+        EntityDefinition purchase = new EntityDefinition("purchase", "app_purchase", "Purchase",
+                List.of(FieldDefinition.string("warehouseId", "Warehouse").column("warehouse_id").length(32)));
+        return ModuleDefinition.builder(MODULE, "Purchase")
+                .entities(List.of(purchase))
+                .references(List.of(EntityReferenceDefinition
+                        .to("purchase", "warehouseId", ReferenceTarget.of(WAREHOUSE_MODULE, "warehouse"))
+                        .withIntegrity(new ReferenceIntegrityPolicy(ReferenceTargetUnavailablePolicy.RESTRICT))))
                 .build();
     }
 

@@ -46,6 +46,7 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
     private final PlatformModuleService moduleService;
     private final PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator;
     private final DynamicActionExecutorRegistry actionExecutorRegistry;
+    private final ThreadLocal<Integer> runtimeRefreshSuppressionDepth = ThreadLocal.withInitial(() -> 0);
 
     public PlatformModuleActionService(BaseDao<PlatformModuleAction, String> actionDao,
                                        PlatformModuleService moduleService) {
@@ -98,12 +99,45 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
 
     @Override
     public void afterChanged(PlatformModuleAction action) {
-        PlatformModule module = action == null || action.getModuleAlias() == null
-                ? null
-                : moduleService.select(action.getModuleAlias());
-        if (runtimeRefreshCoordinator != null && module != null && module.getModuleKind() == ModuleKind.DYNAMIC) {
-            runtimeRefreshCoordinator.refreshByModuleAction(action);
+        if (isRuntimeRefreshSuppressed()) {
+            return;
         }
+        refreshDynamicModuleRuntime(action == null ? null : action.getModuleAlias());
+    }
+
+    /**
+     * Applies a coherent action catalogue before compiling a dynamic runtime from it.
+     * Contributors may replace several standard actions at once; refreshing each intermediate
+     * state can otherwise validate a mixture of old and new authorization facts.
+     */
+    public void runWithoutRuntimeRefresh(Runnable action) {
+        runtimeRefreshSuppressionDepth.set(runtimeRefreshSuppressionDepth.get() + 1);
+        try {
+            action.run();
+        } finally {
+            int depth = runtimeRefreshSuppressionDepth.get() - 1;
+            if (depth <= 0) {
+                runtimeRefreshSuppressionDepth.remove();
+            } else {
+                runtimeRefreshSuppressionDepth.set(depth);
+            }
+        }
+    }
+
+    /** Schedules the one runtime refresh that follows a complete action-catalogue change. */
+    public void refreshDynamicModuleRuntime(String moduleAlias) {
+        if (runtimeRefreshCoordinator == null || moduleAlias == null || moduleAlias.isBlank()) {
+            return;
+        }
+        PlatformModule module = moduleService.select(moduleAlias);
+        if (module == null || module.getModuleKind() != ModuleKind.DYNAMIC) {
+            return;
+        }
+        runtimeRefreshCoordinator.refreshConfiguredModule(moduleAlias);
+    }
+
+    private boolean isRuntimeRefreshSuppressed() {
+        return runtimeRefreshSuppressionDepth.get() > 0;
     }
 
     public List<PlatformModuleAction> listByModuleAliases(List<String> moduleAliases) {

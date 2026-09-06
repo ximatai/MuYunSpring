@@ -245,8 +245,8 @@ public class DynamicRecordRuntime implements AutoCloseable {
         );
     }
 
-    /** Checks dynamic referrers for an arbitrary platform reference target. */
-    public void validateReferenceTargetDeletion(ReferenceTarget target, String targetId) {
+    /** Checks dynamic referrers before an arbitrary platform reference target becomes unavailable. */
+    public void validateReferenceTargetUnavailable(ReferenceTarget target, String targetId) {
         if (target == null || targetId == null || targetId.isBlank()) {
             return;
         }
@@ -264,6 +264,16 @@ public class DynamicRecordRuntime implements AutoCloseable {
                             + "." + reference.sourceField() + " still reference it");
                 }
         }
+    }
+
+    /**
+     * Compatibility entry point for the delete guard.
+     *
+     * <p>Reference integrity applies whenever the target becomes unavailable, including
+     * soft deletion and disabling.</p>
+     */
+    public void validateReferenceTargetDeletion(ReferenceTarget target, String targetId) {
+        validateReferenceTargetUnavailable(target, targetId);
     }
 
     /**

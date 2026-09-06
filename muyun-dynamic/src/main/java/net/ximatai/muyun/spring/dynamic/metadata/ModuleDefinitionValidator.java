@@ -742,6 +742,9 @@ public class ModuleDefinitionValidator {
         if (action == null) {
             throw new ModuleDefinitionException("action must not be null");
         }
+        if (!action.enabled()) {
+            return;
+        }
         EntityDefinition entity = requireEntity(entities, action.entityAlias(), "action entity");
         requireActionCode(action.actionCode(), "action code");
         requireText(action.title(), "action title");

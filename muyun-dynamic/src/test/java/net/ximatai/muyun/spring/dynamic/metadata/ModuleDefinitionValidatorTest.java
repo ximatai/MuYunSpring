@@ -286,6 +286,22 @@ class ModuleDefinitionValidatorTest {
     }
 
     @Test
+    void shouldIgnoreDisabledHistoricalStandardActionWhenValidatingTheActiveRuntime() {
+        ModuleDefinition module = ModuleDefinition.builder("sales.contract", "Contract")
+                .entities(List.of(contractEntity()))
+                .relations(List.of())
+                .references(List.of())
+                .views(List.of())
+                .associationViews(List.of())
+                .actions(List.of(new EntityActionDefinition("contract", "reference", "引用选择", false,
+                        EntityActionLevel.LIST, EntityActionCategory.STANDARD, EntityActionAccessMode.AUTH_REQUIRED,
+                        true, false, null, null, null, EntityActionExecutorType.STANDARD, null)))
+                .build();
+
+        validator.validate(module);
+    }
+
+    @Test
     void shouldRejectDialogActionWithoutExecutorKey() {
         ModuleDefinition module = ModuleDefinition.builder("sales.contract", "Contract")
                 .entities(List.of(contractEntity()))

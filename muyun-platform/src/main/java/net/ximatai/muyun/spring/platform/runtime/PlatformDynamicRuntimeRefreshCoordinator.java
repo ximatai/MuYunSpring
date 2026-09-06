@@ -7,6 +7,8 @@ import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.dynamic.refresh.DynamicModuleRefreshResult;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 import net.ximatai.muyun.spring.platform.metadata.MetadataView;
@@ -72,6 +74,22 @@ public class PlatformDynamicRuntimeRefreshCoordinator {
 
     public List<DynamicModuleRefreshResult> refreshModule(String moduleAlias) {
         return refreshModules(List.of(PlatformNameRules.requireModuleAlias(moduleAlias)));
+    }
+
+    /** Action catalogues exist before MAIN metadata; compile only once the module is configured. */
+    public void refreshConfiguredModule(String moduleAlias) {
+        String alias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        String tenantId = TenantContext.currentTenantId().orElse(null);
+        String systemReason = TenantContext.systemReason().orElse(null);
+        TransactionScopeSupport.afterCommitOrNow(() -> {
+            try (TenantContext.Scope ignored = systemReason == null
+                    ? TenantContext.use(tenantId) : TenantContext.system(systemReason)) {
+                if (!relationService().list(Criteria.of().eq("moduleAlias", alias)
+                        .eq("relationRole", RelationRole.MAIN), new PageRequest(0, 1)).isEmpty()) {
+                    refreshService().activateNow(alias);
+                }
+            }
+        });
     }
 
     public List<DynamicModuleRefreshResult> refreshByRelation(ModuleMetadataRelation relation) {

@@ -1211,6 +1211,63 @@ it('module client unwraps dynamic record transport into the shared record contra
   }
 });
 
+it('module tree client unwraps dynamic record envelopes at every tree depth', async () => {
+  const originalFetch = globalThis.fetch;
+  const rootRecord = {
+    id: 'project-root',
+    version: 1,
+    values: { title: '实验室升级项目', projectCode: 'PROJ-01' },
+    children: {},
+  };
+  const childRecord = {
+    id: 'project-child',
+    version: 0,
+    values: { title: '设备安装调试', projectCode: 'PROJ-01-01' },
+    children: {},
+  };
+  const tree = {
+    records: [{ record: rootRecord, children: [{ record: childRecord, children: [] }] }],
+  };
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    if (url.searchParams.get('flat') === 'true') {
+      return Response.json({ records: [rootRecord, childRecord] });
+    }
+    return Response.json(tree);
+  };
+
+  try {
+    const client = createModuleTreeClient<Record<string, unknown>>(
+      createHttpClient({ baseUrl: 'http://api.local' }),
+      { moduleAlias: 'education.project' },
+    );
+
+    const expectedRoot = {
+      id: 'project-root',
+      version: 1,
+      title: '实验室升级项目',
+      projectCode: 'PROJ-01',
+    };
+    const expectedChild = {
+      id: 'project-child',
+      version: 0,
+      title: '设备安装调试',
+      projectCode: 'PROJ-01-01',
+    };
+
+    assert.deepEqual(await client.tree(), {
+      records: [{ record: expectedRoot, children: [{ record: expectedChild, children: [] }] }],
+    });
+    assert.deepEqual(await client.subtree('project-root'), {
+      records: [{ record: expectedRoot, children: [{ record: expectedChild, children: [] }] }],
+    });
+    assert.deepEqual(await client.treeFlat(), { records: [expectedRoot, expectedChild] });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 it('static module tree client maps standard CRUD and tree endpoints by module alias', async () => {
   const requests: Request[] = [];
   const originalFetch = globalThis.fetch;

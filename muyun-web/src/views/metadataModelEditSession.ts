@@ -135,10 +135,31 @@ export function createMetadataModelWorkspaceEditSession() {
     return (key && current?.fieldProperties[key]) || emptyFieldPropertyDraft('BASIC');
   }
 
-  function stageField(relationId: string, field: MetadataField, property?: MetadataFieldPropertyDraft) {
+  function stageField(
+    relationId: string,
+    field: MetadataField,
+    property?: MetadataFieldPropertyDraft,
+    replaceNewFieldKey?: string,
+  ) {
     const current = relation(relationId);
     const key = fieldKey(field);
     if (!current || !key) return;
+    // A failed preview keeps the local session open. If the author then corrects an unsaved
+    // field's technical name, replace that provisional ADD instead of emitting two columns.
+    if (replaceNewFieldKey && replaceNewFieldKey !== key && !current.fields[replaceNewFieldKey]?.id) {
+      const fields = { ...current.fields };
+      delete fields[replaceNewFieldKey];
+      current.fields = fields;
+      const properties = { ...current.fieldProperties };
+      delete properties[replaceNewFieldKey];
+      current.fieldProperties = properties;
+      current.fieldOrder = current.fieldOrder.map((fieldId) =>
+        fieldId === replaceNewFieldKey ? key : fieldId,
+      );
+      current.sortableFieldIds = current.sortableFieldIds.map((fieldId) =>
+        fieldId === replaceNewFieldKey ? key : fieldId,
+      );
+    }
     current.fields = { ...current.fields, [key]: { ...field } };
     if (!current.fieldOrder.includes(key)) current.fieldOrder = [...current.fieldOrder, key];
     if (property)

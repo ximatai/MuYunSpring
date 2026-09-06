@@ -258,6 +258,29 @@ it('renders an editable local child-table preview from the server-resolved proje
   expect(wrapper.text()).toContain('可直接编辑示例值以检查编辑态');
 });
 
+it('uses relation value facts for the same scalar editor families as the runtime form', () => {
+  const value = descriptorWithRelation();
+  const relation = value.detailRelations![0];
+  relation.listProjection!.fields = [
+    { fieldName: 'deliveryDate', title: '交付日期', valueType: 'DATE' },
+    { fieldName: 'amount', title: '含税单价', valueType: 'DECIMAL' },
+    { fieldName: 'urgent', title: '紧急采购', valueType: 'BOOLEAN' },
+  ];
+  const wrapper = mount(PageCompositionDescriptorPreview, {
+    attachTo: document.body,
+    props: {
+      descriptor: value,
+      moduleAlias: 'platform.module',
+      mode: 'edit',
+    },
+    global: { stubs: { UiDataTable: tableStub } },
+  });
+
+  expect(wrapper.get('input[aria-label="参考学生：交付日期"]').attributes('type')).toBe('date');
+  expect(wrapper.get('input[aria-label="参考学生：含税单价"]').attributes('type')).toBe('number');
+  expect(wrapper.getComponent({ name: 'UiSwitch' }).props('checked')).toBe(true);
+});
+
 it.each([null, undefined])(
   'preserves a cleared form sample (%s) across descriptor updates',
   async (value) => {
