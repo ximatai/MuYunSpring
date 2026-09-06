@@ -26,10 +26,6 @@ it('keeps management quick search as a constrained template component', () => {
     workspaceSource,
     /state\.updateQuickSearchPlaceholder\([\s\S]*tree\.props\?\.list\?\.searchPlaceholder/,
   );
-  assert.match(
-    workspaceSource,
-    /if \(!confirmed \|\| isMutating\.value\) return;[\s\S]*hydrateDraft\(revision\.value\)/,
-  );
 });
 
 it('keeps metadata quick addition explicit and keyboard-reachable', () => {

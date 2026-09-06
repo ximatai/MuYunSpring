@@ -9,7 +9,13 @@ import {
   presentPlatformError,
 } from '@muyun/platform-components';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
-import { createStaticResourceCrudClient, useModuleContext, type ModuleCrudClient } from '@muyun/web-core';
+import {
+  createStaticResourceCrudClient,
+  normalizeError,
+  platformErrorCodes,
+  useModuleContext,
+  type ModuleCrudClient,
+} from '@muyun/web-core';
 import {
   confirmAction,
   UiButton,
@@ -104,6 +110,9 @@ let previewDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let workspaceLoadSequence = 0;
 let metadataLoadSequence = 0;
 const draftParseError = ref<string>();
+const draftConflict = ref(false);
+const compositionLoading = ref(false);
+let compositionLoadSequence = 0;
 
 const previewTabs: UiTabItem[] = [
   { key: 'list', title: '列表预览' },
@@ -175,7 +184,9 @@ const hasUnsavedChanges = computed(() =>
   Boolean(revision.value?.id && savedUiTreeJson.value !== currentUiTreeJson.value),
 );
 useWorkspaceViewUnsavedState('页面配置', () => hasUnsavedChanges.value);
-const isMutating = computed(() => saving.value || publishing.value || loading.value);
+const isMutating = computed(
+  () => saving.value || publishing.value || loading.value || compositionLoading.value,
+);
 const unavailableSources = computed(() =>
   [
     ...state.listFields.value,
@@ -261,6 +272,16 @@ watch(
     revision.value = undefined;
     variant.value = undefined;
     draftParseError.value = undefined;
+    draftConflict.value = false;
+    saving.value = false;
+    publishing.value = false;
+    compositionLoading.value = false;
+    propertyDrawerOpen.value = false;
+    page.value = undefined;
+    publishedRevision.value = undefined;
+    state.replaceFields({ list: [], form: [] });
+    state.updateQuickSearchPlaceholder(undefined);
+    savedUiTreeJson.value = undefined;
     void loadWorkspace();
   },
   { immediate: true },
@@ -426,44 +447,66 @@ function childRelationNodes(parentMetadataId?: string): UiTreeNode[] {
 
 async function loadComposition(requestSequence = workspaceLoadSequence, moduleAlias = props.moduleAlias) {
   if (requestSequence !== workspaceLoadSequence) return;
-  resetPreviewDescriptor();
-  page.value = undefined;
-  variant.value = undefined;
-  revision.value = undefined;
-  publishedRevision.value = undefined;
-  state.replaceFields({ list: [], form: [] });
-  state.updateQuickSearchPlaceholder(undefined);
-  savedUiTreeJson.value = undefined;
+  const sequence = ++compositionLoadSequence;
+  const current = () => requestSequence === workspaceLoadSequence && sequence === compositionLoadSequence;
+  compositionLoading.value = true;
   try {
     const pages = await loadAllFromClient(pageClient(moduleAlias), [
       { fieldName: 'alias', operator: 'EQ', values: ['management'] },
     ]);
-    if (requestSequence !== workspaceLoadSequence) return;
-    page.value = pages[0];
-    if (!page.value?.id) return;
-    const variants = await loadAllFromClient(variantClient(moduleAlias, page.value.id), [
-      { fieldName: 'clientType', operator: 'EQ', values: [pageCompositionTransport.webClient] },
-      { fieldName: 'scopeType', operator: 'EQ', values: [pageCompositionTransport.globalScope] },
-    ]);
-    if (requestSequence !== workspaceLoadSequence) return;
-    variant.value = variants[0];
-    if (!variant.value?.id) return;
-    const [drafts, published] = await Promise.all([
-      loadAllFromClient(revisionClient(variant.value.id), [
-        { fieldName: 'status', operator: 'EQ', values: [pageCompositionTransport.draftRevision] },
-      ]),
-      loadAllFromClient(revisionClient(variant.value.id), [
-        { fieldName: 'status', operator: 'EQ', values: [pageCompositionTransport.publishedRevision] },
-      ]),
-    ]);
-    if (requestSequence !== workspaceLoadSequence) return;
+    if (!current()) return;
+    const nextPage = pages[0];
+    const variants = nextPage?.id
+      ? await loadAllFromClient(variantClient(moduleAlias, nextPage.id), [
+          { fieldName: 'clientType', operator: 'EQ', values: [pageCompositionTransport.webClient] },
+          { fieldName: 'scopeType', operator: 'EQ', values: [pageCompositionTransport.globalScope] },
+        ])
+      : [];
+    if (!current()) return;
+    const nextVariant = variants[0];
+    const [drafts, published] = nextVariant?.id
+      ? await Promise.all([
+          loadAllFromClient(revisionClient(nextVariant.id), [
+            { fieldName: 'status', operator: 'EQ', values: [pageCompositionTransport.draftRevision] },
+          ]),
+          loadAllFromClient(revisionClient(nextVariant.id), [
+            { fieldName: 'status', operator: 'EQ', values: [pageCompositionTransport.publishedRevision] },
+          ]),
+        ])
+      : [[], []];
+    if (!current()) return;
+    // Replace the working copy only after the complete snapshot arrives. A failed reload keeps local edits.
+    resetPreviewDescriptor();
+    page.value = nextPage;
+    variant.value = nextVariant;
     revision.value = latestRevision(drafts);
     publishedRevision.value = latestRevision(published);
+    draftConflict.value = false;
+    draftParseError.value = undefined;
+    state.replaceFields({ list: [], form: [] });
+    state.updateQuickSearchPlaceholder(undefined);
+    savedUiTreeJson.value = undefined;
     hydrateDraft(revision.value);
+    propertyDrawerOpen.value = false;
   } catch (cause) {
-    if (requestSequence === workspaceLoadSequence)
-      presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+    if (current()) presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+  } finally {
+    if (current()) compositionLoading.value = false;
   }
+}
+
+async function reloadComposition() {
+  if (isMutating.value) return;
+  const sequence = workspaceLoadSequence;
+  if (hasUnsavedChanges.value) {
+    const confirmed = await confirmAction({
+      title: '加载最新草稿',
+      content: '加载成功后将替换当前编排，并放弃尚未保存的本地修改。是否继续？',
+      okText: '加载最新草稿',
+    });
+    if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value) return;
+  }
+  await loadComposition();
 }
 
 function resetPreviewDescriptor() {
@@ -639,11 +682,14 @@ function hydrateDraft(current: PresentationRevision | undefined, markSaved = tru
 
 async function initializeComposition() {
   if (isMutating.value || !relation.value?.id) return;
+  const sequence = workspaceLoadSequence;
+  const current = () => sequence === workspaceLoadSequence;
+  const moduleAlias = props.moduleAlias;
   saving.value = true;
   try {
     if (!page.value) {
-      page.value = (
-        await pageClient().insert({
+      const createdPage = (
+        await pageClient(moduleAlias).insert({
           alias: 'management',
           contractType: pageCompositionTransport.managementContract,
           mainRelationId: relation.value.id,
@@ -651,25 +697,30 @@ async function initializeComposition() {
           enabled: true,
         })
       ).record;
+      if (!current()) return;
+      page.value = createdPage;
     }
-    if (!page.value.id) return;
+    if (!page.value?.id) return;
     if (!variant.value) {
-      variant.value = (
-        await variantClient(props.moduleAlias, page.value.id).insert({
+      const createdVariant = (
+        await variantClient(moduleAlias, page.value.id).insert({
           clientType: pageCompositionTransport.webClient,
           scopeType: pageCompositionTransport.globalScope,
           title: 'Web 全局呈现',
           enabled: true,
         })
       ).record;
+      if (!current()) return;
+      variant.value = createdVariant;
     }
-    if (!variant.value.id || revision.value) return;
+    if (!variant.value?.id || revision.value) return;
     const revisions = await loadAllFromClient(revisionClient(variant.value.id));
+    if (!current()) return;
     const latestPublished = latestRevision(
       revisions.filter((item) => item.status === pageCompositionTransport.publishedRevision),
     );
     const treeJsonToPersist = latestPublished?.uiTreeJson ?? currentUiTreeJson.value;
-    revision.value = (
+    const createdRevision = (
       await revisionClient(variant.value.id).insert({
         revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
         templateAlias: latestPublished?.templateAlias ?? 'management',
@@ -680,12 +731,15 @@ async function initializeComposition() {
         enabled: true,
       })
     ).record;
+    if (!current()) return;
+    revision.value = createdRevision;
     if (latestPublished) publishedRevision.value = latestPublished;
     hydrateDraft(revision.value);
   } catch (cause) {
+    if (!current()) return;
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
   } finally {
-    saving.value = false;
+    if (current()) saving.value = false;
   }
 }
 
@@ -695,6 +749,8 @@ async function saveDraft(
 ): Promise<boolean> {
   if (
     draftParseError.value ||
+    draftConflict.value ||
+    compositionLoading.value ||
     loading.value ||
     saving.value ||
     (!allowDuringPublish && publishing.value) ||
@@ -702,46 +758,64 @@ async function saveDraft(
     !variant.value?.id
   )
     return false;
+  const sequence = workspaceLoadSequence;
+  const variantId = variant.value.id;
+  const candidate = revision.value;
+  const current = () => sequence === workspaceLoadSequence;
   saving.value = true;
   try {
-    revision.value = (
-      await revisionClient(variant.value.id).update(revision.value.id, {
-        ...revision.value,
-        uiTreeJson: treeJsonToPersist,
-      })
-    ).record;
+    const result = await revisionClient(variantId).update(candidate.id!, {
+      ...candidate,
+      uiTreeJson: treeJsonToPersist,
+    });
+    if (!current()) return false;
+    revision.value = result.record;
     savedUiTreeJson.value = treeJsonToPersist;
     return true;
   } catch (cause) {
+    if (!current()) return false;
+    if (normalizeError(cause).code === platformErrorCodes.conflictVersion) draftConflict.value = true;
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
     return false;
   } finally {
-    saving.value = false;
+    if (current()) saving.value = false;
   }
 }
 
 async function publishDraft() {
-  if (isMutating.value || unavailableSources.value.length || draftParseError.value || !revision.value?.id)
+  if (
+    isMutating.value ||
+    draftConflict.value ||
+    unavailableSources.value.length ||
+    draftParseError.value ||
+    !revision.value?.id
+  )
     return;
+  const sequence = workspaceLoadSequence;
+  const current = () => sequence === workspaceLoadSequence;
+  const variantId = variant.value?.id;
+  if (!variantId) return;
   const confirmed = await confirmAction({
     title: '发布页面修订',
     content: `将发布“${page.value?.title ?? '管理页'}”的草稿 v${revision.value.revisionNo}，目标为 Web · 全局，模板为 ${revision.value.templateAlias ?? 'management'} v${revision.value.templateVersion ?? 1}。发布会先保存并校验页面结构，随后替换该目标当前的已发布修订。是否继续？`,
     okText: '确认发布',
   });
-  if (!confirmed) return;
+  if (!confirmed || !current() || isMutating.value) return;
   const treeJsonToPublish = currentUiTreeJson.value;
   publishing.value = true;
   try {
-    if (!(await saveDraft(true, treeJsonToPublish))) return;
+    if (!(await saveDraft(true, treeJsonToPublish)) || !current()) return;
     const publicationCandidate = revision.value;
     await moduleContext.http.request<number>({
       method: 'POST',
-      path: `/platform.presentation_publish/revisions/${encodeURIComponent(revision.value.id)}/publish`,
+      path: `/platform.presentation_publish/revisions/${encodeURIComponent(publicationCandidate.id!)}/publish`,
     });
     try {
-      await createFollowUpDraft(publicationCandidate, treeJsonToPublish);
+      await createFollowUpDraft(variantId, publicationCandidate, treeJsonToPublish);
     } catch {
+      if (!current()) return;
       await loadComposition();
+      if (!current()) return;
       presentPlatformError(
         new Error(
           `草稿 v${publicationCandidate.revisionNo ?? 1} 已发布，但未能生成后续草稿；请基于最近发布修订重新创建草稿。`,
@@ -750,31 +824,36 @@ async function publishDraft() {
       );
       return;
     }
-    await loadComposition();
+    if (current()) await loadComposition();
   } catch (cause) {
+    if (!current()) return;
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
   } finally {
-    publishing.value = false;
+    if (current()) publishing.value = false;
   }
 }
 
 async function discardUnsavedChanges() {
   if (!revision.value || !hasUnsavedChanges.value || isMutating.value) return;
+  const sequence = workspaceLoadSequence;
   const confirmed = await confirmAction({
     title: '放弃本次更改',
     content: `将撤销当前草稿 v${revision.value.revisionNo} 尚未保存的本地调整，已保存的草稿内容不会受影响。是否继续？`,
     okText: '放弃更改',
   });
-  if (!confirmed || isMutating.value) return;
+  if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value) return;
   hydrateDraft(revision.value);
   propertyDrawerOpen.value = false;
 }
 
 /** Keeps a stable editable working copy after an immutable revision becomes published. */
-async function createFollowUpDraft(publishedRevision: PresentationRevision, uiTreeJson: string) {
-  if (!variant.value?.id) return;
-  const revisions = await loadAllFromClient(revisionClient(variant.value.id));
-  await revisionClient(variant.value.id).insert({
+async function createFollowUpDraft(
+  variantId: string,
+  publishedRevision: PresentationRevision,
+  uiTreeJson: string,
+) {
+  const revisions = await loadAllFromClient(revisionClient(variantId));
+  await revisionClient(variantId).insert({
     revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
     templateAlias: publishedRevision.templateAlias ?? 'management',
     templateVersion: publishedRevision.templateVersion ?? 1,
@@ -1445,84 +1524,99 @@ function applyPropertyDraft() {
     </ManagementExplorerColumn>
 
     <ManagementExplorerColumn>
-      <RecordExplorerPanel title="页面结构" :searchable="false">
-        <div v-if="state.selectedNode.value" class="ui-tree__contextbar">
-          <span>已选：{{ selectedFieldLabel }}</span>
-          <div class="ui-tree__operations">
-            <UiButton
-              v-if="state.selectedNode.value?.slot === 'form'"
-              size="small"
-              :disabled="isMutating"
-              @click="state.addFormGroup"
-            >
-              添加分组
-            </UiButton>
-            <UiButton size="small" :disabled="isMutating" @click="openPropertyDrawer">配置</UiButton>
-            <template v-if="selectedField || (selectedRelation && !selectedRelationField)">
+      <RecordExplorerPanel
+        title="页面结构"
+        :searchable="false"
+        :refresh-disabled="isMutating"
+        @refresh="reloadComposition"
+      >
+        <template #footer>
+          <div class="ui-tree__contextbar">
+            <span>{{
+              state.selectedNode.value ? `已选：${selectedFieldLabel}` : '选择组件后可配置或调整'
+            }}</span>
+            <div v-if="state.selectedNode.value" class="ui-tree__operations">
               <UiButton
+                v-if="state.selectedNode.value?.slot === 'form'"
                 size="small"
-                :disabled="isMutating || Boolean(selectedRelation) || !canMoveSelectedField(-1)"
-                title="已在首位"
-                @click="moveSelectedField(-1)"
+                :disabled="isMutating"
+                @click="state.addFormGroup"
               >
-                上移
+                添加分组
               </UiButton>
               <UiButton
+                v-if="selectedField || selectedQuickSearch || selectedGroup"
                 size="small"
-                :disabled="isMutating || Boolean(selectedRelation) || !canMoveSelectedField(1)"
-                title="已在末位"
-                @click="moveSelectedField(1)"
+                :disabled="isMutating"
+                @click="openPropertyDrawer"
+                >配置</UiButton
               >
-                下移
-              </UiButton>
-              <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
-                移除
-              </UiButton>
-            </template>
-            <template v-else-if="selectedGroupNode">
-              <UiButton
-                size="small"
-                :disabled="isMutating || !canMoveSelectedGroup(-1)"
-                title="已在首位"
-                @click="moveSelectedGroup(-1)"
-              >
-                上移分组
-              </UiButton>
-              <UiButton
-                size="small"
-                :disabled="isMutating || !canMoveSelectedGroup(1)"
-                title="已在末位"
-                @click="moveSelectedGroup(1)"
-              >
-                下移分组
-              </UiButton>
-              <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
-                移除分组
-              </UiButton>
-            </template>
-            <template v-else-if="selectedRelationField && selectedRelation">
-              <UiButton
-                size="small"
-                :disabled="isMutating || !canMoveSelectedRelationField(-1)"
-                title="已在首位"
-                @click="moveSelectedRelationField(-1)"
-              >
-                上移
-              </UiButton>
-              <UiButton
-                size="small"
-                :disabled="isMutating || !canMoveSelectedRelationField(1)"
-                title="已在末位"
-                @click="moveSelectedRelationField(1)"
-              >
-                下移
-              </UiButton>
-              <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
-                移除
-              </UiButton>
-            </template>
+              <template v-if="selectedField || (selectedRelation && !selectedRelationField)">
+                <UiButton
+                  size="small"
+                  :disabled="isMutating || Boolean(selectedRelation) || !canMoveSelectedField(-1)"
+                  title="已在首位"
+                  @click="moveSelectedField(-1)"
+                >
+                  上移
+                </UiButton>
+                <UiButton
+                  size="small"
+                  :disabled="isMutating || Boolean(selectedRelation) || !canMoveSelectedField(1)"
+                  title="已在末位"
+                  @click="moveSelectedField(1)"
+                >
+                  下移
+                </UiButton>
+                <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
+                  移除
+                </UiButton>
+              </template>
+              <template v-else-if="selectedGroupNode">
+                <UiButton
+                  size="small"
+                  :disabled="isMutating || !canMoveSelectedGroup(-1)"
+                  title="已在首位"
+                  @click="moveSelectedGroup(-1)"
+                >
+                  上移分组
+                </UiButton>
+                <UiButton
+                  size="small"
+                  :disabled="isMutating || !canMoveSelectedGroup(1)"
+                  title="已在末位"
+                  @click="moveSelectedGroup(1)"
+                >
+                  下移分组
+                </UiButton>
+                <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
+                  移除分组
+                </UiButton>
+              </template>
+              <template v-else-if="selectedRelationField && selectedRelation">
+                <UiButton
+                  size="small"
+                  :disabled="isMutating || !canMoveSelectedRelationField(-1)"
+                  title="已在首位"
+                  @click="moveSelectedRelationField(-1)"
+                >
+                  上移
+                </UiButton>
+                <UiButton
+                  size="small"
+                  :disabled="isMutating || !canMoveSelectedRelationField(1)"
+                  title="已在末位"
+                  @click="moveSelectedRelationField(1)"
+                >
+                  下移
+                </UiButton>
+                <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
+                  移除
+                </UiButton>
+              </template>
+            </div>
           </div>
-        </div>
+        </template>
         <div class="ui-tree" data-testid="page-composer-ui-tree">
           <PageCompositionTree
             :list-fields="state.listFields.value"
@@ -1562,7 +1656,7 @@ function applyPropertyDraft() {
           <template v-else>
             <UiButton
               :loading="saving"
-              :disabled="isMutating || !hasUnsavedChanges"
+              :disabled="isMutating || draftConflict || !hasUnsavedChanges"
               @click="() => void saveDraft()"
             >
               保存草稿
@@ -1573,7 +1667,9 @@ function applyPropertyDraft() {
             <UiButton
               type="primary"
               :loading="publishing"
-              :disabled="isMutating || unavailableSources.length > 0 || Boolean(draftParseError)"
+              :disabled="
+                isMutating || draftConflict || unavailableSources.length > 0 || Boolean(draftParseError)
+              "
               @click="publishDraft"
             >
               发布草稿
@@ -1581,6 +1677,10 @@ function applyPropertyDraft() {
           </template>
         </div>
       </template>
+      <div v-if="draftConflict" class="page-composition-conflict" role="alert">
+        <span>草稿已被其他会话更新，本地修改已保留。请加载最新草稿后继续编辑。</span>
+        <UiButton :disabled="isMutating" @click="reloadComposition">加载最新草稿</UiButton>
+      </div>
       <p
         v-if="unavailableSources.length || draftParseError"
         class="page-composition-source-error"
@@ -1724,6 +1824,14 @@ function applyPropertyDraft() {
 </template>
 
 <style scoped>
+.page-composition-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--muyun-danger-base);
+}
 .page-composition-source-error {
   color: var(--muyun-danger-base);
 }
@@ -1770,13 +1878,14 @@ function applyPropertyDraft() {
 }
 .ui-tree__contextbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 8px;
+  width: 100%;
+  height: 112px;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: start;
   flex: 0 0 auto;
-  margin-bottom: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--muyun-border-subtle);
   color: var(--muyun-text-muted);
   font-size: 12px;
 }
@@ -1786,6 +1895,9 @@ function applyPropertyDraft() {
   white-space: nowrap;
 }
 .ui-tree__operations {
+  overflow-y: auto;
+  max-height: 100%;
+  align-content: start;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -1826,7 +1938,7 @@ function applyPropertyDraft() {
   line-height: 1.5;
 }
 .page-composition-preview-status--error {
-  color: var(--muyun-danger);
+  color: var(--muyun-danger-base);
 }
 .page-composition-preview-empty {
   min-height: 280px;
@@ -1855,11 +1967,8 @@ function applyPropertyDraft() {
   line-height: 1.55;
 }
 .component-property-drawer__error {
-  color: var(--muyun-danger);
+  color: var(--muyun-danger-base);
   font-size: 12px;
   line-height: 1.4;
 }
 </style>
-const groupMatch = /^ui:group:form:(.+)$/.exec(key); if (groupMatch) return { kind: 'group', groupId:
-groupMatch[1] }; const groupFieldMatch = /^ui:group-field:form:(.+):(.+)$/.exec(key); if (groupFieldMatch)
-return { kind: 'groupField', groupId: groupFieldMatch[1], fieldId: groupFieldMatch[2] };

@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
+import { AppError, configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
 import PageCompositionDescriptorPreview from '@/views/PageCompositionDescriptorPreview.vue';
 import PageCompositionWorkspace from '@/views/PageCompositionWorkspace.vue';
 import PageCompositionTree from '@/views/PageCompositionTree.vue';
@@ -67,6 +67,143 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect((followUpRequest.body as { status: string }).status).toBe('draft');
     expect(vi.mocked(confirmAction)).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['保存草稿', '发布草稿'])(
+    'preserves local edits after a conflict from %s and explicitly reloads the latest snapshot',
+    async (action) => {
+      const requests: HttpRequestOptions[] = [];
+      const http = publicationFlowHttp(requests);
+      const original = http.request;
+      let failReload = false;
+      vi.spyOn(http, 'request').mockImplementation((request) => {
+        if (request.path.endsWith('/update/revision-1')) {
+          requests.push(request);
+          return Promise.reject(
+            new AppError('数据已被更新，请刷新后重试', { code: 'CONFLICT_VERSION', status: 409 }),
+          );
+        }
+        if (failReload && request.path.endsWith('/pages/query')) return Promise.reject(new Error('读取失败'));
+        return original(request);
+      });
+      configureModuleContext({ http });
+      vi.mocked(confirmAction).mockResolvedValue(true);
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam' },
+        global: { stubs: workspaceStubs() },
+      });
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      const button = (name: string) => wrapper.findAll('button').find((item) => item.text() === name)!;
+      tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+      await flushPromises();
+      await button(action).trigger('click');
+      await flushPromises();
+      expect(wrapper.get('[role="alert"]').text()).toContain('本地修改已保留');
+      expect(tree.props('listFields')).toHaveLength(1);
+      expect(wrapper.text()).toContain('未保存更改');
+      expect(button('保存草稿').attributes('disabled')).toBeDefined();
+      expect(button('发布草稿').attributes('disabled')).toBeDefined();
+      expect(requests.some((request) => request.path.endsWith('/publish'))).toBe(false);
+      expect(requests.filter((request) => request.path.endsWith('/update/revision-1'))).toHaveLength(1);
+
+      vi.mocked(confirmAction).mockResolvedValue(false);
+      await button('加载最新草稿').trigger('click');
+      await flushPromises();
+      expect(tree.props('listFields')).toHaveLength(1);
+      failReload = true;
+      vi.mocked(confirmAction).mockResolvedValue(true);
+      await button('加载最新草稿').trigger('click');
+      await flushPromises();
+      expect(tree.props('listFields')).toHaveLength(1);
+      expect(wrapper.get('[role="alert"]').text()).toContain('本地修改已保留');
+      failReload = false;
+      await button('加载最新草稿').trigger('click');
+      await flushPromises();
+      expect(tree.props('listFields')).toEqual([]);
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('未保存更改');
+      expect(button('发布草稿').attributes('disabled')).toBeUndefined();
+      wrapper.unmount();
+    },
+  );
+
+  it('discards local edits only after confirmation and preserves them when cancelled', async () => {
+    configureModuleContext({ http: publicationFlowHttp([]) });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    const tree = wrapper.findComponent(PageCompositionTree);
+    tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+    await flushPromises();
+    const discard = () => wrapper.findAll('button').find((item) => item.text() === '放弃本次更改')!;
+    vi.mocked(confirmAction).mockResolvedValue(false);
+    await discard().trigger('click');
+    await flushPromises();
+    expect(tree.props('listFields')).toHaveLength(1);
+    expect(wrapper.text()).toContain('未保存更改');
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    await discard().trigger('click');
+    await flushPromises();
+    expect(tree.props('listFields')).toEqual([]);
+    expect(wrapper.text()).not.toContain('未保存更改');
+    wrapper.unmount();
+  });
+
+  it.each(['success', 'conflict'] as const)(
+    'ignores a late save %s after switching modules',
+    async (outcome) => {
+      const requests: HttpRequestOptions[] = [];
+      const http = publicationFlowHttp(requests);
+      const original = http.request;
+      const pending = deferred<unknown>();
+      let saveBody: unknown;
+      vi.spyOn(http, 'request').mockImplementation((request) => {
+        if (request.path.endsWith('/update/revision-1')) {
+          saveBody = request.body;
+          return pending.promise.then((result) => {
+            if (result instanceof Error) throw result;
+            return result;
+          }) as never;
+        }
+        return original({ ...request, path: request.path.replace('education.next', 'education.exam') });
+      });
+      configureModuleContext({ http });
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam' },
+        global: { stubs: workspaceStubs() },
+      });
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+      await flushPromises();
+      await wrapper
+        .findAll('button')
+        .find((item) => item.text() === '保存草稿')!
+        .trigger('click');
+      await flushPromises();
+      expect(saveBody).toBeDefined();
+      await wrapper.setProps({ moduleAlias: 'education.next' });
+      await flushPromises();
+      pending.resolve(
+        outcome === 'conflict'
+          ? new AppError('旧模块冲突', { code: 'CONFLICT_VERSION', status: 409 })
+          : { ...(saveBody as object), id: 'old-revision', version: 2 },
+      );
+      await flushPromises();
+      expect(tree.props('listFields')).toEqual([]);
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('未保存更改');
+      expect(
+        wrapper
+          .findAll('button')
+          .find((item) => item.text() === '发布草稿')!
+          .attributes('disabled'),
+      ).toBeUndefined();
+      wrapper.unmount();
+    },
+  );
 
   it('ignores an older module load after the workspace switches modules', async () => {
     const requests: HttpRequestOptions[] = [];
@@ -864,7 +1001,7 @@ function workspaceStubs() {
     ManagementExplorerColumn: { template: '<div><slot /></div>' },
     RecordExplorerPanel: {
       name: 'RecordExplorerPanel',
-      template: '<div><slot /><slot name="header-actions" /></div>',
+      template: '<div><slot /><slot name="header-actions" /><slot name="footer" /></div>',
     },
     RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
     RecordDetailDrawer: { template: '<aside><slot /></aside>' },
