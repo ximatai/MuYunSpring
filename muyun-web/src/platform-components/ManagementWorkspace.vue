@@ -69,6 +69,17 @@ const hasCollapsedExplorers = computed(() => collapsedExplorerCount.value > 0);
 const expandedExplorerCount = computed(() => Math.max(0, explorerCount.value - collapsedExplorerCount.value));
 const hasExplorer = computed(() => expandedExplorerCount.value > 0);
 const effectiveExplorerCount = computed(() => expandedExplorerCount.value);
+const composerColumns = computed(() => {
+  const registered = Object.values(explorers).sort((left, right) => left.order - right.order);
+  const widths = ['minmax(210px, 0.8fr)', 'minmax(280px, 1fr)'];
+  return [...widths.filter((_, index) => !registered[index]?.collapsed), 'minmax(0, 2fr)'].join(' ');
+});
+const composerRows = computed(() =>
+  [
+    ...Array.from({ length: effectiveExplorerCount.value }, () => 'minmax(120px, 0.5fr)'),
+    'minmax(0, 1.2fr)',
+  ].join(' '),
+);
 
 function registerExplorer(registration: ManagementWorkspaceExplorerRegistration) {
   const current = explorers[registration.id];
@@ -130,6 +141,8 @@ const pageLayout = usePageLayout();
       class="management-workspace__grid"
       :style="{
         '--muyun-management-explorer-count': String(effectiveExplorerCount),
+        '--muyun-management-composer-columns': composerColumns,
+        '--muyun-management-composer-rows': composerRows,
         '--muyun-management-collapsed-rail-width': hasCollapsedExplorers
           ? `${MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.railWidth}px`
           : '0px',
@@ -230,7 +243,7 @@ const pageLayout = usePageLayout();
    not a generic three-column layout. Keep the canvas flexible: it is the
    primary editing surface and must never be forced outside a workbench. */
 .management-workspace--composer > .management-workspace__grid {
-  grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(0, 2fr);
+  grid-template-columns: var(--muyun-management-composer-columns);
 }
 
 .management-workspace--composer > .management-workspace__grid > :nth-child(3) {
@@ -240,7 +253,7 @@ const pageLayout = usePageLayout();
 @media (max-width: 760px) {
   .management-workspace--composer > .management-workspace__grid {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(120px, 0.45fr) minmax(120px, 0.55fr) minmax(0, 1.2fr);
+    grid-template-rows: var(--muyun-management-composer-rows);
   }
 
   .management-workspace--composer > .management-workspace__grid > :nth-child(3) {

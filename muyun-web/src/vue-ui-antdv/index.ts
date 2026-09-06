@@ -85,6 +85,6 @@ export type {
   UiTreeDropEvent,
 } from './types';
 
-export { useUiDropTarget } from './useUiTreeDrag';
+export { useUiDropTarget, useUiDragSource } from './useUiTreeDrag';
 
 export { useTreeLoader as useTreeData } from './useTreeLoader';

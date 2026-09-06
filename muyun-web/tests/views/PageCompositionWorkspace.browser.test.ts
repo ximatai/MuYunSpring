@@ -33,7 +33,7 @@ it.each([1440, 980])(
       lastField.scrollIntoView({ block: 'end' });
       await page.elementLocator(lastField).dblClick();
       await expect.element(page.getByRole('textbox', { name: '展示标题', exact: true })).toBeVisible();
-      await page.getByRole('button', { name: '取 消', exact: true }).click();
+      await page.getByRole('button', { name: '关闭', exact: true }).click();
       const panels = wrapper.findAll('.record-explorer-panel');
       const root = wrapper.get('.management-workspace').element;
       expect(root.scrollWidth).toBeLessThanOrEqual(root.clientWidth + 1);
@@ -59,21 +59,43 @@ it.each([1440, 980])(
       await page.elementLocator(quick.element).dblClick();
       await expect.element(page.getByRole('textbox', { name: '搜索占位提示', exact: true })).toBeVisible();
       await page.getByRole('textbox', { name: '搜索占位提示', exact: true }).fill('布局验收');
-      await page.getByRole('button', { name: '应用到草稿', exact: true }).click();
+      await page.getByRole('button', { name: '关闭', exact: true }).click();
       await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeEnabled();
-      await page.getByRole('tab', { name: '编辑预览', exact: true }).click();
+      await page.getByText('详情', { exact: true }).click();
+      await expect
+        .poll(() => wrapper.find('[data-page-composition-layout-key="detail:field:field0"]').exists())
+        .toBe(true);
+      const detailField = wrapper.get('[data-page-composition-layout-key="detail:field:field0"]').element;
+      await page.elementLocator(detailField).dblClick();
+      await expect.element(page.getByRole('radio', { name: '详情', exact: true })).toBeChecked();
+      await expect.element(page.getByRole('textbox', { name: '展示标题', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: '关闭', exact: true }).click();
+      await page.getByText('表单', { exact: true }).click();
+      await expect.element(page.getByRole('radio', { name: '表单', exact: true })).toBeChecked();
       await expect.element(page.getByRole('textbox', { name: '字段59', exact: true })).toBeInTheDocument();
       const content = wrapper.get('.record-detail-panel-region .record-detail-layout-content')
         .element as HTMLElement;
       expect(content.scrollHeight).toBeGreaterThan(content.clientHeight);
       const save = page.getByRole('button', { name: '保存草稿', exact: true });
-      const header = wrapper.get('.record-detail-panel-region .management-panel-header').element;
+      const header = wrapper.get('.page-composition-workspace > .management-panel-header').element;
       const top = header.getBoundingClientRect().top;
       await page.getByRole('textbox', { name: '字段59', exact: true }).fill('末尾可编辑');
       expect(content.scrollTop).toBeGreaterThan(0);
       expect(header.getBoundingClientRect().top).toBe(top);
       await expect.element(save).toBeVisible();
       expect(root.getBoundingClientRect().bottom).toBeLessThanOrEqual(814);
+      const previewPanel = wrapper.get('.record-detail-panel-region').element;
+      const originalWidth = previewPanel.getBoundingClientRect().width;
+      await page.getByRole('button', { name: '收起可用字段', exact: true }).click();
+      await expect.poll(() => previewPanel.getBoundingClientRect().width).toBeGreaterThan(originalWidth);
+      const oneCollapsedWidth = previewPanel.getBoundingClientRect().width;
+      await page.getByRole('button', { name: '收起页面结构', exact: true }).click();
+      await expect.poll(() => previewPanel.getBoundingClientRect().width).toBeGreaterThan(oneCollapsedWidth);
+      await expect.poll(() => root.scrollWidth).toBeLessThanOrEqual(root.clientWidth + 1);
+      await page.getByRole('button', { name: '展开页面结构', exact: true }).click();
+      await page.getByRole('button', { name: '展开可用字段', exact: true }).click();
+      await expect.poll(() => previewPanel.getBoundingClientRect().width).toBeCloseTo(originalWidth, 0);
+      expect(wrapper.find('.record-explorer-panel-footer').exists()).toBe(false);
     } finally {
       wrapper.unmount();
     }

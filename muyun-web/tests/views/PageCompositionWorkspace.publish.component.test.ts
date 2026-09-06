@@ -271,7 +271,7 @@ describe('PageCompositionWorkspace publication flow', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('参考学生');
-    expect(wrapper.text()).toContain('子实体 · 拖入详情创建关联列表');
+    expect(wrapper.text()).toContain('子表');
     expect(wrapper.text()).toContain('学生姓名');
   });
 
@@ -449,13 +449,17 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(metadataField).toBeDefined();
     expect(preview.exists()).toBe(true);
 
-    preview.vm.$emit('metadata-drop', 'list', metadataDrop());
+    preview.vm.$emit(
+      'placement-drop',
+      { kind: 'metadata', metadata: metadataDrop() },
+      { container: { kind: 'list' }, position: 'inside' },
+    );
     await flushPromises();
 
     expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toMatchObject([
       { id: 'field-title', title: '考试名称' },
     ]);
-    expect(wrapper.text()).toContain('列表预览');
+    expect(wrapper.findComponent(PageCompositionDescriptorPreview).props('mode')).toBe('list');
   });
 
   it('repositions an already placed form field when dropped onto another group', async () => {
@@ -500,7 +504,7 @@ describe('PageCompositionWorkspace publication flow', () => {
     ]);
   });
 
-  it('removes a grouped field through the toolbar and reports a removal', async () => {
+  it('removes a grouped field through its node action and reports a removal', async () => {
     configureModuleContext({
       http: publicationFlowHttp(
         [],
@@ -521,12 +525,7 @@ describe('PageCompositionWorkspace publication flow', () => {
     await flushPromises();
     await flushPromises();
     const tree = wrapper.findComponent(PageCompositionTree);
-    tree.vm.$emit('select', 'ui:group-field:form:target:field-title');
-    await flushPromises();
-    await wrapper
-      .findAll('button')
-      .find((button) => button.text() === '移除')!
-      .trigger('click');
+    tree.vm.$emit('node-action', 'remove', 'ui:group-field:form:target:field-title');
     await flushPromises();
 
     expect(tree.props('formGroups')).toMatchObject([{ id: 'target', fields: [] }]);
@@ -535,6 +534,176 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(wrapper.text()).toContain('移除 1 个字段');
     expect(wrapper.text()).not.toContain('新增 1 个字段');
     wrapper.unmount();
+  });
+
+  it('updates properties directly in the local draft and blocks invalid widths across selection changes', async () => {
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({ http: publicationFlowHttp(requests) });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+      tree.vm.$emit('node-action', 'configure', 'ui:field:list:field-title');
+      await flushPromises();
+      const input = (title: string) =>
+        wrapper
+          .findAll('label')
+          .find((label) => label.text().startsWith(title))!
+          .get('input');
+      const button = (title: string) => wrapper.findAll('button').find((button) => button.text() === title)!;
+      await input('展示标题').setValue('自定义标题');
+      await input('列宽').setValue('bad width');
+      expect(tree.props('listFields')[0].properties).toEqual({ label: '自定义标题', width: 'bad width' });
+      expect(
+        requests.some((request) => request.path.includes('/update/') || request.path.endsWith('/publish')),
+      ).toBe(false);
+      expect(wrapper.text()).not.toContain('应用到草稿');
+      tree.vm.$emit('select', 'ui:template:list:quick-search');
+      await flushPromises();
+      expect(button('保存草稿').attributes('disabled')).toBeDefined();
+      expect(button('发布草稿').attributes('disabled')).toBeDefined();
+      await button('自定义标题').trigger('click');
+      expect((input('列宽').element as HTMLInputElement).value).toBe('bad width');
+      await input('列宽').setValue('160px');
+      expect(button('保存草稿').attributes('disabled')).toBeUndefined();
+      tree.vm.$emit('node-action', 'configure', 'ui:template:list:quick-search');
+      await flushPromises();
+      await input('搜索占位提示').setValue('搜索考试');
+      await button('保存草稿').trigger('click');
+      await flushPromises();
+      const saved = requests.find((request) => request.path.endsWith('/update/revision-1'))!.body as {
+        uiTreeJson: string;
+      };
+      const treeJson = JSON.parse(saved.uiTreeJson);
+      expect(treeJson.props.list.searchPlaceholder).toBe('搜索考试');
+      expect(treeJson.nodes[0].fields[0].props).toEqual({ label: '自定义标题', width: '160px' });
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it.each(['ui:group:form:basic', 'ui:relation:form:relation-participant'])(
+    'undoes removal of %s with its fields and properties, and expires undo after further edits',
+    async (key) => {
+      const draft = JSON.stringify({
+        template: 'management',
+        templateVersion: 1,
+        nodes: [
+          { slot: 'list', fields: [] },
+          {
+            slot: 'form',
+            fields: [],
+            groups: [
+              {
+                group: 'basic',
+                title: '基础信息',
+                fields: [{ field: 'title', props: { label: '标题', readOnly: true } }],
+              },
+            ],
+            relations: [{ relation: '参考学生', fields: ['studentName'] }],
+          },
+        ],
+      });
+      configureModuleContext({ http: publicationFlowHttp([], draft) });
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam' },
+        global: { stubs: workspaceStubs() },
+      });
+      try {
+        await flushPromises();
+        const tree = wrapper.findComponent(PageCompositionTree);
+        const before = JSON.stringify({
+          groups: tree.props('formGroups'),
+          relations: tree.props('formRelations'),
+        });
+        tree.vm.$emit('node-action', 'remove', key);
+        await flushPromises();
+        const undo = () => wrapper.findAll('button').find((button) => button.text() === '撤销移除');
+        expect(undo()).toBeDefined();
+        await undo()!.trigger('click');
+        expect(
+          JSON.stringify({ groups: tree.props('formGroups'), relations: tree.props('formRelations') }),
+        ).toBe(before);
+        expect(wrapper.text()).not.toContain('未保存更改');
+        tree.vm.$emit('node-action', 'remove', key);
+        await flushPromises();
+        tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+        await flushPromises();
+        expect(undo()).toBeUndefined();
+      } finally {
+        wrapper.unmount();
+      }
+    },
+  );
+
+  it('undoes a local removal even before the page has been initialized', async () => {
+    const http = publicationFlowHttp([]);
+    const original = http.request;
+    vi.spyOn(http, 'request').mockImplementation((request) =>
+      request.path.endsWith('/pages/query') ? (Promise.resolve(page([])) as never) : original(request),
+    );
+    configureModuleContext({ http });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('metadata-drop', { kind: 'list' }, metadataDrop());
+      tree.vm.$emit('node-action', 'remove', 'ui:field:list:field-title');
+      await flushPromises();
+      expect(tree.props('listFields')).toEqual([]);
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === '撤销移除')!
+        .trigger('click');
+      expect(tree.props('listFields')).toHaveLength(1);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('adds source fields to explicit destinations through node actions without changing metadata', async () => {
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({ http: publicationFlowHttp(requests) });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const source = wrapper.findComponent({ name: 'UiTree' });
+      const tree = wrapper.findComponent(PageCompositionTree);
+      const field = treeNode(source.props('nodes'), 'metadata:field:field-title');
+      source.vm.$emit('action', { key: 'add-list' }, field);
+      await flushPromises();
+      expect(tree.props('listFields')).toHaveLength(1);
+      expect(tree.props('formFields')).toEqual([]);
+      source.vm.$emit('action', { key: 'add-form' }, field);
+      source.vm.$emit(
+        'action',
+        { key: 'add-form' },
+        treeNode(source.props('nodes'), 'metadata:relation-field:relation-participant:field-student-name'),
+      );
+      await flushPromises();
+      expect(tree.props('formFields')).toHaveLength(1);
+      expect(tree.props('formRelations')[0].fields).toMatchObject([{ fieldName: 'studentName' }]);
+      expect(
+        requests.filter(
+          (request) =>
+            request.path.includes('/insert') ||
+            request.path.includes('/update') ||
+            request.path.includes('/delete'),
+        ),
+      ).toEqual([]);
+    } finally {
+      wrapper.unmount();
+    }
   });
 
   it('sends the dropped draft to the live preview resolver', async () => {
@@ -556,7 +725,11 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(metadataField).toBeDefined();
     const before = requests.filter((request) => request.path.endsWith('/preview')).length;
 
-    preview.vm.$emit('metadata-drop', 'list', metadataDrop());
+    preview.vm.$emit(
+      'placement-drop',
+      { kind: 'metadata', metadata: metadataDrop() },
+      { container: { kind: 'list' }, position: 'inside' },
+    );
 
     await vi.waitFor(
       () => {
@@ -676,7 +849,7 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(pageTree.props('selectedKey')).toBe('ui:group-field:form:basic:field-title');
   });
 
-  it('keeps first-class group ordering available as a visible fallback to drag sorting', async () => {
+  it('adds groups at the form node and applies tree ordering', async () => {
     configureModuleContext({ http: publicationFlowHttp([]) });
     const wrapper = mount(PageCompositionWorkspace, {
       props: { moduleAlias: 'education.exam' },
@@ -686,17 +859,11 @@ describe('PageCompositionWorkspace publication flow', () => {
     await flushPromises();
 
     const pageTree = wrapper.findComponent(PageCompositionTree);
-    pageTree.vm.$emit('select', 'ui:slot:form');
+    pageTree.vm.$emit('node-action', 'add-group', 'ui:slot:form');
+    pageTree.vm.$emit('node-action', 'add-group', 'ui:groups:form');
     await flushPromises();
-    const addGroup = wrapper.findAll('button').find((button) => button.text() === '添加分组');
-    await addGroup?.trigger('click');
-    await addGroup?.trigger('click');
-    pageTree.vm.$emit('select', 'ui:group:form:group_2');
+    pageTree.vm.$emit('reorder-group', 'group_2', 0);
     await flushPromises();
-
-    expect(wrapper.text()).toContain('已选：分组 2');
-    const moveUp = wrapper.findAll('button').find((button) => button.text() === '上移分组');
-    await moveUp?.trigger('click');
 
     expect((pageTree.props('formGroups') as Array<{ id: string }>).map((group) => group.id)).toEqual([
       'group_2',
@@ -741,9 +908,8 @@ describe('PageCompositionWorkspace publication flow', () => {
       const button = (text: string) =>
         wrapper.findAll('[data-testid="publish-button"]').find((item) => item.text() === text)!;
       expect(button('发布草稿').attributes('disabled')).toBeDefined();
-      tree.vm.$emit('select', 'ui:field:list:missing_lost');
+      tree.vm.$emit('node-action', 'remove', 'ui:field:list:missing_lost');
       await flushPromises();
-      await button('移除').trigger('click');
       await button('保存草稿').trigger('click');
       await flushPromises();
       const saved = requests.find((request) => request.path.endsWith('/update/revision-1'))?.body as {
@@ -1011,8 +1177,13 @@ function workspaceStubs() {
       template:
         '<button data-testid="publish-button" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
     },
-    UiInput: { template: '<input />' },
-    UiSelect: { template: '<select />' },
+    UiInput: {
+      props: ['value', 'disabled'],
+      emits: ['update:value'],
+      template:
+        '<input :value="value" :disabled="disabled" @input="$emit(\'update:value\', $event.target.value)" />',
+    },
+    UiSelect: { props: ['options', 'value', 'disabled'], template: '<select :disabled="disabled" />' },
     UiSpin: { template: '<span><slot /></span>' },
     UiSwitch: { template: '<button><slot /></button>' },
     UiTabs: { template: '<div><slot /></div>' },

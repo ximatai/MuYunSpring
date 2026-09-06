@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
+import type { UiTreeNode } from '@muyun/vue-ui-antdv';
 import PageCompositionTree from '@/views/PageCompositionTree.vue';
 import {
   PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
@@ -42,7 +43,7 @@ function uiTree(wrapper: ReturnType<typeof mountTree>) {
   return wrapper.findComponent({ name: 'UiTree' });
 }
 
-type TestNode = { key: string; title: string; children?: TestNode[] };
+type TestNode = UiTreeNode;
 
 function findNode(nodes: TestNode[], key: string): TestNode | undefined {
   for (const node of nodes) {
@@ -75,6 +76,75 @@ function dropEvent(
 }
 
 describe('PageCompositionTree', () => {
+  it('offers actions at their owning nodes without allowing fixed template removal', () => {
+    const wrapper = mountTree({
+      listFields: [subject],
+      formFields: [examDate],
+      formGroups: [{ id: 'group_1', groupCode: 'group_1', title: '基础信息', fields: [subject] }],
+      formRelations: [
+        { id: 'participants', relationCode: 'participants', title: '参考学生', fields: [examDate] },
+      ],
+    });
+    const tree = uiTree(wrapper);
+    const nodes = tree.props('nodes') as TestNode[];
+    const actionsAt = (key: string) => findNode(nodes, key)?.actions?.map((action) => action.key) ?? [];
+
+    for (const key of [
+      'ui:field:list:subject',
+      'ui:field:form:exam-date',
+      'ui:group:form:group_1',
+      'ui:group-field:form:group_1:subject',
+    ]) {
+      expect(actionsAt(key)).toEqual(['configure', 'remove']);
+    }
+    expect(actionsAt('ui:template:list:quick-search')).toEqual(['configure']);
+    expect(actionsAt('ui:slot:form')).toEqual(['add-group']);
+    expect(actionsAt('ui:groups:form')).toEqual(['add-group']);
+    expect(actionsAt('ui:relation:form:participants')).toEqual(['remove']);
+    expect(actionsAt('ui:relation-field:form:participants:exam-date')).toEqual(['remove']);
+    for (const key of ['ui:root', 'ui:slot:list', 'ui:slot:list:fields']) {
+      expect(actionsAt(key)).toEqual([]);
+    }
+
+    for (const [key, actionKey] of [
+      ['ui:field:list:subject', 'configure'],
+      ['ui:relation:form:participants', 'remove'],
+      ['ui:slot:form', 'add-group'],
+    ]) {
+      const node = findNode(nodes, key)!;
+      tree.vm.$emit(
+        'action',
+        node.actions!.find((action) => action.key === actionKey),
+        node,
+      );
+    }
+    expect(wrapper.emitted('node-action')).toEqual([
+      ['configure', 'ui:field:list:subject'],
+      ['remove', 'ui:relation:form:participants'],
+      ['add-group', 'ui:slot:form'],
+    ]);
+    expect(wrapper.emitted('select')).toBeUndefined();
+    expect(wrapper.emitted('double-click')).toBeUndefined();
+  });
+
+  it('guards stale, unsupported and disabled node actions', async () => {
+    const wrapper = mountTree({ listFields: [subject] });
+    const tree = uiTree(wrapper);
+    const field = findNode(tree.props('nodes'), 'ui:field:list:subject')!;
+    const remove = field.actions!.find((action) => action.key === 'remove')!;
+    const root = findNode(tree.props('nodes'), 'ui:root')!;
+    tree.vm.$emit('action', remove, root);
+    tree.vm.$emit('action', { ...remove, disabled: true }, field);
+
+    await wrapper.setProps({ disabled: true });
+    expect(findNode(tree.props('nodes'), field.key)?.actions?.every((action) => action.disabled)).toBe(true);
+    tree.vm.$emit('action', remove, field);
+
+    await wrapper.setProps({ disabled: false, listFields: [] });
+    tree.vm.$emit('action', remove, field);
+    expect(wrapper.emitted('node-action')).toBeUndefined();
+  });
+
   it('projects the page draft into one shared tree contract with stable branches', () => {
     const wrapper = mountTree({
       listFields: [subject],
@@ -245,6 +315,104 @@ describe('PageCompositionTree', () => {
       }),
     ).toBe(false);
     expect(parseMetadataDragPayload({ kind: 'field', fieldId: {} })).toBeUndefined();
+  });
+
+  it.each(['ui:field:list:subject', 'ui:field:form:subject', 'ui:group-field:form:group_1:subject'])(
+    'treats metadata dropped onto %s as an adjacent placement, never a field interior',
+    (key) => {
+      const wrapper = mountTree({
+        listFields: [subject, examDate],
+        formFields: [subject, examDate],
+        formGroups: [{ id: 'group_1', groupCode: 'group_1', title: '分组', fields: [subject, examDate] }],
+      });
+      const tree = uiTree(wrapper);
+      const field = findNode(tree.props('nodes'), key)!;
+      const inside = metadataEvent(field, 'inside');
+      expect(tree.props('allowDrop')(inside)).toBe(false);
+      tree.vm.$emit('drop', inside);
+      expect(wrapper.emitted('metadata-drop')).toBeUndefined();
+      for (const position of ['before', 'after'] as const) {
+        const event = metadataEvent(field, position);
+        expect(tree.props('allowDrop')(event)).toBe(true);
+        tree.vm.$emit('drop', event);
+      }
+      expect(
+        wrapper.emitted('metadata-drop')!.map(([target]) => (target as { index: number }).index),
+      ).toEqual([0, 1]);
+    },
+  );
+
+  it.each([
+    ['new-field', 'exam-date', 'before', 1],
+    ['new-field', 'exam-date', 'after', 2],
+    ['subject', 'exam-date', 'after', 1],
+    ['exam-date', 'subject', 'before', 0],
+    ['subject', undefined, 'inside', 1],
+  ] as const)(
+    'places child metadata %s %s %s at its owning table index %s',
+    (fieldId, anchorId, position, index) => {
+      const wrapper = mountTree({
+        formRelations: [
+          {
+            id: 'participants',
+            relationCode: 'participants',
+            title: '参考学生',
+            fields: [subject, examDate],
+          },
+        ],
+      });
+      const tree = uiTree(wrapper);
+      const key = anchorId
+        ? `ui:relation-field:form:participants:${anchorId}`
+        : 'ui:relation:form:participants';
+      const node = findNode(tree.props('nodes'), key)!;
+      const event = metadataEvent(node, position);
+      const payload = { kind: 'relationField', relationId: 'participants', fieldId };
+      const childEvent = { ...event, source: { ...event.source, payload } };
+
+      expect(tree.props('allowDrop')(childEvent)).toBe(true);
+      tree.vm.$emit('drop', childEvent);
+      expect(wrapper.emitted('metadata-drop')).toEqual([
+        [{ kind: 'relation', relationId: 'participants', index }, payload],
+      ]);
+    },
+  );
+
+  it('rejects cross-table and main-field drops into child tables and field interiors', () => {
+    const wrapper = mountTree({
+      formRelations: [
+        { id: 'participants', relationCode: 'participants', title: '参考学生', fields: [subject] },
+      ],
+    });
+    const tree = uiTree(wrapper);
+    const relation = findNode(tree.props('nodes'), 'ui:relation:form:participants')!;
+    const field = findNode(tree.props('nodes'), 'ui:relation-field:form:participants:subject')!;
+    for (const payload of [
+      { kind: 'field', fieldId: 'new-main-field' },
+      { kind: 'relationField', relationId: 'another-table', fieldId: 'new-child-field' },
+    ]) {
+      for (const [target, position] of [
+        [relation, 'inside'],
+        [field, 'before'],
+        [field, 'after'],
+      ] as const) {
+        const event = metadataEvent(target, position);
+        const invalid = { ...event, source: { ...event.source, payload } };
+        expect(tree.props('allowDrop')(invalid)).toBe(false);
+        tree.vm.$emit('drop', invalid);
+      }
+    }
+    const event = metadataEvent(field, 'inside');
+    const interior = {
+      ...event,
+      source: {
+        ...event.source,
+        payload: { kind: 'relationField', relationId: 'participants', fieldId: 'new-child-field' },
+      },
+    };
+    expect(tree.props('allowDrop')(interior)).toBe(false);
+    tree.vm.$emit('drop', interior);
+    expect(wrapper.emitted('metadata-drop')).toBeUndefined();
   });
 });
 

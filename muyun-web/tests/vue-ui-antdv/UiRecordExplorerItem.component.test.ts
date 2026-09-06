@@ -1,6 +1,8 @@
 import { mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { defineComponent, h } from 'vue';
+import { describe, expect, it, vi } from 'vitest';
 import UiRecordExplorerItem from '@/vue-ui-antdv/components/UiRecordExplorerItem.vue';
+import UiDropdown from '@/vue-ui-antdv/components/UiDropdown.vue';
 
 describe('UiRecordExplorerItem', () => {
   it('renders identity details and visual state classes', () => {
@@ -57,5 +59,80 @@ describe('UiRecordExplorerItem', () => {
     expect(wrapper.get('.ui-record-explorer-item-action').attributes('title')).toBe(
       '无法恢复：生命周期已变化',
     );
+  });
+
+  it('opens one menu and emits the selected child action without selecting the record', async () => {
+    const list = { key: 'add-list', title: '添加到列表' };
+    const form = { key: 'add-form', title: '添加到表单', disabled: true };
+    const wrapper = mount(UiRecordExplorerItem, {
+      attachTo: document.body,
+      props: {
+        title: '科目',
+        actions: [{ key: 'add', title: '添加到…', items: [list, form] }],
+      },
+    });
+
+    await wrapper.get('[aria-haspopup="menu"]').trigger('click');
+    await vi.waitFor(() => expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(2));
+    const menuItems = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    expect(menuItems[1].getAttribute('aria-disabled')).toBe('true');
+    menuItems[1].click();
+    expect(wrapper.emitted('action')).toBeUndefined();
+    menuItems[0].click();
+
+    await vi.waitFor(() => expect(wrapper.emitted('action')).toEqual([[list]]));
+    expect(wrapper.emitted('click')).toBeUndefined();
+  });
+
+  it('rejects unavailable and unknown menu selections including disabled parent actions', async () => {
+    const list = { key: 'add-list', title: '添加到列表' };
+    const form = { key: 'add-form', title: '添加到表单', disabled: true };
+    const action = { key: 'add', title: '添加到…', items: [list, form] };
+    const wrapper = mount(UiRecordExplorerItem, { props: { title: '科目', actions: [action] } });
+    const dropdown = wrapper.getComponent(UiDropdown);
+
+    dropdown.vm.$emit('select', form.key);
+    dropdown.vm.$emit('select', 'unknown');
+    expect(wrapper.emitted('action')).toBeUndefined();
+
+    await wrapper.setProps({ actions: [{ ...action, disabled: true }] });
+    expect(wrapper.findComponent(UiDropdown).exists()).toBe(false);
+    expect(wrapper.get('button').attributes('disabled')).toBeDefined();
+    await wrapper.get('button').trigger('click');
+    expect(wrapper.emitted('action')).toBeUndefined();
+    expect(wrapper.emitted('click')).toBeUndefined();
+  });
+
+  it('keeps node selection, drag and double-click handlers isolated from inline and menu buttons', async () => {
+    const click = vi.fn();
+    const mousedown = vi.fn();
+    const doubleClick = vi.fn();
+    const keydown = vi.fn();
+    const wrapper = mount(
+      defineComponent({
+        setup: () => () =>
+          h('div', { onClick: click, onMousedown: mousedown, onDblclick: doubleClick, onKeydown: keydown }, [
+            h(UiRecordExplorerItem, {
+              title: '科目',
+              actions: [
+                { key: 'remove', title: '移除' },
+                { key: 'add', title: '添加到…', items: [{ key: 'add-list', title: '添加到列表' }] },
+              ],
+            }),
+          ]),
+      }),
+    );
+    for (const button of wrapper.findAll('button')) {
+      await button.trigger('mousedown');
+      await button.trigger('click');
+      await button.trigger('dblclick');
+      await button.trigger('keydown', { key: 'Enter' });
+    }
+
+    expect(click).not.toHaveBeenCalled();
+    expect(mousedown).not.toHaveBeenCalled();
+    expect(doubleClick).not.toHaveBeenCalled();
+    expect(keydown).not.toHaveBeenCalled();
+    expect(wrapper.getComponent(UiRecordExplorerItem).emitted('click')).toBeUndefined();
   });
 });

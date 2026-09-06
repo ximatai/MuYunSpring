@@ -41,6 +41,7 @@ const emit = defineEmits<{
     :disabled="disabled"
     :loading="loading"
     :title="title"
+    :aria-label="$slots.default ? undefined : title"
     :icon-name="iconName"
     :class="$attrs.class"
     :style="$attrs.style"

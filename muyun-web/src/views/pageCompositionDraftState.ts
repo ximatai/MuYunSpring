@@ -184,6 +184,15 @@ export function createPageCompositionDraftState() {
     previewMode.value = 'detail';
   }
 
+  function moveFormRelation(relationId: string, targetIndex: number) {
+    const relation = formRelations.value.find((item) => item.id === relationId);
+    if (!relation) return;
+    const remaining = formRelations.value.filter((item) => item.id !== relationId);
+    remaining.splice(Math.max(0, Math.min(targetIndex, remaining.length)), 0, relation);
+    formRelations.value = remaining;
+    selectedNodeId.value = `form:relation:${relationId}`;
+  }
+
   function addFormGroup() {
     const usedIdentifiers = new Set(formGroups.value.flatMap((group) => [group.id, group.groupCode]));
     let number = 1;
@@ -534,6 +543,7 @@ export function createPageCompositionDraftState() {
     moveGroupFieldToGroup,
     updateFormGroup,
     moveFormGroup,
+    moveFormRelation,
     addFormRelationField,
     moveFormRelationField,
     removeSelectedField,

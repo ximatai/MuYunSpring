@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   ManagementExplorerColumn,
+  ManagementPanelHeader,
   ManagementWorkspace,
   RecordDetailDrawer,
   RecordDetailPanel,
@@ -24,10 +25,10 @@ import {
   UiSelect,
   UiSpin,
   UiSwitch,
-  UiTabs,
+  UiRadioGroup,
   UiTree,
-  type UiTabItem,
-  type UiTreeNodeEvent,
+  type UiRadioOption,
+  type UiRecordInlineAction,
   type UiTreeNode,
 } from '@muyun/vue-ui-antdv';
 import type {
@@ -52,6 +53,13 @@ import {
   type MetadataDragPayload,
 } from './pageCompositionDragPayload';
 
+import {
+  resolveCompositionPlacement,
+  type PageCompositionStructure,
+  type CompositionPlacementSource,
+  type CompositionPlacementTarget,
+} from './pageCompositionPlacement';
+
 defineOptions({ name: 'PageCompositionWorkspace' });
 
 const props = defineProps<{ moduleAlias: string; moduleTitle?: string }>();
@@ -68,7 +76,6 @@ const page = ref<PageDefinition>();
 const variant = ref<PresentationVariant>();
 const revision = ref<PresentationRevision>();
 const publishedRevision = ref<PresentationRevision>();
-const selectedSlot = ref<PageComposerSlot>('list');
 const fieldKeyword = ref('');
 const selectedMetadataTreeKey = ref<string>();
 const metadataExpandedKeys = ref<string[]>(['metadata:root']);
@@ -79,6 +86,7 @@ const groupSubtitleDraft = ref('');
 const quickSearchPlaceholderDraft = ref('');
 const savedUiTreeJson = ref<string>();
 const previewDescriptor = ref<ResolvedModuleUiDescriptor>();
+const previewStructure = ref<PageCompositionStructure>();
 const previewLoading = ref(false);
 const previewError = ref<string>();
 /**
@@ -114,12 +122,18 @@ const draftConflict = ref(false);
 const compositionLoading = ref(false);
 let compositionLoadSequence = 0;
 
-const previewTabs: UiTabItem[] = [
-  { key: 'list', title: '列表预览' },
-  { key: 'query', title: '查询预览' },
-  { key: 'detail', title: '详情预览' },
-  { key: 'edit', title: '编辑预览' },
+const previewModes: UiRadioOption[] = [
+  { value: 'list', label: '列表' },
+  { value: 'detail', label: '详情' },
+  { value: 'edit', label: '表单' },
 ];
+const removedDraft = ref<{ before: string; after: string }>();
+const propertyIssues = computed(() =>
+  state.listFields.value.filter((field) => {
+    const width = field.properties?.width?.trim();
+    return width && !/^\d+(px|%)$/.test(width);
+  }),
+);
 const visibleFields = computed(() => {
   const keyword = fieldKeyword.value.trim().toLowerCase();
   if (!keyword) return metadataFields.value;
@@ -128,36 +142,10 @@ const visibleFields = computed(() => {
   );
 });
 const selectedField = computed(() => state.selectedNode.value?.field);
-const selectedMetadataRelation = computed(() => {
-  const key = selectedMetadataTreeKey.value;
-  const prefix = 'metadata:relation:';
-  if (!key?.startsWith(prefix)) return undefined;
-  return metadataRelations.value.find(
-    (candidate) => (candidate.id ?? candidate.metadataId) === key.slice(prefix.length),
-  );
-});
 const selectedRelation = computed(() => state.selectedNode.value?.relation);
 const selectedRelationField = computed(() => state.selectedNode.value?.relationField);
 const selectedGroup = computed(() => state.selectedNode.value?.group);
-const selectedGroupNode = computed(() =>
-  state.selectedNode.value?.kind === 'group' ? state.selectedNode.value.group : undefined,
-);
 const selectedQuickSearch = computed(() => state.selectedNode.value?.id === 'template:list:quick-search');
-const selectedMetadataField = computed(() => {
-  const key = selectedMetadataTreeKey.value;
-  const prefix = 'metadata:field:';
-  if (!key?.startsWith(prefix)) return undefined;
-  return metadataFields.value.find((field) => field.id === key.slice(prefix.length));
-});
-const selectedChildMetadataField = computed(() => {
-  const match = /^metadata:relation-field:(.+):(.+)$/.exec(selectedMetadataTreeKey.value ?? '');
-  if (!match) return undefined;
-  const relation = metadataRelations.value.find(
-    (candidate) => (candidate.id ?? candidate.metadataId) === match[1],
-  );
-  const field = childMetadataFields.value.get(match[1])?.find((candidate) => candidate.id === match[2]);
-  return relation && field ? { relation, field } : undefined;
-});
 const selectedFieldLabel = computed(() =>
   selectedQuickSearch.value
     ? '快速查询'
@@ -165,15 +153,12 @@ const selectedFieldLabel = computed(() =>
       ? fieldDisplayTitle(selectedField.value)
       : selectedRelationField.value
         ? fieldDisplayTitle(selectedRelationField.value)
-        : selectedGroupNode.value
-          ? selectedGroupNode.value.title
+        : selectedGroup.value
+          ? selectedGroup.value.title
           : (selectedRelation.value?.title ?? '组件'),
 );
 const propertyDrawerTitle = computed(() =>
   selectedQuickSearch.value ? '配置：快速查询占位提示' : `配置：${selectedFieldLabel.value}`,
-);
-const quickAddTargetLabel = computed(() =>
-  selectedSlot.value === 'list' ? '列表展示字段' : '详情 / 表单字段',
 );
 const selectedPreviewFieldName = computed(() => {
   const node = state.selectedNode.value;
@@ -226,12 +211,14 @@ const selectedUiTreeKey = computed(() => {
       : `ui:slot:${node.slot}`
     : `ui:field:${node.slot}:${node.field?.id}`;
 });
-const composerTitle = computed(() => '页面预览');
-const mainEntityTitle = computed(() => relation.value?.relationAlias ?? '主实体');
+const composerTitle = computed(() => page.value?.title ?? props.moduleTitle ?? '页面编排');
+const mainEntityTitle = computed(
+  () => relation.value?.title ?? props.moduleTitle ?? relation.value?.relationAlias ?? '主实体',
+);
 const compositionSubtitle = computed(() => {
   if (!page.value) return '尚未初始化页面定义';
   if (!revision.value) return '尚无可编辑草稿';
-  return `草稿 v${revision.value.revisionNo} · 最近发布 ${publishedRevision.value ? `v${publishedRevision.value.revisionNo}` : '无'}`;
+  return `Web · 全局 · 草稿 v${revision.value.revisionNo} · 最近发布 ${publishedRevision.value ? `v${publishedRevision.value.revisionNo}` : '无'}`;
 });
 const metadataTreeNodes = computed<UiTreeNode[]>(() => [
   {
@@ -239,22 +226,38 @@ const metadataTreeNodes = computed<UiTreeNode[]>(() => [
     title: mainEntityTitle.value,
     secondary: '主元数据',
     children: [
-      ...visibleFields.value.map((field) => ({
-        key: `metadata:field:${field.id}`,
-        title: field.title,
-        secondary: field.fieldName,
-        isLeaf: true,
-      })),
+      ...visibleFields.value.map(
+        (field): UiTreeNode => ({
+          key: `metadata:field:${field.id}`,
+          title: field.title,
+          secondary: field.fieldName,
+          actions: [
+            {
+              key: 'add',
+              title: `添加 ${field.title} 到…`,
+              iconName: 'plus',
+              disabled: isMutating.value,
+              items: [
+                { key: 'add-list', title: '添加到列表' },
+                { key: 'add-form', title: '添加到表单' },
+              ],
+            },
+          ],
+          isLeaf: true,
+        }),
+      ),
       ...childRelationNodes(relation.value?.metadataId),
     ],
   },
 ]);
-watch(selectedField, (field) => {
-  propertyDraft.value = { ...(field?.properties ?? {}) };
+watch(state.selectedNodeId, () => {
+  propertyDraft.value = { ...(selectedField.value?.properties ?? {}) };
+  quickSearchPlaceholderDraft.value = state.quickSearchPlaceholder.value ?? '';
+  groupTitleDraft.value = selectedGroup.value?.title ?? '';
+  groupSubtitleDraft.value = selectedGroup.value?.subtitle ?? '';
 });
-
-watch(selectedQuickSearch, (selected) => {
-  if (selected) quickSearchPlaceholderDraft.value = state.quickSearchPlaceholder.value ?? '';
+watch(currentUiTreeJson, (json) => {
+  if (removedDraft.value && removedDraft.value.after !== json) removedDraft.value = undefined;
 });
 
 // Older transient drag sessions could place one form field in more than one group.  The editor
@@ -273,6 +276,7 @@ watch(
     variant.value = undefined;
     draftParseError.value = undefined;
     draftConflict.value = false;
+    removedDraft.value = undefined;
     saving.value = false;
     publishing.value = false;
     compositionLoading.value = false;
@@ -433,12 +437,18 @@ function childRelationNodes(parentMetadataId?: string): UiTreeNode[] {
       return {
         key: `metadata:relation:${relationId}`,
         title: candidate.title ?? candidate.relationAlias ?? '子实体',
-        secondary: '子实体 · 拖入详情创建关联列表',
+        secondary: '子表',
+        actions: [
+          { key: 'add-form', title: '添加子表', iconName: 'plus' as const, disabled: isMutating.value },
+        ],
         isLeaf: fields.length === 0,
         children: fields.map((field) => ({
           key: `metadata:relation-field:${relationId}:${field.id}`,
           title: field.title,
           secondary: field.fieldName,
+          actions: [
+            { key: 'add-form', title: '添加到子表', iconName: 'plus' as const, disabled: isMutating.value },
+          ],
           isLeaf: true,
         })),
       };
@@ -482,6 +492,7 @@ async function loadComposition(requestSequence = workspaceLoadSequence, moduleAl
     revision.value = latestRevision(drafts);
     publishedRevision.value = latestRevision(published);
     draftConflict.value = false;
+    removedDraft.value = undefined;
     draftParseError.value = undefined;
     state.replaceFields({ list: [], form: [] });
     state.updateQuickSearchPlaceholder(undefined);
@@ -516,6 +527,7 @@ function resetPreviewDescriptor() {
     previewDebounceTimer = undefined;
   }
   previewDescriptor.value = undefined;
+  previewStructure.value = undefined;
   previewLoading.value = false;
   previewError.value = undefined;
 }
@@ -529,9 +541,13 @@ function schedulePreviewDescriptor() {
   }
   const requestSequence = ++previewRequestSequence;
   if (previewDebounceTimer) clearTimeout(previewDebounceTimer);
-  if (unavailableSources.value.length || draftParseError.value) {
+  if (unavailableSources.value.length || draftParseError.value || propertyIssues.value.length) {
     previewLoading.value = false;
-    previewError.value = draftParseError.value ?? '页面包含失效来源，请移除标记节点并重新选择可用字段。';
+    previewError.value =
+      draftParseError.value ??
+      (propertyIssues.value.length
+        ? '请修正列宽格式后继续预览。'
+        : '页面包含失效来源，请移除标记节点并重新选择可用字段。');
     return;
   }
   previewLoading.value = true;
@@ -561,6 +577,13 @@ async function requestPreviewDescriptor(
       body: { uiTreeJson },
     });
     if (requestSequence !== previewRequestSequence) return;
+    if (uiTreeJson !== currentUiTreeJson.value) return;
+    previewStructure.value = {
+      list: state.listFields.value,
+      form: state.formFields.value,
+      groups: state.formGroups.value,
+      relations: state.formRelations.value,
+    };
     previewDescriptor.value = preview.uiDescriptor;
     previewError.value = undefined;
   } catch (cause) {
@@ -749,6 +772,7 @@ async function saveDraft(
 ): Promise<boolean> {
   if (
     draftParseError.value ||
+    propertyIssues.value.length > 0 ||
     draftConflict.value ||
     compositionLoading.value ||
     loading.value ||
@@ -771,6 +795,7 @@ async function saveDraft(
     if (!current()) return false;
     revision.value = result.record;
     savedUiTreeJson.value = treeJsonToPersist;
+    removedDraft.value = undefined;
     return true;
   } catch (cause) {
     if (!current()) return false;
@@ -785,6 +810,7 @@ async function saveDraft(
 async function publishDraft() {
   if (
     isMutating.value ||
+    propertyIssues.value.length > 0 ||
     draftConflict.value ||
     unavailableSources.value.length ||
     draftParseError.value ||
@@ -843,6 +869,7 @@ async function discardUnsavedChanges() {
   });
   if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value) return;
   hydrateDraft(revision.value);
+  removedDraft.value = undefined;
   propertyDrawerOpen.value = false;
 }
 
@@ -1001,78 +1028,19 @@ function isRuntimeReservedMetadataField(field: MetadataField) {
   return field.systemManaged === true && runtimeReservedMetadataFieldNames.has(field.fieldName ?? '');
 }
 
-function addToSelectedSlot(field: PageComposerField) {
-  if (isMutating.value) return;
-  state.addField(field, selectedSlot.value);
-}
-
-function selectQuickAddTarget(slot: PageComposerSlot) {
-  if (isMutating.value) return;
-  selectedSlot.value = slot;
-}
-
-function addSelectedMetadataField(slot: PageComposerSlot) {
-  const field = selectedMetadataField.value;
-  if (!field || isMutating.value) return;
-  selectedSlot.value = slot;
-  state.addField(field, slot);
-}
-
 function slotTitle(slot: PageComposerSlot) {
   return slot === 'list' ? '列表' : '详情 / 表单';
 }
-
 function fieldsInSlot(slot: PageComposerSlot) {
   return slot === 'list' ? state.listFields.value : state.formFields.value;
 }
-
 function selectMetadataNode(node: UiTreeNode) {
-  if (isMutating.value) return;
-  selectedMetadataTreeKey.value = node.key;
+  if (!isMutating.value) selectedMetadataTreeKey.value = node.key;
 }
-
-function addSelectedMetadataRelation() {
-  const selectedRelation = selectedMetadataRelation.value;
-  if (
-    !selectedRelation ||
-    isMutating.value ||
-    !selectedRelation.relationAlias ||
-    selectedRelation.parentMetadataId !== relation.value?.metadataId
-  )
-    return;
-  state.addFormRelation({
-    id: selectedRelation.id ?? selectedRelation.metadataId ?? selectedRelation.relationAlias,
-    relationCode: selectedRelation.relationAlias,
-    title: selectedRelation.title ?? selectedRelation.relationAlias,
-    fields: [],
-  });
-}
-
-function addSelectedChildMetadataField() {
-  const selected = selectedChildMetadataField.value;
-  if (
-    !selected ||
-    isMutating.value ||
-    !selected.relation.relationAlias ||
-    selected.relation.parentMetadataId !== relation.value?.metadataId
-  )
-    return;
-  state.addFormRelationField(
-    {
-      id: selected.relation.id ?? selected.relation.metadataId ?? selected.relation.relationAlias,
-      relationCode: selected.relation.relationAlias,
-      title: selected.relation.title ?? selected.relation.relationAlias,
-      fields: [],
-    },
-    selected.field,
-  );
-}
-
-function handleMetadataDoubleClick(event: UiTreeNodeEvent) {
-  const field = fieldOfMetadataNode(event.node);
-  if (field) addToSelectedSlot(field);
-  else if (event.node.key.startsWith('metadata:relation-field:')) addSelectedChildMetadataField();
-  else if (event.node.key.startsWith('metadata:relation:')) addSelectedMetadataRelation();
+function addMetadataNode(action: UiRecordInlineAction, node: UiTreeNode) {
+  if (isMutating.value || action.disabled) return;
+  const payload = metadataDragPayload(node);
+  if (payload) handleCompositionMetadataDrop({ kind: action.key === 'add-list' ? 'list' : 'form' }, payload);
 }
 
 function selectUiTreeKey(key: string) {
@@ -1196,7 +1164,7 @@ function handleCompositionMetadataDrop(target: ComposerDropTarget, payload: unkn
   if (!metadata) return;
   if (metadata.kind === 'field') {
     const field = metadataFields.value.find((candidate) => candidate.id === metadata.fieldId);
-    if (!field) return;
+    if (!field || target.kind === 'relation') return;
     if (target.kind === 'group') placeMetadataFieldInGroup(field, target.groupId, target.index);
     else {
       const slot = target.kind;
@@ -1212,8 +1180,13 @@ function handleCompositionMetadataDrop(target: ComposerDropTarget, payload: unkn
     }
   } else if (metadata.kind === 'relation' && target.kind === 'form') {
     addRelationById(metadata.relationId);
-  } else if (metadata.kind === 'relationField' && target.kind === 'form') {
+  } else if (
+    metadata.kind === 'relationField' &&
+    (target.kind === 'form' || (target.kind === 'relation' && target.relationId === metadata.relationId))
+  ) {
     addRelationFieldById(metadata.relationId, metadata.fieldId);
+    if (target.index !== undefined)
+      state.moveFormRelationField(metadata.relationId, metadata.fieldId, target.index);
   }
 }
 
@@ -1242,8 +1215,47 @@ function placeMetadataFieldInGroup(field: PageComposerField, groupId: string, ta
   state.moveFormFieldToGroup(field.id, groupId, targetIndex);
 }
 
-function handlePreviewMetadataDrop(target: 'list' | 'form', payload: unknown) {
-  handleCompositionMetadataDrop({ kind: target }, payload);
+function handlePreviewPlacement(source: CompositionPlacementSource, target: CompositionPlacementTarget) {
+  if (isMutating.value || previewLoading.value || previewError.value) return;
+  const model = {
+    list: state.listFields.value,
+    form: state.formFields.value,
+    groups: state.formGroups.value,
+    relations: state.formRelations.value,
+  };
+  const placement = resolveCompositionPlacement(model, source, target);
+  if (!placement) return;
+  const { container, index } = placement;
+  const mode = state.previewMode.value;
+  if (source.kind === 'metadata') {
+    const metadata = source.metadata;
+    if (container.kind === 'list' || container.kind === 'form' || container.kind === 'group') {
+      handleCompositionMetadataDrop({ ...container, index }, metadata);
+    } else if (container.kind === 'relation' && metadata.kind === 'relationField') {
+      addRelationFieldById(metadata.relationId, metadata.fieldId);
+      state.moveFormRelationField(metadata.relationId, metadata.fieldId, index);
+    } else if (container.kind === 'relations' && metadata.kind !== 'field') {
+      if (metadata.kind === 'relation') addRelationById(metadata.relationId);
+      else addRelationFieldById(metadata.relationId, metadata.fieldId);
+      state.moveFormRelation(metadata.relationId, index);
+    }
+  } else {
+    const from = source.container;
+    if (container.kind === 'groups') state.moveFormGroup(source.nodeId, index);
+    else if (container.kind === 'relations') state.moveFormRelation(source.nodeId, index);
+    else if (container.kind === 'relation')
+      state.moveFormRelationField(container.relationId, source.nodeId, index);
+    else if (container.kind === 'group') {
+      if (from.kind === 'group')
+        state.moveGroupFieldToGroup(from.groupId, source.nodeId, container.groupId, index);
+      else state.moveFormFieldToGroup(source.nodeId, container.groupId, index);
+    } else if (container.kind === 'form' && from.kind === 'group')
+      state.moveGroupFieldToForm(from.groupId, source.nodeId, index);
+    else if (container.kind === 'list' || container.kind === 'form')
+      state.moveField(source.nodeId, container.kind, container.kind, index);
+  }
+  // Detail and form are views of one form slot. A placement must not change the user's view.
+  state.previewMode.value = mode;
 }
 
 function metadataDragPayload(node: UiTreeNode): MetadataDragPayload | undefined {
@@ -1329,35 +1341,18 @@ function parseUiNode(
 function selectNode(node: (typeof state.nodes.value)[number]) {
   if (isMutating.value) return;
   state.selectNode(node);
-  selectedSlot.value = node.slot;
-}
-
-function selectPreviewField(slot: PageComposerSlot, field: PageComposerField) {
-  if (isMutating.value) return;
-  selectNode({ id: `${slot}:${field.id}`, kind: 'field', title: field.title, slot, field });
 }
 
 function selectDescriptorPreviewField(slot: PageComposerSlot, fieldName: string, configure = false) {
-  const field = fieldsInSlot(slot).find((candidate) => candidate.fieldName === fieldName);
-  if (field) {
-    selectPreviewField(slot, field);
-    if (configure) openPropertyDrawer();
-    return;
-  }
-  if (slot !== 'form') return;
-  const group = state.formGroups.value.find((candidate) =>
-    candidate.fields.some((candidateField) => candidateField.fieldName === fieldName),
+  if (isMutating.value) return;
+  const node = state.nodes.value.find(
+    (candidate) => candidate.slot === slot && candidate.field?.fieldName === fieldName,
   );
-  const groupedField = group?.fields.find((candidate) => candidate.fieldName === fieldName);
-  if (!group || !groupedField) return;
-  selectNode({
-    id: `form:group:${group.id}:field:${groupedField.id}`,
-    kind: 'groupField',
-    title: groupedField.title,
-    slot: 'form',
-    group,
-    field: groupedField,
-  });
+  if (!node) return;
+  // Selecting within the preview must keep that surface mounted between the two clicks.
+  const mode = state.previewMode.value;
+  selectNode(node);
+  state.previewMode.value = mode;
   if (configure) openPropertyDrawer();
 }
 
@@ -1366,53 +1361,49 @@ function selectPreviewMode(key: string) {
   state.previewMode.value = key as typeof state.previewMode.value;
 }
 
-function canMoveSelectedField(offset: -1 | 1) {
-  const node = state.selectedNode.value;
-  if (!node?.field) return false;
-  const index = fieldsInSlot(node.slot).findIndex((field) => field.id === node.field?.id);
-  return index >= 0 && index + offset >= 0 && index + offset < fieldsInSlot(node.slot).length;
-}
-
-function moveSelectedField(offset: -1 | 1) {
+function handleNodeAction(action: 'configure' | 'remove' | 'add-group', key: string) {
   if (isMutating.value) return;
-  state.moveSelectedField(offset);
-}
-
-function canMoveSelectedRelationField(offset: -1 | 1) {
-  const relation = selectedRelation.value;
-  const field = selectedRelationField.value;
-  if (!relation || !field) return false;
-  const index = relation.fields.findIndex((candidate) => candidate.id === field.id);
-  return index >= 0 && index + offset >= 0 && index + offset < relation.fields.length;
-}
-
-function moveSelectedRelationField(offset: -1 | 1) {
-  const relation = selectedRelation.value;
-  const field = selectedRelationField.value;
-  if (isMutating.value || !relation || !field) return;
-  const index = relation.fields.findIndex((candidate) => candidate.id === field.id);
-  if (index < 0) return;
-  state.moveFormRelationField(relation.id, field.id, index + offset);
-}
-
-function canMoveSelectedGroup(offset: -1 | 1) {
-  const group = selectedGroupNode.value;
-  if (!group) return false;
-  const index = state.formGroups.value.findIndex((candidate) => candidate.id === group.id);
-  return index >= 0 && index + offset >= 0 && index + offset < state.formGroups.value.length;
-}
-
-function moveSelectedGroup(offset: -1 | 1) {
-  const group = selectedGroupNode.value;
-  if (isMutating.value || !group) return;
-  const index = state.formGroups.value.findIndex((candidate) => candidate.id === group.id);
-  if (index < 0) return;
-  state.moveFormGroup(group.id, index + offset);
-}
-
-function removeSelectedField() {
-  if (isMutating.value) return;
+  if (action === 'add-group') {
+    state.addFormGroup();
+    openPropertyDrawer();
+    return;
+  }
+  selectUiTreeKey(key);
+  if (selectedUiTreeKey.value !== key) return;
+  if (action === 'configure') {
+    openPropertyDrawer();
+    return;
+  }
+  const before = currentUiTreeJson.value;
   state.removeSelectedField();
+  propertyDrawerOpen.value = false;
+  const after = currentUiTreeJson.value;
+  if (before !== after) removedDraft.value = { before, after };
+}
+function undoRemoval() {
+  if (isMutating.value || !removedDraft.value) return;
+  const before = removedDraft.value.before;
+  removedDraft.value = undefined;
+  hydrateDraft({ uiTreeJson: before }, false);
+}
+function updateFieldProperty<K extends keyof PageComposerFieldProperties>(
+  key: K,
+  value: PageComposerFieldProperties[K],
+) {
+  if (isMutating.value) return;
+  propertyDraft.value = { ...propertyDraft.value, [key]: value };
+  state.updateSelectedFieldProperties(propertyDraft.value);
+}
+function updateQuickSearch(value: string) {
+  if (isMutating.value) return;
+  quickSearchPlaceholderDraft.value = value;
+  state.updateQuickSearchPlaceholder(value);
+}
+function updateGroup(title: string, subtitle: string) {
+  if (isMutating.value || !selectedGroup.value) return;
+  groupTitleDraft.value = title;
+  groupSubtitleDraft.value = subtitle;
+  state.updateFormGroup(selectedGroup.value.id, title, subtitle);
 }
 
 function fieldDisplayTitle(field: PageComposerField) {
@@ -1430,220 +1421,14 @@ function openPropertyDrawer() {
   }
   propertyDrawerOpen.value = true;
 }
-
-function applyPropertyDraft() {
-  if (isMutating.value) return;
-  if (selectedQuickSearch.value) state.updateQuickSearchPlaceholder(quickSearchPlaceholderDraft.value);
-  else if (selectedField.value) state.updateSelectedFieldProperties(propertyDraft.value);
-  else if (selectedGroup.value)
-    state.updateFormGroup(selectedGroup.value.id, groupTitleDraft.value, groupSubtitleDraft.value);
-  else return;
-  propertyDrawerOpen.value = false;
-}
 </script>
 
 <template>
-  <ManagementWorkspace class="page-composition-workspace" layout="composer" :explorer-count="2">
-    <ManagementExplorerColumn>
-      <RecordExplorerPanel
-        v-model:search-keyword="fieldKeyword"
-        title="可用字段"
-        search-placeholder="搜索字段"
-        :refresh-disabled="isMutating"
-        @refresh="loadMetadataTree"
-      >
-        <UiSpin v-if="loading && !relation" tip="加载主实体字段" />
-        <UiEmpty v-else-if="!relation" description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体" />
-        <div v-else class="metadata-tree" data-testid="page-composer-metadata-tree">
-          <div class="metadata-tree__quick-add" aria-label="字段快速添加目标">
-            <span>双击添加至</span>
-            <UiButton
-              size="small"
-              :type="selectedSlot === 'list' ? 'primary' : 'default'"
-              :disabled="isMutating"
-              @click="selectQuickAddTarget('list')"
-            >
-              列表展示字段
-            </UiButton>
-            <UiButton
-              size="small"
-              :type="selectedSlot === 'form' ? 'primary' : 'default'"
-              :disabled="isMutating"
-              @click="selectQuickAddTarget('form')"
-            >
-              详情 / 表单字段
-            </UiButton>
-          </div>
-          <UiTree
-            v-model:expanded-keys="metadataExpandedKeys"
-            :nodes="metadataTreeNodes"
-            :selected-key="selectedMetadataTreeKey"
-            :draggable="!isMutating"
-            :drag-operations="['copy']"
-            :drag-payload-type="PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE"
-            :drag-payload-of="metadataDragPayload"
-            :can-drag="canDragMetadataNode"
-            :allow-drop="() => false"
-            @select="selectMetadataNode"
-            @double-click="handleMetadataDoubleClick"
-          />
-          <div class="metadata-tree__selection" aria-live="polite">
-            <span v-if="selectedMetadataField">已选：{{ fieldDisplayTitle(selectedMetadataField) }}</span>
-            <span v-else-if="selectedChildMetadataField">
-              已选子表字段：{{ fieldDisplayTitle(selectedChildMetadataField.field) }}
-            </span>
-            <span v-else-if="selectedMetadataRelation">已选子实体：{{ selectedMetadataRelation.title }}</span>
-            <span v-else>选择字段后可快速添加；当前双击目标为：{{ quickAddTargetLabel }}</span>
-            <div v-if="selectedMetadataField" class="metadata-tree__selection-actions">
-              <UiButton size="small" :disabled="isMutating" @click="addSelectedMetadataField('list')">
-                添加到列表
-              </UiButton>
-              <UiButton size="small" :disabled="isMutating" @click="addSelectedMetadataField('form')">
-                添加到详情 / 表单
-              </UiButton>
-            </div>
-            <div v-else-if="selectedMetadataRelation" class="metadata-tree__selection-actions">
-              <UiButton size="small" :disabled="isMutating" @click="addSelectedMetadataRelation">
-                添加关联子表到详情
-              </UiButton>
-            </div>
-            <div v-else-if="selectedChildMetadataField" class="metadata-tree__selection-actions">
-              <UiButton size="small" :disabled="isMutating" @click="addSelectedChildMetadataField">
-                添加到
-                {{
-                  selectedChildMetadataField.relation.title ??
-                  selectedChildMetadataField.relation.relationAlias
-                }}
-                子表
-              </UiButton>
-            </div>
-          </div>
-          <UiEmpty v-if="!visibleFields.length" description="暂无可编排字段" />
-        </div>
-      </RecordExplorerPanel>
-    </ManagementExplorerColumn>
-
-    <ManagementExplorerColumn>
-      <RecordExplorerPanel
-        title="页面结构"
-        :searchable="false"
-        :refresh-disabled="isMutating"
-        @refresh="reloadComposition"
-      >
-        <template #footer>
-          <div class="ui-tree__contextbar">
-            <span>{{
-              state.selectedNode.value ? `已选：${selectedFieldLabel}` : '选择组件后可配置或调整'
-            }}</span>
-            <div v-if="state.selectedNode.value" class="ui-tree__operations">
-              <UiButton
-                v-if="state.selectedNode.value?.slot === 'form'"
-                size="small"
-                :disabled="isMutating"
-                @click="state.addFormGroup"
-              >
-                添加分组
-              </UiButton>
-              <UiButton
-                v-if="selectedField || selectedQuickSearch || selectedGroup"
-                size="small"
-                :disabled="isMutating"
-                @click="openPropertyDrawer"
-                >配置</UiButton
-              >
-              <template v-if="selectedField || (selectedRelation && !selectedRelationField)">
-                <UiButton
-                  size="small"
-                  :disabled="isMutating || Boolean(selectedRelation) || !canMoveSelectedField(-1)"
-                  title="已在首位"
-                  @click="moveSelectedField(-1)"
-                >
-                  上移
-                </UiButton>
-                <UiButton
-                  size="small"
-                  :disabled="isMutating || Boolean(selectedRelation) || !canMoveSelectedField(1)"
-                  title="已在末位"
-                  @click="moveSelectedField(1)"
-                >
-                  下移
-                </UiButton>
-                <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
-                  移除
-                </UiButton>
-              </template>
-              <template v-else-if="selectedGroupNode">
-                <UiButton
-                  size="small"
-                  :disabled="isMutating || !canMoveSelectedGroup(-1)"
-                  title="已在首位"
-                  @click="moveSelectedGroup(-1)"
-                >
-                  上移分组
-                </UiButton>
-                <UiButton
-                  size="small"
-                  :disabled="isMutating || !canMoveSelectedGroup(1)"
-                  title="已在末位"
-                  @click="moveSelectedGroup(1)"
-                >
-                  下移分组
-                </UiButton>
-                <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
-                  移除分组
-                </UiButton>
-              </template>
-              <template v-else-if="selectedRelationField && selectedRelation">
-                <UiButton
-                  size="small"
-                  :disabled="isMutating || !canMoveSelectedRelationField(-1)"
-                  title="已在首位"
-                  @click="moveSelectedRelationField(-1)"
-                >
-                  上移
-                </UiButton>
-                <UiButton
-                  size="small"
-                  :disabled="isMutating || !canMoveSelectedRelationField(1)"
-                  title="已在末位"
-                  @click="moveSelectedRelationField(1)"
-                >
-                  下移
-                </UiButton>
-                <UiButton size="small" danger :disabled="isMutating" @click="removeSelectedField">
-                  移除
-                </UiButton>
-              </template>
-            </div>
-          </div>
-        </template>
-        <div class="ui-tree" data-testid="page-composer-ui-tree">
-          <PageCompositionTree
-            :list-fields="state.listFields.value"
-            :form-fields="state.formFields.value"
-            :form-groups="state.formGroups.value"
-            :form-relations="state.formRelations.value"
-            :selected-key="selectedUiTreeKey"
-            :disabled="isMutating"
-            @select="selectUiTreeKey"
-            @double-click="handleUiTreeDoubleClick"
-            @reorder-list-field="reorderListField"
-            @reorder-form-field="reorderFormField"
-            @move-form-field-to-group="moveFormFieldToGroup"
-            @move-group-field-to-form="moveGroupFieldToForm"
-            @reorder-group-field="reorderGroupField"
-            @move-group-field-to-group="moveGroupFieldToGroup"
-            @reorder-group="reorderGroup"
-            @reorder-relation-field="reorderRelationField"
-            @metadata-drop="handleCompositionMetadataDrop"
-          />
-        </div>
-      </RecordExplorerPanel>
-    </ManagementExplorerColumn>
-
-    <RecordDetailPanel :title="composerTitle" :subtitle="compositionSubtitle">
+  <section class="page-composition-workspace">
+    <ManagementPanelHeader :title="composerTitle" :subtitle="compositionSubtitle">
       <template #actions>
         <div class="page-composition-actions">
+          <UiButton v-if="removedDraft" :disabled="isMutating" @click="undoRemoval">撤销移除</UiButton>
           <UiButton
             v-if="!revision"
             :loading="saving"
@@ -1656,7 +1441,7 @@ function applyPropertyDraft() {
           <template v-else>
             <UiButton
               :loading="saving"
-              :disabled="isMutating || draftConflict || !hasUnsavedChanges"
+              :disabled="isMutating || draftConflict || propertyIssues.length > 0 || !hasUnsavedChanges"
               @click="() => void saveDraft()"
             >
               保存草稿
@@ -1668,7 +1453,11 @@ function applyPropertyDraft() {
               type="primary"
               :loading="publishing"
               :disabled="
-                isMutating || draftConflict || unavailableSources.length > 0 || Boolean(draftParseError)
+                isMutating ||
+                draftConflict ||
+                propertyIssues.length > 0 ||
+                unavailableSources.length > 0 ||
+                Boolean(draftParseError)
               "
               @click="publishDraft"
             >
@@ -1677,150 +1466,264 @@ function applyPropertyDraft() {
           </template>
         </div>
       </template>
-      <div v-if="draftConflict" class="page-composition-conflict" role="alert">
-        <span>草稿已被其他会话更新，本地修改已保留。请加载最新草稿后继续编辑。</span>
-        <UiButton :disabled="isMutating" @click="reloadComposition">加载最新草稿</UiButton>
-      </div>
-      <p
-        v-if="unavailableSources.length || draftParseError"
-        class="page-composition-source-error"
-        role="alert"
-      >
-        {{
-          draftParseError ??
-          `来源失效：${[...new Set(unavailableSources)].join('、')}。配置已保留，请在编排树中移除标记节点并重新选择；修正后才能发布。`
-        }}
-      </p>
-      <div v-if="revision && hasUnsavedChanges" class="page-composition-status" aria-live="polite">
-        未保存更改
-      </div>
-      <p v-if="hasUnsavedChanges" class="page-composition-change-summary">
-        本次更改：{{ unsavedChangeSummary.join(' · ') }}
-      </p>
-      <UiTabs
-        :active-key="state.previewMode.value"
-        :tabs="previewTabs"
-        @update:active-key="selectPreviewMode"
-      />
-      <div
-        v-if="previewError"
-        class="page-composition-preview-status page-composition-preview-status--error"
-        aria-live="polite"
-      >
-        <span>草稿解析失败：{{ previewError }}</span>
-        <span v-if="previewDescriptor">当前展示的是上一次成功解析结果，不代表当前草稿。</span>
-        <UiButton size="small" :disabled="previewLoading" @click="retryPreviewDescriptor">
-          重新解析
-        </UiButton>
-      </div>
-      <PageCompositionDescriptorPreview
-        v-if="previewDescriptor"
-        :descriptor="previewDescriptor"
-        :module-alias="props.moduleAlias"
-        :mode="state.previewMode.value"
-        :selected-field-name="selectedPreviewFieldName"
-        :accept-external-drop="!isMutating"
-        @select-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName)"
-        @configure-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName, true)"
-        @metadata-drop="handlePreviewMetadataDrop"
-      />
-      <UiEmpty
-        v-else-if="revision && !previewLoading && !previewError"
-        class="page-composition-preview-empty"
-        :description="
-          previewError ? '当前草稿未能解析；可重新解析，或修正页面结构后自动重试。' : '正在等待草稿解析结果。'
-        "
-      />
-      <UiEmpty
-        v-else-if="!revision"
-        class="page-composition-preview-empty"
-        description="初始化页面草稿后，即可查看页面预览。"
-      />
-    </RecordDetailPanel>
-
-    <RecordDetailDrawer
-      :open="propertyDrawerOpen"
-      render-mode="inline"
-      :title="propertyDrawerTitle"
-      subtitle="页面组件属性仅作用于当前草稿；元数据字段事实不在此处修改。"
-      :width="420"
-      @close="propertyDrawerOpen = false"
-    >
-      <div v-if="selectedQuickSearch" class="component-property-drawer">
-        <label>
-          <span>搜索占位提示</span>
-          <UiInput v-model:value="quickSearchPlaceholderDraft" placeholder="例如：搜索名称、编码或 ID" />
-        </label>
-        <p>该组件是 management v1 的模板内置快速查询；仅可调整占位提示。</p>
-      </div>
-      <div v-else-if="selectedField" class="component-property-drawer">
-        <label>
-          <span>展示标题</span>
-          <UiInput v-model:value="propertyDraft.label" :placeholder="selectedField.title" />
-        </label>
-        <template v-if="state.selectedNode.value?.slot === 'list'">
-          <label>
-            <span>列宽</span>
-            <UiInput v-model:value="propertyDraft.width" placeholder="例如 160px 或 25%" />
-            <small v-if="propertyValidationMessage" class="component-property-drawer__error">
-              {{ propertyValidationMessage }}
-            </small>
-          </label>
-          <label>
-            <span>对齐</span>
-            <UiSelect
-              v-model:value="propertyDraft.align"
-              :options="[
-                { label: '左对齐', value: 'left' },
-                { label: '居中', value: 'center' },
-                { label: '右对齐', value: 'right' },
-              ]"
-              placeholder="遵循平台默认"
-            />
-          </label>
-        </template>
-        <template v-else>
-          <label>
-            <span>表单列宽度</span>
-            <UiSelect
-              v-model:value="propertyDraft.columnSpan"
-              :options="[
-                { label: '半行（1 列）', value: 1 },
-                { label: '整行（2 列）', value: 2 },
-              ]"
-              placeholder="遵循平台默认"
-            />
-          </label>
-          <label class="component-property-drawer__switch">
-            <span>只读展示</span>
-            <UiSwitch v-model:checked="propertyDraft.readOnly" />
-          </label>
-        </template>
-        <p>保存草稿后属性才会持久化；发布时由模板 schema 校验后写入运行态。</p>
-      </div>
-      <div v-else-if="selectedGroup" class="component-property-drawer">
-        <label>
-          <span>分组标题</span>
-          <UiInput v-model:value="groupTitleDraft" placeholder="例如：基本信息" />
-        </label>
-        <label>
-          <span>辅助说明</span>
-          <UiInput v-model:value="groupSubtitleDraft" placeholder="可选，例如：填写考试基础资料" />
-        </label>
-        <p>Group 是标准表单的语义分段；仅已拖入的字段会在该分组中显示。</p>
-      </div>
-      <template #operation>
-        <UiButton @click="propertyDrawerOpen = false">取消</UiButton>
-        <UiButton
-          type="primary"
-          :disabled="isMutating || (!selectedQuickSearch && Boolean(propertyValidationMessage))"
-          @click="applyPropertyDraft"
+    </ManagementPanelHeader>
+    <ManagementWorkspace class="page-composition-workspace__body" layout="composer" :explorer-count="2">
+      <ManagementExplorerColumn collapsible title="可用字段">
+        <RecordExplorerPanel
+          v-model:search-keyword="fieldKeyword"
+          title="可用字段"
+          search-placeholder="搜索字段"
+          :refresh-disabled="isMutating"
+          @refresh="loadMetadataTree"
         >
-          应用到草稿
-        </UiButton>
-      </template>
-    </RecordDetailDrawer>
-  </ManagementWorkspace>
+          <UiSpin v-if="loading && !relation" tip="加载主实体字段" />
+          <UiEmpty
+            v-else-if="!relation"
+            description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体"
+          />
+          <div v-else class="metadata-tree" data-testid="page-composer-metadata-tree">
+            <UiTree
+              v-model:expanded-keys="metadataExpandedKeys"
+              :nodes="metadataTreeNodes"
+              :selected-key="selectedMetadataTreeKey"
+              :draggable="!isMutating"
+              :drag-operations="['copy']"
+              :drag-payload-type="PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE"
+              :drag-payload-of="metadataDragPayload"
+              :can-drag="canDragMetadataNode"
+              :allow-drop="() => false"
+              @select="selectMetadataNode"
+              @action="addMetadataNode"
+            />
+            <UiEmpty v-if="!visibleFields.length" description="暂无可编排字段" />
+          </div>
+        </RecordExplorerPanel>
+      </ManagementExplorerColumn>
+
+      <ManagementExplorerColumn collapsible title="页面结构">
+        <RecordExplorerPanel
+          title="页面结构"
+          :searchable="false"
+          :refresh-disabled="isMutating"
+          @refresh="reloadComposition"
+        >
+          <div class="ui-tree" data-testid="page-composer-ui-tree">
+            <PageCompositionTree
+              :list-fields="state.listFields.value"
+              :form-fields="state.formFields.value"
+              :form-groups="state.formGroups.value"
+              :form-relations="state.formRelations.value"
+              :selected-key="selectedUiTreeKey"
+              :disabled="isMutating"
+              @node-action="handleNodeAction"
+              @select="selectUiTreeKey"
+              @double-click="handleUiTreeDoubleClick"
+              @reorder-list-field="reorderListField"
+              @reorder-form-field="reorderFormField"
+              @move-form-field-to-group="moveFormFieldToGroup"
+              @move-group-field-to-form="moveGroupFieldToForm"
+              @reorder-group-field="reorderGroupField"
+              @move-group-field-to-group="moveGroupFieldToGroup"
+              @reorder-group="reorderGroup"
+              @reorder-relation-field="reorderRelationField"
+              @metadata-drop="handleCompositionMetadataDrop"
+            />
+          </div>
+        </RecordExplorerPanel>
+      </ManagementExplorerColumn>
+
+      <RecordDetailPanel title="预览">
+        <div v-if="propertyIssues.length" role="alert" class="page-composition-source-error">
+          列宽格式有误，请修正后保存：
+          <UiButton
+            v-for="field in propertyIssues"
+            :key="field.id"
+            size="small"
+            @click="handleNodeAction('configure', `ui:field:list:${field.id}`)"
+          >
+            {{ fieldDisplayTitle(field) }}
+          </UiButton>
+        </div>
+        <div v-if="draftConflict" class="page-composition-conflict" role="alert">
+          <span>草稿已被其他会话更新，本地修改已保留。请加载最新草稿后继续编辑。</span>
+          <UiButton :disabled="isMutating" @click="reloadComposition">加载最新草稿</UiButton>
+        </div>
+        <p
+          v-if="unavailableSources.length || draftParseError"
+          class="page-composition-source-error"
+          role="alert"
+        >
+          {{
+            draftParseError ??
+            `来源失效：${[...new Set(unavailableSources)].join('、')}。配置已保留，请在编排树中移除标记节点并重新选择；修正后才能发布。`
+          }}
+        </p>
+        <div v-if="revision && hasUnsavedChanges" class="page-composition-status" aria-live="polite">
+          未保存更改
+        </div>
+        <p v-if="hasUnsavedChanges" class="page-composition-change-summary">
+          本次更改：{{ unsavedChangeSummary.join(' · ') }}
+        </p>
+        <UiRadioGroup
+          :value="state.previewMode.value === 'query' ? 'list' : state.previewMode.value"
+          :options="previewModes"
+          :disabled="isMutating"
+          @update:value="selectPreviewMode"
+        />
+        <div
+          v-if="previewError"
+          class="page-composition-preview-status page-composition-preview-status--error"
+          aria-live="polite"
+        >
+          <span>草稿解析失败：{{ previewError }}</span>
+          <span v-if="previewDescriptor">当前展示的是上一次成功解析结果，不代表当前草稿。</span>
+          <UiButton size="small" :disabled="previewLoading" @click="retryPreviewDescriptor">
+            重新解析
+          </UiButton>
+        </div>
+        <PageCompositionDescriptorPreview
+          v-if="previewDescriptor"
+          :descriptor="previewDescriptor"
+          :module-alias="props.moduleAlias"
+          :mode="state.previewMode.value === 'query' ? 'list' : state.previewMode.value"
+          :selected-field-name="selectedPreviewFieldName"
+          :accept-external-drop="true"
+          :placement-disabled="isMutating || previewLoading || Boolean(previewError)"
+          :structure="previewStructure"
+          @select-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName)"
+          @configure-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName, true)"
+          @placement-drop="handlePreviewPlacement"
+        />
+        <UiEmpty
+          v-else-if="revision && !previewLoading && !previewError"
+          class="page-composition-preview-empty"
+          :description="
+            previewError
+              ? '当前草稿未能解析；可重新解析，或修正页面结构后自动重试。'
+              : '正在等待草稿解析结果。'
+          "
+        />
+        <UiEmpty
+          v-else-if="!revision"
+          class="page-composition-preview-empty"
+          description="初始化页面草稿后，即可查看页面预览。"
+        />
+      </RecordDetailPanel>
+
+      <RecordDetailDrawer
+        :open="propertyDrawerOpen"
+        render-mode="inline"
+        :title="propertyDrawerTitle"
+        subtitle="修改即时更新草稿；保存后保留，发布后生效。"
+        :width="420"
+        @close="propertyDrawerOpen = false"
+      >
+        <div v-if="selectedQuickSearch" class="component-property-drawer">
+          <label>
+            <span>搜索占位提示</span>
+            <UiInput
+              :value="quickSearchPlaceholderDraft"
+              :disabled="isMutating"
+              placeholder="例如：搜索名称、编码或 ID"
+              @update:value="updateQuickSearch"
+            />
+          </label>
+        </div>
+        <div v-else-if="selectedField" class="component-property-drawer">
+          <label>
+            <span>展示标题</span>
+            <UiInput
+              :value="propertyDraft.label"
+              :disabled="isMutating"
+              :placeholder="selectedField.title"
+              @update:value="updateFieldProperty('label', $event)"
+            />
+          </label>
+          <template v-if="state.selectedNode.value?.slot === 'list'">
+            <label>
+              <span>列宽</span>
+              <UiInput
+                :value="propertyDraft.width"
+                :disabled="isMutating"
+                placeholder="例如 160px 或 25%"
+                @update:value="updateFieldProperty('width', $event)"
+              />
+              <small v-if="propertyValidationMessage" class="component-property-drawer__error">
+                {{ propertyValidationMessage }}
+              </small>
+            </label>
+            <label>
+              <span>对齐</span>
+              <UiSelect
+                :value="propertyDraft.align"
+                :disabled="isMutating"
+                :options="[
+                  { label: '左对齐', value: 'left' },
+                  { label: '居中', value: 'center' },
+                  { label: '右对齐', value: 'right' },
+                ]"
+                placeholder="遵循平台默认"
+                @update:value="
+                  updateFieldProperty(
+                    'align',
+                    $event === 'left' || $event === 'center' || $event === 'right' ? $event : undefined,
+                  )
+                "
+              />
+            </label>
+          </template>
+          <template v-else>
+            <label>
+              <span>表单列宽度</span>
+              <UiSelect
+                :value="propertyDraft.columnSpan"
+                :disabled="isMutating"
+                :options="[
+                  { label: '半行（1 列）', value: 1 },
+                  { label: '整行（2 列）', value: 2 },
+                ]"
+                placeholder="遵循平台默认"
+                @update:value="
+                  updateFieldProperty('columnSpan', $event === 1 || $event === 2 ? $event : undefined)
+                "
+              />
+            </label>
+            <label class="component-property-drawer__switch">
+              <span>只读展示</span>
+              <UiSwitch
+                :checked="propertyDraft.readOnly"
+                :disabled="isMutating"
+                @update:checked="updateFieldProperty('readOnly', $event)"
+              />
+            </label>
+          </template>
+        </div>
+        <div v-else-if="selectedGroup" class="component-property-drawer">
+          <label>
+            <span>分组标题</span>
+            <UiInput
+              :value="groupTitleDraft"
+              :disabled="isMutating"
+              placeholder="例如：基本信息"
+              @update:value="updateGroup($event, groupSubtitleDraft)"
+            />
+            <small v-if="!groupTitleDraft.trim()" class="component-property-drawer__error"
+              >标题不能为空，当前保留原名称。</small
+            >
+          </label>
+          <label>
+            <span>辅助说明</span>
+            <UiInput
+              :value="groupSubtitleDraft"
+              :disabled="isMutating"
+              placeholder="可选，例如：填写考试基础资料"
+              @update:value="updateGroup(groupTitleDraft, $event)"
+            />
+          </label>
+        </div>
+      </RecordDetailDrawer>
+    </ManagementWorkspace>
+  </section>
 </template>
 
 <style scoped>
@@ -1836,9 +1739,20 @@ function applyPropertyDraft() {
   color: var(--muyun-danger-base);
 }
 .page-composition-workspace {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   height: 100%;
+  gap: 10px;
 }
+.page-composition-workspace__body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.page-composition-workspace > :deep(.management-panel-header) {
+  flex: 0 0 auto;
+}
+
 .metadata-tree,
 .ui-tree {
   display: flex;
@@ -1846,26 +1760,6 @@ function applyPropertyDraft() {
   gap: 4px;
   min-height: 0;
   overflow: auto;
-}
-.metadata-tree__quick-add,
-.metadata-tree__selection,
-.metadata-tree__selection-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.metadata-tree__quick-add,
-.metadata-tree__selection {
-  flex: 0 0 auto;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.metadata-tree__selection {
-  justify-content: space-between;
-  padding-top: 8px;
-  border-top: 1px solid var(--muyun-border-subtle);
 }
 .metadata-tree > :deep(.ui-tree) {
   flex: 1 1 auto;
@@ -1876,32 +1770,18 @@ function applyPropertyDraft() {
   min-height: 0;
   overflow: auto;
 }
-.ui-tree__contextbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 112px;
-  grid-template-rows: auto minmax(0, 1fr);
-  align-items: start;
-  flex: 0 0 auto;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
+/* Keep node names legible beside stable inline action slots in the compact composer. */
+.metadata-tree :deep(.ant-tree-indent-unit),
+.ui-tree :deep(.ant-tree-indent-unit) {
+  width: 16px;
 }
-.ui-tree__contextbar > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.metadata-tree :deep(.ui-record-explorer-item-title),
+.ui-tree :deep(.ui-record-explorer-item-title) {
+  flex-shrink: 0;
 }
-.ui-tree__operations {
-  overflow-y: auto;
-  max-height: 100%;
-  align-content: start;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
+.metadata-tree :deep(.ui-record-explorer-item-secondary),
+.ui-tree :deep(.ui-record-explorer-item-secondary) {
+  flex-shrink: 4;
 }
 .page-composition-actions {
   display: flex;

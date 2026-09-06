@@ -7,13 +7,14 @@ export const treeGesture = defineBrowserCommand(
     target: string,
     fraction: number = 0.5,
     finish: string = 'drop',
+    horizontalFraction: number = 0.5,
   ) => {
     const from = await iframe.locator(source).boundingBox();
     const to = await iframe.locator(target).boundingBox();
     if (!from || !to) throw new Error('拖拽节点不可见');
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
     await page.mouse.down();
-    await page.mouse.move(to.x + to.width / 2, to.y + to.height * fraction, { steps: 8 });
+    await page.mouse.move(to.x + to.width * horizontalFraction, to.y + to.height * fraction, { steps: 8 });
     if (finish === 'escape') await page.keyboard.press('Escape');
     if (finish !== 'hold') await page.mouse.up();
   },
@@ -27,24 +28,34 @@ export const treeReducedMotion = defineBrowserCommand(async ({ page }, reduce: b
 });
 
 export const treeScrollGesture = defineBrowserCommand(
-  async ({ page, iframe }, source: string, container: string) => {
+  async (
+    { page, iframe },
+    source: string,
+    container: string,
+    edge: 'bottom' | 'left' | 'right' = 'bottom',
+  ) => {
     const from = await iframe.locator(source).boundingBox();
     const box = await iframe.locator(container).boundingBox();
     if (!from || !box) throw new Error('滚动目标不可见');
     await page.mouse.move(from.x + 20, from.y + from.height / 2);
     await page.mouse.down();
-    await page.mouse.move(box.x + 40, box.y + box.height - 2, { steps: 8 });
+    await page.mouse.move(
+      edge === 'bottom' ? box.x + 40 : edge === 'left' ? box.x + 2 : box.x + box.width - 2,
+      edge === 'bottom' ? box.y + box.height - 2 : box.y + 20,
+      { steps: 8 },
+    );
   },
 );
 
 declare module 'vitest/browser' {
   interface BrowserCommands {
-    treeScrollGesture(source: string, container: string): Promise<void>;
+    treeScrollGesture(source: string, container: string, edge?: 'bottom' | 'left' | 'right'): Promise<void>;
     treeGesture(
       source: string,
       target: string,
       fraction?: number,
       finish?: 'drop' | 'escape' | 'hold',
+      horizontalFraction?: number,
     ): Promise<void>;
     treeRelease(): Promise<void>;
     treeReducedMotion(reduce: boolean): Promise<void>;
