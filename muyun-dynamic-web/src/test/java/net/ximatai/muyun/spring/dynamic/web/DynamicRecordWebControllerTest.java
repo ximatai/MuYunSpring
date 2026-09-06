@@ -1957,6 +1957,72 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldReadAssociationWithoutTargetPageButRequirePlanForPageQueryInputs() throws Exception {
+        String targetModule = "sales.line";
+        DynamicAssociationViewDescriptor association = new DynamicAssociationViewDescriptor(
+                "lines", ENTITY, targetModule, "line",
+                net.ximatai.muyun.spring.dynamic.metadata.AssociationViewDisplayMode.INLINE_LIST,
+                "lines", null, net.ximatai.muyun.spring.dynamic.metadata.EntityViewType.LIST, true);
+        // The default fixture installs only the source module's plan, never sales.line.
+        when(service.associationView(MODULE, ENTITY, "lines")).thenReturn(association);
+        when(service.entity(targetModule, "line")).thenReturn(mock(DynamicEntityOperations.class));
+        Criteria targetCriteria = Criteria.of().like("summary", "Line");
+        when(service.queryCriteria(eq(targetModule), eq("line"), any())).thenReturn(targetCriteria);
+        when(service.associationViewPage(eq(MODULE), eq(ENTITY), eq("contract-1"), eq("lines"),
+                any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(), 0, PageRequest.of(1, 20)));
+        when(service.diagnoseAssociationView(eq(MODULE), eq(ENTITY), eq("contract-1"), eq("lines"),
+                any(Criteria.class))).thenReturn(new DynamicAssociationViewDiagnosis(association,
+                Criteria.of(), Criteria.of(), Criteria.of(), 0, DynamicAssociationViewDiagnosisStatus.OK, "matched"));
+
+        List<String> entityRequests = java.util.Arrays.asList(null, "{}",
+                """
+                {"conditions":[{"fieldName":"summary","operator":"LIKE","values":["Line"]}]}
+                """,
+                """
+                {"criteria":{"operator":"AND","conditions":[{"fieldName":"summary","operator":"LIKE","values":["Line"]}]}}
+                """,
+                """
+                {"queryForm":{"summary":"", "unused":[]}}
+                """);
+        for (String endpoint : List.of("query", "diagnose")) {
+            for (String body : entityRequests) {
+                var request = post("/{moduleAlias}/view/{id}/associations/{viewCode}/" + endpoint,
+                        MODULE, "contract-1", "lines");
+                if (body != null) request.contentType("application/json").content(body);
+                mvc.perform(request).andExpect(status().isOk());
+            }
+            for (String body : List.of(
+                    "{\"uiConfigId\":\"target-ui\"}",
+                    "{\"queryTemplateId\":\"target-template\"}",
+                    "{\"queryForm\":{\"summary\":\"Line\"}}",
+                    "{\"quickSearch\":\"Line\"}")) {
+                mvc.perform(post("/{moduleAlias}/view/{id}/associations/{viewCode}/" + endpoint,
+                                MODULE, "contract-1", "lines").contentType("application/json").content(body))
+                        .andExpect(status().isConflict())
+                        .andExpect(jsonPath("$.code").value(PlatformErrorCodes.CONFIG_MISSING))
+                        .andExpect(jsonPath("$.scope.moduleAlias").value(targetModule));
+            }
+        }
+        ArgumentCaptor<Criteria> queryCriteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(service, org.mockito.Mockito.times(5)).associationViewPage(eq(MODULE), eq(ENTITY),
+                eq("contract-1"), eq("lines"), queryCriteria.capture(), any(PageRequest.class), any(Sort[].class));
+        ArgumentCaptor<Criteria> diagnosisCriteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(service, org.mockito.Mockito.times(5)).diagnoseAssociationView(eq(MODULE), eq(ENTITY),
+                eq("contract-1"), eq("lines"), diagnosisCriteria.capture());
+        for (List<Criteria> captured : List.of(queryCriteria.getAllValues(), diagnosisCriteria.getAllValues())) {
+            assertThat(captured.get(0).isEmpty()).isTrue();
+            assertThat(captured.get(1).isEmpty()).isTrue();
+            assertThat(captured.get(2)).isSameAs(targetCriteria);
+            assertThat(captured.get(3)).usingRecursiveComparison()
+                    .isEqualTo(Criteria.of().andGroup(targetCriteria.getRoot()));
+            assertThat(captured.get(4).isEmpty()).isTrue();
+        }
+        verify(service, org.mockito.Mockito.times(4)).queryCriteria(eq(targetModule), eq("line"), any());
+        verify(mainEntity, never()).queryCriteria(any());
+    }
+
+    @Test
     void shouldCompileAssociationFormAndTemplateWithTargetModuleAndEntity() throws Exception {
         String targetModule = "sales.line";
         var targetUi = ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder(targetModule).build(),

@@ -1015,15 +1015,23 @@ public class DynamicRecordWebController implements
     }
 
     private Criteria targetQueryCriteria(String moduleAlias, String entityAlias, WebQueryRequest request) {
-        ModuleExecutionPlan plan = requireExecutionPlan(moduleAlias);
-        Criteria templateCriteria = plannedTemplateCriteria(plan, request,
-                conditions -> recordService.queryCriteria(moduleAlias, entityAlias, conditions));
         Criteria manualCriteria = request == null || request.conditions().isEmpty()
                 ? Criteria.of()
                 : criteria(moduleAlias, entityAlias, request.conditions());
         Criteria treeCriteria = request == null || request.criteria() == null
                 ? Criteria.of()
                 : criteria(moduleAlias, entityAlias, request.criteria());
+        // Entity-level association reads do not require an independent target management page.
+        // Only page-owned query inputs need the target's published execution facts.
+        if (request == null || !hasText(request.uiConfigId()) && !hasText(request.queryTemplateId())
+                && !hasText(request.quickSearch()) && request.quickSearchFields().isEmpty()
+                && request.queryForm().values().stream().allMatch(DynamicWebQueryFormSupport::isEmptyValue)) {
+            return andCriteria(manualCriteria, treeCriteria);
+        }
+        ModuleExecutionPlan plan = requireExecutionPlan(moduleAlias);
+        if (hasText(request.uiConfigId())) requirePlanListUiConfig(plan, request.uiConfigId());
+        Criteria templateCriteria = plannedTemplateCriteria(plan, request,
+                conditions -> recordService.queryCriteria(moduleAlias, entityAlias, conditions));
         Criteria queryFormCriteria = plannedQueryFormCriteria(request, plan.queryFormFields(),
                 conditions -> recordService.queryCriteria(moduleAlias, entityAlias, conditions));
         Criteria quickCriteria = plannedQuickSearchCriteria(request, plan.querySchema());
